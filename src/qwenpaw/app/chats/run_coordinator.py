@@ -151,8 +151,32 @@ class ChatRunCoordinator:
     ) -> ChatInputSubmission:
         """Atomically start or steer the Chat's current Agent run."""
         workspace.task_tracker.input_context(chat.id).register_execution(
-            request.client_message_id, request.text(),
+            request.client_message_id,
+            request.text(),
         )
+        context = workspace.task_tracker.input_context(chat.id)
+        context.set_admission(request.client_message_id, "preparing")
+        try:
+            submission = await cls._submit_registered(workspace, chat, request)
+        except asyncio.CancelledError:
+            context.set_admission(request.client_message_id, "cancelled")
+            raise
+        except OverflowError:
+            context.set_admission(request.client_message_id, "rejected")
+            raise
+        except Exception:
+            context.set_admission(request.client_message_id, "failed")
+            raise
+        context.set_admission(request.client_message_id, "admitted")
+        return submission
+
+    @classmethod
+    async def _submit_registered(
+        cls,
+        workspace: Any,
+        chat: ChatSpec,
+        request: ChatInputRequest,
+    ) -> ChatInputSubmission:
         received_at = datetime.now(timezone.utc).isoformat()
         console_channel = await workspace.channel_manager.get_channel(
             "console"
@@ -167,6 +191,8 @@ class ChatRunCoordinator:
         metadata[TIMELINE_ORDER_METADATA_KEY] = timeline_order
         request = replace(request, message_metadata=metadata)
         payload = await cls._console_payload(workspace, chat, request)
+        # Do not recreate a background owner after deletion during preparation.
+        workspace.task_tracker.input_context(chat.id)
         from .background_results import ChatBackgroundResults
 
         results = workspace.task_tracker.background_results.get(chat.id)

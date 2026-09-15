@@ -312,8 +312,10 @@ class QwenPawAgent(CodingModeMixin, Agent):
                 )
             if item.request_context:
                 public_context = {
-                    key: value for key, value in item.request_context.items()
-                    if key not in {
+                    key: value
+                    for key, value in item.request_context.items()
+                    if key
+                    not in {
                         CHAT_CONVERSATION_CONTEXT_KEY,
                         CHAT_INPUT_TARGET_KEY,
                     }
@@ -334,7 +336,8 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     CHAT_CONVERSATION_CONTEXT_KEY, ""
                 ),
                 input_target=(item.request_context or {}).get(
-                    CHAT_INPUT_TARGET_KEY, "",
+                    CHAT_INPUT_TARGET_KEY,
+                    "",
                 ),
             )
             for message in messages:
@@ -350,7 +353,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         return tuple(input_ids)
 
     def accept_background_tool_result(self, work_id: str) -> None:
-        """Join polling and push acknowledgement without a second observation."""
+        """Join polling and push acknowledgement without re-observing."""
         results = self._request_context.get("_background_results")
         if results is None or results.is_cancelled(work_id):
             return
@@ -366,7 +369,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def observe_background_result(
         self, item: InternalResultInput
     ) -> bool:
-        """Idempotent late observation, independent of the tool's old receipt."""
+        """Observe a late result independently of the tool's old receipt."""
         results = self._request_context.get("_background_results")
         if results is None or results.is_cancelled(item.work_id):
             return False
@@ -393,8 +396,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
             message.content = [
                 HintBlock(
                     hint=(
-                        "This is a result of the original request, not a new user request. "
-                        "Report the result to the user; do not repeat completed work."
+                        "This is a result of the original request, not a new "
+                        "user request. Report the result to the user; do not "
+                        "repeat completed work."
                     )
                 ),
                 *message.content,
@@ -977,9 +981,46 @@ class QwenPawAgent(CodingModeMixin, Agent):
         )
 
     async def _prepare_model_input(self) -> dict[str, Any]:
-        """Freeze local images before they enter a provider request."""
+        """Prepare one current view; dynamic input facts are not history."""
+        from ..runtime.input_context import INPUT_CONTEXT_INSTRUCTION
+
         await freeze_local_images_async(self.state.context)
-        return await super()._prepare_model_input()
+        prepared = await super()._prepare_model_input()
+        messages = []
+        for message in prepared["messages"]:
+            content = [
+                block
+                for block in message.content
+                if not (
+                    block.type == "hint"
+                    and block.source == "chat_input_context"
+                )
+            ]
+            if content:
+                messages.append(
+                    message
+                    if len(content) == len(message.content)
+                    else message.model_copy(update={"content": content})
+                )
+        mailbox = self._run_input_mailbox
+        owner = mailbox.input_context if mailbox is not None else None
+        cycle = getattr(self, "_reply_cycle_context", None)
+        if owner is not None and cycle is not None:
+            snapshot = owner.capture(cycle.snapshot.responds_to_input_ids)
+            if snapshot:
+                messages.append(
+                    Msg(
+                        name="chat_input_context",
+                        role="assistant",
+                        content=[
+                            HintBlock(
+                                source="chat_input_context",
+                                hint=INPUT_CONTEXT_INSTRUCTION + snapshot,
+                            ),
+                        ],
+                    ),
+                )
+        return {**prepared, "messages": messages}
 
     @staticmethod
     def _is_context_overflow_error(exc: Exception) -> bool:
@@ -1297,6 +1338,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
             if reply_cycle is not None:
                 await reply_cycle.start_occurrence()
             occurrence_started = True
+
         if context_manager is not None and hasattr(
             context_manager,
             "model_input_tool_result_ids",
@@ -1341,7 +1383,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
                     )
 
         try:
-            self._inject_input_context()
             async for evt in super()._reasoning(tool_choice=tool_choice):
                 await start_occurrence_for(evt)
                 acknowledge_seen_inputs(evt)
@@ -1402,7 +1443,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
 
             try:
                 deferred_text_events.clear()
-                self._inject_input_context()
                 async for evt in super()._reasoning(
                     tool_choice=tool_choice,
                 ):
@@ -1545,11 +1585,15 @@ class QwenPawAgent(CodingModeMixin, Agent):
             metadata["qwenpaw_actual_model"] = dict(sink["actual_model"])
 
     def _has_public_reply(self, message: Msg) -> bool:
-        if getattr(message, "structured_output", None) is not None or getattr(
-            getattr(self.state, "reply_context", None),
-            "structured_schema",
-            None,
-        ) is not None:
+        if (
+            getattr(message, "structured_output", None) is not None
+            or getattr(
+                getattr(self.state, "reply_context", None),
+                "structured_schema",
+                None,
+            )
+            is not None
+        ):
             return True
         return any(
             isinstance(block, DataBlock)
@@ -1646,36 +1690,6 @@ class QwenPawAgent(CodingModeMixin, Agent):
     def _get_tool_coordinator(self) -> Any:
         """Return the ToolCoordinator from request_context, or None."""
         return (self._request_context or {}).get("tool_coordinator")
-
-    def _inject_input_context(self) -> None:
-        """Read committed updates at the model boundary, not at admission."""
-        from ..runtime.input_context import INPUT_CONTEXT_INSTRUCTION
-
-        mailbox = self._run_input_mailbox
-        owner = mailbox.input_context if mailbox is not None else None
-        cycle = getattr(self, "_reply_cycle_context", None)
-        if owner is None or cycle is None:
-            return
-        snapshot = owner.capture(cycle.snapshot.responds_to_input_ids)
-        if not snapshot:
-            return
-        if snapshot == getattr(self, "_last_input_context", "") and any(
-            message.id == getattr(self, "_input_context_message_id", None)
-            for message in self.state.context
-        ):
-            return
-        message = Msg(
-            name="chat_input_context", role="assistant",
-            content=[HintBlock(
-                source="chat_input_context",
-                hint=INPUT_CONTEXT_INSTRUCTION + snapshot,
-            )],
-        )
-        self.state.context.append(message)
-        if self._context_manager is not None:
-            self._context_manager.on_save(self, message.content)
-        self._last_input_context = snapshot
-        self._input_context_message_id = message.id
 
     async def _inject_pending_hints(self) -> None:
         """Pop background-tool hints and append them to agent context."""

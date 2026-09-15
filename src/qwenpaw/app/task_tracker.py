@@ -215,11 +215,26 @@ class TaskTracker:
         self.reply_views: dict[str, Any] = {}
         self.conversation_views: dict[str, Any] = {}
         self._input_contexts: dict[str, ChatInputContext] = {}
+        self._retired_chats: set[str] = set()
         self._start_listeners: dict[str, dict[str, Callable]] = {}
 
     def input_context(self, run_key: str) -> ChatInputContext:
-        """Return the Chat's input source, also shared across successive runs."""
+        """Return the Chat input source shared across successive runs."""
+        if run_key in self._retired_chats:
+            raise RuntimeError("This Chat has been released")
         return self._input_contexts.setdefault(run_key, ChatInputContext())
+
+    def release_input_context(self, run_key: str) -> None:
+        self._retired_chats.add(run_key)
+        context = self._input_contexts.pop(run_key, None)
+        if context is not None:
+            context.close()
+
+    def close_input_contexts(self) -> None:
+        self._retired_chats.update(self._input_contexts)
+        for context in self._input_contexts.values():
+            context.close()
+        self._input_contexts.clear()
 
     def subscribe_starts(
         self, run_key: str, identity: str, callback: Callable
@@ -556,6 +571,9 @@ class TaskTracker:
         while True:
             finishing_task: asyncio.Future | None = None
             async with self._lock:
+                # Preparation can outlive Chat deletion, including while
+                # waiting for the preceding run to finish.
+                self.input_context(run_key)
                 state = self._runs.get(run_key)
                 if state is not None and not state.task.done():
                     if not state.mailbox.accepting:
@@ -772,11 +790,6 @@ class TaskTracker:
 
         def publish_input_state(event: InputStateEvent) -> None:
             # Synchronous on the producer's event loop; no yielding.
-            if results is None:
-                run.buffer.append(event)
-                for subscriber in run.queues:
-                    subscriber.put_nowait(event)
-                return
             for input_id in event.input_ids:
                 previous = resumed_from.get(input_id, "")
                 owned_event = replace(
@@ -789,6 +802,7 @@ class TaskTracker:
                     results.input_runs[input_id] = run_id
                     if event.status == "cancelled":
                         results.cancel_inputs((input_id,))
+                run.mailbox.input_context.observe_state(owned_event)
                 run.buffer.append(owned_event)
                 for subscriber in run.queues:
                     subscriber.put_nowait(owned_event)
@@ -959,6 +973,7 @@ class TaskTracker:
                     exc_info=True,
                 )
         finish_time: datetime | None = None
+        final_outcome: RunOutcome | None = None
         async with self.lock:
             if run.finish_time is not None:
                 return
@@ -977,22 +992,12 @@ class TaskTracker:
             run.finish_time = datetime.now(timezone.utc)
             finish_time = run.finish_time
             self._global_last_finish_at = run.finish_time
-            outcome = RunOutcome(
+            final_outcome = RunOutcome(
                 outcome.run_id,
                 outcome.status,
                 outcome.error,
                 run.persistence.status,
             )
-            outcomes = self._outcomes.setdefault(run_key, deque(maxlen=64))
-            outcomes.append(outcome)
-            self._outcomes.move_to_end(run_key)
-            while len(self._outcomes) > 256:
-                self._outcomes.popitem(last=False)
-            for queue in run.queues:
-                queue.put_nowait(outcome)
-                queue.put_nowait(_SENTINEL)
-            if self._runs.get(run_key) is run:
-                self._runs.pop(run_key)
 
         if run.on_finished is not None and finish_time is not None:
             try:
@@ -1002,6 +1007,20 @@ class TaskTracker:
                     "run completion callback failed run_key=%s",
                     run_key,
                 )
+
+        if final_outcome is None:
+            return
+        async with self.lock:
+            outcomes = self._outcomes.setdefault(run_key, deque(maxlen=64))
+            outcomes.append(final_outcome)
+            self._outcomes.move_to_end(run_key)
+            while len(self._outcomes) > 256:
+                self._outcomes.popitem(last=False)
+            for queue in run.queues:
+                queue.put_nowait(final_outcome)
+                queue.put_nowait(_SENTINEL)
+            if self._runs.get(run_key) is run:
+                self._runs.pop(run_key)
 
     async def stream_from_queue(
         self,

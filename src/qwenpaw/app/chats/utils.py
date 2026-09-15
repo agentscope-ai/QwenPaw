@@ -503,7 +503,10 @@ def strip_injected_skill_block(text: str, role: str) -> str:
 
 
 def clean_display_text(text: str, role: str) -> str:
-    """Hide assistant headlines and user skill expansions in their own roles."""
+    """Hide assistant headlines and user skill expansions.
+
+    Each cleanup is limited to the role that owns the injected content.
+    """
     if role == "assistant":
         text = strip_headline(text) or ""
     return strip_injected_skill_block(text, role)
@@ -625,7 +628,9 @@ def agentscope_msg_to_message(
             }.get(termination.get("status"))
             if text:
                 message = Message(
-                    id=f"{msg.id}:0", type=MessageType.MESSAGE, role=role,
+                    id=f"{msg.id}:0",
+                    type=MessageType.MESSAGE,
+                    role=role,
                 )
                 message.metadata = metadata
                 message.add_content(new_content=TextContent(text=text))
@@ -634,7 +639,9 @@ def agentscope_msg_to_message(
 
         if isinstance(msg.content, str):
             message = Message(
-                id=f"{msg.id}:0", type=MessageType.MESSAGE, role=role,
+                id=f"{msg.id}:0",
+                type=MessageType.MESSAGE,
+                role=role,
             )
             message.metadata = metadata
             text_content = TextContent(
@@ -652,7 +659,15 @@ def agentscope_msg_to_message(
         for block_index, block in enumerate(msg.content):
             # Normalize pydantic block models to dict so the rest of
             # this conversion (which uses .get) handles both shapes.
+            block_has_explicit_timestamp = isinstance(block, dict) and (
+                "created_at" in block
+            )
             if hasattr(block, "model_dump"):
+                block_has_explicit_timestamp = "created_at" in getattr(
+                    block,
+                    "model_fields_set",
+                    set(),
+                )
                 block = block.model_dump()
             if not isinstance(block, dict):
                 continue
@@ -671,7 +686,11 @@ def agentscope_msg_to_message(
                         **raw_block_metadata,
                     },
                 }
-            block_timestamp = block.get("created_at")
+            block_timestamp = (
+                block.get("created_at")
+                if block_has_explicit_timestamp
+                else None
+            )
             if block_timestamp:
                 block_metadata = {
                     **block_metadata,
@@ -681,7 +700,9 @@ def agentscope_msg_to_message(
                     ),
                 }
             btype = block.get("type", "text")
-            block_message_id = f"{msg.id}:{btype}:{block.get('id') or block_index}"
+            block_message_id = (
+                f"{msg.id}:{btype}:{block.get('id') or block_index}"
+            )
 
             # DataBlock (2.0): map type="data" to concrete media type
             if btype == "data":

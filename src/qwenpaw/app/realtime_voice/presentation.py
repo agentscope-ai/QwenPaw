@@ -13,9 +13,7 @@ from ...providers.realtime_voice import ProviderResponseResult
 
 @dataclass(frozen=True)
 class PresentationIntent:
-    kind: Literal[
-        "status", "converse", "clarify", "receipt", "rejected", "update"
-    ]
+    kind: Literal["converse", "clarify", "receipt", "rejected", "update"]
     turn_id: str = ""
     user_text: str = ""
     task_ref: str = ""
@@ -24,7 +22,6 @@ class PresentationIntent:
     changed_ids: tuple[str, ...] = ()
     timeline_order: int = 0
     history_user_text: str = ""
-    receipt_is_followup: bool = False
 
     @property
     def cost(self) -> int:

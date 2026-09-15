@@ -14,12 +14,12 @@ async def test_bounded_coalescing_and_direct_fifo():
     queue = PresentationQueue(3)
     for _ in range(100):
         assert queue.put(PresentationIntent("update"))
-    first = PresentationIntent("status", turn_id="first")
+    first = PresentationIntent("converse", turn_id="first")
     second = PresentationIntent("converse", turn_id="second")
     assert queue.put(first)
     assert queue.put(second)
     refused = asyncio.get_running_loop().create_future()
-    assert not queue.put(PresentationIntent("status", completion=refused))
+    assert not queue.put(PresentationIntent("converse", completion=refused))
     assert refused.cancelled()
     assert await queue.get() is first
     assert await queue.get() is second
@@ -82,7 +82,7 @@ async def test_close_settles_every_pending_question():
 
 
 @pytest.mark.asyncio
-async def test_coalescing_preserves_changed_identities_and_counts_them_against_capacity():
+async def test_coalescing_preserves_changed_identities_and_capacity():
     queue = PresentationQueue(2)
     assert queue.put(PresentationIntent("update", changed_ids=("a",)))
     assert queue.put(PresentationIntent("update", changed_ids=("a", "b")))

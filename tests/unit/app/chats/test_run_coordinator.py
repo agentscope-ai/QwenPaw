@@ -63,10 +63,12 @@ def chat() -> ChatSpec:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("constraint_action", ["STATUS", "FOLLOW_UP"])
-async def test_later_constraint_is_visible_during_bridge_preparation(tmp_path, monkeypatch, constraint_action):
+@pytest.mark.parametrize("referenced", [False, True])
+async def test_later_constraint_is_visible_during_bridge_preparation(
+    tmp_path, monkeypatch, referenced
+):
     from qwenpaw.app.realtime_voice.task_bridge import VoiceTaskBridge
-    from qwenpaw.app.realtime_voice.contracts import DelegateVoiceAction, FollowUpVoiceAction, StatusVoiceAction
+    from qwenpaw.app.realtime_voice.contracts import HandoffVoiceAction
     from unittest.mock import AsyncMock
 
     channel = FakeConsoleChannel()
@@ -82,28 +84,47 @@ async def test_later_constraint_is_visible_during_bridge_preparation(tmp_path, m
             await release.wait()
         return await original_payload(workspace, chat_spec, request)
 
-    monkeypatch.setattr(ChatRunCoordinator, "_console_payload", delayed_payload)
+    monkeypatch.setattr(
+        ChatRunCoordinator, "_console_payload", delayed_payload
+    )
     try:
-        first = await bridge.enqueue_action(DelegateVoiceAction("Print 3002"), idempotency_key="s1")
+        first = await bridge.enqueue_action(
+            HandoffVoiceAction(), "Print 3002", idempotency_key="s1"
+        )
         receipt = await first.wait()
         await asyncio.wait_for(channel.started.wait(), 1)
         current = channel.payload["meta"]["request_context"]
         mailbox = current["_run_input_mailbox"]
-        second = await bridge.enqueue_action(FollowUpVoiceAction(receipt.task_ref, "Correction: 302"), idempotency_key="s2")
+        second = await bridge.enqueue_action(
+            HandoffVoiceAction(receipt.task_ref),
+            "Correction: 302",
+            idempotency_key="s2",
+        )
         await asyncio.wait_for(entered.wait(), 1)
-        action = (StatusVoiceAction(receipt.task_ref) if constraint_action == "STATUS"
-                  else FollowUpVoiceAction(receipt.task_ref, "Do not rerun"))
+        action = HandoffVoiceAction(receipt.task_ref if referenced else "")
         bridge.observe_input("s3", "Do not rerun", action)
         assert not second.completion.done()
         assert mailbox.drain_after_reply() == []
-        during_prepare = json.loads(mailbox.input_context.capture((receipt.task_id,)))
-        assert [r["text"] for r in during_prepare["inputs"]] == ["Print 3002", "Correction: 302", "Do not rerun"]
+        during_prepare = json.loads(
+            mailbox.input_context.capture((receipt.task_id,))
+        )
+        assert [r["text"] for r in during_prepare["inputs"]] == (
+            ["Print 3002", "Correction: 302", "Do not rerun"]
+            if referenced
+            else ["Print 3002", "Correction: 302"]
+        )
         assert during_prepare["inputs"][1]["kind"] == "related_input"
         release.set()
         await second.wait()
         correction = mailbox.drain_after_reply()[0]
-        after_admission = json.loads(mailbox.input_context.capture((correction.idempotency_key,)))
-        assert [r["text"] for r in after_admission["inputs"]] == ["Print 3002", "Correction: 302", "Do not rerun"]
+        after_admission = json.loads(
+            mailbox.input_context.capture((correction.idempotency_key,))
+        )
+        assert [r["text"] for r in after_admission["inputs"]] == (
+            ["Print 3002", "Correction: 302", "Do not rerun"]
+            if referenced
+            else ["Print 3002", "Correction: 302"]
+        )
         assert after_admission["inputs"][1]["kind"] == "active_input"
         assert mailbox.drain_after_reply() == []
     finally:
@@ -177,6 +198,105 @@ def project_resolution(monkeypatch, tmp_path):
         "qwenpaw.app.chats.run_coordinator.resolve_effective_project_dir",
         lambda *_args: (tmp_path, "workspace"),
     )
+
+
+@pytest.mark.asyncio
+async def test_shared_execution_facts_are_available_without_voice_observer(
+    tmp_path,
+):
+    channel = FakeConsoleChannel()
+    owner = workspace(tmp_path, channel)
+    context = owner.task_tracker.input_context(chat().id)
+    try:
+        first = await ChatRunCoordinator.submit(
+            owner,
+            chat(),
+            ChatInputRequest(("Run apple",), "apple", mode="queue"),
+        )
+        # Before yielding to the producer, only admission/queued is known.
+        assert context.state("apple").status == "queued"
+        await channel.started.wait()
+        second = await ChatRunCoordinator.submit(
+            owner,
+            chat(),
+            ChatInputRequest(("Run banana",), "banana", mode="queue"),
+        )
+        context.register(
+            "query",
+            "Only report both statuses; do not rerun",
+            context_only=True,
+        )
+        snapshot = json.loads(context.capture(("apple",)))
+        assert snapshot["input_states"][0]["input_status"] == "processing"
+        assert snapshot["readonly_requests"][0]["input_status"] == "queued"
+        assert (
+            snapshot["readonly_requests"][0]["run_id"]
+            == first.run_id
+            == second.run_id
+        )
+        cycle = channel.payload["meta"]["request_context"][
+            "_reply_cycle_context"
+        ]
+        assert cycle.snapshot.responds_to_input_ids == ("apple",)
+        mailbox = channel.payload["meta"]["request_context"][
+            "_run_input_mailbox"
+        ]
+        assert [
+            item.idempotency_key for item in mailbox.drain_after_reply()
+        ] == ["banana"]
+    finally:
+        await owner.task_tracker.request_stop(chat().id)
+        assert context.state("apple").status == "cancelled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("result", ["failed", "cancelled", "deleted"])
+async def test_preparation_failure_or_deletion_never_becomes_queued(
+    tmp_path, monkeypatch, result
+):
+    channel = FakeConsoleChannel()
+    owner = workspace(tmp_path, channel)
+    context = owner.task_tracker.input_context(chat().id)
+    context.register_execution("apple", "Run apple")
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed_payload(*_args):
+        entered.set()
+        await release.wait()
+        if result == "failed":
+            raise RuntimeError("Preparation failed")
+        return {"meta": {"request_context": {}}}
+
+    monkeypatch.setattr(
+        ChatRunCoordinator, "_console_payload", delayed_payload
+    )
+    pending = asyncio.create_task(
+        ChatRunCoordinator.submit(
+            owner, chat(), ChatInputRequest(("Run banana",), "banana")
+        )
+    )
+    await entered.wait()
+    before = json.loads(context.capture(("apple",)))["readonly_requests"][0]
+    assert before["admission_status"] == "preparing"
+    assert before["input_status"] is None
+    if result == "cancelled":
+        pending.cancel()
+    if result == "deleted":
+        owner.task_tracker.release_input_context(chat().id)
+    release.set()
+    with pytest.raises(
+        asyncio.CancelledError if result == "cancelled" else RuntimeError
+    ):
+        await pending
+    assert not channel.started.is_set()
+    assert context.state("banana") is None
+    assert not owner.task_tracker.background_results
+    if result == "deleted":
+        with pytest.raises(RuntimeError, match="released"):
+            owner.task_tracker.input_context(chat().id)
+        assert context.capture(("apple",)) == ""
+    else:
+        assert context.admission_status("banana") == result
 
 
 @pytest.mark.asyncio

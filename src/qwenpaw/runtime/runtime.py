@@ -352,7 +352,7 @@ class Runtime:
                 ),
                 ctx.error,
             )
-            proxy.data["mode_state"] = ctx.mode_state
+            proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
             await save_snapshot(ctx, proxy)
             logger.info(
                 "cancel-save: persisted interrupted turn (session=%s)",
@@ -374,7 +374,7 @@ class Runtime:
     def _record_request_termination(
         agent: Any, cycle: Any, outcome: str
     ) -> None:
-        """Put the scoped runtime fact in the same context the next run reads."""
+        """Put the runtime fact in the context read by the next run."""
         from agentscope.message import Msg, TextBlock
 
         input_ids = cycle.terminated_input_ids(outcome)
