@@ -155,6 +155,18 @@ export function EmbeddingModelCard() {
   };
 
   const testEmbedding = async () => {
+    try {
+      await form.validateFields([
+        [
+          "reme_light_memory_config",
+          "embedding_model_config",
+          "health_check_timeout",
+        ],
+      ]);
+    } catch {
+      return;
+    }
+
     const config = form.getFieldValue([
       "reme_light_memory_config",
       "embedding_model_config",
