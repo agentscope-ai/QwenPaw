@@ -7,6 +7,7 @@ Wraps all interactions on the Sessions page and exposes business-level methods.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Optional, List, Dict, Any
 from playwright.sync_api import Page, Locator, expect, TimeoutError
 
@@ -44,9 +45,43 @@ class SessionsPage(BasePage):
     FILTER_RESET_BTN = 'button:has-text("Reset"), button:has-text("重置")'
 
     # Session table
+    #
+    # antd Table renders a non-data row inside ``tbody`` for column measurement
+    # (``<tr aria-hidden="true" class="...-measure-row">``), plus an empty-state
+    # placeholder row. Counting bare ``tbody tr`` therefore over-counts by one,
+    # which is exactly the off-by-one seen in CI (the batch-delete case counted
+    # 11 rows while the fixture's own counter reported 10 for the same page).
+    # ``e2e/fixtures`` already excludes both; align this selector with it.
+    # (Upstream ``ConfigProvider`` sets ``prefixCls="qwenpaw"``, so the
+    # ``ant-`` variants are legacy fallbacks for older builds.)
     SESSION_TABLE = '.ant-table, .qwenpaw-table, table'
-    SESSION_ROW = '.ant-table-tbody tr, .qwenpaw-table-tbody tr, table tbody tr'
-    SESSION_TABLE_ROW = '.ant-table-tbody tr, .qwenpaw-table-tbody tr, table tbody tr'
+    _ROW_EXCLUDES = (
+        ":not([aria-hidden='true'])"
+        ":not(.qwenpaw-table-placeholder)"
+        ":not(.ant-table-placeholder)"
+        ":not(.qwenpaw-table-measure-row)"
+        ":not(.ant-table-measure-row)"
+    )
+    SESSION_ROW = (
+        '.qwenpaw-table-tbody tr' + _ROW_EXCLUDES + ', '
+        '.ant-table-tbody tr' + _ROW_EXCLUDES + ', '
+        'table tbody tr' + _ROW_EXCLUDES
+    )
+    SESSION_TABLE_ROW = SESSION_ROW
+    # Total count from the ``Active (N)`` tab label. Unlike ``SESSION_ROW`` this
+    # is not limited to the current page: the table is paginated at
+    # ``pageSize: 10`` (``console/src/pages/Control/Sessions/index.tsx``) while
+    # ``activeCount`` in ``useSessions.ts`` is the length of the full
+    # ``chatApi.listChats()`` result filtered client-side. So a page-size-capped
+    # row count stays at 10 after deleting 2 of 15 rows (the next page shifts
+    # up to fill the page) whereas the tab label drops to 13 — which is why
+    # "did the count decrease" assertions must read the tab, not the rows.
+    SESSION_ACTIVE_TAB = (
+        '.qwenpaw-tabs-tab:has-text("Active"), '
+        '.ant-tabs-tab:has-text("Active"), '
+        '.qwenpaw-tabs-tab:has-text("活跃"), '
+        '.ant-tabs-tab:has-text("活跃")'
+    )
     SESSION_ROW_SELECTED = '.ant-table-tbody tr.ant-table-row-selected, .qwenpaw-table-tbody tr.qwenpaw-table-row-selected'
 
     # Table columns
@@ -141,8 +176,42 @@ class SessionsPage(BasePage):
         return self.page.locator(self.SESSION_ROW).all()
 
     def get_session_count(self) -> int:
-        """Get the number of sessions."""
+        """Get the number of session rows **currently rendered on this page**.
+
+        Note: this counts rows in the table body, so it is capped by the table's
+        ``pageSize`` (10). For "did the total go down" assertions use
+        :meth:`get_total_session_count`, which reads the full server-side count
+        from the ``Active (N)`` tab label.
+        """
         return len(self.get_session_rows())
+
+    def get_total_session_count(self) -> Optional[int]:
+        """Total session count from the ``Active (N)`` tab label.
+
+        Parses the integer in parentheses out of the active tab's text. This is
+        the full (unpaginated) count — see the ``SESSION_ACTIVE_TAB`` comment for
+        why the row count cannot be used for that. Returns ``None`` when the tab
+        cannot be found or parsed, so callers can distinguish "0 sessions" from
+        "count unavailable" instead of silently treating a miss as zero.
+        """
+        tab = self.page.locator(self.SESSION_ACTIVE_TAB).first
+        try:
+            if tab.count() == 0:
+                logger.warning("Session count tab not found")
+                return None
+            text = (tab.inner_text() or "").strip()
+        except Exception as exc:
+            logger.warning(f"Could not read session count tab: {exc}")
+            return None
+
+        match = re.search(r"\((\d+)\)", text)
+        if not match:
+            logger.warning(f"Session count tab has no (N) counter: {text!r}")
+            return None
+
+        total = int(match.group(1))
+        logger.info(f"Session count tab reports {total} total sessions")
+        return total
 
     def find_session_row(self, session_id: str) -> Optional[Locator]:
         """

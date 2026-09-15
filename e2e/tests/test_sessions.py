@@ -494,8 +494,24 @@ class TestSessionBatchDelete:
         logger.info("Batch-delete button appeared")
 
         log_test_step("5. Record session count before deletion")
-        count_before = sessions_page.get_session_count()
-        logger.info(f"Session count before deletion: {count_before}")
+        # Read BOTH counting bases now, before the deletion destroys the
+        # "before" state. The row count alone cannot prove a deletion worked:
+        # the table is paginated at 10 rows per page
+        # (console/src/pages/Control/Sessions/index.tsx), so with more than 10
+        # sessions the current page stays full at 10 after deleting some — the
+        # next page shifts up to fill it. That is why CI reported
+        # "before=11, after=11" for a deletion that actually succeeded.
+        # The "Active (N)" tab label instead carries the full server-side count
+        # (useSessions.ts: activeCount = listChats().filter(!archived).length),
+        # so it is the primary basis; the row count is kept as a fallback that
+        # is only ever compared against another row count, never against a
+        # total (mixing the two would make the assertion meaningless).
+        total_before = sessions_page.get_total_session_count()
+        rows_before = sessions_page.get_session_count()
+        logger.info(
+            f"Session count before deletion: tab-total={total_before}, "
+            f"rows-on-page={rows_before}"
+        )
 
         log_test_step("6. Click the batch-delete button")
         batch_delete_btn.click()
@@ -560,13 +576,38 @@ class TestSessionBatchDelete:
         sessions_page.page.reload()
         sessions_page.page.wait_for_load_state("domcontentloaded")
         sessions_page.page.wait_for_timeout(3000)
-        count_after = sessions_page.get_session_count()
-        logger.info(f"Session count after deletion: {count_after}")
+        total_after = sessions_page.get_total_session_count()
+        rows_after = sessions_page.get_session_count()
+        logger.info(
+            f"Session count after deletion: tab-total={total_after}, "
+            f"rows-on-page={rows_after}"
+        )
 
-        assert count_after < count_before, \
-            f"Session count did not decrease: before={count_before}, after={count_after}"
-
-        logger.info(f"Session count went from {count_before} down to {count_after}")
+        # Prefer the unpaginated total; fall back to row counts only when the tab
+        # is unreadable on both sides (same-source comparison).
+        if total_before is not None and total_after is not None:
+            assert total_after < total_before, (
+                f"Session count did not decrease: before={total_before}, "
+                f"after={total_after} (source=Active tab total)"
+            )
+            logger.info(
+                f"Total session count went from {total_before} down to "
+                f"{total_after}"
+            )
+        else:
+            logger.warning(
+                "Active tab total unavailable; comparing rows on current page "
+                "(this basis cannot detect a deletion once more than one page "
+                "of sessions exists)"
+            )
+            assert rows_after < rows_before, (
+                f"Session count did not decrease: before={rows_before}, "
+                f"after={rows_after} (source=rows on current page)"
+            )
+            logger.info(
+                f"Session rows on page went from {rows_before} down to "
+                f"{rows_after}"
+            )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")
