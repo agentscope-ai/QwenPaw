@@ -56,7 +56,8 @@ def assign_message_keys(
         transient = set(metadata.get(AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY) or ())
         anchor = next(
             (
-                b.id for b in msg.content
+                b.id
+                for b in msg.content
                 if getattr(b, "id", None) and b.id not in transient
             ),
             None,
@@ -69,6 +70,7 @@ def assign_message_keys(
         )
         metadata[_RECORD_ANCHOR] = anchor
         msg.metadata = metadata
+
 
 # The model echoes a milestone as a fenced single line: ``⟦ text ⟧`` (rare
 # brackets U+27E6 / U+27E7, chosen to almost never collide with code, markdown,
@@ -314,7 +316,11 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
                 persisted_metadata[TOOL_CALL_EXTRAS_METADATA_KEY] = deepcopy(
                     tool_call_extras,
                 )
-            for key in (*REPLY_CYCLE_METADATA_KEYS, _RECORD_KEY, _RECORD_ANCHOR):
+            for key in (
+                *REPLY_CYCLE_METADATA_KEYS,
+                _RECORD_KEY,
+                _RECORD_ANCHOR,
+            ):
                 if key in msg_meta:
                     persisted_metadata[key] = deepcopy(msg_meta[key])
         entries.append(

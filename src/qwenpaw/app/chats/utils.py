@@ -32,6 +32,7 @@ from ...constant import (
     SCROLL_MEMORY_MESSAGE_TAG,
     TIMELINE_HIDDEN_USER_MESSAGE_TAGS,
 )
+from ...runtime.reply_cycle import reply_block_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -615,6 +616,7 @@ def agentscope_msg_to_message(
         current_type = None
 
         for block_index, block in enumerate(msg.content):
+            raw_block_metadata = reply_block_metadata(msg, block)
             # Normalize pydantic block models to dict so the rest of
             # this conversion (which uses .get) handles both shapes.
             block_has_explicit_timestamp = isinstance(block, dict) and (
@@ -630,8 +632,7 @@ def agentscope_msg_to_message(
             if not isinstance(block, dict):
                 continue
             block_metadata = metadata
-            raw_block_metadata = block.get("metadata")
-            if isinstance(raw_block_metadata, dict) and raw_block_metadata:
+            if raw_block_metadata:
                 message_metadata = (
                     metadata.get("metadata")
                     if isinstance(metadata.get("metadata"), dict)

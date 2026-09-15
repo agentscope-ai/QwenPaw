@@ -18,6 +18,7 @@ from qwenpaw.app.chats.timeline import (
     voice_exchange_messages,
 )
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.runtime.reply_cycle import set_reply_block_metadata
 
 
 def build(tmp_path):
@@ -100,23 +101,24 @@ async def test_query_identity_keeps_ownership_cutoff_and_budget(tmp_path):
 
 
 def public_reply(text="result", block_id="b", order=2):
-    return Msg(
+    block = TextBlock(id=block_id, text=text)
+    message = Msg(
         id="shared",
         name="assistant",
         role="assistant",
-        content=[
-            TextBlock(
-                id=block_id,
-                text=text,
-                metadata={
-                    "responds_to_input_ids": ["q"],
-                    "run_id": "run",
-                    "timeline_order": order,
-                    "reply_phase": "final",
-                },
-            )
-        ],
+        content=[block],
     )
+    set_reply_block_metadata(
+        message,
+        block,
+        {
+            "responds_to_input_ids": ["q"],
+            "run_id": "run",
+            "timeline_order": order,
+            "reply_phase": "final",
+        },
+    )
+    return message
 
 
 async def test_current_snapshot_is_bounded_frozen_and_does_not_project_hints(

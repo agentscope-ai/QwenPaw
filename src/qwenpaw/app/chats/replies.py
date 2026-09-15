@@ -7,6 +7,7 @@ from typing import Any
 
 from agentscope.message import DataBlock, Msg, TextBlock, URLSource
 
+from ...runtime.reply_cycle import reply_block_metadata
 from .utils import clean_display_text
 
 
@@ -39,15 +40,18 @@ class ChatReply:
             "text": self.text,
             "persisted": self.persisted,
             **(
-                {"error": {
-                    "code": self.reply_error,
-                    "stage": (
-                        "answer_generation"
-                        if self.reply_error == "empty_response"
-                        else "unknown"
-                    ),
-                }}
-                if self.reply_error else {}
+                {
+                    "error": {
+                        "code": self.reply_error,
+                        "stage": (
+                            "answer_generation"
+                            if self.reply_error == "empty_response"
+                            else "unknown"
+                        ),
+                    }
+                }
+                if self.reply_error
+                else {}
             ),
             **(
                 {
@@ -78,7 +82,7 @@ def project_replies(
 def _project_block(
     message: Msg, block: Any, *, persisted: bool = False
 ) -> ChatReply | None:
-    meta = getattr(block, "metadata", None) or {}
+    meta = reply_block_metadata(message, block)
     ids = meta.get("responds_to_input_ids")
     if (
         message.role != "assistant"
@@ -91,7 +95,11 @@ def _project_block(
     media = ()
     if isinstance(block, DataBlock):
         # Keep binary data in ordinary Chat; speech only receives a reference.
-        url = str(block.source.url) if isinstance(block.source, URLSource) else ""
+        url = (
+            str(block.source.url)
+            if isinstance(block.source, URLSource)
+            else ""
+        )
         media = ((block.media_type, url),)
     return ChatReply(
         message.id,
@@ -101,11 +109,13 @@ def _project_block(
         int(meta.get("timeline_order", 0)),
         str(meta["reply_phase"]),
         clean_display_text(block.text, message.role)
-        if isinstance(block, TextBlock) else "",
+        if isinstance(block, TextBlock)
+        else "",
         persisted,
         media,
         meta.get("reply_error", "")
-        if isinstance(meta.get("reply_error", ""), str) else "",
+        if isinstance(meta.get("reply_error", ""), str)
+        else "",
     )
 
 
@@ -138,7 +148,9 @@ class ChatReplyView:
             reply = _project_block(message, block)
             if reply is not None:
                 self._live[reply.identity] = (
-                    message, block, run_id or reply.run_id
+                    message,
+                    block,
+                    run_id or reply.run_id,
                 )
 
     def saved(self, run_id: str) -> None:

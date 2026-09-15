@@ -13,22 +13,26 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.console import _extract_session_and_payload
+from qwenpaw.app.chats.models import SessionSource
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.constant import QWENPAW_MESSAGE_TAG_KEY
 from qwenpaw.schemas import AgentRequest, Message, Role, TextContent
 
 
 @pytest.fixture
-def console_workspace():
+def console_workspace(tmp_path):
     """Workspace with a console channel, chat manager, and empty tracker."""
     workspace_mock = MagicMock(name="Workspace")
+    workspace_mock.agent_id = "default"
+    workspace_mock.workspace_dir = tmp_path
     workspace_mock.channel_manager = MagicMock(name="ChannelManager")
     console_channel = MagicMock(name="ConsoleChannel")
     console_channel.resolve_session_id = MagicMock(
@@ -52,9 +56,24 @@ def console_workspace():
     chat = MagicMock(name="ChatSpec")
     chat.id = "chat-1"
     chat.name = "New Chat"
+    chat.session_id = "console:default"
+    chat.user_id = "default"
+    chat.channel = "console"
+    chat.source = SessionSource.chat
+    chat.meta = {}
     workspace_mock.chat_manager = MagicMock(name="ChatManager")
     workspace_mock.chat_manager.get_or_create_chat = AsyncMock(
         return_value=chat,
+    )
+
+    session_state = {}
+
+    async def mutate_session_state(_session_id, mutation, *_args):
+        return mutation(session_state)
+
+    workspace_mock.session = MagicMock(name="Session")
+    workspace_mock.session.mutate_session_state = AsyncMock(
+        side_effect=mutate_session_state,
     )
 
     # Real tracker with no active run: attach() returns None.
@@ -211,12 +230,13 @@ async def test_reconnect_with_active_run_replays_buffer_and_marker(
 
 
 @pytest.mark.asyncio
-async def test_new_message_rejects_active_run(
+async def test_new_message_is_admitted_to_active_run(
     app,
     console_workspace,
     monkeypatch,
+    tmp_path,
 ):
-    """A non-reconnect payload must not silently attach to an active run."""
+    """A new keyboard input joins the active Chat run through its mailbox."""
     from starlette.requests import Request
     from qwenpaw.app.routers import console
 
@@ -233,6 +253,14 @@ async def test_new_message_rejects_active_run(
         "_persist_pending_project_dirs",
         AsyncMock(side_effect=lambda _ws, chat, _payload: chat),
     )
+    monkeypatch.setattr(
+        "qwenpaw.app.chats.run_coordinator.load_agent_config",
+        lambda _agent_id: SimpleNamespace(project_dir=None),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.app.chats.run_coordinator.resolve_effective_project_dir",
+        lambda *_args: (tmp_path, "workspace"),
+    )
 
     request = Request(
         scope={
@@ -245,29 +273,31 @@ async def test_new_message_rejects_active_run(
     )
 
     try:
-        with pytest.raises(HTTPException) as exc_info:
-            await console.post_console_chat(
-                request_data={
-                    "session_id": "console:default",
-                    "user_id": "default",
-                    "channel": "console",
-                    "input": [
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "new message"},
-                            ],
+        response = await console.post_console_chat(
+            request_data={
+                "session_id": "console:default",
+                "user_id": "default",
+                "channel": "console",
+                "input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "new message"},
+                        ],
+                        "metadata": {
+                            "qwenpaw_client_message_id": "keyboard-2",
                         },
-                    ],
-                },
-                request=request,
-            )
+                    },
+                ],
+            },
+            request=request,
+        )
     finally:
         release.set()
 
-    assert exc_info.value.status_code == 409
-    assert exc_info.value.detail == (
-        "A task is already running for this chat. Wait for it to finish or "
-        "use a different session_id."
+    assert response.status_code == 200
+    assert (
+        tracker.input_context("chat-1").admission_status("keyboard-2")
+        == "admitted"
     )
     assert console_workspace.console_channel.stream_calls == []

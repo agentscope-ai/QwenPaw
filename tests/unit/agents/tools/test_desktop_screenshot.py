@@ -94,7 +94,7 @@ async def test_desktop_screenshot_resolves_relative_output_path(tmp_path):
             side_effect=capture,
         ),
         patch(
-            "qwenpaw.agents.tools.file_io.get_current_project_dir",
+            "qwenpaw.agents.tools.desktop_screenshot.get_tool_base_dir",
             return_value=tmp_path,
         ),
     ):
@@ -124,7 +124,7 @@ async def test_desktop_screenshot_keeps_path_when_inline_media_is_too_large(
             side_effect=capture,
         ),
         patch(
-            "qwenpaw.agents.tools.file_io.get_current_project_dir",
+            "qwenpaw.agents.tools.desktop_screenshot.get_tool_base_dir",
             return_value=tmp_path,
         ),
         patch(

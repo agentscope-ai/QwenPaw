@@ -134,21 +134,28 @@ class RealtimeVoiceService:
                 resolved.provider_id,
             )
             credential_configured = bool(
-                provider and str(getattr(provider, "api_key", "") or "").strip()
+                provider
+                and str(getattr(provider, "api_key", "") or "").strip()
             )
         except RealtimeVoiceServiceError as exc:
             error = {"code": exc.code, "message": exc.message}
         return {
             "protocol_version": PROTOCOL_VERSION,
             "agent_id": workspace.agent_id,
-            "providers": (self._provider_manager.list_realtime_voice_capabilities()),
+            "providers": (
+                self._provider_manager.list_realtime_voice_capabilities()
+            ),
             "active_model": active_model,
             "effective_model": effective_model,
             "active_router_model": (
-                router_override.model_dump() if router_override is not None else None
+                router_override.model_dump()
+                if router_override is not None
+                else None
             ),
             "effective_router_model": (
-                effective_router.model_dump() if effective_router is not None else None
+                effective_router.model_dump()
+                if effective_router is not None
+                else None
             ),
             "credential_configured": credential_configured,
             "configuration_error": error,
@@ -172,7 +179,9 @@ class RealtimeVoiceService:
 
     def _drop_expired_bootstraps(self, now: datetime) -> None:
         expired = [
-            digest for digest, grant in self._grants.items() if grant.expires_at <= now
+            digest
+            for digest, grant in self._grants.items()
+            if grant.expires_at <= now
         ]
         for digest in expired:
             grant = self._grants.pop(digest)
@@ -290,8 +299,10 @@ class RealtimeVoiceService:
                     "it in Models settings.",
                     409,
                 )
-            registration = self._provider_manager.get_realtime_voice_registration(
-                effective.provider_id,
+            registration = (
+                self._provider_manager.get_realtime_voice_registration(
+                    effective.provider_id,
+                )
             )
             if registration is None:
                 raise RealtimeVoiceServiceError(
@@ -463,7 +474,7 @@ class RealtimeVoiceService:
         principal: str,
         agent_id: str,
     ) -> None:
-        """Release exactly one owned bootstrap/live session; repeat calls are safe."""
+        """Release one owned bootstrap/live session idempotently."""
         async with self._lock:
             live = self._sessions.get(session_id)
             if live is None:

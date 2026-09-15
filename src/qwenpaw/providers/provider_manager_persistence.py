@@ -990,7 +990,9 @@ class ProviderManagerPersistenceMixin(
                 except OSError:
                     pass
 
-    def save_active_realtime_model(self, active_model: ModelSlotConfig) -> None:
+    def save_active_realtime_model(
+        self, active_model: ModelSlotConfig
+    ) -> None:
         self._save_voice_model_slot("active_realtime_model.json", active_model)
 
     def save_active_voice_router_model(
@@ -1210,7 +1212,8 @@ class ProviderManagerPersistenceMixin(
             builtin.custom_headers = provider.custom_headers
         if provider.realtime_models:
             builtin.realtime_models = [
-                model.model_copy(deep=True) for model in provider.realtime_models
+                model.model_copy(deep=True)
+                for model in provider.realtime_models
             ]
         if hasattr(builtin, "max_inline_media_bytes"):
             builtin.max_inline_media_bytes = provider.max_inline_media_bytes

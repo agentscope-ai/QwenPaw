@@ -1148,8 +1148,9 @@ class BaseChannel(ABC):
                 for message in payload.get("output") or []:
                     clean_message(message)
             elif payload.get("object") == "content":
-                # Runtime envelopes emit assistant text/reasoning as TextContent;
-                # tool arguments and outputs use DataContent and stay untouched.
+                # Runtime envelopes emit assistant text/reasoning as
+                # TextContent; tool arguments and outputs use DataContent and
+                # stay untouched.
                 if payload.get("type") == "text" and not is_stream_delta:
                     payload["text"] = strip_headline(payload.get("text"))
             else:

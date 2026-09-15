@@ -252,7 +252,11 @@ class HistoryStore:
         if metadata.get("_scroll_record_anchor"):
             return str(metadata["_scroll_record_anchor"])
         return next(
-            (b["id"] for b in json.loads(row["blocks"] or "[]") if b.get("id")),
+            (
+                b["id"]
+                for b in json.loads(row["blocks"] or "[]")
+                if b.get("id")
+            ),
             None,
         )
 

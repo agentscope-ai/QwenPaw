@@ -14,14 +14,22 @@ from qwenpaw.schemas import AudioContent, Message, Role, TextContent
 async def test_conversation_context_is_model_data_not_an_extra_user_input():
     import json
 
-    from agentscope.formatter import DashScopeChatFormatter, OpenAIChatFormatter
+    from agentscope.formatter import (
+        DashScopeChatFormatter,
+        OpenAIChatFormatter,
+    )
     from agentscope.message import Msg
     from qwenpaw.app.chats.utils import agentscope_msg_to_message
 
     context = '{"available":true,"messages":[{"text":"BLUE_CAT"}]}'
     messages = _request_input_to_msgs(
-        [Message(role="user", content=[TextContent(text="Print that once")],
-                 metadata={QWENPAW_CLIENT_MESSAGE_ID_KEY: "input-1"})],
+        [
+            Message(
+                role="user",
+                content=[TextContent(text="Print that once")],
+                metadata={QWENPAW_CLIENT_MESSAGE_ID_KEY: "input-1"},
+            )
+        ],
         conversation_context=context,
     )
     assert len(messages) == 2
@@ -29,8 +37,13 @@ async def test_conversation_context_is_model_data_not_an_extra_user_input():
     assert hint.role == "assistant" and hint.content[0].type == "hint"
     assert not hint.metadata
     assert hint.content[0].hint.endswith(context)
-    assert user.id == "input-1" and user.get_text_content() == "Print that once"
-    assert user.metadata[QWENPAW_MESSAGE_TAG_KEY] == EXTERNAL_USER_QUERY_MESSAGE_TAG
+    assert (
+        user.id == "input-1" and user.get_text_content() == "Print that once"
+    )
+    assert (
+        user.metadata[QWENPAW_MESSAGE_TAG_KEY]
+        == EXTERNAL_USER_QUERY_MESSAGE_TAG
+    )
     restored = [Msg.model_validate(m.model_dump()) for m in messages]
     for formatter in (DashScopeChatFormatter(), OpenAIChatFormatter()):
         formatted = await formatter.format(restored)
@@ -43,8 +56,10 @@ async def test_conversation_context_is_model_data_not_an_extra_user_input():
 
 def test_context_is_not_attached_to_empty_or_non_user_input():
     messages = _request_input_to_msgs(
-        [Message(role="user", content=[]),
-         Message(role="assistant", content=[TextContent(text="result")])],
+        [
+            Message(role="user", content=[]),
+            Message(role="assistant", content=[TextContent(text="result")]),
+        ],
         conversation_context="quoted data",
     )
     assert len(messages) == 1 and messages[0].get_text_content() == "result"
@@ -55,7 +70,9 @@ def test_idle_runtime_reads_snapshot_from_request_context():
     from qwenpaw.constant import CHAT_CONVERSATION_CONTEXT_KEY
     from qwenpaw.runtime.runtime import Runtime
 
-    runtime = Runtime(workspace=SimpleNamespace(agent_id="default"), app_services=None)
+    runtime = Runtime(
+        workspace=SimpleNamespace(agent_id="default"), app_services=None
+    )
     request = SimpleNamespace(
         session_id="session",
         input=[Message(role="user", content=[TextContent(text="Print it")])],
@@ -109,8 +126,13 @@ def test_user_message_client_id_survives_conversion():
 def test_admission_time_survives_later_message_and_block_creation():
     received_at = "2026-01-02T03:04:05.123456+00:00"
     [message] = _request_input_to_msgs(
-        [Message(role="user", content=[TextContent(text="queued request")],
-                 metadata={QWENPAW_RECEIVED_AT_KEY: received_at})]
+        [
+            Message(
+                role="user",
+                content=[TextContent(text="queued request")],
+                metadata={QWENPAW_RECEIVED_AT_KEY: received_at},
+            )
+        ]
     )
     assert message.created_at == received_at
     assert message.content[0].created_at == received_at

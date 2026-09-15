@@ -343,7 +343,10 @@ async def test_failed_reload_does_not_close_shared_background_results(
     assert await manager.reload_agent("agent-1") is False
     assert manager.agents["agent-1"] is old_workspace
     assert new_workspace.task_tracker is old_workspace.task_tracker
-    new_workspace.stop.assert_awaited_once_with(final=False)
+    new_workspace.stop.assert_awaited_once_with(
+        final=True,
+        preserve_reused=True,
+    )
     assert not old_workspace.stopped
 
 

@@ -294,7 +294,8 @@ def test_separate_same_id_messages_survive_growth_and_checkpoint(store):
     first, second = state.context[1], state.context[3]
     assert first.id == second.id == "one-sdk-reply"
     rows = store._conn.execute(
-        "SELECT content FROM conversation_history WHERE kind='model_turn' ORDER BY seq",
+        "SELECT content FROM conversation_history WHERE kind='model_turn' "
+        "ORDER BY seq",
     ).fetchall()
     assert [row["content"] for row in rows] == ["ANSWER_1", "ANSWER_2"]
 
@@ -306,14 +307,17 @@ def test_separate_same_id_messages_survive_growth_and_checkpoint(store):
     agent.state = AgentState.model_validate(state.model_dump(mode="json"))
     restored.on_save(agent, [])
     rows = store._conn.execute(
-        "SELECT content FROM conversation_history WHERE kind='model_turn' ORDER BY seq",
+        "SELECT content FROM conversation_history WHERE kind='model_turn' "
+        "ORDER BY seq",
     ).fetchall()
     assert len(rows) == 2
     assert rows[0]["content"] == "ANSWER_1"
     assert "ANSWER_2" in rows[1]["content"] and "MORE" in rows[1]["content"]
 
 
-def test_same_id_later_occurrence_after_first_eviction_keeps_durable_answer(store):
+def test_same_id_later_occurrence_after_first_eviction_keeps_durable_answer(
+    store,
+):
     first, later = assistant("FIRST"), assistant("LATER")
     later.id = first.id
     mgr = make_manager(store)
@@ -323,7 +327,8 @@ def test_same_id_later_occurrence_after_first_eviction_keeps_durable_answer(stor
     next_manager.on_save(FakeAgent([later]), [])
     next_manager.on_save(FakeAgent([later]), [])
     rows = store._conn.execute(
-        "SELECT content FROM conversation_history WHERE kind='model_turn' ORDER BY seq",
+        "SELECT content FROM conversation_history WHERE kind='model_turn' "
+        "ORDER BY seq",
     ).fetchall()
     assert [row["content"] for row in rows] == ["FIRST", "LATER"]
 
@@ -332,7 +337,9 @@ def test_legacy_anchor_ignores_transient_memory_blocks(store):
     from qwenpaw.agents.context.scroll.serialize import msg_to_entries
 
     msg = assistant("answer")
-    store.append(session_id="s1", entry=msg_to_entries(msg)[0], dedup_key=msg.id)
+    store.append(
+        session_id="s1", entry=msg_to_entries(msg)[0], dedup_key=msg.id
+    )
     memory = HintBlock(hint="live-only memory")
     msg.content.insert(0, memory)
     msg.metadata[AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY] = [memory.id]
@@ -360,7 +367,9 @@ def test_same_id_split_fragments_restore_the_matching_occurrence(store):
 
 @pytest.mark.asyncio
 async def test_compression_keeps_only_the_active_same_id_occurrence(store):
-    first, second = assistant("FIRST", "first task"), assistant("SECOND", "second task")
+    first, second = assistant("FIRST", "first task"), assistant(
+        "SECOND", "second task"
+    )
     second.id = first.id
     prompt1, prompt2 = user("one"), user("two")
     agent = FakeAgent([prompt1, first, prompt2, second], tokens=[900, 150])
@@ -370,9 +379,12 @@ async def test_compression_keeps_only_the_active_same_id_occurrence(store):
     assert first not in agent.state.context
     assert second in agent.state.context
     assert prompt2 in agent.state.context
-    assert "FIRST" in str(store._conn.execute(
-        "SELECT content FROM conversation_history WHERE kind='model_turn' ORDER BY seq",
-    ).fetchall()[0]["content"])
+    assert "FIRST" in str(
+        store._conn.execute(
+            "SELECT content FROM conversation_history WHERE kind='model_turn' "
+            "ORDER BY seq",
+        ).fetchall()[0]["content"]
+    )
 
 
 def auto_memory_search_msg(*, query: str, max_results: int, text: str) -> Msg:
