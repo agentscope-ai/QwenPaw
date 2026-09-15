@@ -12,6 +12,7 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import IO, Any, Mapping, Protocol, Sequence
 
 from .models import RuntimeRecord
@@ -252,6 +253,15 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             )
         profile_path = record.secret_dir / "runtime.sb"
         profile = self._profile(record)
+        endpoint = urlsplit(environment.get("QWENPAW_HUB_MODEL_URL", ""))
+        if endpoint.hostname in {"127.0.0.1", "localhost", "::1"}:
+            model_port = endpoint.port or (
+                443 if endpoint.scheme == "https" else 80
+            )
+            profile += (
+                f"\n(allow network-outbound "
+                f'(remote ip "localhost:{model_port}"))'
+            )
         profile_path.write_text(profile, encoding="utf-8")
         try:
             os.chmod(profile_path, 0o600)

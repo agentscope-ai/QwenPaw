@@ -121,7 +121,7 @@ version: 1
 control_plane:
   public_base_url: https://qwenpaw.example.com
   registration:
-    enabled: false
+    mode: closed
     default_role: user
 
 runtime:
@@ -159,6 +159,8 @@ The reverse proxy must:
 `public_base_url` also determines callback URLs for OpenRouter, MCP, and other OAuth integrations, so it must match the address users open in their browsers.
 
 ## Manage users
+
+Registration uses `control_plane.registration.mode`: `open`, `invite`, or `closed`. On the first startup after upgrading, Hub automatically migrates legacy database settings while preserving registration policy, users, runtimes, and credentials. YAML files using `registration.enabled` remain readable with a deprecation warning; Hub does not rewrite the file. If both fields appear in the same configuration, `mode` takes precedence.
 
 For an internal team, disable self-registration and create accounts in **User Management**. If trusted members need to register themselves, restrict access to the entry point and enable registration rate limiting. Do not open registration to unknown users.
 

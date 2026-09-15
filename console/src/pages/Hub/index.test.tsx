@@ -20,6 +20,27 @@ import {
   runtime,
 } from "../../test/hubFixtures";
 
+vi.mock("../../api/modules/hubGovernance", () => ({
+  governanceRequest: vi.fn(async (path: string) =>
+    path === "admin/usage"
+      ? {
+          organization: {
+            period: "2026-09",
+            charged: 0,
+            reserved: 0,
+            remaining: null,
+            token_limit: null,
+            requests: 0,
+          },
+          members: [],
+          models: [],
+          daily: [],
+          timezone: "UTC",
+        }
+      : [],
+  ),
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) =>
@@ -92,7 +113,7 @@ describe("HubPage", () => {
 
     expect(await screen.findByText("hub.overview.title")).toBeInTheDocument();
     expect(hubApi.getOverview).toHaveBeenCalledOnce();
-    expect(screen.getByText("100%", { exact: false })).toBeInTheDocument();
+    expect(await screen.findByText("Token usage")).toBeInTheDocument();
   });
 
   it("shows the backend reason when the runtime is unavailable", async () => {
@@ -262,15 +283,13 @@ describe("HubPage", () => {
 
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.users"));
-    const protectedLabel = await screen.findByText(
-      "hub.users.currentAccountProtected",
+    fireEvent.click(
+      await screen.findByRole("button", { name: /owner.*Admin/ }),
     );
-    const row = protectedLabel.closest("tr");
-
-    expect(row).not.toBeNull();
-    expect(protectedLabel).toBeInTheDocument();
-    expect(within(row!).getByRole("combobox")).toBeDisabled();
-    expect(within(row!).getByRole("switch")).toBeDisabled();
+    fireEvent.click(await screen.findByRole("tab", { name: "Account" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("combobox")).toBeDisabled();
+    expect(within(dialog).getByRole("switch")).toBeDisabled();
   });
 
   it("loads and saves the complete Hub settings document", async () => {

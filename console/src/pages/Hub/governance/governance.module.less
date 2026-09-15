@@ -1,0 +1,667 @@
+.panel {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+  color: var(--app-text);
+}
+.heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  h2 {
+    margin: 4px 0 0;
+    font-size: 25px;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: -0.035em;
+  }
+  h3,
+  p {
+    margin: 0;
+  }
+  p {
+    margin-top: 7px;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+  > svg {
+    color: var(--app-accent-text);
+  }
+  small {
+    font-size: 11px;
+    color: var(--app-text-tertiary);
+  }
+}
+.eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: var(--app-text-tertiary);
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
+  gap: 16px;
+}
+.card {
+  padding: 22px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  h3 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+  }
+  p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--app-text-secondary);
+  }
+  > button {
+    align-self: flex-start;
+  }
+}
+.form {
+  width: 100%;
+  max-width: 600px;
+  :global(.qwenpaw-input-number) {
+    width: 100%;
+  }
+}
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.metric {
+  font-size: 30px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  small {
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--app-text-secondary);
+  }
+}
+.codes {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: all;
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface-subtle);
+  border-radius: 10px;
+}
+.summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 24px;
+  border-bottom: 1px solid var(--app-border);
+  font-size: 11px;
+  color: var(--app-text-secondary);
+}
+.settingsColumns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+.budgetEditor {
+  display: grid;
+  gap: 16px;
+  :global(.qwenpaw-input-number),
+  :global(.qwenpaw-input-number-group-wrapper) {
+    width: 100%;
+    max-width: 360px;
+  }
+}
+.choices {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  :global(.qwenpaw-radio-wrapper) {
+    padding: 11px;
+    border: 1px solid var(--app-border);
+    border-radius: 9px;
+    margin: 0;
+    font-size: 12px;
+    background: var(--app-surface);
+  }
+  :global(.qwenpaw-radio-wrapper-checked) {
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
+  }
+}
+.field {
+  display: grid;
+  gap: 8px;
+  label {
+    font-size: 12px;
+    font-weight: 600;
+  }
+  small {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+    line-height: 1.6;
+  }
+}
+.dashboard {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.metricCard {
+  background: var(--app-surface);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  padding: 20px;
+  display: grid;
+  gap: 18px;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+  &:hover {
+    border-color: var(--app-accent);
+  }
+  > span {
+    display: flex;
+    gap: 9px;
+    align-items: center;
+    font-size: 11px;
+    color: var(--app-text-secondary);
+  }
+  strong {
+    font-size: 30px;
+    line-height: 1;
+    font-weight: 600;
+    letter-spacing: -0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+  small {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--app-text-tertiary);
+  }
+}
+.chartGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(260px, 1fr);
+  gap: 18px;
+}
+.chartGrid > .card {
+  min-height: 270px;
+}
+.chart {
+  display: flex;
+  align-items: end;
+  gap: 5px;
+  height: 170px;
+  margin-top: 12px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--app-border);
+}
+.barColumn {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  align-items: end;
+  position: relative;
+  min-width: 0;
+  span {
+    position: absolute;
+    bottom: -18px;
+    white-space: nowrap;
+    width: 100%;
+    text-align: center;
+    font-size: 8px;
+    color: var(--app-text-tertiary);
+  }
+}
+.bar {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  background: var(--app-accent);
+  opacity: 0.8;
+  min-height: 0;
+}
+.chartLegend {
+  display: flex;
+  justify-content: space-between;
+  color: var(--app-text-secondary);
+  font-size: 10px;
+}
+.detailRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  line-height: 1.6;
+  span {
+    color: var(--app-text-secondary);
+  }
+  strong {
+    font-size: 12px;
+    font-weight: 550;
+    font-variant-numeric: tabular-nums;
+  }
+}
+.rankRow {
+  width: 100%;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  background: transparent;
+  border: 0;
+  color: var(--app-text);
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  strong {
+    margin-left: auto;
+    font-weight: 550;
+  }
+  small {
+    color: var(--app-text-tertiary);
+    font-weight: 400;
+    font-size: 10px;
+  }
+  &:hover {
+    color: var(--app-accent-text);
+  }
+}
+.rank {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: var(--app-surface-subtle);
+  border-radius: 7px;
+  color: var(--app-text-secondary);
+  font-size: 10px;
+}
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  border-radius: 11px;
+  border: 1px solid var(--app-border);
+  background: var(--app-accent-soft);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.empty {
+  display: flex;
+  flex: 1;
+  min-height: 190px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  > svg {
+    color: var(--app-text-tertiary);
+  }
+  strong {
+    font-size: 14px;
+    font-weight: 550;
+  }
+  p {
+    margin: 0;
+    max-width: 340px;
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    line-height: 1.7;
+  }
+}
+.emptyCompact {
+  padding: 24px 0;
+  text-align: center;
+}
+.tablePanel {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--app-border);
+  > :first-child {
+    max-width: 300px;
+    flex: 1;
+    min-width: 160px;
+  }
+  > :global(.qwenpaw-select) {
+    min-width: 120px;
+  }
+}
+.userHead,
+.userRow {
+  display: grid;
+  grid-template-columns:
+    minmax(150px, 1.4fr) minmax(80px, 0.8fr) minmax(100px, 1fr)
+    minmax(100px, 1fr) 16px;
+  gap: 18px;
+  align-items: center;
+  padding: 17px 22px;
+}
+.userHead {
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+  background: var(--app-surface-subtle);
+}
+.userRow {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--app-border);
+  color: var(--app-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  &:hover {
+    background: var(--app-surface-subtle);
+  }
+}
+.identity {
+  display: flex;
+  gap: 11px;
+  align-items: center;
+  min-width: 0;
+  strong {
+    font-weight: 600;
+    display: block;
+    overflow-wrap: anywhere;
+  }
+  small {
+    font-size: 10px;
+    color: var(--app-text-tertiary);
+    display: block;
+    margin-top: 4px;
+  }
+}
+.avatar {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.cellValue {
+  font-variant-numeric: tabular-nums;
+  small {
+    display: none;
+  }
+  em {
+    display: block;
+    font-size: 10px;
+    font-style: normal;
+    margin-top: 4px;
+    color: var(--app-text-tertiary);
+  }
+}
+.tableFooter {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  font-size: 11px;
+  color: var(--app-text-secondary);
+}
+.accessRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--app-border);
+  margin-bottom: 14px;
+  font-size: 12px;
+  strong {
+    font-weight: 600;
+  }
+  small {
+    display: block;
+    color: var(--app-text-secondary);
+    font-size: 11px;
+    margin-top: 5px;
+  }
+}
+.muted {
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.help {
+  color: var(--app-text-secondary);
+  font-size: 11px;
+  line-height: 1.8;
+  summary {
+    cursor: pointer;
+  }
+  p {
+    margin: 10px 0;
+  }
+}
+.serviceStrip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 22px;
+  border: 1px solid var(--app-border);
+  background: var(--app-surface);
+  border-radius: 14px;
+  strong {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  p {
+    font-size: 12px;
+    color: var(--app-text-secondary);
+    margin: 5px 0 0;
+    line-height: 1.6;
+  }
+  > :last-child {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+}
+.serviceIcon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  border-radius: 11px;
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
+}
+.onboarding {
+  padding: 42px 24px;
+  text-align: center;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  > svg {
+    color: var(--app-accent);
+  }
+  h3 {
+    margin: 16px 0 8px;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  p {
+    color: var(--app-text-secondary);
+    font-size: 12px;
+    line-height: 1.7;
+  }
+}
+.steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  margin: 28px 0;
+  font-size: 11px;
+  color: var(--app-text-secondary);
+  span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  b {
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    background: var(--app-surface-subtle);
+    border: 1px solid var(--app-border);
+    border-radius: 50%;
+    font-size: 10px;
+  }
+}
+.userModal {
+  :global(.qwenpaw-modal-body) {
+    max-height: min(70vh, 760px);
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+  :global(.qwenpaw-tabs-content-holder) {
+    padding: 4px 0 8px;
+  }
+}
+@media (max-width: 1100px) {
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .chartGrid {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 700px) {
+  .panel {
+    gap: 16px;
+  }
+  .heading h2 {
+    font-size: 23px;
+  }
+  .card {
+    padding: 18px;
+  }
+  .settingsColumns {
+    grid-template-columns: 1fr;
+  }
+  .metricCard {
+    padding: 16px;
+    strong {
+      font-size: 26px;
+    }
+  }
+  .userHead {
+    display: none;
+  }
+  .userRow {
+    grid-template-columns: 1fr auto;
+    gap: 16px;
+    padding: 18px;
+    > svg {
+      display: none;
+    }
+  }
+  .cellValue small {
+    display: block;
+    color: var(--app-text-tertiary);
+    font-size: 10px;
+    margin-bottom: 5px;
+  }
+  .toolbar {
+    padding: 14px;
+  }
+  .tableFooter {
+    flex-wrap: wrap;
+  }
+  .steps {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    width: fit-content;
+    margin: 24px auto;
+  }
+  .serviceStrip {
+    padding: 16px;
+    flex-wrap: wrap;
+    > div {
+      flex: 1;
+    }
+  }
+  .barColumn:nth-child(even) span {
+    visibility: hidden;
+  }
+  .chart {
+    gap: 3px;
+  }
+}
+
+.runtimeState {
+  display: block;
+  margin-top: 5px;
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+}
+
+.modelUsageRow {
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: var(--app-text);
+  cursor: pointer;
+  &:hover strong {
+    color: var(--app-accent-text);
+  }
+}

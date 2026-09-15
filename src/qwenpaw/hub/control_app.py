@@ -77,6 +77,17 @@ from .static_files import (
     resolve_console_response,
     resolve_console_static_dir,
 )
+from .invitations import InvitationService
+from .model_service.storage import GovernanceStore
+from .model_service.catalog import ModelCatalog
+from .model_service.budget import TokenBudgetService
+from .model_service.gateway import ModelGateway
+from .model_service.routes import governance_router
+from .model_service.listener import ModelListener
+from .model_service.runtime_policy import (
+    require_model_route,
+    require_model_runtime,
+)
 from . import websocket_proxy
 
 
@@ -127,6 +138,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     hub_config: HubConfig | None = None,
     root_dir: Path | None = None,
     public_bind: bool = False,
+    model_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
     """Create a Hub control-plane app with an injectable runtime service."""
     runtime_service = service or build_runtime_service(
@@ -147,6 +159,24 @@ def create_hub_app(  # pylint: disable=too-many-statements
         runtime_service.registry.database_path,
         credential_vault,
     )
+    governance = GovernanceStore(runtime_service.registry.database_path)
+    model_catalog = ModelCatalog(governance, credential_vault)
+    model_budgets = TokenBudgetService(governance)
+    model_gateway = ModelGateway(model_catalog, model_budgets, model_transport)
+    invitations = InvitationService(governance, hub_auth)
+    model_listener = ModelListener(governance, model_catalog, model_gateway)
+    original_credentials = runtime_service.credential_provider
+
+    def managed_credentials(record):
+        values = dict(original_credentials(record))
+        provisioner = runtime_service.provisioners[record.provisioner]
+        values["QWENPAW_HUB_MODEL_URL"] = provisioner.model_endpoint(
+            model_listener.port,
+        )
+        values["QWENPAW_HUB_MODEL_TOKEN"] = model_catalog.issue_token(record)
+        return values
+
+    runtime_service.credential_provider = managed_credentials
     operations = HubOperationsStore(
         runtime_service.registry.database_path,
         runtime_service.root_dir,
@@ -188,8 +218,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        model_gateway.recover()
         try:
-            yield
+            async with model_listener.serve():
+                yield
         finally:
             if docker_pulls is not None:
                 await run_in_threadpool(docker_pulls.close)
@@ -457,6 +489,24 @@ def create_hub_app(  # pylint: disable=too-many-statements
         if record.owner_user_id != user.user_id:
             raise HTTPException(status_code=404, detail="Runtime not found")
 
+    app.include_router(
+        governance_router(
+            governance,
+            model_catalog,
+            model_budgets,
+            model_gateway,
+            invitations,
+            hub_auth,
+            require_user,
+            require_admin,
+            record_audit,
+        ),
+    )
+    app.state.model_listener = model_listener
+    app.state.model_catalog = model_catalog
+    app.state.model_budgets = model_budgets
+    app.state.model_gateway = model_gateway
+
     @app.get("/api/hub/healthz")
     async def healthz(
         user: HubUser = Depends(require_user),
@@ -523,7 +573,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @app.get("/api/auth/status")
     async def auth_status() -> dict[str, object]:
-        return await run_in_threadpool(hub_auth.status)
+        result = await run_in_threadpool(hub_auth.status)
+        return result
 
     @app.post("/api/auth/register")
     async def register(
@@ -533,11 +584,20 @@ def create_hub_app(  # pylint: disable=too-many-statements
         client_ip = require_auth_access(request, "registration")
         access_security.record_attempt("registration", client_ip)
         try:
-            user, token = await run_in_threadpool(
-                hub_auth.register,
-                body.username,
-                body.password,
-            )
+            mode = await run_in_threadpool(hub_auth.registration_mode)
+            if mode == "invite" and hub_auth.user_count() > 0:
+                user, token = await run_in_threadpool(
+                    invitations.redeem,
+                    body.invite_code or "",
+                    body.username,
+                    body.password,
+                )
+            else:
+                user, token = await run_in_threadpool(
+                    hub_auth.register,
+                    body.username,
+                    body.password,
+                )
         except PermissionError as exc:
             await record_auth_event(
                 "auth.register",
@@ -1380,7 +1440,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
         request: Request,
         user: HubUser = Depends(require_personal_runtime_user),
     ) -> Response:
+        require_model_route(path)
         record = await ensure_personal_runtime(user)
+        require_model_runtime(governance, record.runtime_id)
         target = runtime_url(
             record,
             scheme="http",

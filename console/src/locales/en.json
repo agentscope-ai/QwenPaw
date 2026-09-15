@@ -4174,7 +4174,18 @@
       },
       "auth": {
         "register": "Registered Hub user"
-      }
+      },
+      "model.policy_update": "Updated model settings",
+      "model.connection_create": "Added model provider",
+      "model.connection_update": "Updated model provider",
+      "model.publish": "Published managed model",
+      "model.create": "Added managed model",
+      "model.update": "Updated managed model",
+      "model.test": "Tested model connection",
+      "invitation.create": "Created invitations",
+      "invitation.revoke": "Revoked invitations",
+      "budget.update": "Adjusted token budget",
+      "user.password_reset": "Reset user password"
     },
     "auditOutcomes": {
       "success": "Success",
@@ -4206,6 +4217,8 @@
     }
   },
   "login": {
+    "inviteTitle": "Accept your invitation",
+    "acceptInvitation": "Join with an invitation",
     "title": "Login to QwenPaw",
     "registerTitle": "Create Account",
     "firstUserHint": "Create your admin account to get started",

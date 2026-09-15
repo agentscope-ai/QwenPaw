@@ -37,6 +37,15 @@ function ModelsPage() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { providers, activeModels, loading, error, fetchAll } = useProviders();
+  const activeProvider = providers.find(
+    (provider) => provider.id === activeModels?.active_llm?.provider_id,
+  );
+  const activeHubModel =
+    activeProvider?.id === "hub-managed"
+      ? activeProvider.models.find(
+          (model) => model.id === activeModels?.active_llm?.model,
+        )
+      : undefined;
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Prevent browsers from autofilling the search input with saved credentials
@@ -65,7 +74,9 @@ function ModelsPage() {
     const providerParam = searchParams.get("provider");
     const manageModels = searchParams.get("manageModels") === "true";
     if (providerParam && providers.length > 0) {
-      const target = providers.find((p) => p.id === providerParam);
+      const target = providers.find(
+        (p) => p.id === providerParam && p.id !== "hub-managed",
+      );
       if (target) {
         if (manageModels) {
           setModelsModalProvider(target);
@@ -331,8 +342,13 @@ function ModelsPage() {
                       {t("models.defaultLlm")}:
                     </span>
                     <span className={styles.llmPillValue}>
-                      {activeModels?.active_llm?.provider_id || "—"} /{" "}
-                      {activeModels?.active_llm?.model || "—"}
+                      {activeProvider?.id === "hub-managed"
+                        ? "Hub"
+                        : activeModels?.active_llm?.provider_id || "—"}{" "}
+                      /{" "}
+                      {activeHubModel?.name ||
+                        activeModels?.active_llm?.model ||
+                        "—"}
                     </span>
                     <span className={styles.llmPillEdit}>
                       {t("common.edit")}
