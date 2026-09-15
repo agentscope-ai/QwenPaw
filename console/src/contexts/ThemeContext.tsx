@@ -7,6 +7,8 @@ import {
   type ReactNode,
 } from "react";
 
+import { themeApi, type ThemeConfig } from "@/api/modules/theme";
+
 export type ThemeMode = "light" | "dark" | "system";
 export type ResolvedTheme = "light" | "dark";
 
@@ -20,6 +22,11 @@ interface ThemeContextValue {
   setThemeMode: (mode: ThemeMode) => void;
   /** Convenience toggle: light ↔ dark (skips system) */
   toggleTheme: () => void;
+  userTheme: ThemeConfig;
+  previewTheme: ThemeConfig;
+  setThemePreview: (theme: ThemeConfig) => void;
+  saveUserTheme: (theme: ThemeConfig) => Promise<ThemeConfig>;
+  resetUserTheme: () => Promise<void>;
 }
 
 const ThemeContext = createContext<ThemeContextValue>({
@@ -27,6 +34,11 @@ const ThemeContext = createContext<ThemeContextValue>({
   isDark: false,
   setThemeMode: () => {},
   toggleTheme: () => {},
+  userTheme: {},
+  previewTheme: {},
+  setThemePreview: () => {},
+  saveUserTheme: async () => ({}),
+  resetUserTheme: async () => {},
 });
 
 function getInitialMode(): ThemeMode {
@@ -53,6 +65,39 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [isDark, setIsDark] = useState<boolean>(() =>
     resolveIsDark(getInitialMode()),
   );
+  const [userTheme, setUserTheme] = useState<ThemeConfig>({});
+  const [previewTheme, setPreviewTheme] = useState<ThemeConfig>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    themeApi
+      .get()
+      .then((theme) => {
+        if (!cancelled) {
+          setUserTheme(theme);
+          setPreviewTheme(theme);
+        }
+      })
+      .catch(() => {
+        // Theme loading is optional; built-in defaults remain active.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const saveUserTheme = useCallback(async (theme: ThemeConfig) => {
+    const saved = await themeApi.update(theme);
+    setUserTheme(saved);
+    setPreviewTheme(saved);
+    return saved;
+  }, []);
+
+  const resetUserTheme = useCallback(async () => {
+    await themeApi.reset();
+    setUserTheme({});
+    setPreviewTheme({});
+  }, []);
 
   // Apply dark/light class to <html> element for global CSS variable overrides
   useEffect(() => {
@@ -92,7 +137,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   return (
     <ThemeContext.Provider
-      value={{ themeMode, isDark, setThemeMode, toggleTheme }}
+      value={{
+        themeMode,
+        isDark,
+        setThemeMode,
+        toggleTheme,
+        userTheme,
+        previewTheme,
+        setThemePreview: setPreviewTheme,
+        saveUserTheme,
+        resetUserTheme,
+      }}
     >
       {children}
     </ThemeContext.Provider>

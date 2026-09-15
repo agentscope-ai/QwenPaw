@@ -14,6 +14,8 @@ from .config import (
     ACPConfig,
     ACPAgentConfig,
     VisualCompactConfig,
+    ThemeConfig,
+    ThemeDarkConfig,
 )
 from .utils import (
     get_available_channels,
@@ -45,6 +47,8 @@ __all__ = [
     "ACPConfig",
     "ACPAgentConfig",
     "VisualCompactConfig",
+    "ThemeConfig",
+    "ThemeDarkConfig",
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",
