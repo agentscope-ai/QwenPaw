@@ -909,5 +909,59 @@ describe("SidebarSessionList", () => {
       expect(list.itemSize(0)).toBe(20);
       expect(list.itemSize(1)).toBe(30);
     });
+
+    function addEmptyCronGroup() {
+      mockChatGroups.mockReturnValue({
+        groups: [
+          {
+            id: "default",
+            name: "Uncategorized",
+            order: 0,
+            kind: "default",
+            pinned: false,
+          },
+          {
+            id: "cron",
+            name: "Scheduled tasks",
+            order: 1,
+            kind: "cron",
+            pinned: false,
+          },
+        ],
+        createGroup: vi.fn().mockResolvedValue({ id: "g-new" }),
+        renameGroup: vi.fn(),
+        pinGroup: vi.fn(),
+        deleteGroup: vi.fn(),
+        reorderGroups: vi.fn(),
+      });
+    }
+
+    it("slims empty group headers on short viewports", async () => {
+      setCompactViewport(true);
+      localStorage.setItem("qwenpaw_session_group_mode", "source");
+      mockData([sessionA]);
+      addEmptyCronGroup();
+      renderWithProviders(<SidebarSessionList />);
+      await waitFor(() => {
+        expect(screen.getByTestId("group-header-cron")).toBeTruthy();
+      });
+      const list = mockListProps.current!;
+      // rows: groupHeader(default, 1), session, groupHeader(cron, 0)
+      expect(list.itemSize(0)).toBe(32);
+      expect(list.itemSize(2)).toBe(24);
+    });
+
+    it("keeps empty group headers full height on tall viewports", async () => {
+      localStorage.setItem("qwenpaw_session_group_mode", "source");
+      mockData([sessionA]);
+      addEmptyCronGroup();
+      renderWithProviders(<SidebarSessionList />);
+      await waitFor(() => {
+        expect(screen.getByTestId("group-header-cron")).toBeTruthy();
+      });
+      const list = mockListProps.current!;
+      expect(list.itemSize(0)).toBe(42);
+      expect(list.itemSize(2)).toBe(42);
+    });
   });
 });

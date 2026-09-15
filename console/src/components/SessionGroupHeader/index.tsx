@@ -123,7 +123,9 @@ export default function SessionGroupHeader({
     <div
       className={`${styles.header} ${isFixedSource ? styles.source : ""} ${
         group.pinned ? styles.pinned : ""
-      } ${!isFixedSource && !editing ? styles.managed : ""}`}
+      } ${!isFixedSource && !editing ? styles.managed : ""} ${
+        count === 0 ? styles.empty : ""
+      }`}
       role="button"
       tabIndex={0}
       title={
