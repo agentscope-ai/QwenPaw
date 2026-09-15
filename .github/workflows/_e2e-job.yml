@@ -183,11 +183,70 @@ jobs:
         shell: bash
         working-directory: e2e
         run: |
+          # Per-test timeout. pytest-timeout has been a declared dependency
+          # (e2e/requirements.txt: "Timeout control" + pytest-timeout>=2.2.0)
+          # but was never enabled, so the job-level timeout-minutes was the
+          # ONLY protection. One hung case therefore consumed the whole shard
+          # budget and every case queued behind it silently never ran -- the
+          # run still uploaded coverage, generated the HTML report and
+          # attached artifacts, so it looked complete. Comparing "selected"
+          # against "actually executed" showed 64 of 209 cases (30.6%) had not
+          # run at all.
+          #
+          # Held in a variable because this step has TWO pytest invocations
+          # (node-id form and marker form); a variable makes it impossible to
+          # fix one and silently leave the other unprotected.
+          #
+          # 480s comes from a measured per-case duration distribution of 87
+          # cases (median 7.70s, mean 22.35s, longest 385.9s): it leaves 24%
+          # headroom over the longest and kills zero genuinely passing cases.
+          # Lower values misfire -- 60s would kill 7 passing cases, and both
+          # 120s and 180s kill 2 (a 385.9s context-compression case and a
+          # 242.0s session case, both passing and visibly progressing in the
+          # log). Those would surface as brand-new defects in triage and waste
+          # a whole round.
+          #
+          # --timeout-method=signal, NOT thread. thread calls os._exit(1) on
+          # timeout (pytest_timeout.py, in an unconditional finally block),
+          # which kills the whole pytest process -- every case behind the hung
+          # one still never runs, so thread would not fix the blind spot at
+          # all. Measured side by side on four hang shapes (sleep in the test
+          # body, hang in a real fixture teardown, main thread blocked in
+          # subprocess.wait(), main thread blocked in a C-level socket recv()
+          # -- the last two being the closest analogues to a sync Playwright
+          # transport stall): signal failed just the hung case and every later
+          # case still ran and reported; thread exited the process with zero
+          # later cases executed, in all four. signal's only blind spot is a
+          # case that masks SIGALRM itself, and this suite never touches
+          # signal at all (grep over e2e/tests and e2e/conftest.py: zero
+          # hits), so signal is strictly better here.
+          #
+          # --rerun-except Timeout is REQUIRED, not optional. signal alone
+          # would mark the timed-out case failed, and the pre-existing
+          # --reruns=1 would then rerun it -- but the rerun gets no timer, so
+          # it hangs to the outer job limit (measured: the run never finishes).
+          # Excluding Timeout from reruns stops that, while leaving --reruns=1
+          # fully intact for the flakes it exists for (verified: a
+          # fail-then-pass case still reruns and passes).
+          #
+          # Net effect, stated plainly: this turns invisible blind spots into
+          # visible red, so the failure count will rise. That is expected and
+          # is not a quality regression.
+          #
+          # Residual limit, also stated plainly: this does NOT make "cases
+          # never ran" impossible. Against today's distribution (slowest shard
+          # 37.9 min vs the 60 min ceiling) there is ~22.1 min of slack, i.e.
+          # room for about TWO genuinely hung cases at 480s before the shard
+          # still hits the job ceiling. A shard with 3 or more real hangs can
+          # still run out of budget -- but the log will now name which case
+          # hung, instead of silently dropping the rest. Rebalancing cases by
+          # measured duration (separate change) would widen this to ~3.
+          PYTEST_TIMEOUT_ARGS="--timeout=480 --timeout-method=signal --rerun-except Timeout"
           if [ -s /tmp/e2e_node_ids.txt ]; then
             # Release gate/watch form: run exactly the reviewed node ids.
-            pytest $(tr '\n' ' ' < /tmp/e2e_node_ids.txt) -v --tb=short --reruns=1 --reruns-delay=3
+            pytest $(tr '\n' ' ' < /tmp/e2e_node_ids.txt) -v --tb=short --reruns=1 --reruns-delay=3 $PYTEST_TIMEOUT_ARGS
           else
-            pytest tests/ -m "${{ inputs.test_marker }}" -v --tb=short --reruns=1 --reruns-delay=3
+            pytest tests/ -m "${{ inputs.test_marker }}" -v --tb=short --reruns=1 --reruns-delay=3 $PYTEST_TIMEOUT_ARGS
           fi
 
       # ---- Collect coverage ----
