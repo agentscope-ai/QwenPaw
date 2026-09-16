@@ -23,6 +23,19 @@ from .dependency import (
 )
 from .deps import get_ctx, get_scoped_ctx
 from .service import ManagedService, ManagedServiceSpec
+from .setup import (
+    PrepareResult,
+    ReadinessResult,
+    SetupCheckRegistration,
+    SetupCoordinator,
+    SetupEntryDescriptor,
+    SetupEntryRegistration,
+    SetupOpenAction,
+    SetupRequest,
+    SetupRequirement,
+    SetupResult,
+    SuggestedValue,
+)
 
 __all__ = [
     "ManagedService",
@@ -37,6 +50,17 @@ __all__ = [
     "DependencySpec",
     "PawApp",
     "PawAppContext",
+    "PrepareResult",
+    "ReadinessResult",
+    "SetupCheckRegistration",
+    "SetupCoordinator",
+    "SetupEntryDescriptor",
+    "SetupEntryRegistration",
+    "SetupOpenAction",
+    "SetupRequest",
+    "SetupRequirement",
+    "SetupResult",
+    "SuggestedValue",
     "get_ctx",
     "get_scoped_ctx",
 ]

@@ -5,6 +5,7 @@
 import asyncio
 import hashlib
 import sqlite3
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -29,6 +30,15 @@ from qwenpaw.pawapp.tasks.binding import ActionRegistration, Readiness
 from qwenpaw.pawapp.tasks.policy import FileTaskPolicy, TaskGrant, TaskPolicy
 from qwenpaw.pawapp.tasks.routes import HostOrigins, router
 from qwenpaw.pawapp.tasks.runtime import HostTaskRuntime
+from qwenpaw.pawapp.setup import (
+    ReadinessResult,
+    SetupCheckRegistration,
+    SetupCoordinator,
+    SetupEntryDescriptor,
+    SetupEntryRegistration,
+    SetupOpenAction,
+    SetupRequirement,
+)
 from tests.pawapp_data_task_support import load_data_task_bridge
 
 ACTION = load_data_task_bridge().data_action_descriptor()
@@ -197,6 +207,7 @@ async def host(tmp_path, monkeypatch):
             settings_entry="/apps/qwenpaw-data",
         ),
     }
+    setup_holder = [None]
 
     def runtime(task_store):
         return HostTaskRuntime(
@@ -206,6 +217,7 @@ async def host(tmp_path, monkeypatch):
             authorize_origin=origins,
             artifacts=artifacts,
             handoffs=handoffs,
+            setup=setup_holder[0],
             interval=0.01,
         )
 
@@ -235,6 +247,7 @@ async def host(tmp_path, monkeypatch):
             chats=chats,
             artifacts=artifacts,
             handoffs=handoffs,
+            setup_holder=setup_holder,
         )
     await app.state.pawapp_tasks.aclose()
 
@@ -273,9 +286,10 @@ async def test_open_task_issues_scoped_handoff_to_existing_project(host):
         PREFIX + f"/handoffs/{action['handoff_id']}",
     )
     assert resolved.status_code == 200
-    assert resolved.json()["handoff"]["context"]["project_ref"] == action[
-        "project_ref"
-    ]
+    assert (
+        resolved.json()["handoff"]["context"]["project_ref"]
+        == action["project_ref"]
+    )
 
     denied = await host.client.get(
         PREFIX + f"/handoffs/{action['handoff_id']}",
@@ -283,8 +297,7 @@ async def test_open_task_issues_scoped_handoff_to_existing_project(host):
     )
     assert denied.status_code == 404
     wrong_app = await host.client.get(
-        "/api/pawapps/other/workspaces/sales/handoffs/"
-        + action["handoff_id"],
+        "/api/pawapps/other/workspaces/sales/handoffs/" + action["handoff_id"],
     )
     assert wrong_app.status_code == 404
 
@@ -310,8 +323,7 @@ async def test_artifact_content_rejects_another_principal(host):
         content,
     )
     path = (
-        PREFIX
-        + f"/artifacts/{ref.artifact_id}/versions/{ref.version}/content"
+        PREFIX + f"/artifacts/{ref.artifact_id}/versions/{ref.version}/content"
     )
     allowed = await host.client.get(path)
     assert allowed.status_code == 200
@@ -730,3 +742,79 @@ async def test_readiness_rechecked_before_engine_submission(host):
             await asyncio.sleep(0.01)
     assert not host.runs
     assert item.handle.status == "pending"
+
+
+@pytest.mark.asyncio
+async def test_generic_setup_blocks_without_creating_latent_task(host):
+    now = time.time()
+    requirement = SetupRequirement(
+        id="analysis-model",
+        summary="Configure an analysis model",
+        required_for=(ACTION.action_id,),
+        authority="AppLocal",
+        setup_entry_ref="agent-models",
+        check_ref="data.analysis-model-ready",
+    )
+
+    async def check(_scope, _inputs):
+        return ReadinessResult(
+            requirement_id=requirement.id,
+            state="needs_configuration",
+            reason_code="analysis_model_missing",
+            checked_at=now,
+            expires_at=now + 30,
+        )
+
+    async def open_entry(request):
+        return SetupOpenAction(
+            app_id=request.scope.app_id,
+            request_id=request.request_id,
+            entry_id=request.entry_id,
+            presentation=request.presentation,
+            path="/apps/qwenpaw-data/settings/models",
+        )
+
+    entry = SetupEntryRegistration(
+        descriptor=SetupEntryDescriptor(
+            id="agent-models",
+            entry_ref="data.agent-models",
+            focus="analysis-model",
+            presentations=("app_entry",),
+        ),
+        opener=open_entry,
+    )
+    setup = SetupCoordinator(
+        checks=lambda: {
+            (SCOPE.app_id, requirement.id): SetupCheckRegistration(
+                requirement=requirement,
+                checker=check,
+            ),
+        },
+        entries=lambda: {(SCOPE.app_id, "agent-models"): entry},
+    )
+    await host.app.state.pawapp_tasks.aclose()
+    current = host.registrations[(SCOPE.app_id, ACTION.action_id)]
+    host.registrations[(SCOPE.app_id, ACTION.action_id)] = ActionRegistration(
+        action=current.action,
+        factory=current.factory,
+        settings_entry=current.settings_entry,
+        requirement_ids=(requirement.id,),
+    )
+    host.setup_holder[0] = setup
+    host.app.state.pawapp_tasks = host.runtime(host.store)
+    await host.app.state.pawapp_tasks.start()
+
+    response = await host.client.post(
+        PREFIX + "/actions/analyze/tasks",
+        json=BODY,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "blocked"
+    assert response.json()["setup"] == "required"
+    assert response.json()["setup_entries"] == ["agent-models"]
+    assert response.json()["readiness"]["results"][0]["state"] == (
+        "needs_configuration"
+    )
+    assert await host.store.find_request(SCOPE, BODY["request_id"]) is None
+    assert not host.runs

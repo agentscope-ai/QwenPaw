@@ -366,6 +366,8 @@ class PawApp:  # pylint: disable=too-many-public-methods
         self._workspace_hooks: List[dict] = []
         self._runtime_hooks: List[Any] = []
         self._task_actions: List[Any] = []
+        self._setup_checks: List[Any] = []
+        self._setup_entries: List[Any] = []
         self._services: List[ManagedService] = []
         self._agent_profiles: List[ManagedAgentProfile] = []
         self.dependencies = DependencyRegistry(lambda: self.app_id)
@@ -376,6 +378,16 @@ class PawApp:  # pylint: disable=too-many-public-methods
         if registration.action.app_id != self.app_id:
             raise ValueError("task action must belong to this PawApp")
         self._task_actions.append(registration)
+        return self
+
+    def setup_check(self, registration: Any) -> PawApp:
+        """Declare a read-only configuration readiness checker."""
+        self._setup_checks.append(registration)
+        return self
+
+    def setup_entry(self, registration: Any) -> PawApp:
+        """Declare an App-owned setup presentation handler."""
+        self._setup_entries.append(registration)
         return self
 
     def enable_standard_capabilities(self) -> PawApp:
@@ -807,7 +819,7 @@ class PawApp:  # pylint: disable=too-many-public-methods
 
     # ─── Plugin registration (called by PluginLoader) ───────────────
 
-    def register(self, api: Any) -> None:  # pylint: disable=R0912
+    def register(self, api: Any) -> None:  # pylint: disable=R0912,R0915
         """Called by PluginLoader when the plugin is loaded.
 
         ``api`` is a ``PluginApi`` instance. We apply all buffered
@@ -825,6 +837,9 @@ class PawApp:  # pylint: disable=too-many-public-methods
         }
         manifest = PluginManifest.from_dict(manifest_payload)
         runtime = manifest.pawapp.runtime if manifest.pawapp else None
+        configuration = (
+            manifest.pawapp.configuration if manifest.pawapp else None
+        )
         declared_local_tools = set(runtime.local_tools if runtime else ())
         registered_local_tools = {item["name"] for item in self._local_tools}
         if (
@@ -832,7 +847,7 @@ class PawApp:  # pylint: disable=too-many-public-methods
             and declared_local_tools != registered_local_tools
         ):
             raise ValueError(
-                "PawApp manifest local_tools do not match registrations"
+                "PawApp manifest local_tools do not match registrations",
             )
         declared_local_skills = set(runtime.local_skills if runtime else ())
         registered_local_skills = {
@@ -843,7 +858,23 @@ class PawApp:  # pylint: disable=too-many-public-methods
             and declared_local_skills != registered_local_skills
         ):
             raise ValueError(
-                "PawApp manifest local_skills do not match registrations"
+                "PawApp manifest local_skills do not match registrations",
+            )
+
+        declared_setup_entries = {
+            item.id: item.model_dump(mode="json")
+            for item in (configuration.setup_entries if configuration else ())
+        }
+        registered_setup_entries = {
+            item.descriptor.id: item.descriptor.model_dump(
+                mode="json",
+                exclude={"schema_version"},
+            )
+            for item in self._setup_entries
+        }
+        if declared_setup_entries != registered_setup_entries:
+            raise ValueError(
+                "PawApp manifest setup_entries do not match registrations",
             )
 
         api.register_pawapp_capability_imports(
@@ -858,6 +889,10 @@ class PawApp:  # pylint: disable=too-many-public-methods
         for directory in self._local_skill_dirs:
             api.register_pawapp_local_skills(directory)
 
+        for registration in self._setup_entries:
+            api.register_pawapp_setup_entry(registration)
+        for registration in self._setup_checks:
+            api.register_pawapp_setup_check(registration)
         for registration in self._task_actions:
             api.register_task_action(registration)
 

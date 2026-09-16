@@ -179,10 +179,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_section_names: set = set()
         self._workspace_manager: Optional[Any] = None
         self._task_actions: Dict[tuple, Any] = {}
+        self._pawapp_setup_checks: Dict[tuple[str, str], Any] = {}
+        self._pawapp_setup_entries: Dict[tuple[str, str], Any] = {}
         self._pawapp_host_tools: Dict[str, frozenset[str]] = {}
         self._pawapp_host_skills: Dict[str, Dict[str, tuple[str, ...]]] = {}
         self._pawapp_local_tools: Dict[
-            tuple[str, str], PawAppLocalToolRegistration
+            tuple[str, str],
+            PawAppLocalToolRegistration,
         ] = {}
         self._pawapp_local_skill_dirs: Dict[str, List[Any]] = {}
 
@@ -938,16 +941,89 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         key = (plugin_id, action.action_id)
         if key in self._task_actions:
             raise ValueError("task action already registered")
+        missing = [
+            requirement_id
+            for requirement_id in registration.requirement_ids
+            if (plugin_id, requirement_id) not in self._pawapp_setup_checks
+        ]
+        if missing:
+            raise ValueError(
+                "task action references unregistered setup requirements: "
+                + ", ".join(missing),
+            )
+        for requirement_id in registration.requirement_ids:
+            setup = self._pawapp_setup_checks[(plugin_id, requirement_id)]
+            if action.action_id not in setup.requirement.required_for:
+                raise ValueError(
+                    "setup requirement does not declare this action",
+                )
         # Freeze a serialized copy: plugin-side descriptor edits cannot change
         # the action after the Host has granted its digest.
         self._task_actions[key] = ActionRegistration(
             action=type(action).model_validate_json(action.model_dump_json()),
             factory=registration.factory,
             settings_entry=registration.settings_entry,
+            requirement_ids=tuple(registration.requirement_ids),
         )
 
     def get_task_actions(self) -> Dict[tuple, Any]:
         return self._task_actions.copy()
+
+    def register_pawapp_setup_check(
+        self,
+        plugin_id: str,
+        registration: Any,
+    ) -> None:
+        """Register one App-owned, read-only readiness checker."""
+        from qwenpaw.pawapp.setup import SetupCheckRegistration
+
+        if not isinstance(registration, SetupCheckRegistration):
+            raise ValueError("invalid PawApp setup check registration")
+        requirement = registration.requirement
+        key = (plugin_id, requirement.id)
+        if key in self._pawapp_setup_checks:
+            raise ValueError("PawApp setup requirement already registered")
+        if (plugin_id, requirement.setup_entry_ref) not in (
+            self._pawapp_setup_entries
+        ):
+            raise ValueError(
+                "PawApp setup requirement entry is not registered",
+            )
+        frozen = type(requirement).model_validate_json(
+            requirement.model_dump_json(),
+        )
+        self._pawapp_setup_checks[key] = SetupCheckRegistration(
+            requirement=frozen,
+            checker=registration.checker,
+        )
+
+    def get_pawapp_setup_checks(self) -> Dict[tuple[str, str], Any]:
+        return self._pawapp_setup_checks.copy()
+
+    def register_pawapp_setup_entry(
+        self,
+        plugin_id: str,
+        registration: Any,
+    ) -> None:
+        """Register one App-owned presentation handler."""
+        from qwenpaw.pawapp.setup import SetupEntryRegistration
+
+        if not isinstance(registration, SetupEntryRegistration):
+            raise ValueError("invalid PawApp setup entry registration")
+        descriptor = registration.descriptor
+        key = (plugin_id, descriptor.id)
+        if key in self._pawapp_setup_entries:
+            raise ValueError("PawApp setup entry already registered")
+        frozen = type(descriptor).model_validate_json(
+            descriptor.model_dump_json(),
+        )
+        self._pawapp_setup_entries[key] = SetupEntryRegistration(
+            descriptor=frozen,
+            opener=registration.opener,
+        )
+
+    def get_pawapp_setup_entries(self) -> Dict[tuple[str, str], Any]:
+        return self._pawapp_setup_entries.copy()
 
     def register_pawapp_capability_imports(
         self,
@@ -962,7 +1038,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         tools = tuple(host_tools)
         if len(set(tools)) != len(tools) or any(not name for name in tools):
             raise ValueError(
-                "Host Tool imports must be unique non-empty names"
+                "Host Tool imports must be unique non-empty names",
             )
         if any(not name for name in host_skills):
             raise ValueError("Host Skill imports require non-empty names")
@@ -972,7 +1048,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             for ref in refs
         ):
             raise ValueError(
-                "Host Skill tool refs must be unique non-empty names"
+                "Host Skill tool refs must be unique non-empty names",
             )
         self._pawapp_host_tools[plugin_id] = frozenset(tools)
         self._pawapp_host_skills[plugin_id] = {
@@ -1088,6 +1164,16 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._task_actions = {
             key: value
             for key, value in self._task_actions.items()
+            if key[0] != plugin_id
+        }
+        self._pawapp_setup_checks = {
+            key: value
+            for key, value in self._pawapp_setup_checks.items()
+            if key[0] != plugin_id
+        }
+        self._pawapp_setup_entries = {
+            key: value
+            for key, value in self._pawapp_setup_entries.items()
             if key[0] != plugin_id
         }
         self._pawapp_host_tools.pop(plugin_id, None)

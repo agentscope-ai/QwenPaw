@@ -44,8 +44,11 @@ class ActionRegistration:
     action: ActionDescriptor
     factory: Callable[[], ManagedTaskAdapter]
     settings_entry: str
+    requirement_ids: tuple[Identity, ...] = ()
 
     def __post_init__(self):
+        if len(self.requirement_ids) != len(set(self.requirement_ids)):
+            raise ValueError("action setup requirements must be unique")
         # Local App settings only: never accept an adapter-supplied redirect.
         prefix = f"/apps/{self.action.app_id}"
         if (

@@ -593,6 +593,24 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             raise RuntimeError("plugin registry is unavailable")
         self._registry.register_task_action(self.plugin_id, registration)
 
+    def register_pawapp_setup_check(self, registration: Any) -> None:
+        """Register an App-scoped, read-only setup checker."""
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._registry.register_pawapp_setup_check(
+            self.plugin_id,
+            registration,
+        )
+
+    def register_pawapp_setup_entry(self, registration: Any) -> None:
+        """Register an App-owned setup presentation handler."""
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._registry.register_pawapp_setup_entry(
+            self.plugin_id,
+            registration,
+        )
+
     def register_pawapp_capability_imports(
         self,
         *,

@@ -5,6 +5,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass
+from functools import partial
 from typing import Callable
 
 from .binding import ActionRegistration, AuthorizeOrigin, ManagedTaskAdapter
@@ -19,18 +20,17 @@ logger = logging.getLogger(__name__)
 class _ReadyAdapter:
     """Recheck readiness immediately before every new submission attempt."""
 
-    def __init__(self, adapter, artifacts):
+    def __init__(self, adapter, artifacts, require_ready):
         self.adapter = adapter
         self.artifacts = artifacts
+        self.require_ready = require_ready
         self.submission_protocol_version = adapter.submission_protocol_version
 
     async def submit(self, submission):
-        ready = await self.adapter.readiness(
+        await self.require_ready(
             submission.handle.scope,
             submission.inputs,
         )
-        if ready.state != "ready":
-            raise TaskStoreError(ready.reason)
         return await self.adapter.submit(submission)
 
     async def query(self, submission):
@@ -75,6 +75,7 @@ class HostTaskRuntime:
         authorize_origin: AuthorizeOrigin,
         artifacts=None,
         handoffs=None,
+        setup=None,
         interval: float = 2.0,
     ):
         self.store = store
@@ -83,6 +84,7 @@ class HostTaskRuntime:
         self._authorize_origin = authorize_origin
         self.artifacts = artifacts
         self.handoffs = handoffs
+        self.setup = setup
         self._interval = interval
         self._bindings: dict[tuple[str, str], _RuntimeBinding] = {}
         self._workers: dict[str, tuple[tuple[str, str], asyncio.Task]] = {}
@@ -140,7 +142,15 @@ class HostTaskRuntime:
                     try:
                         coordinator.register(
                             registration.action,
-                            _ReadyAdapter(adapter, self.artifacts),
+                            _ReadyAdapter(
+                                adapter,
+                                self.artifacts,
+                                partial(
+                                    self._require_ready,
+                                    registration,
+                                    adapter,
+                                ),
+                            ),
                         )
                     except Exception:
                         await adapter.aclose()
@@ -231,6 +241,43 @@ class HostTaskRuntime:
             raise TaskStoreError("action_not_found")
         return binding
 
+    async def _readiness(
+        self,
+        registration,
+        adapter,
+        scope,
+        inputs,
+    ):
+        prepared = None
+        if self.setup is not None and registration.requirement_ids:
+            prepared = await self.setup.prepare_for_task(
+                scope,
+                registration,
+                inputs,
+            )
+            if prepared.state != "ready":
+                return prepared, prepared.blocking_results[0].reason_code
+        legacy = await adapter.readiness(scope, inputs)
+        if legacy.state != "ready":
+            return prepared, legacy.reason
+        return prepared, None
+
+    async def _require_ready(
+        self,
+        registration,
+        adapter,
+        scope,
+        inputs,
+    ):
+        _prepared, reason = await self._readiness(
+            registration,
+            adapter,
+            scope,
+            inputs,
+        )
+        if reason is not None:
+            raise TaskStoreError(reason)
+
     async def dispatch(
         self,
         scope,
@@ -252,23 +299,50 @@ class HostTaskRuntime:
         # even if settings are now unavailable. It must not become a new task.
         existing = await self.store.find_request(scope, request_id)
         if existing is None or prepare:
-            ready = await binding.adapter.readiness(scope, inputs)
-            if ready.state == "blocked":
+            prepared, reason = await self._readiness(
+                binding.registration,
+                binding.adapter,
+                scope,
+                inputs,
+            )
+            if reason is not None:
                 await self.store.audit(
                     scope,
                     action_id,
                     "prepare" if prepare else "dispatch",
-                    ready.reason,
+                    reason,
                     request_id=request_id,
                 )
+                if prepared is not None and prepared.state != "ready":
+                    entries = tuple(
+                        dict.fromkeys(
+                            requirement.setup_entry_ref
+                            for requirement in prepared.requirements
+                            if any(
+                                result.requirement_id == requirement.id
+                                and result.state != "ready"
+                                for result in prepared.results
+                            )
+                        ),
+                    )
+                    return {
+                        "state": "blocked",
+                        "reason": reason,
+                        "setup": "required",
+                        "setup_entries": entries,
+                        "readiness": prepared,
+                    }
                 return {
                     "state": "blocked",
-                    "reason": ready.reason,
+                    "reason": reason,
                     "setup": "unsupported_setup",
                     "settings_entry": binding.registration.settings_entry,
                 }
         if prepare:
-            return {"state": "ready"}
+            result = {"state": "ready"}
+            if prepared is not None:
+                result["readiness"] = prepared
+            return result
         await self._authorize(scope, action, origin, inputs)
         # Audit intent before creating durable work. Recovery has its own
         # authorization check; a probe never grants permission to execute.

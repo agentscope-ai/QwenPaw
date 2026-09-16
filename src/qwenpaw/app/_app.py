@@ -337,6 +337,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     from ..pawapp.tasks.runtime import HostTaskRuntime
     from ..pawapp.tasks.continuation import ContinuationWorker
     from ..pawapp.tasks.routes import HostOrigins, workspace_enabled
+    from ..pawapp.setup import SetupCoordinator
     from ..plugins.registry import PluginRegistry
 
     task_root = Path(WORKING_DIR) / "pawapp"
@@ -351,6 +352,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         task_root / "handoffs.sqlite3",
         app.state.pawapp_artifacts,
     )
+    app.state.pawapp_setup = SetupCoordinator(
+        checks=PluginRegistry().get_pawapp_setup_checks,
+        entries=PluginRegistry().get_pawapp_setup_entries,
+    )
     app.state.pawapp_tasks = HostTaskRuntime(
         await TaskStore.open(task_root / "tasks.sqlite3"),
         policy=FileTaskPolicy(task_root / "task-policy.json"),
@@ -358,6 +363,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         authorize_origin=app.state.pawapp_task_origins,
         artifacts=app.state.pawapp_artifacts,
         handoffs=app.state.pawapp_handoffs,
+        setup=app.state.pawapp_setup,
     )
     from ..pawapp.capabilities import CapabilityBroker
 

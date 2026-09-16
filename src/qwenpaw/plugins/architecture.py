@@ -147,7 +147,7 @@ class PawAppRuntimeSection(BaseModel):
             for name in values
         ):
             raise ValueError(
-                "PawApp capability names must be unique and non-empty"
+                "PawApp capability names must be unique and non-empty",
             )
         skill_ids = [skill.id for skill in self.host_skills]
         if len(skill_ids) != len(set(skill_ids)):
@@ -158,8 +158,48 @@ class PawAppRuntimeSection(BaseModel):
             for ref in skill.tool_refs
         ):
             raise ValueError(
-                "PawApp Skill tool_refs must be unique and non-empty"
+                "PawApp Skill tool_refs must be unique and non-empty",
             )
+        return self
+
+
+class PawAppSetupEntry(BaseModel):
+    """Static declaration for one App-owned setup presentation target."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1, max_length=256)
+    entry_ref: str = Field(min_length=1, max_length=256)
+    focus: str = Field(min_length=1, max_length=256)
+    presentations: List[
+        Literal["chat_card", "secure_form", "app_entry"]
+    ] = Field(min_length=1)
+    context_schema_version: str = Field(
+        default="pawapp:setup-context@1",
+        min_length=1,
+        max_length=256,
+    )
+
+    @model_validator(mode="after")
+    def validate_presentations(self) -> "PawAppSetupEntry":
+        if len(self.presentations) != len(set(self.presentations)):
+            raise ValueError("PawApp setup presentations must be unique")
+        return self
+
+
+class PawAppConfigurationSection(BaseModel):
+    """Optional generic setup declarations; Apps retain value ownership."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[1] = 1
+    setup_entries: List[PawAppSetupEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_entry_ids(self) -> "PawAppConfigurationSection":
+        ids = [entry.id for entry in self.setup_entries]
+        if len(ids) != len(set(ids)):
+            raise ValueError("PawApp setup entry IDs must be unique")
         return self
 
 
@@ -170,6 +210,7 @@ class PawAppSection(BaseModel):
 
     schema_version: Literal[1] = 1
     runtime: PawAppRuntimeSection = Field(default_factory=PawAppRuntimeSection)
+    configuration: Optional[PawAppConfigurationSection] = None
 
 
 class PluginManifest(BaseModel):
