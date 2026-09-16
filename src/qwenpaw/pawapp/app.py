@@ -363,10 +363,18 @@ class PawApp:  # pylint: disable=too-many-public-methods
         self._prompt_sections: List[dict] = []
         self._workspace_hooks: List[dict] = []
         self._runtime_hooks: List[Any] = []
+        self._task_actions: List[Any] = []
         self._services: List[ManagedService] = []
         self._agent_profiles: List[ManagedAgentProfile] = []
         self.dependencies = DependencyRegistry(lambda: self.app_id)
         self._dependency_agent_tools_enabled = False
+
+    def task_action(self, registration: Any) -> PawApp:
+        """Declare an action; the Host owns grants and adapter lifecycle."""
+        if registration.action.app_id != self.app_id:
+            raise ValueError("task action must belong to this PawApp")
+        self._task_actions.append(registration)
+        return self
 
     def enable_standard_capabilities(self) -> PawApp:
         """Opt into namespaced chat, storage, toast, and notify routes.
@@ -776,6 +784,9 @@ class PawApp:  # pylint: disable=too-many-public-methods
         registrations now.
         """
         self._plugin_api = api
+
+        for registration in self._task_actions:
+            api.register_task_action(registration)
 
         # Create app_id injector dependency
         app_id_injector = Depends(_make_app_id_injector(self.app_id))

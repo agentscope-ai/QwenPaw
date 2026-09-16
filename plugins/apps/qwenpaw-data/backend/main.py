@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
+from qwenpaw.pawapp.tasks.binding import ActionRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,7 @@ if __package__ and __package__.startswith("plugin_"):
     )
     from .backend.context_gateway import ContextGateway
     from .backend.engine_gateway import EngineGateway
+    from .backend.task_bridge import DataTaskAdapter, data_action_descriptor
     from .backend.runtime import (
         context_python,
         context_working_dir,
@@ -79,6 +81,10 @@ else:
     )
     from backend.context_gateway import ContextGateway  # noqa: E402
     from backend.engine_gateway import EngineGateway  # noqa: E402
+    from backend.task_bridge import (  # noqa: E402
+        DataTaskAdapter,
+        data_action_descriptor,
+    )
     from backend.runtime import (  # noqa: E402
         context_python,
         context_working_dir,
@@ -310,6 +316,17 @@ def _engine_endpoint() -> tuple[str, str]:
     )
     return _engine_service.base_url, token
 
+
+app.task_action(
+    ActionRegistration(
+        action=data_action_descriptor(),
+        factory=lambda: DataTaskAdapter(
+            _engine_endpoint,
+            executor_id="qwenpaw-data.engine",
+        ),
+        settings_entry="/apps/qwenpaw-data",
+    ),
+)
 
 _bridge_store = BridgeSessionStore(path=APP_DATA_DIR / "bridge_sessions.json")
 _bridge_client = EngineClient(_engine_endpoint)

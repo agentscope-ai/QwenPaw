@@ -31,6 +31,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..pawapp.tasks.routes import router as pawapp_task_router
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
@@ -327,6 +328,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.plugin_loader = None
     app.state.plugin_registry = None
 
+    from ..pawapp.tasks.store import TaskStore
+    from ..pawapp.tasks.policy import FileTaskPolicy
+    from ..pawapp.tasks.runtime import HostTaskRuntime
+    from ..pawapp.tasks.routes import HostOrigins, workspace_enabled
+    from ..plugins.registry import PluginRegistry
+
+    task_root = Path(WORKING_DIR) / "pawapp"
+    app.state.pawapp_task_origins = HostOrigins(
+        workspace_registry,
+        workspace_enabled,
+    )
+    app.state.pawapp_tasks = HostTaskRuntime(
+        await TaskStore.open(task_root / "tasks.sqlite3"),
+        policy=FileTaskPolicy(task_root / "task-policy.json"),
+        registrations=PluginRegistry().get_task_actions,
+        authorize_origin=app.state.pawapp_task_origins,
+    )
+
     async def _get_agent_by_id(agent_id: str = None):
         """Get agent instance by ID, or active agent if not specified."""
         if agent_id is None:
@@ -529,6 +548,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         exc_info=True,
                     )
 
+            # Managed App services have started; recovery may now attach.
+            await app.state.pawapp_tasks.start()
+
             # ---- Approval Service ----
             try:
                 default_agent = await workspace_registry.get_agent(
@@ -582,6 +604,9 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             _bg_task.cancel()
             with suppress(asyncio.CancelledError):
                 await _bg_task
+
+        # Stop consumers and pools before plugins stop their Engines.
+        await app.state.pawapp_tasks.aclose()
 
         logger.info("Stopping BackupManager...")
         await backup_manager.shutdown()
@@ -844,6 +869,8 @@ async def post_desktop_shutdown(
 
 
 app.include_router(api_router, prefix="/api")
+
+app.include_router(pawapp_task_router, prefix="/api")
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order

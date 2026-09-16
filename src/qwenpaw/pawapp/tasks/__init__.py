@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""PawApp vNext task persistence primitives (not yet public HTTP routes)."""
+"""PawApp vNext durable task contracts and coordinator."""
 
 from .contracts import (
     ActionDescriptor,

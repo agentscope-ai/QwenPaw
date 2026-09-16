@@ -587,6 +587,12 @@ class PluginApi:  # pylint: disable=too-many-public-methods
                 f"(priority={priority})",
             )
 
+    def register_task_action(self, registration: Any) -> None:
+        """Register a server-owned PawApp task adapter factory."""
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._registry.register_task_action(self.plugin_id, registration)
+
     def register_http_router(
         self,
         router: Any,

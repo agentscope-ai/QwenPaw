@@ -175,6 +175,72 @@ def test_registered_contract_matches_design_fixture():
     )
 
 
+@pytest.mark.parametrize(
+    "model,items,reason",
+    [
+        (
+            {"readiness_version": 1, "model_configured": True},
+            [{"id": "sales", "status": "ready"}],
+            None,
+        ),
+        (
+            {"readiness_version": 1, "model_configured": False},
+            [],
+            "analysis_model_missing",
+        ),
+        (
+            {"readiness_version": 1, "model_configured": True},
+            [],
+            "datasource_missing",
+        ),
+        (
+            {"readiness_version": 1, "model_configured": True},
+            [{"id": "payroll", "status": "ready"}],
+            "datasource_missing",
+        ),
+        (
+            {"readiness_version": 1, "model_configured": "true"},
+            [],
+            "readiness_unsupported",
+        ),
+    ],
+)
+async def test_readiness_is_scoped_read_only_and_uses_analysis_model(
+    submission,
+    model,
+    items,
+    reason,
+):
+    def handler(request):
+        assert request.method == "GET"
+        assert request.headers[
+            "X-User-Id"
+        ] == BRIDGE.DataTaskAdapter.identity_namespace(
+            submission.handle.scope,
+        )
+        if request.url.path.endswith("/submissions"):
+            return httpx.Response(200, json=CAPS)
+        if request.url.path.endswith("/analysis"):
+            return httpx.Response(200, json=model)
+        assert request.url.path == "/api/v1/datasources"
+        return httpx.Response(200, json={"items": items})
+
+    adapter = BRIDGE.DataTaskAdapter(
+        lambda: ("http://engine.test", "test-token"),
+        executor_id="engine",
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        ready = await adapter.readiness(
+            submission.handle.scope,
+            submission.inputs,
+        )
+        assert ready.state == ("blocked" if reason else "ready")
+        assert ready.reason == reason
+    finally:
+        await adapter.aclose()
+
+
 async def test_submit_uses_durable_endpoint_and_scope_stamp(submission):
     requests = []
     adapter = client(submission, requests=requests)

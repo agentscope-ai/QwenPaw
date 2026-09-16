@@ -155,8 +155,71 @@ class DataTaskAdapter:
             raise TaskStoreError("unsupported_engine_protocol")
 
     async def check_compatibility(self, scope: TaskScope) -> None:
-        """Read-only probe for future Host readiness/registration wiring."""
+        """Read-only durable submission protocol probe."""
         await self._check_protocol(self._connection(scope))
+
+    async def readiness(self, scope: TaskScope, inputs: dict):
+        """Check analysis model configuration and DataBridge source presence.
+
+        A configured model/source is not a successful connectivity or SQL
+        probe. Provider calls and SQL execute only after explicit dispatch.
+        """
+        from qwenpaw.pawapp.tasks.binding import Readiness
+
+        try:
+            connection = self._connection(scope)
+            await self._check_protocol(connection)
+            model = await self._json(
+                connection,
+                "GET",
+                "/api/v1/capabilities/analysis",
+            )
+            if (
+                type(model.get("readiness_version")) is not int
+                or model["readiness_version"] != 1
+                or type(model.get("model_configured")) is not bool
+            ):
+                return Readiness(
+                    state="blocked",
+                    reason="readiness_unsupported",
+                )
+            if not model["model_configured"]:
+                return Readiness(
+                    state="blocked",
+                    reason="analysis_model_missing",
+                )
+            sources = await self._json(
+                connection,
+                "GET",
+                "/api/v1/datasources",
+            )
+            items = sources.get("items")
+            if not isinstance(items, list):
+                return Readiness(
+                    state="blocked",
+                    reason="datasource_unavailable",
+                )
+            found = any(
+                isinstance(item, dict)
+                and item.get("id") == inputs.get("datasource_id")
+                and item.get("status") == "ready"
+                for item in items
+            )
+            return (
+                Readiness(state="ready")
+                if found
+                else Readiness(
+                    state="blocked",
+                    reason="datasource_missing",
+                )
+            )
+        except TaskStoreError as exc:
+            reason = (
+                "readiness_unsupported"
+                if exc.code == "engine_http_404"
+                else exc.code
+            )
+            return Readiness(state="blocked", reason=reason)
 
     def _lookup(self, payload: dict, submission_id: str) -> SubmissionLookup:
         if (

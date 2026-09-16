@@ -1,8 +1,8 @@
 # PawApp vNext task runtime
 
-The internal `qwenpaw.pawapp.tasks` package implements the Host storage and
-adapter boundary for P1a. It is not registered with the application lifecycle,
-HTTP routes, Main Agent tools or Data Console yet. The Data
+The `qwenpaw.pawapp.tasks` package provides durable Host tasks, authenticated
+HTTP dispatch and recovery through the Host lifecycle. Main Agent tools and
+Data Console task cards are separate gates. The Data
 [adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
 implements this boundary against the Engine's durable submission API. Its
 server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json);
@@ -13,7 +13,8 @@ neither the descriptor nor adapter registration is a permission grant.
 The Host creates one `TaskStore` at a Host-owned path in its working directory
 using `await TaskStore.open(path)`. SQLite owns task facts, action/input snapshots,
 submission identities, run mappings, events, replay cursors and delivery receipts.
-The file uses schema version 1; unsupported versions are rejected. Connections
+The file uses schema version 2, with an additive migration from version 1 for
+boundary audit records; unsupported versions are rejected. Connections
 use WAL, full synchronous commits and short transactions on worker threads.
 
 `app/task_tracker.py` continues to track active Main Chat execution and stream
@@ -23,17 +24,31 @@ removed; they did not provide durable task endpoints.
 
 ## Registration and dispatch
 
+Apps declare `app.task_action(ActionRegistration(...))`. The plugin registry
+checks ownership and stores the descriptor, adapter factory and local App settings
+entry. Registration does not construct the adapter, probe services or grant access.
+The Host owns `app.state.pawapp_tasks`, backed by `<WORKING_DIR>/pawapp/tasks.sqlite3`.
+After managed services start, its supervisor reconciles nonterminal tasks and
+attaches event consumers. Shutdown cancels consumers and closes adapter pools
+before plugin shutdown stops the Engines. Plugin unload/replacement removes the
+action from dispatch immediately; the supervisor stops its consumers and closes
+the old adapter on its next synchronization. It does not cancel Engine work.
+
+The supervisor permits up to 32 simultaneous consumers, retries unresolved work
+with a minimum five-second delay, and pages through recoverable tasks. This is a
+single Host process lifecycle; distributed worker leases remain a separate gate.
+
 - Register an `ActionDescriptor` and its `TaskAdapter` on `TaskCoordinator` at
   Host startup. The descriptor contains the App/action IDs, supported engagements,
   JSON Schema 2020-12 input schema, permission tags, effects, output types and
   server-owned adapter reference. Schemas must be self-contained; remote `$ref`
   resolution is prohibited. The Host stores a digest of the descriptor snapshot.
 - The coordinator requires an asynchronous `authorize(scope, action, origin, inputs)`
-  callback. The production binding must check Host policy, datasource/resource
-  permissions and ownership of the referenced originating session. Scope must
+  callback. The Host binding checks explicit grants, input resource constraints
+  and ownership of the originating ChatSpec. Scope must
   come from authenticated Host context, not from request JSON or model output.
-  There is no default allow policy. The example's permission tags still need a
-  production policy mapping. The callback receives independent descriptor/input
+  There is no default allow policy. Grants pin the complete descriptor digest,
+  including permission tags and effects. The callback receives independent descriptor/input
   snapshots so resource checks cannot change the submitted operation.
 - `dispatch(scope, action_id, request_id=..., inputs=..., origin=...)` validates
   the registered input schema and persists the task before invoking its adapter.
@@ -44,6 +59,84 @@ removed; they did not provide durable task endpoints.
 - `begin_submission` persists a send intent before external I/O. Only one
   concurrent dispatcher wins this initial transition. An in-flight record after a
   crash means the outcome needs reconciliation; it does not prove acceptance.
+
+## HTTP boundary and operator grants
+
+Routes use the existing Host `AuthMiddleware` and `get_scoped_ctx`. Every supplied
+user/channel/App/workspace claim must agree with the resolved scope, including
+duplicate query/header claims. Task reads and event replay match all three scope
+identities. Origin lookup checks the enabled workspace, ChatSpec owner, console
+channel and active chat source. Direct requires App ownership metadata and its
+session namespace; Delegated requires a Main Chat. Session return references are
+derived by Host, never supplied in the body.
+
+The base path is `/api/pawapps/{app_id}/workspaces/{workspace_id}`:
+
+| Method and suffix | Result |
+| --- | --- |
+| `GET /actions/{action_id}` | Authorized descriptor and digest for schema injection. |
+| `POST /actions/{action_id}/prepare` | Readiness only; creates no task or grant. |
+| `POST /actions/{action_id}/tasks` | `202` with a durable task handle, or `200` with a structured blocked result. |
+| `GET /tasks/{task_id}` | Scoped task handle and current text snapshot. |
+| `GET /tasks/{task_id}/events?after=0&limit=100` | Ordered replay after the Host event sequence; maximum page size 1000. |
+
+Both POST bodies accept only `request_id`, `chat_id`, `engagement` and `inputs`.
+For example, use an existing owned Main Chat ID with:
+
+```json
+{
+  "request_id": "analysis-request-1",
+  "chat_id": "<existing-chat-id>",
+  "engagement": "delegated",
+  "inputs": {"text": "Analyze revenue", "datasource_id": "sales"}
+}
+```
+
+Until the grant UI is implemented, the operator provisions
+`<WORKING_DIR>/pawapp/task-policy.json`. Missing or invalid policy grants no
+access. Replace this file atomically when changing it. A minimal scoped grant is:
+
+```json
+{
+  "version": 1,
+  "grants": [{
+    "scope": {
+      "principal_id": "alice",
+      "workspace_id": "sales",
+      "app_id": "qwenpaw-data"
+    },
+    "action_id": "analyze",
+    "descriptor_digest": "<reviewed-action-descriptor-digest>",
+    "input_values": {"datasource_id": ["sales"]}
+  }]
+}
+```
+
+Compute the digest offline from the reviewed descriptor using
+`ActionDescriptor.model_validate_json(...).descriptor_digest`; the Data fixture
+is `docs/design/pawapp-vnext-data-action.example.json`. A changed descriptor
+requires a new grant. `input_values` constrains exact string input values;
+omitting it grants the action for all input resources in that scope. Policy is
+checked on each request and before recovery. It is a temporary explicit operator
+policy, not a settings/approval UI or the full Skill/Tool permission bridge.
+
+Host auth-disabled/bootstrap/trusted-host modes retain their existing behavior:
+the principal is `default` when middleware supplies no authenticated user. That
+identity still requires its own explicit grant and owned chat. These APIs add no
+new authentication bypass. Same-process malicious plugin isolation is not claimed.
+
+Data readiness checks durable submission compatibility, the Engine's actual
+analysis-model configuration, and presence of the selected datasource in DataBridge.
+It makes no provider or SQL query. Missing configuration yields `state: blocked`,
+a reason, `setup: unsupported_setup`, and the registered App settings entry.
+No task or latent execution is created: the caller explicitly retries after setup.
+Readiness is rechecked immediately before each submission attempt. An already
+accepted or uncertain request keeps its durable identity even when setup changes.
+Readiness is not a connectivity guarantee or an authorization grant.
+
+The `task_audit` table records dispatch intent, blocked outcomes and authorization
+denials with scope and request identity, without prompts, credentials or output.
+Task creation separately persists the request-to-task mapping and event history.
 
 ## Required executor protocol
 
@@ -70,7 +163,7 @@ registration is restored. Query failures preserve task state and recorded output
 Data's legacy `EngineClient.create_chat` remains the existing chat path. The
 task adapter uses `POST /api/v1/submissions` and requires the Engine's explicit
 protocol-1 capability probe. The verified development Engine is
-[`90a374a`](https://github.com/cyruszhang/QwenPaw-Data/commit/90a374ab77b3d6e4de20c8e8f13b30507e914ec1)
+[`89cc1d2`](https://github.com/cyruszhang/QwenPaw-Data/commit/89cc1d2c65983d4c0135b8db6f5f4ba712e2d55e)
 on `dev/pawapp-vnext-engine`; no published minimum compatible version is claimed.
 See the [Data adapter contract and integration command](pawapp-data-task-adapter.md).
 
@@ -113,9 +206,15 @@ provider call. The tests verify both engagements, concurrent delegation,
 uncertain submissions, Host store reopen, and forced Engine restart. They do
 not exercise a live Main Agent, UI, or analytical tools.
 
-Remaining integration includes authenticated routes and origin/resource binding,
-policy and denial auditing, readiness/blocked responses, enabling the Data adapter
-in the App lifecycle, task cards and Main Agent tools, durable answer/cancel receipts,
+`test_task_runtime.py` verifies HTTP authentication, forged scope claims,
+cross-user reads, origin/resource denial, blocked setup without latent work,
+idempotency, lifecycle recovery, unload and schema migration.
+`test_pawapp_task_dispatch.py` verifies authenticated Host HTTP dispatch through
+the real separate Engine process for both engagements, with controlled execution
+and a fixture datasource catalog.
+
+Remaining integration includes task cards and Main Agent tools, a grant UI,
+durable answer/cancel receipts,
 continuation worker leases and destination deduplication, and the Host/public plus
 App/private Skill/Tool runtime bridge. These are still P1a gates. Artifact Canvas
 and cross-App Exchange are not part of this implementation.

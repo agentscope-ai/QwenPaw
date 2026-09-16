@@ -166,6 +166,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_sections: List[PromptSectionRegistration] = []
         self._prompt_section_names: set = set()
         self._workspace_manager: Optional[Any] = None
+        self._task_actions: Dict[tuple, Any] = {}
 
         self._initialized = True
 
@@ -907,6 +908,29 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 f"unloaded)",
             )
 
+    def register_task_action(self, plugin_id: str, registration: Any) -> None:
+        """Declare an action without starting or authorizing its runtime."""
+        from qwenpaw.pawapp.tasks.binding import ActionRegistration
+
+        if not isinstance(registration, ActionRegistration):
+            raise ValueError("invalid task action registration")
+        action = registration.action
+        if action.app_id != plugin_id:
+            raise ValueError("task action must belong to its plugin")
+        key = (plugin_id, action.action_id)
+        if key in self._task_actions:
+            raise ValueError("task action already registered")
+        # Freeze a serialized copy: plugin-side descriptor edits cannot change
+        # the action after the Host has granted its digest.
+        self._task_actions[key] = ActionRegistration(
+            action=type(action).model_validate_json(action.model_dump_json()),
+            factory=registration.factory,
+            settings_entry=registration.settings_entry,
+        )
+
+    def get_task_actions(self) -> Dict[tuple, Any]:
+        return self._task_actions.copy()
+
     def register_plugin_manifest(
         self,
         plugin_id: str,
@@ -959,6 +983,11 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
 
         self._unregister_plugin_http_routes(plugin_id)
         self._unregister_plugin_channels(plugin_id)
+        self._task_actions = {
+            key: value
+            for key, value in self._task_actions.items()
+            if key[0] != plugin_id
+        }
 
         try:
             removed_memory = memory_registry.unregister_owner(plugin_id)

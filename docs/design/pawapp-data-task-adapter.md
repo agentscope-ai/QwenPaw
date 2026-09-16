@@ -2,9 +2,9 @@
 
 The Data App's `backend/task_bridge` package connects `TaskCoordinator` to
 Engine submission protocol 1. It can submit, reconcile, and consume independent
-analysis tasks in Direct or Delegated mode. Lifecycle registration, public
-dispatch routes, Main Agent tools, and UI are separate gates; importing the
-adapter does not enable an action.
+analysis tasks in Direct or Delegated mode. The Data App declares its action
+through `PawApp.task_action`; Host owns adapter lifecycle, scoped HTTP dispatch,
+grants, readiness and recovery. Main Agent tools and UI remain separate gates.
 
 ## Binding and compatibility
 
@@ -17,20 +17,31 @@ The Host binding supplies:
   retains the ID. Replacing/resetting the database is not transparent failover.
 - `data_action_descriptor()` and an explicit Host authorization callback.
   The descriptor supports `analyze(text, datasource_id)` and both engagements.
-  Its permission tags still require production resource-policy mapping.
+  The Host grant pins its descriptor digest and can constrain datasource IDs.
 - Ownership of the adapter's connection pool: call `await adapter.aclose()`
   during shutdown after task consumers stop.
 
 The adapter probes `GET /api/v1/capabilities/submissions` before each operation.
 Only protocol version 1 with durable submission and replay support is accepted.
 Older Engines and JSON mode cannot fall back to the legacy session/chat POSTs.
-`check_compatibility(scope)` is available to the future readiness binding;
+`check_compatibility(scope)` is available to the Host readiness binding;
 unsupported submission raises `unsupported_engine_protocol` before POST.
-Rendering a blocked result and an App settings entry still belongs to the Host
-readiness/UI gate.
+`readiness(scope, inputs)` additionally requires
+`GET /api/v1/capabilities/analysis` readiness version 1, checks the Engine's
+analysis model configuration, then finds the requested source in
+`GET /api/v1/datasources`. Older readiness endpoints block explicitly. These
+read-only checks do not invoke a model or execute SQL. The Engine checks the same
+local Agent Configuration/environment fallback used by independent runs; the
+DataBridge semantic model is a separate configuration.
+
+Host returns blocked setup with `/apps/qwenpaw-data` as the App settings entry
+and creates no task until explicit retry succeeds. The entry opens the existing
+Data Console, whose Agent Configuration and datasource pages own setup in P1a.
+There is no Host-native setup form yet. See the
+[runtime routes and operator grant contract](pawapp-task-runtime.md).
 
 The current verified Engine source is
-[`90a374a`](https://github.com/cyruszhang/QwenPaw-Data/commit/90a374ab77b3d6e4de20c8e8f13b30507e914ec1).
+[`89cc1d2`](https://github.com/cyruszhang/QwenPaw-Data/commit/89cc1d2c65983d4c0135b8db6f5f4ba712e2d55e).
 This is a development dependency, not a released minimum version. Host and Engine
 run in separate dependency environments and communicate only over HTTP/SSE.
 

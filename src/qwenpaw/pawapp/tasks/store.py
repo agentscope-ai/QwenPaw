@@ -35,7 +35,19 @@ from .contracts import (
 )
 
 _T = TypeVar("_T")
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+_AUDIT_SCHEMA = """CREATE TABLE task_audit (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at REAL NOT NULL,
+    principal_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    app_id TEXT NOT NULL,
+    action_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    request_id TEXT,
+    task_id TEXT
+)"""
 _SCHEMA = (
     """CREATE TABLE tasks (
         task_id TEXT PRIMARY KEY,
@@ -118,6 +130,8 @@ class TaskStore:
             if version == 0:
                 for statement in _SCHEMA:
                     connection.execute(statement)
+            if version in (0, 1):
+                connection.execute(_AUDIT_SCHEMA)
                 connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             elif version != _SCHEMA_VERSION:
                 raise TaskStoreError("unsupported_store_version")
@@ -312,6 +326,84 @@ class TaskStore:
     async def get(self, scope: TaskScope, task_id: str) -> TaskSubmission:
         return await self._run(
             lambda connection: self._get(connection, scope, task_id),
+        )
+
+    async def find_request(
+        self,
+        scope: TaskScope,
+        request_id: str,
+    ) -> TaskSubmission | None:
+        def operation(connection):
+            row = connection.execute(
+                """SELECT submission_json FROM tasks WHERE principal_id = ?
+                AND workspace_id = ? AND app_id = ? AND request_id = ?""",
+                (
+                    scope.principal_id,
+                    scope.workspace_id,
+                    scope.app_id,
+                    request_id,
+                ),
+            ).fetchone()
+            return (
+                TaskSubmission.model_validate_json(row["submission_json"])
+                if row
+                else None
+            )
+
+        return await self._run(operation)
+
+    async def recoverable(
+        self,
+        *,
+        after: str = "",
+        limit: int = 100,
+    ) -> list[TaskSubmission]:
+        """Host lifecycle scan, never exposed as an unscoped HTTP listing."""
+        if not 1 <= limit <= 1000:
+            raise ValueError("invalid recovery page size")
+
+        def operation(connection):
+            rows = connection.execute(
+                """SELECT submission_json FROM tasks WHERE task_id > ?
+                AND json_extract(submission_json, '$.handle.status')
+                NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+                ORDER BY task_id LIMIT ?""",
+                (after, limit),
+            ).fetchall()
+            return [TaskSubmission.model_validate_json(row[0]) for row in rows]
+
+        return await self._run(operation)
+
+    async def audit(
+        self,
+        scope: TaskScope,
+        action_id: str,
+        operation: str,
+        outcome: str,
+        *,
+        request_id: str | None = None,
+        task_id: str | None = None,
+    ) -> None:
+        """Persist decisions without prompts, credentials or output."""
+        await self._run(
+            lambda connection: connection.execute(
+                """INSERT INTO task_audit
+                (created_at, principal_id, workspace_id, app_id, action_id,
+                 operation, outcome, request_id, task_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    time.time(),
+                    scope.principal_id,
+                    scope.workspace_id,
+                    scope.app_id,
+                    action_id,
+                    operation,
+                    outcome,
+                    request_id,
+                    task_id,
+                ),
+            ).rowcount,
+            write=True,
         )
 
     async def begin_submission(self, scope: TaskScope, task_id: str) -> bool:

@@ -12,6 +12,7 @@ import asyncio
 import socket
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import uvicorn
 from agentscope.event import (
@@ -21,6 +22,9 @@ from agentscope.event import (
 )
 
 from qwenpaw_data.host.core.api.app import create_app
+from qwenpaw_data.host.core.api.routers.datasources import (
+    get_context_manager_client,
+)
 from qwenpaw_data.host.core.runtime.chat_runtime import ChatRuntime
 from qwenpaw_data.host.core.runtime.envelope import Envelope
 from qwenpaw_data.host.core.stream.output_stream import OutputStream
@@ -30,6 +34,19 @@ def main():
     home = Path(sys.argv[1])
     port_file = Path(sys.argv[2])
     app = create_app(home=home, model=object())
+    app.dependency_overrides[
+        get_context_manager_client
+    ] = lambda: SimpleNamespace(
+        list_datasources=lambda: SimpleNamespace(
+            items=[
+                SimpleNamespace(
+                    datasource_id="sales",
+                    datasource_name="Sales",
+                    datasource_type="test",
+                ),
+            ],
+        ),
+    )
     resume = asyncio.Event()
 
     async def execute(runtime, chat_id, *, identity):
