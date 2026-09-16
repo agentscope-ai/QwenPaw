@@ -1288,6 +1288,16 @@ describe("ChatPage coverage", () => {
     });
     await screen.findByTestId("chat-ui");
 
+    // Rendering the SDK shell does not imply history and ownership are ready.
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    await waitFor(() =>
+      expect(holdOwnershipLock).toHaveBeenCalledWith(
+        "test-session",
+        expect.any(Function),
+        expect.any(AbortSignal),
+      ),
+    );
+
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
     expect(capturedOptions?.sender?.queue).toBeUndefined();
     expect(typeof beforeSubmit).toBe("function");
