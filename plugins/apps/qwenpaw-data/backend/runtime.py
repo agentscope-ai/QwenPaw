@@ -151,7 +151,11 @@ def provision_engine_mcp(
     with os.fdopen(fd, "r+", encoding="utf-8") as mcp_file:
         if not stat.S_ISREG(os.fstat(mcp_file.fileno()).st_mode):
             raise OSError(f"MCP target is not a regular file: {mcp_path}")
-        os.fchmod(mcp_file.fileno(), 0o600)
+        # Windows has no os.fchmod; the token file there relies on the
+        # user-profile ACLs applied at creation.
+        fchmod = getattr(os, "fchmod", None)
+        if fchmod is not None:
+            fchmod(mcp_file.fileno(), 0o600)
 
         entries: list[dict] = []
         try:
