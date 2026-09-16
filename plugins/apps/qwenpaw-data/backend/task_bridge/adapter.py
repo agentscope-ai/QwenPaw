@@ -46,7 +46,7 @@ def data_action_descriptor() -> ActionDescriptor:
             "required": ["text", "datasource_id"],
             "additionalProperties": False,
         },
-        output_types=("text/plain",),
+        output_types=("text/plain", "qwenpaw:file"),
         permissions=("data.analysis.execute", "data.datasource.read"),
         effects=("model_usage", "datasource_query"),
         adapter_ref="qwenpaw-data.analysis.v1",
@@ -157,6 +157,7 @@ class DataTaskAdapter:
             or caps["protocol_version"] != 1
             or caps.get("durable_submissions") is not True
             or caps.get("event_replay") is not True
+            or caps.get("artifact_handoff") is not True
             or (
                 self._capability_bridge is not None
                 and caps.get("scoped_host_capabilities") is not True
@@ -381,6 +382,51 @@ class DataTaskAdapter:
         except TaskStoreError:
             # Only the explicit, validated not_found response permits a retry.
             return SubmissionLookup(state="unknown")
+
+    async def _download_artifact(
+        self,
+        submission: TaskSubmission,
+        artifact: dict[str, Any],
+    ) -> bytes:
+        connection = self._connection(submission.handle.scope)
+        base, headers = connection
+        run = submission.handle.executor_run_ref
+        if run is None:
+            raise TaskStoreError("artifact_run_missing")
+        try:
+            response = await self._client.get(
+                f"{base}/api/v1/sessions/{run.session_id}/artifacts/file",
+                headers=headers,
+                params={
+                    "path": artifact["path"],
+                    "digest": artifact["digest"],
+                },
+            )
+        except httpx.TransportError:
+            raise TaskStoreError("engine_unavailable") from None
+        if not response.is_success:
+            raise TaskStoreError(
+                f"engine_artifact_http_{response.status_code}",
+            )
+        content = response.content
+        if len(content) > 64 * 1024 * 1024:
+            raise TaskStoreError("artifact_too_large")
+        return content
+
+    async def materialize_event(self, submission, event, artifacts):
+        """Copy executor files into immutable Host storage before commit."""
+        source = event.detail.get("artifact")
+        if source is None:
+            return event
+        content = await self._download_artifact(submission, source)
+        ref = await artifacts.publish(submission, source, content)
+        detail = {
+            key: value
+            for key, value in event.detail.items()
+            if key != "artifact"
+        }
+        detail["artifact_ref"] = ref.model_dump(mode="json")
+        return event.model_copy(update={"detail": detail})
 
     async def attach(
         self,

@@ -6,13 +6,126 @@ import type { BuiltinCardProps } from "./index";
 import {
   getPawAppTask,
   isTerminalTask,
+  pawAppArtifactUrl,
+  type PawAppArtifactRef,
   parsePawAppTaskResult,
   type PawAppTask,
   type PawAppTaskResult,
 } from "../../../../api/modules/pawappTasks";
+import { buildAuthHeaders } from "../../../../api/authHeaders";
 import { addRouterBasename } from "../../../../utils/navigationMode";
+import { downloadFileFromUrl } from "../../../../utils/downloadFileFromUrl";
 import styles from "./PawAppTaskCard.module.less";
 import GenericToolCard from "./GenericToolCard";
+
+const MAX_REPORT_PREVIEW_BYTES = 2 * 1024 * 1024;
+
+function ArtifactItem({
+  appId,
+  workspaceId,
+  artifact,
+}: {
+  appId: string;
+  workspaceId: string;
+  artifact: PawAppArtifactRef;
+}) {
+  const { t } = useTranslation();
+  const [preview, setPreview] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const canPreview =
+    artifact.size_bytes <= MAX_REPORT_PREVIEW_BYTES &&
+    ["text/html", "text/markdown", "text/plain"].includes(artifact.media_type);
+  const url = pawAppArtifactUrl(
+    appId,
+    workspaceId,
+    artifact.artifact_id,
+    artifact.version,
+  );
+
+  const loadPreview = async () => {
+    if (preview !== null) {
+      setPreview(null);
+      return;
+    }
+    setLoading(true);
+    setError(false);
+    try {
+      const response = await fetch(url, { headers: buildAuthHeaders() });
+      if (!response.ok) throw new Error(String(response.status));
+      setPreview(await response.text());
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const download = async () => {
+    setError(false);
+    try {
+      await downloadFileFromUrl(
+        pawAppArtifactUrl(
+          appId,
+          workspaceId,
+          artifact.artifact_id,
+          artifact.version,
+          "download",
+        ),
+        artifact.name,
+        { headers: buildAuthHeaders(), preferResponseFilename: true },
+      );
+    } catch {
+      setError(true);
+    }
+  };
+
+  const htmlPreview =
+    artifact.media_type === "text/html" && preview !== null
+      ? `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">${preview}`
+      : null;
+
+  return (
+    <li>
+      <div className={styles.artifactHeader}>
+        <strong>{artifact.name}</strong>
+        <span>
+          {t("tool.pawappTask.artifactMeta", {
+            version: artifact.version,
+            size: artifact.size_bytes,
+          })}
+        </span>
+      </div>
+      <div className={styles.artifactActions}>
+        {canPreview && (
+          <button type="button" onClick={() => void loadPreview()}>
+            {t(
+              preview === null
+                ? "tool.pawappTask.previewArtifact"
+                : "tool.pawappTask.hideArtifact",
+            )}
+          </button>
+        )}
+        <button type="button" onClick={() => void download()}>
+          {t("tool.pawappTask.downloadArtifact")}
+        </button>
+      </div>
+      {loading && <small>{t("tool.pawappTask.loadingArtifact")}</small>}
+      {error && <small>{t("tool.pawappTask.artifactUnavailable")}</small>}
+      {htmlPreview !== null && (
+        <iframe
+          className={styles.reportPreview}
+          sandbox=""
+          srcDoc={htmlPreview}
+          title={artifact.name}
+        />
+      )}
+      {preview !== null && htmlPreview === null && (
+        <pre className={styles.textPreview}>{preview}</pre>
+      )}
+    </li>
+  );
+}
 
 function TaskCard({
   content,
@@ -142,6 +255,23 @@ function TaskCard({
                 )}
               </div>
               <pre className={styles.result}>{task.text_result}</pre>
+            </div>
+          )}
+          {!!task?.output_refs?.length && appId && workspaceId && (
+            <div>
+              <div className={styles.resultLabel}>
+                {t("tool.pawappTask.artifacts")}
+              </div>
+              <ul className={styles.artifacts}>
+                {task.output_refs.map((artifact) => (
+                  <ArtifactItem
+                    key={`${artifact.artifact_id}:${artifact.version}`}
+                    appId={appId}
+                    workspaceId={workspaceId}
+                    artifact={artifact}
+                  />
+                ))}
+              </ul>
             </div>
           )}
           {task && (

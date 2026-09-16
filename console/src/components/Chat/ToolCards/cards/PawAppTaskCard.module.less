@@ -59,6 +59,71 @@
   margin: 0;
   font: inherit;
 }
+.artifacts {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    padding: 8px;
+  }
+
+  a {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  span {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+}
+.artifactHeader,
+.artifactActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.artifactHeader strong {
+  overflow-wrap: anywhere;
+}
+.artifactActions {
+  justify-content: flex-start;
+
+  button {
+    border: 0;
+    background: transparent;
+    color: var(--app-accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: underline;
+  }
+}
+.reportPreview {
+  width: 100%;
+  min-height: 280px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: #fff;
+}
+.textPreview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  font: inherit;
+}
 .identifier {
   overflow-wrap: anywhere;
   color: var(--app-text-secondary);

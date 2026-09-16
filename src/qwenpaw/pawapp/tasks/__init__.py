@@ -3,6 +3,8 @@
 
 from .contracts import (
     ActionDescriptor,
+    ArtifactProducer,
+    ArtifactRef,
     ExecutorEvent,
     ExecutorRunRef,
     TaskDelivery,
@@ -28,6 +30,8 @@ from .coordinator import (
 
 __all__ = [
     "ActionDescriptor",
+    "ArtifactProducer",
+    "ArtifactRef",
     "ExecutorEvent",
     "ExecutorRunRef",
     "TaskDelivery",

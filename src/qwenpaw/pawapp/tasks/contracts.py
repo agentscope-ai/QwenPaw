@@ -145,6 +145,33 @@ class ExecutorRunRef(Contract):
     run_id: Identity
 
 
+class ArtifactProducer(Contract):
+    """Stable provenance for one App-published artifact version."""
+
+    app_id: Identity
+    action_id: Identity
+    task_id: Identity
+    executor_id: Identity
+    session_id: Identity
+    run_id: Identity
+    source_id: Identity
+
+
+class ArtifactRef(Contract):
+    """Reference to an immutable version in the Host artifact store."""
+
+    schema_version: Literal[1] = 1
+    artifact_id: Identity
+    type: Identity
+    version: int = Field(ge=1)
+    name: Annotated[str, Field(min_length=1, max_length=512)]
+    media_type: Annotated[str, Field(min_length=1, max_length=256)]
+    size_bytes: int = Field(ge=0)
+    digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+    producer: ArtifactProducer
+    created_at: float
+
+
 class TaskInputOption(Contract):
     label: Annotated[str, Field(min_length=1, max_length=1000)]
     description: Annotated[str, Field(max_length=2000)] = ""
@@ -243,6 +270,7 @@ class TaskHandle(Contract):
     executor_sequence: int | None = Field(default=None, ge=0)
     event_sequence: int = Field(default=0, ge=0)
     text_result: str | None = None
+    output_refs: tuple[ArtifactRef, ...] = ()
     input_request: TaskInputRequest | None = None
     cancel_requested: bool = False
     created_at: float

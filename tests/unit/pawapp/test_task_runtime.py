@@ -3,6 +3,7 @@
 """HTTP authorization, blocked setup and lifecycle recovery invariants."""
 
 import asyncio
+import hashlib
 import sqlite3
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -13,6 +14,8 @@ from fastapi import FastAPI
 
 from qwenpaw.app import auth
 from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.pawapp.artifact_routes import router as artifact_router
+from qwenpaw.pawapp.artifacts import ArtifactStore
 from qwenpaw.pawapp.tasks import (
     CommandLookup,
     ExecutorEvent,
@@ -162,6 +165,7 @@ async def host(tmp_path, monkeypatch):
         ).model_dump_json(),
     )
     store = await TaskStore.open(tmp_path / "tasks.db")
+    artifacts = await ArtifactStore.open(tmp_path / "artifacts")
     runs = {}
     adapters = []
 
@@ -184,14 +188,17 @@ async def host(tmp_path, monkeypatch):
             policy=FileTaskPolicy(policy_path),
             registrations=lambda: registrations,
             authorize_origin=origins,
+            artifacts=artifacts,
             interval=0.01,
         )
 
     app = FastAPI()
     app.add_middleware(auth.AuthMiddleware)
     app.include_router(router, prefix="/api")
+    app.include_router(artifact_router, prefix="/api")
     app.state.pawapp_task_origins = origins
     app.state.pawapp_tasks = runtime(store)
+    app.state.pawapp_artifacts = artifacts
     await app.state.pawapp_tasks.start()
     await app.state.pawapp_tasks.describe(SCOPE, "analyze")
     async with httpx.AsyncClient(
@@ -209,6 +216,7 @@ async def host(tmp_path, monkeypatch):
             policy_path=policy_path,
             runtime=runtime,
             chats=chats,
+            artifacts=artifacts,
         )
     await app.state.pawapp_tasks.aclose()
 
@@ -220,6 +228,40 @@ async def settled(host, task_id):
             if item.handle.status == "succeeded":
                 return item
             await asyncio.sleep(0.01)
+
+
+async def test_artifact_content_rejects_another_principal(host):
+    response = await host.client.post(
+        PREFIX + "/actions/analyze/tasks",
+        json=BODY,
+    )
+    task_id = response.json()["task"]["task_id"]
+    submission = await settled(host, task_id)
+    content = b"report"
+    ref = await host.artifacts.publish(
+        submission,
+        {
+            "source_id": "source-1",
+            "name": "report.md",
+            "path": "reports/report.md",
+            "media_type": "text/markdown",
+            "size_bytes": len(content),
+            "digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+        },
+        content,
+    )
+    path = (
+        PREFIX
+        + f"/artifacts/{ref.artifact_id}/versions/{ref.version}/content"
+    )
+    allowed = await host.client.get(path)
+    assert allowed.status_code == 200
+    assert allowed.content == content
+    forbidden = await host.client.get(
+        path,
+        headers={"Authorization": "Bearer bob-token"},
+    )
+    assert forbidden.status_code == 404
 
 
 @pytest.mark.asyncio

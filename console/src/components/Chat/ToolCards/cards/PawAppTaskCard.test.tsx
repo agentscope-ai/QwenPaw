@@ -69,6 +69,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 const flush = () =>
@@ -262,5 +263,48 @@ describe("PawApp task cards", () => {
       ),
     ).toBeNull();
     expect(parsePawAppTaskResult("{invalid")).toBeNull();
+  });
+
+  it("loads an authorized HTML artifact into a sandboxed preview", async () => {
+    const complete: PawAppTask = {
+      ...task,
+      status: "succeeded",
+      event_sequence: 3,
+      text_result: "Report ready",
+      output_refs: [
+        {
+          schema_version: 1,
+          artifact_id: "artifact-1",
+          type: "qwenpaw:file",
+          version: 2,
+          name: "report.html",
+          media_type: "text/html",
+          size_bytes: 32,
+          digest: `sha256:${"a".repeat(64)}`,
+        },
+      ],
+    };
+    api.mockResolvedValue(complete);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response("<h1>Quarterly report</h1>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<PawAppTaskCard content={content(complete)} />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "tool.pawappTask.previewArtifact" }),
+    );
+    await flush();
+
+    expect(fetchMock.mock.calls[0][0]).toContain(
+      "/api/pawapps/qwenpaw-data/workspaces/sales/artifacts/artifact-1/versions/2/content",
+    );
+    const preview = screen.getByTitle("report.html");
+    expect(preview.getAttribute("sandbox")).toBe("");
+    expect(preview.getAttribute("srcdoc")).toContain("default-src 'none'");
+    expect(preview.getAttribute("srcdoc")).toContain("Quarterly report");
   });
 });

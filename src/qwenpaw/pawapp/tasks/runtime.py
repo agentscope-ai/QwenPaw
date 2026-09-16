@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 class _ReadyAdapter:
     """Recheck readiness immediately before every new submission attempt."""
 
-    def __init__(self, adapter):
+    def __init__(self, adapter, artifacts):
         self.adapter = adapter
+        self.artifacts = artifacts
         self.submission_protocol_version = adapter.submission_protocol_version
 
     async def submit(self, submission):
@@ -35,8 +36,14 @@ class _ReadyAdapter:
     async def query(self, submission):
         return await self.adapter.query(submission)
 
-    def attach(self, submission):
-        return self.adapter.attach(submission)
+    async def attach(self, submission):
+        async for event in self.adapter.attach(submission):
+            materialize = getattr(self.adapter, "materialize_event", None)
+            if materialize is not None:
+                if self.artifacts is None:
+                    raise TaskStoreError("artifact_store_unavailable")
+                event = await materialize(submission, event, self.artifacts)
+            yield event
 
     async def command(self, submission, command):
         return await self.adapter.command(submission, command)
@@ -66,12 +73,14 @@ class HostTaskRuntime:
         policy: FileTaskPolicy,
         registrations: Callable[[], dict],
         authorize_origin: AuthorizeOrigin,
+        artifacts=None,
         interval: float = 2.0,
     ):
         self.store = store
         self.policy = policy
         self._registrations = registrations
         self._authorize_origin = authorize_origin
+        self.artifacts = artifacts
         self._interval = interval
         self._bindings: dict[tuple[str, str], _RuntimeBinding] = {}
         self._workers: dict[str, tuple[tuple[str, str], asyncio.Task]] = {}
@@ -129,7 +138,7 @@ class HostTaskRuntime:
                     try:
                         coordinator.register(
                             registration.action,
-                            _ReadyAdapter(adapter),
+                            _ReadyAdapter(adapter, self.artifacts),
                         )
                     except Exception:
                         await adapter.aclose()

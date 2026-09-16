@@ -1,4 +1,5 @@
 import { request } from "../request";
+import { getApiUrl } from "../config";
 
 export const taskStatuses = [
   "pending",
@@ -14,6 +15,17 @@ export const taskStatuses = [
 ] as const;
 export type PawAppTaskStatus = (typeof taskStatuses)[number];
 
+export interface PawAppArtifactRef {
+  schema_version: 1;
+  artifact_id: string;
+  type: string;
+  version: number;
+  name: string;
+  media_type: string;
+  size_bytes: number;
+  digest: string;
+}
+
 export interface PawAppTask {
   task_id: string;
   action_id: string;
@@ -22,6 +34,7 @@ export interface PawAppTask {
   recovery_state: "none" | "reconciling" | "unresolved";
   event_sequence: number;
   text_result: string | null;
+  output_refs?: PawAppArtifactRef[];
 }
 
 export interface PawAppTaskResult {
@@ -61,8 +74,44 @@ export function isPawAppTask(value: unknown): value is PawAppTask {
     ) &&
     Number.isSafeInteger(value.event_sequence) &&
     Number(value.event_sequence) >= 0 &&
-    (value.text_result === null || typeof value.text_result === "string")
+    (value.text_result === null || typeof value.text_result === "string") &&
+    (value.output_refs === undefined ||
+      (Array.isArray(value.output_refs) &&
+        value.output_refs.every(
+          (ref) =>
+            record(ref) &&
+            ref.schema_version === 1 &&
+            identity(ref.artifact_id) &&
+            identity(ref.type) &&
+            Number.isSafeInteger(ref.version) &&
+            Number(ref.version) >= 1 &&
+            typeof ref.name === "string" &&
+            ref.name.length > 0 &&
+            typeof ref.media_type === "string" &&
+            ref.media_type.length > 0 &&
+            Number.isSafeInteger(ref.size_bytes) &&
+            Number(ref.size_bytes) >= 0 &&
+            typeof ref.digest === "string" &&
+            /^sha256:[0-9a-f]{64}$/.test(ref.digest),
+        )))
   );
+}
+
+export function pawAppArtifactUrl(
+  appId: string,
+  workspaceId: string,
+  artifactId: string,
+  version: number,
+  disposition: "preview" | "download" = "preview",
+): string {
+  const path = `/pawapps/${encodeURIComponent(
+    appId,
+  )}/workspaces/${encodeURIComponent(
+    workspaceId,
+  )}/artifacts/${encodeURIComponent(
+    artifactId,
+  )}/versions/${version}/content?disposition=${disposition}`;
+  return getApiUrl(path);
 }
 
 export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {

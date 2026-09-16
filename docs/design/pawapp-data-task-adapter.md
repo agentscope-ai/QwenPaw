@@ -26,9 +26,13 @@ The Host binding supplies:
 - A deterministic, signed capability envelope bound to the submitted Host task.
   Engines must advertise `scoped_host_capabilities: true`; the adapter refuses
   older engines before it sends a submission containing this envelope.
+- A Host-owned immutable artifact store. Engines must advertise
+  `artifact_handoff: true`; registered files are copied and verified before
+  their references enter the durable task.
 
 The adapter probes `GET /api/v1/capabilities/submissions` before each operation.
-Only protocol version 1 with durable submission and replay support is accepted.
+Only protocol version 1 with durable submission, replay, and artifact handoff
+support is accepted.
 Answer/cancel operations additionally require `durable_commands: true`.
 Older Engines and JSON mode cannot fall back to the legacy session/chat POSTs.
 `check_compatibility(scope)` is available to the Host readiness binding;
@@ -47,10 +51,10 @@ Data Console, whose Agent Configuration and datasource pages own setup in P1a.
 There is no Host-native setup form yet. See the
 [runtime routes and operator grant contract](pawapp-task-runtime.md).
 
-The current verified Engine source is
-[`2696936`](https://github.com/cyruszhang/QwenPaw-Data/commit/2696936).
-This is a development dependency, not a released minimum version. Host and Engine
-run in separate dependency environments and communicate only over HTTP/SSE.
+The compatible Engine must include the `artifact_handoff` submission capability
+and digest-bound artifact reads. This is a development dependency, not yet a
+released minimum version. Host and Engine run in separate dependency
+environments and communicate only over HTTP/SSE.
 
 ## Scope and recovery
 
@@ -97,6 +101,14 @@ Host sends a durable answer, replay rebuilds the same projection, observes the
 matching plugin output, clears the pending request, and continues the original
 run.
 
+An `artifact.registered` frame must carry the exact session/run identity,
+normalized relative path, media type, byte size, and SHA-256 digest. The adapter
+requests that path with the expected digest under the task's Engine identity.
+The Engine rejects another identity and rejects a file that changed after the
+event. Host then verifies the bytes again and publishes a content-addressed,
+immutable `ArtifactRef`. Replay of the same source artifact returns the same
+reference; a later registration of the same logical path creates a new version.
+
 The adapter maps response outcomes as follows:
 
 | Engine response | Host status |
@@ -115,14 +127,21 @@ linear replay of historical events on each attachment; projection checkpoints
 can optimize this later. Engine's watermark is never used to skip unconsumed
 events.
 
-The coordinator commits projected status, text, typed input request, cursor,
-Host event, and delivery intents together. Direct creates App-session updates.
+The coordinator commits projected status, text, typed input request, output
+references, cursor, Host event, and delivery intents together. Direct creates
+App-session updates.
 Delegated also creates a continuation job for the original Main Chat on waiting
 and terminal transitions. The Host's
 leased worker delivers a tool-free summary after the chat becomes idle, with
 prepared-result replay and destination receipts. Answer/cancel commands use the
-Engine's scoped durable receipt endpoints; artifacts and rich cards are not
-projected by this slice.
+Engine's scoped durable receipt endpoints. The task card lists artifact versions,
+downloads authorized content, and previews text/Markdown or sandboxed HTML.
+
+Protocol 1 permits at most 64 MiB per artifact, 128 artifact versions, and
+256 MiB of referenced bytes per task. Published versions follow task retention;
+there is no automatic deletion in this slice. Host reads always revalidate the
+stored digest and return the same not-found response for missing and inaccessible
+references. Read attempts are audited without storing artifact content.
 
 ## Verification
 

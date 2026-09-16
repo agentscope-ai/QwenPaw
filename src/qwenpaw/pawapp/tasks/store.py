@@ -20,6 +20,7 @@ from .contracts import (
     TERMINAL_STATUSES,
     WAITING_STATUSES,
     ActionDescriptor,
+    ArtifactRef,
     ExecutorEvent,
     ExecutorRunRef,
     RecoveryState,
@@ -845,7 +846,30 @@ class TaskStore:
                 if event.text_result is not None
                 else handle.text_result
             )
-            if status == "succeeded" and result is None:
+            output_refs = list(handle.output_refs)
+            artifact_payload = event.detail.get("artifact_ref")
+            if artifact_payload is not None:
+                try:
+                    artifact_ref = ArtifactRef.model_validate(artifact_payload)
+                except ValueError:
+                    raise TaskStoreError("invalid_artifact_ref") from None
+                producer = artifact_ref.producer
+                if (
+                    artifact_ref.type not in submission.action.output_types
+                    or producer.app_id != handle.scope.app_id
+                    or producer.action_id != handle.action_id
+                    or producer.task_id != handle.task_id
+                    or handle.executor_run_ref is None
+                    or producer.executor_id
+                    != handle.executor_run_ref.executor_id
+                    or producer.session_id
+                    != handle.executor_run_ref.session_id
+                    or producer.run_id != handle.executor_run_ref.run_id
+                ):
+                    raise TaskStoreError("invalid_artifact_ref")
+                if artifact_ref not in output_refs:
+                    output_refs.append(artifact_ref)
+            if status == "succeeded" and result is None and not output_refs:
                 raise TaskStoreError("result_required")
             input_request = handle.input_request
             if event.status == "waiting_for_input":
@@ -868,6 +892,7 @@ class TaskStore:
                 update={
                     "status": status,
                     "text_result": result,
+                    "output_refs": tuple(output_refs),
                     "input_request": input_request,
                     "replay_cursor": event.cursor,
                     "executor_sequence": event.sequence,

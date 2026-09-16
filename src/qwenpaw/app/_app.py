@@ -33,6 +33,7 @@ from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..pawapp.tasks.routes import router as pawapp_task_router
 from ..pawapp.capability_routes import router as pawapp_capability_router
+from ..pawapp.artifact_routes import router as pawapp_artifact_router
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
@@ -330,6 +331,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.plugin_registry = None
 
     from ..pawapp.tasks.store import TaskStore
+    from ..pawapp.artifacts import ArtifactStore
     from ..pawapp.tasks.policy import FileTaskPolicy
     from ..pawapp.tasks.runtime import HostTaskRuntime
     from ..pawapp.tasks.continuation import ContinuationWorker
@@ -341,11 +343,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         workspace_registry,
         workspace_enabled,
     )
+    app.state.pawapp_artifacts = await ArtifactStore.open(
+        task_root / "artifacts",
+    )
     app.state.pawapp_tasks = HostTaskRuntime(
         await TaskStore.open(task_root / "tasks.sqlite3"),
         policy=FileTaskPolicy(task_root / "task-policy.json"),
         registrations=PluginRegistry().get_task_actions,
         authorize_origin=app.state.pawapp_task_origins,
+        artifacts=app.state.pawapp_artifacts,
     )
     from ..pawapp.capabilities import CapabilityBroker
 
@@ -888,6 +894,7 @@ async def post_desktop_shutdown(
 app.include_router(api_router, prefix="/api")
 
 app.include_router(pawapp_task_router, prefix="/api")
+app.include_router(pawapp_artifact_router, prefix="/api")
 app.include_router(pawapp_capability_router, prefix="/api")
 
 # These registrations require the fully constructed application instance.

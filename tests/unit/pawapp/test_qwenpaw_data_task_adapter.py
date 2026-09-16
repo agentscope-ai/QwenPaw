@@ -5,11 +5,13 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 import httpx
 import pytest
 
+from qwenpaw.pawapp.artifacts import ArtifactStore
 from qwenpaw.pawapp.tasks import (
     ActionDescriptor,
     ExecutorRunRef,
@@ -27,6 +29,7 @@ CAPS = {
     "durable_submissions": True,
     "event_replay": True,
     "durable_commands": True,
+    "artifact_handoff": True,
 }
 REF = ExecutorRunRef(
     executor_id="data:test",
@@ -139,6 +142,7 @@ def client(
     query=None,
     capabilities=None,
     requests=None,
+    artifact_content=None,
 ):
     def handler(request):
         if requests is not None:
@@ -154,6 +158,10 @@ def client(
                 text=wire(events),
                 headers={"content-type": "text/event-stream"},
             )
+        if request.url.path.endswith("/artifacts/file"):
+            if artifact_content is None:
+                return httpx.Response(404)
+            return httpx.Response(200, content=artifact_content)
         return httpx.Response(
             200,
             json=receipt(submission) if query is None else query,
@@ -171,6 +179,59 @@ async def collect(adapter, submission):
         return [event async for event in adapter.attach(submission)]
     finally:
         await adapter.aclose()
+
+
+async def test_materializes_registered_artifact_before_task_commit(
+    submission,
+    tmp_path,
+):
+    content = b"# Analysis report\n"
+    digest = "sha256:" + hashlib.sha256(content).hexdigest()
+    requests = []
+    adapter = client(
+        submission,
+        requests=requests,
+        artifact_content=content,
+        events=frames(
+            {
+                "object": "artifact.registered",
+                "artifact": {
+                    "id": "artifact-source-1",
+                    "session_id": REF.session_id,
+                    "chat_id": REF.run_id,
+                    "name": "report.md",
+                    "path": "reports/report.md",
+                    "media_type": "text/markdown",
+                    "size_bytes": len(content),
+                    "digest": digest,
+                },
+            },
+            {"object": "response", "status": "completed"},
+        ),
+    )
+    artifacts = await ArtifactStore.open(tmp_path / "artifacts")
+    try:
+        projected = [event async for event in adapter.attach(submission)]
+        published = await adapter.materialize_event(
+            submission,
+            projected[0],
+            artifacts,
+        )
+    finally:
+        await adapter.aclose()
+
+    ref = published.detail["artifact_ref"]
+    assert ref["name"] == "report.md"
+    assert ref["digest"] == digest
+    artifact_request = next(
+        request
+        for request in requests
+        if request.url.path.endswith("/artifacts/file")
+    )
+    assert artifact_request.url.params["digest"] == digest
+    assert artifact_request.headers["x-user-id"] == adapter.identity_namespace(
+        submission.handle.scope,
+    )
 
 
 def test_registered_contract_matches_design_fixture():

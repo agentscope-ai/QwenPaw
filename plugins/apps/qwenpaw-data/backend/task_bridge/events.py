@@ -4,11 +4,14 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from qwenpaw.pawapp.tasks import ExecutorEvent, ExecutorRunRef, TaskStoreError
 from qwenpaw.pawapp.tasks.contracts import content_digest
+
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 def _invalid() -> TaskStoreError:
@@ -138,7 +141,8 @@ class TextProjection:
         elif kind == "content":
             self._content(frame)
         elif kind == "response":
-            if not isinstance(frame.get("status"), str):
+            response_status = frame.get("status")
+            if not isinstance(response_status, str):
                 raise _invalid()
             status = {
                 "created": "running",
@@ -146,7 +150,7 @@ class TextProjection:
                 "completed": "succeeded",
                 "failed": "failed",
                 "cancelled": "cancelled",
-            }.get(frame.get("status"))
+            }.get(response_status)
             if status is None:
                 raise _invalid()
             error = frame.get("error")
@@ -168,12 +172,56 @@ class TextProjection:
                 "cancelled",
                 "interrupted",
             }
+        elif kind == "artifact.registered":
+            artifact = frame.get("artifact")
+            if not isinstance(artifact, dict):
+                raise _invalid()
+            source_id = artifact.get("id")
+            name = artifact.get("name")
+            path = artifact.get("path")
+            media_type = artifact.get("media_type")
+            size_bytes = artifact.get("size_bytes")
+            digest = artifact.get("digest")
+            if (
+                not isinstance(source_id, str)
+                or not source_id
+                or len(source_id) > 256
+                or artifact.get("session_id") != self.run_ref.session_id
+                or artifact.get("chat_id") != self.run_ref.run_id
+                or not isinstance(name, str)
+                or not name
+                or len(name) > 512
+                or name in {".", ".."}
+                or any(char in name for char in "/\\\x00")
+                or not isinstance(path, str)
+                or not path
+                or len(path) > 4096
+                or path.startswith(("/", "~"))
+                or "\\" in path
+                or "\x00" in path
+                or any(part in {"", ".", ".."} for part in path.split("/"))
+                or not isinstance(media_type, str)
+                or not media_type
+                or len(media_type) > 256
+                or type(size_bytes) is not int
+                or not 0 <= size_bytes <= 64 * 1024 * 1024
+                or not isinstance(digest, str)
+                or _DIGEST.fullmatch(digest) is None
+            ):
+                raise _invalid()
+            detail["artifact"] = {
+                "source_id": source_id,
+                "name": name,
+                "path": path,
+                "media_type": media_type,
+                "size_bytes": size_bytes,
+                "digest": digest,
+            }
         elif kind not in {
             "error",
             "task_status",
             "biz_event",
             "segment",
-            "artifact.registered",
             "followup.generated",
         }:
             raise _invalid()
