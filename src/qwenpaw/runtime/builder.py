@@ -637,11 +637,25 @@ class AgentBuilder:
             plugins = getattr(workspace, "plugins", None)
             pm = getattr(plugins, "prompt_manager", None) if plugins else None
             if pm is not None and len(pm) > 0:
-                return pm.build_sync(prompt_ctx)
+                prompt = pm.build_sync(prompt_ctx)
+                return self._append_continuation_prompt(ctx, prompt)
 
         from .prompt_contributors import build_default_prompt_manager
 
-        return build_default_prompt_manager().build_sync(prompt_ctx)
+        prompt = build_default_prompt_manager().build_sync(prompt_ctx)
+        return self._append_continuation_prompt(ctx, prompt)
+
+    @staticmethod
+    def _append_continuation_prompt(ctx: Any, prompt: str) -> str:
+        """Add Host-trusted instructions for automatic task resumption."""
+        from ..pawapp.tasks.continuation import ContinuationTurnContext
+
+        continuation = (getattr(ctx, "extras", {}) or {}).get(
+            "pawapp_continuation",
+        )
+        if not isinstance(continuation, ContinuationTurnContext):
+            return prompt
+        return prompt + "\n\n" + continuation.system_prompt
 
     def build_model(
         self,

@@ -25,6 +25,7 @@ class TaskToolContext:
     workspace_id: str
     chat_id: str
     session_id: str
+    continuation_id: str | None = None
 
     def scope(self, app_id: str) -> TaskScope:
         return TaskScope(
@@ -183,7 +184,19 @@ def make_task_tools(context: TaskToolContext):
                 scope,
                 action_id,
                 request_id="agent_"
-                + content_digest([context.chat_id, request_id]),
+                + content_digest(
+                    (
+                        [
+                            context.chat_id,
+                            context.continuation_id,
+                            app_id,
+                            action_id,
+                            inputs,
+                        ]
+                        if context.continuation_id
+                        else [context.chat_id, request_id]
+                    ),
+                ),
                 inputs=inputs,
                 origin=origin,
             )

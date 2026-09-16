@@ -6,8 +6,8 @@ analysis tasks in Direct or Delegated mode. The Data App declares its action
 through `PawApp.task_action`; Host owns adapter lifecycle, scoped HTTP dispatch,
 grants, readiness and recovery. Main Chat tools and Console task cards now use
 this boundary; see the [Host task runtime](pawapp-task-runtime.md). A durable
-Host worker delivers automatic, tool-free summaries to the originating Main
-Chat. General Main Agent continuation with follow-on tools remains separate.
+Host worker resumes the originating Main Agent through its normal Runtime and
+governed tools after the Chat becomes idle.
 
 ## Binding and compatibility
 
@@ -132,8 +132,9 @@ references, cursor, Host event, and delivery intents together. Direct creates
 App-session updates.
 Delegated also creates a continuation job for the original Main Chat on waiting
 and terminal transitions. The Host's
-leased worker delivers a tool-free summary after the chat becomes idle, with
-prepared-result replay and destination receipts. Answer/cancel commands use the
+leased worker runs a scoped Main Agent continuation after the chat becomes idle,
+with atomic transcript receipts and stable downstream delegation identity.
+Answer/cancel commands use the
 Engine's scoped durable receipt endpoints. The task card lists artifact versions,
 downloads authorized content, and previews text/Markdown or sandboxed HTML.
 
@@ -184,4 +185,4 @@ Engine process kill/restart, clarification answer/resume, and cancellation with
 retained partial output. This validates the backend protocol, not production
 analytics or UI. `tests/integration/test_pawapp_task_dispatch.py` additionally
 tests authenticated Console ingress through the real Engine into a persisted
-Main Chat summary, using controlled tool calling and summary generation.
+Main Chat continuation, using a controlled provider substitute.

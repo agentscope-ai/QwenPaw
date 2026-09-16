@@ -270,6 +270,18 @@ class Runtime:
         agent = getattr(ctx, "agent", None)
         if agent is None:
             return
+        # A continuation may only save through its leased atomic commit. A
+        # cancellation or failed authority recheck must not persist a partial
+        # automatic turn without its destination receipt.
+        if (
+            getattr(
+                ctx.request,
+                "_pawapp_continuation_context",
+                None,
+            )
+            is not None
+        ):
+            return
         workspace = getattr(ctx, "workspace", None)
         session = getattr(workspace, "session", None) if workspace else None
         if session is None:
@@ -490,7 +502,7 @@ class Runtime:
         root_session_id = getattr(request, "root_session_id", "") or session_id
         root_agent_id = getattr(request, "root_agent_id", "") or agent_id
 
-        return HookContext(
+        ctx = HookContext(
             request=request,
             session_id=session_id,
             agent_id=agent_id,
@@ -501,6 +513,30 @@ class Runtime:
             app_services=self.app_services,
             input_msgs=_request_input_to_msgs(request.input),
         )
+        # This authority object is a Pydantic private attribute created by the
+        # Host worker. Retag its synthetic input after conversion so external
+        # message metadata can never hide arbitrary user messages.
+        from ..pawapp.tasks.continuation import ContinuationTurnContext
+
+        continuation = getattr(
+            request,
+            "_pawapp_continuation_context",
+            None,
+        )
+        if isinstance(continuation, ContinuationTurnContext):
+            from ..constant import (
+                PAWAPP_CONTINUATION_MESSAGE_TAG,
+                QWENPAW_MESSAGE_TAG_KEY,
+            )
+
+            if ctx.input_msgs:
+                metadata = dict(ctx.input_msgs[-1].metadata or {})
+                metadata[
+                    QWENPAW_MESSAGE_TAG_KEY
+                ] = PAWAPP_CONTINUATION_MESSAGE_TAG
+                ctx.input_msgs[-1].metadata = metadata
+            ctx.extras["pawapp_continuation"] = continuation
+        return ctx
 
     @staticmethod
     def _apply_context_injections(ctx: HookContext) -> None:

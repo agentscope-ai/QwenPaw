@@ -14,7 +14,13 @@ from agentscope.message import Msg, TextBlock
 from agentscope.state import AgentState
 
 from qwenpaw.app.chats.session import SafeJSONSession
+from qwenpaw.app.chats.utils import agentscope_msg_to_message
 from qwenpaw.app.task_tracker import TaskTracker
+from qwenpaw.constant import (
+    PAWAPP_CONTINUATION_MESSAGE_TAG,
+    QWENPAW_MESSAGE_TAG_KEY,
+)
+from qwenpaw.hooks.session.session_hook import SessionSaveHook
 from qwenpaw.pawapp.tasks import (
     ExecutorEvent,
     ExecutorRunRef,
@@ -27,6 +33,8 @@ from qwenpaw.pawapp.tasks.continuation import (
 )
 from qwenpaw.pawapp.tasks.continuation_store import ContinuationQueue
 from qwenpaw.runtime._state_utils import StateProxy
+from qwenpaw.runtime.builder import AgentBuilder
+from qwenpaw.runtime.runtime import Runtime
 from tests.unit.pawapp.test_task_runtime import (
     host as host_fixture,
     settled,
@@ -87,6 +95,178 @@ async def history(setup):
         "alice",
         "console",
     )
+
+
+def install_agent_turn(
+    setup,
+    *,
+    crash_after_write=False,
+    entered=None,
+    release=None,
+):
+    """Install a controlled ordinary Runtime turn for continuation tests."""
+    calls = []
+
+    async def stream_query(request):
+        calls.append(request)
+        runtime_ctx = Runtime(
+            workspace=setup.workspace,
+            app_services=None,
+        )._build_context(request)
+        continuation = request._pawapp_continuation_context
+        assert request._pawapp_task_context.continuation_id == (
+            continuation.claim.run_id
+        )
+        assert (
+            runtime_ctx.input_msgs[-1].metadata[QWENPAW_MESSAGE_TAG_KEY]
+            == PAWAPP_CONTINUATION_MESSAGE_TAG
+        )
+        assert "untrusted data" in continuation.system_prompt
+        assert continuation.system_prompt in (
+            AgentBuilder._append_continuation_prompt(runtime_ctx, "base")
+        )
+        state = AgentState(
+            context=[
+                *runtime_ctx.input_msgs,
+                Msg(
+                    name="QwenPaw",
+                    role="assistant",
+                    content=[TextBlock(text="Data analysis completed: 42.")],
+                ),
+            ],
+        )
+        hook_ctx = SimpleNamespace(
+            extras={},
+            request=request,
+            workspace=setup.workspace,
+            agent=SimpleNamespace(
+                state_dict=lambda: {"state": state.model_dump(mode="json")},
+            ),
+            session_id=request.session_id,
+            mode_state={},
+        )
+        if entered is not None:
+            entered.set()
+            yield SimpleNamespace(
+                model_dump_json=lambda: json.dumps(
+                    {"object": "message", "status": "in_progress"},
+                ),
+            )
+            await release.wait()
+        await SessionSaveHook().run(hook_ctx)
+        if crash_after_write:
+            raise AssertionError("crash injection did not fire")
+        yield SimpleNamespace(
+            model_dump_json=lambda: json.dumps(
+                {"object": "response", "status": "completed"},
+            ),
+        )
+
+    setup.workspace.stream_query = stream_query
+    return calls
+
+
+@pytest.mark.asyncio
+async def test_new_jobs_resume_through_full_runtime_with_scoped_tools(setup):
+    await submit(setup)
+    worker = ContinuationWorker(
+        setup.host.app.state.pawapp_tasks,
+        setup.worker.origins,
+    )
+    worker.queue.clock = lambda: setup.now[0]
+    calls = install_agent_turn(setup)
+    try:
+        await worker.deliver(await worker.queue.claim())
+        assert len(calls) == 1
+        saved = await history(setup)
+        context = saved["agent"]["state"]["context"]
+        assert len(context) == 2
+        assert context[0]["metadata"][QWENPAW_MESSAGE_TAG_KEY] == (
+            PAWAPP_CONTINUATION_MESSAGE_TAG
+        )
+        assert context[1]["content"][0]["text"] == (
+            "Data analysis completed: 42."
+        )
+        assert (
+            len(
+                agentscope_msg_to_message(
+                    [Msg.model_validate(item) for item in context],
+                ),
+            )
+            == 1
+        )
+        assert await worker.queue.claim() is None
+    finally:
+        await worker.aclose()
+
+
+@pytest.mark.asyncio
+async def test_agent_turn_live_output_waits_for_atomic_commit(setup):
+    await submit(setup)
+    worker = ContinuationWorker(
+        setup.host.app.state.pawapp_tasks,
+        setup.worker.origins,
+    )
+    worker.queue.clock = lambda: setup.now[0]
+    entered, release = asyncio.Event(), asyncio.Event()
+    install_agent_turn(setup, entered=entered, release=release)
+    delivery = asyncio.create_task(
+        worker.deliver(await worker.queue.claim()),
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), 3)
+        tracker = setup.workspace.task_tracker
+        queue = await tracker.attach("main")
+        assert "replay_end" in await queue.get()
+        assert queue.empty()
+        assert not await history(setup)
+        release.set()
+        events = []
+        async for data in tracker.stream_from_queue(queue, "main"):
+            assert (await history(setup))["agent"]["state"]["context"]
+            events.append(json.loads(data.removeprefix("data: ")))
+        await delivery
+        assert events[0]["object"] == "message"
+        assert events[-1]["status"] == "completed"
+    finally:
+        release.set()
+        await worker.aclose()
+
+
+@pytest.mark.asyncio
+async def test_agent_turn_receipt_recovers_crash_without_rerunning_tools(
+    setup,
+    monkeypatch,
+):
+    await submit(setup)
+    worker = ContinuationWorker(
+        setup.host.app.state.pawapp_tasks,
+        setup.worker.origins,
+    )
+    worker.queue.clock = lambda: setup.now[0]
+    calls = install_agent_turn(setup, crash_after_write=True)
+    original = worker.queue.commit
+
+    async def crash_after_write(claim, destination):
+        def write_then_crash(prepared):
+            destination(prepared)
+            raise OSError("injected crash after destination write")
+
+        await original(claim, write_then_crash)
+
+    monkeypatch.setattr(worker.queue, "commit", crash_after_write)
+    try:
+        await worker.deliver(await worker.queue.claim())
+        assert len(calls) == 1
+        assert len((await history(setup))["agent"]["state"]["context"]) == 2
+        setup.now[0] += 61
+        monkeypatch.setattr(worker.queue, "commit", original)
+        await worker.deliver(await worker.queue.claim())
+        assert len(calls) == 1
+        assert len((await history(setup))["agent"]["state"]["context"]) == 2
+        assert await worker.queue.claim() is None
+    finally:
+        await worker.aclose()
 
 
 @pytest.mark.asyncio
@@ -485,22 +665,24 @@ async def test_resolved_waiting_event_does_not_prompt_for_stale_input(
                 cursor=str(index),
                 status=status,
                 text_result="42" if index else "partial",
-                detail={
-                    "input_request": {
-                        "request_id": "clarification-1",
-                        "questions": [
-                            {
-                                "question": "Which period?",
-                                "options": [
-                                    {"label": "Q1"},
-                                    {"label": "Q2"},
-                                ],
-                            },
-                        ],
-                    },
-                }
-                if index == 0
-                else {},
+                detail=(
+                    {
+                        "input_request": {
+                            "request_id": "clarification-1",
+                            "questions": [
+                                {
+                                    "question": "Which period?",
+                                    "options": [
+                                        {"label": "Q1"},
+                                        {"label": "Q2"},
+                                    ],
+                                },
+                            ],
+                        },
+                    }
+                    if index == 0
+                    else {}
+                ),
             ),
         )
         if index == 0 and prepared:

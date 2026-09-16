@@ -106,6 +106,37 @@ async def test_discover_describe_delegate_and_read(host):
 
 
 @pytest.mark.asyncio
+async def test_continuation_retries_pin_downstream_delegation_identity(host):
+    continuation = TaskToolContext(
+        host.app.state.pawapp_tasks,
+        host.app.state.pawapp_task_origins,
+        "alice",
+        "sales",
+        "main",
+        "main-session",
+        continuation_id="pawapp_continuation_one",
+    )
+    bound = {
+        tool.__name__: FunctionTool(tool)
+        for tool in make_task_tools(continuation)
+    }
+    common = {
+        "app_id": SCOPE.app_id,
+        "action_id": "analyze",
+        "inputs": BODY["inputs"],
+    }
+    first = payload(
+        await bound["delegate"](**common, request_id="model-attempt-one"),
+    )
+    retry = payload(
+        await bound["delegate"](**common, request_id="model-attempt-two"),
+    )
+    assert first["task"]["task_id"] == retry["task"]["task_id"]
+    await settled(host, first["task"]["task_id"])
+    assert len(host.runs) == 1
+
+
+@pytest.mark.asyncio
 async def test_answer_tool_uses_typed_pending_request_and_durable_identity(
     host,
 ):
@@ -357,6 +388,10 @@ async def test_ingress_authority_survives_channel_but_not_json(host, tmp_path):
         )._pawapp_task_context
         is None
     )
+    forged_continuation = AgentRequest.model_validate(
+        {"_pawapp_continuation_context": {"task_id": "forged"}},
+    )
+    assert forged_continuation._pawapp_continuation_context is None
     forged = {**native, "sender_id": "bob"}
     await bind_task_tools(
         request,

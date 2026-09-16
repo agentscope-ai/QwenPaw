@@ -3,8 +3,8 @@
 The `qwenpaw.pawapp.tasks` package provides durable Host tasks, authenticated
 HTTP dispatch and recovery through the Host lifecycle. Main Chat can discover
 granted actions, delegate tasks and follow their progress in Console task cards.
-Delegated waiting/terminal updates queue automatic, tool-free summaries in the
-originating Main Chat.
+Delegated waiting/terminal updates queue automatic, scoped Main Agent turns in
+the originating Main Chat.
 The Data
 [adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
 implements this boundary against the Engine's durable submission API. Its
@@ -271,11 +271,13 @@ retry. Recovery and partial output never imply successful completion. Setup link
 are constructed from the App ID, not from a tool-supplied external URL. English
 and Chinese labels are included; malformed results use the generic tool card.
 
-Delegated waiting/terminal transitions schedule an assistant summary using
-the workspace's configured model and language. The summary is appended to the
-originating Main Chat when it becomes idle. This worker calls the model without
-tools or runtime hooks. The next Main Chat turn can use the separately bound
-answer/cancel tools; arbitrary follow-on action execution remains a separate gate.
+Delegated waiting/terminal transitions schedule a server-created Main Agent turn
+in the originating Chat when it becomes idle. The turn passes through the normal
+Runtime, so the agent receives its standard governed tools plus the task tools
+bound to that principal, workspace and Chat. A Host-owned system instruction
+treats every task-event field as untrusted data. Follow-on work is allowed only
+when the user's existing request and current policy already authorize it; the App
+result does not grant new authority.
 
 ## Events and recovery
 
@@ -314,40 +316,46 @@ acknowledgment is idempotent and persists separately after the destination has
 durably recorded the event identity. These receipts do not promise exactly-once
 LLM computation or arbitrary tool side effects.
 
-## Durable Main Chat summaries
+## Durable Main Chat continuation
 
 `ContinuationWorker` starts after the Host task runtime and stops before it.
 Each continuation job snapshots the App/action/task IDs, actual status and up
-to 16,000 characters of text. The prompt treats these fields as untrusted data
-and reports truncation. It does not forward an App's private history or tools.
-Queued waiting prompts are suppressed if the task has since changed status.
+to 16,000 characters of text. The Host injects a trusted continuation policy
+into the Main Agent system prompt; the structured event remains untrusted user
+data. It does not forward an App's private history or private tools. Queued
+waiting prompts are suppressed if the task has since changed status.
 
 Workers claim jobs with expiring tokens, renew leases while generating and
 recheck ownership before every durable write. Pending jobs serialize per
 principal/workspace/return session. The existing `TaskTracker` also serializes
-them with ordinary user turns: a busy chat defers the summary without attaching
-a subscriber or invoking the model. Authorization, chat ownership and workspace
-availability are checked before generation and again before session commit.
+them with ordinary user turns: a busy chat defers the continuation without
+attaching a subscriber or invoking the model. Authorization, chat ownership and
+workspace availability are checked before generation and again before session
+commit.
 
-Prepared assistant messages are persisted before delivery, so retries reuse
-the same message and stable run ID. The session appends the message and its
-receipt atomically under its path lock while the SQLite transaction fences
-other delivery workers. If the Host crashes after the session write but before
-outbox acknowledgment, the receipt prevents another append. Ordinary session
-saves preserve these receipts outside model context and compaction. Cancellation
-waits for an in-progress session transaction before releasing the chat lock.
-Only committed messages enter the live SSE stream; reconnect/reload reads the
-durable session. Transport delivery and model computation are not exactly once.
+The worker durably prepares a stable agent-turn identity before invoking the
+Runtime. Session save writes the complete agent state, continuation receipt and
+outbox acknowledgment as one fenced operation under the session path lock. If
+the Host crashes after the session write but before SQLite commit, the receipt
+lets a retry acknowledge the event without rerunning the agent or its tools.
+Ordinary session saves preserve these receipts outside model context and
+compaction. The synthetic event stays in model context but is tagged and omitted
+from the visible user transcript. Live SSE is buffered until commit;
+reconnect/reload reads the durable session.
 
-Model generation has a 120-second timeout and at most three attempts per event.
-A user stop or exhausted attempts halts that job without blocking later updates;
-the task result remains readable in its card and `get_app_task`. There is no
-summary retry UI yet. Authority/configuration/storage failures defer delivery.
-The initial worker supports the `qwenpaw` backend with `SafeJSONSession`; other
-backends and unmigrated legacy-memory sessions defer delivery. Continuation
-workers have durable fences, but ordinary Chat execution still assumes one Host
-process. This is not distributed fencing for all chat writers or unrestricted
-Main Agent tool continuation.
+Generation has at most three attempts per event. A user stop or exhausted
+attempts halts that job without blocking later updates; the task result remains
+readable in its card and `get_app_task`. There is no continuation retry UI yet.
+Authority/configuration/storage failures defer delivery. PawApp delegation from
+a continuation derives its submission identity from the continuation, action
+and inputs, so a model retry cannot create a duplicate downstream App task.
+Other tool side effects retain their normal governance and idempotency semantics;
+a process crash during an uncommitted non-idempotent tool call remains subject to
+that tool's recovery contract. The worker supports the `qwenpaw` backend with
+`SafeJSONSession`; other backends and unmigrated legacy-memory sessions defer
+delivery. Prepared tool-free summaries from older Host versions remain replayable.
+Continuation workers have durable fences, but ordinary Chat execution still
+assumes one Host process rather than distributed Chat writers.
 
 ## Scoped runtime capabilities
 
@@ -428,9 +436,10 @@ the real separate Engine process for both engagements, with controlled execution
 and a fixture datasource catalog. It also exercises Console chat ingress, channel
 request conversion, runtime context, bound agent tools and the card status API
 against that Engine, then delivers the result into the originating Main Chat
-session through the continuation worker. Controlled tool calling and summary
-generation replace model calls; this is not a live-model or browser end-to-end
-test.
+session through the continuation worker. A controlled legacy summary path
+replaces the provider call in this integration fixture; unit coverage exercises
+the full Runtime turn, scoped task tools and atomic agent-state receipt. This is
+not a live-model or browser end-to-end test.
 
 `test_task_continuation.py` covers busy-chat serialization, concurrent claims,
 expired-worker fencing, prepared-result replay, a crash between session commit
@@ -448,5 +457,5 @@ failure, exact command receipts, cancellation, input conflict detection, and
 project/target readiness. Its package verifier covers authenticated project
 handoff routing into the embedded UI.
 
-Remaining integration includes general Main Agent continuation with follow-on
-tools. Artifact Canvas and cross-App Exchange are not part of this implementation.
+The remaining roadmap begins with Artifact Canvas and typed cross-App material
+handoff. Cross-App Exchange is not part of this implementation.
