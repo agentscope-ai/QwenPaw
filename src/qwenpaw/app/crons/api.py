@@ -2,11 +2,9 @@
 from __future__ import annotations
 
 import uuid
-
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from qwenpaw.exceptions import ConfigurationException
 
-from ...utils.daily_telemetry import record_activity
 from .manager import CronManager
 from .models import (
     CronDispatchTargetItem,
@@ -115,7 +113,6 @@ async def create_job(
         raise HTTPException(status_code=409, detail=str(e)) from e
     except (ConfigurationException, ValueError) as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    await record_activity("operation")
     return created
 
 

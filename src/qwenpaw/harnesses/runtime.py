@@ -17,6 +17,7 @@ from ..schemas import (
     MessageType,
     RunStatus,
 )
+from ..utils.daily_telemetry import record_agent_activity
 from .base import HarnessAdapter
 from .capabilities import HarnessCapabilityResolver
 from .events import (
@@ -186,6 +187,7 @@ class HarnessRuntime:
                 )
                 event_stream = self._iter_events(events)
             else:
+                await record_agent_activity()
                 event_stream = adapter.run_turn(
                     session_id=session_id,
                     prompt=prompt,

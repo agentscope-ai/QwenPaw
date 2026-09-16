@@ -69,10 +69,10 @@ We collect only:
 
 No personal data collected! No files, no credentials, no identifiable information.
 This helps us understand QwenPaw's usage environment and prioritize improvements.
-Optional daily Runtime telemetry is separate and disabled by default.
-Run `qwenpaw telemetry enable` to send a persistent random Runtime UUID,
-an active UTC date and the system fields above once per active day.
-Run `qwenpaw telemetry disable` to turn it off.
+When an Agent executes (including scheduled tasks), daily telemetry sends
+these system fields, a persistent random Runtime UUID and the UTC date.
+Each Runtime counts once per active day. This uses the same telemetry choice;
+QWENPAW_TELEMETRY_DISABLED disables both installation and daily telemetry.
 """
 
 

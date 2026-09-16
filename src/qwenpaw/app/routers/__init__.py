@@ -3,7 +3,6 @@
 
 from fastapi import APIRouter
 
-from .telemetry import router as telemetry_router
 from .agents import router as agents_router
 from .config import router as config_router
 from .local_models import router as local_models_router
@@ -39,8 +38,6 @@ from .harnesses import router as harnesses_router
 from .checkpoints import router as checkpoints_router
 
 router = APIRouter()
-
-router.include_router(telemetry_router)
 
 router.include_router(agents_router)
 router.include_router(config_router)

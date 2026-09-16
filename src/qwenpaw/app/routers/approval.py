@@ -9,7 +9,6 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from ...utils.daily_telemetry import record_activity
 from ..approvals import ApprovalActor, PendingApproval, get_approval_service
 from ..approvals.display import approval_display_fields
 from ...security.tool_guard.approval import ApprovalDecision, ApprovalScope
@@ -153,7 +152,6 @@ async def post_approval_approve(
         resolved.tool_name,
     )
 
-    await record_activity("operation")
     return ApprovalActionResponse(
         success=True,
         message=f"Tool '{resolved.tool_name}' approved, executing...",
@@ -225,7 +223,6 @@ async def post_approval_deny(
         resolved.tool_name,
     )
 
-    await record_activity("operation")
     return ApprovalActionResponse(
         success=True,
         message=f"Tool '{resolved.tool_name}' denied: {reason}",

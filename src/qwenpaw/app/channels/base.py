@@ -42,7 +42,6 @@ from .schema import ChannelType
 from .access_control import get_access_control_store
 from ...config.utils import load_config
 from ...utils.logging import sanitize_log_value
-from ...utils.daily_telemetry import record_channel_activity
 
 # Optional callback to enqueue payload (set by manager)
 EnqueueCallback = Optional[Callable[[Any], None]]
@@ -919,7 +918,6 @@ class BaseChannel(ABC):
         self._clear_session_turn_usage(session_id)
 
         await self._before_consume_process(request)
-        await record_channel_activity(request)
 
         last_response = None
         process_iterator = None
@@ -1524,7 +1522,6 @@ class BaseChannel(ABC):
             setattr(request, "channel_meta", meta_from_payload)
         to_handle = self.get_to_handle_from_request(request)
         await self._before_consume_process(request)
-        await record_channel_activity(request)
         # Prefer meta built from payload so session_webhook is present when
         # request.channel_meta is missing (AgentRequest may not have the attr).
         if isinstance(payload, dict):

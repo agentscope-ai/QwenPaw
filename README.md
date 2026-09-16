@@ -548,52 +548,6 @@ QwenPaw collects **anonymous** usage data during `qwenpaw init` to help us under
 
 When running `qwenpaw init` interactively, you will be asked whether to opt in. If you choose `--defaults`, telemetry is accepted automatically. The prompt appears once per version and never affects QwenPaw's functionality.
 
-### Optional daily Runtime activity
-
-Daily telemetry is **disabled by default**, independently of installation
-telemetry. Enable it explicitly for each Runtime:
-
-```bash
-qwenpaw telemetry enable
-qwenpaw telemetry status
-qwenpaw telemetry disable
-```
-
-For container deployments, `QWENPAW_DAILY_TELEMETRY_ENABLED=true` explicitly
-opts in; `false` overrides the saved choice. The existing
-`QWENPAW_TELEMETRY_DISABLED=true` and saved installation opt-out always win.
-These commands use the current `QWENPAW_WORKING_DIR`; for Hub, configure each
-personal Runtime's data directory, not the Hub control plane directory.
-
-On the first real activity of each UTC day, the Runtime sends one
-`runtime_active` event to the existing telemetry endpoint. It includes a
-persistent random Runtime UUID, the active date, Hub/standalone mode, and the
-system fields listed above. Multiple users, channels and Agents in the same
-Runtime count once. Restarting or recreating a container with the same data
-volume preserves the UUID; different Hub Runtimes count separately.
-
-Activity includes visiting the Runtime UI, an accepted channel/Console
-message, and supported explicit operations (channel configuration, task
-creation, approvals). Startup, idle tabs, health checks and automatic jobs do
-not generate activity. No usernames, channel sender IDs, conversation content,
-paths or Hub business IDs are sent. System information describes the Runtime
-process/container, not the user's browser or the Hub host.
-
-The `.daily_telemetry.sqlite3` file in the Runtime data directory stores its
-identity and daily outbox. Failed sends retry for up to seven UTC dates with
-the original date and saved system snapshot. `qwenpaw clean` preserves this
-file and the existing opt-out marker. When cloning an entire Runtime or Hub
-as a new deployment, omit this file and its SQLite sidecars; keep it when
-migrating the same Runtime. Never bake it into a container image. Built-in
-Agent exports/backups do not copy this root-level state; restoring an Agent
-into an existing Runtime retains the destination Runtime identity.
-
-The receiver must accept `runtime_active` separately from installation events,
-acknowledge durable writes, and deduplicate by `(activity_date,
-telemetry_runtime_id)`. Receiver rollout is required before enabling the
-feature in production. These counts measure active Runtimes, not unique people.
-
-
 ---
 
 ## License

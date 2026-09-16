@@ -21,6 +21,7 @@ from typing import Any, AsyncGenerator
 
 from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ..exceptions import ConfigurationException
+from ..utils.daily_telemetry import record_agent_activity
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
@@ -132,6 +133,7 @@ class Runtime:
                     )
                     or "(empty)",
                 )
+                await record_agent_activity()
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
 

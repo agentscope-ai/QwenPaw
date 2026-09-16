@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Opt-in, daily Runtime activity telemetry with a durable outbox."""
+"""Daily Runtime activity telemetry with a durable outbox."""
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import os
 import random
 import sqlite3
 import time
@@ -14,7 +13,6 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 
 from ..constant import EnvVarLoader, WORKING_DIR
 from .telemetry import (
@@ -25,7 +23,6 @@ from .telemetry import (
 
 logger = logging.getLogger(__name__)
 DAILY_TELEMETRY_FILE = ".daily_telemetry.sqlite3"
-ENABLED_ENV = "QWENPAW_DAILY_TELEMETRY_ENABLED"
 _service: DailyTelemetry | None = None
 
 
@@ -48,10 +45,10 @@ def _initialize(directory: Path) -> None:
         db.execute(
             "CREATE TABLE IF NOT EXISTS runtime ("
             "singleton INTEGER PRIMARY KEY CHECK (singleton = 1), "
-            "runtime_id TEXT NOT NULL, enabled INTEGER NOT NULL)",
+            "runtime_id TEXT NOT NULL)",
         )
         db.execute(
-            "INSERT OR IGNORE INTO runtime VALUES (1, ?, 0)",
+            "INSERT OR IGNORE INTO runtime VALUES (1, ?)",
             (str(uuid.uuid4()),),
         )
         db.execute(
@@ -60,28 +57,6 @@ def _initialize(directory: Path) -> None:
             "DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, "
             "next_attempt REAL NOT NULL DEFAULT 0)",
         )
-
-
-def set_daily_telemetry_enabled(directory: Path, enabled: bool) -> None:
-    """Save the Runtime choice without changing its persistent identity."""
-    _initialize(directory)
-    with _connect(directory) as db:
-        db.execute("UPDATE runtime SET enabled = ?", (int(enabled),))
-        if not enabled:
-            db.execute("DELETE FROM activity WHERE sent = 0")
-
-
-def daily_telemetry_enabled(directory: Path) -> bool:
-    """Read consent; raise on storage failure rather than infer opt-out."""
-    if is_telemetry_opted_out(directory):
-        return False
-    if ENABLED_ENV in os.environ:
-        return EnvVarLoader.get_bool(ENABLED_ENV)
-    if not (directory / DAILY_TELEMETRY_FILE).exists():
-        return False
-    # Read failures propagate: they are not permission to delete the outbox.
-    with _connect(directory) as db:
-        return bool(db.execute("SELECT enabled FROM runtime").fetchone()[0])
 
 
 class DailyTelemetry:
@@ -123,7 +98,7 @@ class DailyTelemetry:
             return False
 
     def _record_sync(self, day: str) -> bool:
-        if not daily_telemetry_enabled(self.directory):
+        if is_telemetry_opted_out(self.directory):
             return False
         if not self._initialized:
             _initialize(self.directory)
@@ -158,7 +133,7 @@ class DailyTelemetry:
         """Send due observations, preserving their original date/snapshot."""
         if not (self.directory / DAILY_TELEMETRY_FILE).exists():
             return
-        if not daily_telemetry_enabled(self.directory):
+        if is_telemetry_opted_out(self.directory):
             with _connect(self.directory) as db:
                 db.execute("DELETE FROM activity WHERE sent = 0")
             return
@@ -207,7 +182,7 @@ class DailyTelemetry:
                 if saved is None:
                     continue
                 payload = saved[0]
-            if self._stopping or not daily_telemetry_enabled(self.directory):
+            if self._stopping or is_telemetry_opted_out(self.directory):
                 return
             success = _upload_telemetry_sync(json.loads(payload))
             delay = min(60 * 2 ** min(attempts, 10), 3600)
@@ -231,16 +206,7 @@ def start_daily_telemetry() -> DailyTelemetry:
     return _service
 
 
-async def record_activity(source: str) -> bool:
-    """Accept only explicit human entry points; never count startup/timers."""
-    if source in {"page", "message", "operation"} and _service is not None:
-        return await _service.record()
-    return False
-
-
-async def record_channel_activity(request: Any) -> None:
-    """Called only after a channel has accepted an inbound request."""
-    context = getattr(request, "request_context", None) or {}
-    if context.get("source") or context.get("_spawn_subagent"):
-        return
-    await record_activity("message")
+async def record_agent_activity() -> None:
+    """Record Agent execution regardless of its trigger or channel."""
+    if _service is not None:
+        await _service.record()
