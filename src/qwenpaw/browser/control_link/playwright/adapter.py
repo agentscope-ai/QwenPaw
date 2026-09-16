@@ -140,16 +140,25 @@ def teaching_from_strict_violation(exc: Exception) -> BrowserError | None:
 _DRIVER_DEAD_MARKERS = ("connection closed while reading from the driver",)
 
 
-def _driver_connection_dead(exc: BaseException) -> bool:
-    """Return whether a provider failure means the node driver died."""
-    text = exc.detail if isinstance(exc, BrowserError) else str(exc)
-    if not isinstance(text, str):
+def _driver_connection_dead(driver: Any) -> bool:
+    """Return whether this driver's transport reported a dead connection."""
+    # Playwright has no public driver-health API; this future is completed by
+    # the pipe transport itself, so user-controlled error text cannot spoof it.
+    impl = getattr(driver, "_impl_obj", None)
+    connection = getattr(impl, "_connection", None)
+    transport = getattr(connection, "_transport", None)
+    failure_future = getattr(transport, "on_error_future", None)
+    if (
+        failure_future is None
+        or not failure_future.done()
+        or failure_future.cancelled()
+    ):
         return False
-    primary_line = next(
-        (line.strip().lower() for line in text.splitlines() if line.strip()),
-        "",
-    )
-    return any(marker in primary_line for marker in _DRIVER_DEAD_MARKERS)
+    failure = failure_future.exception()
+    if failure is None:
+        return False
+    failure_text = str(failure).lower()
+    return any(marker in failure_text for marker in _DRIVER_DEAD_MARKERS)
 
 
 class _DriverConnectionLost(Exception):
@@ -229,7 +238,7 @@ class PlaywrightControlLink:
             victim = lost.driver
             failure = lost.cause
         except Exception as exc:
-            if not _driver_connection_dead(exc):
+            if not _driver_connection_dead(victim):
                 raise
             failure = exc
         await self._recover_dead_driver(victim)
@@ -541,7 +550,7 @@ class PlaywrightControlLink:
             self._contexts[owner] = context
         except BaseException as exc:
             self._opening.discard(opening)
-            if isinstance(exc, Exception) and _driver_connection_dead(exc):
+            if isinstance(exc, Exception) and _driver_connection_dead(driver):
                 raise _DriverConnectionLost(driver, exc) from exc
             raise
 
