@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Versioned PawApps install statically and execute only on activation."""
+# pylint: disable=protected-access,redefined-outer-name
 
 import json
 from pathlib import Path
@@ -57,6 +58,53 @@ def write_pawapp(source: Path, sentinel: Path) -> None:
     )
 
 
+def write_configured_pawapp(source: Path) -> None:
+    source.mkdir(parents=True)
+    (source / "plugin.json").write_text(
+        json.dumps(
+            {
+                "id": "configured-app",
+                "name": "Configured App",
+                "version": "1.0.0",
+                "type": "app",
+                "entry": {"backend": "plugin.py", "frontend": "index.js"},
+                "qwenpaw_version": {"min": "0.1.0", "max": "99.0.0"},
+                "pawapp": {
+                    "schema_version": 1,
+                    "configuration": {
+                        "version": 1,
+                        "setup_entries": [
+                            {
+                                "id": "models",
+                                "entry_ref": "configured.models",
+                                "focus": "primary-model",
+                                "presentations": ["app_entry"],
+                            },
+                        ],
+                    },
+                },
+                "meta": {"pawapp": {"entry_page": "/apps/configured-app"}},
+            },
+        ),
+        encoding="utf-8",
+    )
+    (source / "index.js").write_text("export default true", encoding="utf-8")
+    (source / "plugin.py").write_text(
+        "from qwenpaw.pawapp import (PawApp, SetupEntryDescriptor, "
+        "SetupEntryRegistration, SetupOpenAction)\n"
+        "app = PawApp('Configured App', app_id='configured-app')\n"
+        "async def open_setup(request):\n"
+        "    return SetupOpenAction(app_id='configured-app', "
+        "request_id=request.request_id, entry_id=request.entry_id, "
+        "presentation=request.presentation, path='/apps/configured-app')\n"
+        "app.setup_entry(SetupEntryRegistration("
+        "descriptor=SetupEntryDescriptor(id='models', "
+        "entry_ref='configured.models', focus='primary-model', "
+        "presentations=('app_entry',)), opener=open_setup))\n",
+        encoding="utf-8",
+    )
+
+
 @pytest.mark.asyncio
 async def test_install_is_static_until_explicit_activation(
     tmp_path,
@@ -109,6 +157,25 @@ async def test_install_is_static_until_explicit_activation(
     assert active.enabled is True
     assert sentinel.read_text() == "executed"
     dependency_install.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_loader_preserves_typed_pawapp_setup_manifest(
+    tmp_path,
+    fresh_registry,
+):
+    source = tmp_path / "configured-source"
+    write_configured_pawapp(source)
+    loader = PluginLoader([tmp_path])
+    loader.registry = fresh_registry
+
+    record = await loader.load_plugin_from_path(source)
+
+    assert record.enabled is True
+    assert (
+        "configured-app",
+        "models",
+    ) in fresh_registry.get_pawapp_setup_entries()
 
 
 @pytest.mark.asyncio

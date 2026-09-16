@@ -639,7 +639,7 @@ SetupResult {
   <li><strong>两种入口</strong>：Delegated 请求目录清单，摘要回原 Chat；Direct 从 App 浏览目录，结果留在 App。显式目录作为 action 输入；未指定时使用 AppLocal 默认目录，没有默认值时可补问本次目录，或由用户明确选择保存默认设置。</li>
   <li><strong>配置与授权</strong>：默认目录按 principal/workspace 保存并带 revision；设置由 App 界面与检查器处理。读取另验 Host 授权范围，路径规范化后越界拒绝；保存默认目录不会扩大权限。已保存目录不可用时报告缺项或依赖不可用；修复后重新 prepare，不自动启动操作。</li>
   <li><strong>最小实现</strong>：保留目录操作为 App 私有实现，公开 action 只负责输入、授权、任务与结果适配。使用有界列表输出；不为此导出内部 Tool/Skill，也不向 Host 加入文件浏览器专用配置分支。</li>
-  <li><strong>源码边界</strong>：已检查 0.2.3 包；<code>plugin.py:60,104-140</code> 的访问模式是进程级状态，平台模式放宽路径检查，不是 task/workspace grant。适配须把默认目录配置与授权分开，不能直接沿用该状态作为权限判断。<code>plugin.json</code> 声明 Host 版本 2.0.0–2.1.0；实施前需验证目标 Host 兼容性，不能仅放宽版本号。当前仅完成源码映射，未安装或运行验证。</li>
+  <li><strong>源码边界</strong>：已检查 0.2.3 包；<code>plugin.py:60,104-140</code> 的访问模式是进程级状态，平台模式放宽路径检查，不是 task/workspace grant。适配已把默认目录配置与授权分开，没有直接沿用该状态作为权限判断。Marketplace 包声明 Host 版本 2.0.0–2.1.0；2026-09-16 重新获取的 archive digest 与设计固定值不同，因此未执行该 archive。当前 Host 2.2 适配从 Apache-2.0 上游 commit <code>8870a8cc1344c758cabb9ba46e36d9a7e92b625e</code> 重新实现有界只读 action，并通过 manifest、配置作用域、持久重放和不跟随 symlink 的自动化验证。</li>
 </ul>
 
 <h3>13.4 Geo（P3）</h3>

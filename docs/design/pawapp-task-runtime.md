@@ -458,6 +458,9 @@ project/target readiness. Its package verifier covers authenticated project
 handoff routing into the embedded UI.
 
 P1b artifact publication, task-card preview/download, typed project handoff,
-and Creator media ArtifactRefs are implemented. The remaining P2 validation
-covers the no-model file-browser adapter and an explicitly authorized limited
-real provider run. Cross-App Exchange is not part of this implementation.
+Creator media ArtifactRefs, and the P2 no-model file-browser adapter are
+implemented. File Browser covers conditional AppLocal setup, canonical input
+resolution before scoped Host authorization, durable bounded listings, and
+Delegated/Direct registration. The remaining P2 validation is an explicitly
+authorized limited real provider run. Cross-App Exchange is not part of this
+implementation.

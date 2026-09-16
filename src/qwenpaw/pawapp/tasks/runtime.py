@@ -2,6 +2,7 @@
 """Host-owned task lifecycle, readiness and dispatch boundary."""
 
 import asyncio
+from copy import deepcopy
 import logging
 import time
 from dataclasses import dataclass
@@ -176,6 +177,27 @@ class HostTaskRuntime:
             raise TaskStoreError("descriptor_changed")
         try:
             await self.policy.check(scope, action, inputs)
+            await self._authorize_origin(scope, origin)
+        except TaskStoreError as exc:
+            await self.store.audit(
+                scope,
+                action.action_id,
+                "authorize",
+                exc.code,
+            )
+            raise
+
+    async def _authorize_action(self, scope, action, origin):
+        """Check an action grant before an App resolves optional inputs."""
+        registration = self._registrations().get(
+            (scope.app_id, action.action_id),
+        )
+        if registration is None:
+            raise TaskStoreError("action_not_found")
+        if registration.action.descriptor_digest != action.descriptor_digest:
+            raise TaskStoreError("descriptor_changed")
+        try:
+            await self.policy.check(scope, action)
             await self._authorize_origin(scope, origin)
         except TaskStoreError as exc:
             await self.store.audit(
@@ -378,11 +400,22 @@ class HostTaskRuntime:
                 inputs,
             )
             if prepared.state != "ready":
-                return prepared, prepared.blocking_results[0].reason_code
-        legacy = await adapter.readiness(scope, inputs)
+                return (
+                    prepared,
+                    prepared.blocking_results[0].reason_code,
+                    None,
+                )
+        resolved_inputs = deepcopy(inputs)
+        if registration.input_resolver is not None:
+            resolved_inputs = await registration.input_resolver(
+                scope,
+                resolved_inputs,
+            )
+            registration.action.validate_inputs(resolved_inputs)
+        legacy = await adapter.readiness(scope, resolved_inputs)
         if legacy.state != "ready":
-            return prepared, legacy.reason
-        return prepared, None
+            return prepared, legacy.reason, None
+        return prepared, None, resolved_inputs
 
     async def _require_ready(
         self,
@@ -391,7 +424,7 @@ class HostTaskRuntime:
         scope,
         inputs,
     ):
-        _prepared, reason = await self._readiness(
+        _prepared, reason, _resolved_inputs = await self._readiness(
             registration,
             adapter,
             scope,
@@ -412,17 +445,39 @@ class HostTaskRuntime:
     ):
         await self._sync()
         binding = self._binding(scope, action_id)
+        registration = binding.registration
         action = binding.coordinator.describe(scope.app_id, action_id)
         action.validate_inputs(inputs)
         if origin.engagement not in action.engagements:
             raise TaskStoreError("unsupported_engagement")
-        await self._authorize(scope, action, origin, inputs)
+        if registration.input_resolver is None:
+            await self._authorize(scope, action, origin, inputs)
+        else:
+            await self._authorize_action(scope, action, origin)
         # A retry of an accepted/uncertain request returns its durable handle,
         # even if settings are now unavailable. It must not become a new task.
         existing = await self.store.find_request(scope, request_id)
+        if existing is not None and registration.input_resolver is not None:
+            if (
+                existing.action != action
+                or existing.handle.origin != origin
+                or any(
+                    key not in existing.inputs or existing.inputs[key] != value
+                    for key, value in inputs.items()
+                )
+            ):
+                raise TaskStoreError("request_conflict")
+            await self._authorize(
+                scope,
+                action,
+                origin,
+                existing.inputs,
+            )
+            return {"state": "accepted", "task": existing.handle}
+        resolved_inputs = deepcopy(inputs)
         if existing is None or prepare:
-            prepared, reason = await self._readiness(
-                binding.registration,
+            prepared, reason, prepared_inputs = await self._readiness(
+                registration,
                 binding.adapter,
                 scope,
                 inputs,
@@ -460,12 +515,22 @@ class HostTaskRuntime:
                     "setup": "unsupported_setup",
                     "settings_entry": binding.registration.settings_entry,
                 }
+            assert prepared_inputs is not None
+            resolved_inputs = prepared_inputs
+        if registration.input_resolver is not None:
+            await self._authorize(
+                scope,
+                action,
+                origin,
+                resolved_inputs,
+            )
         if prepare:
             result = {"state": "ready"}
             if prepared is not None:
                 result["readiness"] = prepared
             return result
-        await self._authorize(scope, action, origin, inputs)
+        if registration.input_resolver is None:
+            await self._authorize(scope, action, origin, resolved_inputs)
         # Audit intent before creating durable work. Recovery has its own
         # authorization check; a probe never grants permission to execute.
         await self.store.audit(
@@ -479,7 +544,7 @@ class HostTaskRuntime:
             scope,
             action,
             request_id=request_id,
-            inputs=inputs,
+            inputs=resolved_inputs,
             origin=origin,
         )
         self._wake(submission)
@@ -512,7 +577,10 @@ class HostTaskRuntime:
         action.validate_inputs(inputs)
         if origin.engagement not in action.engagements:
             raise TaskStoreError("unsupported_engagement")
-        await self._authorize(scope, action, origin, inputs)
+        if binding.registration.input_resolver is None:
+            await self._authorize(scope, action, origin, inputs)
+        else:
+            await self._authorize_action(scope, action, origin)
         if not binding.registration.requirement_ids:
             raise TaskStoreError("unsupported_setup")
         prepared = await self.setup.prepare_for_task(

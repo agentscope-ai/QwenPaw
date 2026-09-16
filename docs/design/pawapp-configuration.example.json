@@ -591,11 +591,13 @@
     },
     {
       "app_id": "qwenpaw-file-browser",
-      "$comment": "Target adapter slice, not shipped plugin behavior. Marketplace 0.2.3 uses process-global access mode and declares Host 2.0.0–2.1.0; compatibility and scoped authorization must be verified before runtime adaptation.",
+      "$comment": "Implemented as a narrow Host 2.2 adaptation. The changed Marketplace archive was not executed; the read-only implementation is derived from the inspected Apache-2.0 upstream commit and keeps default configuration separate from Host authorization.",
       "source": {
         "marketplace_id": "@archigram/qwenpaw-file-browser",
         "version": "0.2.3",
-        "archive_sha256": "6275013f0ce73279380f52d5b008cfbba1904c266778054f890e920b072b4377"
+        "reviewed_archive_sha256": "6275013f0ce73279380f52d5b008cfbba1904c266778054f890e920b072b4377",
+        "observed_archive_sha256_2026_09_16": "4a35a29051be306982e0d07e16ef919301676577ccd37850c74fddeab8500cba",
+        "upstream_git_commit": "8870a8cc1344c758cabb9ba46e36d9a7e92b625e"
       },
       "configuration": {
         "version": 1,
@@ -604,7 +606,7 @@
             "id": "default-root",
             "summary": "Default directory for browsing",
             "required_for": [
-              "list-directory-using-default"
+              "list-directory"
             ],
             "authority": "AppLocal",
             "setup_entry_ref": "file-browser-default-root",
@@ -632,7 +634,7 @@
             "domain:default-root",
             "current-read-grant"
           ],
-          "default-not-set": "needs_input-for-one-operation; optional-user-selected-setup-to-save-default",
+          "default-not-set": "needs_configuration; caller-can-instead-retry-with-one-explicit-directory-input",
           "path-outside-grant": "needs_authorization; saving-default-does-not-grant-read-access",
           "path-unavailable": "report-dependency-or-configuration-reason; never-request-model-key"
         },

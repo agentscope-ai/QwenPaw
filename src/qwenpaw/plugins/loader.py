@@ -296,9 +296,7 @@ class PluginLoader:
         if record is not None and record.enabled:
             return "active"
         return (
-            "activated"
-            if self.is_plugin_activated(manifest)
-            else "installed"
+            "activated" if self.is_plugin_activated(manifest) else "installed"
         )
 
     def _lifecycle_lock_for(self, plugin_id: str) -> asyncio.Lock:
@@ -684,6 +682,10 @@ class PluginLoader:
                 "qwenpaw_version": qv_dict,
                 "meta": manifest.meta,
             }
+            if manifest.pawapp is not None:
+                manifest_dict["pawapp"] = manifest.pawapp.model_dump(
+                    mode="json",
+                )
             api = PluginApi(plugin_id, config or {}, manifest_dict)
             api.set_registry(self.registry)
             self.registry.register_plugin_manifest(plugin_id, manifest_dict)
@@ -903,10 +905,9 @@ class PluginLoader:
         for manifest, plugin_dir in discovered:
             if types is not None and manifest.plugin_type not in types:
                 continue
-            if (
-                self.requires_explicit_activation(manifest)
-                and not self.is_plugin_activated(manifest)
-            ):
+            if self.requires_explicit_activation(
+                manifest,
+            ) and not self.is_plugin_activated(manifest):
                 logger.info(
                     "Indexed inactive PawApp '%s' without executing code",
                     manifest.id,
@@ -1345,9 +1346,8 @@ class PluginLoader:
             target_dir,
         )
         del _installed_path
-        if (
-            defer_pawapp_activation
-            and self.requires_explicit_activation(installed_manifest)
+        if defer_pawapp_activation and self.requires_explicit_activation(
+            installed_manifest,
         ):
             await asyncio.to_thread(
                 self.clear_plugin_activation,

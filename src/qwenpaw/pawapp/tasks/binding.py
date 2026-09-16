@@ -39,16 +39,27 @@ class ManagedTaskAdapter(TaskAdapter, Protocol):
         ...
 
 
+InputResolver = Callable[
+    [TaskScope, dict[str, Any]],
+    Awaitable[dict[str, Any]],
+]
+
+
 @dataclass(frozen=True)
 class ActionRegistration:
     action: ActionDescriptor
     factory: Callable[[], ManagedTaskAdapter]
     settings_entry: str
     requirement_ids: tuple[Identity, ...] = ()
+    input_resolver: InputResolver | None = None
 
     def __post_init__(self):
         if len(self.requirement_ids) != len(set(self.requirement_ids)):
             raise ValueError("action setup requirements must be unique")
+        if self.input_resolver is not None and not callable(
+            self.input_resolver,
+        ):
+            raise ValueError("action input resolver must be callable")
         # Local App settings only: never accept an adapter-supplied redirect.
         prefix = f"/apps/{self.action.app_id}"
         if (

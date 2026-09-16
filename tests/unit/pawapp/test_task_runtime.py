@@ -19,6 +19,7 @@ from qwenpaw.pawapp.artifact_routes import router as artifact_router
 from qwenpaw.pawapp.artifacts import ArtifactStore
 from qwenpaw.pawapp.handoffs import HandoffStore
 from qwenpaw.pawapp.tasks import (
+    ActionDescriptor,
     CommandLookup,
     ExecutorEvent,
     ExecutorRunRef,
@@ -280,6 +281,85 @@ async def settled(host, task_id):
             if item.handle.status == "succeeded":
                 return item
             await asyncio.sleep(0.01)
+
+
+async def test_app_resolves_optional_input_before_scoped_authorization(host):
+    action = ActionDescriptor(
+        app_id=SCOPE.app_id,
+        action_id="list-directory",
+        summary="List one authorized directory.",
+        engagements=("delegated", "direct"),
+        input_schema={
+            "type": "object",
+            "properties": {"directory": {"type": "string"}},
+            "additionalProperties": False,
+        },
+        output_types=("text/plain",),
+        permissions=("filesystem.directory.read",),
+        effects=("filesystem_read",),
+        adapter_ref="fixture.directory.v1",
+    )
+    selected = {"directory": "/allowed"}
+
+    async def resolve_inputs(_scope, inputs):
+        return {"directory": inputs.get("directory", selected["directory"])}
+
+    await host.app.state.pawapp_tasks.aclose()
+    host.registrations.clear()
+    host.registrations[(SCOPE.app_id, action.action_id)] = ActionRegistration(
+        action=action,
+        factory=lambda: Executor(host.runs),
+        settings_entry="/apps/qwenpaw-data",
+        input_resolver=resolve_inputs,
+    )
+    host.policy_path.write_text(
+        TaskPolicy(
+            grants=(
+                TaskGrant(
+                    scope=SCOPE,
+                    action_id=action.action_id,
+                    descriptor_digest=action.descriptor_digest,
+                    input_values={"directory": ["/allowed"]},
+                ),
+            ),
+        ).model_dump_json(),
+    )
+    host.app.state.pawapp_tasks = host.runtime(host.store)
+    await host.app.state.pawapp_tasks.start()
+
+    body = {
+        "request_id": "directory-request-1",
+        "engagement": "delegated",
+        "chat_id": "main",
+        "inputs": {},
+    }
+    response = await host.client.post(
+        PREFIX + "/actions/list-directory/tasks",
+        json=body,
+    )
+    assert response.status_code == 202
+    task_id = response.json()["task"]["task_id"]
+    completed = await settled(host, task_id)
+    assert completed.inputs == {"directory": "/allowed"}
+
+    selected["directory"] = "/changed-after-acceptance"
+    replay = await host.client.post(
+        PREFIX + "/actions/list-directory/tasks",
+        json=body,
+    )
+    assert replay.status_code == 202
+    assert replay.json()["task"]["task_id"] == task_id
+
+    denied = await host.client.post(
+        PREFIX + "/actions/list-directory/tasks",
+        json={
+            **body,
+            "request_id": "directory-request-denied",
+            "inputs": {"directory": "/denied"},
+        },
+    )
+    assert denied.status_code == 403
+    assert denied.json()["detail"] == "action_forbidden"
 
 
 async def test_operator_manages_live_digest_pinned_action_grants(host):
