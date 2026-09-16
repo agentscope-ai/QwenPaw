@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
+import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import Depends, FastAPI
@@ -47,6 +50,143 @@ while True:
     )
     connection.close()
 """
+
+_ENV_SERVER_SCRIPT = (
+    "import json, os, sys\n"
+    "from pathlib import Path\n"
+    "Path(sys.argv[3]).write_text(json.dumps(dict(os.environ)))\n"
+    + _LOOPBACK_SERVER_SCRIPT
+)
+
+
+@pytest.mark.asyncio
+async def test_service_environment_rebuilt_after_hook_on_each_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HOST_PRIVATE_KEY", "host-secret")
+    monkeypatch.setenv("FIXTURE_ALLOWED", "first")
+    monkeypatch.setenv("FIXTURE_REMOVED", "stale-host-value")
+    saved = {"FIXTURE_SECRET": "first", "FIXTURE_REMOVED": "first"}
+    current: dict[str, str] = {}
+    calls: list[str] = []
+    snapshot = tmp_path / "env.json"
+
+    async def prepare() -> None:
+        calls.append("prepare")
+        current.clear()
+        current.update(saved)
+
+    def environment() -> dict[str, str]:
+        calls.append("environment")
+        return current
+
+    app = PawApp("Fixture", app_id="fixture")
+    service = app.managed_service(
+        "fixture",
+        command=(
+            sys.executable,
+            "-c",
+            _ENV_SERVER_SCRIPT,
+            "{host}",
+            "{port}",
+            str(snapshot),
+        ),
+        inherit_env=("FIXTURE_ALLOWED",),
+        env={"FIXTURE_STATIC": "http://{host}:{port}"},
+        env_factory=environment,
+        on_before_start=prepare,
+    )
+    try:
+        await service.start()
+        first = json.loads(snapshot.read_text())
+        assert first["FIXTURE_ALLOWED"] == "first"
+        assert first["FIXTURE_SECRET"] == "first"
+        assert first["FIXTURE_REMOVED"] == "first"
+        assert first["FIXTURE_STATIC"] == service.base_url
+        assert first.get("PATH") == os.environ.get("PATH")
+        assert "HOST_PRIVATE_KEY" not in first
+        assert current == saved  # SDK never mutates the returned mapping.
+
+        saved.clear()
+        saved["FIXTURE_SECRET"] = "new-${value}-{host}-{port}"
+        monkeypatch.setenv("FIXTURE_ALLOWED", "second-{port}")
+        await service.restart()
+        second = json.loads(snapshot.read_text())
+        assert second["FIXTURE_SECRET"] == "new-${value}-{host}-{port}"
+        assert second["FIXTURE_ALLOWED"] == "second-{port}"
+        assert "FIXTURE_REMOVED" not in second
+        assert "HOST_PRIVATE_KEY" not in second
+        assert calls == ["prepare", "environment", "prepare", "environment"]
+        assert service.spec.env == {"FIXTURE_STATIC": "http://{host}:{port}"}
+        assert os.environ["FIXTURE_REMOVED"] == "stale-host-value"
+        assert os.environ["HOST_PRIVATE_KEY"] == "host-secret"
+    finally:
+        await service.stop()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_services_keep_their_environments_separate(
+    tmp_path: Path,
+) -> None:
+    services = [
+        ManagedService(
+            ManagedServiceSpec(
+                name=name,
+                command=(
+                    sys.executable,
+                    "-c",
+                    _ENV_SERVER_SCRIPT,
+                    "{host}",
+                    "{port}",
+                    str(tmp_path / f"{name}.json"),
+                ),
+                env_factory=lambda name=name: {f"{name}_TOKEN": name},
+            ),
+        )
+        for name in ("APP_A", "APP_B")
+    ]
+    try:
+        await asyncio.gather(*(service.start() for service in services))
+        first = json.loads((tmp_path / "APP_A.json").read_text())
+        second = json.loads((tmp_path / "APP_B.json").read_text())
+        assert first["APP_A_TOKEN"] == "APP_A"
+        assert "APP_B_TOKEN" not in first
+        assert second["APP_B_TOKEN"] == "APP_B"
+        assert "APP_A_TOKEN" not in second
+    finally:
+        await asyncio.gather(*(service.stop() for service in services))
+
+
+@pytest.mark.asyncio
+async def test_environment_failure_aborts_restart_without_cached_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factory = MagicMock(side_effect=[{}, RuntimeError("config unavailable")])
+    spawn = AsyncMock(wraps=asyncio.create_subprocess_exec)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", spawn)
+    service = ManagedService(
+        ManagedServiceSpec(
+            name="fixture",
+            command=(
+                sys.executable,
+                "-c",
+                _LOOPBACK_SERVER_SCRIPT,
+                "{host}",
+                "{port}",
+            ),
+            env_factory=factory,
+        ),
+    )
+    try:
+        await service.start()
+        with pytest.raises(RuntimeError, match="config unavailable"):
+            await service.restart()
+        assert spawn.await_count == 1
+        assert service.is_ready is False
+        assert service.diagnostics()["pid"] is None
+    finally:
+        await service.stop()
 
 
 def _route_paths(router) -> set[str]:
@@ -108,12 +248,14 @@ async def test_external_service_mode_never_starts_process(
     monkeypatch.setenv("FIXTURE_MODE", "external")
     monkeypatch.setenv("FIXTURE_URL", "http://127.0.0.1:9123/")
     monkeypatch.setattr(service_module, "_health_request", lambda *_: True)
+    factory = MagicMock(side_effect=AssertionError("must not construct env"))
     service = ManagedService(
         ManagedServiceSpec(
             name="fixture",
             command=("must-not-run",),
             external_url_env="FIXTURE_URL",
             mode_env="FIXTURE_MODE",
+            env_factory=factory,
         ),
     )
 
@@ -126,6 +268,7 @@ async def test_external_service_mode_never_starts_process(
         "mode": "external",
     }
     assert service.diagnostics()["pid"] is None
+    factory.assert_not_called()
     await service.stop()
 
 

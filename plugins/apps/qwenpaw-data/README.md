@@ -255,10 +255,21 @@ Agent Configuration.
 
 On first initialization, the PawApp seeds empty DataBridge fields from the
 environment and can obtain a compatible model default from QwenPaw. After
-configuration is saved, the generated app `.env` is authoritative for its
-managed keys: inherited shell or QwenPaw environment values do not override
-saved values, and clearing a managed field removes its previous environment
-override. Unrelated environment keys remain unchanged.
+configuration is saved, `config.json` is authoritative for the generated
+runtime files and each managed child's environment. Inherited shell or
+QwenPaw values do not override saved settings, and clearing a managed field
+removes its previous environment override on the next start. Saving settings,
+reusing a host model, and starting either sidecar do not modify the QwenPaw
+process environment. Environment defaults are imported only on first setup;
+they cannot restore a credential cleared from saved settings.
+
+Managed children inherit OS basics plus the exact runtime variable names
+declared by each service in [`backend/main.py`](backend/main.py). Network
+proxy/certificate settings are declared for both; Context-specific storage,
+pipeline and embedding settings belong to Context, while Engine runtime and
+Docker settings belong to Engine. Other global variables are not passed
+through automatically. Additional integrations must declare the variables
+they need; the global QwenPaw environment store itself is unchanged.
 
 Edit saved values through **DataBridge Configuration**; manual edits to the
 generated app `.env` are replaced on the next save or managed service start.

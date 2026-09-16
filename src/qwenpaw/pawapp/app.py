@@ -644,6 +644,8 @@ class PawApp:  # pylint: disable=too-many-public-methods
         shutdown_timeout: float = 10.0,
         cwd: Path | str | None = None,
         env: Optional[Mapping[str, str]] = None,
+        inherit_env: Sequence[str] = (),
+        env_factory: Optional[Callable[[], Mapping[str, str]]] = None,
         external_url_env: str | None = None,
         mode_env: str | None = None,
         on_before_start: Optional[Callable[[], Awaitable[None]]] = None,
@@ -653,7 +655,14 @@ class PawApp:  # pylint: disable=too-many-public-methods
         expose_dependency: bool = True,
         runtime_remediation: str | None = None,
     ) -> ManagedService:
-        """Declare a process managed with the PawApp lifecycle."""
+        """Declare a process managed with the PawApp lifecycle.
+
+        Child processes inherit OS basics and ``inherit_env`` only. Static
+        ``env`` overrides support {host}/{port}; ``env_factory`` returns
+        literal overrides after the preparation hook on each managed start.
+        """
+        if isinstance(inherit_env, (str, bytes)):
+            raise ValueError("inherit_env must be a sequence of exact names")
         service = ManagedService(
             ManagedServiceSpec(
                 name=name,
@@ -664,6 +673,8 @@ class PawApp:  # pylint: disable=too-many-public-methods
                 shutdown_timeout=shutdown_timeout,
                 cwd=Path(cwd) if cwd else None,
                 env=dict(env or {}),
+                inherit_env=tuple(inherit_env),
+                env_factory=env_factory,
                 external_url_env=external_url_env,
                 mode_env=mode_env,
                 on_before_start=on_before_start,
