@@ -354,12 +354,14 @@ class PawApp:  # pylint: disable=too-many-public-methods
 
         # Buffered registrations (applied when .register(api) is called)
         self._tools: List[dict] = []
+        self._local_tools: List[dict] = []
         self._commands: List[dict] = []
         self._middlewares: List[dict] = []
         self._hooks: List[dict] = []
         self._routers: List[APIRouter] = []
         self._lifecycle: dict = {}
         self._skill_providers: List[dict] = []
+        self._local_skill_dirs: List[Path] = []
         self._prompt_sections: List[dict] = []
         self._workspace_hooks: List[dict] = []
         self._runtime_hooks: List[Any] = []
@@ -472,6 +474,30 @@ class PawApp:  # pylint: disable=too-many-public-methods
 
         return decorator
 
+    def local_tool(
+        self,
+        name: str,
+        *,
+        description: str = "",
+        input_schema: Optional[dict] = None,
+        is_read_only: bool = False,
+    ):
+        """Register a tool visible only inside this PawApp's runtime."""
+
+        def decorator(func: Callable) -> Callable:
+            self._local_tools.append(
+                {
+                    "name": name,
+                    "func": func,
+                    "description": description,
+                    "input_schema": input_schema,
+                    "is_read_only": is_read_only,
+                },
+            )
+            return func
+
+        return decorator
+
     # ─── Decorator: command ─────────────────────────────────────────
 
     def command(self, name: str, *, description: str = ""):
@@ -564,6 +590,10 @@ class PawApp:  # pylint: disable=too-many-public-methods
                 "channels": channels or ["all"],
             },
         )
+
+    def local_skills(self, skills_dir: Path | str) -> None:
+        """Register private skills without copying them to Host workspaces."""
+        self._local_skill_dirs.append(Path(skills_dir).resolve())
 
     def prompt_section(
         self,
@@ -784,6 +814,49 @@ class PawApp:  # pylint: disable=too-many-public-methods
         registrations now.
         """
         self._plugin_api = api
+
+        from qwenpaw.plugins.architecture import PluginManifest
+
+        raw_manifest = getattr(api, "manifest", {})
+        manifest_payload = {
+            "id": self.app_id or "pawapp",
+            "version": "0",
+            **(raw_manifest if isinstance(raw_manifest, dict) else {}),
+        }
+        manifest = PluginManifest.from_dict(manifest_payload)
+        runtime = manifest.pawapp.runtime if manifest.pawapp else None
+        declared_local_tools = set(runtime.local_tools if runtime else ())
+        registered_local_tools = {item["name"] for item in self._local_tools}
+        if (
+            runtime is not None
+            and declared_local_tools != registered_local_tools
+        ):
+            raise ValueError(
+                "PawApp manifest local_tools do not match registrations"
+            )
+        declared_local_skills = set(runtime.local_skills if runtime else ())
+        registered_local_skills = {
+            directory.name for directory in self._local_skill_dirs
+        }
+        if (
+            runtime is not None
+            and declared_local_skills != registered_local_skills
+        ):
+            raise ValueError(
+                "PawApp manifest local_skills do not match registrations"
+            )
+
+        api.register_pawapp_capability_imports(
+            host_tools=list(runtime.host_tools if runtime else ()),
+            host_skills={
+                skill.id: tuple(skill.tool_refs)
+                for skill in (runtime.host_skills if runtime else ())
+            },
+        )
+        for tool_info in self._local_tools:
+            api.register_pawapp_local_tool(**tool_info)
+        for directory in self._local_skill_dirs:
+            api.register_pawapp_local_skills(directory)
 
         for registration in self._task_actions:
             api.register_task_action(registration)

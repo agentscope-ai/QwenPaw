@@ -125,3 +125,68 @@ def test_command_registers_slash_command() -> None:
         category="pawapp:fixture",
         help_text="Toggle data analysis mode",
     )
+
+
+def test_private_capabilities_follow_typed_manifest(tmp_path) -> None:
+    api = MagicMock()
+    api.manifest = {
+        "id": "fixture",
+        "version": "1.0.0",
+        "pawapp": {
+            "schema_version": 1,
+            "runtime": {
+                "host_tools": ["get_current_time"],
+                "host_skills": [
+                    {"id": "guidance", "tool_refs": ["get_current_time"]},
+                ],
+                "local_tools": ["private_echo"],
+                "local_skills": ["private-skills"],
+            },
+        },
+    }
+    app = PawApp("Fixture", app_id="fixture")
+
+    @app.local_tool(
+        "private_echo",
+        description="Private echo",
+        input_schema={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+        },
+    )
+    async def private_echo(text: str):
+        return text
+
+    app.local_skills(tmp_path / "private-skills")
+    app.register(api)
+
+    api.register_pawapp_capability_imports.assert_called_once_with(
+        host_tools=["get_current_time"],
+        host_skills={"guidance": ("get_current_time",)},
+    )
+    api.register_pawapp_local_tool.assert_called_once_with(
+        name="private_echo",
+        func=private_echo,
+        description="Private echo",
+        input_schema={
+            "type": "object",
+            "properties": {"text": {"type": "string"}},
+        },
+        is_read_only=False,
+    )
+    api.register_pawapp_local_skills.assert_called_once_with(
+        (tmp_path / "private-skills").resolve(),
+    )
+
+
+def test_manifest_rejects_mismatched_private_tool_declaration() -> None:
+    api = MagicMock()
+    api.manifest = {
+        "id": "fixture",
+        "version": "1.0.0",
+        "pawapp": {"runtime": {"local_tools": ["declared_only"]}},
+    }
+    app = PawApp("Fixture", app_id="fixture")
+
+    with pytest.raises(ValueError, match="local_tools do not match"):
+        app.register(api)

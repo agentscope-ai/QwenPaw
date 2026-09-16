@@ -32,6 +32,7 @@ from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..pawapp.tasks.routes import router as pawapp_task_router
+from ..pawapp.capability_routes import router as pawapp_capability_router
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
@@ -346,6 +347,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         registrations=PluginRegistry().get_task_actions,
         authorize_origin=app.state.pawapp_task_origins,
     )
+    from ..pawapp.capabilities import CapabilityBroker
+
+    app.state.pawapp_capabilities = CapabilityBroker(
+        workspace_manager=workspace_registry,
+        plugin_registry=PluginRegistry(),
+        task_runtime=app.state.pawapp_tasks,
+        state_dir=task_root,
+    )
     app.state.pawapp_continuations = ContinuationWorker(
         app.state.pawapp_tasks,
         app.state.pawapp_task_origins,
@@ -613,6 +622,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         # Stop consumers and pools before plugins stop their Engines.
         await app.state.pawapp_continuations.aclose()
+        await app.state.pawapp_capabilities.aclose()
         await app.state.pawapp_tasks.aclose()
 
         logger.info("Stopping BackupManager...")
@@ -878,6 +888,7 @@ async def post_desktop_shutdown(
 app.include_router(api_router, prefix="/api")
 
 app.include_router(pawapp_task_router, prefix="/api")
+app.include_router(pawapp_capability_router, prefix="/api")
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order

@@ -127,6 +127,18 @@ class PromptSectionRegistration:
     provider: Callable[[Any], str]
 
 
+@dataclass(frozen=True)
+class PawAppLocalToolRegistration:
+    """Private callable owned by exactly one PawApp runtime."""
+
+    plugin_id: str
+    name: str
+    func: Callable
+    description: str = ""
+    input_schema: Optional[Dict[str, Any]] = None
+    is_read_only: bool = False
+
+
 class PluginRegistry:  # pylint:disable=too-many-public-methods
     """Central plugin registry (Singleton).
 
@@ -167,6 +179,12 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         self._prompt_section_names: set = set()
         self._workspace_manager: Optional[Any] = None
         self._task_actions: Dict[tuple, Any] = {}
+        self._pawapp_host_tools: Dict[str, frozenset[str]] = {}
+        self._pawapp_host_skills: Dict[str, Dict[str, tuple[str, ...]]] = {}
+        self._pawapp_local_tools: Dict[
+            tuple[str, str], PawAppLocalToolRegistration
+        ] = {}
+        self._pawapp_local_skill_dirs: Dict[str, List[Any]] = {}
 
         self._initialized = True
 
@@ -931,6 +949,90 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
     def get_task_actions(self) -> Dict[tuple, Any]:
         return self._task_actions.copy()
 
+    def register_pawapp_capability_imports(
+        self,
+        plugin_id: str,
+        *,
+        host_tools: List[str],
+        host_skills: Dict[str, tuple[str, ...]],
+    ) -> None:
+        """Freeze the Host capabilities requested by one App manifest."""
+        if plugin_id in self._pawapp_host_tools:
+            raise ValueError("PawApp capability imports already registered")
+        tools = tuple(host_tools)
+        if len(set(tools)) != len(tools) or any(not name for name in tools):
+            raise ValueError(
+                "Host Tool imports must be unique non-empty names"
+            )
+        if any(not name for name in host_skills):
+            raise ValueError("Host Skill imports require non-empty names")
+        if any(
+            not ref or len(refs) != len(set(refs))
+            for refs in host_skills.values()
+            for ref in refs
+        ):
+            raise ValueError(
+                "Host Skill tool refs must be unique non-empty names"
+            )
+        self._pawapp_host_tools[plugin_id] = frozenset(tools)
+        self._pawapp_host_skills[plugin_id] = {
+            name: tuple(refs) for name, refs in host_skills.items()
+        }
+
+    def register_pawapp_local_tool(
+        self,
+        plugin_id: str,
+        *,
+        name: str,
+        func: Callable,
+        description: str = "",
+        input_schema: Optional[Dict[str, Any]] = None,
+        is_read_only: bool = False,
+    ) -> None:
+        """Register a private tool without publishing it to Host agents."""
+        key = (plugin_id, name)
+        if not name or not callable(func) or key in self._pawapp_local_tools:
+            raise ValueError("PawApp local tool already registered or invalid")
+        self._pawapp_local_tools[key] = PawAppLocalToolRegistration(
+            plugin_id=plugin_id,
+            name=name,
+            func=func,
+            description=description,
+            input_schema=(
+                dict(input_schema) if input_schema is not None else None
+            ),
+            is_read_only=is_read_only,
+        )
+
+    def register_pawapp_local_skills(
+        self,
+        plugin_id: str,
+        directory: Any,
+    ) -> None:
+        """Register a private Skill root for one App only."""
+        directories = self._pawapp_local_skill_dirs.setdefault(plugin_id, [])
+        if directory in directories:
+            raise ValueError("PawApp local Skill directory already registered")
+        directories.append(directory)
+
+    def get_pawapp_capabilities(self, plugin_id: str) -> Dict[str, Any]:
+        """Return a detached capability view for a scoped broker request."""
+        return {
+            "host_tools": set(self._pawapp_host_tools.get(plugin_id, ())),
+            "host_skills": dict(self._pawapp_host_skills.get(plugin_id, {})),
+            "local_tools": {
+                name: registration
+                for (
+                    owner,
+                    name,
+                ), registration in self._pawapp_local_tools.items()
+                if owner == plugin_id
+            },
+            "local_skill_dirs": list(
+                self._pawapp_local_skill_dirs.get(plugin_id, ()),
+            ),
+        }
+
     def register_plugin_manifest(
         self,
         plugin_id: str,
@@ -988,6 +1090,14 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
             for key, value in self._task_actions.items()
             if key[0] != plugin_id
         }
+        self._pawapp_host_tools.pop(plugin_id, None)
+        self._pawapp_host_skills.pop(plugin_id, None)
+        self._pawapp_local_tools = {
+            key: value
+            for key, value in self._pawapp_local_tools.items()
+            if key[0] != plugin_id
+        }
+        self._pawapp_local_skill_dirs.pop(plugin_id, None)
 
         try:
             removed_memory = memory_registry.unregister_owner(plugin_id)

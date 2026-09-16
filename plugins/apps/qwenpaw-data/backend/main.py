@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
+from qwenpaw.pawapp.capabilities import task_capability_bridge
 from qwenpaw.pawapp.tasks.binding import ActionRegistration
 
 logger = logging.getLogger(__name__)
@@ -323,6 +324,7 @@ app.task_action(
         factory=lambda: DataTaskAdapter(
             _engine_endpoint,
             executor_id="qwenpaw-data.engine",
+            capability_bridge=task_capability_bridge,
         ),
         settings_entry="/apps/qwenpaw-data",
     ),

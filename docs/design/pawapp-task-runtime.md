@@ -293,6 +293,34 @@ workers have durable fences, but ordinary Chat execution still assumes one Host
 process. This is not distributed fencing for all chat writers or unrestricted
 Main Agent tool continuation.
 
+## Scoped runtime capabilities
+
+PawApps declare their runtime imports in the typed top-level `pawapp` manifest
+section. `host_tools` and `host_skills` name capabilities already enabled in the
+selected Host workspace. `local_tools` and `local_skills` declare App-private
+registrations created with `@app.local_tool(...)` and `app.local_skills(...)`;
+they are never added to the Host agent's global catalogs. Skill declarations
+carry explicit `tool_refs`, and a Skill with a missing dependency remains visible
+but blocked with `skill_dependency_unavailable`.
+
+`ctx.tools.list/describe/invoke` and `ctx.skills.list/load` resolve only this
+App/workspace/principal scope. Host-public tool calls are reconstructed through
+`PolicyGuardedTool`, so the normal governance decision runs before execution.
+Capability IDs include their ownership boundary (`host/tool/...`,
+`app/tool/...`, `host/skill/...`, or `app/skill/...`); name collisions receive
+stable `host__` and `app__` runtime names. Every describe denial, invocation,
+and Skill load writes a metadata-only JSONL audit record without inputs, outputs,
+or bearer tokens.
+
+Independent Engine submissions receive a signed callback envelope containing
+only protocol version, Host endpoint, and a token bound to the durable task's
+principal/workspace/App/session identity. The Engine must advertise
+`scoped_host_capabilities: true`. During agent construction it fetches the
+scoped catalog once, exposes remote tools through AgentScope `FunctionTool`, and
+materializes Skill files under the Engine workspace with path, encoding, count,
+and size checks. The Engine cannot widen scope from request text or model output;
+unknown and cross-scope capability IDs fail closed at the Host.
+
 ## Validation and remaining P1a integration
 
 `tests/unit/pawapp/test_task_store.py` exercises concurrent request retries,
@@ -336,7 +364,6 @@ invocation authority. `PawAppTaskCard.test.tsx` covers progress, completion,
 recovery, refresh failure/retry, stale responses, newer history snapshots,
 unmount cleanup, setup links and handle validation.
 
-Remaining integration includes a grant UI,
-general Main Agent continuation with follow-on tools, and the Host/public plus
-App/private Skill/Tool runtime bridge. These are still P1a gates. Artifact Canvas
-and cross-App Exchange are not part of this implementation.
+Remaining integration includes a grant UI and general Main Agent continuation
+with follow-on tools. Artifact Canvas and cross-App Exchange are not part of this
+implementation.

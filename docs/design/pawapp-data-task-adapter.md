@@ -23,6 +23,9 @@ The Host binding supplies:
   The Host grant pins its descriptor digest and can constrain datasource IDs.
 - Ownership of the adapter's connection pool: call `await adapter.aclose()`
   during shutdown after task consumers stop.
+- A deterministic, signed capability envelope bound to the submitted Host task.
+  Engines must advertise `scoped_host_capabilities: true`; the adapter refuses
+  older engines before it sends a submission containing this envelope.
 
 The adapter probes `GET /api/v1/capabilities/submissions` before each operation.
 Only protocol version 1 with durable submission and replay support is accepted.
@@ -45,7 +48,7 @@ There is no Host-native setup form yet. See the
 [runtime routes and operator grant contract](pawapp-task-runtime.md).
 
 The current verified Engine source is
-[`183bca7`](https://github.com/cyruszhang/QwenPaw-Data/commit/183bca7).
+[`2696936`](https://github.com/cyruszhang/QwenPaw-Data/commit/2696936).
 This is a development dependency, not a released minimum version. Host and Engine
 run in separate dependency environments and communicate only over HTTP/SSE.
 

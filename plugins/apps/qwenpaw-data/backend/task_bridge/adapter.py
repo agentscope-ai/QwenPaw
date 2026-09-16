@@ -68,12 +68,16 @@ class DataTaskAdapter:
         endpoint: Callable[[], tuple[str, str]],
         *,
         executor_id: str,
+        capability_bridge: (
+            Callable[[TaskSubmission], dict[str, Any]] | None
+        ) = None,
         transport: httpx.AsyncBaseTransport | None = None,
     ):
         if not executor_id or len(executor_id) > 256:
             raise ValueError("executor_id is required")
         self._endpoint = endpoint
         self._executor_id = executor_id
+        self._capability_bridge = capability_bridge
         self._client = httpx.AsyncClient(
             transport=transport,
             timeout=httpx.Timeout(60.0, connect=5.0),
@@ -153,6 +157,10 @@ class DataTaskAdapter:
             or caps["protocol_version"] != 1
             or caps.get("durable_submissions") is not True
             or caps.get("event_replay") is not True
+            or (
+                self._capability_bridge is not None
+                and caps.get("scoped_host_capabilities") is not True
+            )
         ):
             raise TaskStoreError("unsupported_engine_protocol")
         return caps
@@ -267,16 +275,19 @@ class DataTaskAdapter:
         submission_id = self._submission_id(submission)
         connection = self._connection(submission.handle.scope)
         await self._check_protocol(connection)
+        body = {
+            "protocol_version": 1,
+            "submission_id": submission_id,
+            "agent_id": "default",
+            **submission.inputs,
+        }
+        if self._capability_bridge is not None:
+            body["capability_bridge"] = self._capability_bridge(submission)
         payload = await self._json(
             connection,
             "POST",
             "/api/v1/submissions",
-            json={
-                "protocol_version": 1,
-                "submission_id": submission_id,
-                "agent_id": "default",
-                **submission.inputs,
-            },
+            json=body,
         )
         lookup = self._lookup(payload, submission_id)
         if lookup.run_ref is None:

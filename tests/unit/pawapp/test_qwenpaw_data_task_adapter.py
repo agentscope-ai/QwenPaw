@@ -66,12 +66,14 @@ def receipt(submission, state="accepted"):
         "protocol_version": 1,
         "submission_id": submission.handle.submission_id,
         "state": state,
-        "run": None
-        if state == "not_found"
-        else {
-            "session_id": REF.session_id,
-            "run_id": REF.run_id,
-        },
+        "run": (
+            None
+            if state == "not_found"
+            else {
+                "session_id": REF.session_id,
+                "run_id": REF.run_id,
+            }
+        ),
     }
 
 
@@ -265,6 +267,61 @@ async def test_submit_uses_durable_endpoint_and_scope_stamp(submission):
         "submission_id": submission.handle.submission_id,
         **submission.inputs,
     }
+
+
+async def test_submit_includes_task_scoped_host_capability_bridge(submission):
+    requests = []
+    bridge = {
+        "protocol_version": 1,
+        "endpoint": "http://127.0.0.1:8088/api/pawapp-capabilities",
+        "token": "scoped-token",
+    }
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path.endswith("/capabilities/submissions"):
+            return httpx.Response(
+                200,
+                json={**CAPS, "scoped_host_capabilities": True},
+            )
+        return httpx.Response(200, json=receipt(submission))
+
+    adapter = BRIDGE.DataTaskAdapter(
+        lambda: ("http://engine.test", "test-token"),
+        executor_id=REF.executor_id,
+        capability_bridge=lambda item: bridge,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        assert await adapter.submit(submission) == REF
+    finally:
+        await adapter.aclose()
+
+    assert json.loads(requests[-1].content)["capability_bridge"] == bridge
+
+
+async def test_bridge_requires_engine_capability_support(submission):
+    def handler(request):
+        assert request.url.path.endswith("/capabilities/submissions")
+        return httpx.Response(200, json=CAPS)
+
+    adapter = BRIDGE.DataTaskAdapter(
+        lambda: ("http://engine.test", "test-token"),
+        executor_id=REF.executor_id,
+        capability_bridge=lambda item: {
+            "protocol_version": 1,
+            "endpoint": "http://host.test/capabilities",
+            "token": "scoped-token",
+        },
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(
+            TaskStoreError, match="unsupported_engine_protocol"
+        ):
+            await adapter.submit(submission)
+    finally:
+        await adapter.aclose()
 
 
 async def test_commands_use_durable_identity_and_validate_receipts(submission):

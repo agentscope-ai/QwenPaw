@@ -84,6 +84,7 @@ def _build_ctx(
     workspace_registry = getattr(app_state, "multi_agent_manager", None)
     app_services = getattr(app_state, "app_services", None)
     plugin_registry = getattr(app_state, "plugin_registry", None)
+    capability_broker = getattr(app_state, "pawapp_capabilities", None)
 
     # Get or create session for storage
     session = _get_session(request)
@@ -100,6 +101,7 @@ def _build_ctx(
         _plugin_registry=plugin_registry,
         _session=session,
         _sse_channel=None,  # App-owned streams may attach a channel
+        _capability_broker=capability_broker,
     )
 
 

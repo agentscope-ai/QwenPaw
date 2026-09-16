@@ -593,6 +593,51 @@ class PluginApi:  # pylint: disable=too-many-public-methods
             raise RuntimeError("plugin registry is unavailable")
         self._registry.register_task_action(self.plugin_id, registration)
 
+    def register_pawapp_capability_imports(
+        self,
+        *,
+        host_tools: List[str],
+        host_skills: Dict[str, tuple[str, ...]],
+    ) -> None:
+        """Register the typed Host capability requests from the manifest."""
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._registry.register_pawapp_capability_imports(
+            self.plugin_id,
+            host_tools=host_tools,
+            host_skills=host_skills,
+        )
+
+    def register_pawapp_local_tool(
+        self,
+        *,
+        name: str,
+        func: Callable,
+        description: str = "",
+        input_schema: Optional[Dict[str, Any]] = None,
+        is_read_only: bool = False,
+    ) -> None:
+        """Register an App-private tool without adding it to Host catalogs."""
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._registry.register_pawapp_local_tool(
+            self.plugin_id,
+            name=name,
+            func=func,
+            description=description,
+            input_schema=input_schema,
+            is_read_only=is_read_only,
+        )
+
+    def register_pawapp_local_skills(self, directory: Path) -> None:
+        """Register an App-private Skill root without copying it globally."""
+        if self._registry is None:
+            raise RuntimeError("plugin registry is unavailable")
+        self._registry.register_pawapp_local_skills(
+            self.plugin_id,
+            Path(directory).resolve(),
+        )
+
     def register_http_router(
         self,
         router: Any,
