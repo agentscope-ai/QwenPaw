@@ -322,6 +322,9 @@ describe("TabbedEditor single-document mode", () => {
 
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     expect(
+      screen.getByRole("tablist", { hidden: true }).closest("[hidden]"),
+    ).toHaveStyle({ display: "none" });
+    expect(
       screen
         .getAllByText("hello.txt")
         .filter((element) => !element.closest("[hidden]")),
