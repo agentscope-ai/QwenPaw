@@ -696,6 +696,13 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     candidate = config.model_copy(deep=True)
     with _config_lock:
         payload = candidate.model_dump(mode="json", by_alias=True)
+        if candidate.theme is None:
+            payload.pop("theme", None)
+        else:
+            payload["theme"] = candidate.theme.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
         if config_path.is_file():
             existing = _read_config_data(config_path) or {}
             for legacy_key in LEGACY_ROOT_KEYS_PRESERVED_FOR_PLUGIN_MIGRATION:

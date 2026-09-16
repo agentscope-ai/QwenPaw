@@ -41,9 +41,7 @@ describe("global link accessibility", () => {
     const lightTheme = getRuleDeclarations(tokensSource, ":root");
     const darkTheme = getRuleDeclarations(tokensSource, "html.dark-mode");
 
-    expect(lightTheme).toContain("--app-focus-ring: #bd5100;");
-    expect(lightTheme).not.toContain("--app-focus-ring: #ff9a47;");
-    expect(darkTheme).toContain("--app-focus-ring: #ff9a47;");
-    expect(darkTheme).not.toContain("--app-focus-ring: #bd5100;");
+    expect(lightTheme).toContain("--app-focus-ring: var(--app-accent-text);");
+    expect(darkTheme).toContain("--app-focus-ring: var(--app-accent-text);");
   });
 });

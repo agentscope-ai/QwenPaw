@@ -76,6 +76,7 @@ import {
   CHAT_WIDE_MODE_CHANGE_EVENT,
   getChatWideModePreference,
 } from "@/utils/chatLayoutPreference";
+import { toChatThemeHex } from "@/utils/chatThemeColor";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import {
@@ -1257,7 +1258,7 @@ export default function ChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { isDark } = useTheme();
+  const { isDark, previewTheme = {} } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
   const routeChatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
@@ -3802,6 +3803,16 @@ export default function ChatPage() {
       locale,
     );
     const extColorPrimary = extScalar[ChatScalar.themeColorPrimary]?.value;
+    const configuredColorPrimary = toChatThemeHex(
+      isDark
+        ? previewTheme.dark?.accent ?? previewTheme.accent
+        : previewTheme.accent,
+      defaultConfig.theme.colorPrimary ?? "#FF7F16",
+    );
+    const colorPrimary = toChatThemeHex(
+      extColorPrimary,
+      configuredColorPrimary,
+    );
     const extPlaceholder = resolveLocalized(
       extScalar[ChatScalar.senderPlaceholder]?.value,
       locale,
@@ -4012,7 +4023,7 @@ export default function ChatPage() {
       theme: {
         ...defaultConfig.theme,
         darkMode: isDark,
-        ...(extColorPrimary ? { colorPrimary: extColorPrimary } : {}),
+        colorPrimary,
         bubbleList: {
           ...defaultConfig.theme.bubbleList,
           userMessageAnchors: userMessageAnchorsConfig,
@@ -4479,6 +4490,7 @@ export default function ChatPage() {
     t,
     i18n.language,
     isDark,
+    previewTheme,
     multimodalCaps,
     toolRenderConfig,
     extScalar,
@@ -4715,7 +4727,7 @@ export default function ChatPage() {
           styles={{
             content: isDark
               ? {
-                  background: "#1f1f1f",
+                  background: "var(--app-surface)",
                   boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                 }
               : undefined,

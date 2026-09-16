@@ -26,7 +26,7 @@ vi.mock("./tauri/BackendLoadingPage", () => ({
   ),
 }));
 
-import { RuntimeAvailabilityGuard } from "./App";
+import { getAppThemeToken, RuntimeAvailabilityGuard } from "./App";
 
 afterEach(() => {
   cleanup();
@@ -81,5 +81,18 @@ describe("RuntimeAvailabilityGuard", () => {
     );
     expect(screen.getByText("runtime readiness timed out")).toBeInTheDocument();
     expect(screen.queryByText("runtime application")).not.toBeInTheDocument();
+  });
+});
+
+describe("getAppThemeToken", () => {
+  it("leaves the default radius token to antd when unset", () => {
+    const token = getAppThemeToken({}, false);
+
+    expect(token.colorPrimary).toBe("#FF7F16");
+    expect("borderRadius" in token).toBe(false);
+  });
+
+  it("passes a configured radius through to antd", () => {
+    expect(getAppThemeToken({ radius: "12px" }, false).borderRadius).toBe(12);
   });
 });

@@ -197,7 +197,10 @@ vi.mock("@/stores/agentStore", () => {
 });
 
 vi.mock("@/contexts/ThemeContext", () => ({
-  useTheme: vi.fn(() => ({ isDark: false })),
+  useTheme: vi.fn(() => ({
+    isDark: false,
+    previewTheme: { accent: "#0b57d0" },
+  })),
 }));
 
 vi.mock("./sessionApi", () => ({
@@ -2005,6 +2008,7 @@ describe("ChatPage coverage", () => {
     await act(async () => {});
 
     expect(capturedOptions?.theme?.darkMode).toBe(false);
+    expect(capturedOptions?.theme?.colorPrimary).toBe("#0b57d0");
     expect(capturedOptions?.theme?.rightHeader).toBeTruthy();
   });
 
@@ -2423,7 +2427,7 @@ describe("ChatPage coverage", () => {
   });
 
   // ── Cancel callback with no resolved chat ID ───────────────────────────
-  it("cancel callback handles missing chat ID gracefully", async () => {
+  it("cancel callback rejects missing chat ID for SDK cleanup", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -2431,9 +2435,9 @@ describe("ChatPage coverage", () => {
     await act(async () => {});
 
     if (capturedOptions?.api?.cancel) {
-      // Call with empty session_id
-      capturedOptions.api.cancel({ session_id: "" });
-      expect(true).toBe(true);
+      await expect(
+        capturedOptions.api.cancel({ session_id: "" }),
+      ).rejects.toThrow("Missing chat identity for cancellation");
     }
   });
 

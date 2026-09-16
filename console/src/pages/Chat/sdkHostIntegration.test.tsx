@@ -2506,16 +2506,16 @@ describe("ChatPage coverage", () => {
   });
 
   // ── Cancel callback with no resolved chat ID ───────────────────────────
-  it("cancel callback handles missing chat ID gracefully", async () => {
+  it("cancel callback rejects missing chat ID for SDK cleanup", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
 
     if (capturedOptions?.api?.cancel) {
-      // Call with empty session_id
-      capturedOptions.api.cancel({ session_id: "" });
-      expect(true).toBe(true);
+      await expect(
+        capturedOptions.api.cancel({ session_id: "" }),
+      ).rejects.toThrow("Missing chat identity for cancellation");
     }
   });
 
