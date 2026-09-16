@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """Regression coverage for damaged history image repair."""
 
-import nturl2path
 from unittest.mock import MagicMock
+import nturl2path
 
 import pytest
 from PIL import Image
@@ -69,7 +69,9 @@ def test_repair_preserves_valid_remote_and_missing_images(tmp_path):
 def test_windows_file_uri_reaches_image_validation(monkeypatch, url, expected):
     # Exercise the Windows stdlib converter even on POSIX test hosts.
     monkeypatch.setattr(
-        console_turn_state, "url2pathname", nturl2path.url2pathname
+        console_turn_state,
+        "url2pathname",
+        nturl2path.url2pathname,
     )
     path_factory = MagicMock()
     path_factory.return_value.is_file.return_value = True
