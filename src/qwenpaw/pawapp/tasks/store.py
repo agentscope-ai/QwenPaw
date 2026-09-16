@@ -33,9 +33,10 @@ from .contracts import (
     canonical_json,
     content_digest,
 )
+from .continuation_store import enqueue, migrate as migrate_continuations
 
 _T = TypeVar("_T")
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _AUDIT_SCHEMA = """CREATE TABLE task_audit (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at REAL NOT NULL,
@@ -132,6 +133,8 @@ class TaskStore:
                     connection.execute(statement)
             if version in (0, 1):
                 connection.execute(_AUDIT_SCHEMA)
+            if version in (0, 1, 2):
+                migrate_continuations(connection)
                 connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             elif version != _SCHEMA_VERSION:
                 raise TaskStoreError("unsupported_store_version")
@@ -238,6 +241,8 @@ class TaskStore:
                 VALUES (?, ?, ?, ?)""",
                 (handle.task_id, event.sequence, delivery_kind, target),
             )
+        if "continuation" in kinds:
+            enqueue(connection, handle)
         return submission
 
     async def create(
@@ -667,5 +672,13 @@ class TaskStore:
             )
             if cursor.rowcount != 1:
                 raise TaskStoreError("delivery_not_found")
+            if delivery.kind == "continuation":
+                connection.execute(
+                    """UPDATE task_continuations
+                    SET committed_at = COALESCE(committed_at, ?),
+                    lease_token = NULL, lease_until = 0
+                    WHERE task_id = ? AND event_sequence = ?""",
+                    (time.time(), delivery.task_id, delivery.event_sequence),
+                )
 
         await self._run(operation, write=True)

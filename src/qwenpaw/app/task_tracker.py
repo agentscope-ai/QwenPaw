@@ -250,21 +250,37 @@ class TaskTracker:
             pass
         return True
 
-    async def attach_or_start(
+    async def task_for_subscriber(
+        self,
+        run_key: str,
+        queue: asyncio.Queue,
+    ) -> asyncio.Future | None:
+        """Find the producer owned by a subscription, even across run reuse."""
+        async with self._lock:
+            state = self._runs.get(run_key)
+            if state is not None and queue in state.queues:
+                return state.task
+            return None
+
+    async def attach_or_start(  # pylint: disable=too-many-statements
         self,
         run_key: str,
         payload: Any,
         stream_fn: Callable[[Any], AsyncIterator[str]],
         owner: object | None = None,
         on_finished: Callable[[str, datetime], Awaitable[Any]] | None = None,
-    ) -> tuple[asyncio.Queue, bool]:
+        attach_if_running: bool = True,
+    ) -> tuple[asyncio.Queue | None, bool]:
         """Attach to an existing run or start a new one.
 
-        Returns ``(queue, is_new_run)``.
+        Returns ``(queue, is_new_run)``. With ``attach_if_running=False``,
+        a busy chat returns ``(None, False)`` without adding a subscriber.
         """
         async with self._lock:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
+                if not attach_if_running:
+                    return None, False
                 q: asyncio.Queue = asyncio.Queue()
                 for sse in state.buffer:
                     q.put_nowait(sse)

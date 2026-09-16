@@ -161,8 +161,8 @@ def make_task_tools(context: TaskToolContext):
         A blocked response starts no work: guide the user to App settings and
         retry only after setup. Accepted means queued, not successful. The
         chat card follows progress. Use get_app_task for a later status/result
-        request; do not poll repeatedly. Completion does not yet schedule a
-        new Main Agent turn automatically.
+        request; do not poll repeatedly. Completion queues an automatic,
+        tool-free summary in this Main Chat when it becomes idle.
         """
         try:
             scope = context.scope(app_id)

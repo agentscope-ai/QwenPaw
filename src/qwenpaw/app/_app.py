@@ -331,6 +331,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     from ..pawapp.tasks.store import TaskStore
     from ..pawapp.tasks.policy import FileTaskPolicy
     from ..pawapp.tasks.runtime import HostTaskRuntime
+    from ..pawapp.tasks.continuation import ContinuationWorker
     from ..pawapp.tasks.routes import HostOrigins, workspace_enabled
     from ..plugins.registry import PluginRegistry
 
@@ -344,6 +345,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         policy=FileTaskPolicy(task_root / "task-policy.json"),
         registrations=PluginRegistry().get_task_actions,
         authorize_origin=app.state.pawapp_task_origins,
+    )
+    app.state.pawapp_continuations = ContinuationWorker(
+        app.state.pawapp_tasks,
+        app.state.pawapp_task_origins,
     )
 
     async def _get_agent_by_id(agent_id: str = None):
@@ -550,6 +555,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             # Managed App services have started; recovery may now attach.
             await app.state.pawapp_tasks.start()
+            await app.state.pawapp_continuations.start()
 
             # ---- Approval Service ----
             try:
@@ -606,6 +612,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await _bg_task
 
         # Stop consumers and pools before plugins stop their Engines.
+        await app.state.pawapp_continuations.aclose()
         await app.state.pawapp_tasks.aclose()
 
         logger.info("Stopping BackupManager...")

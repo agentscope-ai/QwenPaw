@@ -5,8 +5,9 @@ Engine submission protocol 1. It can submit, reconcile, and consume independent
 analysis tasks in Direct or Delegated mode. The Data App declares its action
 through `PawApp.task_action`; Host owns adapter lifecycle, scoped HTTP dispatch,
 grants, readiness and recovery. Main Chat tools and Console task cards now use
-this boundary; see the [Host task runtime](pawapp-task-runtime.md). Automatic
-Main Agent continuation remains a separate gate.
+this boundary; see the [Host task runtime](pawapp-task-runtime.md). A durable
+Host worker delivers automatic, tool-free summaries to the originating Main
+Chat. General Main Agent continuation with follow-on tools remains separate.
 
 ## Binding and compatibility
 
@@ -103,8 +104,9 @@ events.
 
 The coordinator commits projected status, text, cursor, Host event, and delivery
 intents together. Direct creates App-session updates. Delegated also creates a
-continuation intent for the original Main Chat on terminal transition. These
-intents are not yet delivered to the Main Agent scheduler. Clarification requests,
+continuation job for the original Main Chat on terminal transition. The Host's
+leased worker delivers a tool-free summary after the chat becomes idle, with
+prepared-result replay and destination receipts. Clarification requests,
 answer/cancel receipts, artifacts, and rich cards are not projected by this slice.
 
 ## Verification
@@ -130,4 +132,6 @@ variables they skip explicitly. Coverage includes Direct/Delegated output and
 delivery intents, concurrent submissions, a failure before acceptance, a lost
 accepted response, a fresh Host store/adapter after partial output, and an actual
 Engine process kill/restart. This validates the backend protocol, not production
-analytics, UI, or Main Agent wake-up.
+analytics or UI. `tests/integration/test_pawapp_task_dispatch.py` additionally
+tests authenticated Console ingress through the real Engine into a persisted
+Main Chat summary, using controlled tool calling and summary generation.

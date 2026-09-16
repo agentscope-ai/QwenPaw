@@ -9,9 +9,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from qwenpaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.routers import console
 from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.pawapp.tasks.binding import ActionRegistration
+from qwenpaw.pawapp.tasks.continuation import ContinuationWorker
 from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.runtime.runtime import Runtime
 from qwenpaw.schemas import AgentResponse, RunStatus
@@ -160,3 +162,31 @@ async def test_console_tool_to_engine_and_card_status_api(
     card = await host.client.get(PREFIX + f"/tasks/{task_id}")
     assert card.status_code == 200
     assert card.json()["task"]["text_result"] == "Revenue is 42."
+    # Exercise delivery after the initiating chat turn has finished. Only
+    # text generation is controlled; queue, session, tracker and receipts run.
+    origins = host.app.state.pawapp_task_origins
+    workspace.session = SafeJSONSession(str(tmp_path / "sessions"))
+    workspace.config = SimpleNamespace(backend="qwenpaw", language="en")
+    workspace.chat_manager.get_chat = AsyncMock(side_effect=host.chats.get)
+    origins.manager.get_agent.return_value = workspace
+    summarizer = AsyncMock(
+        return_value="The Data task completed: revenue is 42.",
+    )
+    worker = ContinuationWorker(
+        host.app.state.pawapp_tasks,
+        origins,
+        summarizer=summarizer,
+    )
+    claim = await worker.queue.claim()
+    assert claim.task_id == task_id
+    await worker.deliver(claim)
+    saved = await workspace.session.get_session_state_dict(
+        "main-session",
+        "alice",
+        "console",
+    )
+    assert saved["agent"]["state"]["context"][0]["content"][0]["text"] == (
+        "The Data task completed: revenue is 42."
+    )
+    assert await worker.queue.claim() is None
+    await worker.aclose()

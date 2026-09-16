@@ -49,8 +49,8 @@ class _RuntimeBinding:
 class HostTaskRuntime:
     """One supervisor per Host process; durable facts remain in TaskStore.
 
-    The Engine arbitrates duplicate submissions. Multi-worker leases and Main
-    Agent delivery are separate gates; this supervisor never drains the outbox.
+    The Engine arbitrates duplicate submissions. This supervisor owns task
+    recovery; a separate leased worker delivers summaries to Main Chat.
     """
 
     def __init__(
