@@ -335,6 +335,6 @@ def test_terminate_pid_force_kills_on_unix(monkeypatch) -> None:
             shutdown_cmd_module._SIGKILL,  # pylint: disable=protected-access
         ),
     ]
-    assert 11.9 < wait_calls[0][0] <= 12.0
+    assert 19.9 < wait_calls[0][0] <= 20.0
     assert wait_calls[0][1] == 0.2
     assert wait_calls[1] == (2.0, 0.1)

@@ -23,7 +23,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
 _SIGTERM = signal.SIGTERM
 _SIGKILL = getattr(signal, "SIGKILL", _SIGTERM)
-_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 12.0
+# Uvicorn may spend 5 seconds draining requests before lifespan shutdown
+# starts. The application then has a 12-second dependent-shutdown watchdog;
+# leave 3 seconds for signal delivery, scheduling, and process exit.
+_GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = 20.0
 
 
 def _backend_port(ctx: click.Context, port: Optional[int]) -> int:
