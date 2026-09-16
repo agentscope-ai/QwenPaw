@@ -6,6 +6,7 @@ import inspect
 import mimetypes
 import os
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -65,6 +66,7 @@ from .routers.voice import voice_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+_WORKSPACE_SHUTDOWN_DEADLINE_SECONDS = 12.0
 
 # Uvicorn imports this module inside the serving process. Under ``--reload``
 # that is a spawned child, distinct from the CLI/reloader process, so it must
@@ -119,12 +121,35 @@ def _start_browser_runtime(app: FastAPI, kernel: Any, interval: float) -> None:
 async def _stop_workspaces_after_dependents(
     app: FastAPI,
     import_jobs: Any,
+    *,
+    deadline_sec: float = _WORKSPACE_SHUTDOWN_DEADLINE_SECONDS,
+) -> None:
+    """Stop workspace dependents, hard-exiting if they cannot quiesce."""
+    completed = threading.Event()
+
+    def enforce_deadline() -> None:
+        if not completed.wait(deadline_sec):
+            # Teardown cannot safely continue while a worker still uses its
+            # workspace. Exit the whole process even for direct SIGTERM or
+            # Ctrl+C, which have no external CLI force-kill watchdog.
+            os._exit(1)  # pylint: disable=protected-access
+
+    threading.Thread(target=enforce_deadline, daemon=True).start()
+    try:
+        await _stop_workspaces_after_dependents_impl(app, import_jobs)
+    finally:
+        completed.set()
+
+
+async def _stop_workspaces_after_dependents_impl(
+    app: FastAPI,
+    import_jobs: Any,
 ) -> None:
     """Quiesce imports and plugin hooks before destroying workspaces."""
     imports_quiesced = await import_jobs.shutdown()
     while not imports_quiesced:
         # A bounded cancellation attempt is not proof that a worker has
-        # released its workspace. The CLI process deadline is the cutoff.
+        # released its workspace. The process watchdog is the cutoff.
         imports_quiesced = await import_jobs.drain()
 
     plugin_registry = getattr(app.state, "plugin_registry", None)
