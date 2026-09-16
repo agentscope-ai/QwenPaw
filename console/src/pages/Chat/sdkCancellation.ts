@@ -10,7 +10,7 @@ interface CancelSdkChatRequestOptions {
   onError?: (error: unknown) => void;
 }
 
-/** Abort the local SDK stream immediately, then stop the matching backend chat. */
+/** Request backend cancellation and let the SDK consume the original SSE terminal. */
 export async function cancelSdkChatRequest(
   input: SdkCancellationInput,
   options: CancelSdkChatRequestOptions,
@@ -19,8 +19,8 @@ export async function cancelSdkChatRequest(
   const chatId = input.chatSessionId || input.session_id;
   const backendSessionId = options.resolveBackendSessionId(chatId) || chatId;
 
-  input.abort?.();
-  if (!backendSessionId) return;
+  if (!backendSessionId)
+    throw new Error("Missing chat identity for cancellation");
 
   try {
     await options.stopChat(backendSessionId);

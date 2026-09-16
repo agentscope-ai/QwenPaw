@@ -34,6 +34,7 @@ vi.mock("@agentscope-ai/chat", () => ({
 vi.mock("../../sessionApi", () => ({
   default: {
     finishSessionSwitch: vi.fn(),
+    invalidateSessionCreation: vi.fn(),
     startNewSwitch: () => new AbortController(),
     getEffectiveSessionId: vi.fn((sessionId: string) => sessionId),
     isSessionSwitching: false,

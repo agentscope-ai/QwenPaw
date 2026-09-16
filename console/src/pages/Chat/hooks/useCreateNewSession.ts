@@ -13,6 +13,7 @@ export function useCreateNewSession(): () => Promise<void> {
   const navigate = useNavigate();
   const { setCurrentSessionId } = useChatAnywhereSessionsState();
   return useCallback(async () => {
+    sessionApi.invalidateSessionCreation();
     sessionApi.finishSessionSwitch();
     sessionApi.lastActiveChatId = null;
     sessionApi.preferredChatId = null;

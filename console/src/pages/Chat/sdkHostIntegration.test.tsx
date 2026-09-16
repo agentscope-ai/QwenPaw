@@ -191,6 +191,8 @@ vi.mock("./sessionApi", () => ({
     onSessionRemoved: null,
     onSessionSelected: null,
     onSessionCreated: null,
+    invalidateSessionCreation: vi.fn(),
+    activateCreatedSession: vi.fn(),
     bindToOwner: vi.fn(() => ({
       getSession: (id: string) => mockSdkHistoryLoad(id),
       getSessionList: vi.fn(async () => []),
@@ -2054,6 +2056,9 @@ describe("ChatPage coverage", () => {
     expect(capturedOptions?.session?.currentSessionId).toBe("test-session");
     expect(capturedOptions?.session?.hideBuiltInSessionList).toBe(true);
     expect(capturedOptions?.session?.api).toBeTruthy();
+    const session = (await import("./sessionApi")).default;
+    act(() => capturedOptions.session.onCurrentSessionChange("created-chat"));
+    expect(session.activateCreatedSession).toHaveBeenCalledWith("created-chat");
   });
 
   it("keeps the currentSessionId key on the blank new-chat route", async () => {

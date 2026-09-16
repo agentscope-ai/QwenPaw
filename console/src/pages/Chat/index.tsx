@@ -11,6 +11,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -2007,11 +2008,17 @@ export default function ChatPage() {
   }, [selectedAgent, usesQwenPawBackend]);
 
   const isChatActiveRef = useRef(false);
-  isChatActiveRef.current =
+  const isChatActivePage =
     !isAgentTransition &&
     (location.pathname === "/" || location.pathname.startsWith("/chat"));
+  isChatActiveRef.current = isChatActivePage;
 
   const isChatActive = useCallback(() => isChatActiveRef.current, []);
+
+  useLayoutEffect(() => {
+    sessionApi.invalidateSessionCreation();
+    return () => sessionApi.invalidateSessionCreation();
+  }, [chatId, selectedAgent, isChatActivePage]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -4205,6 +4212,7 @@ export default function ChatPage() {
         currentSessionId: chatId,
         hideBuiltInSessionList: true,
         api: sdkSessionApi,
+        onCurrentSessionChange: (id?: string) => sessionApi.activateCreatedSession(id),
       },
       api: {
         ...defaultConfig.api,

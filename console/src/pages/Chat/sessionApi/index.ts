@@ -766,6 +766,22 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    *  at runtime the module claims the selected agent on load, below). */
   private activeOwner: SessionOwnerToken = { agentId: "", generation: 0 };
 
+  private creationVisit = 0;
+  private pendingCreatedSessions = new Set<string>();
+
+  /** A new route visit must not join or publish an earlier draft's creation. */
+  invalidateSessionCreation(): void {
+    this.creationVisit++;
+    this.sessionCreationRequest = null;
+    this.pendingCreatedSessions.clear();
+  }
+
+  /** Called only after the SDK accepts and activates the creation result. */
+  activateCreatedSession(id?: string): void {
+    if (!id || !this.pendingCreatedSessions.delete(id)) return;
+    this.onSessionCreated?.(id);
+  }
+
   /** Share only pending creation within an owner epoch, never a completed Chat. */
   private sessionCreationRequest: {
     owner: SessionOwnerToken;
@@ -787,7 +803,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // promises keep running but their results are rejected by the owner
     // checks at the apply sites.
     this.sessionListRequest = null;
-    this.sessionCreationRequest = null;
+    this.invalidateSessionCreation();
     this.resolvePromise = null;
     this.pendingLocalSessionIds.clear();
     this.sessionRequests.clear();
@@ -867,7 +883,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   resetForTests(): void {
     this.activeOwner = { agentId: "", generation: 0 };
     this.sessionListRequest = null;
-    this.sessionCreationRequest = null;
+    this.invalidateSessionCreation();
     this.resolvePromise = null;
     this.pendingLocalSessionIds.clear();
     this.sessionRequests.clear();
@@ -1737,6 +1753,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     session: Partial<IAgentScopeRuntimeWebUISession>,
   ): Promise<IAgentScopeRuntimeWebUICreateSessionResult> {
     const owner = this.getActiveOwner();
+    const visit = this.creationVisit;
     if (
       this.sessionCreationRequest &&
       this.isActiveOwner(this.sessionCreationRequest.owner)
@@ -1750,7 +1767,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       (s) => isLocalTimestamp(s.id) && !(s as ExtendedSession).realId,
     ) as ExtendedSession | undefined;
     if (existing) {
-      this.onSessionCreated?.(existing.id);
+      this.pendingCreatedSessions.add(existing.id);
       return { sessions: [...this.sessionList], session: existing };
     }
 
@@ -1769,8 +1786,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             name: placeholderName,
             meta: { console_placeholder_name: placeholderName },
           });
-          if (!this.isActiveOwner(owner)) {
-            throw new DOMException("Session owner changed", "AbortError");
+          if (!this.isActiveOwner(owner) || visit !== this.creationVisit) {
+            throw new DOMException("Session creation superseded", "AbortError");
           }
           // Publish the same metadata as a list refresh on the first render;
           // missing timestamps would briefly place a new Chat in Earlier.
@@ -1781,7 +1798,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
             sessionId: chat.session_id || runtimeSessionId,
           };
           this.sessionList.unshift(extended);
-          this.onSessionCreated?.(chat.id);
+          this.pendingCreatedSessions.add(chat.id);
           return { sessions: [...this.sessionList], session: extended };
         })(),
     };

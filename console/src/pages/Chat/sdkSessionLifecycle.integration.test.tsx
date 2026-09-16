@@ -4,12 +4,12 @@
  * No @agentscope-ai/chat module, context, hook, controller or session adapter
  * is mocked. HTTP-client fixtures supply chat records; a real ReadableStream
  * drives the SDK SSE reader. The small router host reproduces CoPaw's controlled
- * currentSessionId and synchronous onSessionCreated navigation. It does not
+ * currentSessionId and SDK-confirmed onSessionCreated navigation. It does not
  * mount ChatPage's queue drain/ownership effects, so pending host queue assertions
  * establish isolation, not background-drain or cross-tab acceptance.
  *
  * The unobserved loading test characterizes pinned beta
- * 1.2.0-beta.1788428294123. If an SDK upgrade clears idle loading itself,
+ * 1.2.0-beta.1789540479556. If an SDK upgrade clears idle loading itself,
  * its expected-true assertion fails: review removal of the host workaround.
  * Observed-path regression tests independently require loading=false.
  * Run: npm run test:run -- src/pages/Chat/sdkSessionLifecycle.integration.test.tsx
@@ -33,6 +33,8 @@ import { useMessageQueueStore } from "../../stores/messageQueueStore";
 import { useCreateNewSession } from "./hooks/useCreateNewSession";
 import sessionApi from "./sessionApi";
 import { createSdkSessionAdapter } from "./sdkSessionAdapter";
+import { cancelSdkChatRequest } from "./sdkCancellation";
+import { useChatAnywhereCommandDispatcher } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/useChatAnywhereEventEmitter";
 
 const A = "11111111-1111-4111-8111-111111111111";
 const B = "22222222-2222-4222-8222-222222222222";
@@ -66,7 +68,12 @@ type TransportData = Parameters<
 function createFixture() {
   const records = [record(A)];
   const trace: string[] = [];
-  const streams: Array<{ data: TransportData; close: () => void }> = [];
+  const streams: Array<{
+    data: TransportData;
+    close: () => void;
+    emit: (event: Record<string, unknown>) => void;
+  }> = [];
+  const stop = vi.fn(async (_id: string) => {});
   const create = vi
     .spyOn(api, "createChat")
     .mockImplementation(async (draft) => {
@@ -86,9 +93,14 @@ function createFixture() {
   const transport = vi.fn(async (data: TransportData) => {
     trace.push(`SSE:${data.session_id}`);
     let close = () => {};
+    let emit = (_event: Record<string, unknown>) => {};
+    let closed = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        let closed = false;
+        emit = (event) =>
+          controller.enqueue(
+            new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`),
+          );
         close = () => {
           if (closed) return;
           closed = true;
@@ -107,17 +119,22 @@ function createFixture() {
         );
         data.signal?.addEventListener("abort", close, { once: true });
       },
+      cancel() {
+        closed = true;
+        data.signal?.removeEventListener("abort", close);
+      },
     });
-    streams.push({ data, close });
+    streams.push({ data, close, emit });
     return new Response(body, {
       headers: { "Content-Type": "text/event-stream" },
     });
   });
-  return { records, trace, create, history, transport, streams };
+  return { records, trace, create, history, transport, streams, stop };
 }
 
 type Fixture = ReturnType<typeof createFixture>;
 type Probe = {
+  dispatch: ReturnType<typeof useChatAnywhereCommandDispatcher>;
   path: string;
   newChat: ReturnType<typeof useCreateNewSession>;
   navigate: ReturnType<typeof useNavigate>;
@@ -151,8 +168,8 @@ function mountHost(
     ) => {
       const result = await sessionApi.createSession(draft);
       fixture.trace.push("host-create-resolved");
-      // Force the allowed ordering: callback navigation commits while the SDK
-      // still awaits createSession. Never modify SDK internals to force a race.
+      // Hold the adapter result: no host navigation is allowed until the SDK
+      // accepts creation. Never modify SDK internals to force a race.
       if (creationGate) await creationGate.promise;
       fixture.trace.push("adapter-create-return");
       return result;
@@ -198,6 +215,7 @@ function mountHost(
 
   function ProbeView() {
     const controller = useChatController();
+    const dispatch = useChatAnywhereCommandDispatcher();
     useChatAnywhereSessionLoader();
     const newChat = useCreateNewSession();
     const sessions = useChatAnywhereSessionsState();
@@ -207,6 +225,7 @@ function mountHost(
     const { pathname: path } = useLocation();
     useLayoutEffect(() => {
       probe = {
+        dispatch,
         path,
         newChat,
         navigate,
@@ -224,6 +243,10 @@ function mountHost(
     const navigate = useNavigate();
     const currentSessionId = pathname.split("/")[2] || undefined;
     useLayoutEffect(() => {
+      sessionApi.invalidateSessionCreation();
+      return () => sessionApi.invalidateSessionCreation();
+    }, [currentSessionId]);
+    useLayoutEffect(() => {
       sessionApi.onSessionCreated = (id) => {
         fixture.trace.push(`onSessionCreated:${id}`);
         sessionApi.lastActiveChatId = id;
@@ -236,10 +259,21 @@ function mountHost(
     }, [navigate]);
     const options = useMemo<IAgentScopeRuntimeWebUIOptions>(
       () => ({
-        session: { multiple: true, currentSessionId, api: adapter.api },
+        session: {
+          multiple: true,
+          currentSessionId,
+          api: adapter.api,
+          onCurrentSessionChange: (id) => sessionApi.activateCreatedSession(id),
+        },
         sender: { queue: false },
         api: {
           fetch: fixture.transport,
+          cancel: (data) =>
+            cancelSdkChatRequest(data, {
+              resolveBackendSessionId: (id) =>
+                sessionApi.getRealIdForSession(id),
+              stopChat: fixture.stop,
+            }),
           reconnect: (data) => fixture.transport({ ...data, input: [] }),
         },
       }),
@@ -366,7 +400,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
   });
 
   it.each([false, true])(
-    "A → blank → first send creates exactly one populated session (commit before create return=%s)",
+    "A → blank → first send activates only after the adapter returns (delayed=%s)",
     async (commitBeforeReturn) => {
       const gate = commitBeforeReturn ? deferred() : undefined;
       if (gate) gates.push(gate);
@@ -388,10 +422,11 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
         );
       });
       await waitFor(() =>
-        expect(fixture.trace).toContain(`onSessionCreated:${B}`),
+        expect(fixture.trace).toContain("host-create-resolved"),
       );
       if (gate) {
-        await waitFor(() => expect(host.current().path).toBe(`/chat/${B}`));
+        expect(host.current().path).toBe("/chat");
+        expect(fixture.trace).not.toContain(`onSessionCreated:${B}`);
         expect(fixture.trace).not.toContain("adapter-create-return");
         expect(fixture.transport).toHaveBeenCalledTimes(1);
         await act(async () => {
@@ -399,7 +434,7 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
         });
       }
       await waitFor(() => expect(fixture.transport).toHaveBeenCalledTimes(2));
-      expect(fixture.trace.indexOf(`onSessionCreated:${B}`)).toBeLessThan(
+      expect(fixture.trace.indexOf(`onSessionCreated:${B}`)).toBeGreaterThan(
         fixture.trace.indexOf("adapter-create-return"),
       );
       expect(fixture.create).toHaveBeenCalledTimes(1);
@@ -589,4 +624,109 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     ).toContain("First B message");
     expect(useMessageQueueStore.getState().queues[A][0].status).toBe("pending");
   });
+});
+
+describe("late first-send creation with the published SDK", () => {
+  it.each([false, true])(
+    "does not steal selection after switching away (return to blank=%s)",
+    async (backToBlank) => {
+      const gate = deferred();
+      gates.push(gate);
+      fixture.create.mockImplementationOnce(async (draft) => {
+        await gate.promise;
+        const chat = { ...record(B), ...draft };
+        fixture.records.push(chat);
+        return chat;
+      });
+      const host = mountHost(fixture);
+      await waitFor(() => expect(host.loaded.length).toBeGreaterThan(0));
+      await act(async () => {
+        await host.current().newChat();
+      });
+      let rejection: unknown;
+      act(() => {
+        pendingSubmissions.push(
+          Promise.resolve(
+            host
+              .current()
+              .controller.handleSubmit({ query: "late first", fileList: [] }),
+          ).catch((error) => {
+            rejection = error;
+          }),
+        );
+      });
+      await waitFor(() => expect(fixture.create).toHaveBeenCalledOnce());
+      await act(async () => {
+        host.current().navigate(`/chat/${A}`);
+      });
+      if (backToBlank)
+        await act(async () => {
+          await host.current().newChat();
+        });
+      await act(async () => {
+        gate.resolve();
+      });
+      await waitFor(() =>
+        expect(rejection).toMatchObject({ name: "AbortError" }),
+      );
+      expect(host.current().path).toBe(backToBlank ? "/chat" : `/chat/${A}`);
+      expect(host.current().sessions.currentSessionId).toBe(
+        backToBlank ? undefined : A,
+      );
+      expect(fixture.trace).not.toContain(`onSessionCreated:${B}`);
+      expect(fixture.transport).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("published SDK cancellation with CoPaw adapter", () => {
+  it.each(["ui", "public"] as const)(
+    "%s cancellation consumes a late SSE terminal after Stop HTTP success",
+    async (mode) => {
+      const host = mountHost(fixture);
+      await waitFor(() =>
+        expect(host.loaded).toContainEqual({ id: A, generating: false }),
+      );
+      const handle = await act(async () =>
+        host
+          .current()
+          .dispatch("handleExecute", {
+            data: { query: "cancel me", fileList: [] },
+            options: { sessionId: A },
+          }),
+      );
+      await act(async () => {
+        await handle.accepted;
+      });
+      let settled = false;
+      const completion = handle.completion.then((result) => {
+        settled = true;
+        return result;
+      });
+      let cancellation: ReturnType<typeof handle.cancel> | undefined;
+      act(() => {
+        if (mode === "ui") host.current().controller.handleCancel();
+        else cancellation = handle.cancel();
+      });
+      await waitFor(() => expect(fixture.stop).toHaveBeenCalledWith(A));
+      expect(fixture.streams[0].data.signal?.aborted).toBe(false);
+      expect(settled).toBe(false);
+      await act(async () => {
+        fixture.streams[0].emit({
+          object: "response",
+          id: "server-cancel-terminal",
+          status: "canceled",
+          created_at: 1,
+          output: [],
+        });
+        expect((await completion).status).toBe("canceled");
+        if (cancellation)
+          expect((await cancellation).locallyCanceled).toBe(false);
+      });
+      expect(
+        JSON.stringify(host.current().messages.getSessionMessages(A)),
+      ).toContain("server-cancel-terminal");
+      expect(host.current().input.getSessionLoading?.(A)).toBe(false);
+    },
+  );
 });

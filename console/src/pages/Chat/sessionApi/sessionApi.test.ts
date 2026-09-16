@@ -69,6 +69,7 @@ describe("createSession owner-epoch singleflight", () => {
     );
     expect(sessions[1]).toBe(sessions[0]);
     expect(sessions[2]).toBe(sessions[0]);
+    sessionApi.activateCreatedSession("chat-one");
     expect(selected).toHaveBeenCalledExactlyOnceWith("chat-one");
     expect(sessions[0]).toMatchObject({
       session: { id: "chat-one", sessionId: "runtime-chat-one" },
@@ -139,6 +140,7 @@ describe("createSession owner-epoch singleflight", () => {
     expect(attemptsBeforeRetry).toBe(1);
     expect(create).toHaveBeenCalledTimes(2);
     expect(results[0]).toBe(results[1]);
+    sessionApi.activateCreatedSession("retry-chat");
     expect(selected).toHaveBeenCalledExactlyOnceWith("retry-chat");
   });
 
@@ -186,6 +188,7 @@ describe("createSession owner-epoch singleflight", () => {
       expect(sessionApi.getSessionIdentity("fresh-chat").sessionId).toBe(
         "runtime-fresh-chat",
       );
+      sessionApi.activateCreatedSession("fresh-chat");
       expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
     },
   );
@@ -210,6 +213,7 @@ describe("createSession owner-epoch singleflight", () => {
     expect(sessionApi.getSessionIdentity("fresh-chat").sessionId).toBe(
       "runtime-fresh-chat",
     );
+    sessionApi.activateCreatedSession("fresh-chat");
     expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
     create.mockResolvedValue(createdChat("next-chat"));
     const next = await sessionApi.createSession({});
@@ -586,5 +590,41 @@ describe("contentToRequestParts", () => {
     const parts = T.contentToRequestParts([{ type: "text", text: "plain" }]);
     expect(parts[0].text).toBe("plain");
     expect(parts[0].status).toBe("created");
+  });
+});
+
+describe("creation visit isolation", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+  });
+  it("does not join a prior blank visit or activate a late response", async () => {
+    sessionApi.resetForTests();
+    const old = deferred<ChatSpec>();
+    const fresh = deferred<ChatSpec>();
+    const create = vi
+      .spyOn(api, "createChat")
+      .mockReturnValueOnce(old.promise)
+      .mockReturnValueOnce(fresh.promise);
+    const selected = vi.fn();
+    sessionApi.onSessionCreated = selected;
+    const stale = sessionApi.createSession({ name: "old draft" });
+    const rejected = expect(stale).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    sessionApi.invalidateSessionCreation();
+    const current = sessionApi.createSession({ name: "fresh draft" });
+    old.resolve(createdChat("old-chat"));
+    await rejected;
+    const joined = sessionApi.createSession({ name: "fresh retry" });
+    fresh.resolve(createdChat("fresh-chat"));
+    expect(await joined).toBe(await current);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(selected).not.toHaveBeenCalled();
+    sessionApi.activateCreatedSession("old-chat");
+    expect(selected).not.toHaveBeenCalled();
+    sessionApi.activateCreatedSession("fresh-chat");
+    sessionApi.activateCreatedSession("fresh-chat");
+    expect(selected).toHaveBeenCalledExactlyOnceWith("fresh-chat");
   });
 });

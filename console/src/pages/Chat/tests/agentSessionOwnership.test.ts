@@ -103,6 +103,8 @@ describe("agent session ownership epochs", () => {
       id: A_CHAT,
       sessionId: "runtime-a",
     });
+    expect(selected).not.toHaveBeenCalled();
+    sessionApi.activateCreatedSession(A_CHAT);
     expect(selected).toHaveBeenCalledWith(A_CHAT);
     expect(create).toHaveBeenCalledTimes(1);
   });

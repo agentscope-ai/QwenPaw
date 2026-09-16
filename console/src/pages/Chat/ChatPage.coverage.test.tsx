@@ -206,6 +206,8 @@ vi.mock("./sessionApi", () => ({
     onSessionRemoved: null,
     onSessionSelected: null,
     onSessionCreated: null,
+    invalidateSessionCreation: vi.fn(),
+    activateCreatedSession: vi.fn(),
     bindToOwner: vi.fn(() => ({
       getSession: vi.fn(async (id: string) => ({ id, name: id, messages: [] })),
       getSessionList: vi.fn(async () => []),

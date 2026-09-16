@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { cancelSdkChatRequest } from "./sdkCancellation";
 
 describe("cancelSdkChatRequest", () => {
-  it("aborts locally and stops the resolved backend chat", async () => {
+  it("preserves SSE while stopping the resolved backend chat", async () => {
     const abort = vi.fn();
     const stopChat = vi.fn().mockResolvedValue(undefined);
 
@@ -14,11 +14,11 @@ describe("cancelSdkChatRequest", () => {
       },
     );
 
-    expect(abort).toHaveBeenCalledOnce();
+    expect(abort).not.toHaveBeenCalled();
     expect(stopChat).toHaveBeenCalledWith("backend-session");
   });
 
-  it("reports backend stop failure while retaining local cancellation", async () => {
+  it("propagates stop failure so the SDK can perform local cleanup", async () => {
     const abort = vi.fn();
     const onError = vi.fn();
     const error = new Error("stop failed");
@@ -34,7 +34,7 @@ describe("cancelSdkChatRequest", () => {
       ),
     ).rejects.toBe(error);
 
-    expect(abort).toHaveBeenCalledOnce();
+    expect(abort).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledWith(error);
   });
 });
