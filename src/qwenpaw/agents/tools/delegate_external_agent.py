@@ -552,14 +552,10 @@ async def _stream_action_responses(
             return
         raw = "".join(text_buffer)
         text_buffer.clear()
-        streamed_text.append(raw)
         rendered = render_assistant_text(raw)
         if rendered is None:
             return
-        normalized = rendered.strip()
-        if normalized in seen_stream_items:
-            return
-        seen_stream_items.add(normalized)
+        streamed_text.append(raw)
         pending_items.append(rendered)
 
     async def flush_snapshot() -> None:

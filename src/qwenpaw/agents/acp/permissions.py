@@ -98,6 +98,11 @@ class ACPPermissionAdapter:
         prior_state: Any = None,
     ) -> SuspendedPermission:
         tool_call_payload = self._merged_payload(tool_call, prior_state)
+        command = self._command_with_prior(tool_call, prior_state)
+        paths = self._paths(tool_call_payload)
+        target = self._target(tool_call_payload)
+        if not paths and command:
+            target = command
         option_payloads: list[dict[str, Any]] = []
         for option in options:
             payload = self._option_payload(option)
@@ -112,11 +117,11 @@ class ACPPermissionAdapter:
             agent=agent,
             tool_name=self._tool_name(tool_call_payload),
             tool_kind=self._tool_kind(tool_call_payload),
-            target=self._target(tool_call_payload),
+            target=target,
             action=self._action(tool_call_payload),
             summary=self._summary(tool_call_payload),
-            command=self._command(tool_call_payload),
-            paths=self._paths(tool_call_payload)[:_MAX_DISPLAY_PATHS],
+            command=command,
+            paths=paths[:_MAX_DISPLAY_PATHS],
             requires_user_confirmation=True,
         )
 
@@ -164,6 +169,7 @@ class ACPPermissionAdapter:
     ) -> bool:
         return self._is_hard_blocked(
             self._merged_payload(tool_call, prior_state),
+            command=self._command_with_prior(tool_call, prior_state),
         )
 
     def _merged_payload(
@@ -179,8 +185,9 @@ class ACPPermissionAdapter:
         update with no path and no command to inspect, so the boundary check
         would see nothing and pass.  *prior_state* is the accumulated
         ``ToolCallView`` for the same id; its values fill only the gaps, and
-        list-valued ``content``/``locations`` are concatenated so arguments
-        and the approval prompt are both visible.
+        list-valued ``content``/``locations`` are concatenated with the
+        permission-time values first, so current arguments take precedence
+        while earlier arguments remain available as a fallback.
         """
         payload = self._tool_call_payload(tool_call)
         if prior_state is None:
@@ -199,7 +206,7 @@ class ACPPermissionAdapter:
                 (list, tuple),
             ):
                 extra = value if isinstance(value, (list, tuple)) else [value]
-                merged[key] = [*existing, *extra]
+                merged[key] = [*extra, *existing]
             else:
                 merged[key] = value
         return merged
@@ -271,6 +278,13 @@ class ACPPermissionAdapter:
         return None
 
     def _command(self, tool_call: dict[str, Any]) -> str | None:
+        command = self._argument_command(tool_call)
+        if command is not None:
+            return command
+        return self._title_command(tool_call)
+
+    def _argument_command(self, tool_call: dict[str, Any]) -> str | None:
+        """Return a command carried by structured tool arguments."""
         raw_input = tool_call.get("rawInput")
         if raw_input is None:
             raw_input = tool_call.get("raw_input")
@@ -282,6 +296,10 @@ class ACPPermissionAdapter:
             command = _command_from_args(args)
             if command is not None:
                 return command
+        return None
+
+    def _title_command(self, tool_call: dict[str, Any]) -> str | None:
+        """Use an execute call's title when no structured command exists."""
         # Fallback: when no argument source carries a command/argv, use title
         # for execute-kind calls.  Title is human-readable text (e.g.
         # "Shutdown the dev server") so hard-block regexes like \bshutdown\b
@@ -297,6 +315,24 @@ class ACPPermissionAdapter:
         ):
             return title.strip()
         return None
+
+    def _command_with_prior(
+        self,
+        tool_call: Any,
+        prior_state: Any = None,
+    ) -> str | None:
+        """Prefer the permission request's command over accumulated state."""
+        payload = self._tool_call_payload(tool_call)
+        command = self._argument_command(payload)
+        if command is not None:
+            return command
+
+        prior = self._tool_call_payload(prior_state)
+        command = self._argument_command(prior)
+        if command is not None:
+            return command
+
+        return self._title_command(payload) or self._title_command(prior)
 
     def _paths(self, tool_call: dict[str, Any]) -> list[str]:
         """Return every filesystem path this tool call mentions.
@@ -371,13 +407,20 @@ class ACPPermissionAdapter:
         except (OSError, RuntimeError, ValueError):
             return value
 
-    def _is_hard_blocked(self, tool_call: dict[str, Any]) -> bool:
+    def _is_hard_blocked(
+        self,
+        tool_call: dict[str, Any],
+        *,
+        command: str | None = None,
+    ) -> bool:
         from qwenpaw.security.tool_guard.safety_checks import (
             is_command_destructive,
             is_path_outside_boundary,
         )
 
-        command = str(self._command(tool_call) or "")
+        if command is None:
+            command = self._command(tool_call)
+        command = str(command or "")
         # Pass ACP session cwd so relative rm targets (e.g. ``../``) resolve
         # against the same root as path-boundary checks.
         if is_command_destructive(command, cwd=self.cwd):
