@@ -2,7 +2,7 @@
 """Daily Runtime activity telemetry with a durable outbox."""
 from __future__ import annotations
 
-import asyncio
+import threading
 import logging
 import random
 import time
@@ -28,24 +28,23 @@ class DailyTelemetry:
 
     def __init__(self, directory: Path) -> None:
         self.directory = directory
-        self._wake = asyncio.Event()
+        self._wake = threading.Event()
         self._stopping = False
-        self._task: asyncio.Task | None = None
+        self._thread: threading.Thread | None = None
 
     def start(self) -> None:
         """Retry existing activity without creating startup activity."""
-        self._task = asyncio.create_task(self._run())
+        self._thread = threading.Thread(
+            target=self._run,
+            name="qwenpaw-daily-telemetry",
+            daemon=True,
+        )
+        self._thread.start()
 
     async def close(self) -> None:
-        """Allow bounded, already-started network work to finish."""
+        """Signal shutdown without waiting for detached network work."""
         self._stopping = True
         self._wake.set()
-        if self._task is not None:
-            try:
-                await asyncio.wait_for(asyncio.shield(self._task), timeout=15)
-            except asyncio.TimeoutError:
-                self._task.cancel()
-                await asyncio.gather(self._task, return_exceptions=True)
 
     async def record(self, day: str | None = None) -> bool:
         """Persist the observation date before any slow environment probe."""
@@ -69,19 +68,16 @@ class DailyTelemetry:
             activity.setdefault(day, {})
         return True
 
-    async def _run(self) -> None:
+    def _run(self) -> None:
         while not self._stopping:
             self._wake.clear()
             try:
-                await run_sync_io(self.flush)
+                self.flush()
             except Exception:
                 logger.debug("Daily telemetry failed", exc_info=True)
             if self._stopping:
                 break
-            try:
-                await asyncio.wait_for(self._wake.wait(), timeout=60)
-            except asyncio.TimeoutError:
-                pass
+            self._wake.wait(timeout=60)
 
     def flush(self) -> None:
         """Retry bounded daily records using the shared installation marker."""
