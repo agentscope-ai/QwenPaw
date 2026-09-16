@@ -8,8 +8,9 @@ durable submission/replay protocol before it can be registered here.
 from __future__ import annotations
 
 from copy import deepcopy
+from contextlib import aclosing
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Awaitable, Callable, Literal, Protocol
+from typing import Any, AsyncGenerator, Awaitable, Callable, Literal, Protocol
 
 from pydantic import model_validator
 
@@ -45,6 +46,8 @@ class TaskAdapter(Protocol):
     or post-restart retries. query must report unknown if acceptance cannot
     be determined. attach replays after an opaque cursor in source order and
     reports explicit terminal events; stream exhaustion is not completion.
+    Every operation receives the persisted submission, including trusted scope,
+    so adapters can recover without process-local identity/run caches.
     """
 
     submission_protocol_version: int
@@ -52,14 +55,13 @@ class TaskAdapter(Protocol):
     async def submit(self, submission: TaskSubmission) -> ExecutorRunRef:
         ...
 
-    async def query(self, submission_id: str) -> SubmissionLookup:
+    async def query(self, submission: TaskSubmission) -> SubmissionLookup:
         ...
 
     def attach(
         self,
-        run_ref: ExecutorRunRef,
-        cursor: str | None,
-    ) -> AsyncIterator[ExecutorEvent]:
+        submission: TaskSubmission,
+    ) -> AsyncGenerator[ExecutorEvent, None]:
         ...
 
 
@@ -183,7 +185,7 @@ class TaskCoordinator:
                 return await self._submit(await self.store.get(scope, task_id))
             return await self.store.get(scope, task_id)
         try:
-            lookup = await binding.adapter.query(handle.submission_id)
+            lookup = await binding.adapter.query(submission)
         except Exception:
             lookup = SubmissionLookup(state="unknown")
         if lookup.state == "accepted" and lookup.run_ref is not None:
@@ -221,17 +223,15 @@ class TaskCoordinator:
             deepcopy(submission.inputs),
         )
         try:
-            async for event in binding.adapter.attach(
-                handle.executor_run_ref,
-                handle.replay_cursor,
-            ):
-                submission = await self.store.apply_event(
-                    scope,
-                    task_id,
-                    event,
-                )
-                if submission.handle.status in TERMINAL_STATUSES:
-                    return submission
+            async with aclosing(binding.adapter.attach(submission)) as stream:
+                async for event in stream:
+                    submission = await self.store.apply_event(
+                        scope,
+                        task_id,
+                        event,
+                    )
+                    if submission.handle.status in TERMINAL_STATUSES:
+                        return submission
         except Exception:
             await self.store.mark_recovery(
                 scope,

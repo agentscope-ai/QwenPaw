@@ -2,9 +2,11 @@
 
 The internal `qwenpaw.pawapp.tasks` package implements the Host storage and
 adapter boundary for P1a. It is not registered with the application lifecycle,
-HTTP routes, Main Agent tools or Data Console yet. The Data action
-[example](pawapp-vnext-data-action.example.json) is a validated contract fixture,
-not an enabled action or a permission grant.
+HTTP routes, Main Agent tools or Data Console yet. The Data
+[adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
+implements this boundary against the Engine's durable submission API. Its
+server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json);
+neither the descriptor nor adapter registration is a permission grant.
 
 ## Host ownership
 
@@ -50,8 +52,13 @@ Only adapters declaring `submission_protocol_version = 1` are accepted:
 | Operation | Contract |
 | --- | --- |
 | `submit(TaskSubmission)` | Durably deduplicate `submission_id`, including concurrent retries and executor restarts; return the original `ExecutorRunRef`. |
-| `query(submission_id)` | Return `accepted` with the original run, authoritative `not_found`, or `unknown`. Losing a response or acceptance history is `unknown`, not `not_found`. |
-| `attach(run_ref, cursor)` | Replay events after the saved cursor in monotonically increasing executor sequence order; then stream live events with explicit terminal status. |
+| `query(TaskSubmission)` | Use its durable submission ID and trusted scope; return `accepted` with the original run, authoritative `not_found`, or `unknown`. Losing a response or acceptance history is `unknown`, not `not_found`. |
+| `attach(TaskSubmission)` | Use its bound run and saved cursor; emit new events in executor sequence order, followed by explicit terminal status. |
+
+All three calls receive the persisted submission so query/replay can recover
+the same scope after Host restart, without an adapter-local identity cache.
+`attach` returns an async generator; the coordinator closes it on terminal
+commit, cancellation, or error so its HTTP stream is released promptly.
 
 Acceptance/deduplication records must remain queryable for the lifetime of the
 Host task. An expired record cannot justify creating another execution.
@@ -60,10 +67,12 @@ Host task. An expired record cannot justify creating another execution.
 run stays unresolved. Changed descriptors block recovery until the compatible
 registration is restored. Query failures preserve task state and recorded output.
 
-The current Data `EngineClient.create_chat` and engine request model do **not**
-implement this protocol. They are not adapted by pretending Host-side deduplication
-is sufficient. A compatible engine release must be implemented and verified before
-enabling the Data action or choosing a minimum compatible version.
+Data's legacy `EngineClient.create_chat` remains the existing chat path. The
+task adapter uses `POST /api/v1/submissions` and requires the Engine's explicit
+protocol-1 capability probe. The verified development Engine is
+[`90a374a`](https://github.com/cyruszhang/QwenPaw-Data/commit/90a374ab77b3d6e4de20c8e8f13b30507e914ec1)
+on `dev/pawapp-vnext-engine`; no published minimum compatible version is claimed.
+See the [Data adapter contract and integration command](pawapp-data-task-adapter.md).
 
 ## Events and recovery
 
@@ -97,9 +106,16 @@ acceptance but before confirmation, after partial output and after terminal comm
 but before destination acknowledgment. This verifies the Host implementation;
 it is not a real Data engine or Main Chat end-to-end test.
 
+`tests/integration/test_pawapp_data_tasks.py` additionally runs the adapter and
+coordinator against a separate Engine process with real HTTP/SSE, SQL receipt
+creation, and startup recovery. Its executor emits controlled text without a
+provider call. The tests verify both engagements, concurrent delegation,
+uncertain submissions, Host store reopen, and forced Engine restart. They do
+not exercise a live Main Agent, UI, or analytical tools.
+
 Remaining integration includes authenticated routes and origin/resource binding,
-policy and denial auditing, readiness/blocked responses, the real Data adapter and
-engine protocol, task cards and Main Agent tools, durable answer/cancel receipts,
+policy and denial auditing, readiness/blocked responses, enabling the Data adapter
+in the App lifecycle, task cards and Main Agent tools, durable answer/cancel receipts,
 continuation worker leases and destination deduplication, and the Host/public plus
 App/private Skill/Tool runtime bridge. These are still P1a gates. Artifact Canvas
 and cross-App Exchange are not part of this implementation.

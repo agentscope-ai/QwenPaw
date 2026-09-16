@@ -433,6 +433,7 @@ class ProtocolFixture:
         self.cursors = []
         self.fault = None
         self.unknown = False
+        self.closed = False
 
     async def submit(self, submission):
         submission_id = submission.handle.submission_id
@@ -449,7 +450,8 @@ class ProtocolFixture:
             raise TimeoutError("injected after executor acceptance")
         return ref
 
-    async def query(self, submission_id):
+    async def query(self, submission):
+        submission_id = submission.handle.submission_id
         self.queried_ids.append(submission_id)
         if self.unknown:
             return SubmissionLookup(state="unknown")
@@ -459,13 +461,18 @@ class ProtocolFixture:
             run_ref=ref,
         )
 
-    async def attach(self, ref, cursor):
+    async def attach(self, submission):
+        ref = submission.handle.executor_run_ref
+        cursor = submission.handle.replay_cursor
         self.cursors.append(cursor)
-        for event in self.events:
-            if event.run_ref == ref and (
-                cursor is None or event.sequence > int(cursor)
-            ):
-                yield event
+        try:
+            for event in self.events:
+                if event.run_ref == ref and (
+                    cursor is None or event.sequence > int(cursor)
+                ):
+                    yield event
+        finally:
+            self.closed = True
 
 
 async def fixture_policy(scope, action, origin, inputs):
@@ -493,6 +500,28 @@ async def dispatch(boundary, scope, origin):
         inputs={"text": "Analyze revenue", "datasource_id": "sales"},
         origin=origin,
     )
+
+
+async def test_consumer_closes_executor_stream_on_terminal(
+    store,
+    scope,
+    action,
+    origin,
+):
+    engine = ProtocolFixture()
+    boundary = coordinator(store, action, engine)
+    task = await dispatch(boundary, scope, origin)
+    engine.events = [
+        ExecutorEvent(
+            run_ref=task.handle.executor_run_ref,
+            sequence=0,
+            cursor="0",
+            status="succeeded",
+            text_result="done",
+        ),
+    ]
+    await boundary.consume(scope, task.handle.task_id)
+    assert engine.closed
 
 
 @pytest.mark.asyncio

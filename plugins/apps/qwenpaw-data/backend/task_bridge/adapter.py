@@ -1,0 +1,297 @@
+# -*- coding: utf-8 -*-
+"""Protocol-1 Engine adapter for independent analysis tasks."""
+
+from __future__ import annotations
+
+import re
+from typing import Any, AsyncGenerator, Callable
+
+import httpx
+
+from qwenpaw.pawapp.tasks import (
+    ActionDescriptor,
+    ExecutorEvent,
+    ExecutorRunRef,
+    SubmissionLookup,
+    TaskScope,
+    TaskStoreError,
+    TaskSubmission,
+)
+from qwenpaw.pawapp.tasks.contracts import content_digest
+
+from .events import TextProjection, read_frames
+
+_ID = re.compile(r"[A-Za-z0-9_-]{1,256}\Z")
+
+
+def data_action_descriptor() -> ActionDescriptor:
+    """Server-owned contract; registration does not grant these permissions."""
+    return ActionDescriptor(
+        app_id="qwenpaw-data",
+        action_id="analyze",
+        summary=(
+            "Analyze a selected datasource "
+            "using the Data App's domain runtime."
+        ),
+        engagements=("delegated", "direct"),
+        input_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "minLength": 1},
+                "datasource_id": {"type": "string", "minLength": 1},
+            },
+            "required": ["text", "datasource_id"],
+            "additionalProperties": False,
+        },
+        output_types=("text/plain",),
+        permissions=("data.analysis.execute", "data.datasource.read"),
+        effects=("model_usage", "datasource_query"),
+        adapter_ref="qwenpaw-data.analysis.v1",
+    )
+
+
+class DataTaskAdapter:
+    """Bind one stable Engine identity to a trusted endpoint resolver.
+
+    Ports and credentials may change at restart; executor_id must remain tied
+    to the same persistent Engine database. Never derive the endpoint or token
+    from action inputs. This client owns its HTTP connection pool.
+    """
+
+    submission_protocol_version = 1
+
+    def __init__(
+        self,
+        endpoint: Callable[[], tuple[str, str]],
+        *,
+        executor_id: str,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ):
+        if not executor_id or len(executor_id) > 256:
+            raise ValueError("executor_id is required")
+        self._endpoint = endpoint
+        self._executor_id = executor_id
+        self._client = httpx.AsyncClient(
+            transport=transport,
+            timeout=httpx.Timeout(60.0, connect=5.0),
+            follow_redirects=False,
+            trust_env=False,
+        )
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
+
+    @staticmethod
+    def identity_namespace(scope: TaskScope) -> str:
+        """Stable business stamp, not an Engine-side authentication claim."""
+        return "pawapp_" + content_digest(scope.model_dump(mode="json"))
+
+    def _connection(self, scope: TaskScope) -> tuple[str, dict[str, str]]:
+        if scope.app_id != "qwenpaw-data":
+            raise TaskStoreError("data_action_scope_mismatch")
+        try:
+            base, token = self._endpoint()
+            url = httpx.URL(base)
+        except (RuntimeError, ValueError, TypeError, httpx.InvalidURL):
+            raise TaskStoreError("engine_unavailable") from None
+        if (
+            url.scheme not in {"http", "https"}
+            or not url.host
+            or url.userinfo
+            or url.query
+            or url.fragment
+        ):
+            raise TaskStoreError("invalid_engine_endpoint")
+        headers = {"X-User-Id": self.identity_namespace(scope)}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return str(url).rstrip("/"), headers
+
+    async def _json(
+        self,
+        connection: tuple[str, dict[str, str]],
+        method: str,
+        path: str,
+        **kwargs: Any,
+    ) -> dict:
+        base, headers = connection
+        try:
+            response = await self._client.request(
+                method,
+                base + path,
+                headers=headers,
+                **kwargs,
+            )
+        except httpx.TransportError:
+            raise TaskStoreError("engine_unavailable") from None
+        if not response.is_success:
+            raise TaskStoreError(f"engine_http_{response.status_code}")
+        try:
+            payload = response.json()
+        except ValueError:
+            raise TaskStoreError("invalid_engine_response") from None
+        if not isinstance(payload, dict):
+            raise TaskStoreError("invalid_engine_response")
+        return payload
+
+    async def _check_protocol(self, connection) -> None:
+        try:
+            caps = await self._json(
+                connection,
+                "GET",
+                "/api/v1/capabilities/submissions",
+            )
+        except TaskStoreError as exc:
+            if exc.code in {"engine_http_404", "engine_http_501"}:
+                raise TaskStoreError("unsupported_engine_protocol") from None
+            raise
+        if (
+            type(caps.get("protocol_version")) is not int
+            or caps["protocol_version"] != 1
+            or caps.get("durable_submissions") is not True
+            or caps.get("event_replay") is not True
+        ):
+            raise TaskStoreError("unsupported_engine_protocol")
+
+    async def check_compatibility(self, scope: TaskScope) -> None:
+        """Read-only probe for future Host readiness/registration wiring."""
+        await self._check_protocol(self._connection(scope))
+
+    def _lookup(self, payload: dict, submission_id: str) -> SubmissionLookup:
+        if (
+            type(payload.get("protocol_version")) is not int
+            or payload["protocol_version"] != 1
+            or payload.get("submission_id") != submission_id
+        ):
+            raise TaskStoreError("invalid_engine_response")
+        state, run = payload.get("state"), payload.get("run")
+        if state == "not_found" and run is None:
+            return SubmissionLookup(state="not_found")
+        if state != "accepted" or not isinstance(run, dict):
+            raise TaskStoreError("invalid_engine_response")
+        if any(
+            not isinstance(run.get(key), str) or not _ID.fullmatch(run[key])
+            for key in ("session_id", "run_id")
+        ):
+            raise TaskStoreError("invalid_engine_response")
+        return SubmissionLookup(
+            state="accepted",
+            run_ref=ExecutorRunRef(
+                executor_id=self._executor_id,
+                session_id=run["session_id"],
+                run_id=run["run_id"],
+            ),
+        )
+
+    @staticmethod
+    def _submission_id(submission: TaskSubmission) -> str:
+        submission_id = submission.handle.submission_id
+        if not _ID.fullmatch(submission_id) or len(submission_id) > 128:
+            raise TaskStoreError("invalid_submission_id")
+        return submission_id
+
+    async def submit(self, submission: TaskSubmission) -> ExecutorRunRef:
+        descriptor = data_action_descriptor()
+        if submission.action.descriptor_digest != descriptor.descriptor_digest:
+            raise TaskStoreError("data_action_mismatch")
+        descriptor.validate_inputs(submission.inputs)
+        if any(not value.strip() for value in submission.inputs.values()):
+            raise TaskStoreError("invalid_data_action_input")
+        submission_id = self._submission_id(submission)
+        connection = self._connection(submission.handle.scope)
+        await self._check_protocol(connection)
+        payload = await self._json(
+            connection,
+            "POST",
+            "/api/v1/submissions",
+            json={
+                "protocol_version": 1,
+                "submission_id": submission_id,
+                "agent_id": "default",
+                **submission.inputs,
+            },
+        )
+        lookup = self._lookup(payload, submission_id)
+        if lookup.run_ref is None:
+            raise TaskStoreError("invalid_engine_acceptance")
+        return lookup.run_ref
+
+    async def query(self, submission: TaskSubmission) -> SubmissionLookup:
+        submission_id = self._submission_id(submission)
+        connection = self._connection(submission.handle.scope)
+        try:
+            await self._check_protocol(connection)
+            payload = await self._json(
+                connection,
+                "GET",
+                f"/api/v1/submissions/{submission_id}",
+            )
+            return self._lookup(payload, submission_id)
+        except TaskStoreError:
+            # Only the explicit, validated not_found response permits a retry.
+            return SubmissionLookup(state="unknown")
+
+    async def attach(
+        self,
+        submission: TaskSubmission,
+    ) -> AsyncGenerator[ExecutorEvent, None]:
+        handle = submission.handle
+        ref = handle.executor_run_ref
+        if ref is None or ref.executor_id != self._executor_id:
+            raise TaskStoreError("run_conflict")
+        cursor = handle.replay_cursor
+        if cursor is not None and (
+            not cursor.isascii()
+            or not cursor.isdecimal()
+            or str(int(cursor)) != cursor
+            or handle.executor_sequence != int(cursor)
+        ):
+            raise TaskStoreError("invalid_engine_cursor")
+        after = -1 if cursor is None else int(cursor)
+        connection = self._connection(handle.scope)
+        submission_id = self._submission_id(submission)
+        await self._check_protocol(connection)
+        lookup = self._lookup(
+            await self._json(
+                connection,
+                "GET",
+                f"/api/v1/submissions/{submission_id}",
+            ),
+            submission_id,
+        )
+        if lookup.run_ref != ref:
+            raise TaskStoreError("run_conflict")
+        base, headers = connection
+        projection = TextProjection(ref)
+        try:
+            async with self._client.stream(
+                "GET",
+                f"{base}/api/v1/submissions/{submission_id}/events",
+                headers=headers,
+                # Rebuild projection state before emitting new full snapshots.
+                params={"after_sequence_number": -1},
+            ) as response:
+                if response.status_code != 200:
+                    raise TaskStoreError(f"engine_http_{response.status_code}")
+                if not response.headers.get("content-type", "").startswith(
+                    "text/event-stream",
+                ):
+                    raise TaskStoreError("invalid_engine_stream")
+                async for frame in read_frames(response.aiter_lines()):
+                    event = projection.apply(frame)
+                    if event.sequence == after and (
+                        handle.text_result is not None
+                        and projection.text != handle.text_result
+                    ):
+                        raise TaskStoreError("engine_replay_conflict")
+                    if event.sequence > after:
+                        yield event
+                    if projection.terminal:
+                        if event.sequence <= after:
+                            raise TaskStoreError("engine_replay_conflict")
+                        return
+        except httpx.TransportError:
+            raise TaskStoreError("engine_unavailable") from None
+        if projection.sequence < after:
+            raise TaskStoreError("engine_replay_incomplete")
