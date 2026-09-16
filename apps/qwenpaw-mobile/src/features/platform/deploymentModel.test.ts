@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_PLATFORM_DEPLOYMENT,
   deploymentStatusPresentation,
   isGitHubBindingError,
   parseCreatedDeploymentId,
@@ -11,6 +12,17 @@ import {
   platformMobileCompatibility,
   platformDeploymentErrorMessage,
 } from "./deploymentModel";
+
+test("cloud creation includes the required stable image version", () => {
+  assert.deepEqual(JSON.parse(JSON.stringify(DEFAULT_PLATFORM_DEPLOYMENT)), {
+    appType: "qwenpaw",
+    versionType: "stable",
+  });
+  assert.equal(
+    platformMobileCompatibility(DEFAULT_PLATFORM_DEPLOYMENT.versionType).compatible,
+    true,
+  );
+});
 
 test("parses empty and populated Platform deployment lists", () => {
   assert.deepEqual(parsePlatformDeployments({ apps: [] }), []);

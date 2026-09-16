@@ -1,5 +1,6 @@
 import { platformRequest } from "../../api/platform";
 import {
+  DEFAULT_PLATFORM_DEPLOYMENT,
   parseCreatedDeploymentId,
   parsePlatformDeployment,
   parsePlatformDeploymentLogs,
@@ -18,7 +19,7 @@ export async function listPlatformDeployments(): Promise<
 export async function createPlatformQwenPaw(): Promise<string> {
   const payload = await platformRequest<unknown>("/api/v1/app/create", {
     method: "POST",
-    body: JSON.stringify({ appType: "qwenpaw" }),
+    body: JSON.stringify(DEFAULT_PLATFORM_DEPLOYMENT),
   });
   const appId = parseCreatedDeploymentId(payload);
   if (!appId) throw new Error("Platform 创建部署后没有返回 appId");

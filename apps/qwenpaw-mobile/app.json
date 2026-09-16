@@ -17,7 +17,7 @@
     },
     "android": {
       "package": "io.agentscope.qwenpaw.mobile",
-      "versionCode": 12,
+      "versionCode": 13,
       "adaptiveIcon": {
         "backgroundColor": "#F3EFE8",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

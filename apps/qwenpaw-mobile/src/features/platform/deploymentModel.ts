@@ -1,5 +1,10 @@
 import { isPlatformRateLimitError } from "../../api/platformError";
 
+export const DEFAULT_PLATFORM_DEPLOYMENT = {
+  appType: "qwenpaw",
+  versionType: "stable",
+} as const;
+
 export interface PlatformDeploymentSummary {
   appId: string;
 }
