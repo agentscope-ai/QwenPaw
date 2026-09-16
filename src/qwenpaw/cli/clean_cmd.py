@@ -8,7 +8,6 @@ import click
 
 from ..constant import WORKING_DIR
 from ..utils.telemetry import TELEMETRY_MARKER_FILE
-from ..utils.daily_telemetry import DAILY_TELEMETRY_FILE
 
 
 def _iter_children(p: Path) -> list[Path]:
@@ -36,17 +35,10 @@ def clean_cmd(yes: bool, dry_run: bool) -> None:
     children = _iter_children(wd)
     # Filter out the telemetry marker file
     telemetry_marker = wd / TELEMETRY_MARKER_FILE
-    preserved = {
-        TELEMETRY_MARKER_FILE,
-        DAILY_TELEMETRY_FILE,
-        f"{DAILY_TELEMETRY_FILE}-journal",
-        f"{DAILY_TELEMETRY_FILE}-wal",
-        f"{DAILY_TELEMETRY_FILE}-shm",
-    }
-    children = [c for c in children if c.name not in preserved]
+    children = [c for c in children if c != telemetry_marker]
 
     if not children:
-        if any((wd / name).exists() for name in preserved):
+        if telemetry_marker.exists():
             click.echo(
                 "WORKING_DIR has no removable files",
             )
@@ -60,9 +52,6 @@ def clean_cmd(yes: bool, dry_run: bool) -> None:
         click.echo(f"  - {c}")
     if telemetry_marker.exists():
         click.echo(f"Will keep: {TELEMETRY_MARKER_FILE}")
-
-    if (wd / DAILY_TELEMETRY_FILE).exists():
-        click.echo(f"Will keep: {DAILY_TELEMETRY_FILE}")
 
     if dry_run:
         click.echo("dry-run: nothing deleted.")

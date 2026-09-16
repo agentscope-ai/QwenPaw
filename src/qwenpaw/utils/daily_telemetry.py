@@ -3,60 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import random
-import sqlite3
 import time
 import uuid
-from contextlib import contextmanager
-from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..constant import EnvVarLoader, WORKING_DIR
+from .io_utils import run_sync_io
 from .telemetry import (
+    telemetry_marker,
     _upload_telemetry_sync,
     get_environment_info,
     is_telemetry_opted_out,
 )
 
 logger = logging.getLogger(__name__)
-DAILY_TELEMETRY_FILE = ".daily_telemetry.sqlite3"
 _service: DailyTelemetry | None = None
-
-
-@contextmanager
-def _connect(directory: Path) -> Iterator[sqlite3.Connection]:
-    """Close connections reliably without initializing or writing on reads."""
-    db = sqlite3.connect(directory / DAILY_TELEMETRY_FILE, timeout=1)
-    try:
-        with db:
-            yield db
-    finally:
-        db.close()
-
-
-def _initialize(directory: Path) -> None:
-    """Create the schema and identity atomically, only when needed."""
-    directory.mkdir(parents=True, exist_ok=True)
-    with _connect(directory) as db:
-        db.execute("BEGIN IMMEDIATE")
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS runtime ("
-            "singleton INTEGER PRIMARY KEY CHECK (singleton = 1), "
-            "runtime_id TEXT NOT NULL)",
-        )
-        db.execute(
-            "INSERT OR IGNORE INTO runtime VALUES (1, ?)",
-            (str(uuid.uuid4()),),
-        )
-        db.execute(
-            "CREATE TABLE IF NOT EXISTS activity ("
-            "day TEXT PRIMARY KEY, payload TEXT, sent INTEGER NOT NULL "
-            "DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, "
-            "next_attempt REAL NOT NULL DEFAULT 0)",
-        )
 
 
 class DailyTelemetry:
@@ -65,7 +29,6 @@ class DailyTelemetry:
     def __init__(self, directory: Path) -> None:
         self.directory = directory
         self._wake = asyncio.Event()
-        self._initialized = False
         self._stopping = False
         self._task: asyncio.Task | None = None
 
@@ -90,36 +53,27 @@ class DailyTelemetry:
             return False
         day = day or datetime.now(timezone.utc).date().isoformat()
         try:
-            recorded = await asyncio.to_thread(self._record_sync, day)
+            recorded = await run_sync_io(self._record_sync, day)
             self._wake.set()
             return recorded
-        except (OSError, sqlite3.Error):
+        except (OSError, ValueError):
             logger.debug("Cannot record daily activity", exc_info=True)
             return False
 
     def _record_sync(self, day: str) -> bool:
         if is_telemetry_opted_out(self.directory):
             return False
-        if not self._initialized:
-            _initialize(self.directory)
-            self._initialized = True
-        with _connect(self.directory) as db:
-            if db.execute(
-                "SELECT 1 FROM activity WHERE day = ?",
-                (day,),
-            ).fetchone():
-                return True
-            db.execute(
-                "INSERT OR IGNORE INTO activity(day) VALUES (?)",
-                (day,),
-            )
+        with telemetry_marker(self.directory) as data:
+            data.setdefault("telemetry_runtime_id", str(uuid.uuid4()))
+            activity = data.setdefault("daily_activity", {})
+            activity.setdefault(day, {})
         return True
 
     async def _run(self) -> None:
         while not self._stopping:
             self._wake.clear()
             try:
-                await asyncio.to_thread(self.flush)
+                await run_sync_io(self.flush)
             except Exception:
                 logger.debug("Daily telemetry failed", exc_info=True)
             if self._stopping:
@@ -130,35 +84,34 @@ class DailyTelemetry:
                 pass
 
     def flush(self) -> None:
-        """Send due observations, preserving their original date/snapshot."""
-        if not (self.directory / DAILY_TELEMETRY_FILE).exists():
-            return
-        if is_telemetry_opted_out(self.directory):
-            with _connect(self.directory) as db:
-                db.execute("DELETE FROM activity WHERE sent = 0")
-            return
+        """Retry bounded daily records using the shared installation marker."""
         today = datetime.now(timezone.utc).date()
         cutoff = (today - timedelta(days=6)).isoformat()
-        with _connect(self.directory) as db:
-            db.execute("DELETE FROM activity WHERE day < ?", (cutoff,))
-            rows = db.execute(
-                "SELECT day, payload, attempts FROM activity "
-                "WHERE sent = 0 AND day <= ? AND next_attempt <= ? "
-                "ORDER BY day",
-                (today.isoformat(), time.time()),
-            ).fetchall()
-            runtime_id = db.execute(
-                "SELECT runtime_id FROM runtime",
-            ).fetchone()[0]
-        environment = None
-        for day, payload, attempts in rows:
-            if self._stopping:
+        with telemetry_marker(self.directory) as data:
+            activity = data.get("daily_activity", {})
+            disabled = is_telemetry_opted_out(self.directory)
+            for day in list(activity):
+                if day < cutoff or (
+                    disabled and not activity[day].get("sent")
+                ):
+                    del activity[day]
+            if disabled:
                 return
+            runtime_id = data.get("telemetry_runtime_id")
+            pending = {
+                day: dict(event)
+                for day, event in activity.items()
+                if day <= today.isoformat()
+                and not event.get("sent")
+                and event.get("next_attempt", 0) <= time.time()
+            }
+        for day, event in pending.items():
+            if self._stopping or is_telemetry_opted_out(self.directory):
+                return
+            payload = event.get("payload")
             if payload is None:
-                if environment is None:
-                    environment = get_environment_info()
-                event = {
-                    **environment,
+                payload = {
+                    **get_environment_info(),
                     "schema_version": 2,
                     "event_type": "runtime_active",
                     "telemetry_runtime_id": runtime_id,
@@ -169,33 +122,24 @@ class DailyTelemetry:
                         else "standalone"
                     ),
                 }
-                with _connect(self.directory) as db:
-                    db.execute(
-                        "UPDATE activity SET payload = ? "
-                        "WHERE day = ? AND payload IS NULL",
-                        (json.dumps(event), day),
-                    )
-                    saved = db.execute(
-                        "SELECT payload FROM activity WHERE day = ?",
-                        (day,),
-                    ).fetchone()
-                if saved is None:
-                    continue
-                payload = saved[0]
+                with telemetry_marker(self.directory) as data:
+                    data["daily_activity"][day]["payload"] = payload
             if self._stopping or is_telemetry_opted_out(self.directory):
                 return
-            success = _upload_telemetry_sync(json.loads(payload))
-            delay = min(60 * 2 ** min(attempts, 10), 3600)
-            with _connect(self.directory) as db:
-                db.execute(
-                    "UPDATE activity SET sent = ?, attempts = attempts + 1, "
-                    "next_attempt = ? WHERE day = ? AND sent = 0",
-                    (
-                        int(success),
-                        time.time() + delay + random.uniform(0, delay / 4),
-                        day,
-                    ),
-                )
+            success = _upload_telemetry_sync(payload)
+            attempts = event.get("attempts", 0) + 1
+            delay = min(60 * 2 ** min(attempts - 1, 10), 3600)
+            with telemetry_marker(self.directory) as data:
+                if success:
+                    data["daily_activity"][day] = {"sent": True}
+                else:
+                    data["daily_activity"][day] = {
+                        "payload": payload,
+                        "attempts": attempts,
+                        "next_attempt": time.time()
+                        + delay
+                        + random.uniform(0, delay / 4),
+                    }
 
 
 def start_daily_telemetry() -> DailyTelemetry:

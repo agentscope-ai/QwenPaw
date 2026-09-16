@@ -10,11 +10,14 @@ import subprocess
 import sys
 import time
 import uuid
+from contextlib import contextmanager
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Callable
 
 from ..__version__ import __version__ as QWENPAW_VERSION
 from ..constant import EnvVarLoader
+from .io_utils import get_sync_path_lock, write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -242,51 +245,48 @@ def is_telemetry_opted_out(working_dir: Path) -> bool:
         return False
 
 
+@contextmanager
+def telemetry_marker(working_dir: Path) -> Iterator[dict[str, Any]]:
+    """Update shared telemetry state using the existing lock and writer."""
+    path = working_dir / TELEMETRY_MARKER_FILE
+    with get_sync_path_lock(path):
+        data = (
+            json.loads(path.read_text(encoding="utf-8"))
+            if path.exists()
+            else {}
+        )
+        before = json.dumps(data)
+        yield data
+        if json.dumps(data) != before:
+            working_dir.mkdir(parents=True, exist_ok=True)
+            write_json_atomic(path, data)
+
+
 def mark_telemetry_collected(
     working_dir: Path,
     *,
     opted_out: bool = False,
 ) -> None:
-    """Mark that telemetry has been collected for the current version.
-
-    Maintains a list of all versions that have been collected, so switching
-    between previously-collected versions won't re-trigger the prompt.
-
-    Args:
-        working_dir: Path to QwenPaw working directory
-        opted_out: If True, marks the user as permanently opted out
-    """
-    marker_file = working_dir / TELEMETRY_MARKER_FILE
+    """Save installation consent/version without replacing daily state."""
     current = _get_current_version()
     try:
-        collected_versions: list[str] = []
-        prev_opted_out = False
-        if marker_file.exists():
-            try:
-                old_data = json.loads(
-                    marker_file.read_text(encoding="utf-8"),
-                )
-                collected_versions = old_data.get("collected_versions", [])
-                prev_opted_out = old_data.get("opted_out", False) is True
-                # Migrate from v1.1 single-version format
-                if not collected_versions:
-                    old_ver = old_data.get("qwenpaw_version", "")
-                    if old_ver:
-                        collected_versions = [old_ver]
-            except Exception:
-                pass
-
-        if current not in collected_versions:
-            collected_versions.append(current)
-
-        marker_data = {
-            "collected_at": time.time(),
-            "qwenpaw_version": current,
-            "collected_versions": collected_versions,
-            "opted_out": opted_out or prev_opted_out,
-            "version": "1.3",
-        }
-        marker_file.write_text(json.dumps(marker_data), encoding="utf-8")
+        with telemetry_marker(working_dir) as data:
+            versions = data.get("collected_versions", [])
+            if not versions:
+                old_version = data.get("qwenpaw_version", "")
+                if old_version:
+                    versions = [old_version]
+            if current not in versions:
+                versions.append(current)
+            data.update(
+                {
+                    "collected_at": time.time(),
+                    "qwenpaw_version": current,
+                    "collected_versions": versions,
+                    "opted_out": opted_out or data.get("opted_out", False),
+                    "version": "1.3",
+                },
+            )
     except Exception as e:
         logger.debug("Failed to write telemetry marker: %s", e)
 
