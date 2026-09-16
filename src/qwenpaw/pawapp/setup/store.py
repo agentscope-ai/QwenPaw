@@ -294,6 +294,30 @@ class SetupStore:
 
         return await self._run(transaction, write=True)
 
+    async def backend_scope(
+        self,
+        principal_id: str,
+        app_id: str,
+        request_id: str,
+    ) -> TaskScope:
+        """Resolve scope for a trusted App backend without browser claims."""
+
+        def transaction(connection: sqlite3.Connection):
+            row = connection.execute(
+                """SELECT workspace_id FROM setup_requests
+                WHERE request_id = ? AND principal_id = ? AND app_id = ?""",
+                (request_id, principal_id, app_id),
+            ).fetchone()
+            if row is None:
+                raise TaskStoreError("setup_request_not_found")
+            return TaskScope(
+                principal_id=principal_id,
+                workspace_id=row["workspace_id"],
+                app_id=app_id,
+            )
+
+        return await self._run(transaction)
+
     async def opened(
         self,
         scope: TaskScope,

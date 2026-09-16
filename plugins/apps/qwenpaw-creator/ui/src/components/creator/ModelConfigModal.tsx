@@ -822,6 +822,8 @@ function groundingSearchLabel(config: ModelConfigData): string {
 interface Props {
   open: boolean;
   onClose: () => void;
+  initialModel?: "image" | "video";
+  setupRequestId?: string;
 }
 
 const CARD_META: {
@@ -918,7 +920,12 @@ const CARD_META: {
   },
 ];
 
-export default function ModelConfigModal({ open, onClose }: Props) {
+export default function ModelConfigModal({
+  open,
+  onClose,
+  initialModel,
+  setupRequestId,
+}: Props) {
   const { t } = useTranslation();
   const protocolLabel = (protocol: string): string => {
     const key = PROTOCOL_LABEL_KEYS[protocol];
@@ -1307,6 +1314,10 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     setActivePane(PANE_OF_TYPE[type]);
     setExpanded((prev) => ({ ...prev, [type]: true }));
   }, []);
+
+  useEffect(() => {
+    if (open && initialModel) jumpToModel(initialModel);
+  }, [open, initialModel, jumpToModel]);
 
   // Persist one self-review tier; optimistic with rollback, mirroring the
   // permission ladder’s failure handling.
@@ -1804,12 +1815,12 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         }
       }
 
-      if (dirtySections.length > 0) {
+      if (dirtySections.length > 0 || setupRequestId) {
         // Save everything in one POST: sequential per-section PATCHes each
         // re-validate the full grounding config, so interdependent edits
         // (e.g. a generic LLM plus a Tavily key) could fail mid-sequence
         // and leave a partially saved configuration behind.
-        const res = await saveModelConfig(config);
+        const res = await saveModelConfig(config, { setupRequestId });
         if (!res.ok) throw new Error(t("modelConfig.saveFailedServer"));
       }
 
@@ -1823,7 +1834,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [config, tested, saving, handleTest, onClose]);
+  }, [config, tested, saving, handleTest, onClose, setupRequestId]);
 
   const handleCancel = useCallback(() => {
     if (snapshotRef.current)

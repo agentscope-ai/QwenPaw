@@ -249,6 +249,20 @@ class SetupCoordinator:
     async def get(self, scope: TaskScope, request_id: str):
         return await self._store().get(scope, request_id)
 
+    async def backend_request(
+        self,
+        principal_id: str,
+        app_id: str,
+        request_id: str,
+    ):
+        """Resolve one request for its trusted, same-process App backend."""
+        scope = await self._store().backend_scope(
+            principal_id,
+            app_id,
+            request_id,
+        )
+        return scope, await self.get(scope, request_id)
+
     async def open(self, scope: TaskScope, request_id: str):
         record = await self.get(scope, request_id)
         if record.request.state in {

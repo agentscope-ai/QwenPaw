@@ -69,12 +69,26 @@ async def test_create_replays_same_meaning_and_keeps_private_permissions(
     assert second.request == first.request
     assert second.request.expires_at == 1000
     assert os.stat(store.path).st_mode & 0o777 == 0o600
+    assert (
+        await store.backend_scope(
+            SCOPE.principal_id,
+            SCOPE.app_id,
+            first.request.request_id,
+        )
+        == SCOPE
+    )
 
     with pytest.raises(TaskStoreError, match="setup_idempotency_conflict"):
         await store.create(
             SCOPE,
             idempotency_key="intent-1",
             values=_values(2000, entry_id="other-entry"),
+        )
+    with pytest.raises(TaskStoreError, match="setup_request_not_found"):
+        await store.backend_scope(
+            "bob",
+            SCOPE.app_id,
+            first.request.request_id,
         )
 
 

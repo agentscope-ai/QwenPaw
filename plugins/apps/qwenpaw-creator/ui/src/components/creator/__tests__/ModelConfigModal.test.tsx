@@ -219,6 +219,25 @@ function configRoutes(json: unknown, testJson?: Record<string, unknown>) {
 }
 
 describe("ModelConfigModal configuration lifecycle", () => {
+  it("opens the requested setup model directly", async () => {
+    installMockFetch(configRoutes(emptyConfig));
+    render(
+      <ModelConfigModal
+        open
+        initialModel="video"
+        setupRequestId="setup_123"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /媒体生成/ }),
+    ).toHaveAttribute("aria-current", "true");
+    expect(
+      await screen.findByRole("checkbox", { name: "视频生成模型" }),
+    ).toBeInTheDocument();
+  });
+
   it("keeps a VLM that reuses the LLM enabled after an LLM connectivity test", async () => {
     // A successful test flips llm.enabled via updateItem; that update must
     // not cascade into vlm.use_llm/enabled=false before a save.

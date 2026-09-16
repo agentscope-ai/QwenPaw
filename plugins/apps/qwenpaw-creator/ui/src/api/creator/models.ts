@@ -115,11 +115,16 @@ export function getTtsCapabilities(): Promise<TtsCapabilities> {
 
 export function saveModelConfig(
   config: ModelConfigData,
+  options: { setupRequestId?: string } = {},
 ): Promise<{ ok: boolean }> {
   const id = newClientId("model-config");
+  const headers: Record<string, string> = { "Idempotency-Key": id };
+  if (options.setupRequestId) {
+    headers["X-PawApp-Setup-Request"] = options.setupRequestId;
+  }
   return creatorRequest("/models/config", {
     method: "POST",
-    headers: { "Idempotency-Key": id },
+    headers,
     body: jsonBody(config),
   });
 }

@@ -26,15 +26,33 @@
     return `${parsed.pathname}${parsed.search}`;
   }
 
+  function setupRouteFromHost() {
+    const outer = new URLSearchParams(window.location.search);
+    const purpose = outer.get("setup");
+    if (purpose !== "image" && purpose !== "video") return null;
+    const inner = new URLSearchParams({ setup: purpose });
+    const requestId = outer.get("setupRequest");
+    if (requestId) inner.set("setupRequest", requestId);
+    return `/?${inner.toString()}`;
+  }
+
   function creatorRouteFromHost() {
     const route = window.location.hash.slice(1);
-    return normalizeCreatorRoute(route || "/") || "/";
+    return normalizeCreatorRoute(setupRouteFromHost() || route || "/") || "/";
+  }
+
+  function hostSearchAfterSetupHandoff() {
+    const outer = new URLSearchParams(window.location.search);
+    outer.delete("setup");
+    outer.delete("setupRequest");
+    const query = outer.toString();
+    return query ? `?${query}` : "";
   }
 
   function hostUrlForCreatorRoute(path) {
     const route = normalizeCreatorRoute(path);
     if (!route) return null;
-    return `${window.location.pathname}${window.location.search}#${route}`;
+    return `${window.location.pathname}${hostSearchAfterSetupHandoff()}#${route}`;
   }
 
   function CreatorFrame() {

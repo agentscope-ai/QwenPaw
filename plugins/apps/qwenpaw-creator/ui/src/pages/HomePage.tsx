@@ -213,6 +213,10 @@ const SORT_OPTIONS: { value: SortField; labelKey: string }[] = [
 ];
 
 type HomeView = "create" | "projects";
+type ModelSetupTarget = {
+  purpose: "image" | "video";
+  requestId?: string;
+};
 
 const HOME_VIEWS: { key: HomeView; labelKey: string; icon: string }[] = [
   { key: "create", labelKey: "home.startCreating", icon: tabCreateIcon },
@@ -240,6 +244,7 @@ export default function HomePage() {
   const modelConfig = useModelConfigStore((state) => state.config);
   const refreshModelConfig = useModelConfigStore((state) => state.refresh);
   const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [modelSetup, setModelSetup] = useState<ModelSetupTarget | null>(null);
 
   useEffect(() => {
     void refreshModelConfig();
@@ -268,16 +273,26 @@ export default function HomePage() {
     void fetchProjects();
   }, [fetchProjects]);
 
-  // Set which view to display based on a search parameter. Strip the param
-  // after consuming it, but bail when it's absent so the strip-induced
-  // searchParams change doesn't re-run setView a second time.
+  // Consume Host deep links once, then keep the browser URL free of the
+  // opaque setup request identifier while the settings modal owns it.
   useEffect(() => {
-    const raw = searchParams.get("view");
-    if (raw === null) return;
-    const viewParam: HomeView = raw === "projects" ? "projects" : "create";
-    setView(viewParam);
+    const rawView = searchParams.get("view");
+    const rawSetup = searchParams.get("setup");
+    if (rawView === null && rawSetup === null) return;
+    if (rawView !== null) {
+      setView(rawView === "projects" ? "projects" : "create");
+    }
+    if (rawSetup === "image" || rawSetup === "video") {
+      setModelSetup({
+        purpose: rawSetup,
+        requestId: searchParams.get("setupRequest") || undefined,
+      });
+      setConfigModalOpen(true);
+    }
     const next = new URLSearchParams(searchParams);
     next.delete("view");
+    next.delete("setup");
+    next.delete("setupRequest");
     const query = next.toString();
     router.replace(query ? `/?${query}` : "/");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -689,8 +704,11 @@ export default function HomePage() {
       </Modal>
       <ModelConfigModal
         open={configModalOpen}
+        initialModel={modelSetup?.purpose}
+        setupRequestId={modelSetup?.requestId}
         onClose={() => {
           setConfigModalOpen(false);
+          setModelSetup(null);
           void refreshModelConfig();
         }}
       />

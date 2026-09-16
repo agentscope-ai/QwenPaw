@@ -146,6 +146,16 @@ the presentation and completes it with a typed, scoped receipt; browsers cannot
 submit completion receipts. Raw action inputs and credentials are not stored in
 the setup database; optional setup suggestions are explicitly non-secret.
 
+Creator registers App-local image and video generation requirements with focused
+entries in its existing model settings modal. The Host opens
+`?setup=image|video&setupRequest=<opaque-id>`; the UI removes those parameters
+after consuming them, and a successful server-side configuration save sends the
+receipt through the internal coordinator. The save idempotency record includes
+the setup request ID, and the backend resolves the workspace from the
+authenticated principal plus the Host-owned request. These checks are available
+for Creator's future `generate-storyboard` and `generate-video` task actions;
+registering the durable action adapters remains a separate milestone.
+
 A saved receipt does not claim readiness and does not start work. The caller
 explicitly retries task creation, which rechecks readiness immediately before
 submission. An already accepted or uncertain request keeps its durable identity

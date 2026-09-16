@@ -58,6 +58,7 @@ from services.runtime_files.runtime_dependencies import (  # noqa: E402
     CreatorBinaryDependencyError,
     ensure_creator_runtime_dependencies,
 )
+from services.setup_coordination import register_creator_setup  # noqa: E402
 from services.storage_root import (  # noqa: E402
     CreatorDataRootError,
     require_creator_data_root,
@@ -148,6 +149,7 @@ def configure_creator_runtime_environment(
 
 app = PawApp("QwenPaw Creator", app_id="qwenpaw-creator")
 app.include_router(creator_router)
+register_creator_setup(app)
 
 # Creator file runtime handle kept for the lifetime of the app.
 _file_services: CreatorFileServices | None = None

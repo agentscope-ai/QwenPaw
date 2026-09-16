@@ -52,6 +52,11 @@ from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.models import IdempotencyStatus
 from services.file_agent_runtime import get_creator_agent_runtime
 from services.storage_root import require_creator_data_root
+from services.setup_coordination import (
+    _configuration_revision,
+    complete_model_setup,
+)
+from qwenpaw.pawapp.tasks import TaskStoreError
 
 # QwenPaw secret store for reading encrypted provider API keys
 try:
@@ -1190,11 +1195,19 @@ async def update_model_config(
     request: Request,
     response: Response,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
+    setup_request_id: str
+    | None = Header(
+        None,
+        alias="X-PawApp-Setup-Request",
+    ),
 ) -> dict[str, bool]:
     key = resolve_idempotency_key(idempotency_key)
+    setup_request_id = setup_request_id.strip() if setup_request_id else None
     root = require_creator_data_root() / "config" / "runtime" / "idempotency"
     records = IdempotencyRecordStore(root)
     payload = data.model_dump(mode="json", by_alias=True)
+    if setup_request_id:
+        payload["_pawapp_setup_request"] = setup_request_id
     request_hash = records.request_hash(payload)
 
     def mutate(current: ModelConfigData) -> ModelConfigData:
@@ -1210,7 +1223,7 @@ async def update_model_config(
         )
         return resolved
 
-    def transaction() -> bool:
+    def transaction() -> tuple[bool, int]:
         with records.operation_lock(
             owner_id="creator-model-config",
             scope="HTTP:model-config-update",
@@ -1224,29 +1237,44 @@ async def update_model_config(
             )
             if reservation.record.status is IdempotencyStatus.COMPLETED:
                 _notify_agent_model_config_changed()
-                return True
+                stored = reservation.record.response or {}
+                revision = stored.get("configurationRevision")
+                if not isinstance(revision, int):
+                    revision = _configuration_revision(_config_paths())
+                return True, revision
             if reservation.record.status is IdempotencyStatus.FAILED:
                 raise StorageIntegrityError(
                     "上一次模型配置写入失败，请使用新的 Idempotency-Key 重试",
                 )
             mutate_model_config(mutate)
             _notify_agent_model_config_changed()
+            revision = _configuration_revision(_config_paths())
             records.complete(
                 owner_id="creator-model-config",
                 scope="HTTP:model-config-update",
                 idempotency_key=key,
                 request_hash=request_hash,
-                response={"ok": True},
+                response={
+                    "ok": True,
+                    "configurationRevision": revision,
+                },
                 response_status=status.HTTP_200_OK,
             )
-            return False
+            return False, revision
 
     try:
-        replayed = await asyncio.to_thread(transaction)
+        replayed, revision = await asyncio.to_thread(transaction)
     except IdempotencyConflictError as error:
         raise ConflictError("Idempotency-Key 已用于不同的模型配置") from error
     except IdempotencyStateConflictError as error:
         raise ConflictError("模型配置写入状态冲突") from error
+    if setup_request_id:
+        try:
+            await complete_model_setup(request, setup_request_id, revision)
+        except TaskStoreError as error:
+            raise ConflictError(
+                "设置请求已失效，请从原任务重新打开设置",
+            ) from error
     response.headers["X-Idempotent-Replay"] = "true" if replayed else "false"
     return {"ok": True}
 

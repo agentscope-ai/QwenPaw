@@ -97,6 +97,7 @@ const browserWindow = {
 
 vm.runInNewContext(entry, {
   URL,
+  URLSearchParams,
   console,
   window: browserWindow,
 });
@@ -147,6 +148,24 @@ if (
   restored?.path !== '/project/project-three/plan'
 ) {
   throw new Error('host hash navigation was not restored into the Creator iframe');
+}
+
+location.search = '?view=installed&setup=video&setupRequest=setup_123';
+location.hash = '#/project/stale/plan';
+iframeProps = null;
+React.createElement(appRoute.component, {});
+if (!iframeProps?.src.endsWith('#/?setup=video&setupRequest=setup_123')) {
+  throw new Error(`iframe did not consume the Host setup deep link: ${iframeProps?.src}`);
+}
+listeners.get('message')({
+  source: frameWindow,
+  data: {
+    type: 'qwenpaw-creator:navigation',
+    path: '/',
+  },
+});
+if (replacedUrl !== '/apps/qwenpaw-creator?view=installed#/') {
+  throw new Error(`Host setup parameters were not removed: ${replacedUrl}`);
 }
 for (const cleanup of cleanups) cleanup();
 
