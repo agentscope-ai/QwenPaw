@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -24,7 +25,12 @@ def _load_plugin_entrypoint(monkeypatch):
     # Discard a partially loaded or foreign qwenpaw module before loading
     # the checked-out host source so this contract test is deterministic.
     for module_name in tuple(sys.modules):
-        if module_name == "qwenpaw" or module_name.startswith("qwenpaw."):
+        if (
+            module_name == "qwenpaw"
+            or module_name.startswith("qwenpaw.")
+            or module_name
+            in {"services.pawapp_tasks", "services.setup_coordination"}
+        ):
             monkeypatch.delitem(sys.modules, module_name, raising=False)
     monkeypatch.syspath_prepend(str(QWENPAW_SOURCE))
     spec = importlib.util.spec_from_file_location(
@@ -87,6 +93,21 @@ def test_plugin_rejects_unsafe_runtime_path_configuration(
         module.configure_creator_runtime_environment(working_dir=tmp_path)
 
 
+def test_plugin_registers_durable_video_action(monkeypatch) -> None:
+    module = _load_plugin_entrypoint(monkeypatch)
+
+    registrations = module.app._task_actions
+
+    assert len(registrations) == 1
+    assert registrations[0].action.action_id == "generate-video"
+    assert registrations[0].requirement_ids == ("shot-video",)
+    assert registrations[0].settings_entry == "/apps/qwenpaw-creator"
+    assert isinstance(
+        registrations[0].factory(),
+        module.CreatorVideoTaskAdapter,
+    )
+
+
 def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
     api_runtime_root,
     monkeypatch,
@@ -104,7 +125,11 @@ def test_real_qwenpaw_host_mount_keeps_creator_errors_local_and_structured(
         plugin_api = PluginApi(
             "qwenpaw-creator",
             config={},
-            manifest={"id": "qwenpaw-creator"},
+            manifest=json.loads(
+                (WORKSPACE_ROOT / "qwenpaw-creator" / "plugin.json").read_text(
+                    encoding="utf-8",
+                ),
+            ),
         )
         plugin_api.set_registry(registry)
         module.app.register(plugin_api)

@@ -12,6 +12,7 @@
   const CREATOR_BUILD_ID = "__CREATOR_BUILD_ID__";
   const NAVIGATION_MESSAGE = "qwenpaw-creator:navigation";
   const RESTORE_ROUTE_MESSAGE = "qwenpaw-creator:restore-route";
+  const paw = QwenPaw.paw?.forApp?.(pluginId);
 
   function normalizeCreatorRoute(path) {
     if (
@@ -37,14 +38,17 @@
   }
 
   function creatorRouteFromHost() {
+    const outer = new URLSearchParams(window.location.search);
+    if (!setupRouteFromHost() && outer.get("handoff")) return "/";
     const route = window.location.hash.slice(1);
     return normalizeCreatorRoute(setupRouteFromHost() || route || "/") || "/";
   }
 
-  function hostSearchAfterSetupHandoff() {
+  function hostSearchAfterHandoff() {
     const outer = new URLSearchParams(window.location.search);
     outer.delete("setup");
     outer.delete("setupRequest");
+    outer.delete("handoff");
     const query = outer.toString();
     return query ? `?${query}` : "";
   }
@@ -52,7 +56,22 @@
   function hostUrlForCreatorRoute(path) {
     const route = normalizeCreatorRoute(path);
     if (!route) return null;
-    return `${window.location.pathname}${hostSearchAfterSetupHandoff()}#${route}`;
+    return `${window.location.pathname}${hostSearchAfterHandoff()}#${route}`;
+  }
+
+  function routeFromHandoff(handoff) {
+    const project = handoff?.context?.project_ref;
+    if (
+      handoff?.target_app_id !== pluginId ||
+      project?.app_id !== pluginId ||
+      project?.kind !== "creator-project" ||
+      typeof project?.project_id !== "string" ||
+      !project.project_id ||
+      project.project_id.length > 256
+    ) {
+      return null;
+    }
+    return `/project/${encodeURIComponent(project.project_id)}`;
   }
 
   function CreatorFrame() {
@@ -102,6 +121,40 @@
       };
     }, []);
 
+    React.useEffect(() => {
+      const outer = new URLSearchParams(window.location.search);
+      const handoffId = setupRouteFromHost() ? null : outer.get("handoff");
+      if (!handoffId) return undefined;
+      if (!paw?.apps?.resolveHandoff) {
+        console.warn("[qwenpaw-creator] Host handoff API is unavailable.");
+        return undefined;
+      }
+      let active = true;
+      void paw.apps
+        .resolveHandoff(handoffId)
+        .then((handoff) => {
+          if (!active) return;
+          const route = routeFromHandoff(handoff);
+          const nextUrl = route && hostUrlForCreatorRoute(route);
+          if (!route || !nextUrl) {
+            throw new Error("invalid_creator_handoff");
+          }
+          window.history.replaceState(window.history.state, "", nextUrl);
+          frameRef.current?.contentWindow?.postMessage(
+            { type: RESTORE_ROUTE_MESSAGE, path: route },
+            "*",
+          );
+        })
+        .catch(() => {
+          if (active) {
+            console.warn("[qwenpaw-creator] Could not resolve Host handoff.");
+          }
+        });
+      return () => {
+        active = false;
+      };
+    }, []);
+
     // Fill the App Center embed frame (which is itself full-screen) instead
     // of overlaying the whole viewport with a fixed-position layer.
     return React.createElement(
@@ -119,6 +172,15 @@
         ref: frameRef,
         title: "QwenPaw Creator",
         src: initialSrcRef.current,
+        onLoad() {
+          frameRef.current?.contentWindow?.postMessage(
+            {
+              type: RESTORE_ROUTE_MESSAGE,
+              path: creatorRouteFromHost(),
+            },
+            "*",
+          );
+        },
         style: {
           width: "100%",
           height: "100%",

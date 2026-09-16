@@ -9,7 +9,9 @@ The Data
 [adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
 implements this boundary against the Engine's durable submission API. Its
 server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json);
-neither the descriptor nor adapter registration is a permission grant.
+Creator's video descriptor has its own reviewed
+[example](pawapp-vnext-creator-video-action.example.json). Neither a descriptor
+nor adapter registration is a permission grant.
 
 ## Host ownership
 
@@ -120,8 +122,9 @@ access. Replace this file atomically when changing it. A minimal scoped grant is
 
 Compute the digest offline from the reviewed descriptor using
 `ActionDescriptor.model_validate_json(...).descriptor_digest`; the Data fixture
-is `docs/design/pawapp-vnext-data-action.example.json`. A changed descriptor
-requires a new grant. `input_values` constrains exact string input values;
+is `docs/design/pawapp-vnext-data-action.example.json` and Creator's video fixture
+is `docs/design/pawapp-vnext-creator-video-action.example.json`. A changed
+descriptor requires a new grant. `input_values` constrains exact string input values;
 omitting it grants the action for all input resources in that scope. Policy is
 checked on each request and before recovery. It is a temporary explicit operator
 policy, not a settings/approval UI or the full Skill/Tool permission bridge.
@@ -153,8 +156,26 @@ after consuming them, and a successful server-side configuration save sends the
 receipt through the internal coordinator. The save idempotency record includes
 the setup request ID, and the backend resolves the workspace from the
 authenticated principal plus the Host-owned request. These checks are available
-for Creator's future `generate-storyboard` and `generate-video` task actions;
-registering the durable action adapters remains a separate milestone.
+to Creator's `generate-video` task action. `generate-storyboard` remains a future
+action.
+
+Creator's `generate-video` adapter accepts an existing `project_id` and
+`element:<id>` target, writes a Creator-owned submission record before media
+admission, and then delegates to the existing R2V Task/Attempt ledger. The Host
+submission ID is also the R2V idempotency key. Replays return the same logical
+Host run even when Creator attaches the request to an already active equivalent
+R2V task. A crash with no provable acceptance remains `unknown`, so recovery
+cannot silently purchase a second generation. Deterministic Creator admission
+errors become durable failed runs with bounded reason codes and no internal error
+text. Cancellation has its own durable command receipt keyed by the exact Host
+command ID.
+
+Successful and failed runs publish a `creator-project` reference. The Host mints
+an authenticated handoff only when the user opens that reference; Creator's
+outer plugin frame resolves it through the scoped PawApp SDK, validates the
+target App and project kind, removes the opaque handoff from the URL, and opens
+the project route inside the iframe. Registering the action does not grant it;
+the existing Host action policy must still contain a matching descriptor grant.
 
 A saved receipt does not claim readiness and does not start work. The caller
 explicitly retries task creation, which rechecks readiness immediately before
@@ -407,7 +428,11 @@ prompts, and publishing only committed output to live subscribers.
 blocked setup, grant revocation, invalid App IDs, cross-chat isolation and private
 invocation authority. `PawAppTaskCard.test.tsx` covers progress, completion,
 recovery, refresh failure/retry, stale responses, newer history snapshots,
-unmount cleanup, setup links and handle validation.
+unmount cleanup, setup links and handle validation. Creator's adapter tests cover
+durable submission replay, ordered R2V attempt projection, redacted admission
+failure, exact command receipts, cancellation, input conflict detection, and
+project/target readiness. Its package verifier covers authenticated project
+handoff routing into the embedded UI.
 
 Remaining integration includes a grant UI and general Main Agent continuation
 with follow-on tools. Artifact Canvas and cross-App Exchange are not part of this

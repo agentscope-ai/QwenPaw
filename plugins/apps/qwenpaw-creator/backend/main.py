@@ -18,6 +18,8 @@ import sys
 from pathlib import Path
 
 from qwenpaw.pawapp import PawApp
+from qwenpaw.pawapp.tasks import TaskStoreError
+from qwenpaw.pawapp.tasks.binding import ActionRegistration
 
 logger = logging.getLogger("qwenpaw").getChild("plugin.qwenpaw_creator")
 
@@ -49,6 +51,10 @@ from services.media_files import (  # noqa: E402
 )
 from services.media_files.motion_engine import ensure_vendor_libs  # noqa: E402
 from services.observability import trace_event  # noqa: E402
+from services.pawapp_tasks import (  # noqa: E402
+    CreatorVideoTaskAdapter,
+    creator_video_action_descriptor,
+)
 from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
     clear_creator_file_service_registry,
@@ -153,6 +159,22 @@ register_creator_setup(app)
 
 # Creator file runtime handle kept for the lifetime of the app.
 _file_services: CreatorFileServices | None = None
+
+
+def _creator_task_services() -> CreatorFileServices:
+    if _file_services is None:
+        raise TaskStoreError("creator_runtime_unavailable")
+    return _file_services
+
+
+app.task_action(
+    ActionRegistration(
+        action=creator_video_action_descriptor(),
+        factory=lambda: CreatorVideoTaskAdapter(_creator_task_services),
+        settings_entry="/apps/qwenpaw-creator",
+        requirement_ids=("shot-video",),
+    ),
+)
 
 
 @app.hook("startup", priority=90)

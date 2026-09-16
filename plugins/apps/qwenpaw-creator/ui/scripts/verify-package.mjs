@@ -46,6 +46,7 @@ const frameWindow = {
 let iframeProps;
 let routeRegistration;
 let replacedUrl = null;
+const resolvedHandoffs = [];
 const location = {
   pathname: '/apps/qwenpaw-creator',
   search: '',
@@ -73,7 +74,10 @@ const browserWindow = {
     state: null,
     replaceState(_state, _title, url) {
       replacedUrl = url;
-      location.hash = url.slice(url.indexOf('#'));
+      const parsed = new URL(url, 'http://qwenpaw.local');
+      location.pathname = parsed.pathname;
+      location.search = parsed.search;
+      location.hash = parsed.hash;
     },
   },
   addEventListener(type, listener) {
@@ -91,6 +95,35 @@ const browserWindow = {
     },
     registerRoutes(pluginId, routes) {
       routeRegistration = { pluginId, routes };
+    },
+    paw: {
+      forApp(appId) {
+        if (appId !== 'qwenpaw-creator') {
+          throw new Error(`unexpected scoped PawApp id: ${appId}`);
+        }
+        return {
+          apps: {
+            async resolveHandoff(handoffId) {
+              resolvedHandoffs.push(handoffId);
+              return {
+                schema_version: 1,
+                handoff_id: handoffId,
+                source_app_id: 'qwenpaw-creator',
+                target_app_id: 'qwenpaw-creator',
+                context: {
+                  project_ref: {
+                    schema_version: 1,
+                    app_id: 'qwenpaw-creator',
+                    project_id: 'project-handoff',
+                    kind: 'creator-project',
+                    revision: 2,
+                  },
+                },
+              };
+            },
+          },
+        };
+      },
     },
   },
 };
@@ -167,6 +200,35 @@ listeners.get('message')({
 if (replacedUrl !== '/apps/qwenpaw-creator?view=installed#/') {
   throw new Error(`Host setup parameters were not removed: ${replacedUrl}`);
 }
+
+location.search = '?view=installed&handoff=handoff_123';
+location.hash = '#/project/stale/plan';
+iframeProps = null;
+const handoffEffectStart = effects.length;
+React.createElement(appRoute.component, {});
+if (!iframeProps?.src.endsWith('#/')) {
+  throw new Error(`iframe trusted a stale route before handoff resolution: ${iframeProps?.src}`);
+}
+const handoffCleanups = effects
+  .slice(handoffEffectStart)
+  .map((effect) => effect())
+  .filter(Boolean);
+await Promise.resolve();
+await Promise.resolve();
+if (resolvedHandoffs.join(',') !== 'handoff_123') {
+  throw new Error(`plugin did not resolve the scoped Host handoff: ${resolvedHandoffs}`);
+}
+if (replacedUrl !== '/apps/qwenpaw-creator?view=installed#/project/project-handoff') {
+  throw new Error(`Host handoff was not replaced by the Creator route: ${replacedUrl}`);
+}
+const handoffRestore = frameMessages.at(-1);
+if (
+  handoffRestore?.type !== 'qwenpaw-creator:restore-route' ||
+  handoffRestore?.path !== '/project/project-handoff'
+) {
+  throw new Error('resolved Host project handoff was not restored into Creator');
+}
 for (const cleanup of cleanups) cleanup();
+for (const cleanup of handoffCleanups) cleanup();
 
 process.stdout.write('Creator PawApp plugin package verified.\n');
