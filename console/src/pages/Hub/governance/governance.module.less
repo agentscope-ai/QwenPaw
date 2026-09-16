@@ -334,39 +334,6 @@
     margin: 10px 0;
   }
 }
-.serviceStrip {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 18px 22px;
-  border: 1px solid var(--app-border);
-  background: var(--app-surface);
-  border-radius: 14px;
-  strong {
-    font-size: 13px;
-    font-weight: 600;
-  }
-  p {
-    font-size: 12px;
-    color: var(--app-text-secondary);
-    margin: 5px 0 0;
-    line-height: 1.6;
-  }
-  > :last-child {
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-}
-.serviceIcon {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-  border-radius: 11px;
-  background: var(--app-accent-soft);
-  color: var(--app-accent-text);
-}
 .onboarding {
   padding: 42px 24px;
   text-align: center;
@@ -435,14 +402,6 @@
   }
   .tableFooter {
     flex-wrap: wrap;
-  }
-
-  .serviceStrip {
-    padding: 16px;
-    flex-wrap: wrap;
-    > div {
-      flex: 1;
-    }
   }
 }
 
@@ -548,4 +507,47 @@
 
 .modelTabs {
   min-width: 0;
+}
+
+.modelTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.modelStatus {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  border-radius: 4px;
+  line-height: 1;
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+
+.defaultModelForm {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  :global(.qwenpaw-form-item),
+  :global(.ant-form-item) {
+    margin: 0;
+  }
+  :global(.qwenpaw-select),
+  :global(.ant-select) {
+    width: 320px;
+    max-width: 100%;
+  }
+}
+@media (max-width: 700px) {
+  .defaultModelForm {
+    :global(.qwenpaw-form-item),
+    :global(.ant-form-item) {
+      width: 100%;
+    }
+  }
 }

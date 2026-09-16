@@ -8,6 +8,7 @@ import logging
 import secrets
 import uuid
 
+from ...providers.openai_provider import token_limit_kwargs
 from ..database import utc_now
 from ..invitations import secret_digest
 
@@ -132,6 +133,10 @@ class ModelCatalog:
         updating = model_id is not None
         model_id = model_id or uuid.uuid4().hex
         value = body.model_dump(exclude={"revision"})
+        if "output_limit_field" not in body.model_fields_set:
+            value["output_limit_field"] = next(
+                iter(token_limit_kwargs(body.upstream_model, 1)),
+            )
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if updating:

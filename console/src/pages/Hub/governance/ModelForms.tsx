@@ -230,26 +230,6 @@ export function ModelFields({
       </section>
       <details className={styles.advancedSettings}>
         <summary>{t("hub.governance.models.advancedSettings")}</summary>
-        <Form.Item
-          name="description"
-          label={t("hub.governance.models.description")}
-        >
-          <Input.TextArea
-            maxLength={1000}
-            autoSize={{ minRows: 2, maxRows: 4 }}
-          />
-        </Form.Item>
-        <Form.Item
-          name="output_limit_field"
-          label={t("hub.governance.models.outputParameter")}
-        >
-          <Select
-            options={[
-              { value: "max_tokens" },
-              { value: "max_completion_tokens" },
-            ]}
-          />
-        </Form.Item>
         <RateFields />
       </details>
     </>

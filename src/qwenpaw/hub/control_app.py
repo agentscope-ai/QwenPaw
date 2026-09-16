@@ -28,6 +28,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from starlette.concurrency import run_in_threadpool
+from starlette.requests import ClientDisconnect
 
 from ..__version__ import __version__
 from ..app.exception_handlers import register_exception_handlers
@@ -1435,6 +1436,10 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 request_complete=request_complete,
                 timeout_seconds=(proxy_config.response_header_timeout_seconds),
             )
+        except ClientDisconnect:
+            await client.aclose()
+            # The caller is gone; end the proxy without an ASGI error.
+            return Response(status_code=499)
         except ProxyRequestTooLargeError as exc:
             await client.aclose()
             raise HTTPException(

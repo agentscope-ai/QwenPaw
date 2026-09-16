@@ -252,7 +252,6 @@ export function HubModelIdentityFields({
         hidden
         rules={[
           {
-            required: true,
             type: "number",
             min: 1,
             max: knownOutput ?? 1000000,

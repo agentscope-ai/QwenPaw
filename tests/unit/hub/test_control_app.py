@@ -1004,19 +1004,18 @@ def test_proxy_closes_upstream_client_when_request_disconnects(
     upstream_client = _DisconnectingClient()
     with _client(tmp_path) as client:
         token = _register(client, "owner")
-        with (
-            patch(
-                "qwenpaw.hub.control_app.httpx.AsyncClient",
-                return_value=upstream_client,
-            ),
-            pytest.raises(ClientDisconnect),
+        with patch(
+            "qwenpaw.hub.control_app.httpx.AsyncClient",
+            return_value=upstream_client,
         ):
-            client.post(
+            response = client.post(
                 "/api/runtime-probe",
                 content=b"partial request",
                 headers=_headers(token),
             )
 
+    assert response.status_code == 499
+    assert response.content == b""
     assert upstream_client.closed is True
 
 
