@@ -321,6 +321,29 @@ materializes Skill files under the Engine workspace with path, encoding, count,
 and size checks. The Engine cannot widen scope from request text or model output;
 unknown and cross-scope capability IDs fail closed at the Host.
 
+## Static installation and explicit activation
+
+An App with `type: "app"` and a versioned top-level `pawapp` section installs as
+an inert package. Local, URL and upload installs copy the package and validate its
+typed manifest, Host version range and declared entry points. They do not install
+dependencies, import the backend, run lifecycle hooks or execute the frontend.
+Legacy plugins and Apps without the typed section retain their existing hot-load
+behavior.
+
+The plugin and PawApp catalogs read manifests from disk and expose an inactive
+App with `activation_status: "installed"`. Console startup does not load its
+frontend bundle. Opening that App explicitly calls the authenticated activation
+endpoint; the Host then installs dependencies, imports and registers the backend,
+runs post-load integration and only afterward records activation. Console executes
+the frontend entry after that request succeeds.
+
+Activation is stored outside the package in a private marker bound to the parsed
+manifest digest. A matching marker permits startup to activate the same package.
+A force replacement clears the marker and unloads prior runtime registrations, so
+the replacement remains inert until it is opened again. Failed activation unloads
+the partial runtime and leaves no marker. Uninstall removes both package files and
+the marker.
+
 ## Validation and remaining P1a integration
 
 `tests/unit/pawapp/test_task_store.py` exercises concurrent request retries,

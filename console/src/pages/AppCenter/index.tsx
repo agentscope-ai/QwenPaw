@@ -72,6 +72,10 @@ function featuredRank(id: string): number {
   return index === -1 ? FEATURED_APP_IDS.length : index;
 }
 
+function appTarget(app: AppCardData): string {
+  return app.entry_page || `/apps/${app.id}`;
+}
+
 export default function AppCenterPage() {
   const { t, i18n } = useTranslation();
   const { appId } = useParams();
@@ -130,13 +134,11 @@ export default function AppCenterPage() {
   };
 
   const handleMarketInstalled = async (result: InstallPluginResult) => {
-    const wasInstalled = apps.some((app) => app.id === result.id);
-    const appLoad = wasInstalled
-      ? reloadPawApp(result.id)
-      : loadPawApp(result.id);
-    const appsRefresh = fetchApps();
-    await appLoad;
-    await appsRefresh;
+    if (!result.activation_required) {
+      const wasInstalled = apps.some((app) => app.id === result.id);
+      await (wasInstalled ? reloadPawApp(result.id) : loadPawApp(result.id));
+    }
+    await fetchApps();
   };
 
   useEffect(() => {
@@ -149,8 +151,24 @@ export default function AppCenterPage() {
   useEffect(() => {
     if (!appId) return;
     const found = apps.find((a) => a.id === appId);
-    if (found) setActiveApp(found);
-  }, [appId, apps]);
+    if (!found) return;
+    let active = true;
+    void loadPawApp(found.id, appTarget(found))
+      .then(() => {
+        if (active) setActiveApp(found);
+      })
+      .catch((error) => {
+        if (!active) return;
+        message.error(
+          error instanceof Error
+            ? error.message
+            : t("appCenter.appLoadFailed", "Failed to load app"),
+        );
+      });
+    return () => {
+      active = false;
+    };
+  }, [appId, apps, message, t]);
 
   useEffect(() => {
     setActivePawAppId(activeApp?.id ?? null);
@@ -186,8 +204,6 @@ export default function AppCenterPage() {
       })
       .sort((a, b) => featuredRank(a.id) - featuredRank(b.id));
   }, [apps, searchQuery, categoryFilter, i18n.language]);
-
-  const appTarget = (app: AppCardData) => app.entry_page || `/apps/${app.id}`;
 
   const activeRoute = useMemo(() => {
     if (!activeApp) return null;
@@ -289,11 +305,24 @@ export default function AppCenterPage() {
         setActiveApp(null);
         return;
       }
-      setActiveApp(apps.find((app) => app.id === appId) ?? null);
+      const found = apps.find((app) => app.id === appId);
+      if (!found) {
+        setActiveApp(null);
+        return;
+      }
+      void loadPawApp(found.id, appTarget(found))
+        .then(() => setActiveApp(found))
+        .catch((error) => {
+          message.error(
+            error instanceof Error
+              ? error.message
+              : t("appCenter.appLoadFailed", "Failed to load app"),
+          );
+        });
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
-  }, [apps]);
+  }, [apps, message, t]);
 
   // ESC key to close app and return to list
   useEffect(() => {

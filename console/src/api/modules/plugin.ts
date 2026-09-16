@@ -25,6 +25,8 @@ export interface PluginInfo {
   enabled: boolean;
   /** Whether the plugin is currently loaded in memory. */
   loaded: boolean;
+  requires_activation?: boolean;
+  activation_status?: "installed" | "activated" | "active" | "unavailable";
   /** Primary capability type declared in plugin.json. */
   plugin_type: PluginType;
   /** Frontend JS entry-point path (if any). */
@@ -38,6 +40,7 @@ export interface InstallPluginResult {
   description: string;
   author?: string;
   loaded: boolean;
+  activation_required?: boolean;
   message: string;
 }
 
@@ -46,6 +49,8 @@ export interface PluginStatus {
   loaded: boolean;
   enabled: boolean;
   version?: string;
+  requires_activation?: boolean;
+  activation_status?: "installed" | "activated" | "active" | "unavailable";
 }
 
 /** Entry from ``GET /api/plugins/catalog`` (official CDN manifest). */

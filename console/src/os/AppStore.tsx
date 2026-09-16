@@ -83,7 +83,9 @@ export default function AppStore() {
   };
 
   const syncInstalledApp = async (result: InstallPluginResult) => {
-    await reloadPawApp(result.id);
+    if (!result.activation_required) {
+      await reloadPawApp(result.id);
+    }
     await refreshInstalledApps();
   };
 

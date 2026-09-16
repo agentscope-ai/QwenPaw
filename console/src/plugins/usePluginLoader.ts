@@ -9,6 +9,9 @@ interface FrontendPluginInfo {
   name: string;
   plugin_type?: string;
   frontend_entry?: string;
+  loaded?: boolean;
+  enabled?: boolean;
+  requires_activation?: boolean;
 }
 
 export interface PluginLoadSummary {
@@ -53,6 +56,23 @@ async function executePluginScript(entryUrl: string): Promise<void> {
   }
 }
 
+async function activatePlugin(pluginId: string): Promise<void> {
+  const response = await fetch(
+    getApiUrl(`/plugins/${encodeURIComponent(pluginId)}/activate`),
+    { method: "POST", headers: authHeaders() },
+  );
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => ({}))) as {
+      detail?: unknown;
+    };
+    throw new Error(
+      typeof payload.detail === "string"
+        ? payload.detail
+        : `Failed to activate PawApp ${pluginId} (${response.status})`,
+    );
+  }
+}
+
 /** Load every installed frontend plugin during Console startup. */
 export async function loadAllPlugins(): Promise<PluginLoadSummary> {
   let plugins: FrontendPluginInfo[];
@@ -63,7 +83,11 @@ export async function loadAllPlugins(): Promise<PluginLoadSummary> {
     return { loaded: 0, failed: [] };
   }
 
-  const loadable = plugins.filter((plugin) => plugin.frontend_entry);
+  const loadable = plugins.filter(
+    (plugin) =>
+      plugin.frontend_entry &&
+      (!plugin.requires_activation || (plugin.loaded && plugin.enabled)),
+  );
   const results = await Promise.allSettled(
     loadable.map((plugin) =>
       executePluginScript(resolveUrl(plugin.id, plugin.frontend_entry!)),
@@ -112,6 +136,9 @@ function loadFrontendPlugin(
     }
     if (options.expectedType && plugin.plugin_type !== options.expectedType) {
       throw new Error(`PawApp frontend plugin not found: ${pluginId}`);
+    }
+    if (plugin.requires_activation && (!plugin.loaded || !plugin.enabled)) {
+      await activatePlugin(plugin.id);
     }
     if (options.force) removePluginRuntime(pluginId);
     try {
