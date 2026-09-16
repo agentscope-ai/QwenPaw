@@ -2,129 +2,170 @@
 
 ## Status
 
-Approved for incremental implementation. The work starts from `main` and is
-split into independently reviewable pull requests.
+Approved for incremental implementation on `feat/unified-chat-workbench`.
+Each independently usable capability is committed and verified separately.
 
 ## Product boundary
 
-The Workbench is a session-scoped surface attached to Chat. It is not owned by
-Coding Mode. Coding Mode may change which capabilities are enabled or promoted,
-but opening the Workbench must not mutate a project, initialise Git, or grant a
-model terminal access.
+The Workbench is a session-scoped resource surface attached to Chat. It is not
+owned by Coding Mode. Coding Mode may enable Changes, but opening Workbench must
+not initialise Git, mutate a project, or grant terminal access to the model.
 
-The capability registry initially contains four entries:
+The Workbench has one top-level tab strip. A file, review, terminal, tool run,
+browser page, or future side chat is a resource tab. Files is not a permanent
+content tab: the file tree is an on-demand navigation drawer that opens files
+into the shared resource strip.
 
-1. Files
-2. Changes
-3. Terminal
-4. Tools
-
-The right dock is not a fixed four-tab toolbar. It starts without capability
-tabs and exposes an add menu backed by the registry. A capability module is
-loaded only after the user adds or activates it. Open tabs and the active tab
-are restored per session. Subagent and background-tool runs are two views of
-Tools rather than duplicate destinations.
+Chat Workbench exposes only the current workspace and directories bound to the
+session. Agent profile, daily memory, digest, and knowledge graph remain in the
+global Files product and are neither displayed nor fetched by Chat Workbench.
 
 ## Interaction model
 
 - Chat remains the primary surface.
-- A lightweight file preview can be opened from a message.
-- Expanding the preview explicitly adds and activates Files in the right dock.
-- Opening the Workbench directly shows an empty, lightweight launcher until the
-  user adds a capability.
-- The Workbench is a resizable right drawer and does not scale chat content.
-- Its width, active capability, and open resources are isolated by session.
-- Closing the Workbench preserves recoverable session state but releases view
-  subscriptions and heavy client modules.
-- On small screens it overlays Chat instead of forcing Chat below its minimum
-  readable width.
+- Message attachments may first open in a lightweight preview.
+- Expanding a preview opens that resource as a Workbench file tab.
+- The Workbench starts lightweight and adds resources on demand.
+- The top strip contains both file tabs and non-file capability tabs; nested
+  file tab strips are forbidden.
+- The file-tree button opens a right-side drawer. The drawer is closed by
+  default and does not occupy preview width while closed.
+- Selecting a file opens or activates its resource tab and keeps the drawer
+  available for subsequent navigation.
+- File breadcrumbs provide local navigation; the tree provides global project
+  navigation. Both use the same bounded directory API and resource opener.
+- Closing the Workbench preserves session tabs and geometry while releasing
+  view subscriptions and heavy client modules.
+- On small screens the Workbench and its file tree overlay instead of reducing
+  Chat below its readable width.
 
-## Architecture
+## Resource model
+
+```text
+WorkbenchResource
+  id                 stable, typed identity
+  kind               file | changes | terminal | tools | browser | side-chat
+  label
+  icon
+  closeable
+  placement          right | bottom
+  lifecycle          lazy module + owner
+```
+
+File resources retain the existing `EditorTab` state as their source of truth:
+
+```text
+FileResource
+  path               internal identity, includes source/root when required
+  displayPath         user-facing path
+  source              workspace | attachment | profile | memory
+  workspaceRoot
+  artifactUrl
+  previewKind
+  readOnly
+  dirty
+  etag
+```
+
+Workbench does not duplicate file buffers. It adapts `codingTabsStore` into the
+top-level resource strip, while `TabbedEditor` supplies a single-document mode.
+This preserves undo models, pending diffs, dirty state, ETag conflict handling,
+preview mode, copy, download, and save behavior.
+
+An external or public file may be opened read-only without mounting its parent
+directory or inserting it into the project tree.
+
+## Component architecture
 
 ```text
 ChatPage
-  WorkbenchSurfaceState (session scoped)
-    PreviewSurface
+  FilesDrawer                      resizable outer right drawer
     WorkbenchShell
-      capability registry
-        Files
-        Changes
-        Terminal
-        Tools
+      UnifiedResourceTabs
+        FileResourceTab[]          adapter over codingTabsStore
+        CapabilityTab[]            Changes / Terminal / Tools / ...
+      ActiveResourcePane
+        FilesWorkspace
+          TabbedEditor             single-document mode in Chat
+          FilesNavigator           right drawer, created only while open
+        GitReviewPane
+        TerminalPane
+        ToolRunsPane
+      ResourceLauncher
+      FileTreeToggle
 ```
 
-`WorkbenchShell` owns dynamic tabs, resizing, focus, lifecycle, and lazy module
-boundaries. A capability registry supplies labels, icons, availability, and a
-preferred placement. Capability modules own their data and commands. The shell
-must not contain Git, filesystem, terminal, or task business logic.
+The global Files route continues to compose `FilesNavigator` on the left and
+`TabbedEditor` with its own local tab strip. Chat-specific layout is selected by
+explicit props; `embedded` alone does not change data scope.
 
-Terminal prefers a bottom dock, while remaining available as a right-dock tab.
-Placement is a presentation choice rather than part of terminal ownership or
-lifecycle, so a later bottom-dock implementation can reuse the same capability.
+## State and persistence
 
-### Workspace context
+- `codingTabsStore` remains authoritative for file order, active file, buffers,
+  dirty state, and pending diffs.
+- Workbench layout persists opened capability tabs, the active typed resource,
+  file-tree visibility, and drawer width per session.
+- Existing capability-only preferences are read as version-zero data. Invalid
+  or unavailable capabilities are discarded without affecting file tabs.
+- Temporary-session preferences migrate once to the resolved chat id.
+- A project-directory revision clears only project-backed file tabs; external
+  read-only resources survive.
 
-All capabilities will consume one server-authoritative context:
+## Files navigation
 
-```text
-WorkspaceContext
-  agent_id
-  chat_id
-  session_id
-  primary_root
-  roots
-  repository
-  permissions
-  revision
-```
+- The tree is lazy and paginated at 200 entries per request.
+- The tree is not mounted while closed, preventing directory request waterfalls.
+- Breadcrumb menus load only the selected directory level and reuse cached
+  pages where available.
+- No operation infers ownership from a host path. Workspace membership is
+  established through the server APIs and bound-directory roots.
+- Binary files render an explicit unsupported-preview state with download/open
+  actions rather than a blank surface.
 
-Responses that can race across a session or directory change must carry the
-context identity and revision. Clients discard stale responses.
-
-### Resource identity
-
-Resources are not assumed to belong to an agent workspace. Workspace files,
-attachments, host files, and memory files share a resource reference carrying
-origin, URI, display name, mutability, and an optional workspace context. An
-external resource may be previewed without being inserted into the project
-tree.
+## Capability rules
 
 ### Changes
 
-Changes has three scopes: current turn, current chat, and repository. Repository
-discovery reuses the nearest ancestor repository. Read-only status calls never
-run `git init`. Non-Git directories use a turn journal to provide review and
-safe undo without pretending to be a repository.
+Changes is available only when Coding Mode and a valid session context allow
+it. Repository discovery reuses the nearest ancestor repository. Read-only
+status calls never run `git init`; non-Git directories use recorded file
+changes rather than pretending to be repositories.
 
 ### Terminal
 
-The user terminal and model-facing terminal tools have separate capability
-gates. PTY sessions have an exact owner and workspace context. Cleanup signals
-and waits for the child process before closing the PTY master, keeps the reader
-alive while the process drains, and moves blocking system calls off the event
-loop.
+Terminal prefers a bottom placement but may be opened as a right resource tab.
+User terminal and model terminal access have separate gates. PTY shutdown must
+terminate and wait for the child process before closing the master descriptor,
+and blocking system calls must not run on the event-loop thread.
+
+### Tools
+
+Background tool and subagent runs share one capability with filtered views.
+Opening a run shows its execution history and result without duplicating input
+queue state.
 
 ## Performance budgets
 
 - Closed Workbench loads no editor, diff, terminal, or task-history bundle.
-- An empty Workbench loads registry metadata only; capability modules load when
-  the user opens them.
-- Opening or resizing the drawer never applies `scale` to Chat.
+- Closed file tree mounts no navigator and sends no directory requests.
+- Resource modules load only when activated.
+- Opening or resizing never applies transforms to Chat content.
 - Persisted geometry is available before the first painted open frame.
-- Directory pages are bounded to 200 entries and loaded on demand.
-- Text and diff payloads are chunked; large lists and logs are virtualised.
-- Terminal replay and task history have explicit server and client bounds.
-- Switching context aborts obsolete requests and rejects stale responses.
-- Multi-megabyte parsing and formatting do not run synchronously in render.
+- Directory pages and terminal replay are bounded.
+- Multi-megabyte parsing or formatting does not run synchronously in render.
+- Context changes abort obsolete requests and reject stale responses.
 
-## Delivery plan
+## Delivery checklist
 
-1. Workbench shell, stable right split, four capability slots, lazy boundaries.
-2. Resource model, preview classification, bounded file loading.
-3. Turn/chat/repository Changes and removal of implicit Git initialisation.
-4. Terminal lifecycle, permissions, bounded replay, and reconnect state.
-5. Tool and subagent history, results, logs, and cancellation.
+1. [x] Resizable Workbench shell and lazy capability boundaries.
+2. [x] User-configurable capability tabs and per-session restoration.
+3. [x] Chat Files restricted to project and bound directories.
+4. [ ] Unified file and capability resource tabs.
+5. [ ] Right-side on-demand file-tree drawer.
+6. [ ] Lazy breadcrumb directory navigation.
+7. [ ] Changes resource and non-Git turn review.
+8. [ ] Bottom-capable terminal resource with explicit permissions.
+9. [ ] Tool and subagent history, results, logs, and cancellation.
 
-Each phase receives targeted component or API tests and its own commit and pull
-request. Full builds and full test suites are intentionally outside the default
-verification path.
+Each completed item receives targeted component and state tests. Full builds and
+full test suites remain outside the default verification path.
