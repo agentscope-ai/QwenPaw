@@ -126,6 +126,22 @@ class _FakeR2VService:
         self.notifications.append(task.task_id)
 
 
+def _patch_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime: _FakeR2VService,
+) -> None:
+    monkeypatch.setattr(
+        pawapp_tasks,
+        "execute_file_r2v_command",
+        lambda _services, **kwargs: runtime.dispatch(**kwargs),
+    )
+    monkeypatch.setattr(
+        pawapp_tasks,
+        "file_r2v_execution_service",
+        lambda _services: runtime,
+    )
+
+
 @pytest.mark.asyncio
 async def test_submit_is_durable_and_replays_one_creator_task(
     monkeypatch: pytest.MonkeyPatch,
@@ -133,11 +149,7 @@ async def test_submit_is_durable_and_replays_one_creator_task(
 ) -> None:
     services = _services(tmp_path)
     runtime = _FakeR2VService(services)
-    monkeypatch.setattr(
-        pawapp_tasks,
-        "file_r2v_execution_service",
-        lambda _services: runtime,
-    )
+    _patch_runtime(monkeypatch, runtime)
     adapter = pawapp_tasks.CreatorVideoTaskAdapter(lambda: services)
     submission = _submission()
 
@@ -161,11 +173,7 @@ async def test_attach_replays_attempts_and_terminal_project_reference(
 ) -> None:
     services = _services(tmp_path)
     runtime = _FakeR2VService(services)
-    monkeypatch.setattr(
-        pawapp_tasks,
-        "file_r2v_execution_service",
-        lambda _services: runtime,
-    )
+    _patch_runtime(monkeypatch, runtime)
     adapter = pawapp_tasks.CreatorVideoTaskAdapter(
         lambda: services,
         poll_interval_seconds=0.01,
@@ -216,11 +224,7 @@ async def test_admission_failure_becomes_a_durable_terminal_event(
         services,
         error=ValidationError("storyboard is missing"),
     )
-    monkeypatch.setattr(
-        pawapp_tasks,
-        "file_r2v_execution_service",
-        lambda _services: runtime,
-    )
+    _patch_runtime(monkeypatch, runtime)
     adapter = pawapp_tasks.CreatorVideoTaskAdapter(lambda: services)
     submission = _submission()
 
@@ -242,11 +246,7 @@ async def test_cancel_and_query_command_use_the_creator_task_head(
 ) -> None:
     services = _services(tmp_path)
     runtime = _FakeR2VService(services)
-    monkeypatch.setattr(
-        pawapp_tasks,
-        "file_r2v_execution_service",
-        lambda _services: runtime,
-    )
+    _patch_runtime(monkeypatch, runtime)
     adapter = pawapp_tasks.CreatorVideoTaskAdapter(lambda: services)
     submission = _submission()
     await adapter.submit(submission)
@@ -292,11 +292,7 @@ async def test_replay_rejects_changed_submission_meaning(
 ) -> None:
     services = _services(tmp_path)
     runtime = _FakeR2VService(services)
-    monkeypatch.setattr(
-        pawapp_tasks,
-        "file_r2v_execution_service",
-        lambda _services: runtime,
-    )
+    _patch_runtime(monkeypatch, runtime)
     adapter = pawapp_tasks.CreatorVideoTaskAdapter(lambda: services)
     submission = _submission()
     await adapter.submit(submission)

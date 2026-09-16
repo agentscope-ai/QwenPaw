@@ -12,7 +12,10 @@ from pydantic import Field
 
 from domain.enums import TaskKind, TaskStatus
 from domain.errors import CreatorError
-from services.media_files.r2v_execution import file_r2v_execution_service
+from services.media_files.r2v_execution import (
+    execute_file_r2v_command,
+    file_r2v_execution_service,
+)
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.errors import RecordNotFoundError
@@ -371,7 +374,8 @@ class CreatorVideoTaskAdapter:
         if record.state in {"accepted", "failed"}:
             return self._run_ref(record)
         try:
-            dispatch = await file_r2v_execution_service(services).dispatch(
+            dispatch = await execute_file_r2v_command(
+                services,
                 project_id=record.project_id,
                 target_ref=record.target_ref,
                 arguments={},
