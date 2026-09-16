@@ -466,7 +466,9 @@ export default function SettingsCenter() {
                       onClick={() => openPage(page)}
                     >
                       {page.icon ?? (Icon ? <Icon size={16} /> : null)}
-                      <strong>{pageLabel(page)}</strong>
+                      <span className={styles.navItemLabel}>
+                        {pageLabel(page)}
+                      </span>
                     </button>
                   );
                 })}

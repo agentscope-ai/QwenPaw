@@ -105,6 +105,8 @@ describe("SettingsCenter responsive layout", () => {
     );
 
     expect(navRules).toContain("color: var(--app-text);");
+    expect(navRules).toContain(".navItemLabel {");
+    expect(navRules).not.toContain("font-weight: 500;");
     expect(navRules).toContain("background: var(--app-fill);");
     expect(navRules).toContain("background: var(--app-nav-selected-bg);");
     expect(backButtonRule).toContain("color: var(--app-text-secondary);");

@@ -324,7 +324,9 @@ describe("SettingsCenter", () => {
     expect(screen.getByText("Theme")).toBeVisible();
     expect(screen.getByText("Message width")).toBeVisible();
     expect(screen.queryByText("Sidebar content")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Sidebar" })).toBeVisible();
+    const sidebarButton = screen.getByRole("button", { name: "Sidebar" });
+    expect(sidebarButton).toBeVisible();
+    expect(sidebarButton.querySelector("strong")).toBeNull();
     expect(
       screen.queryByText("Language, theme and application behavior"),
     ).not.toBeInTheDocument();
