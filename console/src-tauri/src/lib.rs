@@ -2,7 +2,10 @@
 
 mod backend;
 mod backend_download;
-#[cfg(all(target_os = "macos", not(debug_assertions)))]
+#[cfg(all(
+    target_os = "macos",
+    any(not(debug_assertions), test)
+))]
 mod computer_use_helper;
 mod computer_use_protocol;
 mod computer_use_runtime;
@@ -26,6 +29,8 @@ fn open_devtools(window: WebviewWindow) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Build the desktop app, wire native plugins/commands, and stop the backend on exit.
 pub fn run() {
+    let context = tauri::generate_context!();
+
     let build_result = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
@@ -57,7 +62,7 @@ pub fn run() {
         .manage(computer_use_runtime::ComputerUseRuntimeState::default())
         .manage(tray::TrayState::default())
         .setup(|app| {
-            backend::setup(app)?;
+            backend::install_logging(app)?;
             tray::setup(app)?;
             #[cfg(windows)]
             if let Some(window) = app.get_webview_window("main") {
@@ -65,6 +70,7 @@ pub fn run() {
                     log::error!("[webview] failed to install browser-process recovery: {err}");
                 }
             }
+            backend::start(app.handle());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -73,22 +79,24 @@ pub fn run() {
                 tray::request_close(window.app_handle());
             }
         })
-        .build(tauri::generate_context!());
+        .build(context);
 
     match build_result {
         Ok(app) => {
             app.run(|app_handle, event| match event {
-                // `code` is `None` only for OS-initiated quits (e.g. macOS
-                // Cmd+Q / app menu Quit). On macOS we route those through the
-                // same close prompt as the window's red button, so the choice
-                // (minimize-to-tray vs. quit) stays consistent with Windows
-                // Alt+F4. Programmatic exits from `quit_app` carry a `code` and
-                // fall through to the normal shutdown path below.
+                // A last-window exit can have no code. macOS menu Quit/Cmd+Q
+                // is explicitly routed by tray::install_app_quit: the native
+                // predefined terminate: item skips this preventable event.
+                // Keep other no-code requests on the existing close flow.
+                // Programmatic exits from quit_app carry a code and reach the
+                // bounded cleanup path below.
                 RunEvent::ExitRequested { api, code, .. } => {
                     #[cfg(windows)]
                     if code.is_none() && webview_recovery::is_active() {
                         api.prevent_exit();
-                        log::warn!("[webview] keeping the app alive while the main window recovers");
+                        log::warn!(
+                            "[webview] keeping the app alive while the main window recovers"
+                        );
                         return;
                     }
                     #[cfg(target_os = "macos")]
@@ -102,7 +110,9 @@ pub fn run() {
                     }
                     #[cfg(not(target_os = "macos"))]
                     let _ = (&api, &code);
-                    if let Err(err) = tauri::async_runtime::block_on(backend::stop_and_wait(app_handle)) {
+                    if let Err(err) =
+                        tauri::async_runtime::block_on(backend::stop_and_wait(app_handle))
+                    {
                         log::warn!("[backend] graceful shutdown did not complete: {err}");
                     }
                     computer_use_runtime::stop(app_handle);
@@ -113,6 +123,19 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 RunEvent::Reopen { .. } => {
                     tray::show_main_window(app_handle);
+                }
+                RunEvent::Exit => {
+                    // Native macOS termination (e.g. Dock Quit) can skip
+                    // ExitRequested. Await the same bounded shutdown here too;
+                    // just killing the uv launcher leaves its Python child.
+                    // Normal quit_app has already stopped it (an idempotent no-op).
+                    if let Err(err) =
+                        tauri::async_runtime::block_on(backend::stop_and_wait(app_handle))
+                    {
+                        log::warn!("[backend] final shutdown did not complete: {err}");
+                    }
+                    computer_use_runtime::stop(app_handle);
+                    backend::force_stop_on_exit(app_handle);
                 }
                 _ => {}
             });

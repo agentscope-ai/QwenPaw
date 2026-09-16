@@ -201,6 +201,8 @@ a = Analysis(
         *collect_submodules("qwenpaw.agents.acp"),
         # PawApp SDK modules are imported by installed app plugins at runtime.
         *collect_submodules("qwenpaw.pawapp"),
+        # Optional desktop plugins acquire the shared HostRuntime capability.
+        *collect_submodules("qwenpaw.app.computer_use"),
         # ASGI app entry points
         "qwenpaw.app._app",
         "qwenpaw.app.multi_agent_manager",

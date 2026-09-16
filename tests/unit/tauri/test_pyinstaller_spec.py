@@ -126,6 +126,14 @@ def test_desktop_spec_collects_pawapp_sdk_for_runtime_loaded_plugins():
     assert "qwenpaw.pawapp" in _collected_submodule_packages()
 
 
+def test_desktop_spec_collects_shared_services_not_optional_plugins():
+    packages = _collected_submodule_packages()
+    assert "qwenpaw.app.computer_use" in packages
+    assert "qwenpaw.desktop" not in packages
+    assert "computer_use" not in packages
+    assert "record_and_replay" not in packages
+
+
 def test_desktop_spec_collects_qwenpawmail_from_nested_source_root():
     assert "qwenpawmail_mcp" in _collected_submodule_packages()
     assert "MAIL_MCP_SRC" in _analysis_path_names()

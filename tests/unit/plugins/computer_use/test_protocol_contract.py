@@ -23,10 +23,14 @@ from pathlib import Path
 import pytest
 
 from computer_use.protocol import (
+    CONTRACT_NAME,
+    CONTRACT_VERSION,
     NATIVE_METHODS,
     PROTOCOL_VERSION,
     ComputerUseProtocolError,
     NativeRequest,
+    hello_params,
+    validate_hello_result,
 )
 from qwenpaw.app.computer_use import COMPUTER_USE_PROTOCOL_VERSION
 
@@ -134,6 +138,61 @@ def test_all_components_speak_the_same_protocol_version() -> None:
         int(plugin_match.group(1)),
         COMPUTER_USE_PROTOCOL_VERSION,
     } == {PROTOCOL_VERSION}
+
+
+def test_computer_use_contract_matches_the_native_declaration() -> None:
+    source = _PROTOCOL.read_text(encoding="utf-8")
+    name_match = re.search(
+        r'^pub\(crate\) const COMPUTER_USE_CONTRACT: &str = "([a-z_]+)";$',
+        source,
+        re.M,
+    )
+    version_match = re.search(
+        r"^pub\(crate\) const COMPUTER_USE_CONTRACT_VERSION: u64 = (\d+);$",
+        source,
+        re.M,
+    )
+    assert name_match, "the helper should declare its logical contract"
+    assert version_match, "the helper should version that contract"
+    assert name_match.group(1) == CONTRACT_NAME == "computer_use"
+    assert int(version_match.group(1)) == CONTRACT_VERSION
+
+
+def test_hello_selects_computer_use_without_breaking_legacy_v2_helpers() -> (
+    None
+):
+    assert hello_params(capability="secret", protocol_version=2) == {
+        "capability": "secret",
+        "protocol_version": 2,
+        "contract": "computer_use",
+    }
+    assert validate_hello_result(
+        {"protocol_version": 2},
+        protocol_version=2,
+    )
+    assert validate_hello_result(
+        {
+            "protocol_version": 2,
+            "contracts": {"computer_use": CONTRACT_VERSION},
+            "features": ["computer_use.observe", "computer_use.act"],
+        },
+        protocol_version=2,
+    )
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {"protocol_version": 3},
+        {"protocol_version": 2, "contracts": []},
+        {"protocol_version": 2, "contracts": {}},
+        {"protocol_version": 2, "contracts": {"computer_use": 999}},
+    ],
+)
+def test_hello_rejects_wire_or_namespace_contract_drift(
+    result: object,
+) -> None:
+    assert not validate_hello_result(result, protocol_version=2)
 
 
 def test_a_method_outside_the_vocabulary_never_reaches_the_wire() -> None:
