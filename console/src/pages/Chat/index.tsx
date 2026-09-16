@@ -1252,7 +1252,9 @@ export default function ChatPage() {
     activeSessionId === "new" ? getNewQueueKey(selectedAgent) : activeSessionId;
   const backendChatId = isAgentSwitchTransition
     ? undefined
-    : resolveBackendChatId(chatId);
+    : resolveBackendChatId(
+        activeSessionId === "new" ? undefined : activeSessionId,
+      );
   const pendingProjectDir = backendChatId
     ? undefined
     : getPendingProjectDirectory(selectedAgent, activeSessionId) ?? undefined;

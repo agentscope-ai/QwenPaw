@@ -604,6 +604,20 @@ describe("ChatPage coverage", () => {
     expect(capturedOptions).toBeTruthy();
   });
 
+  it("restores the last session directory scope on the bare chat route", async () => {
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
+    await screen.findByTestId("chat-ui");
+
+    expect(mockSessionProjectDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: expect.objectContaining({
+          sessionId: "last-chat-1",
+          chatId: "last-chat-1",
+        }),
+      }),
+    );
+  });
+
   it("does not bind an unresolved route chat to the current agent", async () => {
     const staleChatId = "6c978596-76ca-4974-8a2a-d8109ef66315";
     vi.mocked(sessionApi.getSessionIdentity).mockImplementation(
