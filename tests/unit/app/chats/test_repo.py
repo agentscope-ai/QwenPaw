@@ -10,6 +10,7 @@ import pytest
 from qwenpaw.app.chats.models import ChatSpec, ChatsFile
 from qwenpaw.app.chats.repo.json_repo import (
     JsonChatRepository,
+    migrate_legacy_realtime_voice_sources_file,
     migrate_legacy_weixin_chats_file,
 )
 
@@ -136,3 +137,50 @@ def test_migrate_is_idempotent(tmp_path: Path):
 
 def test_migrate_noop_when_file_missing(tmp_path: Path):
     migrate_legacy_weixin_chats_file(tmp_path / "nonexistent.json")
+
+
+def test_migrate_realtime_voice_source_keeps_downgrade_safe_shape(
+    tmp_path: Path,
+):
+    chats_path = tmp_path / "chats.json"
+    data = {
+        "version": 1,
+        "chats": [
+            {
+                "session_id": "realtime_voice:voice-1",
+                "user_id": "u1",
+                "source": "realtime_voice",
+                "meta": {"realtime_voice": {"version": 3}},
+            },
+        ],
+    }
+    chats_path.write_text(json.dumps(data), encoding="utf-8")
+
+    migrate_legacy_realtime_voice_sources_file(chats_path)
+
+    result = json.loads(chats_path.read_text(encoding="utf-8"))
+    assert result["chats"][0]["source"] == "chat"
+    assert len(list(tmp_path.glob("*.voice-source-migrate.bak"))) == 1
+
+
+def test_realtime_voice_source_migration_ignores_unmarked_records(
+    tmp_path: Path,
+):
+    chats_path = tmp_path / "chats.json"
+    original = json.dumps(
+        {
+            "version": 1,
+            "chats": [
+                {
+                    "session_id": "external:voice-1",
+                    "user_id": "u1",
+                    "source": "realtime_voice",
+                },
+            ],
+        },
+    )
+    chats_path.write_text(original, encoding="utf-8")
+
+    migrate_legacy_realtime_voice_sources_file(chats_path)
+
+    assert chats_path.read_text(encoding="utf-8") == original

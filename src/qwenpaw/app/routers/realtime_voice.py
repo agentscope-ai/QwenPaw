@@ -252,54 +252,64 @@ async def realtime_voice_stream(
         timeout_task = asyncio.create_task(
             asyncio.sleep(live.config.max_session_seconds)
         )
-        tasks = {
-            asyncio.create_task(
-                _client_to_coordinator(
-                    websocket,
-                    send_lock,
-                    live,
-                    coordinator,
-                )
-            ),
-            asyncio.create_task(
-                _coordinator_to_client(
-                    websocket,
-                    send_lock,
-                    live,
-                    coordinator,
-                )
-            ),
-            timeout_task,
-        }
+        client_task = asyncio.create_task(
+            _client_to_coordinator(
+                websocket,
+                send_lock,
+                live,
+                coordinator,
+            )
+        )
+        coordinator_task = asyncio.create_task(
+            _coordinator_to_client(
+                websocket,
+                send_lock,
+                live,
+                coordinator,
+            )
+        )
+        tasks = {client_task, coordinator_task, timeout_task}
         done, pending = await asyncio.wait(
             tasks,
             return_when=asyncio.FIRST_COMPLETED,
         )
         for task in pending:
             task.cancel()
-        results = await asyncio.gather(
-            *done,
-            *pending,
-            return_exceptions=True,
+        done_results = dict(
+            zip(
+                done,
+                await asyncio.gather(*done, return_exceptions=True),
+                strict=True,
+            )
         )
-        for result in results:
-            if isinstance(result, WebSocketDisconnect):
-                break
-            if isinstance(result, Exception):
+        await asyncio.gather(*pending, return_exceptions=True)
+
+        close_reason: str | None
+        if coordinator_task in done:
+            result = done_results[coordinator_task]
+            if isinstance(result, BaseException):
                 raise result
-        with suppress(Exception):
-            async with send_lock:
-                await websocket.send_json(
-                    {
-                        "type": "session.closed",
-                        "generation": live.generation,
-                        "reason": (
-                            "max_duration"
-                            if timeout_task in done
-                            else "stopped"
-                        ),
-                    }
-                )
+            # A clean coordinator stream has already forwarded its terminal
+            # event. Any simultaneous input send belongs to the closed session.
+            close_reason = None
+        elif client_task in done:
+            result = done_results[client_task]
+            if isinstance(result, BaseException):
+                raise result
+            close_reason = "stopped"
+        else:
+            close_reason = "max_duration"
+
+        if close_reason is not None:
+            with suppress(Exception):
+                async with send_lock:
+                    await websocket.send_json(
+                        {
+                            "type": "session.closed",
+                            "generation": live.generation,
+                            "reason": close_reason,
+                        }
+                    )
     except WebSocketDisconnect:
         pass
     except ValueError as exc:

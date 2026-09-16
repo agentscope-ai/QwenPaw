@@ -318,8 +318,8 @@ class VoiceCoordinator:
         admission: VoiceAdmissionHandle,
     ) -> None:
         receipt = await admission.wait()
-        await self._publish_receipt(receipt)
-        await self._queue_receipt(turn, receipt)
+        await self._publish_admission(turn, receipt)
+        await self._queue_admission(turn, receipt)
 
     async def _reject_task_action(
         self,
@@ -339,7 +339,7 @@ class VoiceCoordinator:
                 correlation_id=turn.turn_id,
             ),
         )
-        await self._queue_receipt(
+        await self._queue_admission(
             turn,
             VoiceTaskReceipt(
                 task_id="",
@@ -371,14 +371,14 @@ class VoiceCoordinator:
             return
         raise TypeError(f"unsupported voice action: {type(action).__name__}")
 
-    async def _queue_receipt(
+    async def _queue_admission(
         self,
         turn: CommittedSpokenTurn,
         receipt: VoiceTaskReceipt,
     ) -> None:
         await self._queue_presentation(
             PresentationIntent(
-                "receipt" if receipt.accepted else "rejected",
+                "admission" if receipt.accepted else "rejected",
                 turn_id=turn.turn_id,
                 user_text="请告知用户本轮请求接收结果。" if not receipt.accepted else "",
                 task_ref=receipt.task_ref,
@@ -443,7 +443,7 @@ class VoiceCoordinator:
                         "code": "voice_output_unavailable"
                         if self._presentation_failed
                         else "voice_output_busy",
-                        "task_admitted": intent.automatic,
+                        "task_admitted": intent.system_feedback,
                     },
                 )
             )
@@ -529,7 +529,7 @@ class VoiceCoordinator:
                         # purpose comes from the fresh instruction above,
                         # not a stale status question frozen at enqueue time.
                         "请按本轮反馈目的，用自然口语向用户反馈以上信息。"
-                        if request.automatic
+                        if request.system_feedback
                         else request.user_text,
                     )
                 )
@@ -645,7 +645,7 @@ class VoiceCoordinator:
             )
         if intent.kind == "rejected":
             return "本轮请求未被接收。请简短说明未能提交，不能声称已开始或完成。"
-        if intent.kind == "receipt":
+        if intent.kind == "admission":
             return (
                 "本轮是接收确认，不附带全部任务计数，不减少用户所需信息。"
                 "请根据已接收原话简短确认收到新请求或补充要求，不复述全文。"
@@ -755,7 +755,11 @@ class VoiceCoordinator:
                 source="coordinator",
             )
 
-    async def _publish_receipt(self, receipt: VoiceTaskReceipt) -> None:
+    async def _publish_admission(
+        self,
+        turn: CommittedSpokenTurn,
+        receipt: VoiceTaskReceipt,
+    ) -> None:
         if not receipt.accepted or not receipt.task_id:
             return
         snapshot = await self._bridge.status(receipt.task_id)
@@ -764,10 +768,13 @@ class VoiceCoordinator:
                 "agent.input.accepted",
                 uuid4().hex,
                 {
+                    "turn_id": turn.turn_id,
+                    "input_id": receipt.task_id,
                     "task_ref": receipt.task_ref,
                     "run_id": snapshot.run_id,
                     "status": receipt.status,
                 },
+                correlation_id=turn.turn_id,
             )
         )
 

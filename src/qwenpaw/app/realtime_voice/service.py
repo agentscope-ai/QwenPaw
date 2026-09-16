@@ -16,7 +16,7 @@ from ...providers.realtime_voice import (
     MediaConfig,
     RealtimeProviderSession,
 )
-from ..chats.models import ChatSpec, SessionSource
+from ..chats.models import ChatSpec, SessionSource, is_realtime_voice_chat
 from ..chats.timeline import ChatTimelineJournal
 from .contracts import (
     PROTOCOL_VERSION,
@@ -212,7 +212,7 @@ class RealtimeVoiceService:
                     "Voice Chat was not found.",
                     404,
                 )
-            if chat.source != SessionSource.realtime_voice:
+            if not is_realtime_voice_chat(chat):
                 raise RealtimeVoiceServiceError(
                     "invalid_chat_source",
                     "Only a Voice Chat can be resumed as realtime voice.",
@@ -239,7 +239,7 @@ class RealtimeVoiceService:
             session_id=f"realtime_voice:{chat_uuid}",
             user_id=principal,
             channel="console",
-            source=SessionSource.realtime_voice,
+            source=SessionSource.chat,
             meta={
                 "realtime_voice": {
                     "version": 3,
