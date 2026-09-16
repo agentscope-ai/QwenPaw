@@ -1,4 +1,11 @@
-"""Provider-neutral contracts for native realtime voice sessions."""
+"""Provider-layer contracts for native realtime voice sessions.
+
+These are the vendor-neutral types a Provider implementation (e.g. DashScope)
+must satisfy: session config, wire events and the ``RealtimeProviderSession``
+protocol. The application-layer counterpart lives in
+``qwenpaw.app.realtime_voice.contracts`` and depends on this module, never the
+other way around.
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,10 @@
-"""QwenPaw realtime voice session and coordination contracts."""
+"""Application-layer contracts for realtime voice sessions and coordination.
+
+These types model the renderer protocol, session bootstrap, admission and
+task-state that the application owns. They build on the provider-layer
+contracts in ``qwenpaw.providers.realtime_voice.contracts`` (same file name,
+different layer) — this module is the one the app code should import.
+"""
 
 from __future__ import annotations
 
