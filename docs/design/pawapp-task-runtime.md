@@ -101,9 +101,18 @@ For example, use an existing owned Main Chat ID with:
 }
 ```
 
-Until the grant UI is implemented, the operator provisions
-`<WORKING_DIR>/pawapp/task-policy.json`. Missing or invalid policy grants no
-access. Replace this file atomically when changing it. A minimal scoped grant is:
+The operator manages grants under **Settings → App access** for the selected
+agent/workspace. The authenticated Host route lists only live registered action
+descriptors; updates name an App/action and optional exact string input limits.
+The browser cannot supply a descriptor digest, permission list, effect list, or
+principal. Host resolves those values from the current registration, pins the
+complete digest, applies optimistic policy revisions, writes atomically, and
+audits enable/revoke changes. The PawApp SDK and task execution APIs expose no
+policy mutation.
+
+The durable policy remains `<WORKING_DIR>/pawapp/task-policy.json`, so an operator
+can also provision it offline. Missing or invalid policy grants no access. A
+minimal scoped grant is:
 
 ```json
 {
@@ -128,8 +137,9 @@ Compute the digest offline from the reviewed descriptor using
 `docs/design/pawapp-vnext-creator-video-action.example.json`. A changed descriptor
 requires a new grant. `input_values` constrains exact string input values; omitting
 it grants the action for all input resources in that scope. Policy is checked on
-each request and before recovery. It is a temporary explicit operator policy, not
-a settings/approval UI or the full Skill/Tool permission bridge.
+each request and before recovery. Granting an action does not configure its
+provider, satisfy readiness, approve a future prompt, or expand the separate Host
+Tool/Skill capability policy.
 
 Host auth-disabled/bootstrap/trusted-host modes retain their existing behavior:
 the principal is `default` when middleware supplies no authenticated user. That
@@ -410,8 +420,9 @@ that retains partial output. They do not exercise a live Main Agent, UI, or
 analytical tools.
 
 `test_task_runtime.py` verifies HTTP authentication, forged scope claims,
-cross-user reads, origin/resource denial, blocked setup without latent work,
-idempotency, lifecycle recovery, unload and schema migration.
+cross-user reads, origin/resource denial, digest-pinned grant updates, resource
+constraint validation, concurrent policy revisions, revocation, blocked setup
+without latent work, idempotency, lifecycle recovery, unload and schema migration.
 `test_pawapp_task_dispatch.py` verifies authenticated Host HTTP dispatch through
 the real separate Engine process for both engagements, with controlled execution
 and a fixture datasource catalog. It also exercises Console chat ingress, channel
@@ -437,6 +448,5 @@ failure, exact command receipts, cancellation, input conflict detection, and
 project/target readiness. Its package verifier covers authenticated project
 handoff routing into the embedded UI.
 
-Remaining integration includes a grant UI and general Main Agent continuation
-with follow-on tools. Artifact Canvas and cross-App Exchange are not part of this
-implementation.
+Remaining integration includes general Main Agent continuation with follow-on
+tools. Artifact Canvas and cross-App Exchange are not part of this implementation.

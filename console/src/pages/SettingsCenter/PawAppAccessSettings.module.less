@@ -1,0 +1,156 @@
+.loading {
+  display: grid;
+  min-height: 320px;
+  place-items: center;
+}
+
+.title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+
+  p {
+    margin: 6px 0 0;
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 13px;
+  }
+}
+
+.alert {
+  margin-bottom: 24px;
+}
+
+.empty {
+  padding: 56px 24px;
+  border: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.08));
+  border-radius: 14px;
+}
+
+.action {
+  padding: 18px;
+
+  & + & {
+    border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  }
+}
+
+.actionHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.actionCopy {
+  flex: 1;
+  min-width: 0;
+
+  p {
+    margin: 4px 0 0;
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 13px;
+    line-height: 1.5;
+  }
+}
+
+.actionName {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+
+  strong {
+    overflow-wrap: anywhere;
+    font-size: 15px;
+  }
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 14px 0 0 48px;
+
+  :global(.ant-tag),
+  :global(.qwenpaw-tag) {
+    margin: 0;
+  }
+}
+
+.constraints {
+  margin: 16px 0 0 48px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--colorFillAlter, rgba(0, 0, 0, 0.02));
+}
+
+.constraintHeading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 12px;
+  }
+}
+
+.constraintGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+
+  label {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+
+    > span {
+      overflow-wrap: anywhere;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    :global(.ant-select),
+    :global(.qwenpaw-select) {
+      width: 100%;
+      min-width: 0;
+    }
+  }
+}
+
+.actionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 16px 0 0 48px;
+
+  code {
+    color: var(--colorTextTertiary, rgba(0, 0, 0, 0.45));
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 768px) {
+  .title {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tags,
+  .constraints,
+  .actionFooter {
+    margin-left: 0;
+  }
+
+  .constraintGrid {
+    grid-template-columns: 1fr;
+  }
+}

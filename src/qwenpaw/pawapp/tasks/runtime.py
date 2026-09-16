@@ -16,7 +16,7 @@ from .contracts import (
     content_digest,
 )
 from .coordinator import TaskCoordinator
-from .policy import FileTaskPolicy
+from .policy import FileTaskPolicy, TaskGrant
 from .store import TaskStore
 
 logger = logging.getLogger(__name__)
@@ -235,6 +235,123 @@ class HostTaskRuntime:
                 ),
             )
         return result
+
+    async def grant_catalog(self, principal_id: str, workspace_id: str):
+        """Return live registered actions and this operator's grant state."""
+        await self._sync()
+        policy = await self.policy.read()
+        actions = []
+        for (app_id, action_id), binding in sorted(self._bindings.items()):
+            action = binding.registration.action
+            scope = TaskScope(
+                principal_id=principal_id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+            )
+            related = tuple(
+                grant
+                for grant in policy.grants
+                if grant.scope == scope and grant.action_id == action_id
+            )
+            current = next(
+                (
+                    grant
+                    for grant in related
+                    if grant.descriptor_digest == action.descriptor_digest
+                ),
+                None,
+            )
+            actions.append(
+                {
+                    "app_id": app_id,
+                    "action_id": action_id,
+                    "summary": action.summary,
+                    "descriptor_digest": action.descriptor_digest,
+                    "input_schema": action.input_schema,
+                    "permissions": action.permissions,
+                    "effects": action.effects,
+                    "settings_entry": binding.registration.settings_entry,
+                    "enabled": current is not None,
+                    "stale": any(
+                        grant.descriptor_digest != action.descriptor_digest
+                        for grant in related
+                    ),
+                    "input_values": (
+                        current.input_values if current is not None else {}
+                    ),
+                },
+            )
+        return {"revision": policy.revision, "actions": actions}
+
+    @staticmethod
+    def _grant_input_values(action, input_values):
+        properties = action.input_schema.get("properties", {})
+        if not isinstance(properties, dict) or len(input_values) > 32:
+            raise TaskStoreError("invalid_grant_constraints")
+        normalized = {}
+        for key, raw_values in input_values.items():
+            field = properties.get(key)
+            invalid_field = (
+                not isinstance(key, str)
+                or not isinstance(field, dict)
+                or field.get("type") != "string"
+            )
+            invalid_values = (
+                not isinstance(raw_values, list)
+                or not raw_values
+                or len(raw_values) > 64
+            )
+            if invalid_field or invalid_values:
+                raise TaskStoreError("invalid_grant_constraints")
+            values = []
+            for value in raw_values:
+                if (
+                    not isinstance(value, str)
+                    or not value
+                    or len(value) > 2048
+                ):
+                    raise TaskStoreError("invalid_grant_constraints")
+                if value not in values:
+                    values.append(value)
+            normalized[key] = values
+        return normalized
+
+    async def set_action_grant(
+        self,
+        scope: TaskScope,
+        action_id: str,
+        *,
+        enabled: bool,
+        input_values: dict,
+        expected_revision: int,
+    ):
+        """Pin or revoke one live action descriptor for a Host operator."""
+        await self._sync()
+        binding = self._binding(scope, action_id)
+        action = binding.registration.action
+        normalized = (
+            self._grant_input_values(action, input_values) if enabled else {}
+        )
+        await self.policy.set_grant(
+            TaskGrant(
+                scope=scope,
+                action_id=action_id,
+                descriptor_digest=action.descriptor_digest,
+                input_values=normalized,
+            ),
+            enabled=enabled,
+            expected_revision=expected_revision,
+        )
+        await self.store.audit(
+            scope,
+            action_id,
+            "grant",
+            "enabled" if enabled else "revoked",
+        )
+        return await self.grant_catalog(
+            scope.principal_id,
+            scope.workspace_id,
+        )
 
     def _binding(self, scope, action_id):
         key = (scope.app_id, action_id)

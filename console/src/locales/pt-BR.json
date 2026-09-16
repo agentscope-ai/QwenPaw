@@ -2936,7 +2936,11 @@
       "global": "Configurações globais",
       "extensions": "Extensões"
     },
-    "pages": { "general": "Geral", "navigation": "Barra lateral" },
+    "pages": {
+      "general": "Geral",
+      "navigation": "Barra lateral",
+      "appAccess": "Acesso a aplicativos"
+    },
     "descriptions": {
       "general": "Idioma, tema e comportamento do aplicativo",
       "navigation": "Visibilidade da barra lateral",
@@ -2957,8 +2961,19 @@
       "tokenUsage": "Estatísticas e tendências de uso",
       "backups": "Exportar, restaurar e migrar dados",
       "debug": "Logs e diagnóstico",
-      "extension": "Configurações fornecidas por uma extensão"
+      "extension": "Configurações fornecidas por uma extensão",
+      "appAccess": "Controle quais ações de aplicativos este agente pode executar"
     },
+    "appAccessDescription": "Escolha quais ações registradas de aplicativos o agente selecionado pode executar.",
+    "appAccessGranted": "Ação do aplicativo ativada",
+    "appAccessRevoked": "Ação do aplicativo desativada",
+    "appAccessSaveFailed": "Não foi possível salvar o acesso",
+    "appAccessLoadFailed": "Não foi possível carregar o acesso a aplicativos",
+    "appAccessEmpty": "Nenhuma ação ativa de aplicativo está registrada.",
+    "appAccessChanged": "Revise a ação alterada",
+    "appAccessLimits": "Limites exatos de entrada",
+    "appAccessLimitsHint": "Deixe todos os campos vazios para permitir qualquer entrada válida.",
+    "appAccessAnyValue": "Qualquer valor",
     "appearanceAndLanguage": "Aparência e idioma",
     "desktopApplication": "Aplicativo desktop",
     "languageHint": "Altera o idioma da interface neste dispositivo.",

@@ -32,6 +32,7 @@ from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..pawapp.tasks.routes import router as pawapp_task_router
+from ..pawapp.tasks.grant_routes import router as pawapp_grant_router
 from ..pawapp.setup.routes import router as pawapp_setup_router
 from ..pawapp.capability_routes import router as pawapp_capability_router
 from ..pawapp.artifact_routes import router as pawapp_artifact_router
@@ -908,6 +909,7 @@ async def post_desktop_shutdown(
 app.include_router(api_router, prefix="/api")
 
 app.include_router(pawapp_task_router, prefix="/api")
+app.include_router(pawapp_grant_router, prefix="/api")
 app.include_router(pawapp_setup_router, prefix="/api")
 app.include_router(pawapp_artifact_router, prefix="/api")
 app.include_router(pawapp_capability_router, prefix="/api")

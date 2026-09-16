@@ -283,7 +283,8 @@
     },
     "pages": {
       "general": "通用",
-      "navigation": "侧边栏"
+      "navigation": "侧边栏",
+      "appAccess": "应用访问"
     },
     "descriptions": {
       "general": "语言、主题和应用行为",
@@ -305,8 +306,19 @@
       "tokenUsage": "用量统计与趋势",
       "backups": "导出、恢复和迁移数据",
       "debug": "日志与问题诊断",
-      "extension": "插件提供的设置"
+      "extension": "插件提供的设置",
+      "appAccess": "控制此智能体可以执行的应用操作"
     },
+    "appAccessDescription": "选择当前智能体可以执行的已注册应用操作。",
+    "appAccessGranted": "已启用应用操作",
+    "appAccessRevoked": "已停用应用操作",
+    "appAccessSaveFailed": "无法保存访问设置",
+    "appAccessLoadFailed": "无法加载应用访问设置",
+    "appAccessEmpty": "当前没有已注册的应用操作。",
+    "appAccessChanged": "操作已变更，请重新检查",
+    "appAccessLimits": "精确输入限制",
+    "appAccessLimitsHint": "所有字段留空将允许全部有效输入。",
+    "appAccessAnyValue": "任意值",
     "appearanceAndLanguage": "外观与语言",
     "desktopApplication": "桌面应用",
     "languageHint": "更改当前设备上的界面语言。",

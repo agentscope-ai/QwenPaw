@@ -25,8 +25,10 @@ from qwenpaw.pawapp.tasks import (
     SubmissionLookup,
     TaskScope,
     TaskStore,
+    grant_routes,
 )
 from qwenpaw.pawapp.tasks.binding import ActionRegistration, Readiness
+from qwenpaw.pawapp.tasks.grant_routes import router as grant_router
 from qwenpaw.pawapp.tasks.policy import FileTaskPolicy, TaskGrant, TaskPolicy
 from qwenpaw.pawapp.tasks.routes import HostOrigins, router
 from qwenpaw.pawapp.tasks.runtime import HostTaskRuntime
@@ -155,6 +157,11 @@ async def host(tmp_path, monkeypatch):
         ),
     )
     monkeypatch.setattr(auth, "resolve_client_ip", lambda request: "192.0.2.1")
+    monkeypatch.setattr(
+        grant_routes,
+        "workspace_enabled",
+        AsyncMock(return_value=True),
+    )
     chats = {
         "main": ChatSpec(
             id="main",
@@ -234,6 +241,7 @@ async def host(tmp_path, monkeypatch):
     app = FastAPI()
     app.add_middleware(auth.AuthMiddleware)
     app.include_router(router, prefix="/api")
+    app.include_router(grant_router, prefix="/api")
     app.include_router(artifact_router, prefix="/api")
     app.include_router(setup_router, prefix="/api")
     app.state.pawapp_task_origins = origins
@@ -272,6 +280,119 @@ async def settled(host, task_id):
             if item.handle.status == "succeeded":
                 return item
             await asyncio.sleep(0.01)
+
+
+async def test_operator_manages_live_digest_pinned_action_grants(host):
+    path = "/api/pawapps/workspaces/sales/task-grants"
+
+    initial = await host.client.get(path)
+    assert initial.status_code == 200
+    payload = initial.json()
+    assert payload["revision"] == 0
+    assert payload["actions"] == [
+        {
+            "app_id": "qwenpaw-data",
+            "action_id": "analyze",
+            "summary": ACTION.summary,
+            "descriptor_digest": ACTION.descriptor_digest,
+            "input_schema": ACTION.input_schema,
+            "permissions": list(ACTION.permissions),
+            "effects": list(ACTION.effects),
+            "settings_entry": "/apps/qwenpaw-data",
+            "enabled": True,
+            "stale": False,
+            "input_values": {"datasource_id": ["sales"]},
+        },
+    ]
+
+    changed = await host.client.put(
+        path + "/actions/qwenpaw-data/analyze",
+        json={
+            "expected_revision": 0,
+            "enabled": True,
+            "input_values": {"datasource_id": ["sales", "forecast"]},
+        },
+    )
+    assert changed.status_code == 200
+    assert changed.json()["revision"] == 1
+    saved = TaskPolicy.model_validate_json(host.policy_path.read_text())
+    assert saved.revision == 1
+    assert saved.grants[0].descriptor_digest == ACTION.descriptor_digest
+    assert saved.grants[0].input_values == {
+        "datasource_id": ["sales", "forecast"],
+    }
+
+    conflict = await host.client.put(
+        path + "/actions/qwenpaw-data/analyze",
+        json={"expected_revision": 0, "enabled": False},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["detail"] == "task_policy_conflict"
+
+    revoked = await host.client.put(
+        path + "/actions/qwenpaw-data/analyze",
+        json={"expected_revision": 1, "enabled": False},
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["revision"] == 2
+    assert revoked.json()["actions"][0]["enabled"] is False
+    forbidden = await host.client.get(PREFIX + "/actions/analyze")
+    assert forbidden.status_code == 403
+
+
+async def test_grant_management_rejects_forged_scope_and_constraints(host):
+    path = "/api/pawapps/workspaces/sales/task-grants"
+
+    forged = await host.client.get(
+        path,
+        headers={"X-Agent-Id": "another-workspace"},
+    )
+    assert forged.status_code == 403
+    assert forged.json()["detail"] == "task_scope_mismatch"
+
+    invalid = await host.client.put(
+        path + "/actions/qwenpaw-data/analyze",
+        json={
+            "expected_revision": 0,
+            "enabled": True,
+            "input_values": {"unknown_resource": ["sales"]},
+        },
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["detail"] == "invalid_grant_constraints"
+    assert (
+        TaskPolicy.model_validate_json(
+            host.policy_path.read_text(),
+        ).revision
+        == 0
+    )
+
+
+async def test_grant_catalog_marks_changed_descriptors_for_review(host):
+    host.policy_path.write_text(
+        TaskPolicy(
+            revision=8,
+            grants=(
+                TaskGrant(
+                    scope=SCOPE,
+                    action_id=ACTION.action_id,
+                    descriptor_digest="0" * 64,
+                    input_values={"datasource_id": ["sales"]},
+                ),
+            ),
+        ).model_dump_json(),
+    )
+
+    response = await host.client.get(
+        "/api/pawapps/workspaces/sales/task-grants",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["revision"] == 8
+    action = response.json()["actions"][0]
+    assert action["enabled"] is False
+    assert action["stale"] is True
+    assert action["input_values"] == {}
 
 
 async def test_open_task_issues_scoped_handoff_to_existing_project(host):

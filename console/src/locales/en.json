@@ -283,7 +283,8 @@
     },
     "pages": {
       "general": "General",
-      "navigation": "Sidebar"
+      "navigation": "Sidebar",
+      "appAccess": "App access"
     },
     "descriptions": {
       "general": "Language, theme and application behavior",
@@ -305,8 +306,19 @@
       "tokenUsage": "Usage statistics and trends",
       "backups": "Export, restore and migrate data",
       "debug": "Logs and diagnostics",
-      "extension": "Settings provided by an extension"
+      "extension": "Settings provided by an extension",
+      "appAccess": "Control which App actions this agent may run"
     },
+    "appAccessDescription": "Choose which registered App actions the selected agent may run.",
+    "appAccessGranted": "App action enabled",
+    "appAccessRevoked": "App action disabled",
+    "appAccessSaveFailed": "Could not save access",
+    "appAccessLoadFailed": "App access could not be loaded",
+    "appAccessEmpty": "No active App actions are registered.",
+    "appAccessChanged": "Review changed action",
+    "appAccessLimits": "Exact input limits",
+    "appAccessLimitsHint": "Leave every field empty to allow all valid inputs.",
+    "appAccessAnyValue": "Any value",
     "appearanceAndLanguage": "Appearance & language",
     "desktopApplication": "Desktop app",
     "languageHint": "Changes the interface language on this device.",

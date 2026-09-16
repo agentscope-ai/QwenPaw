@@ -17,6 +17,7 @@ import {
   HeartPulse,
   Mic,
   PanelLeft,
+  PackageCheck,
   Plug,
   Radio,
   ScanLine,
@@ -37,6 +38,7 @@ import { usePlugins } from "@/plugins/PluginContext";
 import { findMenuItem, flattenMenu } from "@/layouts/registry/adapter";
 import GeneralSettings from "./GeneralSettings";
 import NavigationSettings from "./NavigationSettings";
+import PawAppAccessSettings from "./PawAppAccessSettings";
 import SettingsAgentSelector from "./SettingsAgentSelector";
 import styles from "./index.module.less";
 
@@ -128,6 +130,15 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
         descriptionFallback: "Configure available tools",
         routeId: "core.tools",
         Icon: Wrench,
+      },
+      {
+        key: "app-access",
+        labelKey: "settingsCenter.pages.appAccess",
+        fallback: "App access",
+        descriptionKey: "settingsCenter.descriptions.appAccess",
+        descriptionFallback: "Control which App actions this agent may run",
+        Component: PawAppAccessSettings,
+        Icon: PackageCheck,
       },
       {
         key: "mcp",

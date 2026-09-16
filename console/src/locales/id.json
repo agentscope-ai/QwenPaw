@@ -294,7 +294,8 @@
     },
     "pages": {
       "general": "Umum",
-      "navigation": "Bilah samping"
+      "navigation": "Bilah samping",
+      "appAccess": "Akses aplikasi"
     },
     "descriptions": {
       "general": "Bahasa, tema, dan perilaku aplikasi",
@@ -316,8 +317,19 @@
       "tokenUsage": "Statistik dan tren penggunaan",
       "backups": "Ekspor, pulihkan, dan migrasikan data",
       "debug": "Log dan diagnostik",
-      "extension": "Pengaturan yang disediakan oleh ekstensi"
+      "extension": "Pengaturan yang disediakan oleh ekstensi",
+      "appAccess": "Atur tindakan aplikasi yang dapat dijalankan agen ini"
     },
+    "appAccessDescription": "Pilih tindakan aplikasi terdaftar yang dapat dijalankan oleh agen terpilih.",
+    "appAccessGranted": "Tindakan aplikasi diaktifkan",
+    "appAccessRevoked": "Tindakan aplikasi dinonaktifkan",
+    "appAccessSaveFailed": "Tidak dapat menyimpan akses",
+    "appAccessLoadFailed": "Tidak dapat memuat akses aplikasi",
+    "appAccessEmpty": "Tidak ada tindakan aplikasi aktif yang terdaftar.",
+    "appAccessChanged": "Tinjau tindakan yang berubah",
+    "appAccessLimits": "Batas input yang tepat",
+    "appAccessLimitsHint": "Kosongkan semua bidang untuk mengizinkan semua input yang valid.",
+    "appAccessAnyValue": "Nilai apa pun",
     "appearanceAndLanguage": "Tampilan & bahasa",
     "desktopApplication": "Aplikasi desktop",
     "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",

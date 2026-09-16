@@ -2685,7 +2685,11 @@
       "global": "グローバル設定",
       "extensions": "拡張機能"
     },
-    "pages": { "general": "一般", "navigation": "サイドバー" },
+    "pages": {
+      "general": "一般",
+      "navigation": "サイドバー",
+      "appAccess": "アプリアクセス"
+    },
     "descriptions": {
       "general": "言語、テーマ、アプリの動作",
       "navigation": "サイドバーの表示項目",
@@ -2706,8 +2710,19 @@
       "tokenUsage": "使用状況の統計と推移",
       "backups": "データのエクスポート、復元、移行",
       "debug": "ログと診断",
-      "extension": "拡張機能が提供する設定"
+      "extension": "拡張機能が提供する設定",
+      "appAccess": "このエージェントが実行できる App アクションを管理"
     },
+    "appAccessDescription": "選択したエージェントが実行できる登録済み App アクションを選択します。",
+    "appAccessGranted": "App アクションを有効にしました",
+    "appAccessRevoked": "App アクションを無効にしました",
+    "appAccessSaveFailed": "アクセス設定を保存できませんでした",
+    "appAccessLoadFailed": "App アクセスを読み込めませんでした",
+    "appAccessEmpty": "有効な App アクションは登録されていません。",
+    "appAccessChanged": "変更されたアクションを確認",
+    "appAccessLimits": "入力値の完全一致制限",
+    "appAccessLimitsHint": "すべて空欄にすると、すべての有効な入力を許可します。",
+    "appAccessAnyValue": "任意の値",
     "appearanceAndLanguage": "外観と言語",
     "desktopApplication": "デスクトップアプリ",
     "languageHint": "このデバイスの表示言語を変更します。",

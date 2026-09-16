@@ -127,6 +127,8 @@ def _error(exc):
         "setup_runtime_unavailable",
     }:
         status = 503
+    elif code == "invalid_grant_constraints":
+        status = 422
     elif isinstance(exc, ValueError):
         status = 422
     return HTTPException(status_code=status, detail=code)
