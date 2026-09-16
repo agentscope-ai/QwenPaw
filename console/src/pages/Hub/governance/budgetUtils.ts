@@ -12,8 +12,8 @@ export function budgetLimit(mode: BudgetMode, amount: number | null) {
   return mode === "limited" ? amount : mode === "blocked" ? 0 : null;
 }
 
-export const formatTokens = (value: number) =>
-  new Intl.NumberFormat(undefined, {
+export const formatTokens = (value: number, language: string) =>
+  new Intl.NumberFormat(language, {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);

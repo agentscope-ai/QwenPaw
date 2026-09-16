@@ -263,9 +263,7 @@ export default function LoginPage() {
               <Input
                 autoComplete="off"
                 maxLength={128}
-                placeholder={
-                  i18n.language.startsWith("zh") ? "邀请码" : "Invitation code"
-                }
+                placeholder={t("login.invitationCode")}
               />
             </Form.Item>
           )}

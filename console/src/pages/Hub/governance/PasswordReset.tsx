@@ -1,12 +1,13 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { App, Button, Form, Input, Modal } from "antd";
 import { KeyRound } from "lucide-react";
 import { governanceRequest } from "../../../api/modules/hubGovernance";
+import { governanceErrorMessage } from "./errors";
 import type { HubUser } from "../../../api/modules/hub";
-import { useGovernanceText } from "./shared";
 
 export default function PasswordReset({ user }: { user: HubUser }) {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -19,23 +20,18 @@ export default function PasswordReset({ user }: { user: HubUser }) {
         icon={<KeyRound size={13} />}
         onClick={() => setOpen(true)}
       >
-        {text("重置密码", "Reset password")}
+        {t("hub.governance.password.reset")}
       </Button>
       <Modal
         open={open}
-        title={`${text("重置密码", "Reset password")} · ${user.username}`}
+        title={t("hub.governance.password.title", { username: user.username })}
         onCancel={() => setOpen(false)}
         destroyOnHidden
         confirmLoading={busy}
         onOk={() => form.submit()}
         afterClose={() => form.resetFields()}
       >
-        <p>
-          {text(
-            "旧密码及登录凭证将失效，历史数据保留。请自行安全交付新密码。",
-            "Old passwords and login tokens will expire. Data is preserved. Share the new password securely.",
-          )}
-        </p>
+        <p>{t("hub.governance.password.hint")}</p>
         <Form
           form={form}
           layout="vertical"
@@ -47,10 +43,10 @@ export default function PasswordReset({ user }: { user: HubUser }) {
                 "POST",
                 { new_password: password },
               );
-              message.success(text("密码已重置", "Password reset"));
+              message.success(t("hub.governance.password.success"));
               setOpen(false);
             } catch (error) {
-              message.error((error as Error).message);
+              message.error(governanceErrorMessage(error, t));
             } finally {
               setBusy(false);
             }
@@ -58,14 +54,14 @@ export default function PasswordReset({ user }: { user: HubUser }) {
         >
           <Form.Item
             name="password"
-            label={text("新密码", "New password")}
+            label={t("hub.governance.password.new")}
             rules={[{ required: true, min: 8, max: 1024 }]}
           >
             <Input.Password autoComplete="new-password" />
           </Form.Item>
           <Form.Item
             name="confirm"
-            label={text("确认密码", "Confirm password")}
+            label={t("hub.governance.password.confirm")}
             dependencies={["password"]}
             rules={[
               { required: true },
@@ -74,7 +70,7 @@ export default function PasswordReset({ user }: { user: HubUser }) {
                   value === getFieldValue("password")
                     ? Promise.resolve()
                     : Promise.reject(
-                        new Error(text("密码不一致", "Passwords differ")),
+                        new Error(t("hub.governance.password.mismatch")),
                       ),
               }),
             ]}

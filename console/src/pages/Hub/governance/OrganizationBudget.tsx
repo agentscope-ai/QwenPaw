@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { App, Button, Select, Skeleton } from "antd";
 import { Wallet } from "lucide-react";
@@ -8,11 +9,11 @@ import {
 } from "../../../api/modules/hubGovernance";
 import BudgetEditor from "./BudgetEditor";
 import { budgetMode, budgetLimit, type BudgetMode } from "./budgetUtils";
-import { useGovernanceText } from "./shared";
+import { governanceErrorMessage } from "./errors";
 import styles from "./governance.module.less";
 
 export default function OrganizationBudget() {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [policy, setPolicy] = useState<ModelPolicy>();
   const [mode, setMode] = useState<BudgetMode>("unlimited");
@@ -43,8 +44,8 @@ export default function OrganizationBudget() {
   if (error)
     return (
       <div role="alert" className={styles.card}>
-        {error}
-        <Button onClick={load}>{text("重试", "Retry")}</Button>
+        {governanceErrorMessage(error, t)}
+        <Button onClick={load}>{t("common.retry")}</Button>
       </div>
     );
   if (!policy) return <Skeleton active />;
@@ -53,9 +54,7 @@ export default function OrganizationBudget() {
       (mode === "limited" && !amount) ||
       (memberMode === "limited" && !memberAmount)
     ) {
-      message.error(
-        text("请输入大于 0 的额度", "Enter a limit greater than zero"),
-      );
+      message.error(t("hub.governance.budget.positiveLimit"));
       return;
     }
     setBusy(true);
@@ -72,9 +71,9 @@ export default function OrganizationBudget() {
           token_limit: budgetLimit(mode, amount),
         });
       }
-      message.success(text("组织预算已保存", "Organization budget saved"));
+      message.success(t("hub.governance.budget.saved"));
     } catch (e) {
-      message.error((e as Error).message);
+      message.error(governanceErrorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -84,13 +83,8 @@ export default function OrganizationBudget() {
       <article className={styles.card}>
         <div className={styles.heading}>
           <div>
-            <h3>{text("组织月预算", "Organization monthly budget")}</h3>
-            <p>
-              {text(
-                "所有成员共享的每月总额度。",
-                "The monthly ceiling shared by all members.",
-              )}
-            </p>
+            <h3>{t("hub.governance.budget.organizationMonthly")}</h3>
+            <p>{t("hub.governance.budget.organizationHint")}</p>
           </div>
           <Wallet size={18} />
         </div>
@@ -102,18 +96,13 @@ export default function OrganizationBudget() {
         />
         <div className={styles.actions}>
           <Button type="primary" loading={busy} onClick={() => save(false)}>
-            {text("保存预算", "Save budget")}
+            {t("hub.governance.budget.save")}
           </Button>
         </div>
       </article>
       <article className={styles.card}>
-        <h3>{text("成员默认额度", "Default member budget")}</h3>
-        <p>
-          {text(
-            "新成员和选择「继承组织默认」的成员使用此额度。单独调整额度请前往用户详情。",
-            "Applies to new members and members using the organization default. Individual limits are managed in user details.",
-          )}
-        </p>
+        <h3>{t("hub.governance.budget.defaultMember")}</h3>
+        <p>{t("hub.governance.budget.defaultMemberHint")}</p>
         <BudgetEditor
           mode={memberMode}
           amount={memberAmount}
@@ -121,9 +110,9 @@ export default function OrganizationBudget() {
           onAmount={setMemberAmount}
         />
         <div className={styles.field}>
-          <label>{text("结算时区", "Billing timezone")}</label>
+          <label>{t("hub.governance.budget.timezone")}</label>
           <Select
-            aria-label={text("结算时区", "Billing timezone")}
+            aria-label={t("hub.governance.budget.timezone")}
             value={policy.timezone}
             onChange={(timezone) => setPolicy({ ...policy, timezone })}
             options={[
@@ -137,15 +126,10 @@ export default function OrganizationBudget() {
               ]),
             ].map((value) => ({ value, label: value }))}
           />
-          <small>
-            {text(
-              "每月 1 日重置。产生用量后，结算时区固定。",
-              "Resets on the first of each month. The timezone is fixed after usage begins.",
-            )}
-          </small>
+          <small>{t("hub.governance.budget.timezoneHint")}</small>
         </div>
         <Button type="primary" loading={busy} onClick={() => save(true)}>
-          {text("保存默认设置", "Save defaults")}
+          {t("hub.governance.budget.saveDefaults")}
         </Button>
       </article>
     </div>

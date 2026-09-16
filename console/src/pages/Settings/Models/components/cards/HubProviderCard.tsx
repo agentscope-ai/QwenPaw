@@ -1,9 +1,9 @@
+import { useTranslation } from "react-i18next";
 import { useState } from "react";
 import { Modal } from "antd";
 import { Network } from "lucide-react";
 import type { ProviderInfo } from "../../../../../api/types";
 import MemberModels from "../../../../Hub/governance/MemberModels";
-import { useGovernanceText } from "../../../../Hub/governance/shared";
 import governanceStyles from "../../../../Hub/governance/governance.module.less";
 import styles from "../../index.module.less";
 
@@ -14,7 +14,7 @@ export function HubProviderCard({
   provider: ProviderInfo;
   onSaved: () => void;
 }) {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -23,49 +23,40 @@ export function HubProviderCard({
           <Network size={36} strokeWidth={1.5} />
           <span className={styles.groupCardName}>Hub</span>
           <span className={styles.customTag}>
-            {text("组织提供", "Organization")}
+            {t("hub.governance.provider.organization")}
           </span>
           {provider.models.length > 0 && (
             <div className={styles.groupCardLiveBadge}>
               <span className={styles.groupCardPulse} />
-              Live
+              {t("hub.runtimes.available")}
             </div>
           )}
         </div>
         <div className={styles.groupCardContent}>
           <div className={styles.groupCardField}>
             <span className={styles.groupCardFieldLabel}>
-              {text("连接", "Connection")}
+              {t("hub.governance.models.connection")}
             </span>
             <span className={styles.groupCardFieldValue}>
-              {text(
-                "由组织管理，无需配置密钥",
-                "Managed by your organization. No key setup needed.",
-              )}
+              {t("hub.governance.provider.managedHint")}
             </span>
           </div>
           <div className={styles.groupCardField}>
             <span className={styles.groupCardFieldLabel}>
-              {text("可用模型", "Models")}
+              {t("hub.governance.models.availableModels")}
             </span>
             <span className={styles.groupCardFieldValue}>
               {provider.models.length
                 ? provider.models.map((model) => model.name).join(" · ")
-                : text(
-                    "等待管理员发布模型并授权",
-                    "Waiting for your administrator to publish models and grant access",
-                  )}
+                : t("hub.governance.provider.waiting")}
             </span>
           </div>
           <div className={styles.groupCardField}>
             <span className={styles.groupCardFieldLabel}>
-              {text("用量", "Usage")}
+              {t("hub.governance.provider.usage")}
             </span>
             <span className={styles.groupCardFieldValue}>
-              {text(
-                "仅统计通过 Hub 调用的模型",
-                "Only calls through Hub count toward its budget",
-              )}
+              {t("hub.governance.provider.usageHint")}
             </span>
           </div>
         </div>
@@ -74,15 +65,15 @@ export function HubProviderCard({
             className={styles.groupCardActBtn}
             onClick={() => setOpen(true)}
           >
-            {text("模型与额度", "Models and budget")}
+            {t("hub.governance.provider.modelsBudget")}
           </button>
           <button className={styles.groupCardActBtn} onClick={onSaved}>
-            {text("刷新", "Refresh")}
+            {t("common.refresh")}
           </button>
         </div>
       </div>
       <Modal
-        title={text("Hub 模型与额度", "Hub models and budget")}
+        title={t("hub.governance.provider.title")}
         open={open}
         centered
         width={760}

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Form } from "antd";
 import { RefreshCw } from "lucide-react";
@@ -8,7 +9,6 @@ import {
   type ModelProviderPreset,
 } from "../../../api/modules/hubGovernance";
 import { ModelIdentityFields } from "../../Settings/Models/components/modals/ModelIdentityFields";
-import { useGovernanceText } from "./shared";
 import styles from "./governance.module.less";
 
 export function HubModelIdentityFields({
@@ -18,7 +18,7 @@ export function HubModelIdentityFields({
   connections: ModelConnection[];
   presets: ModelProviderPreset[];
 }) {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   const form = Form.useFormInstance();
   const connectionId = Form.useWatch("connection_id", form);
   const connection = connections.find((c) => c.id === connectionId);
@@ -64,7 +64,7 @@ export function HubModelIdentityFields({
     <>
       <ModelIdentityFields
         idField="upstream_model"
-        nameLabel={text("成员看到的名称", "Display name for members")}
+        nameLabel={t("hub.governance.models.memberDisplayName")}
         options={models.map((m) => ({
           value: m.id,
           label: `${m.name} · ${m.id}`,
@@ -89,18 +89,12 @@ export function HubModelIdentityFields({
             loading={loading}
             onClick={load}
           >
-            {text("刷新供应商模型", "Refresh provider models")}
+            {t("hub.governance.models.refreshProviderModels")}
           </Button>
           <span className={styles.help} role={failed ? "status" : undefined}>
             {failed
-              ? text(
-                  "暂时无法获取模型，可选预设模型或手动输入 ID。",
-                  "Could not fetch models. Choose a preset or enter a model ID.",
-                )
-              : text(
-                  "选择已有模型，也可直接输入模型 ID。",
-                  "Choose a model or enter its ID directly.",
-                )}
+              ? t("hub.governance.models.discoveryFailed")
+              : t("hub.governance.models.chooseModel")}
           </span>
         </div>
       )}

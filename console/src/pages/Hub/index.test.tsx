@@ -113,7 +113,9 @@ describe("HubPage", () => {
 
     expect(await screen.findByText("hub.overview.title")).toBeInTheDocument();
     expect(hubApi.getOverview).toHaveBeenCalledOnce();
-    expect(await screen.findByText("Token usage")).toBeInTheDocument();
+    expect(
+      await screen.findByText("hub.governance.dashboard.tokenUsage"),
+    ).toBeInTheDocument();
   });
 
   it("shows the backend reason when the runtime is unavailable", async () => {
@@ -284,9 +286,11 @@ describe("HubPage", () => {
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.users"));
     fireEvent.click(
-      await screen.findByRole("button", { name: /owner.*Admin/ }),
+      await screen.findByRole("button", { name: /owner.*hub.roles.admin/ }),
     );
-    fireEvent.click(await screen.findByRole("tab", { name: "Account" }));
+    fireEvent.click(
+      await screen.findByRole("tab", { name: "hub.governance.users.account" }),
+    );
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("combobox")).toBeDisabled();
     expect(within(dialog).getByRole("switch")).toBeDisabled();

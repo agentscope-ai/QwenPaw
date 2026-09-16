@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Select, Progress, Skeleton } from "antd";
 import { RefreshCw, Boxes, Wallet } from "lucide-react";
@@ -7,7 +8,7 @@ import {
   type MemberModelCatalog,
 } from "../../../api/modules/hubGovernance";
 import { providerApi } from "../../../api/modules/provider";
-import { useGovernanceText } from "./shared";
+import { governanceErrorMessage } from "./errors";
 import styles from "./governance.module.less";
 
 export default function MemberModels({
@@ -15,7 +16,7 @@ export default function MemberModels({
 }: {
   compact?: boolean;
 }) {
-  const text = useGovernanceText();
+  const { t, i18n } = useTranslation();
   const [catalog, setCatalog] = useState<MemberModelCatalog>();
   const [usage, setUsage] = useState<{
     member: BudgetUsage;
@@ -52,36 +53,32 @@ export default function MemberModels({
   if (!catalog)
     return compact ? null : error ? (
       <div className={styles.card} role="alert">
-        {error}
-        <Button onClick={load}>{text("重试", "Retry")}</Button>
+        {governanceErrorMessage(error, t)}
+        <Button onClick={load}>{t("common.retry")}</Button>
       </div>
     ) : (
       <Skeleton active />
     );
   const member = usage?.member;
   const blocked = member?.remaining === 0 || usage?.organization_blocked;
-  const balance = `${text(
-    "Hub 本月剩余 Token",
-    "Hub monthly tokens remaining",
-  )}: ${member?.remaining?.toLocaleString() ?? text("不限", "Unlimited")}`;
+  const balance = t("hub.governance.member.balance", {
+    remaining:
+      member?.remaining?.toLocaleString(i18n.language) ??
+      t("hub.governance.budget.unlimited"),
+  });
   if (compact)
     return (
       <div className={styles.summary}>
         <Wallet size={13} />
-        <span>{usage ? balance : text("额度加载中", "Loading budget")}</span>
-        {blocked && (
-          <span>
-            {text(
-              "额度不足，请联系管理员",
-              "Budget unavailable. Contact your administrator",
-            )}
-          </span>
-        )}
-        {error && <span role="alert">{error}</span>}
+        <span>
+          {usage ? balance : t("hub.governance.member.loadingBudget")}
+        </span>
+        {blocked && <span>{t("hub.governance.member.budgetUnavailable")}</span>}
+        {error && <span role="alert">{governanceErrorMessage(error, t)}</span>}
         <Button
           type="text"
           size="small"
-          aria-label={text("刷新额度", "Refresh budget")}
+          aria-label={t("hub.governance.member.refreshBudget")}
           icon={<RefreshCw size={13} />}
           onClick={load}
         />
@@ -94,34 +91,18 @@ export default function MemberModels({
           <span className={styles.serviceIcon}>
             <Boxes size={20} />
           </span>
-          <h3>{text("组织对话模型", "Organization conversation model")}</h3>
-          <p>
-            {text(
-              "更改后将在新会话中使用。",
-              "Changes apply to new conversations.",
-            )}
-          </p>
+          <h3>{t("hub.governance.member.conversationModel")}</h3>
+          <p>{t("hub.governance.member.changesHint")}</p>
           {catalog.models.length === 0 ? (
             <div className={styles.empty}>
               <Boxes size={28} />
-              <strong>{text("暂无可用模型", "No models available")}</strong>
-              <p>
-                {text(
-                  "管理员发布模型并授权后即可使用。",
-                  "Models appear here once your administrator publishes them and grants access.",
-                )}
-              </p>
+              <strong>{t("hub.governance.member.noModels")}</strong>
+              <p>{t("hub.governance.member.noModelsHint")}</p>
             </div>
           ) : (
             <Select
-              aria-label={text(
-                "组织对话模型",
-                "Organization conversation model",
-              )}
-              placeholder={text(
-                "选择组织模型用于对话",
-                "Choose an organization model for chat",
-              )}
+              aria-label={t("hub.governance.member.conversationModel")}
+              placeholder={t("hub.governance.member.chooseModel")}
               value={selected}
               options={catalog.models.map((m) => ({
                 value: m.id,
@@ -143,18 +124,15 @@ export default function MemberModels({
             />
           )}
           <small className={styles.muted}>
-            {text(
-              "模型访问权限由管理员管理，无需配置 API Key。",
-              "Your administrator manages model access. No API key setup is required.",
-            )}
+            {t("hub.governance.member.accessHint")}
           </small>
         </article>
         <article className={styles.card}>
           <div className={styles.heading}>
-            <h3>{text("Hub 本月用量", "Hub monthly usage")}</h3>
+            <h3>{t("hub.governance.member.usage")}</h3>
             <Button
               type="text"
-              aria-label={text("刷新额度", "Refresh budget")}
+              aria-label={t("hub.governance.member.refreshBudget")}
               icon={<RefreshCw size={14} />}
               onClick={load}
             />
@@ -162,7 +140,8 @@ export default function MemberModels({
           {member ? (
             <>
               <strong className={styles.metric}>
-                {member.charged.toLocaleString()} <small>Token</small>
+                {member.charged.toLocaleString(i18n.language)}{" "}
+                <small>Token</small>
               </strong>
               <p>{balance}</p>
               {member.token_limit !== null && member.token_limit > 0 && (
@@ -189,15 +168,12 @@ export default function MemberModels({
       </div>
       {blocked && (
         <div className={styles.notice}>
-          {text(
-            "当前额度不足，请联系管理员调整。",
-            "Your current budget is unavailable. Contact your administrator.",
-          )}
+          {t("hub.governance.member.contactAdmin")}
         </div>
       )}
       {error && (
         <div className={styles.notice} role="alert">
-          {error}
+          {governanceErrorMessage(error, t)}
         </div>
       )}
     </div>

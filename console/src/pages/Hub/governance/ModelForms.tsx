@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Form, Input, InputNumber, Select, Switch } from "antd";
 import { ProviderConnectionFields } from "../../Settings/Models/components/modals/ProviderConnectionFields";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
@@ -8,7 +9,6 @@ import type {
   ModelProviderPreset,
 } from "../../../api/modules/hubGovernance";
 import styles from "./governance.module.less";
-import { useGovernanceText } from "./shared";
 
 export function ConnectionFields({
   connections,
@@ -21,7 +21,7 @@ export function ConnectionFields({
   independentScope: string;
   presets: ModelProviderPreset[];
 }) {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   const form = Form.useFormInstance();
   const providerId = Form.useWatch("provider_id", form);
   const preset = presets.find((p) => p.id === providerId);
@@ -35,7 +35,7 @@ export function ConnectionFields({
   }
   return (
     <>
-      <Form.Item name="provider_id" label={text("供应商", "Provider")}>
+      <Form.Item name="provider_id" label={t("models.provider")}>
         <Select
           showSearch
           optionFilterProp="searchLabel"
@@ -51,8 +51,8 @@ export function ConnectionFields({
           options={[
             {
               value: "",
-              label: text("自定义 · OpenAI 兼容", "Custom · OpenAI compatible"),
-              searchLabel: "Custom 自定义",
+              label: t("hub.governance.models.customProvider"),
+              searchLabel: t("hub.governance.models.customProvider"),
             },
             ...presets.map((p) => ({
               value: p.id,
@@ -69,7 +69,7 @@ export function ConnectionFields({
       </Form.Item>
       <Form.Item
         name="name"
-        label={text("连接名称", "Connection name")}
+        label={t("hub.governance.models.connectionName")}
         rules={[{ required: true }]}
       >
         <Input maxLength={120} />
@@ -81,21 +81,18 @@ export function ConnectionFields({
         apiKeyLabel="API Key"
         apiKeyPlaceholder={
           connectionId
-            ? text("留空保留已保存的密钥", "Leave blank to keep the saved key")
-            : text("输入供应商 API Key", "Enter your provider API key")
+            ? t("hub.governance.models.keepKey")
+            : t("hub.governance.models.enterKey")
         }
         validApiKeyPrefixes={preset ? getValidApiKeyPrefixes(preset) : []}
         requireApiKey={!connectionId}
       />
       <details className={styles.help}>
-        <summary>{text("高级设置 · 限流", "Advanced · Rate limits")}</summary>
+        <summary>{t("hub.governance.models.advancedLimits")}</summary>
         <Form.Item
           name="quota_scope"
-          label={text("与其他连接共享限流", "Share rate limits with")}
-          extra={text(
-            "仅在供应商对这些连接共用限额时选择。共享后合并计算请求量与并发数，按组内最低上限执行；不影响成员 Token 预算。",
-            "Choose only when your provider shares limits across these connections. Requests and concurrency are counted together, using the lowest limits in the group. Member token budgets are unaffected.",
-          )}
+          label={t("hub.governance.models.shareLimits")}
+          extra={t("hub.governance.models.shareLimitsHint")}
           rules={[{ required: true }]}
         >
           <Select
@@ -104,7 +101,7 @@ export function ConnectionFields({
             options={[
               {
                 value: independentScope,
-                label: text("独立限流（默认）", "Independent limits (default)"),
+                label: t("hub.governance.models.independentLimits"),
               },
               ...Array.from(groups, ([value, names]) => ({
                 value,
@@ -117,7 +114,7 @@ export function ConnectionFields({
       </details>
       <Form.Item
         name="enabled"
-        label={text("启用", "Enabled")}
+        label={t("common.enabled")}
         valuePropName="checked"
       >
         <Switch />
@@ -126,19 +123,19 @@ export function ConnectionFields({
   );
 }
 export function RateFields() {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   return (
     <>
       <Form.Item
         name="requests_per_minute"
-        label={text("每分钟请求上限", "Requests per minute")}
+        label={t("hub.governance.models.rpm")}
         rules={[{ required: true }]}
       >
         <InputNumber min={1} max={100000} precision={0} />
       </Form.Item>
       <Form.Item
         name="concurrency"
-        label={text("并发上限", "Concurrency")}
+        label={t("hub.governance.models.concurrency")}
         rules={[{ required: true }]}
       >
         <InputNumber min={1} max={1000} precision={0} />
@@ -155,12 +152,12 @@ export function ModelFields({
   users: { user_id: string; username: string }[];
   presets: ModelProviderPreset[];
 }) {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   return (
     <>
       <Form.Item
         name="connection_id"
-        label={text("连接", "Connection")}
+        label={t("hub.governance.models.connection")}
         rules={[{ required: true }]}
       >
         <Select
@@ -168,29 +165,29 @@ export function ModelFields({
         />
       </Form.Item>
       <HubModelIdentityFields connections={connections} presets={presets} />
-      <Form.Item name="description" label={text("能力说明", "Description")}>
+      <Form.Item
+        name="description"
+        label={t("hub.governance.models.description")}
+      >
         <Input.TextArea maxLength={1000} />
       </Form.Item>
       <Form.Item
         name="input_token_limit"
-        label={text(
-          "已确认的最大输入 Token（用于保守预留）",
-          "Verified maximum input tokens (reserved per request)",
-        )}
+        label={t("hub.governance.models.inputLimit")}
         rules={[{ required: true }]}
       >
         <InputNumber min={1000} max={10000000} precision={0} />
       </Form.Item>
       <Form.Item
         name="output_token_limit"
-        label={text("单次输出 Token 上限", "Maximum output tokens")}
+        label={t("hub.governance.models.outputLimit")}
         rules={[{ required: true }]}
       >
         <InputNumber min={1} max={1000000} precision={0} />
       </Form.Item>
       <Form.Item
         name="output_limit_field"
-        label={text("上游输出限制参数", "Upstream output limit parameter")}
+        label={t("hub.governance.models.outputParameter")}
       >
         <Select
           options={[
@@ -201,31 +198,28 @@ export function ModelFields({
       </Form.Item>
       <Form.Item
         name="budget_verified"
-        label={text(
-          "已验证输入边界与输出上限（有限预算必需）",
-          "Input and output bounds verified (required for finite budgets)",
-        )}
+        label={t("hub.governance.models.boundsVerified")}
         valuePropName="checked"
       >
         <Switch />
       </Form.Item>
       <Form.Item
         name="supports_image"
-        label={text("支持图片输入", "Supports images")}
+        label={t("hub.governance.models.supportsImages")}
         valuePropName="checked"
       >
         <Switch />
       </Form.Item>
       <Form.Item
         name="all_members"
-        label={text("授权全体成员", "Available to all members")}
+        label={t("hub.governance.models.allMembers")}
         valuePropName="checked"
       >
         <Switch />
       </Form.Item>
       <Form.Item
         name="user_ids"
-        label={text("或指定成员", "Or selected members")}
+        label={t("hub.governance.models.selectedMembers")}
       >
         <Select
           mode="multiple"
@@ -233,14 +227,12 @@ export function ModelFields({
         />
       </Form.Item>
       <details className={styles.help}>
-        <summary>
-          {text("速率与并发限制", "Rate and concurrency limits")}
-        </summary>
+        <summary>{t("hub.governance.models.rateLimits")}</summary>
         <RateFields />
       </details>
       <Form.Item
         name="enabled"
-        label={text("发布启用", "Published and enabled")}
+        label={t("hub.governance.models.published")}
         valuePropName="checked"
       >
         <Switch />

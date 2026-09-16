@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState, useRef } from "react";
 import {
   App,
@@ -28,7 +29,8 @@ import PasswordReset from "./PasswordReset";
 import BudgetEditor from "./BudgetEditor";
 import { budgetMode, budgetLimit, type BudgetMode } from "./budgetUtils";
 import { formatTokens } from "./budgetUtils";
-import { editable, useGovernanceText } from "./shared";
+import { editable } from "./shared";
+import { governanceErrorMessage } from "./errors";
 import styles from "./governance.module.less";
 
 type Props = {
@@ -52,7 +54,7 @@ type Props = {
   ) => Promise<void>;
 };
 export default function UserManagement(props: Props) {
-  const text = useGovernanceText();
+  const { t, i18n } = useTranslation();
   const { message } = App.useApp();
   const [report, setReport] = useState<UsageReport>();
   const [error, setError] = useState("");
@@ -98,7 +100,7 @@ export default function UserManagement(props: Props) {
       setModels(m);
       setRuntime(r.items);
     } catch (e) {
-      message.error((e as Error).message);
+      message.error(governanceErrorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -120,9 +122,7 @@ export default function UserManagement(props: Props) {
   const saveBudget = async () => {
     if (!user) return;
     if (mode === "limited" && !amount) {
-      message.error(
-        text("请输入大于 0 的额度", "Enter a limit greater than zero"),
-      );
+      message.error(t("hub.governance.budget.positiveLimit"));
       return;
     }
     setBusy(true);
@@ -132,9 +132,9 @@ export default function UserManagement(props: Props) {
         token_limit: budgetLimit(mode, amount),
       });
       await load();
-      message.success(text("成员额度已保存", "Member budget saved"));
+      message.success(t("hub.governance.users.budgetSaved"));
     } catch (e) {
-      message.error((e as Error).message);
+      message.error(governanceErrorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -152,7 +152,7 @@ export default function UserManagement(props: Props) {
       });
       setModels(await request<ManagedModel[]>("admin/models"));
     } catch (e) {
-      message.error((e as Error).message);
+      message.error(governanceErrorMessage(e, t));
     } finally {
       setBusy(false);
     }
@@ -162,15 +162,10 @@ export default function UserManagement(props: Props) {
       <div className={styles.heading}>
         <div>
           <span className={styles.eyebrow}>
-            {text("团队管理", "WORKSPACE")}
+            {t("hub.governance.models.eyebrow")}
           </span>
-          <h2>{text("用户", "Users")}</h2>
-          <p>
-            {text(
-              "在一个地方管理账号、模型权限和使用额度。",
-              "Manage accounts, model access and individual budgets in one place.",
-            )}
-          </p>
+          <h2>{t("hub.navigation.users")}</h2>
+          <p>{t("hub.governance.users.description")}</p>
         </div>
         {tab === "members" && (
           <Button
@@ -178,7 +173,7 @@ export default function UserManagement(props: Props) {
             icon={<UserPlus size={15} />}
             onClick={props.onCreate}
           >
-            {text("创建用户", "Create user")}
+            {t("hub.governance.users.create")}
           </Button>
         )}
       </div>
@@ -188,7 +183,7 @@ export default function UserManagement(props: Props) {
         items={[
           {
             key: "members",
-            label: text("成员", "Members"),
+            label: t("hub.governance.users.members"),
             children: (
               <>
                 <div className={styles.tablePanel}>
@@ -197,45 +192,48 @@ export default function UserManagement(props: Props) {
                       prefix={<Search size={15} />}
                       value={props.query}
                       allowClear
-                      placeholder={text("搜索用户", "Search users")}
+                      placeholder={t("hub.governance.users.search")}
                       onChange={(e) => props.onQuery(e.target.value)}
                     />
                     <Select
                       allowClear
-                      placeholder={text("所有角色", "All roles")}
+                      placeholder={t("hub.table.allRoles")}
                       value={props.role}
                       onChange={props.onRole}
                       options={[
-                        { value: "admin", label: text("管理员", "Admin") },
-                        { value: "user", label: text("成员", "Member") },
+                        { value: "admin", label: t("hub.roles.admin") },
+                        {
+                          value: "user",
+                          label: t("hub.governance.users.member"),
+                        },
                       ]}
                     />
                     <Select
                       allowClear
-                      placeholder={text("所有状态", "All states")}
+                      placeholder={t("hub.table.allStates")}
                       value={props.state}
                       onChange={props.onState}
                       options={[
-                        { value: "active", label: text("正常", "Active") },
+                        { value: "active", label: t("hub.userStates.active") },
                         {
                           value: "disabled",
-                          label: text("已停用", "Disabled"),
+                          label: t("common.disabled"),
                         },
                       ]}
                     />
                   </div>
                   {error && (
                     <div role="alert" className={styles.notice}>
-                      {error}
-                      <Button onClick={load}>{text("重试", "Retry")}</Button>
+                      {governanceErrorMessage(error, t)}
+                      <Button onClick={load}>{t("common.retry")}</Button>
                     </div>
                   )}
                   <div className={styles.userList}>
                     <div className={styles.userHead}>
-                      <span>{text("用户", "User")}</span>
-                      <span>{text("账号状态", "Account status")}</span>
-                      <span>{text("本月用量", "Monthly usage")}</span>
-                      <span>{text("月额度", "Monthly limit")}</span>
+                      <span>{t("hub.table.user")}</span>
+                      <span>{t("hub.governance.users.status")}</span>
+                      <span>{t("hub.governance.users.monthlyUsage")}</span>
+                      <span>{t("hub.governance.users.monthlyLimit")}</span>
                       <span />
                     </div>
                     {props.users.map((u) => {
@@ -256,10 +254,10 @@ export default function UserManagement(props: Props) {
                               <strong>{u.username}</strong>
                               <small>
                                 {u.role === "admin"
-                                  ? text("管理员", "Admin")
-                                  : text("成员", "Member")}
+                                  ? t("hub.roles.admin")
+                                  : t("hub.governance.users.member")}
                                 {u.user_id === props.me.user_id
-                                  ? text(" · 你", " · You")
+                                  ? ` · ${t("hub.governance.users.you")}`
                                   : ""}
                               </small>
                             </span>
@@ -270,34 +268,43 @@ export default function UserManagement(props: Props) {
                               color={u.disabled ? "default" : "success"}
                             >
                               {u.disabled
-                                ? text("已停用", "Disabled")
-                                : text("正常", "Active")}
+                                ? t("common.disabled")
+                                : t("hub.userStates.active")}
                             </Tag>
                             <small className={styles.runtimeState}>
                               {m?.runtime_states?.length
                                 ? m.runtime_states.some(
                                     (state) => state === "running",
                                   )
-                                  ? text("实例运行中", "Instance running")
-                                  : text("实例未运行", "Instance stopped")
-                                : text("暂无实例", "No instance")}
+                                  ? t("hub.governance.users.running")
+                                  : t("hub.governance.users.stopped")
+                                : t("hub.governance.users.noInstance")}
                             </small>
                           </span>
                           <span className={styles.cellValue}>
-                            <small>{text("本月用量", "Monthly usage")}</small>
-                            {m ? `${formatTokens(m.charged)} Token` : "—"}
+                            <small>
+                              {t("hub.governance.users.monthlyUsage")}
+                            </small>
+                            {m
+                              ? `${formatTokens(
+                                  m.charged,
+                                  i18n.language,
+                                )} Token`
+                              : "—"}
                           </span>
                           <span className={styles.cellValue}>
-                            <small>{text("月额度", "Monthly limit")}</small>
+                            <small>
+                              {t("hub.governance.users.monthlyLimit")}
+                            </small>
                             {m
                               ? m.token_limit === null
-                                ? text("不限额", "Unlimited")
+                                ? t("hub.governance.budget.unlimited")
                                 : m.token_limit === 0
-                                ? text("暂停调用", "Paused")
-                                : formatTokens(m.token_limit)
+                                ? t("hub.governance.users.paused")
+                                : formatTokens(m.token_limit, i18n.language)
                               : "—"}
                             {m?.inherits_budget && (
-                              <em>{text("继承默认", "Default")}</em>
+                              <em>{t("hub.governance.users.default")}</em>
                             )}
                           </span>
                           <ArrowUpRight size={15} />
@@ -308,20 +315,13 @@ export default function UserManagement(props: Props) {
                   {!props.users.length && (
                     <div className={styles.empty}>
                       <Users size={28} />
-                      <strong>
-                        {text("没有匹配的用户", "No matching users")}
-                      </strong>
-                      <p>
-                        {text(
-                          "尝试调整筛选条件，或创建新用户。",
-                          "Adjust your filters or create a user.",
-                        )}
-                      </p>
+                      <strong>{t("hub.governance.users.emptyTitle")}</strong>
+                      <p>{t("hub.governance.users.emptyHint")}</p>
                     </div>
                   )}
                   <div className={styles.tableFooter}>
                     <span>
-                      {props.total} {text("位用户", "users")}
+                      {t("hub.governance.users.count", { count: props.total })}
                     </span>
                     <Pagination
                       size="small"
@@ -338,7 +338,7 @@ export default function UserManagement(props: Props) {
           },
           {
             key: "invitations",
-            label: text("邀请码", "Invitations"),
+            label: t("hub.governance.invitations.navigation"),
             children: <Invitations />,
           },
         ]}
@@ -358,16 +358,17 @@ export default function UserManagement(props: Props) {
             items={[
               {
                 key: "usage",
-                label: text("用量与额度", "Usage & budget"),
+                label: t("hub.governance.users.usageBudget"),
                 children: (
                   <div className={styles.panel}>
                     {usage ? (
                       <div className={styles.card}>
                         <span className={styles.muted}>
-                          {usage.period} · {text("已使用", "Used")}
+                          {usage.period} · {t("hub.governance.users.used")}
                         </span>
                         <strong className={styles.metric}>
-                          {formatTokens(usage.charged)} <small>Token</small>
+                          {formatTokens(usage.charged, i18n.language)}{" "}
+                          <small>Token</small>
                         </strong>
                         {usage.token_limit !== null &&
                           usage.token_limit > 0 && (
@@ -387,15 +388,17 @@ export default function UserManagement(props: Props) {
                             />
                           )}
                         <div className={styles.detailRow}>
-                          <span>{text("处理中预留", "Reserved")}</span>
-                          <strong>{formatTokens(usage.reserved)}</strong>
+                          <span>{t("hub.governance.users.reserved")}</span>
+                          <strong>
+                            {formatTokens(usage.reserved, i18n.language)}
+                          </strong>
                         </div>
                       </div>
                     ) : (
                       <Skeleton active />
                     )}
                     <div className={styles.card}>
-                      <h3>{text("每月额度", "Monthly limit")}</h3>
+                      <h3>{t("hub.governance.users.monthlyLimit")}</h3>
                       <BudgetEditor
                         mode={mode}
                         amount={amount}
@@ -408,33 +411,25 @@ export default function UserManagement(props: Props) {
                         loading={busy}
                         onClick={saveBudget}
                       >
-                        {text("保存额度", "Save limit")}
+                        {t("hub.governance.users.saveLimit")}
                       </Button>
                     </div>
                     <details className={styles.help}>
                       <summary>
-                        {text("用量如何计算？", "How is usage calculated?")}
+                        {t("hub.governance.users.calculationTitle")}
                       </summary>
-                      <p>
-                        {text(
-                          "处理中调用会暂时预留额度。供应商未返回用量的调用按预留量计入，避免漏计。",
-                          "Active requests temporarily reserve tokens. If the provider omits usage, the reserved amount is charged.",
-                        )}
-                      </p>
+                      <p>{t("hub.governance.users.calculationHint")}</p>
                     </details>
                   </div>
                 ),
               },
               {
                 key: "models",
-                label: text("模型权限", "Model access"),
+                label: t("hub.governance.users.modelAccess"),
                 children: (
                   <div className={styles.panel}>
                     <p className={styles.muted}>
-                      {text(
-                        "全体成员可用的模型自动授予访问权限。",
-                        "Models available to all members are automatically granted.",
-                      )}
+                      {t("hub.governance.users.modelAccessHint")}
                     </p>
                     {models.map((m) => (
                       <div className={styles.accessRow} key={m.id}>
@@ -442,9 +437,11 @@ export default function UserManagement(props: Props) {
                           <strong>{m.name}</strong>
                           <small>
                             {m.all_members
-                              ? text("全体成员", "All members")
-                              : text("单独授权", "Individual grant")}
-                            {!m.enabled ? text(" · 已停用", " · Disabled") : ""}
+                              ? t("hub.governance.models.allMembersLabel")
+                              : t("hub.governance.users.individualGrant")}
+                            {!m.enabled
+                              ? ` · ${t("hub.governance.users.disabled")}`
+                              : ""}
                           </small>
                         </div>
                         <Switch
@@ -458,32 +455,35 @@ export default function UserManagement(props: Props) {
                       </div>
                     ))}
                     {!models.length && !busy && (
-                      <p>{text("尚未配置模型", "No models configured")}</p>
+                      <p>{t("hub.governance.users.noModels")}</p>
                     )}
                   </div>
                 ),
               },
               {
                 key: "account",
-                label: text("账号", "Account"),
+                label: t("hub.governance.users.account"),
                 children: (
                   <div className={styles.panel}>
                     <div className={styles.card}>
-                      <h3>{text("账号设置", "Account settings")}</h3>
+                      <h3>{t("hub.governance.users.accountSettings")}</h3>
                       <div className={styles.field}>
-                        <label>{text("角色", "Role")}</label>
+                        <label>{t("hub.table.role")}</label>
                         <Select
                           value={user.role}
                           disabled={user.user_id === props.me.user_id}
                           onChange={(role) => props.onUpdate(user, { role })}
                           options={[
-                            { value: "admin", label: text("管理员", "Admin") },
-                            { value: "user", label: text("成员", "Member") },
+                            { value: "admin", label: t("hub.roles.admin") },
+                            {
+                              value: "user",
+                              label: t("hub.governance.users.member"),
+                            },
                           ]}
                         />
                       </div>
                       <div className={styles.accessRow}>
-                        <span>{text("启用账号", "Account enabled")}</span>
+                        <span>{t("hub.governance.users.enabled")}</span>
                         <Switch
                           checked={!user.disabled}
                           disabled={user.user_id === props.me.user_id}
@@ -495,7 +495,7 @@ export default function UserManagement(props: Props) {
                       <PasswordReset user={user} />
                     </div>
                     <div className={styles.card}>
-                      <h3>{text("运行实例", "Instances")}</h3>
+                      <h3>{t("hub.governance.users.instances")}</h3>
                       {runtime.map((r) => (
                         <div className={styles.detailRow} key={r.runtime_id}>
                           <span>{r.runtime_id}</span>
@@ -503,7 +503,7 @@ export default function UserManagement(props: Props) {
                         </div>
                       ))}
                       {!runtime.length && (
-                        <p>{text("暂无实例", "No instances")}</p>
+                        <p>{t("hub.governance.users.noInstances")}</p>
                       )}
                     </div>
                   </div>

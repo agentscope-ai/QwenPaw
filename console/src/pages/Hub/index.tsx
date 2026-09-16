@@ -66,7 +66,6 @@ import UserManagement from "./governance/UserManagement";
 import UsageDashboard from "./governance/UsageDashboard";
 import OrganizationBudget from "./governance/OrganizationBudget";
 import OrganizationModels from "./governance/OrganizationModels";
-import { useGovernanceText } from "./governance/shared";
 import {
   dockerReferenceParts,
   emptyPage,
@@ -82,7 +81,6 @@ import {
 export default function HubPage() {
   const { message, modal } = App.useApp();
   const { t, i18n } = useTranslation();
-  const governanceText = useGovernanceText();
   const { isDark, toggleTheme } = useTheme();
   const [me, setMe] = useState<HubUser | null>(null);
   const [health, setHealth] = useState<HubHealth | null>(null);
@@ -559,7 +557,7 @@ export default function HubPage() {
           },
           {
             id: "models" as const,
-            label: governanceText("模型", "Models"),
+            label: t("hub.governance.models.title"),
             icon: BrainCircuit,
           },
         ]
@@ -1380,7 +1378,6 @@ function SettingsPanel({
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
   const [activeTab, setActiveTab] = useState(initialTab ?? "access");
-  const text = useGovernanceText();
   const runtimeProvisioner = Form.useWatch("runtimeProvisioner", form);
   const dockerSource = Form.useWatch("dockerSource", form);
   const dockerImage = Form.useWatch("dockerImage", form);
@@ -1451,7 +1448,7 @@ function SettingsPanel({
           items={[
             {
               key: "access",
-              label: text("访问与注册", "Access & registration"),
+              label: t("hub.settings.access.title"),
               forceRender: true,
               children: (
                 <div className={styles.accessSettings}>
@@ -1473,35 +1470,17 @@ function SettingsPanel({
                     </Form.Item>
                     <Form.Item
                       name="registrationMode"
-                      label={text("注册方式", "Registration mode")}
+                      label={t("hub.governance.settings.registration")}
                     >
                       <Radio.Group className={styles.registrationChoices}>
-                        {[
-                          [
-                            "open",
-                            "开放注册",
-                            "Open registration",
-                            "任何人都可以创建账号",
-                            "Anyone can create an account",
-                          ],
-                          [
-                            "invite",
-                            "邀请注册",
-                            "Invitation only",
-                            "持有效邀请码才能创建账号",
-                            "A valid invitation code is required",
-                          ],
-                          [
-                            "closed",
-                            "关闭注册",
-                            "Registration closed",
-                            "仅管理员可以创建账号",
-                            "Only administrators can create accounts",
-                          ],
-                        ].map(([value, zh, en, hintZh, hintEn]) => (
-                          <Radio key={value} value={value}>
-                            <strong>{text(zh, en)}</strong>
-                            <span>{text(hintZh, hintEn)}</span>
+                        {(["open", "invite", "closed"] as const).map((mode) => (
+                          <Radio key={mode} value={mode}>
+                            <strong>
+                              {t(`hub.governance.settings.${mode}`)}
+                            </strong>
+                            <span>
+                              {t(`hub.governance.settings.${mode}Hint`)}
+                            </span>
                           </Radio>
                         ))}
                       </Radio.Group>
@@ -1512,7 +1491,7 @@ function SettingsPanel({
             },
             {
               key: "security",
-              label: text("安全", "Security"),
+              label: t("hub.governance.settings.security"),
               forceRender: true,
               children: (
                 <div className={styles.settingsGrid}>
@@ -1568,7 +1547,7 @@ function SettingsPanel({
             },
             {
               key: "budget",
-              label: text("组织预算", "Organization budget"),
+              label: t("hub.governance.settings.budget"),
               children: <OrganizationBudget />,
             },
             {

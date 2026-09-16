@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState } from "react";
 import { Button, Progress, Skeleton } from "antd";
 import {
@@ -15,7 +16,7 @@ import {
 } from "../../../api/modules/hubGovernance";
 import type { HubOverview } from "../../../api/modules/hub";
 import type { Section } from "../pageUtils";
-import { useGovernanceText } from "./shared";
+import { governanceErrorMessage } from "./errors";
 import styles from "./governance.module.less";
 
 import { formatTokens } from "./budgetUtils";
@@ -26,7 +27,7 @@ export default function UsageDashboard({
   overview: HubOverview;
   onNavigate: (section: Section, target?: string) => void;
 }) {
-  const text = useGovernanceText();
+  const { t, i18n } = useTranslation();
   const [report, setReport] = useState<UsageReport>();
   const [models, setModels] = useState<ManagedModel[]>([]);
   const [error, setError] = useState("");
@@ -49,8 +50,8 @@ export default function UsageDashboard({
   if (error)
     return (
       <div className={styles.card} role="alert">
-        {error}
-        <Button onClick={load}>{text("重试", "Retry")}</Button>
+        {governanceErrorMessage(error, t)}
+        <Button onClick={load}>{t("common.retry")}</Button>
       </div>
     );
   if (!report) return <Skeleton active />;
@@ -80,37 +81,41 @@ export default function UsageDashboard({
       <div className={styles.metrics}>
         {[
           {
-            label: text("用户", "Users"),
+            label: t("hub.navigation.users"),
             value: overview.total_users,
             icon: Users,
-            detail: text("管理账号与额度", "Manage accounts and limits"),
+            detail: t("hub.governance.dashboard.manageAccounts"),
             section: "users" as Section,
           },
           {
-            label: text("运行实例", "Running instances"),
+            label: t("hub.governance.dashboard.running"),
             value: overview.runtime_counts.running || 0,
             icon: Box,
-            detail: `${overview.total_runtimes} ${text("个实例", "instances")}`,
+            detail: t("hub.governance.dashboard.instanceCount", {
+              count: overview.total_runtimes,
+            }),
             section: "runtimes" as Section,
           },
           {
-            label: text("本月 Token", "Monthly tokens"),
-            value: formatTokens(org.charged),
+            label: t("hub.governance.dashboard.monthlyTokens"),
+            value: formatTokens(org.charged, i18n.language),
             icon: Coins,
-            detail: `${org.requests} ${text("次调用", "requests")}`,
+            detail: t("hub.governance.dashboard.requestCount", {
+              count: org.requests,
+            }),
             section: "models" as Section,
           },
           {
-            label: text("剩余额度", "Budget remaining"),
+            label: t("hub.governance.dashboard.remaining"),
             value:
               org.remaining === null
-                ? text("不限额", "Unlimited")
-                : formatTokens(org.remaining),
+                ? t("hub.governance.budget.unlimited")
+                : formatTokens(org.remaining, i18n.language),
             icon: Wallet,
             detail:
               org.remaining === 0
-                ? text("调用已暂停", "Calls paused")
-                : text("查看组织预算", "Manage organization budget"),
+                ? t("hub.governance.dashboard.paused")
+                : t("hub.governance.dashboard.manageOrganization"),
             section: "settings" as Section,
           },
         ].map((m) => (
@@ -142,19 +147,10 @@ export default function UsageDashboard({
         <div className={styles.notice}>
           <span>
             {org.remaining === 0
-              ? text(
-                  "组织额度已用完，请调整预算以恢复调用。",
-                  "Organization budget exhausted. Adjust the budget to resume calls.",
-                )
+              ? t("hub.governance.dashboard.exhausted")
               : !models.some((m) => m.enabled)
-              ? text(
-                  "还没有可用模型，添加模型后成员即可开始使用。",
-                  "Add an available model to get your members started.",
-                )
-              : text(
-                  "有实例运行异常，请检查实例状态。",
-                  "Some instances need attention.",
-                )}
+              ? t("hub.governance.dashboard.noModels")
+              : t("hub.governance.dashboard.runtimeWarning")}
           </span>
           <Button
             size="small"
@@ -168,14 +164,14 @@ export default function UsageDashboard({
               )
             }
           >
-            {text("去处理", "View")}
+            {t("common.view")}
           </Button>
         </div>
       )}
       <div className={styles.chartGrid}>
         <article className={styles.card}>
           <div className={styles.heading}>
-            <h3>{text("用量趋势", "Token usage")}</h3>
+            <h3>{t("hub.governance.dashboard.tokenUsage")}</h3>
             <small>
               {org.period} · {report.timezone}
             </small>
@@ -183,31 +179,23 @@ export default function UsageDashboard({
           {org.requests === 0 ? (
             <div className={styles.empty}>
               <ChartNoAxesCombined size={28} />
-              <strong>
-                {text("等待第一次调用", "Awaiting your first request")}
-              </strong>
-              <p>
-                {text(
-                  "成员使用托管模型后，这里将展示每天的用量。",
-                  "Daily usage appears here when members use managed models.",
-                )}
-              </p>
+              <strong>{t("hub.governance.dashboard.emptyTitle")}</strong>
+              <p>{t("hub.governance.dashboard.emptyHint")}</p>
             </div>
           ) : (
             <>
               <div
                 className={styles.chart}
                 role="img"
-                aria-label={text(
-                  "本月每日 Token 用量",
-                  "Daily token usage this month",
-                )}
+                aria-label={t("hub.governance.dashboard.chartLabel")}
               >
                 {days.map((d) => (
                   <div
                     key={d.date}
                     className={styles.barColumn}
-                    title={`${d.date}: ${d.tokens.toLocaleString()} Token`}
+                    title={`${new Date(`${d.date}T00:00:00`).toLocaleDateString(
+                      i18n.language,
+                    )}: ${d.tokens.toLocaleString(i18n.language)} Token`}
                   >
                     <div
                       className={styles.bar}
@@ -222,26 +210,29 @@ export default function UsageDashboard({
                 ))}
               </div>
               <div className={styles.chartLegend}>
-                <span>{text("每日 Token", "Tokens per day")}</span>
+                <span>{t("hub.governance.dashboard.dailyTokens")}</span>
                 <span>
-                  {text("单日最高", "Daily peak")}{" "}
-                  {formatTokens(peak === 1 && org.charged === 0 ? 0 : peak)}
+                  {t("hub.governance.dashboard.peak")}{" "}
+                  {formatTokens(
+                    peak === 1 && org.charged === 0 ? 0 : peak,
+                    i18n.language,
+                  )}
                 </span>
               </div>
             </>
           )}
         </article>
         <article className={styles.card}>
-          <h3>{text("本月预算", "Monthly budget")}</h3>
+          <h3>{t("hub.governance.dashboard.monthlyBudget")}</h3>
           <div className={styles.metric}>
-            {formatTokens(org.charged)} <small>Token</small>
+            {formatTokens(org.charged, i18n.language)} <small>Token</small>
           </div>
           <p>
             {org.token_limit === null
-              ? text("组织未设用量上限", "No organization limit configured")
-              : `${text("总额度", "Total budget")} ${formatTokens(
-                  org.token_limit,
-                )}`}
+              ? t("hub.governance.dashboard.noLimit")
+              : t("hub.governance.dashboard.totalBudget", {
+                  amount: formatTokens(org.token_limit, i18n.language),
+                })}
           </p>
           {org.token_limit !== null && (
             <Progress
@@ -251,30 +242,29 @@ export default function UsageDashboard({
             />
           )}
           <div className={styles.detailRow}>
-            <span>{text("处理中预留", "Reserved for active calls")}</span>
-            <strong>{formatTokens(org.reserved)}</strong>
+            <span>{t("hub.governance.dashboard.reserved")}</span>
+            <strong>{formatTokens(org.reserved, i18n.language)}</strong>
           </div>
           <div className={styles.detailRow}>
-            <span>{text("下次重置", "Next reset")}</span>
+            <span>{t("hub.governance.dashboard.nextReset")}</span>
             <strong>
-              {month === 12 ? year + 1 : year}-
-              {String(month === 12 ? 1 : month + 1).padStart(2, "0")}-01
+              {new Date(year, month, 1).toLocaleDateString(i18n.language)}
             </strong>
           </div>
           <Button onClick={() => onNavigate("settings", "budget")}>
-            {text("管理预算", "Manage budget")}
+            {t("hub.governance.dashboard.manageBudget")}
           </Button>
         </article>
       </div>
       <div className={styles.settingsColumns}>
         <article className={styles.card}>
           <div className={styles.heading}>
-            <h3>{text("模型用量", "Usage by model")}</h3>
+            <h3>{t("hub.governance.dashboard.byModel")}</h3>
             <Button
               type="text"
               onClick={() => onNavigate("models")}
               icon={<ArrowUpRight size={15} />}
-              aria-label={text("管理模型", "Manage models")}
+              aria-label={t("hub.governance.dashboard.manageModels")}
             />
           </div>
           {report.models.length ? (
@@ -292,7 +282,7 @@ export default function UsageDashboard({
                       {models.find((model) => model.id === m.model_id)?.name ??
                         m.model_id}
                     </span>
-                    <strong>{formatTokens(m.charged)}</strong>
+                    <strong>{formatTokens(m.charged, i18n.language)}</strong>
                   </div>
                   <Progress
                     percent={(m.charged / maxModel) * 100}
@@ -304,18 +294,18 @@ export default function UsageDashboard({
               ))
           ) : (
             <p className={styles.emptyCompact}>
-              {text("暂无模型调用", "No model requests yet")}
+              {t("hub.governance.dashboard.noRequests")}
             </p>
           )}
         </article>
         <article className={styles.card}>
           <div className={styles.heading}>
-            <h3>{text("成员用量", "Member usage")}</h3>
+            <h3>{t("hub.governance.dashboard.byMember")}</h3>
             <Button
               type="text"
               onClick={() => onNavigate("users")}
               icon={<ArrowUpRight size={15} />}
-              aria-label={text("管理用户", "Manage users")}
+              aria-label={t("hub.governance.dashboard.manageUsers")}
             />
           </div>
           {top.length ? (
@@ -328,17 +318,14 @@ export default function UsageDashboard({
                 <span className={styles.rank}>{i + 1}</span>
                 <span>{m.username}</span>
                 <strong>
-                  {formatTokens(m.charged)} <small>Token</small>
+                  {formatTokens(m.charged, i18n.language)} <small>Token</small>
                 </strong>
                 <ArrowUpRight size={13} />
               </button>
             ))
           ) : (
             <p className={styles.emptyCompact}>
-              {text(
-                "成员开始使用后，这里将展示用量分布。",
-                "Member usage will appear after their first requests.",
-              )}
+              {t("hub.governance.dashboard.noMemberUsage")}
             </p>
           )}
         </article>

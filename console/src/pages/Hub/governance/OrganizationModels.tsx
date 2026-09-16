@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState, useRef } from "react";
 import { App, Button, Form, Modal, Select, Tabs, Skeleton, Tag } from "antd";
 import {
@@ -19,7 +20,8 @@ import {
   type UsageReport,
 } from "../../../api/modules/hubGovernance";
 import { ConnectionFields, ModelFields } from "./ModelForms";
-import { editable, useGovernanceText } from "./shared";
+import { editable } from "./shared";
+import { governanceErrorMessage } from "./errors";
 import styles from "./governance.module.less";
 
 export default function OrganizationModels({
@@ -27,7 +29,7 @@ export default function OrganizationModels({
 }: {
   initialModel?: string;
 }) {
-  const text = useGovernanceText();
+  const { t } = useTranslation();
   const { message } = App.useApp();
   const [policy, setPolicy] = useState<ModelPolicy>();
   const [connections, setConnections] = useState<ModelConnection[]>([]);
@@ -143,19 +145,14 @@ export default function OrganizationModels({
       <div className={styles.heading}>
         <div>
           <span className={styles.eyebrow}>
-            {text("团队管理", "WORKSPACE")}
+            {t("hub.governance.models.eyebrow")}
           </span>
-          <h2>{text("模型", "Models")}</h2>
-          <p>
-            {text(
-              "为成员提供开箱即用的模型，统一管理连接与访问权限。",
-              "Ready-to-use models for your members, with centrally managed connections and access.",
-            )}
-          </p>
+          <h2>{t("hub.governance.models.title")}</h2>
+          <p>{t("hub.governance.models.subtitle")}</p>
         </div>
         <div className={styles.actions}>
           <Button
-            aria-label={text("刷新", "Refresh")}
+            aria-label={t("common.refresh")}
             icon={<RefreshCw size={15} />}
             onClick={load}
           />
@@ -171,15 +168,15 @@ export default function OrganizationModels({
             }
           >
             {tab === "connections" || !connections.length
-              ? text("添加供应商", "Add provider")
-              : text("添加模型", "Add model")}
+              ? t("hub.governance.models.addProvider")
+              : t("hub.governance.models.addModel")}
           </Button>
         </div>
       </div>
       {error && (
         <div role="alert" className={styles.notice}>
-          {error}
-          <Button onClick={load}>{text("重试", "Retry")}</Button>
+          {governanceErrorMessage(error, t)}
+          <Button onClick={load}>{t("common.retry")}</Button>
         </div>
       )}
       {!policy && !error && <Skeleton active />}
@@ -190,21 +187,16 @@ export default function OrganizationModels({
               <Boxes size={20} />
             </span>
             <div>
-              <strong>{text("组织模型", "Organization models")}</strong>
-              <p>
-                {text(
-                  "成员默认使用组织提供的模型，无需配置密钥。",
-                  "Members use organization models by default, without configuring credentials.",
-                )}
-              </p>
+              <strong>{t("hub.governance.models.organizationTitle")}</strong>
+              <p>{t("hub.governance.models.organizationHint")}</p>
             </div>
             <Tag
               bordered={false}
               color={models.some((m) => m.enabled) ? "success" : "default"}
             >
               {models.some((m) => m.enabled)
-                ? text("可用", "Available")
-                : text("待配置", "Setup")}
+                ? t("hub.runtimes.available")
+                : t("hub.governance.models.setup")}
             </Tag>
           </div>
           <Tabs
@@ -213,29 +205,19 @@ export default function OrganizationModels({
             items={[
               {
                 key: "models",
-                label: text("可用模型", "Models"),
+                label: t("hub.governance.models.availableModels"),
                 children: (
                   <div className={styles.panel}>
                     {!models.length ? (
                       <div className={styles.onboarding}>
                         <Boxes size={32} />
-                        <h3>
-                          {text(
-                            "让成员直接开始使用模型",
-                            "Give your members a model to start with",
-                          )}
-                        </h3>
-                        <p>
-                          {text(
-                            "配置一次，全体成员即可使用，无需分发 API Key。",
-                            "Configure once, without distributing API keys to your members.",
-                          )}
-                        </p>
+                        <h3>{t("hub.governance.models.emptyTitle")}</h3>
+                        <p>{t("hub.governance.models.emptyDescription")}</p>
                         <div className={styles.steps}>
                           {[
-                            text("添加供应商", "Add provider"),
-                            text("添加并测试模型", "Add and test model"),
-                            text("设置默认模型", "Set default model"),
+                            t("hub.governance.models.addProvider"),
+                            t("hub.governance.models.addAndTest"),
+                            t("hub.governance.models.setDefault"),
                           ].map((label, i) => (
                             <span key={label}>
                               <b>
@@ -257,8 +239,8 @@ export default function OrganizationModels({
                           }
                         >
                           {connections.length
-                            ? text("添加第一个模型", "Add your first model")
-                            : text("连接供应商", "Connect a provider")}
+                            ? t("hub.governance.models.firstModel")
+                            : t("hub.governance.models.connectProvider")}
                         </Button>
                       </div>
                     ) : (
@@ -274,15 +256,15 @@ export default function OrganizationModels({
                                 color={m.enabled ? "success" : "default"}
                               >
                                 {m.enabled
-                                  ? text("可用", "Available")
-                                  : text("已停用", "Disabled")}
+                                  ? t("hub.runtimes.available")
+                                  : t("common.disabled")}
                               </Tag>
                             </div>
                             <h3>
                               {m.name}{" "}
                               {policy.default_model_id === m.id && (
                                 <Tag bordered={false} color="orange">
-                                  {text("默认", "Default")}
+                                  {t("hub.governance.models.default")}
                                 </Tag>
                               )}
                             </h3>
@@ -293,19 +275,18 @@ export default function OrganizationModels({
                                 )?.name}
                             </p>
                             <div className={styles.detailRow}>
-                              <span>{text("访问范围", "Access")}</span>
+                              <span>{t("hub.governance.models.access")}</span>
                               <strong>
                                 {m.all_members
-                                  ? text("全体成员", "All members")
-                                  : `${m.user_ids.length} ${text(
-                                      "位成员",
-                                      "members",
-                                    )}`}
+                                  ? t("hub.governance.models.allMembersLabel")
+                                  : t("hub.governance.models.memberCount", {
+                                      count: m.user_ids.length,
+                                    })}
                               </strong>
                             </div>
                             <div className={styles.actions}>
                               <Button onClick={() => open("model", m)}>
-                                {text("配置", "Configure")}
+                                {t("hub.governance.models.configure")}
                               </Button>
                               <Button
                                 onClick={async () => {
@@ -315,14 +296,16 @@ export default function OrganizationModels({
                                       "POST",
                                     );
                                     message.success(
-                                      text("连接正常", "Connection succeeded"),
+                                      t(
+                                        "hub.governance.models.connectionSucceeded",
+                                      ),
                                     );
                                   } catch (e) {
-                                    message.error((e as Error).message);
+                                    message.error(governanceErrorMessage(e, t));
                                   }
                                 }}
                               >
-                                {text("测试连接", "Test connection")}
+                                {t("hub.governance.models.testConnection")}
                               </Button>
                             </div>
                           </article>
@@ -333,12 +316,9 @@ export default function OrganizationModels({
                       <article className={styles.card}>
                         <div className={styles.heading}>
                           <div>
-                            <h3>{text("成员默认体验", "Member defaults")}</h3>
+                            <h3>{t("hub.governance.models.memberDefaults")}</h3>
                             <p>
-                              {text(
-                                "新会话默认使用此模型，成员可切换到其他已授权模型。",
-                                "New conversations start with this model. Members can switch to other authorized models.",
-                              )}
+                              {t("hub.governance.models.memberDefaultsHint")}
                             </p>
                           </div>
                         </div>
@@ -362,10 +342,10 @@ export default function OrganizationModels({
                               setPolicy(next);
                               policyForm.setFieldsValue(next);
                               message.success(
-                                text("模型设置已保存", "Model settings saved"),
+                                t("hub.governance.models.settingsSaved"),
                               );
                             } catch (e) {
-                              message.error((e as Error).message);
+                              message.error(governanceErrorMessage(e, t));
                             } finally {
                               setBusy(false);
                             }
@@ -373,12 +353,11 @@ export default function OrganizationModels({
                         >
                           <Form.Item
                             name="default_model_id"
-                            label={text("默认模型", "Default model")}
+                            label={t("hub.governance.models.defaultModel")}
                           >
                             <Select
-                              placeholder={text(
-                                "选择全体成员可用的模型",
-                                "Choose a model available to all members",
+                              placeholder={t(
+                                "hub.governance.models.chooseDefault",
                               )}
                               options={models
                                 .filter((m) => m.enabled && m.all_members)
@@ -390,7 +369,7 @@ export default function OrganizationModels({
                             htmlType="submit"
                             loading={busy}
                           >
-                            {text("保存模型设置", "Save model settings")}
+                            {t("hub.governance.models.saveSettings")}
                           </Button>
                         </Form>
                       </article>
@@ -400,7 +379,7 @@ export default function OrganizationModels({
               },
               {
                 key: "connections",
-                label: text("供应商连接", "Providers"),
+                label: t("hub.governance.models.providers"),
                 children: (
                   <div className={styles.panel}>
                     {connections.length ? (
@@ -416,8 +395,8 @@ export default function OrganizationModels({
                                 color={c.enabled ? "success" : "default"}
                               >
                                 {c.enabled
-                                  ? text("已启用", "Enabled")
-                                  : text("已停用", "Disabled")}
+                                  ? t("common.enabled")
+                                  : t("common.disabled")}
                               </Tag>
                             </div>
                             <h3>{c.name}</h3>
@@ -426,8 +405,8 @@ export default function OrganizationModels({
                               <span>API Key</span>
                               <strong>
                                 {c.has_key
-                                  ? text("已安全保存", "Securely stored")
-                                  : text("未配置", "Not configured")}
+                                  ? t("hub.governance.models.keyStored")
+                                  : t("hub.governance.models.keyMissing")}
                               </strong>
                             </div>
                             <div className={styles.actions}>
@@ -435,12 +414,12 @@ export default function OrganizationModels({
                                 icon={<Edit3 size={14} />}
                                 onClick={() => open("connection", c)}
                               >
-                                {text("管理连接", "Manage connection")}
+                                {t("hub.governance.models.manageConnection")}
                               </Button>
                               <Button
                                 onClick={() => open("model", undefined, c.id)}
                               >
-                                {text("添加模型", "Add model")}
+                                {t("hub.governance.models.addModel")}
                               </Button>
                             </div>
                           </article>
@@ -450,35 +429,23 @@ export default function OrganizationModels({
                       <div className={styles.empty}>
                         <Plug size={28} />
                         <strong>
-                          {text("还没有供应商连接", "No providers yet")}
+                          {t("hub.governance.models.noProviders")}
                         </strong>
-                        <p>
-                          {text(
-                            "添加兼容 OpenAI 的模型服务，密钥仅保存在 Hub。",
-                            "Connect an OpenAI-compatible service. Credentials stay in Hub.",
-                          )}
-                        </p>
+                        <p>{t("hub.governance.models.noProvidersHint")}</p>
                       </div>
                     )}
                     <details className={styles.help}>
-                      <summary>
-                        {text("部署与生效状态", "Deployment and activation")}
-                      </summary>
-                      <p>
-                        {text(
-                          "模型与权限在下次访问时自动更新，运行环境连接由 Hub 管理。",
-                          "Models and permissions refresh on the next access. Hub manages runtime connectivity.",
-                        )}
-                      </p>
+                      <summary>{t("hub.governance.models.deployment")}</summary>
+                      <p>{t("hub.governance.models.deploymentHint")}</p>
                       {status.map((s) => (
                         <div key={s.runtime_id} className={styles.detailRow}>
                           <span>{s.runtime_id}</span>
                           <span>
                             {s.observed_revision === null
-                              ? text("尚未连接", "Not connected")
+                              ? t("hub.governance.models.disconnected")
                               : s.observed_revision === policy.revision
-                              ? text("已同步", "Synced")
-                              : text("等待同步", "Pending")}
+                              ? t("hub.governance.models.synced")
+                              : t("hub.governance.models.pending")}
                           </span>
                         </div>
                       ))}
@@ -494,8 +461,8 @@ export default function OrganizationModels({
         open={!!editing}
         title={
           editing?.type === "connection"
-            ? text("供应商连接", "Provider connection")
-            : text("模型配置", "Model configuration")
+            ? t("hub.governance.models.connectionTitle")
+            : t("hub.governance.models.modelTitle")
         }
         closeIcon={<X size={18} />}
         width={640}
@@ -545,7 +512,7 @@ export default function OrganizationModels({
               form.resetFields();
               await load();
             } catch (e) {
-              message.error((e as Error).message);
+              message.error(governanceErrorMessage(e, t));
             } finally {
               setBusy(false);
             }
