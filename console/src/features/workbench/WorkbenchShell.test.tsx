@@ -1,8 +1,13 @@
 import { renderWithProviders } from "@/test/common_setup";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import WorkbenchShell from "./WorkbenchShell";
+import {
+  readStoredWorkbenchLayout,
+  storeWorkbenchLayout,
+  workbenchLayoutStorageKey,
+} from "./workbenchPreferences";
 
 const mocks = vi.hoisted(() => ({
   codingMode: true,
@@ -28,30 +33,58 @@ const scope = {
   sessionId: "session-1",
 };
 
+const layoutKey = workbenchLayoutStorageKey("default", "session-1");
+
 describe("WorkbenchShell", () => {
   afterEach(() => {
     localStorage.clear();
     mocks.codingMode = true;
   });
 
-  it("restores the active capability within the current session", async () => {
-    localStorage.setItem("qwenpaw-workbench-tab:default:session-1", "tools");
+  it("starts empty without rendering a capability", () => {
+    renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
+
+    expect(screen.queryByTestId("files-capability")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("changes-capability")).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "workbench.addPanel" }),
+    ).not.toHaveLength(0);
+  });
+
+  it("adds and activates a capability from the launcher", async () => {
     const user = userEvent.setup();
     renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
 
-    expect(screen.getByRole("button", { name: /tools|工具/i })).toHaveAttribute(
-      "aria-current",
-      "page",
+    await user.click(
+      screen.getAllByRole("button", { name: "workbench.addPanel" })[0],
     );
+    await user.click(await screen.findByText("workbench.files"));
 
-    await user.click(screen.getByRole("button", { name: /terminal|终端/i }));
-    expect(
-      localStorage.getItem("qwenpaw-workbench-tab:default:session-1"),
-    ).toBe("terminal");
+    expect(await screen.findByTestId("files-capability")).toBeInTheDocument();
+    expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
+      openTabs: ["files"],
+      activeTab: "files",
+    });
   });
 
-  it("opens a selected resource in Files regardless of the stored tab", async () => {
-    localStorage.setItem("qwenpaw-workbench-tab:default:session-1", "tools");
+  it("restores open tabs and the active capability for the session", async () => {
+    storeWorkbenchLayout(layoutKey, {
+      openTabs: ["files", "tools"],
+      activeTab: "tools",
+    });
+    renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "workbench.tools" }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByTestId("files-capability")).not.toBeInTheDocument();
+  });
+
+  it("opens a selected resource in Files", async () => {
+    storeWorkbenchLayout(layoutKey, {
+      openTabs: ["tools"],
+      activeTab: "tools",
+    });
     renderWithProviders(
       <WorkbenchShell
         initialTarget={{ source: "workspace", path: "src/app.ts" }}
@@ -63,22 +96,42 @@ describe("WorkbenchShell", () => {
     expect(await screen.findByTestId("files-capability")).toHaveTextContent(
       "src/app.ts",
     );
-    expect(screen.getByRole("button", { name: /files|文件/i })).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    expect(
+      screen.getByRole("button", { name: "workbench.files" }),
+    ).toHaveAttribute("aria-current", "page");
   });
 
-  it("restores a different active capability when the session changes", async () => {
-    localStorage.setItem("qwenpaw-workbench-tab:default:session-1", "tools");
-    localStorage.setItem("qwenpaw-workbench-tab:default:session-2", "terminal");
-    const { rerender } = renderWithProviders(
-      <WorkbenchShell scope={scope} onClose={vi.fn()} />,
+  it("closes one panel without closing the Workbench", async () => {
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    storeWorkbenchLayout(layoutKey, {
+      openTabs: ["files", "tools"],
+      activeTab: "files",
+    });
+    renderWithProviders(<WorkbenchShell scope={scope} onClose={onClose} />);
+
+    await user.click(
+      screen.getAllByRole("button", { name: "workbench.closePanel" })[0],
     );
 
-    expect(screen.getByRole("button", { name: /tools|工具/i })).toHaveAttribute(
-      "aria-current",
-      "page",
+    expect(onClose).not.toHaveBeenCalled();
+    expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
+      openTabs: ["tools"],
+      activeTab: "tools",
+    });
+  });
+
+  it("restores a different layout when the session changes", async () => {
+    storeWorkbenchLayout(layoutKey, {
+      openTabs: ["tools"],
+      activeTab: "tools",
+    });
+    storeWorkbenchLayout(workbenchLayoutStorageKey("default", "session-2"), {
+      openTabs: ["terminal"],
+      activeTab: "terminal",
+    });
+    const { rerender } = renderWithProviders(
+      <WorkbenchShell scope={scope} onClose={vi.fn()} />,
     );
 
     rerender(
@@ -88,42 +141,36 @@ describe("WorkbenchShell", () => {
       />,
     );
 
-    expect(
-      screen.getByRole("button", { name: /terminal|终端/i }),
-    ).toHaveAttribute("aria-current", "page");
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "workbench.terminal" }),
+      ).toHaveAttribute("aria-current", "page");
+    });
   });
 
-  it("does not expose repository changes outside Coding Mode", async () => {
+  it("removes Changes when Coding Mode becomes unavailable", async () => {
     mocks.codingMode = false;
-    localStorage.setItem("qwenpaw-workbench-tab:default:session-1", "changes");
+    storeWorkbenchLayout(layoutKey, {
+      openTabs: ["changes"],
+      activeTab: "changes",
+    });
     renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
 
-    expect(
-      screen.getByRole("button", { name: /changes|变更/i }),
-    ).toBeDisabled();
-    expect(await screen.findByTestId("files-capability")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
+        openTabs: [],
+        activeTab: null,
+      });
+    });
     expect(screen.queryByTestId("changes-capability")).not.toBeInTheDocument();
   });
 
-  it("does not open Changes against the wrong directory before chat creation", () => {
-    renderWithProviders(
-      <WorkbenchShell
-        scope={{ ...scope, projectDirOverride: "/tmp/pending-project" }}
-        onClose={vi.fn()}
-      />,
-    );
-
-    expect(
-      screen.getByRole("button", { name: /changes|变更/i }),
-    ).toBeDisabled();
-  });
-
-  it("closes from the shell header", async () => {
+  it("closes the complete Workbench from the header", async () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
     renderWithProviders(<WorkbenchShell scope={scope} onClose={onClose} />);
 
-    await user.click(screen.getByRole("button", { name: /close|关闭/i }));
+    await user.click(screen.getByRole("button", { name: "common.close" }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 });

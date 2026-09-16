@@ -2487,6 +2487,9 @@
     "changes": "变更",
     "terminal": "终端",
     "tools": "工具",
+    "addPanel": "添加面板",
+    "closePanel": "关闭{{name}}",
+    "emptyDescription": "需要时再添加面板，未打开的能力不会加载。",
     "codingModeRequired": "开启增强代码能力后可使用变更",
     "sessionRequired": "发送第一条消息后可使用变更",
     "phasePlaceholder": "此能力将在下一阶段接入工作台。"

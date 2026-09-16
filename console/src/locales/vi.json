@@ -1777,6 +1777,9 @@
     "changes": "Thay đổi",
     "terminal": "Thiết bị đầu cuối",
     "tools": "Công cụ",
+    "addPanel": "Thêm bảng",
+    "closePanel": "Đóng {{name}}",
+    "emptyDescription": "Chỉ thêm bảng khi cần. Tính năng chưa mở sẽ không được tải.",
     "codingModeRequired": "Bật khả năng lập trình nâng cao để dùng Thay đổi",
     "sessionRequired": "Thay đổi sẽ có sau khi gửi tin nhắn đầu tiên",
     "phasePlaceholder": "Tính năng này sẽ được kết nối trong giai đoạn tiếp theo."

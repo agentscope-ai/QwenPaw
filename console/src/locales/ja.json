@@ -2046,6 +2046,9 @@
     "changes": "変更",
     "terminal": "ターミナル",
     "tools": "ツール",
+    "addPanel": "パネルを追加",
+    "closePanel": "{{name}}を閉じる",
+    "emptyDescription": "必要なときにパネルを追加します。開くまで機能は読み込まれません。",
     "codingModeRequired": "変更を使用するにはコード機能を有効にしてください",
     "sessionRequired": "最初のメッセージ送信後に変更を使用できます",
     "phasePlaceholder": "この機能は次のワークベンチ段階で接続されます。"

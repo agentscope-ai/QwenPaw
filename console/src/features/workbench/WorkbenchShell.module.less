@@ -22,59 +22,93 @@
 
 .tabs {
   min-width: 0;
-  display: grid;
+  display: flex;
   flex: 1;
-  grid-template-columns: repeat(4, minmax(76px, 1fr));
-  gap: 4px;
+  align-items: center;
+  gap: 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
 
-  button {
-    min-width: 0;
-    height: 38px;
-    padding: 0 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 7px;
-    color: var(--app-text-secondary);
-    border: 0;
-    border-radius: 9px;
-    background: transparent;
-    cursor: pointer;
-    transition:
-      color 150ms ease,
-      background 150ms ease;
-
-    span {
-      overflow: hidden;
-      font-size: 12px;
-      font-weight: 520;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    &:hover:not(:disabled) {
-      color: var(--app-text);
-      background: var(--app-fill-subtle);
-    }
-
-    &:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent);
-      outline-offset: 1px;
-    }
-
-    &:disabled {
-      opacity: 0.42;
-      cursor: not-allowed;
-    }
-  }
-
-  .activeTab {
-    color: var(--app-text);
-    background: var(--app-surface-raised);
-    box-shadow: var(--app-shadow-sm);
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
 
+.tab {
+  min-width: 0;
+  height: 38px;
+  display: inline-flex;
+  flex: 0 1 168px;
+  align-items: center;
+  color: var(--app-text-secondary);
+  border-radius: 9px;
+  background: transparent;
+  transition:
+    color 150ms ease,
+    background 150ms ease,
+    box-shadow 150ms ease;
+
+  &:hover {
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
+  }
+}
+
+.tabSelect {
+  min-width: 0;
+  height: 100%;
+  padding: 0 5px 0 10px;
+  display: inline-flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  color: inherit;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+
+  span {
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 520;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--app-accent) 45%, transparent);
+    outline-offset: -2px;
+  }
+}
+
+.tabClose {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: var(--app-text-tertiary);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.68;
+
+  &:hover {
+    color: var(--app-text);
+    background: var(--app-fill);
+    opacity: 1;
+  }
+}
+
+.activeTab {
+  color: var(--app-text);
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.addButton,
 .closeButton {
   width: 34px;
   height: 34px;
@@ -99,6 +133,14 @@
   }
 }
 
+.addButton {
+  border-color: transparent;
+}
+
+.closeButton {
+  margin-left: auto;
+}
+
 .content {
   min-width: 0;
   min-height: 0;
@@ -116,20 +158,48 @@
   font-size: 12px;
 }
 
+.emptyState {
+  min-height: 220px;
+  padding: 32px;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.emptyAddButton {
+  height: 34px;
+  padding: 0 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  background: var(--app-surface-raised);
+  cursor: pointer;
+
+  &:hover {
+    border-color: color-mix(in srgb, var(--app-accent) 35%, var(--app-border));
+    background: var(--app-fill-subtle);
+  }
+}
+
 @media (max-width: 560px) {
   .header {
     padding-inline: 8px;
   }
 
   .tabs {
-    grid-template-columns: repeat(4, minmax(42px, 1fr));
+    gap: 2px;
+  }
 
-    button {
-      padding-inline: 6px;
-
-      span {
-        display: none;
-      }
-    }
+  .tab {
+    flex-basis: 132px;
   }
 }

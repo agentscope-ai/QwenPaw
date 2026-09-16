@@ -2629,6 +2629,9 @@
     "changes": "Changes",
     "terminal": "Terminal",
     "tools": "Tools",
+    "addPanel": "Add panel",
+    "closePanel": "Close {{name}}",
+    "emptyDescription": "Add a panel when you need it. Capabilities stay unloaded until opened.",
     "codingModeRequired": "Enable enhanced coding capabilities to use Changes",
     "sessionRequired": "Changes will be available after the first message",
     "phasePlaceholder": "This capability will be connected in the next Workbench phase."

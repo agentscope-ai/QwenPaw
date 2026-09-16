@@ -12,21 +12,26 @@ Coding Mode. Coding Mode may change which capabilities are enabled or promoted,
 but opening the Workbench must not mutate a project, initialise Git, or grant a
 model terminal access.
 
-The first-level navigation contains four stable capabilities:
+The capability registry initially contains four entries:
 
 1. Files
 2. Changes
 3. Terminal
 4. Tools
 
-Subagent and background-tool runs are two views of Tools rather than duplicate
-top-level destinations.
+The right dock is not a fixed four-tab toolbar. It starts without capability
+tabs and exposes an add menu backed by the registry. A capability module is
+loaded only after the user adds or activates it. Open tabs and the active tab
+are restored per session. Subagent and background-tool runs are two views of
+Tools rather than duplicate destinations.
 
 ## Interaction model
 
 - Chat remains the primary surface.
 - A lightweight file preview can be opened from a message.
-- Expanding the preview opens the right Workbench directly on Files.
+- Expanding the preview explicitly adds and activates Files in the right dock.
+- Opening the Workbench directly shows an empty, lightweight launcher until the
+  user adds a capability.
 - The Workbench is a resizable right drawer and does not scale chat content.
 - Its width, active capability, and open resources are isolated by session.
 - Closing the Workbench preserves recoverable session state but releases view
@@ -48,9 +53,14 @@ ChatPage
         Tools
 ```
 
-`WorkbenchShell` owns navigation, resizing, focus, lifecycle, and lazy module
-boundaries. Capability modules own their data and commands. The shell must not
-contain Git, filesystem, terminal, or task business logic.
+`WorkbenchShell` owns dynamic tabs, resizing, focus, lifecycle, and lazy module
+boundaries. A capability registry supplies labels, icons, availability, and a
+preferred placement. Capability modules own their data and commands. The shell
+must not contain Git, filesystem, terminal, or task business logic.
+
+Terminal prefers a bottom dock, while remaining available as a right-dock tab.
+Placement is a presentation choice rather than part of terminal ownership or
+lifecycle, so a later bottom-dock implementation can reuse the same capability.
 
 ### Workspace context
 
@@ -97,7 +107,8 @@ loop.
 ## Performance budgets
 
 - Closed Workbench loads no editor, diff, terminal, or task-history bundle.
-- Opening the default Files capability has no nested lazy-loading waterfall.
+- An empty Workbench loads registry metadata only; capability modules load when
+  the user opens them.
 - Opening or resizing the drawer never applies `scale` to Chat.
 - Persisted geometry is available before the first painted open frame.
 - Directory pages are bounded to 200 entries and loaded on demand.

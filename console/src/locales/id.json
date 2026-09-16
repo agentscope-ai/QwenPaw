@@ -2947,6 +2947,9 @@
     "changes": "Perubahan",
     "terminal": "Terminal",
     "tools": "Alat",
+    "addPanel": "Tambah panel",
+    "closePanel": "Tutup {{name}}",
+    "emptyDescription": "Tambahkan panel saat diperlukan. Kemampuan tidak dimuat sebelum dibuka.",
     "codingModeRequired": "Aktifkan kemampuan coding lanjutan untuk menggunakan Perubahan",
     "sessionRequired": "Perubahan tersedia setelah pesan pertama dikirim",
     "phasePlaceholder": "Kemampuan ini akan dihubungkan pada tahap Workbench berikutnya."

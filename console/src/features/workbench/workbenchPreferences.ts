@@ -1,13 +1,33 @@
-export type WorkbenchTab = "files" | "changes" | "terminal" | "tools";
+export type WorkbenchCapabilityId = "files" | "changes" | "terminal" | "tools";
 
-const TAB_STORAGE_PREFIX = "qwenpaw-workbench-tab";
+export interface WorkbenchLayout {
+  openTabs: WorkbenchCapabilityId[];
+  activeTab: WorkbenchCapabilityId | null;
+}
+
+const LAYOUT_STORAGE_PREFIX = "qwenpaw-workbench-layout";
 const WIDTH_STORAGE_PREFIX = "qwenpaw-workbench-width";
+const CAPABILITY_IDS: WorkbenchCapabilityId[] = [
+  "files",
+  "changes",
+  "terminal",
+  "tools",
+];
 
-export function workbenchTabStorageKey(
+export const EMPTY_WORKBENCH_LAYOUT: WorkbenchLayout = {
+  openTabs: [],
+  activeTab: null,
+};
+
+function isCapabilityId(value: unknown): value is WorkbenchCapabilityId {
+  return CAPABILITY_IDS.includes(value as WorkbenchCapabilityId);
+}
+
+export function workbenchLayoutStorageKey(
   agentId: string,
   sessionId: string,
 ): string {
-  return `${TAB_STORAGE_PREFIX}:${agentId}:${sessionId}`;
+  return `${LAYOUT_STORAGE_PREFIX}:${agentId}:${sessionId}`;
 }
 
 export function workbenchWidthStorageKey(
@@ -17,15 +37,34 @@ export function workbenchWidthStorageKey(
   return `${WIDTH_STORAGE_PREFIX}:${agentId}:${sessionId}`;
 }
 
-export function readStoredWorkbenchTab(storageKey: string): WorkbenchTab {
-  if (typeof window === "undefined") return "files";
-  const value = localStorage.getItem(storageKey);
-  return value === "files" ||
-    value === "changes" ||
-    value === "terminal" ||
-    value === "tools"
-    ? value
-    : "files";
+export function readStoredWorkbenchLayout(storageKey: string): WorkbenchLayout {
+  if (typeof window === "undefined") return EMPTY_WORKBENCH_LAYOUT;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+    if (!parsed || !Array.isArray(parsed.openTabs)) {
+      return EMPTY_WORKBENCH_LAYOUT;
+    }
+    const openTabs = parsed.openTabs.filter(
+      (value: unknown, index: number, values: unknown[]) =>
+        isCapabilityId(value) && values.indexOf(value) === index,
+    ) as WorkbenchCapabilityId[];
+    const activeTab = isCapabilityId(parsed.activeTab)
+      ? parsed.activeTab
+      : null;
+    return {
+      openTabs,
+      activeTab: activeTab && openTabs.includes(activeTab) ? activeTab : null,
+    };
+  } catch {
+    return EMPTY_WORKBENCH_LAYOUT;
+  }
+}
+
+export function storeWorkbenchLayout(
+  storageKey: string,
+  layout: WorkbenchLayout,
+): void {
+  localStorage.setItem(storageKey, JSON.stringify(layout));
 }
 
 export function migrateWorkbenchPreferences(
@@ -35,7 +74,7 @@ export function migrateWorkbenchPreferences(
 ): void {
   if (typeof window === "undefined" || fromSessionId === toSessionId) return;
 
-  const keyFactories = [workbenchTabStorageKey, workbenchWidthStorageKey];
+  const keyFactories = [workbenchLayoutStorageKey, workbenchWidthStorageKey];
   keyFactories.forEach((createKey) => {
     const sourceKey = createKey(agentId, fromSessionId);
     const targetKey = createKey(agentId, toSessionId);

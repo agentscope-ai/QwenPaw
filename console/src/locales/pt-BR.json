@@ -2284,6 +2284,9 @@
     "changes": "Alterações",
     "terminal": "Terminal",
     "tools": "Ferramentas",
+    "addPanel": "Adicionar painel",
+    "closePanel": "Fechar {{name}}",
+    "emptyDescription": "Adicione um painel quando precisar. Os recursos só são carregados ao abrir.",
     "codingModeRequired": "Ative os recursos avançados de código para usar Alterações",
     "sessionRequired": "As alterações estarão disponíveis após a primeira mensagem",
     "phasePlaceholder": "Este recurso será conectado na próxima etapa."
