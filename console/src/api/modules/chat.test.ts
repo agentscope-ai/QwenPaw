@@ -142,6 +142,13 @@ describe("chatApi.listChats", () => {
     expect(request).toHaveBeenCalledWith("/chats?user_id=u1");
   });
 
+  it("can list chats for a specific agent without changing the active agent", async () => {
+    await chatApi.listChats({ agentId: "other-agent" });
+    expect(request).toHaveBeenCalledWith("/chats", {
+      headers: { "X-Agent-Id": "other-agent" },
+    });
+  });
+
   it("builds query string with channel", async () => {
     await chatApi.listChats({ channel: "console" });
     expect(request).toHaveBeenCalledWith("/chats?channel=console");

@@ -247,6 +247,14 @@ class CronManager(ManagerBase):
     async def create_or_replace_job(self, spec: CronJobSpec) -> None:
         async with self._lock:
             previous = await self._repo.get_job(spec.id or "")
+            if (
+                previous is not None
+                and "share_session" not in spec.runtime.model_fields_set
+            ):
+                # Defaults apply to creation, not omitted legacy update fields.
+                spec.runtime = spec.runtime.model_copy(
+                    update={"share_session": previous.runtime.share_session},
+                )
             await self._persist_and_register(spec, previous=previous)
 
     async def create_job_if_absent(self, spec: CronJobSpec) -> bool:
@@ -1094,6 +1102,44 @@ class CronManager(ManagerBase):
                     "cron _execute_once: job_id=%s status=cancelled",
                     job.id,
                 )
+                raise
+            except asyncio.TimeoutError as exc:
+                st.last_status = "error"
+                st.last_error = (
+                    f"TimeoutError: timed out after "
+                    f"{job.runtime.timeout_seconds}s"
+                )
+                logger.warning(
+                    "cron _execute_once: job_id=%s %s",
+                    job.id,
+                    st.last_error,
+                )
+                try:
+                    await append_inbox_event(
+                        agent_id=self._agent_id,
+                        source_type="cron",
+                        source_id=job.id,
+                        event_type="cron_timeout",
+                        status="error",
+                        severity="error",
+                        title=f"Cron task timed out: {job.name}",
+                        body=(
+                            "Task execution timed out after "
+                            f"{job.runtime.timeout_seconds}s. "
+                            "The task did not finish."
+                        ),
+                        payload={
+                            "job_id": job.id,
+                            "job_name": job.name,
+                            "task_type": job.task_type,
+                            "trigger": trigger,
+                            "run_id": getattr(exc, "run_id", None),
+                            "error": st.last_error,
+                            "timeout_seconds": job.runtime.timeout_seconds,
+                        },
+                    )
+                except Exception:  # pylint: disable=broad-except
+                    logger.exception("failed to append cron timeout event")
                 raise
             except Exception as e:  # pylint: disable=broad-except
                 st.last_status = "error"

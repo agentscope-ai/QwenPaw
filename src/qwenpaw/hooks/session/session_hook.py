@@ -12,6 +12,7 @@ import asyncio
 import logging
 
 from ..base import LifecycleHook
+from ..cron.cron_hook import restore_cron_context
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
 from ...runtime.console_turn_state import (
@@ -110,6 +111,7 @@ class SessionSaveHook(LifecycleHook):
             user_id = getattr(request, "user_id", "") or ctx.session_id
             channel = getattr(request, "channel", "") or ""
 
+            restore_cron_context(ctx)
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
             stamp_console_turn(proxy.data, request, "completed")

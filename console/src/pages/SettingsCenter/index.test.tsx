@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentType } from "react";
 import { useLocation } from "react-router-dom";
@@ -8,6 +8,7 @@ import { renderWithProviders } from "@/test/common_setup";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import type { MenuItem } from "@/plugins/registry/types";
 import { DEFAULT_FOCUS_ITEM_IDS, useSidebarStore } from "@/stores/sidebarStore";
+import { useAgentStore } from "@/stores/agentStore";
 
 const registry = vi.hoisted(() => ({
   routes: [] as Array<{
@@ -46,6 +47,17 @@ describe("SettingsCenter", () => {
     registry.agentMenu = [];
     registry.settingsMenu = [];
     registry.pluginLoading = false;
+    useAgentStore.setState({
+      selectedAgent: "native",
+      agents: ["qwenpaw", "codex", "qoder"].map((backend) => ({
+        id: backend === "qwenpaw" ? "native" : backend,
+        name: `${backend} target`,
+        description: "",
+        workspace_dir: "",
+        enabled: true,
+        backend,
+      })),
+    });
     localStorage.removeItem("qwenpaw_chat_wide_mode");
     localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
     localStorage.removeItem("qwenpaw_tool_display_mode");
@@ -265,6 +277,7 @@ describe("SettingsCenter", () => {
 
   it("expands agent pages and keeps their sidebar controls", async () => {
     const EmptyPage = () => null;
+    const ImportPage = () => <div>PawPort import workflow</div>;
     const agentPages = [
       ["core.channels", "/channels", "Channels"],
       ["core.heartbeat", "/heartbeat", "Heartbeat"],
@@ -272,6 +285,7 @@ describe("SettingsCenter", () => {
       ["core.tools", "/tools", "Tools"],
       ["core.mcp", "/mcp", "MCP"],
       ["core.acp", "/acp", "ACP"],
+      ["core.import", "/imports", "Import"],
       ["core.agent-config", "/agent-config", "Configuration"],
     ] as const;
     const operationalPages = [
@@ -286,7 +300,7 @@ describe("SettingsCenter", () => {
       ...agentPages.map(([id, path]) => ({
         id,
         path,
-        Component: EmptyPage,
+        Component: id === "core.import" ? ImportPage : EmptyPage,
       })),
       ...operationalPages.map(([id, path]) => ({
         id,
@@ -333,6 +347,14 @@ describe("SettingsCenter", () => {
       ).toBeVisible();
     }
     expect(
+      within(agentGroup!)
+        .getAllByRole("button", { name: /^(ACP|Import|Configuration)$/ })
+        .map((button) => button.textContent),
+    ).toEqual(["ACP", "Import", "Configuration"]);
+    expect(useSidebarStore.getState().focusItemIds).not.toContain(
+      "core.import",
+    );
+    expect(
       screen.queryByRole("button", { name: "Marketplace" }),
     ).not.toBeInTheDocument();
     for (const label of [
@@ -352,6 +374,22 @@ describe("SettingsCenter", () => {
     );
     expect(screen.getByTestId("location")).toHaveTextContent("/settings/tools");
 
+    await userEvent.click(
+      within(agentGroup!).getByRole("button", { name: "Import" }),
+    );
+    expect(screen.getByTestId("location")).toHaveTextContent(
+      "/settings/import",
+    );
+    expect(screen.getByText("PawPort import workflow")).toBeVisible();
+
+    const search = screen.getByPlaceholderText("Search settings");
+    await userEvent.type(search, "other AI applications");
+    expect(screen.getByRole("button", { name: "Import" })).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "ACP" }),
+    ).not.toBeInTheDocument();
+    await userEvent.clear(search);
+
     await userEvent.click(screen.getByRole("button", { name: "Sidebar" }));
 
     expect(
@@ -369,6 +407,38 @@ describe("SettingsCenter", () => {
     expect(screen.getByRole("checkbox", { name: "Extension" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "Extension" })).toBeDisabled();
   });
+
+  it.each(["codex", "qoder"])(
+    "hides Import for %s while preserving the route and restoring it for QwenPaw",
+    async (backend) => {
+      registry.routes = [
+        { id: "core.acp", path: "/acp", Component: () => null },
+        { id: "core.import", path: "/imports", Component: () => null },
+      ];
+      renderWithProviders(
+        <>
+          <SettingsCenter />
+          <LocationProbe />
+        </>,
+        { initialEntries: ["/settings/import"] },
+      );
+
+      expect(screen.getByRole("button", { name: "Import" })).toBeVisible();
+      act(() => useAgentStore.setState({ selectedAgent: backend }));
+      expect(screen.queryByRole("button", { name: "Import" })).toBeNull();
+      expect(screen.getByTestId("location")).toHaveTextContent(
+        "/settings/import",
+      );
+
+      await userEvent.type(
+        screen.getByPlaceholderText("Search settings"),
+        "other AI applications",
+      );
+      expect(screen.getByText("No matching settings")).toBeVisible();
+      act(() => useAgentStore.setState({ selectedAgent: "native" }));
+      expect(screen.getByRole("button", { name: "Import" })).toBeVisible();
+    },
+  );
 
   it("moves resource management pages into Global settings", () => {
     const EmptyPage = () => null;

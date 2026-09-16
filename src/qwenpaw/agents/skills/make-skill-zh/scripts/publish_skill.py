@@ -8,7 +8,6 @@ import re
 import shutil
 
 import create_plan
-import init_draft
 import validate_skill
 
 DIGEST_PATTERN = re.compile(r"[a-f0-9]{64}")
@@ -57,7 +56,7 @@ def main() -> int:
                     ),
                 ],
             )
-        workspace = init_draft.resolve_workspace(payload.get("workspace"))
+        workspace = create_plan.resolve_workspace(payload.get("workspace"))
         draft_id = payload.get("draft_id")
         if not isinstance(
             draft_id, str

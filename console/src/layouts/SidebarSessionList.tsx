@@ -12,7 +12,7 @@ import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
 import { ChevronDown, Ellipsis, FolderPlus, Search } from "lucide-react";
 import { SparkNewChatLine } from "@agentscope-ai/icons";
-import { getChannelLabel } from "../pages/Control/Channels/components";
+import { getChannelLabel } from "../utils/channel";
 import {
   getBackendId,
   useSessionListData,

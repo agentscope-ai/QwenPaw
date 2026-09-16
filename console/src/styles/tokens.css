@@ -53,6 +53,7 @@
   --app-accent: #ff7f16;
   --app-accent-hover: #ff9d4d;
   --app-accent-active: #d96806;
+  --app-focus-ring: #bd5100;
   /* Accent used as text: darkened in light mode so small labels stay legible
    * on an accent-soft background. */
   --app-accent-text: #bd5100;
@@ -144,6 +145,7 @@ html.dark-mode {
 
   /* Accent softs need more opacity to read on dark surfaces */
   --app-accent-text: #ff9a47;
+  --app-focus-ring: #ff9a47;
   --app-accent-faint: rgba(255, 127, 22, 0.08);
   --app-accent-soft: rgba(255, 127, 22, 0.16);
   --app-accent-soft-hover: rgba(255, 127, 22, 0.22);
