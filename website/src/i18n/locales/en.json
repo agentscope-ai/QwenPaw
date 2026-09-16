@@ -309,6 +309,7 @@
     "mailbox": "Mailbox Management",
     "tui": "Terminal UI",
     "multiAgent": "Multi-Agent",
+    "import": "Import",
     "models": "Models",
     "channels": "Channels",
     "skills": "Skills",

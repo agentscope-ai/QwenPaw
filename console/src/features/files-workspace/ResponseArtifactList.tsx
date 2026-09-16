@@ -1,9 +1,8 @@
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { chatApi } from "../../api/modules/chat";
 import FileGlyph from "./FileGlyph";
-import { parseInternalFileLink } from "./internalFileLinks";
 import type { FileTarget } from "./types";
 import styles from "./ResponseArtifactList.module.less";
 
@@ -11,7 +10,7 @@ interface ResponseArtifactListProps {
   messages: unknown;
 }
 
-type ArtifactChange = "created" | "modified";
+type ArtifactChange = "created" | "modified" | "sent";
 interface ResponseArtifact {
   id: string;
   name: string;
@@ -23,6 +22,7 @@ interface ResponseArtifact {
 const MIN_FILE_WIDTH = 320;
 const GRID_GAP = 8;
 const FILE_IO_TOOLS = new Set(["appendfile", "editfile", "writefile"]);
+const SEND_FILE_TOOL = "sendfiletouser";
 const TOOL_OUTPUT_TYPES = new Set([
   "tool_call_output",
   "plugin_call_output",
@@ -84,10 +84,8 @@ function normalizedToolName(name: string): string {
 
 function targetForPath(path: string): FileTarget | null {
   const normalized = path.trim().replace(/\\/g, "/");
-  const workspaceTarget = parseInternalFileLink(
-    normalized.replace(/^(?:\.\/)+/, ""),
-  );
-  if (workspaceTarget) return { ...workspaceTarget, root: "project" };
+  // Absolute, `~` and Windows drive paths are resolved by the preview
+  // endpoint, which expanduser()s and resolves them (app/routers/files.py).
   if (
     normalized.startsWith("/") ||
     normalized.startsWith("~") ||
@@ -99,7 +97,49 @@ function targetForPath(path: string): FileTarget | null {
       artifactUrl: chatApi.filePreviewUrl(normalized),
     };
   }
-  return null;
+
+  // Anything else is a project-relative *filesystem* path. Tool paths are not
+  // Markdown hrefs, so parseInternalFileLink must not be used here: it splits
+  // on `#`, which drops ordinary names such as "Report #3.pdf" and retargets
+  // `report#L12` onto a different file. The traversal guard it provided is
+  // preserved below.
+  let relative: string;
+  try {
+    relative = decodeURIComponent(normalized).replace(/^(?:\.\/)+/, "");
+  } catch {
+    return null;
+  }
+  if (
+    !relative ||
+    /^[a-z]:/i.test(relative) ||
+    relative
+      .split("/")
+      .some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    return null;
+  }
+  return { source: "workspace", path: relative, root: "project" };
+}
+
+/**
+ * Whether a ``send_file_to_user`` result actually delivered a file.
+ *
+ * The backend returns ``[DataBlock, TextBlock]`` on success and
+ * ``[TextBlock("Error: …")]`` on failure — both with ``state=success``, so
+ * the DataBlock's presence is the only reliable success signal.
+ *
+ * The DataBlock source shape varies with the delivery path: text files
+ * arrive as ``{type: "url", url: "file://…"}`` while images are inlined as
+ * ``{type: "base64", data: …}``. Keying on the block type rather than the
+ * source shape keeps both covered.
+ *
+ * ``output`` is always a block array for this tool — the backend builds
+ * ``content=[DataBlock, TextBlock]`` — so no string/JSON parsing is needed
+ * and an inlined base64 payload is never parsed on the render path.
+ */
+function hasDeliveredFile(output: unknown): boolean {
+  if (!Array.isArray(output)) return false;
+  return output.some((block) => record(block)?.type === "data");
 }
 
 function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
@@ -130,7 +170,14 @@ function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
 
     const toolName =
       firstString(callData, ["name"]) || firstString(item, ["name"]);
-    if (!FILE_IO_TOOLS.has(normalizedToolName(toolName))) continue;
+    const normalized = normalizedToolName(toolName);
+
+    if (normalized === SEND_FILE_TOOL) {
+      if (!hasDeliveredFile(resultData.output)) continue;
+    } else if (!FILE_IO_TOOLS.has(normalized)) {
+      continue;
+    }
+
     const params =
       parsedRecord(callData.arguments) ??
       parsedRecord(item.params) ??
@@ -153,8 +200,15 @@ function extractResponseArtifacts(messages: unknown): ResponseArtifact[] {
   return Array.from(artifacts.values()).reverse();
 }
 
+const CHANGE_LABEL_KEY: Record<ArtifactChange, string> = {
+  created: "files.artifactCreated",
+  modified: "files.artifactModified",
+  sent: "files.artifactSent",
+};
+
 function artifactChange(toolName?: string): ArtifactChange {
   const normalized = normalizedToolName(toolName ?? "");
+  if (normalized === SEND_FILE_TOOL) return "sent";
   return normalized === "writefile" ? "created" : "modified";
 }
 
@@ -162,7 +216,13 @@ export default function ResponseArtifactList({
   messages,
 }: ResponseArtifactListProps) {
   const { t } = useTranslation();
-  const artifacts = extractResponseArtifacts(messages);
+  // This bubble re-renders on every streamed token, so keep the extraction
+  // (which walks every tool output and parses each call's arguments) bound to
+  // message changes rather than to render count.
+  const artifacts = useMemo(
+    () => extractResponseArtifacts(messages),
+    [messages],
+  );
   const gridRef = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [visibleCount, setVisibleCount] = useState(2);
@@ -231,11 +291,7 @@ export default function ResponseArtifactList({
                 <small title={artifact.path}>{artifact.path}</small>
               </span>
               <small className={styles.status} data-change={change}>
-                {t(
-                  change === "created"
-                    ? "files.artifactCreated"
-                    : "files.artifactModified",
-                )}
+                {t(CHANGE_LABEL_KEY[change])}
               </small>
             </button>
           );

@@ -81,6 +81,13 @@ export default function AgentsPage() {
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
+      setModelSettings({
+        fallback_models: config.fallback_models ?? [],
+        fallback_policy:
+          config.fallback_policy ?? EMPTY_MODEL_SETTINGS.fallback_policy,
+        subagent_model: config.subagent_model ?? null,
+      });
+      setModelSettingsResetToken((token) => token + 1);
       const { mail, ...configRest } = config;
       form.setFieldsValue({
         ...configRest,
@@ -285,7 +292,13 @@ export default function AgentsPage() {
               ...(push ? { push } : {}),
             }
           : null;
-      const payload = { ...rest, workspace_dir, active_model, mail };
+      const payload = {
+        ...rest,
+        workspace_dir,
+        active_model,
+        mail,
+        ...(values.backend === "qwenpaw" ? modelSettings : {}),
+      };
 
       if (editingAgent) {
         const previousInstalledSkills = installedSkillsRef.current;
@@ -314,7 +327,6 @@ export default function AgentsPage() {
       } else {
         const result = await agentsApi.createAgent({
           ...payload,
-          ...(values.backend === "qwenpaw" ? modelSettings : {}),
           language: i18n.language,
           skill_names: values.backend === "qwenpaw" ? selectedSkills : [],
         });
@@ -395,7 +407,7 @@ export default function AgentsPage() {
         selectedSkills={selectedSkills}
         onSelectedSkillsChange={setSelectedSkills}
         onInstalledSkillsLoaded={handleInstalledSkillsLoaded}
-        modelSettings={editingAgent ? undefined : modelSettings}
+        modelSettings={modelSettings}
         modelSettingsResetToken={modelSettingsResetToken}
         onModelSettingsChange={(settings) => setModelSettings(settings)}
         onSave={handleSubmit}

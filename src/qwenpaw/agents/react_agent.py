@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal, Optional, TYPE_CHECKING
 
@@ -30,6 +31,7 @@ from agentscope.state import AgentState
 from agentscope.tool import Toolkit
 
 from .context.base import ContextManager
+from .context.overflow_recovery import call_with_overflow_recovery
 from .skill_system import get_workspace_skills_dir
 from .utils.image_freezing import freeze_local_images_async
 from .utils.message_request_normalizer import _is_media_block
@@ -693,54 +695,61 @@ class QwenPawAgent(CodingModeMixin, Agent):
         so a second overflow propagates instead of entering a recovery loop.
         """
         self._index_tool_schemas(tools)
-        try:
-            return await super()._call_model(
-                messages=messages,
-                tools=tools,
-                tool_choice=tool_choice,
-            )
-        except Exception as exc:
-            context_manager = getattr(self, "_context_manager", None)
-            if not isinstance(
-                context_manager,
-                ContextManager,
-            ) or not self._is_context_overflow_error(exc):
-                raise
+        return await call_with_overflow_recovery(
+            super()._call_model,
+            partial(self._recover_model_overflow, tool_choice=tool_choice),
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
 
-            before = len(getattr(self.state, "context", []) or [])
+    async def _recover_model_overflow(
+        self,
+        exc: Exception,
+        tool_choice: Any,
+    ) -> Any:
+        """Compact rejected input and retry once through AgentScope."""
+        context_manager = getattr(self, "_context_manager", None)
+        if not isinstance(
+            context_manager,
+            ContextManager,
+        ) or not self._is_context_overflow_error(exc):
+            raise exc
+
+        before = len(getattr(self.state, "context", []) or [])
+        logger.warning(
+            "Model input exceeded the provider context limit; attempting "
+            "one context recovery.",
+        )
+        input_changed = await context_manager.recover_from_context_overflow(
+            self,
+        )
+        if not input_changed:
             logger.warning(
-                "Model input exceeded the provider context limit; attempting "
-                "one context recovery.",
+                "Context-overflow recovery did not change the model "
+                "input; skipping the retry.",
             )
-            input_changed = (
-                await context_manager.recover_from_context_overflow(self)
-            )
-            if not input_changed:
-                logger.warning(
-                    "Context-overflow recovery did not change the model "
-                    "input; skipping the retry.",
-                )
-                raise
-            after = len(getattr(self.state, "context", []) or [])
+            raise exc
+        after = len(getattr(self.state, "context", []) or [])
 
-            # The original `messages` list was prepared before compaction and
-            # can still reference evicted turns.  Always rebuild it from the
-            # updated agent state before retrying.
-            refreshed = await self._prepare_model_input()
-            refreshed_messages = refreshed["messages"]
-            refreshed_tools = refreshed.get("tools", [])
-            self._index_tool_schemas(refreshed_tools)
-            logger.info(
-                "Context-overflow recovery rebuilt model input "
-                "(messages %d -> %d).",
-                before,
-                after,
-            )
-            return await super()._call_model(
-                messages=refreshed_messages,
-                tools=refreshed_tools,
-                tool_choice=tool_choice,
-            )
+        # The original `messages` list was prepared before compaction and
+        # can still reference evicted turns.  Always rebuild it from the
+        # updated agent state before retrying.
+        refreshed = await self._prepare_model_input()
+        refreshed_messages = refreshed["messages"]
+        refreshed_tools = refreshed.get("tools", [])
+        self._index_tool_schemas(refreshed_tools)
+        logger.info(
+            "Context-overflow recovery rebuilt model input "
+            "(messages %d -> %d).",
+            before,
+            after,
+        )
+        return await super()._call_model(
+            messages=refreshed_messages,
+            tools=refreshed_tools,
+            tool_choice=tool_choice,
+        )
 
     def _index_tool_schemas(self, tools: list[dict] | None) -> None:
         """Index ``tool name -> parameter schema`` for input coercion.
