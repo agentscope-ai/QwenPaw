@@ -31,33 +31,40 @@ _service: DailyTelemetry | None = None
 
 @contextmanager
 def _connect(directory: Path) -> Iterator[sqlite3.Connection]:
-    """Initialize identity and outbox atomically across worker processes."""
-    directory.mkdir(parents=True, exist_ok=True)
+    """Close connections reliably without initializing or writing on reads."""
     db = sqlite3.connect(directory / DAILY_TELEMETRY_FILE, timeout=1)
     try:
         with db:
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS runtime ("
-                "singleton INTEGER PRIMARY KEY CHECK (singleton = 1), "
-                "runtime_id TEXT NOT NULL, enabled INTEGER NOT NULL)",
-            )
-            db.execute(
-                "INSERT OR IGNORE INTO runtime VALUES (1, ?, 0)",
-                (str(uuid.uuid4()),),
-            )
-            db.execute(
-                "CREATE TABLE IF NOT EXISTS activity ("
-                "day TEXT PRIMARY KEY, payload TEXT, sent INTEGER NOT NULL "
-                "DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, "
-                "next_attempt REAL NOT NULL DEFAULT 0)",
-            )
             yield db
     finally:
         db.close()
 
 
+def _initialize(directory: Path) -> None:
+    """Create the schema and identity atomically, only when needed."""
+    directory.mkdir(parents=True, exist_ok=True)
+    with _connect(directory) as db:
+        db.execute("BEGIN IMMEDIATE")
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS runtime ("
+            "singleton INTEGER PRIMARY KEY CHECK (singleton = 1), "
+            "runtime_id TEXT NOT NULL, enabled INTEGER NOT NULL)",
+        )
+        db.execute(
+            "INSERT OR IGNORE INTO runtime VALUES (1, ?, 0)",
+            (str(uuid.uuid4()),),
+        )
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS activity ("
+            "day TEXT PRIMARY KEY, payload TEXT, sent INTEGER NOT NULL "
+            "DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0, "
+            "next_attempt REAL NOT NULL DEFAULT 0)",
+        )
+
+
 def set_daily_telemetry_enabled(directory: Path, enabled: bool) -> None:
     """Save the Runtime choice without changing its persistent identity."""
+    _initialize(directory)
     with _connect(directory) as db:
         db.execute("UPDATE runtime SET enabled = ?", (int(enabled),))
         if not enabled:
@@ -65,21 +72,16 @@ def set_daily_telemetry_enabled(directory: Path, enabled: bool) -> None:
 
 
 def daily_telemetry_enabled(directory: Path) -> bool:
-    """Require explicit daily consent and honor the global opt-out."""
+    """Read consent; raise on storage failure rather than infer opt-out."""
     if is_telemetry_opted_out(directory):
         return False
     if ENABLED_ENV in os.environ:
         return EnvVarLoader.get_bool(ENABLED_ENV)
     if not (directory / DAILY_TELEMETRY_FILE).exists():
         return False
-    try:
-        with _connect(directory) as db:
-            return bool(
-                db.execute("SELECT enabled FROM runtime").fetchone()[0],
-            )
-    except (OSError, sqlite3.Error):
-        logger.debug("Cannot read daily telemetry choice", exc_info=True)
-        return False
+    # Read failures propagate: they are not permission to delete the outbox.
+    with _connect(directory) as db:
+        return bool(db.execute("SELECT enabled FROM runtime").fetchone()[0])
 
 
 class DailyTelemetry:
@@ -88,6 +90,7 @@ class DailyTelemetry:
     def __init__(self, directory: Path) -> None:
         self.directory = directory
         self._wake = asyncio.Event()
+        self._initialized = False
         self._stopping = False
         self._task: asyncio.Task | None = None
 
@@ -122,7 +125,15 @@ class DailyTelemetry:
     def _record_sync(self, day: str) -> bool:
         if not daily_telemetry_enabled(self.directory):
             return False
+        if not self._initialized:
+            _initialize(self.directory)
+            self._initialized = True
         with _connect(self.directory) as db:
+            if db.execute(
+                "SELECT 1 FROM activity WHERE day = ?",
+                (day,),
+            ).fetchone():
+                return True
             db.execute(
                 "INSERT OR IGNORE INTO activity(day) VALUES (?)",
                 (day,),
@@ -145,10 +156,11 @@ class DailyTelemetry:
 
     def flush(self) -> None:
         """Send due observations, preserving their original date/snapshot."""
+        if not (self.directory / DAILY_TELEMETRY_FILE).exists():
+            return
         if not daily_telemetry_enabled(self.directory):
-            if (self.directory / DAILY_TELEMETRY_FILE).exists():
-                with _connect(self.directory) as db:
-                    db.execute("DELETE FROM activity WHERE sent = 0")
+            with _connect(self.directory) as db:
+                db.execute("DELETE FROM activity WHERE sent = 0")
             return
         today = datetime.now(timezone.utc).date()
         cutoff = (today - timedelta(days=6)).isoformat()

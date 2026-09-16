@@ -6,6 +6,7 @@ import { buildAuthHeaders } from "../api/authHeaders";
 export function RuntimeActivity() {
   useEffect(() => {
     let pending = false;
+    let hasBeenVisible = false;
     let reportedDay = "";
     let retryAfter = 0;
     let controller: AbortController | undefined;
@@ -42,12 +43,20 @@ export function RuntimeActivity() {
     const onInteraction = (event: Event) => {
       if (event.isTrusted) report();
     };
-    report();
+    const onFirstVisible = () => {
+      if (!hasBeenVisible && document.visibilityState === "visible") {
+        hasBeenVisible = true;
+        report();
+      }
+    };
+    onFirstVisible();
+    document.addEventListener("visibilitychange", onFirstVisible);
     document.addEventListener("pointerdown", onInteraction, true);
     document.addEventListener("keydown", onInteraction, true);
-    // There is deliberately no timer or visibility-only cross-day heartbeat.
+    // Later visibility changes never become a cross-day heartbeat.
     return () => {
       controller?.abort();
+      document.removeEventListener("visibilitychange", onFirstVisible);
       document.removeEventListener("pointerdown", onInteraction, true);
       document.removeEventListener("keydown", onInteraction, true);
     };
