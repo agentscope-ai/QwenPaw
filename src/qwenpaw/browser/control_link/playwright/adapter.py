@@ -142,15 +142,14 @@ _DRIVER_DEAD_MARKERS = ("connection closed while reading from the driver",)
 
 def _driver_connection_dead(exc: BaseException) -> bool:
     """Return whether a provider failure means the node driver died."""
-    texts = [str(exc)]
-    detail = getattr(exc, "detail", "")
-    if isinstance(detail, str):
-        texts.append(detail)
-    return any(
-        marker in text.lower()
-        for marker in _DRIVER_DEAD_MARKERS
-        for text in texts
+    text = exc.detail if isinstance(exc, BrowserError) else str(exc)
+    if not isinstance(text, str):
+        return False
+    primary_line = next(
+        (line.strip().lower() for line in text.splitlines() if line.strip()),
+        "",
     )
+    return any(marker in primary_line for marker in _DRIVER_DEAD_MARKERS)
 
 
 class _DriverConnectionLost(Exception):
