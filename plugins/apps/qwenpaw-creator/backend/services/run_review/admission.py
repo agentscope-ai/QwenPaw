@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
+from services.runtime_files.atomic_store import atomic_replace_path
 from services.runtime_files.locking import CrossProcessFileLock
 from utils.logger import setup_logger
 
@@ -34,10 +34,21 @@ _LOOP_TOKEN_ATTR = "_run_review_owner_token"
 _CLAIM_TTL_SECONDS = 30 * 60
 _REVIEWED_HISTORY_LIMIT = 50
 _SYNC_HASH_HISTORY_LIMIT = 20
+_SYNC_FENCE_TTL_SECONDS = 5 * 60
+# An awaiting_repair blocker must outlive the following agent repair turn
+# (bounded by the 600s model-turn timeout), not just the inline reviewer.
+# Expiring it at the fence TTL dispatched paid generation from the exact
+# rejected content the blocker exists to gate.
+_SYNC_BLOCKER_TTL_SECONDS = 15 * 60
 
 # Advisory rounds per artifact slot (media) / per pointer group (sync).
 MAX_MEDIA_REVIEW_ROUNDS = 2
 MAX_SYNC_REVIEW_ROUNDS = 2
+# Automated repair delegations per durable target. This is deliberately a
+# physical-attempt budget: an admitted specialist consumes one attempt even if
+# it later fails, is superseded, or produces a stale artifact. Otherwise the
+# exact expensive paths the cap is meant to bound can reset it indefinitely.
+MAX_REPAIR_ATTEMPTS = 3
 
 
 def safe_ref(ref: str) -> str:
@@ -51,7 +62,7 @@ def write_json(path: Path, payload: Mapping[str, Any]) -> None:
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    os.replace(staging, path)
+    atomic_replace_path(staging, path)
 
 
 def read_json(path: Path) -> dict[str, Any] | None:
@@ -110,8 +121,11 @@ def admit_media_round(
     """Atomically claim the next advisory round for one artifact version.
 
     Returns the round number, or ``None`` when the version was already
-    reviewed, another live claim holds it, or the slot's advisory budget is
-    spent. A newer version always supersedes an in-flight claim.
+    reviewed, this owner already holds a live claim on it, or the slot's
+    advisory budget is spent.  A claim written by another owner token is a
+    crash leftover (dead process or event loop) and is reclaimed
+    immediately — one live scheduler per data root is the supported
+    topology.  A newer version always supersedes an in-flight claim.
     """
     owner = owner or owner_token()
     state_path = _media_state_path(reports_root, slot_id)
@@ -129,14 +143,26 @@ def admit_media_round(
         ):
             return None
         rounds_completed = int(state.get("rounds_completed") or 0)
-        if rounds_completed >= MAX_MEDIA_REVIEW_ROUNDS:
+        attempts_started = max(
+            rounds_completed,
+            int(state.get("attempts_started") or 0),
+            # Migration for pre-physical-budget state: every durable reviewed
+            # version proves that one attempt already started, including
+            # superseded versions which older code did not count as rounds.
+            len(reviewed),
+        )
+        if attempts_started >= MAX_MEDIA_REVIEW_ROUNDS:
             return None
-        round_number = rounds_completed + 1
+        # Consume the physical budget before any evidence/VLM work starts.
+        # Superseded, cancelled and failed reviews still incurred wall time
+        # and possibly provider cost, so finalization never refunds this.
+        round_number = attempts_started + 1
         now = datetime.now(UTC).isoformat()
         state.update(
             {
                 "slot_id": slot_id,
                 "rounds_completed": rounds_completed,
+                "attempts_started": round_number,
                 "reviewed_version_ids": reviewed,
                 "claim": {
                     "version_id": version_id,
@@ -149,6 +175,44 @@ def admit_media_round(
         )
         write_json(state_path, state)
     return round_number
+
+
+def media_skip_reason(
+    reports_root: Path,
+    *,
+    slot_id: str,
+    version_id: str,
+) -> str:
+    """Best-effort reason why :func:`admit_media_round` returned ``None``.
+
+    Read-only and total: budget exhaustion is otherwise silent — the quality
+    gate just stops reviewing new versions — so callers surface this to
+    logs/traces.  A malformed state file yields ``"unknown"`` rather than an
+    exception, which upstream would report as a review-loop failure.
+    """
+
+    try:
+        state = read_json(_media_state_path(reports_root, slot_id)) or {}
+        reviewed = [
+            str(item) for item in state.get("reviewed_version_ids") or []
+        ]
+        if version_id in reviewed:
+            return "already_reviewed"
+        claim = state.get("claim")
+        if isinstance(claim, Mapping) and (
+            claim.get("version_id") == version_id
+        ):
+            return "claim_in_progress"
+        attempts_started = max(
+            int(state.get("rounds_completed") or 0),
+            int(state.get("attempts_started") or 0),
+            len(reviewed),
+        )
+    except (AttributeError, TypeError, ValueError):
+        return "unknown"
+    if attempts_started >= MAX_MEDIA_REVIEW_ROUNDS:
+        return "budget_spent"
+    return "unknown"
 
 
 def release_media_claim(
@@ -276,16 +340,266 @@ def settle_sync_review(
         write_json(state_path, state)
 
 
+# ── Sync scheduling fence (registered before Project publication) ─────────
+
+
+def _sync_fence_dir(reports_root: Path) -> Path:
+    return reports_root / "sync" / "fences"
+
+
+def _sync_blocker_dir(reports_root: Path) -> Path:
+    return reports_root / "sync" / "blockers"
+
+
+def begin_sync_fence(
+    reports_root: Path,
+    *,
+    project_id: str,
+    reviewed_pointers: Sequence[str],
+    token: str | None = None,
+) -> str:
+    """Persist a pre-commit fence that blocks dependent media dispatch.
+
+    The file exists before the candidate Project is published. Therefore an
+    unrelated media completion, a startup sweep, or any other concurrent wake
+    cannot observe the new creative text and spend on it while its inline
+    review is still running.
+    """
+
+    fence_token = token or f"sync-fence-{uuid4().hex}"
+    write_json(
+        _sync_fence_dir(reports_root) / f"{safe_ref(fence_token)}.json",
+        {
+            "token": fence_token,
+            "project_id": project_id,
+            "reviewed_pointers": sorted(set(reviewed_pointers)),
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+    return fence_token
+
+
+def end_sync_fence(reports_root: Path, token: str) -> None:
+    """Best-effort release of one pre-commit sync-review fence."""
+
+    path = _sync_fence_dir(reports_root) / f"{safe_ref(token)}.json"
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("failed to release sync-review fence %s", token)
+
+
+def hold_sync_blocker(
+    reports_root: Path,
+    *,
+    project_id: str,
+    pointer_group: str,
+    reviewed_pointers: Sequence[str],
+    round_number: int,
+) -> None:
+    """Keep dependent media gated while an advisory still needs repair.
+
+    The short-lived pre-commit fence only protects the time spent inside the
+    inline reviewer.  A weak advisory must also protect the following agent
+    turn; otherwise the scheduler starts paid generation from the rejected
+    prompt before the model can apply the feedback.  One blocker per pointer
+    group is enough because a newer repair supersedes the older content.
+    """
+
+    write_json(
+        _sync_blocker_dir(reports_root) / f"{safe_ref(pointer_group)}.json",
+        {
+            "token": f"sync-blocker-{safe_ref(pointer_group)}",
+            "project_id": project_id,
+            "pointer_group": pointer_group,
+            "reviewed_pointers": sorted(set(reviewed_pointers)),
+            "round": round_number,
+            "kind": "awaiting_repair",
+            "created_at": datetime.now(UTC).isoformat(),
+        },
+    )
+
+
+def clear_sync_blocker(reports_root: Path, *, pointer_group: str) -> None:
+    """Release the unresolved-advisory blocker for one pointer group."""
+
+    path = _sync_blocker_dir(reports_root) / f"{safe_ref(pointer_group)}.json"
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        logger.exception(
+            "failed to release sync-review blocker %s",
+            pointer_group,
+        )
+
+
+def active_sync_fences(reports_root: Path) -> tuple[dict[str, Any], ...]:
+    """Return live fences/blockers and garbage-collect crash leftovers.
+
+    Inline review is fail-open. A process crash cannot leave the unattended
+    scheduler permanently blocked, so an entry older than its timeout
+    envelope is ignored and removed.  Fences only cover the inline reviewer;
+    awaiting_repair blockers cover the following agent repair turn and
+    therefore carry a longer TTL.
+    """
+
+    from services.project_files.review_bookkeeping import (
+        is_retired_shot_pointer,
+    )
+
+    now = datetime.now(UTC)
+    active: list[dict[str, Any]] = []
+    try:
+        candidates = [
+            *(
+                (path, _SYNC_FENCE_TTL_SECONDS)
+                for path in _sync_fence_dir(reports_root).glob("*.json")
+            ),
+            *(
+                (path, _SYNC_BLOCKER_TTL_SECONDS)
+                for path in _sync_blocker_dir(reports_root).glob("*.json")
+            ),
+        ]
+    except OSError:
+        return ()
+    for path, ttl_seconds in candidates:
+        payload = read_json(path)
+        if (payload or {}).get("pointer_group") == "shots":
+            # Retired reviewers cannot keep current generation blocked.
+            continue
+        pointers = (payload or {}).get("reviewed_pointers") or []
+        if pointers and all(is_retired_shot_pointer(p) for p in pointers):
+            continue
+        raw_created = str((payload or {}).get("created_at") or "")
+        try:
+            created = datetime.fromisoformat(raw_created)
+            age = (now - created).total_seconds()
+        except (TypeError, ValueError):
+            age = ttl_seconds + 1
+        if payload is not None and 0 <= age < ttl_seconds:
+            active.append(payload)
+            continue
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            logger.warning("failed to prune stale sync fence %s", path)
+    return tuple(active)
+
+
+def sync_fence_expiry_delay(
+    fences: Sequence[Mapping[str, Any]],
+) -> float | None:
+    """Seconds until the oldest live sync fence becomes fail-open."""
+
+    now = datetime.now(UTC)
+    remaining: list[float] = []
+    for payload in fences:
+        try:
+            created = datetime.fromisoformat(
+                str(payload.get("created_at") or ""),
+            )
+        except ValueError:
+            continue
+        remaining.append(
+            max(
+                0.05,
+                _SYNC_FENCE_TTL_SECONDS
+                - (now - created).total_seconds()
+                + 0.05,
+            ),
+        )
+    return min(remaining) if remaining else None
+
+
+# ── Durable automated-repair budget (per target, physical attempts) ────
+
+
+def _repair_budget_path(reports_root: Path) -> Path:
+    return reports_root / "repair-budget" / "state.json"
+
+
+def _repair_budget_lock(reports_root: Path) -> CrossProcessFileLock:
+    path = _repair_budget_path(reports_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return CrossProcessFileLock(path.with_name(f"{path.name}.lock"))
+
+
+def admit_repair_attempts(
+    reports_root: Path,
+    *,
+    target_refs: Sequence[str],
+    attempt_id: str,
+) -> dict[str, int] | None:
+    """Atomically admit one automated repair delegation for all targets.
+
+    ``attempt_id`` makes replay idempotent. The all-or-nothing update avoids
+    partially consuming a multi-target delegation when one target is already
+    spent. Returned values are the 1-based physical attempt numbers.
+    """
+
+    targets = sorted({str(item) for item in target_refs if str(item)})
+    if not targets:
+        return {}
+    path = _repair_budget_path(reports_root)
+    with _repair_budget_lock(reports_root):
+        state = read_json(path) or {}
+        entries = state.get("targets")
+        if not isinstance(entries, dict):
+            entries = {}
+        result: dict[str, int] = {}
+        for target_ref in targets:
+            entry = entries.get(target_ref)
+            if not isinstance(entry, dict):
+                entry = {}
+            attempt_ids = [
+                str(item) for item in entry.get("attempt_ids") or []
+            ]
+            if attempt_id in attempt_ids:
+                result[target_ref] = attempt_ids.index(attempt_id) + 1
+                continue
+            if len(attempt_ids) >= MAX_REPAIR_ATTEMPTS:
+                return None
+            result[target_ref] = len(attempt_ids) + 1
+        now = datetime.now(UTC).isoformat()
+        for target_ref in targets:
+            entry = entries.get(target_ref)
+            if not isinstance(entry, dict):
+                entry = {}
+            attempt_ids = [
+                str(item) for item in entry.get("attempt_ids") or []
+            ]
+            if attempt_id not in attempt_ids:
+                attempt_ids.append(attempt_id)
+            entries[target_ref] = {
+                "target_ref": target_ref,
+                "attempt_ids": attempt_ids[-MAX_REPAIR_ATTEMPTS:],
+                "attempts_started": len(attempt_ids),
+                "updated_at": now,
+            }
+        state.update({"targets": entries, "updated_at": now})
+        write_json(path, state)
+    return result
+
+
 __all__ = [
     "MAX_MEDIA_REVIEW_ROUNDS",
+    "MAX_REPAIR_ATTEMPTS",
     "MAX_SYNC_REVIEW_ROUNDS",
+    "active_sync_fences",
     "admit_media_round",
+    "admit_repair_attempts",
     "admit_sync_review",
+    "begin_sync_fence",
+    "clear_sync_blocker",
+    "end_sync_fence",
     "finalize_media_round",
+    "hold_sync_blocker",
+    "media_skip_reason",
     "owner_token",
     "read_json",
     "release_media_claim",
     "safe_ref",
     "settle_sync_review",
+    "sync_fence_expiry_delay",
     "write_json",
 ]

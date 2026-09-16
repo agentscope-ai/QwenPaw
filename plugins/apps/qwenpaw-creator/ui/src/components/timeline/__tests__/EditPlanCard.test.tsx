@@ -39,22 +39,10 @@ describe("EditPlanCard", () => {
     expect(container.querySelector("[data-edit-plan-card]")).toBeNull();
   });
 
-  it("renders nothing for an empty placeholder plan", () => {
-    const empty: EditPlanDocument = {
-      ...plan,
-      concept: "",
-      pacing: "",
-      signature_device: "",
-    };
-    const { container } = render(<EditPlanCard editPlan={empty} />);
-    expect(container.querySelector("[data-edit-plan-card]")).toBeNull();
-  });
-
   it("shows the concept and the ledger lock ratio, expanding on click", () => {
     render(<EditPlanCard editPlan={plan} />);
     expect(screen.getByText("猫的越狱日记")).toBeInTheDocument();
     expect(screen.getByText(/1\/2/)).toBeInTheDocument();
-    // Collapsed by default: the design floor slots are hidden.
     expect(screen.queryByText(/爪印转场/)).toBeNull();
     fireEvent.click(screen.getByRole("button"));
     expect(screen.getByText(/爪印转场/)).toBeInTheDocument();

@@ -3,7 +3,14 @@
 
 from types import SimpleNamespace
 
-from qwenpaw.app.routers.providers import _active_models_info
+import pytest
+from pydantic import ValidationError
+
+from qwenpaw.app.routers.providers import (
+    ModelConfigRequest,
+    _active_models_info,
+    configure_model,
+)
 from qwenpaw.config.config import ModelSlotConfig
 
 
@@ -16,3 +23,35 @@ def test_active_models_info_uses_runtime_context_resolution():
 
     assert info.active_llm == slot
     assert info.effective_max_input_length == 1_000_000
+
+
+async def test_configure_model_only_forwards_submitted_fields() -> None:
+    captured = None
+
+    async def update_model_config(**kwargs):
+        nonlocal captured
+        captured = kwargs
+        return SimpleNamespace()
+
+    manager = SimpleNamespace(update_model_config=update_model_config)
+
+    await configure_model(
+        manager=manager,
+        provider_id="openai",
+        model_id="gpt-test",
+        body=ModelConfigRequest(
+            generate_kwargs={"max_tokens": 4096},
+        ),
+    )
+
+    assert captured == {
+        "provider_id": "openai",
+        "model_id": "gpt-test",
+        "config": {"generate_kwargs": {"max_tokens": 4096}},
+    }
+
+
+@pytest.mark.parametrize("value", [0, -1, 1.5, True])
+def test_model_config_rejects_invalid_max_tokens(value: object) -> None:
+    with pytest.raises(ValidationError, match="max_tokens"):
+        ModelConfigRequest(generate_kwargs={"max_tokens": value})

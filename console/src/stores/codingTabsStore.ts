@@ -23,6 +23,7 @@ import type {
   FileSource,
   WorkspaceRoot,
 } from "../features/files-workspace/types";
+import { isProjectRoot } from "../features/files-workspace/directorySources";
 
 export const ORIGINAL_DIFF_SIZE_LIMIT = 256 * 1024;
 export const AGENT_FILES_TABS_STORAGE_KEY = "qwenpaw-agent-files-tabs";
@@ -184,10 +185,14 @@ export const useCodingTabsStore = create<CodingTabsState>()(
           const tabs = state.tabsByAgent[scopeKey] ?? [];
           const removedPaths = new Set(
             tabs
+              // Every project root, not just the primary: rebinding the list
+              // can remove or reorder any of them, so a tab left open on an
+              // extra root would keep editing a directory this session is no
+              // longer bound to.
               .filter(
                 (tab) =>
                   (tab.source ?? "workspace") === "workspace" &&
-                  (tab.workspaceRoot ?? "project") === "project",
+                  isProjectRoot(tab.workspaceRoot),
               )
               .map((tab) => tab.path),
           );

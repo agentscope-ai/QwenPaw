@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from agentscope.model import OpenAIChatModel
+import pytest
 
 import qwenpaw.providers.openai_provider as openai_provider_module
-from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.openai_provider import (
+    GitHubModelsProvider,
+    KiloProvider,
+    OpenCodeProvider,
+    OpenAIProvider,
+)
+from qwenpaw.providers.provider import ModelInfo
 
 
 def _make_provider(is_custom: bool = False) -> OpenAIProvider:
@@ -30,7 +38,8 @@ async def test_check_connection_success(monkeypatch) -> None:
             calls.append(timeout)
             return SimpleNamespace(data=[])
 
-    fake_client = SimpleNamespace(models=FakeModels())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
     ok, msg = await provider.check_connection(timeout=2.5)
@@ -38,6 +47,7 @@ async def test_check_connection_success(monkeypatch) -> None:
     assert ok is True
     assert msg == ""
     assert calls == [2.5]
+    close.assert_awaited_once()
 
 
 async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
@@ -47,7 +57,8 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
         async def list(self, timeout=None):
             raise RuntimeError("boom")
 
-    fake_client = SimpleNamespace(models=FakeModels())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
     monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
@@ -57,12 +68,18 @@ async def test_check_connection_api_error_returns_false(monkeypatch) -> None:
     assert msg.startswith(
         f"API error when connecting to `{provider.base_url}`",
     )
+    close.assert_awaited_once()
 
 
 async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
     provider = _make_provider()
     rows = [
-        SimpleNamespace(id="gpt-4o-mini", name="GPT-4o Mini"),
+        SimpleNamespace(
+            id="gpt-4o-mini",
+            name="GPT-4o Mini",
+            context_length=128_000,
+            max_output_tokens=16_384,
+        ),
         SimpleNamespace(id="gpt-4o-mini", name="dup"),
         SimpleNamespace(id="gpt-4.1", name=""),
         SimpleNamespace(id="   ", name="invalid"),
@@ -73,30 +90,118 @@ async def test_list_model_normalizes_and_deduplicates(monkeypatch) -> None:
             _ = timeout
             return SimpleNamespace(data=rows)
 
-    fake_client = SimpleNamespace(models=FakeModels())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
     models = await provider.fetch_models(timeout=3)
 
     assert [m.id for m in models] == ["gpt-4o-mini", "gpt-4.1"]
     assert [m.name for m in models] == ["GPT-4o Mini", "gpt-4.1"]
+    assert models[0].max_input_length_auto_detected == 128_000
+    assert models[0].max_output_length == 16_384
     assert not provider.models  # should not update provider state
+    close.assert_awaited_once()
 
 
-async def test_list_model_api_error_returns_empty(monkeypatch) -> None:
-    provider = _make_provider()
+async def test_kilo_uses_gateway_free_flag_for_non_suffix_routes(
+    monkeypatch,
+) -> None:
+    provider = KiloProvider(
+        id="kilo",
+        name="Kilo Code",
+        base_url="https://api.kilo.ai/api/gateway",
+        require_api_key=False,
+    )
+    rows = [
+        SimpleNamespace(id="kilo-auto/free", name="Auto Free", isFree=True),
+        SimpleNamespace(
+            id="nvidia/nemotron-3-ultra-550b-a55b:free",
+            name="Nemotron 3 Ultra",
+            isFree=True,
+        ),
+        SimpleNamespace(
+            id="nex-agi/nex-n2-pro:free",
+            name="Nex N2 Pro",
+            isFree=False,
+        ),
+        SimpleNamespace(
+            id="kilo-auto/frontier",
+            name="Frontier",
+            isFree=False,
+        ),
+    ]
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            _ = timeout
+            return SimpleNamespace(data=rows)
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    models = await provider.fetch_models()
+
+    assert [model.id for model in models if model.is_free] == [
+        "kilo-auto/free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+    ]
+    assert [model.id for model in models if not model.is_free] == [
+        "nex-agi/nex-n2-pro:free",
+        "kilo-auto/frontier",
+    ]
+    close.assert_awaited_once()
+
+
+async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
+    provider = OpenCodeProvider(
+        id="opencode",
+        name="OpenCode",
+        base_url="https://opencode.ai/zen/v1",
+        require_api_key=False,
+    )
+    rows = [
+        SimpleNamespace(id="deepseek-v4-flash-free"),
+        SimpleNamespace(id="mimo-v2.5-free"),
+        SimpleNamespace(id="nemotron-3-super-free"),
+        SimpleNamespace(id="nemotron-3-ultra-free"),
+    ]
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            _ = timeout
+            return SimpleNamespace(data=rows)
+
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    models = await provider.fetch_models()
+
+    assert [model.id for model in models] == [
+        "mimo-v2.5-free",
+        "nemotron-3-ultra-free",
+    ]
+    assert all(model.is_free for model in models)
+    close.assert_awaited_once()
+
+
+async def test_custom_list_model_error_propagates(monkeypatch) -> None:
+    provider = _make_provider(is_custom=True)
 
     class FakeModels:
         async def list(self, timeout=None):
             raise RuntimeError("failed")
 
-    fake_client = SimpleNamespace(models=FakeModels())
+    close = AsyncMock()
+    fake_client = SimpleNamespace(models=FakeModels(), close=close)
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
 
-    models = await provider.fetch_models(timeout=3)
+    with pytest.raises(RuntimeError, match="failed"):
+        await provider.fetch_models(timeout=3)
 
-    assert models == []
+    close.assert_awaited_once()
 
 
 async def test_check_model_connection_success(monkeypatch) -> None:
@@ -104,19 +209,33 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     captured: list[dict] = []
 
     class FakeStream:
+        def __init__(self, chunks=None):
+            self._chunks = iter(chunks or [])
+            self.closed = False
+
         def __aiter__(self):
             return self
 
         async def __anext__(self):
-            raise StopAsyncIteration
+            try:
+                return next(self._chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def close(self):
+            self.closed = True
+
+    stream = FakeStream()
 
     class FakeCompletions:
         async def create(self, **kwargs):
             captured.append(kwargs)
-            return FakeStream()
+            return stream
 
+    close = AsyncMock()
     fake_client = SimpleNamespace(
         chat=SimpleNamespace(completions=FakeCompletions()),
+        close=close,
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
@@ -129,6 +248,132 @@ async def test_check_model_connection_success(monkeypatch) -> None:
     assert captured[0]["timeout"] == 4
     assert captured[0]["max_tokens"] == 20
     assert captured[0]["stream"] is True
+    assert "tools" not in captured[0]
+    assert "tool_choice" not in captured[0]
+    assert stream.closed is True
+    close.assert_awaited_once()
+
+
+async def test_check_model_connection_closes_stream_on_iteration_error(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+
+    class FailingStream:
+        def __init__(self):
+            self.closed = False
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise RuntimeError("stream failed")
+
+        async def close(self):
+            self.closed = True
+
+    stream = FailingStream()
+    completions = SimpleNamespace(create=AsyncMock(return_value=stream))
+    close = AsyncMock()
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=completions),
+        close=close,
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    result = await provider.check_model_connection("gpt-4o-mini")
+
+    assert result.success is False
+    assert stream.closed is True
+    close.assert_awaited_once()
+
+
+async def test_multimodal_probes_close_clients_on_success_and_error(
+    monkeypatch,
+) -> None:
+    provider = _make_provider()
+    image_close = AsyncMock()
+    video_close = AsyncMock()
+
+    image_response = SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content="red"),
+            ),
+        ],
+    )
+
+    class ImageCompletions:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return image_response
+
+    class FailingCompletions:
+        async def create(self, **kwargs):
+            _ = kwargs
+            raise RuntimeError("video probe failed")
+
+    image_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=ImageCompletions()),
+        close=image_close,
+    )
+    video_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FailingCompletions()),
+        close=video_close,
+    )
+    clients = iter((image_client, video_client))
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: next(clients))
+
+    image_result = await provider._probe_image_support("vision-model")
+    video_result = await provider._try_video_url(
+        "vision-model",
+        "data:video/mp4;base64,AA==",
+        timeout=5,
+        start_time=0,
+    )
+
+    assert image_result[0] is True
+    assert video_result == (False, "Probe failed: video probe failed")
+    image_close.assert_awaited_once()
+    video_close.assert_awaited_once()
+
+
+async def test_github_models_connection_closes_client(monkeypatch) -> None:
+    provider = GitHubModelsProvider(
+        id="github-models",
+        name="GitHub Models",
+        base_url="https://models.github.ai/inference",
+        api_key="gh-test",
+        chat_model="OpenAIChatModel",
+    )
+    response_close = AsyncMock()
+    client_close = AsyncMock()
+
+    class FakeStream:
+        response = SimpleNamespace(aclose=response_close)
+
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            raise StopAsyncIteration
+
+    class FakeCompletions:
+        async def create(self, **kwargs):
+            _ = kwargs
+            return FakeStream()
+
+    fake_client = SimpleNamespace(
+        chat=SimpleNamespace(completions=FakeCompletions()),
+        close=client_close,
+    )
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+
+    result = await provider.check_connection(timeout=2)
+
+    assert result == (True, "")
+    response_close.assert_awaited_once()
+    client_close.assert_awaited_once()
 
 
 async def test_check_gpt5_model_uses_max_completion_tokens(
@@ -138,16 +383,28 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
     captured: list[dict] = []
 
     class FakeStream:
+        def __init__(self, chunks=None):
+            self._chunks = iter(chunks or [])
+            self.closed = False
+
         def __aiter__(self):
             return self
 
         async def __anext__(self):
-            raise StopAsyncIteration
+            try:
+                return next(self._chunks)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+        async def close(self):
+            self.closed = True
+
+    stream = FakeStream()
 
     class FakeCompletions:
         async def create(self, **kwargs):
             captured.append(kwargs)
-            return FakeStream()
+            return stream
 
     fake_client = SimpleNamespace(
         chat=SimpleNamespace(completions=FakeCompletions()),
@@ -158,8 +415,10 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
 
     assert ok is True
     assert msg == ""
+    assert len(captured) == 1
     assert captured[0]["max_completion_tokens"] == 20
     assert "max_tokens" not in captured[0]
+    assert stream.closed is True
 
 
 def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
@@ -218,6 +477,55 @@ def test_get_gpt5_model_maps_configured_max_tokens() -> None:
     }
 
 
+def test_get_model_omits_unknown_max_tokens() -> None:
+    provider = _make_provider()
+    provider.models = [ModelInfo(id="unknown-limit", name="Unknown Limit")]
+
+    model = provider.get_chat_model_instance("unknown-limit")
+
+    assert model.parameters.max_tokens is None
+
+
+def test_legacy_model_max_tokens_is_rejected() -> None:
+    with pytest.raises(ValueError, match="no longer supported"):
+        ModelInfo(
+            id="legacy-limit",
+            name="Legacy Limit",
+            max_tokens=1234,
+        )
+
+
+def test_model_generate_kwargs_sets_request_limit() -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="configured-limit",
+            name="Configured Limit",
+            generate_kwargs={"max_tokens": 2048},
+        ),
+    ]
+
+    kwargs = provider.get_effective_generate_kwargs("configured-limit")
+
+    assert kwargs["max_tokens"] == 2048
+
+
+def test_get_model_does_not_send_discovered_output_capability() -> None:
+    provider = _make_provider()
+    provider.models = [
+        ModelInfo(
+            id="known-limit",
+            name="Known Limit",
+            max_output_length=16_384,
+            max_output_length_source="api",
+        ),
+    ]
+
+    model = provider.get_chat_model_instance("known-limit")
+
+    assert model.parameters.max_tokens is None
+
+
 def test_get_o_series_model_maps_configured_max_tokens() -> None:
     provider = _make_provider()
     provider.generate_kwargs = {"max_tokens": 4096}
@@ -265,9 +573,9 @@ async def test_check_model_connection_api_error_returns_false(
 
     assert ok is False
     assert msg.startswith(
-        "API error when connecting to model 'gpt-4o-mini'",
+        "API error when connecting to model 'gpt-4o-mini' (status=unknown): ",
     )
-    assert "failed" in msg
+    assert msg.endswith("failed")
 
 
 async def test_check_model_connection_non_chat_model_skips_chat_probe(
@@ -567,6 +875,28 @@ async def test_check_model_connection_api_type_mismatch_treated_as_ok(
 
     assert ok is True
     assert "dedicated non-chat" in msg
+
+
+async def test_connection_error_redacts_credentials(monkeypatch) -> None:
+    provider = _make_provider()
+
+    class FakeModels:
+        async def list(self, timeout=None):
+            _ = timeout
+            raise RuntimeError(
+                "Authorization: Bearer sk-secret x-api-key=other-secret",
+            )
+
+    fake_client = SimpleNamespace(models=FakeModels())
+    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
+    monkeypatch.setattr(openai_provider_module, "APIError", Exception)
+
+    ok, message = await provider.check_connection()
+
+    assert ok is False
+    assert "sk-secret" not in message
+    assert "other-secret" not in message
+    assert "[redacted]" in message
 
 
 async def test_update_config_updates_non_none_values_and_get_info() -> None:

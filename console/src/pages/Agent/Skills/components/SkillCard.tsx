@@ -16,10 +16,12 @@ import {
 import dayjs from "dayjs";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
+import { normalizeSkillChannels } from "../../../../utils/skill";
 import styles from "../index.module.less";
 
 interface SkillCardProps {
   skill: SkillSpec;
+  getChannelName?: (key: string) => string;
   selected?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
   onClick: () => void;
@@ -58,7 +60,6 @@ export const getFileIcon = (filePath: string) => {
     "file_reader",
     "browser",
     "guidance",
-    "himalaya",
     "dingtalk_channel",
   ]);
 
@@ -139,6 +140,7 @@ export const getSkillVisual = (name: string, emoji?: string) => {
 
 export const SkillCard = React.memo(function SkillCard({
   skill,
+  getChannelName,
   selected,
   onSelect,
   onClick,
@@ -225,16 +227,32 @@ export const SkillCard = React.memo(function SkillCard({
             ) : (
               <span className={styles.customTag}>{t("skills.custom")}</span>
             )}
+            {skill.preload && (
+              <span className={styles.preloadTag}>{t("skills.preload")}</span>
+            )}
           </h3>
         </Tooltip>
       </div>
+
+      {skill.version_text && (
+        <div className={styles.metaInfoRow}>
+          <span className={styles.metaInfoLabel}>{t("skillPool.version")}</span>
+          <span className={styles.metaInfoValue}>{skill.version_text}</span>
+        </div>
+      )}
 
       {/* Channels row */}
       <div className={styles.metaInfoRow}>
         <span className={styles.metaInfoLabel}>{t("skills.channels")}</span>
         <span className={styles.metaInfoValue}>
-          {(skill.channels || ["all"])
-            .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+          {normalizeSkillChannels(skill.channels)
+            .map((ch) =>
+              getChannelName
+                ? getChannelName(ch)
+                : ch === "all"
+                ? t("skills.allChannels")
+                : ch,
+            )
             .join(", ")}
         </span>
       </div>

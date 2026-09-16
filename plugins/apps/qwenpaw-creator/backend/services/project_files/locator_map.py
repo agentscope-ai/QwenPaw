@@ -161,6 +161,18 @@ def derive_ui_locator(
         return {}
 
     if (
+        len(tokens) == 4
+        and tokens[:2] == ["timelines", "items"]
+        and tokens[3] in {"title", "synopsis", "description"}
+    ):
+        return {
+            "page": "blueprint",
+            "timelineId": tokens[2],
+            "mediaType": "text",
+            "field": pointer,
+        }
+
+    if (
         len(tokens) >= 5
         and tokens[0] == "timelines"
         and tokens[1] == "items"

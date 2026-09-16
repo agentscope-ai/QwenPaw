@@ -648,7 +648,7 @@ class TestSkillPoolBuiltinImport:
 
 
 # ============================================================================
-# SYNC-001 P1  Skill card shows sync-status badge + auto-update button
+# SYNC-001 P1  Skill card shows sync status + one automation action
 # ============================================================================
 
 @pytest.mark.integration
@@ -657,7 +657,7 @@ class TestSkillPoolBuiltinImport:
 @pytest.mark.skill_sync
 class TestSkillAutoSyncCard:
     """SYNC-001: a pool skill card carries a sync-status badge and, on hover,
-    the auto-update quick-toggle button (upstream #5639)."""
+    the single automation quick action."""
 
     SKILL_NAME = "e2e_sync_card_skill"
 
@@ -693,10 +693,10 @@ class TestSkillAutoSyncCard:
                 card.locator(pool.STATUS_DOT).first
             ).to_be_visible(timeout=pool.timeout)
 
-            log_test_step("5. Hovering the card reveals the auto-update button")
+            log_test_step("5. Hovering the card reveals the automation action")
             pool.hover_card(card)
             expect(
-                card.locator(pool.AUTO_UPDATE_BUTTON).first
+                card.locator(pool.AUTOMATION_BUTTON).first
             ).to_be_visible(timeout=pool.timeout)
 
             log_test_result(test_name, True, 0)
@@ -730,7 +730,7 @@ class TestSkillAutoSyncDrawer:
         test_name = request.node.name
         pool = SkillPoolPage(page)
         try:
-            log_test_step("1. Seed a pool skill (auto_update defaults off)")
+            log_test_step("1. Seed a pool skill (auto_sync defaults off)")
             SkillPoolPage.delete_pool_skill(api_context, self.SKILL_NAME)
             assert SkillPoolPage.seed_pool_skill(
                 api_context, self.SKILL_NAME
@@ -766,7 +766,7 @@ class TestSkillAutoSyncDrawer:
             card = pool.find_card_by_name(self.SKILL_NAME)
             assert card is not None, "Card missing after save"
             expect(
-                card.locator(pool.AUTO_UPDATE_TAG).first
+                card.locator(pool.AUTOMATION_TAG).first
             ).to_be_visible(timeout=pool.timeout)
 
             log_test_result(test_name, True, 0)

@@ -28,6 +28,7 @@ from computer_use.protocol import (
     ComputerUseProtocolError,
     NativeRequest,
 )
+from qwenpaw.app.computer_use import COMPUTER_USE_PROTOCOL_VERSION
 
 _SERVER = (
     Path(__file__).resolve().parents[4]
@@ -38,6 +39,14 @@ _SERVER = (
 )
 _DISPATCH = _SERVER / "dispatch.rs"
 _PROTOCOL = _SERVER.parent / "computer_use_protocol.rs"
+_PLUGIN_PROTOCOL = (
+    Path(__file__).resolve().parents[4]
+    / "plugins"
+    / "bundle"
+    / "computer-use"
+    / "computer_use"
+    / "protocol.py"
+)
 
 # A method the helper answers but the adapter never sends. Listed rather than
 # ignored, so unused protocol surface stays visible instead of accumulating.
@@ -103,8 +112,8 @@ def test_the_guarded_set_is_a_subset_of_the_vocabulary() -> None:
     assert guarded <= NATIVE_METHODS, sorted(guarded - NATIVE_METHODS)
 
 
-def test_both_sides_speak_the_same_protocol_version() -> None:
-    """The version is declared once per language, with nothing tying them.
+def test_all_components_speak_the_same_protocol_version() -> None:
+    """The independently installed components must reject contract drift.
 
     A mismatch is caught at run time as a refused handshake, so it cannot go
     unnoticed -- but it would be noticed by whoever is holding the machine,
@@ -113,7 +122,18 @@ def test_both_sides_speak_the_same_protocol_version() -> None:
     source = _PROTOCOL.read_text(encoding="utf-8")
     match = re.search(r"const VERSION: u64 = (\d+);", source)
     assert match, "the helper should declare its protocol version"
-    assert int(match.group(1)) == PROTOCOL_VERSION
+    plugin_source = _PLUGIN_PROTOCOL.read_text(encoding="utf-8")
+    plugin_match = re.search(
+        r"^PROTOCOL_VERSION = (\d+)$",
+        plugin_source,
+        re.M,
+    )
+    assert plugin_match, "the plugin should own its expected protocol version"
+    assert {
+        int(match.group(1)),
+        int(plugin_match.group(1)),
+        COMPUTER_USE_PROTOCOL_VERSION,
+    } == {PROTOCOL_VERSION}
 
 
 def test_a_method_outside_the_vocabulary_never_reaches_the_wire() -> None:

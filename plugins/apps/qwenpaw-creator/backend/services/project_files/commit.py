@@ -24,7 +24,7 @@ import re
 import secrets
 import shutil
 import stat
-from typing import Any, Mapping
+from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, field_validator
@@ -67,6 +67,7 @@ from .json_pointer import (
 from .locator_map import derive_ui_locator
 from .models import Project
 from .serialization import project_etag
+from .review_bookkeeping import is_human_review_change
 from .store import ProjectSnapshot, ProjectStore
 
 logger = logging.getLogger("qwenpaw.creator.project_files.commit")
@@ -248,9 +249,11 @@ def _review_operation_id(round_id: str, change: ProjectChange) -> str:
     locator = (
         f"pointer:{change.json_pointer}"
         if change.json_pointer is not None
-        else f"file:{change.file_id}"
-        if change.file_id is not None
-        else f"target:{change.target_ref}"
+        else (
+            f"file:{change.file_id}"
+            if change.file_id is not None
+            else f"target:{change.target_ref}"
+        )
     )
     return hashed_runtime_segment("operation", round_id, locator)
 
@@ -259,6 +262,15 @@ def _update_manual_edit_buffer(
     store: ProjectStore,
     changeset: RuntimeChangeSet,
 ) -> None:
+    changeset = changeset.model_copy(
+        update={
+            "changes": [
+                change
+                for change in changeset.changes
+                if is_human_review_change(change)
+            ],
+        },
+    )
     if not changeset.changes:
         return
     manual = ManualEditBufferStore(store.root)
@@ -336,6 +348,10 @@ class ProjectCommitBoundary:
         advance_accepted_baseline: bool = True,
         block_token: str | None = None,
         reconcile_exclude_round_id: str | None = None,
+        prompt_sync_confirmation: tuple[str, str, str] | None = None,
+        prompt_sync_expected_etag: str | None = None,
+        prompt_sync_context_validator: Callable[[dict[str, Any]], None]
+        | None = None,
         _order_lock_held: bool = False,
         _lifecycle_lock_held: bool = False,
     ) -> ProjectCommitResult:
@@ -434,7 +450,8 @@ class ProjectCommitBoundary:
             # A transaction becomes discoverable only after every recovery
             # input, including its initial PREPARED journal, is durable.  A
             # process death during preparation can leave garbage below the
-            # Runtime temp staging directory, but never a journal-less transaction
+            # Runtime temp staging directory, but never a journal-less
+            # transaction
             # that blocks startup recovery or later commits.
             transactions_root = transaction_root.parent
             transactions_root.mkdir(parents=True, exist_ok=True)
@@ -547,11 +564,30 @@ class ProjectCommitBoundary:
                 timeout_seconds=self.lock_timeout_seconds,
             ):
                 latest = self.store.read(project_id)
+                if (
+                    prompt_sync_expected_etag is not None
+                    and latest.etag != prompt_sync_expected_etag
+                ):
+                    from domain.errors import ConflictError
+
+                    raise ConflictError("项目在保存同步结果时已更新，请按最新内容重新生成")
                 latest_data = _json(latest.project)
+                if prompt_sync_context_validator is not None:
+                    prompt_sync_context_validator(latest_data)
                 merged, _requested_changes = merge_candidate(
                     base=base_data,
                     candidate=candidate_data,
                     latest=latest_data,
+                )
+                from .prompt_sync import derive_prompt_sync_changes
+
+                derive_prompt_sync_changes(
+                    latest_data,
+                    merged,
+                    confirmation=prompt_sync_confirmation,
+                    changed_pointers=(
+                        change.pointer for change in _requested_changes
+                    ),
                 )
                 actual_changes = diff_json(latest_data, merged)
                 if not actual_changes:
@@ -595,7 +631,10 @@ class ProjectCommitBoundary:
                     merged["created_at"] = latest_data["created_at"]
                     merged["generation"] = latest.generation + 1
                     merged["updated_at"] = _now().isoformat()
-                    final_project = Project.model_validate(merged)
+                    final_project = Project.model_validate(
+                        merged,
+                        context={"reject_retired_authoring_fields": True},
+                    )
                     final_data = _json(final_project)
                     pre_publish_etag = latest.etag
                     expected_final_etag = project_etag(final_project)
@@ -641,6 +680,13 @@ class ProjectCommitBoundary:
                 if not is_protected_pointer(item.pointer)
             )
             runtime_changes = [_runtime_change(item) for item in final_changes]
+            # Provenance remains in immutable audit records, but must never
+            # become a hidden, impossible-to-decide human review operation.
+            human_changes = [
+                change
+                for change in runtime_changes
+                if is_human_review_change(change)
+            ]
             changeset = RuntimeChangeSet(
                 round_id=round_id,
                 project_id=project_id,
@@ -666,12 +712,15 @@ class ProjectCommitBoundary:
                 runtime_root / "change-rounds" / round_id / "changeset.json",
                 RuntimeChangeSet,
             ).write(changeset)
-            _update_manual_edit_buffer(self.store, changeset)
+            _update_manual_edit_buffer(
+                self.store,
+                changeset.model_copy(update={"changes": human_changes}),
+            )
             review = self._record_review(
                 runtime_root=runtime_root,
                 round_record=round_record,
                 snapshot=snapshot,
-                changes=runtime_changes,
+                changes=human_changes,
             )
             (
                 existing_review_pending,
@@ -681,7 +730,7 @@ class ProjectCommitBoundary:
                 runtime_root=runtime_root,
                 origin=origin_value,
                 snapshot=snapshot,
-                changes=runtime_changes,
+                changes=human_changes,
                 exclude_round_ids=frozenset(
                     value
                     for value in (
@@ -705,7 +754,8 @@ class ProjectCommitBoundary:
                     update={"created_at": existing_aggregate_round.created_at},
                 ),
             )
-            # Determine the active_round_id: prefer the earliest-created pending review
+            # Determine the active_round_id: prefer the earliest-created
+            # pending review
             if review is not None:
                 reviews_root = runtime_root / "reviews"
                 earliest_round_id = round_id
@@ -979,9 +1029,11 @@ class ProjectCommitBoundary:
                 f"{state.active_round_id}",
             )
         # Multiple pending reviews may coexist on disk: media/runtime tasks and
-        # AgentDock interventions each publish their own review round.  The read
+        # AgentDock interventions each publish their own review round.  The
+        # read
         # path (ProjectReviewService.active) scans runtime/reviews and always
-        # surfaces a still-pending review, and decisions are keyed by review id,
+        # surfaces a still-pending review, and decisions are keyed by review
+        # id,
         # so a second review boundary no longer needs to block the first.  We
         # keep the missing-review recovery guard above, but a still-pending
         # active review is now an accepted, self-healing state.
@@ -1006,15 +1058,37 @@ class ProjectCommitBoundary:
                 or not entry.is_dir()
             ):
                 continue
-            journal = AtomicJsonRecordStore(
+            journal_store = AtomicJsonRecordStore(
                 entry / "journal.json",
                 ProjectCommitJournal,
-            ).read_or_none()
+            )
+            journal = journal_store.read_or_none()
             if journal is None:
                 raise PendingProjectRecoveryError(
                     f"Runtime transaction has no journal: {entry.name}",
                 )
             if journal.state is CommitJournalState.PROJECT_REPLACED:
+                # If final_etag doesn't match current authority_etag, the
+                # project
+                # has moved past this transaction. Mark it as ABORTED to
+                # unblock.
+                if journal.final_etag != authority_etag:
+                    logger.warning(
+                        "Auto-aborting stale PROJECT_REPLACED transaction %s: "
+                        "final_etag=%s != authority_etag=%s",
+                        journal.transaction_id,
+                        journal.final_etag,
+                        authority_etag,
+                    )
+                    aborted_journal = journal.model_copy(
+                        update={
+                            "state": CommitJournalState.ABORTED,
+                            "error": "auto-aborted: project moved past this transaction",
+                            "updated_at": datetime.now(UTC),
+                        },
+                    )
+                    journal_store.write(aborted_journal)
+                    continue
                 raise PendingProjectRecoveryError(
                     f"Project transaction requires recovery: {journal.transaction_id}",
                 )
@@ -1145,6 +1219,9 @@ class ProjectCommitBoundary:
         snapshot: ProjectSnapshot,
         changes: list[ProjectChange],
     ) -> ReviewRecord | None:
+        changes = [
+            change for change in changes if is_human_review_change(change)
+        ]
         boundary = round_record.review_boundary
         if (
             round_record.review_policy is not ReviewPolicy.REQUIRE_REVIEW
@@ -1246,6 +1323,9 @@ class ProjectCommitBoundary:
         ``active_round_id`` happens to point at.
         """
 
+        changes = [
+            change for change in changes if is_human_review_change(change)
+        ]
         reviews_root = runtime_root / "reviews"
         if not reviews_root.is_dir():
             return False, False, None
@@ -1321,9 +1401,11 @@ class ProjectCommitBoundary:
                         "candidate_generation": snapshot.generation,
                         "candidate_etag": snapshot.etag,
                         "decision_token": secrets.token_urlsafe(24),
-                        "status": ReviewStatus.PENDING
-                        if pending
-                        else ReviewStatus.RESOLVED,
+                        "status": (
+                            ReviewStatus.PENDING
+                            if pending
+                            else ReviewStatus.RESOLVED
+                        ),
                         "operations": operations,
                         "updated_at": _now(),
                     },

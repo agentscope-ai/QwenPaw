@@ -3,6 +3,9 @@
 """Tests for the encrypted secret store layer."""
 from __future__ import annotations
 
+import logging
+import os
+import stat
 from pathlib import Path
 from unittest.mock import patch
 
@@ -173,6 +176,92 @@ class TestMasterKeyGeneration:
             key = mod._get_master_key()
 
         assert key == bytes.fromhex(key_hex)
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX permission bits are not enforced on Windows",
+)
+class TestMasterKeyFilePermissions:
+    @pytest.mark.parametrize("insecure_mode", [0o644, 0o666])
+    def test_read_corrects_insecure_permissions(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+        insecure_mode: int,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        key_hex = "aa" * 32
+        key_file = tmp_path / ".master_key"
+        key_file.write_text(key_hex, encoding="utf-8")
+        os.chmod(key_file, insecure_mode)
+
+        with caplog.at_level(logging.WARNING, logger=mod.__name__):
+            assert mod._read_key_file() == key_hex
+
+        assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+        assert "had insecure permissions" in caplog.text
+
+    def test_read_does_not_loosen_stricter_owner_permissions(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        key_hex = "aa" * 32
+        key_file = tmp_path / ".master_key"
+        key_file.write_text(key_hex, encoding="utf-8")
+        os.chmod(key_file, 0o400)
+
+        with caplog.at_level(logging.WARNING, logger=mod.__name__):
+            assert mod._read_key_file() == key_hex
+
+        assert stat.S_IMODE(key_file.stat().st_mode) == 0o400
+        assert "permissions" not in caplog.text
+
+    def test_chmod_failure_warns_but_keeps_existing_key(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        key_hex = "aa" * 32
+        key_file = tmp_path / ".master_key"
+        key_file.write_text(key_hex, encoding="utf-8")
+        os.chmod(key_file, 0o644)
+
+        def fail_chmod(_path: Path, _mode: int) -> None:
+            raise PermissionError("chmod denied")
+
+        monkeypatch.setattr(mod.os, "chmod", fail_chmod)
+        with caplog.at_level(logging.WARNING, logger=mod.__name__):
+            assert mod._read_key_file() == key_hex
+
+        assert "Could not verify or correct" in caplog.text
+
+    def test_reload_corrects_permissions(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        key_hex = "aa" * 32
+        key_file = tmp_path / ".master_key"
+        key_file.write_text(key_hex, encoding="utf-8")
+        os.chmod(key_file, 0o644)
+        monkeypatch.setattr(mod, "_try_keyring_set", lambda _key: True)
+
+        with caplog.at_level(logging.WARNING, logger=mod.__name__):
+            mod.reload_master_key_from_disk()
+
+        assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
+        assert "had insecure permissions" in caplog.text
 
 
 class TestKeyringAccountIsolation:

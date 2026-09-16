@@ -37,8 +37,8 @@ if sys.platform == "win32" or TYPE_CHECKING:
     import msvcrt
 
 from .config import (  # noqa: E402  pylint: disable=wrong-import-position
-    ExecutionResult,
     NETWORK_DOMAIN_HINT,
+    ExecutionResult,
     SandboxConfig,
     network_allow_is_absolute,
     report_unenforced_config,
@@ -1107,7 +1107,55 @@ def _is_pid_alive(pid: int) -> bool:
         return False
 
 
-def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
+def _reset_dacl_to_inherited(path: str) -> bool:
+    """Resets a path's DACL to inherit from parent, removing all explicit ACEs.
+
+    This is the fallback when we cannot read the DACL (e.g. because a
+    deny ACE blocks READ_CONTROL). The owner always has implicit WRITE_DAC,
+    so SetNamedSecurityInfoW with an empty DACL should succeed even when
+    the DACL cannot be read.
+
+    Setting DACL to None with UNPROTECTED_DACL_SECURITY_INFORMATION causes
+    Windows to replace the DACL with inheritable ACEs from the parent.
+
+    Args:
+        path: Filesystem path to reset.
+
+    Returns:
+        True if the DACL was reset successfully.
+    """
+    advapi32 = _get_advapi32()
+
+    # UNPROTECTED_DACL_SECURITY_INFORMATION = 0x20000000
+    # Combined with DACL_SECURITY_INFORMATION, this tells Windows to:
+    # 1. Replace the explicit DACL with what we provide (None = empty)
+    # 2. Allow inheritable ACEs from parent to propagate
+    _UNPROTECTED_DACL = 0x20000000
+    info_flags = _WC.DACL_SECURITY_INFORMATION | _UNPROTECTED_DACL
+
+    rc = advapi32.SetNamedSecurityInfoW(
+        ctypes.c_wchar_p(path),
+        _WC.SE_FILE_OBJECT,
+        info_flags,
+        None,
+        None,
+        None,  # NULL DACL = inherit from parent
+        None,
+    )
+    if rc != 0:
+        logger.warning(
+            "SetNamedSecurityInfoW(%s) failed during DACL reset: rc=%d",
+            path,
+            rc,
+        )
+        return False
+
+    logger.info("DACL reset to inherited for %s", path)
+    return True
+
+
+# pylint: disable-next=too-many-branches,too-many-return-statements
+def _remove_ace_by_sid_api(
     path: str,
     sid_string: str,
 ) -> bool:
@@ -1115,6 +1163,10 @@ def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
 
     Directly manipulates the ACL structure, which works with fabricated
     SIDs that icacls cannot resolve.
+
+    If the DACL cannot be read (e.g. because a prior deny ACE blocks
+    READ_CONTROL), falls back to resetting the DACL to inherit from
+    the parent directory — effectively removing all explicit ACEs.
 
     Args:
         path: Filesystem path to clean.
@@ -1149,6 +1201,17 @@ def _remove_ace_by_sid_api(  # pylint: disable=too-many-branches
             ctypes.byref(p_sd),
         )
         if rc != 0:
+            # ERROR_ACCESS_DENIED = 5: the deny ACE we set previously
+            # blocks READ_CONTROL, so we cannot read the DACL. Fall back
+            # to resetting the DACL to inherit from parent (removes ALL
+            # explicit ACEs, restoring the file to its default state).
+            if rc == 5:
+                logger.info(
+                    "Cannot read DACL for %s (access denied); resetting "
+                    "DACL to inherited permissions",
+                    path,
+                )
+                return _reset_dacl_to_inherited(path)
             logger.warning(
                 "GetNamedSecurityInfoW(%s) failed during removal: rc=%d",
                 path,
@@ -2028,8 +2091,11 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
             "at all. Run as administrator for enforced blocking."
         ),
         "deny_paths": (
-            "Sensitive paths are NOT protected from read access; run as "
-            "administrator to enable full deny_paths enforcement."
+            "Sensitive paths are NOT protected from read access by default. "
+            "Enable 'Deny Paths Protection' in the web console to apply "
+            "system-level deny ACLs (affects ALL processes of the current "
+            "user). Run as administrator for full deny_paths enforcement "
+            "without side effects."
         ),
     }
 
@@ -2345,6 +2411,391 @@ class WindowsUnelevatedSandbox(WindowsSandboxBase):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Deny Paths Protection (ACL-based)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _get_current_user_sid_string() -> str:
+    """Returns the SID string of the current process user.
+
+    Opens the process token, queries TokenUser, and converts to string.
+
+    Returns:
+        SID string (e.g. ``S-1-5-21-…``).
+
+    Raises:
+        OSError: If token query fails.
+    """
+    advapi32 = _get_advapi32()
+    kernel32 = _get_kernel32()
+
+    h_token = ctypes.wintypes.HANDLE()
+    ok = advapi32.OpenProcessToken(
+        kernel32.GetCurrentProcess(),
+        0x0008,  # TOKEN_QUERY
+        ctypes.byref(h_token),
+    )
+    if not ok:
+        raise OSError(
+            f"OpenProcessToken failed: error={ctypes.get_last_error()}",
+        )
+
+    try:
+        # TokenUser = 1
+        needed = ctypes.wintypes.DWORD(0)
+        advapi32.GetTokenInformation(h_token, 1, None, 0, ctypes.byref(needed))
+        buf = (ctypes.c_ubyte * needed.value)()
+        ok = advapi32.GetTokenInformation(
+            h_token,
+            1,
+            buf,
+            needed.value,
+            ctypes.byref(needed),
+        )
+        if not ok:
+            raise OSError(
+                f"GetTokenInformation(TokenUser) failed: "
+                f"error={ctypes.get_last_error()}",
+            )
+        # TOKEN_USER: first field is PSID pointer
+        ptr_size = ctypes.sizeof(ctypes.c_void_p)
+        sid_ptr_val = int.from_bytes(
+            bytes(buf[:ptr_size]),
+            byteorder="little",
+        )
+        psid = ctypes.c_void_p(sid_ptr_val)
+        return _sid_to_string(psid, advapi32)
+    finally:
+        kernel32.CloseHandle(h_token)
+
+
+def _add_deny_ace_for_user(path: str, user_sid_string: str) -> bool:
+    """Adds a deny-all ACE for the specified user SID on a path.
+
+    Sets an inheritable DENY ACE that blocks read/write/execute for the
+    current user. This effectively prevents ANY access to the path.
+
+    Args:
+        path: Filesystem path to deny access to.
+        user_sid_string: SID string of the user to deny.
+
+    Returns:
+        True if the deny ACE was set successfully.
+    """
+    kernel32 = _get_kernel32()
+    try:
+        user_psid = _string_to_sid(user_sid_string)
+    except OSError:
+        logger.warning(
+            "Failed to convert user SID for deny ACE: %s",
+            user_sid_string,
+        )
+        return False
+
+    try:
+        # Deny file I/O operations but NOT security descriptor rights
+        # (READ_CONTROL, WRITE_DAC, WRITE_OWNER, SYNCHRONIZE).
+        # Preserving READ_CONTROL and WRITE_DAC is critical: without them
+        # the current user cannot read/modify the DACL to remove the deny
+        # ACE later, making the protection irreversible.
+        deny_mask = (
+            0x0001  # FILE_READ_DATA / FILE_LIST_DIRECTORY
+            | 0x0002  # FILE_WRITE_DATA / FILE_ADD_FILE
+            | 0x0004  # FILE_APPEND_DATA / FILE_ADD_SUBDIRECTORY
+            | 0x0008  # FILE_READ_EA
+            | 0x0010  # FILE_WRITE_EA
+            | 0x0020  # FILE_EXECUTE / FILE_TRAVERSE
+            | _WC.FILE_DELETE_CHILD
+            | 0x0080  # FILE_READ_ATTRIBUTES
+            | 0x0100  # FILE_WRITE_ATTRIBUTES
+            | _WC.DELETE
+        )
+        result = _set_path_ace(
+            path,
+            user_psid,
+            deny_mask,
+            _WC.DENY_ACCESS,
+            inherit=True,
+        )
+        return result
+    finally:
+        kernel32.LocalFree(user_psid)
+
+
+def _remove_deny_ace_for_user(path: str, user_sid_string: str) -> bool:
+    """Removes deny ACEs for the specified user SID from a path.
+
+    Args:
+        path: Filesystem path to clean.
+        user_sid_string: SID string whose deny ACEs should be removed.
+
+    Returns:
+        True if ACEs were removed or none existed.
+    """
+    return _remove_acl_with_verify_sync(path, user_sid_string)
+
+
+class DenyPathsProtection:
+    """Manages deny-path ACLs for the unelevated sandbox.
+
+    When enabled, sets DENY ACEs on the current user for configured
+    sensitive paths. When disabled (or on cleanup), removes those ACEs.
+
+    This is a module-level singleton that persists across sandbox
+    invocations. It's controlled by the frontend toggle and managed
+    by the backend API.
+
+    WARNING: While active, the current user cannot access the protected
+    paths from ANY process (not just sandboxed ones). This is an
+    intentional trade-off for security.
+    """
+
+    _instance: Optional["DenyPathsProtection"] = None
+    _lock: Optional[asyncio.Lock] = None
+
+    def __new__(cls) -> "DenyPathsProtection":
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self) -> None:
+        # Only initialise once (singleton pattern).
+        if hasattr(self, "_active"):
+            return
+        self._active: bool = False
+        self._protected_paths: List[str] = []
+        self._user_sid: Optional[str] = None
+        self._state_file = _qwenpaw_state_dir / "deny_paths_protection.json"
+
+    @classmethod
+    def get_lock(cls) -> asyncio.Lock:
+        """Returns the singleton asyncio lock (creates on first call)."""
+        if cls._lock is None:
+            cls._lock = asyncio.Lock()
+        lock: asyncio.Lock = cls._lock
+        return lock
+
+    @property
+    def active(self) -> bool:
+        """Whether deny path protection is currently active."""
+        return self._active
+
+    @property
+    def protected_paths(self) -> List[str]:
+        """List of paths currently protected."""
+        return list(self._protected_paths)
+
+    def _resolve_deny_paths(self, deny_paths: List[str]) -> List[str]:
+        """Expands and filters deny_paths to existing paths.
+
+        Args:
+            deny_paths: Raw deny_paths list (may contain ~ shortcuts).
+
+        Returns:
+            List of absolute, existing paths.
+        """
+        resolved = []
+        for p in deny_paths:
+            expanded = os.path.normpath(os.path.expanduser(p))
+            if os.path.exists(expanded):
+                resolved.append(expanded)
+        return resolved
+
+    def _get_user_sid(self) -> str:
+        """Gets or caches the current user SID string."""
+        if self._user_sid is None:
+            self._user_sid = _get_current_user_sid_string()
+        return self._user_sid
+
+    def _save_state(self) -> None:
+        """Persists protection state to disk for crash recovery."""
+        state = {
+            "active": self._active,
+            "user_sid": self._user_sid,
+            "protected_paths": self._protected_paths,
+            "pid": os.getpid(),
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        self._state_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self._state_file.with_suffix(".tmp")
+        try:
+            tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+            os.replace(str(tmp), str(self._state_file))
+        except OSError as e:
+            logger.warning("Failed to save deny_paths state: %s", e)
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _clear_state(self) -> None:
+        """Removes the persisted state file."""
+        try:
+            self._state_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    def enable(self, deny_paths: List[str]) -> Dict[str, Any]:
+        """Enables deny path protection by setting deny ACLs.
+
+        Args:
+            deny_paths: List of paths to protect (from config).
+
+        Returns:
+            Status dict with results.
+        """
+        if self._active:
+            return {
+                "status": "already_active",
+                "protected_paths": self._protected_paths,
+            }
+
+        user_sid = self._get_user_sid()
+        resolved = self._resolve_deny_paths(deny_paths)
+
+        if not resolved:
+            return {
+                "status": "no_paths",
+                "message": "No deny_paths exist on this system.",
+            }
+
+        succeeded: List[str] = []
+        failed: List[str] = []
+
+        for path in resolved:
+            if _add_deny_ace_for_user(path, user_sid):
+                succeeded.append(path)
+                logger.info(
+                    "Deny ACL set on %s for user %s",
+                    path,
+                    user_sid,
+                )
+            else:
+                failed.append(path)
+                logger.warning(
+                    "Failed to set deny ACL on %s for user %s",
+                    path,
+                    user_sid,
+                )
+
+        self._protected_paths = succeeded
+        self._active = len(succeeded) > 0
+        self._save_state()
+
+        return {
+            "status": "enabled" if self._active else "failed",
+            "protected_paths": succeeded,
+            "failed_paths": failed,
+        }
+
+    def disable(self) -> Dict[str, Any]:
+        """Disables deny path protection by removing deny ACLs.
+
+        Returns:
+            Status dict with results.
+        """
+        if not self._active:
+            return {"status": "not_active"}
+
+        user_sid = self._get_user_sid()
+        succeeded: List[str] = []
+        failed: List[str] = []
+
+        for path in self._protected_paths:
+            if _remove_deny_ace_for_user(path, user_sid):
+                succeeded.append(path)
+                logger.info(
+                    "Deny ACL removed from %s for user %s",
+                    path,
+                    user_sid,
+                )
+            else:
+                failed.append(path)
+                logger.warning(
+                    "Failed to remove deny ACL from %s for user %s",
+                    path,
+                    user_sid,
+                )
+
+        self._active = False
+        self._protected_paths = []
+        self._clear_state()
+
+        return {
+            "status": "disabled",
+            "cleaned_paths": succeeded,
+            "failed_paths": failed,
+        }
+
+    def status(self) -> Dict[str, Any]:
+        """Returns the current protection status.
+
+        Returns:
+            Dict with active state, protected paths, and user SID.
+        """
+        return {
+            "active": self._active,
+            "protected_paths": self._protected_paths,
+            "user_sid": self._user_sid,
+        }
+
+    @classmethod
+    def cleanup_orphaned(cls) -> None:
+        """Cleans up deny ACLs from a previous crashed session.
+
+        Reads the state file and removes any ACLs that were left behind.
+        Called at process startup.
+        """
+        state_file = _qwenpaw_state_dir / "deny_paths_protection.json"
+        if not state_file.exists():
+            return
+
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return
+
+        if not state.get("active"):
+            try:
+                state_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+
+        user_sid = state.get("user_sid", "")
+        paths = state.get("protected_paths", [])
+        owner_pid = state.get("pid")
+
+        # Only clean up if the owner process is dead (crashed)
+        if owner_pid is not None and _is_pid_alive(owner_pid):
+            # Owner is still alive; it will handle its own cleanup
+            return
+
+        if not user_sid or not paths:
+            try:
+                state_file.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return
+
+        logger.info(
+            "Cleaning up orphaned deny_paths ACLs (owner pid %s dead): "
+            "%d path(s)",
+            owner_pid,
+            len(paths),
+        )
+
+        for path in paths:
+            if os.path.exists(path):
+                _remove_deny_ace_for_user(path, user_sid)
+
+        try:
+            state_file.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Module-level cleanup
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -2423,9 +2874,19 @@ def shutdown_cleanup() -> None:  # pylint: disable=R0912
     """Best-effort cleanup of unelevated sandbox ACLs on process exit.
 
     Removes ACEs for orphaned sandboxes whose owner process is dead.
+    Also disables deny_paths protection if it's currently active.
     """
     if sys.platform != "win32":
         return
+
+    # Clean up deny_paths protection ACLs first
+    try:
+        protection = DenyPathsProtection()
+        if protection.active:
+            logger.info("Shutdown: removing deny_paths protection ACLs")
+            protection.disable()
+    except Exception as e:
+        logger.warning("Failed to clean deny_paths protection on exit: %s", e)
 
     _migrate_legacy_state_file()
 
@@ -2516,3 +2977,10 @@ def shutdown_cleanup() -> None:  # pylint: disable=R0912
 
 
 atexit.register(shutdown_cleanup)
+
+# On module load, clean up any orphaned deny_paths ACLs from crashed sessions
+if sys.platform == "win32":
+    try:
+        DenyPathsProtection.cleanup_orphaned()
+    except Exception as _e:
+        logger.debug("deny_paths orphan cleanup skipped: %s", _e)

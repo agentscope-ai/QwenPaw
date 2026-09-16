@@ -4,7 +4,8 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+import asyncio
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -37,6 +38,34 @@ class TestBuildBwrapArgs:
         defaults.update(kwargs)
         config = SandboxConfig(**defaults)
         return BubblewrapSandbox(config)
+
+    def test_execute_redirects_stdin_to_devnull(self):
+        """Bubblewrap commands must not inherit the parent console stdin."""
+        sandbox = self._make_sandbox()
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"ok", b""))
+
+        with (
+            patch.object(sandbox, "_find_bwrap", return_value="bwrap"),
+            patch.object(
+                sandbox,
+                "_build_bwrap_args",
+                return_value=["--", "/bin/sh", "-c", "echo ok"],
+            ),
+            patch(
+                "qwenpaw.sandbox.bubblewrap_sandbox."
+                "asyncio.create_subprocess_exec",
+                new=AsyncMock(return_value=proc),
+            ) as create_process,
+        ):
+            result = asyncio.run(sandbox.execute("echo ok"))
+
+        assert result.exit_code == 0
+        assert (
+            create_process.call_args.kwargs["stdin"]
+            is asyncio.subprocess.DEVNULL
+        )
 
     def test_allow_read_all_generates_ro_bind_root(self):
         sb = self._make_sandbox(allow_read_all=True)

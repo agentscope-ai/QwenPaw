@@ -229,7 +229,7 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                     tooltip={t("agentConfig.historyRetentionDaysTooltip")}
                     extra={
                       historyRetentionWarning ? (
-                        <span style={{ color: "#faad14" }}>
+                        <span style={{ color: "var(--app-warning-text)" }}>
                           {historyRetentionWarning}
                         </span>
                       ) : undefined

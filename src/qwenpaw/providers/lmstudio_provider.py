@@ -2,6 +2,7 @@
 """LM Studio Provider implementation."""
 
 from qwenpaw.providers.openai_provider import OpenAIProvider
+from qwenpaw.providers.provider import ModelConnectionResult
 
 
 class LMStudioProvider(OpenAIProvider):
@@ -11,9 +12,17 @@ class LMStudioProvider(OpenAIProvider):
         self,
         model_id: str,
         timeout: float = 5,
-    ) -> tuple[bool, str]:
+    ) -> ModelConnectionResult:
         """Check if a specific model is reachable/usable"""
         models = await self.fetch_models(timeout=timeout)
         if any(model.id == model_id for model in models):
-            return True, ""
-        return False, f"Model '{model_id}' not found"
+            return ModelConnectionResult(
+                success=True,
+                verification="provider_only",
+            )
+        return ModelConnectionResult(
+            success=False,
+            message=f"Model '{model_id}' not found",
+            error_kind="model_not_found",
+            verification="provider_only",
+        )

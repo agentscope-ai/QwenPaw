@@ -5,14 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
-    "build": "tsc -b && vite build && npm run verify:monaco-css",
-    "build:prod": "tsc -b && vite build --mode production && npm run verify:monaco-css",
+    "build": "tsc -b && vite build && npm run verify:monaco-css && npm run precompress && npm run verify:initial-bundle",
+    "build:prod": "tsc -b && vite build --mode production && npm run verify:monaco-css && npm run precompress && npm run verify:initial-bundle",
     "build:tauri-bootstrap": "tsc -b && vite build --mode tauri --config src-tauri/vite.bootstrap.config.ts && node ../scripts/pack-tauri/finalize_tauri_bootstrap.mjs",
     "build:test": "tsc -b && vite build --mode test",
     "format": "tsc -b --noEmit && prettier --write --cache .",
     "format:check": "tsc -b --noEmit && prettier --check .",
     "lint": "eslint .",
     "verify:monaco-css": "node scripts/verify-monaco-css.mjs",
+    "precompress": "node scripts/precompress-assets.mjs",
+    "verify:initial-bundle": "node scripts/verify-initial-bundle.mjs",
     "preview": "vite preview",
     "preview:prod": "vite preview --mode production",
     "preview:test": "vite preview --mode test",
@@ -21,9 +23,9 @@
     "test:coverage": "node --max-old-space-size=4096 ./node_modules/vitest/vitest.mjs run --coverage"
   },
   "dependencies": {
-    "@agentscope-ai/chat": "^1.1.73-beta.1786415183789",
-    "@agentscope-ai/design": "^1.0.14",
-    "@agentscope-ai/icons": "^1.0.67",
+    "@agentscope-ai/chat": "1.1.73-beta.1787638407498",
+    "@agentscope-ai/design": "1.0.29",
+    "@agentscope-ai/icons": "1.0.67",
     "@ant-design/icons": "^5.0.1",
     "@ant-design/plots": "^2.6.8",
     "@ant-design/x-markdown": "^2.2.2",
@@ -38,7 +40,7 @@
     "@vvo/tzdb": "^6.198.0",
     "3d-force-graph": "1.80.0",
     "ahooks": "^3.9.6",
-    "antd": "^5.29.1",
+    "antd": "5.29.3",
     "antd-style": "^3.7.1",
     "dayjs": "^1.11.13",
     "i18next": "^25.8.4",
@@ -90,8 +92,11 @@
     "prettier": "3.0.0",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.30.1",
-    "vite": "^6.3.5",
+    "vite": "6.4.1",
     "vitest": "^4.1.4"
+  },
+  "overrides": {
+    "@ant-design/x": "2.2.2"
   },
   "repository": "https://github.com/agentscope-ai/agentscope-runtime.git"
 }

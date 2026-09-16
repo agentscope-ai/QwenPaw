@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 """Backup package public API."""
-from ._ops.create import create_stream
 from ._ops.storage import (
     delete_backups,
     export_backup,
@@ -8,10 +7,12 @@ from ._ops.storage import (
     import_backup,
     list_backups,
 )
+from .manager import BackupManager, BackupOperationConflict
 from .orchestration import execute_restore
 
 __all__ = [
-    "create_stream",
+    "BackupManager",
+    "BackupOperationConflict",
     "list_backups",
     "get_backup",
     "delete_backups",

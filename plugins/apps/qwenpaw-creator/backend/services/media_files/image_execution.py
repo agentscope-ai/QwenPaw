@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
@@ -46,6 +47,12 @@ from domain.errors import (
     StorageIntegrityError,
     ValidationError,
 )
+from models.reference_markers import canonical_marker, canonical_marker_indices
+from models.image.base import (
+    image_reference_capability,
+    image_reference_limit,
+    is_content_refusal,
+)
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileStore,
@@ -60,6 +67,7 @@ from services.project_files.models import (
     VisualVariant,
 )
 from services.media_files.call_budget import ensure_media_call_budget
+from services.media_files.publication_retry import commit_with_lock_retry
 from services.media_files.element_adapter import (
     bind_candidate_output,
     find_timeline_element,
@@ -75,15 +83,23 @@ from services.media_files.transient_errors import (
     is_transient_task_error,
     transient_retry_slot_key,
 )
+from services.media_files.prompt_labels import media_prompt_entity_names
+from services.storyboard_layout import declared_storyboard_panel_count
 from services.media_files.visual_reference_resolution import (
-    resolve_r2v_visual_reference_version_ids,
+    storyboard_reference_plan,
 )
+from services.project_files.prompt_sync import assert_r2v_prompt_sync
 from services.media_files.visual_design_readiness import (
     assert_visual_design_ready_for_storyboards,
 )
+from services.observability import report_error
 from services.project_files.remote_cache import public_source_url
 from services.project_files.store import ProjectSnapshot
-from services.run_review.media_review import schedule_media_review
+from services.run_review.media_review import (
+    release_media_review_reservation,
+    reserve_media_review,
+    schedule_media_review,
+)
 from services.runtime_files.atomic_store import (
     AtomicJsonRecordStore,
     canonical_json_bytes,
@@ -139,9 +155,20 @@ _RESUME_HORIZON_SECONDS = 6 * 60 * 60.0
 # the horizon above, never from a run of transient failures.
 _RESUME_BACKOFF_MAX_SHIFT = 5
 _RESUME_BACKOFF_CAP_SECONDS = 300.0
-_EDIT_MAX_REFERENCES = 3
 _MAX_IMAGE_BYTES = 64 * 1024 * 1024
 _SAFE_SUFFIX = re.compile(r"^\.[A-Za-z0-9]{1,10}$")
+
+
+class ImageReferenceBudgetError(ValidationError):
+    """Resolved Project references exceed the active image model contract."""
+
+    code = "IMAGE_REFERENCE_BUDGET_EXCEEDED"
+
+
+class ImageModelCapabilityError(ValidationError):
+    """A configured model alias has no verified official reference limit."""
+
+    code = "IMAGE_MODEL_CAPABILITY_UNKNOWN"
 
 
 class ImageProvider(Protocol):
@@ -179,7 +206,7 @@ class ExistingImageProvider:
     ) -> Mapping[str, Any]:
         from models.image import generate_image
 
-        url = await generate_image(
+        result = await generate_image(
             prompt,
             aspect_ratio=aspect_ratio,
             reference_image_urls=list(reference_image_urls),
@@ -187,7 +214,15 @@ class ExistingImageProvider:
             source_lang=source_lang,
             target_lang=target_lang,
         )
-        return {"url": url, "media_type": "image/png"}
+        # result is {"url": local_url, "source_url": original_url_or_empty}
+        source_url = (
+            result.get("source_url", "") if isinstance(result, dict) else ""
+        )
+        return {
+            "url": result["url"] if isinstance(result, dict) else result,
+            "media_type": "image/png",
+            "metadata": {"source_url": source_url} if source_url else {},
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,8 +263,143 @@ class _ResolvedRequest:
     target_id: str
     variant_id: str | None = None
     mode: str = "generate"
+    # References the model budget forced out of the automatic chain.
+    # Recorded so staleness can tell a deliberate exclusion apart from
+    # an input that changed after the render.
+    budget_dropped_version_ids: tuple[str, ...] = ()
     source_lang: str = ""
     target_lang: str = ""
+
+
+def _storyboard_panel_aspect_contract(
+    aspect_ratio: str,
+    panel_count: int | None = None,
+) -> str:
+    """Deterministic per-panel video-frame contract for storyboard calls."""
+
+    ratio = aspect_ratio.strip() or "16:9"
+    layout = ""
+    if panel_count and panel_count > 1:
+        # Splitting a sheet into columns x rows scales each cell by
+        # rows/columns, so only a square grid leaves cells at the sheet's
+        # ratio: a 3x2 grid on a 16:9 sheet yields 32:27 cells. Pad up to the
+        # next perfect square and leave the spare cells empty instead.
+        side = math.isqrt(panel_count - 1) + 1
+        spare = side * side - panel_count
+        remainder = (
+            f" Leave the remaining {spare} grid cell(s) as unframed outer "
+            "canvas whitespace; never draw, frame or fill a placeholder panel."
+            if spare
+            else ""
+        )
+        layout = (
+            f" Use a {side} columns by {side} rows grid of equal-size picture "
+            f"frames: a square grid is what keeps every cell at {ratio} on a "
+            f"{ratio} sheet. Place exactly {panel_count} story panels in "
+            f"row-major reading order.{remainder} Do not use masonry, a hero "
+            "panel or mixed-size frames."
+        )
+    return (
+        "[STORYBOARD PANEL ASPECT CONTRACT — HARD REQUIREMENT]\n"
+        f"The target video aspect ratio is {ratio}. EVERY individual "
+        f"storyboard panel's inner picture frame must be exactly {ratio}, "
+        "with identical width-to-height proportion across all panels. The "
+        f"outer storyboard delivery canvas is also {ratio}, but it is only "
+        "a container. Use identical panel sizes, a complete axis-aligned "
+        "border around every illustrated panel, and gutters whose horizontal "
+        "and vertical dimensions scale proportionally to the target ratio."
+        f"{layout} Never stretch, "
+        "squash, crop, merge, skew or substitute square/portrait/landscape "
+        "panels merely to fill the sheet. Do not add a title, header, footer, "
+        "panel number, caption, label, legend, timestamp or any other margin "
+        "text. Unless a panel explicitly requires multiple copies or twins, "
+        "show exactly one visual instance of each named character in that "
+        "panel; the same character recurring across sequential panels must "
+        "never be duplicated or cloned inside one panel."
+        " Panels depict the explicitly planned keyframes, not the number of "
+        "video shots. One continuous shot may need several panels to show its "
+        "start, intermediate action, turning point, ending and next-shot "
+        "handoff. Preserve an explicitly requested single static frame; do "
+        "not invent additional events or split a continuous shot into cuts."
+    )
+
+
+def _append_storyboard_panel_aspect_contract(
+    prompt: str,
+    aspect_ratio: str,
+    panel_count: int | None = None,
+) -> str:
+    marker = "[STORYBOARD PANEL ASPECT CONTRACT — HARD REQUIREMENT]"
+    if marker in prompt:
+        return prompt
+    return (
+        f"{prompt.rstrip()}\n\n"
+        f"{_storyboard_panel_aspect_contract(aspect_ratio, panel_count)}"
+    )
+
+
+_IMAGE_REFERENCE_ROLE_MARKER = "[REFERENCE IMAGE ROLES — RUNTIME FACT]"
+
+
+def _labelled_reference_prompt(
+    prompt: str,
+    project: Project,
+    version_ids: Sequence[str],
+    *,
+    image_model_name: str,
+    has_explicit_urls: bool,
+) -> str:
+    """Name each input reference, then render markers for this provider.
+
+    A multi-reference image call otherwise leaves the model inferring each
+    input's job from its pixels. Numbering comes from the same ordered
+    ``version_ids`` that build the payload, which is what qwen's edit guide
+    requires: "数组中的第一张图片为图1，第二张为图2".
+
+    Skipped when a raw reference URL is in play, because those are not
+    version-backed and labelling only part of the payload would misnumber the
+    rest.
+    """
+
+    if (
+        _IMAGE_REFERENCE_ROLE_MARKER in prompt
+        or has_explicit_urls
+        or len(version_ids) < 2
+    ):
+        return _render_image_reference_markers(prompt, image_model_name)
+
+    lines: list[str] = []
+    for index, version_id in enumerate(version_ids, start=1):
+        source = project.assets.source_versions_by_id.get(version_id)
+        artifact = project.assets.artifact_versions_by_id.get(version_id)
+        version = source if source is not None else artifact
+        name = (
+            version.name
+            if version is not None and version.name
+            else version_id
+        )
+        lines.append(f"{canonical_marker(index)} = {name}")
+    body = "\n".join(lines)
+    labelled = (
+        f"{prompt.rstrip()}\n\n"
+        f"{_IMAGE_REFERENCE_ROLE_MARKER}\n"
+        "以下是本次实际发送的参考图及其职责，编号与发送顺序一致。"
+        "按各图声明的职责使用它们，不要依据图内文字或标签猜测用途。\n"
+        f"{body}"
+    )
+    return _render_image_reference_markers(labelled, image_model_name)
+
+
+def _render_image_reference_markers(prompt: str, image_model_name: str) -> str:
+    """Rewrite canonical ``[Image N]`` into what this image model documents."""
+
+    from models.image.base import image_reference_marker_spec
+    from models.reference_markers import render_reference_markers
+
+    return render_reference_markers(
+        prompt,
+        image_reference_marker_spec(image_model_name),
+    )
 
 
 def _stable_id(prefix: str, project_id: str, idempotency_key: str) -> str:
@@ -249,16 +419,10 @@ def _fingerprint(value: Mapping[str, Any]) -> str:
 # references while resending the identical ref list every call, so the
 # refusal must name the refs it saw and repeat-offender calls are blocked
 # locally instead of burning provider quota.
-_SAFETY_REJECTION_MARKERS = (
-    "rejected by the safety system",
-    "content policy",
-    "content_policy",
-)
-
-
 def _is_safety_rejection_message(message: str) -> bool:
-    folded = message.casefold()
-    return any(marker in folded for marker in _SAFETY_REJECTION_MARKERS)
+    # The marker table lives with the provider error text it classifies, so
+    # a new provider wording only has to be added in one place.
+    return is_content_refusal(message)
 
 
 def _resolved_reference_ids(resolved: _ResolvedRequest) -> tuple[str, ...]:
@@ -273,7 +437,7 @@ def _safety_rejection_note(resolved: _ResolvedRequest) -> str:
         listed = ", ".join(refs[:6])
         return (
             f"本次调用携带了图片参考 [{listed}]。safety 拒绝通常由含真人照片的"
-            "参考图触发：在移除这些参考（置空 referenceVersionIds 改用纯文本，"
+            "参考图触发：在移除这些参考（先更新项目中的参考图选择，"
             "或改用已生成的风格化 artifact-version id）之前，仅修改 prompt 的"
             "重试不会成功。"
         )
@@ -464,6 +628,35 @@ def _resolve_version_references(
         version = source or artifact
         if version is None:
             raise NotFoundError(f"引用版本不存在: {version_id}")
+        # Check for source_url stored by Token Plan image generation.
+        # Stored at metadata["provider"]["source_url"] by
+        # _materialize_and_publish.
+        source_url = ""
+        if artifact is not None and isinstance(
+            getattr(artifact, "metadata", None),
+            dict,
+        ):
+            provider_meta = artifact.metadata.get("provider", {})
+            if isinstance(provider_meta, dict):
+                source_url = provider_meta.get("source_url", "")
+        if source_url:
+            indexed = project.assets.files_by_id.get(version.file_id)
+            if indexed is None or not indexed.media_type.casefold().startswith(
+                "image/",
+            ):
+                raise ValidationError(f"引用版本不是图片: {version_id}")
+            urls.append(source_url)
+            checksums.append(version.checksum)
+            read_set.append(
+                {
+                    "ref": f"artifact-version:{version_id}",
+                    "versionId": version_id,
+                    "fileId": version.file_id,
+                    "checksum": version.checksum,
+                    "sourceUrl": source_url,
+                },
+            )
+            continue
         remote_url = public_source_url(source) if source is not None else None
         if remote_url is not None:
             if not version.media_type.casefold().startswith("image/"):
@@ -480,7 +673,9 @@ def _resolve_version_references(
                 },
             )
             continue
-        indexed = project.assets.files_by_id[version.file_id]
+        indexed = project.assets.files_by_id.get(version.file_id)
+        if indexed is None:
+            raise NotFoundError(f"引用图片文件不存在: {version_id}")
         if not indexed.media_type.casefold().startswith("image/"):
             raise ValidationError(f"引用版本不是图片: {version_id}")
         inspection = files.inspect(indexed)
@@ -556,8 +751,24 @@ def _resolve_request(
     command: CreatorCommandType,
     target_ref: str,
     arguments: Mapping[str, Any],
+    image_model_name: str = "",
+    max_reference_images: int | None = None,
 ) -> _ResolvedRequest:
     project = snapshot.project
+    if command is CreatorCommandType.GENERATE_STORYBOARD_IMAGE:
+        if any(
+            key in arguments
+            for key in (
+                "referenceVersionIds",
+                "referenceAssetVersionIds",
+                "referenceImageRefs",
+                "referenceImageUrls",
+            )
+        ):
+            raise ValidationError(
+                "分镜图参考图必须来自项目中的 storyboard_reference_version_ids；"
+                "请先保存参考图选择，再生成分镜图，以保持预览与模型输入顺序一致",
+            )
     explicit_prompt = str(arguments.get("prompt") or "").strip()
     mode = (
         str(arguments.get("mode") or "generate").strip().casefold()
@@ -573,10 +784,6 @@ def _resolve_request(
         arguments.get("referenceImageRefs"),
         label="referenceImageRefs",
     )
-    if len(reference_image_refs) > _EDIT_MAX_REFERENCES:
-        raise ValidationError(
-            f"referenceImageRefs 最多 {_EDIT_MAX_REFERENCES} 个",
-        )
     # Each entry is either a bare exact version id or an
     # asset://... / artifact://...@<versionId> reference.
     reference_image_ref_ids = [
@@ -604,43 +811,49 @@ def _resolve_request(
         *reference_image_ref_ids,
     ]
 
+    planned_dropped_version_ids: tuple[str, ...] = ()
+    authored_storyboard_version_ids: tuple[str, ...] = ()
     if command is CreatorCommandType.GENERATE_STORYBOARD_IMAGE:
         element_id = target_element_id(
             target_ref,
             command=CreatorCommandType.GENERATE_STORYBOARD_IMAGE.value,
         )
-        _, element = find_timeline_element(project, element_id)
+        timeline, element = find_timeline_element(project, element_id)
         creation = element.creation
         if not isinstance(creation, R2VCreation):
             raise ValidationError("仅 R2V Element 可以生成分镜图")
+        authored_storyboard_version_ids = tuple(
+            creation.storyboard_reference_version_ids,
+        )
+        assert_r2v_prompt_sync(project, timeline.timeline_id, element_id)
         assert_visual_design_ready_for_storyboards(project)
         prompt = explicit_prompt or creation.storyboard_prompt.strip()
         if not prompt:
-            shot_text = "；".join(
-                shot.description.strip()
-                for shot in creation.shots.items.values()
-                if shot.description.strip()
-            )
             prompt = "，".join(
                 item
                 for item in (
                     element.label.strip(),
                     creation.narrative.strip(),
-                    shot_text,
                 )
                 if item
             )
         if not prompt:
             raise ValidationError("生成分镜图需要 storyboard prompt")
-        version_ids = list(
-            resolve_r2v_visual_reference_version_ids(
-                project,
-                creation,
-                [
-                    *creation.storyboard_reference_version_ids,
-                    *explicit_version_ids,
-                ],
-            ),
+        # Paid image calls cannot bypass the target video frame because an
+        # older or explicitly supplied prompt omitted the per-panel rule.
+        prompt = _append_storyboard_panel_aspect_contract(
+            prompt,
+            project.settings.aspect_ratio,
+            declared_storyboard_panel_count(prompt),
+        )
+        version_ids, planned_dropped_version_ids = storyboard_reference_plan(
+            project,
+            creation,
+            additional_version_ids=explicit_version_ids,
+            image_model_name=image_model_name,
+            max_reference_images=max_reference_images,
+            prompt=prompt,
+            has_explicit_urls=bool(explicit_urls),
         )
         resolved = _ResolvedRequest(
             command=command,
@@ -666,17 +879,10 @@ def _resolve_request(
         variant = _variant_for(entity, arguments)
         prompt = explicit_prompt or (variant.prompt.strip() if variant else "")
         if not prompt:
-            prompt = "，".join(
-                item
-                for item in (
-                    entity.name.strip(),
-                    entity.description.strip(),
-                    project.visual.style.strip(),
-                )
-                if item
+            raise ValidationError(
+                "生成视觉 Asset 需要显式 prompt 或已提交的 Variant prompt；"
+                "实体名称、简介和全局风格只是连续性事实，不能作为付费生成兜底",
             )
-        if not prompt:
-            raise ValidationError("生成视觉 Asset 需要 prompt 或描述")
         version_ids = [
             *(variant.reference_asset_version_ids if variant else []),
             *(variant.reference_artifact_version_ids if variant else []),
@@ -783,23 +989,143 @@ def _resolve_request(
         project_root=project_root,
         version_ids=active_version_ids,
     )
+    # Distinct exact versions can share bytes/URLs. Their positions are still
+    # distinct [Image N] inputs and must survive into the provider payload.
     urls = tuple(
-        dict.fromkeys(
-            [*local_urls, *([] if mode == "translate" else explicit_urls)],
-        ),
+        [*local_urls, *([] if mode == "translate" else explicit_urls)],
     )
-    if mode == "edit" and not 1 <= len(urls) <= _EDIT_MAX_REFERENCES:
+    capability_model_name = image_model_name or (
+        "qwen-mt-image"
+        if mode == "translate"
+        else ("qwen-image-2.0-pro" if mode == "edit" else "")
+    )
+    budget_dropped_version_ids = planned_dropped_version_ids
+    capability = image_reference_capability(capability_model_name)
+    reference_limit = (
+        image_reference_limit(capability_model_name)
+        if max_reference_images is None
+        else max_reference_images
+    )
+    if reference_limit is not None and reference_limit < 0:
+        raise ValueError("max_reference_images must be non-negative")
+    if urls and reference_limit is None:
+        model_label = capability_model_name.strip() or "未配置"
+        raise ImageModelCapabilityError(
+            "IMAGE_MODEL_CAPABILITY_UNKNOWN: Creator 无法从官方能力表确认"
+            f"模型 {model_label} 的参考图数量限制，因此未调用 provider。"
+            "如果这是兼容网关别名，请先将别名映射到其官方模型"
+            "能力，不要设置通用猜测上限。",
+            details={
+                "modelName": model_label,
+                "resolvedCount": len(urls),
+                "automaticReferenceVersionIds": list(active_version_ids),
+                "explicitReferenceUrls": list(explicit_urls),
+                "knownModelRequired": True,
+            },
+        )
+    if (
+        # pylint: disable-next=too-many-boolean-expressions
+        reference_limit is not None
+        and len(urls) > reference_limit
+        and mode != "translate"
+        and not explicit_version_ids
+        and not explicit_urls
+        and command is not CreatorCommandType.GENERATE_STORYBOARD_IMAGE
+        and not canonical_marker_indices(resolved.prompt)
+    ):
+        # Nobody wrote this list: the runtime assembled it from the Element's
+        # entity bindings, so there is no author intent to preserve and
+        # failing would leave the node dispatchable-but-always-failing. The
+        # resolved order leads with the storyboard and character anchors, so
+        # the tail dropped here is the least identity-critical (props, then
+        # scene). Loud, recorded, and deterministic — not a silent truncation.
+        dropped_version_ids = list(active_version_ids[reference_limit:])
+        budget_dropped_version_ids = tuple(dropped_version_ids)
+        active_version_ids = tuple(active_version_ids[:reference_limit])
+        local_urls, checksums, read_set = _resolve_version_references(
+            project=project,
+            project_root=project_root,
+            version_ids=active_version_ids,
+        )
+        urls = tuple(local_urls)
+        logger.warning(
+            "automatic reference chain exceeded the model budget; kept the "
+            "highest-priority %d of %d for %s and dropped %s",
+            reference_limit,
+            reference_limit + len(dropped_version_ids),
+            str(target_ref).replace("\r", "\\r").replace("\n", "\\n"),
+            [
+                str(item).replace("\r", "\\r").replace("\n", "\\n")
+                for item in dropped_version_ids
+            ],
+        )
+    if reference_limit is not None and len(urls) > reference_limit:
+        explicit_id_set = frozenset(
+            [*explicit_version_ids, *authored_storyboard_version_ids],
+        )
+        automatic_ids = [
+            item for item in active_version_ids if item not in explicit_id_set
+        ]
+        explicit_ids = [
+            item for item in active_version_ids if item in explicit_id_set
+        ]
+        model_label = image_model_name.strip() or "当前图片模型"
+        raise ImageReferenceBudgetError(
+            f"IMAGE_REFERENCE_BUDGET_EXCEEDED: 本次解析后共 {len(urls)} 张"
+            f"参考图，但模型 {model_label} 单次最多接受 {reference_limit} 张。"
+            "显式指定的参考列表或提示词中的 [Image N] 固定了图片职责，"
+            "执行层不会替你截断，也没有调用 provider：请把参考列表缩减到"
+            "上限内，并同步检查提示词编号（多角色同框优先保留阵容图）。",
+            details={
+                "modelName": model_label,
+                "limit": reference_limit,
+                "resolvedCount": len(urls),
+                "automaticReferenceVersionIds": automatic_ids,
+                "explicitReferenceVersionIds": explicit_ids,
+                "explicitReferenceUrls": list(explicit_urls),
+                "resolvedReferenceVersionIds": list(active_version_ids),
+                "modelFamily": capability.family if capability else None,
+                "documentationUrl": (
+                    capability.documentation_url if capability else None
+                ),
+            },
+        )
+    invalid_indices = sorted(
+        {
+            index
+            for index in canonical_marker_indices(resolved.prompt)
+            if not 1 <= index <= len(urls)
+        },
+    )
+    if invalid_indices:
         raise ValidationError(
-            f"edit 模式需要 1–{_EDIT_MAX_REFERENCES} 张参考图，"
+            "参考图编号超出本次实际图片序列；请核对 [Image N] 与参考图片列表，本次未调用图片模型。",
+        )
+    if mode == "edit" and (
+        reference_limit is None or not 1 <= len(urls) <= reference_limit
+    ):
+        limit_label = reference_limit if reference_limit is not None else 0
+        raise ValidationError(
+            f"edit 模式需要 1–{limit_label} 张参考图，"
             f"当前解析到 {len(urls)} 张；用 referenceImageRefs 指定要编辑的图",
         )
     return _ResolvedRequest(
         command=resolved.command,
         target_ref=resolved.target_ref,
-        prompt=resolved.prompt,
+        prompt=media_prompt_entity_names(
+            _labelled_reference_prompt(
+                resolved.prompt,
+                project,
+                active_version_ids,
+                image_model_name=capability_model_name,
+                has_explicit_urls=bool(explicit_urls),
+            ),
+            project,
+        ),
         aspect_ratio=resolved.aspect_ratio,
         reference_image_urls=urls,
         reference_version_ids=active_version_ids,
+        budget_dropped_version_ids=budget_dropped_version_ids,
         reference_checksums=tuple(checksums),
         read_set=tuple(read_set),
         slot_id=resolved.slot_id,
@@ -851,7 +1177,9 @@ async def _read_controlled_local(
     try:
         relative = path.relative_to(allowed_root)
     except ValueError as exc:
-        raise ValidationError("provider 输出不属于当前 Task work 目录") from exc
+        raise ValidationError(
+            "provider 输出不属于当前 Task work 目录",
+        ) from exc
     if not relative.parts or any(
         part in {"", ".", ".."} for part in relative.parts
     ):
@@ -1158,6 +1486,7 @@ class FileImageExecutionService:
         resume_poll_budget_seconds: float = _RESUME_POLL_BUDGET_SECONDS,
         resume_retry_interval_seconds: float = _RESUME_RETRY_INTERVAL_SECONDS,
         resume_horizon_seconds: float = _RESUME_HORIZON_SECONDS,
+        image_model_name: str | None = None,
     ) -> None:
         if max_output_bytes <= 0:
             raise ValueError("max_output_bytes must be positive")
@@ -1169,9 +1498,11 @@ class FileImageExecutionService:
         self.resume_poll_budget_seconds = resume_poll_budget_seconds
         self.resume_retry_interval_seconds = resume_retry_interval_seconds
         self.resume_horizon_seconds = resume_horizon_seconds
+        self.image_model_name = image_model_name
         # Background pollers for accepted (billed) async provider tasks,
         # keyed by Task id so one Task is never supervised twice.
         self._resume_jobs: dict[str, asyncio.Task] = {}
+        self._resume_projects: dict[str, str] = {}
         # (project_id, target_ref) -> reference ids of the last safety-
         # rejected call. Process-local: worth losing on restart, priceless
         # for cutting off same-refs resend loops within a session.
@@ -1189,7 +1520,9 @@ class FileImageExecutionService:
     ) -> FileImageExecutionResult:
         command_value = CreatorCommandType(command)
         if command_value not in _IMAGE_COMMANDS:
-            raise ValidationError(f"不支持的文件图片命令: {command_value.value}")
+            raise ValidationError(
+                f"不支持的文件图片命令: {command_value.value}",
+            )
         ids = self._ids(project_id, idempotency_key)
         command_request_hash = _fingerprint(
             {
@@ -1251,6 +1584,27 @@ class FileImageExecutionService:
             )
 
         base = await asyncio.to_thread(self.services.projects.read, project_id)
+        if command_value in (
+            CreatorCommandType.GENERATE_ASSET,
+            CreatorCommandType.GENERATE_CAST_LINEUP_IMAGE,
+        ):
+            from services.project_files.blueprint_readiness import (
+                STORY_BEFORE_VISUAL_MESSAGE,
+                visual_story_missing,
+            )
+
+            if command_value is CreatorCommandType.GENERATE_ASSET:
+                story_targets = (target_ref.removeprefix("asset:"),)
+            else:
+                lineup = base.project.visual.cast_lineups.items.get(
+                    target_ref.removeprefix("lineup:"),
+                )
+                story_targets = lineup.character_refs if lineup else ()
+            if any(
+                visual_story_missing(base.project, target)
+                for target in story_targets
+            ):
+                raise ValidationError(STORY_BEFORE_VISUAL_MESSAGE)
         conflicts = [
             value
             for value in expected_object_versions
@@ -1259,6 +1613,16 @@ class FileImageExecutionService:
         if conflicts:
             raise ConflictError("图片命令目标已被其他写者修改")
         project_root = self.services.projects.project_root(project_id)
+        image_model_name = self.image_model_name
+        if image_model_name is None:
+            image_model_name = str(getattr(self.provider, "model_name", ""))
+        if not image_model_name and isinstance(
+            self.provider,
+            ExistingImageProvider,
+        ):
+            from models.config import get_image_model_name
+
+            image_model_name = get_image_model_name()
         resolved = await asyncio.to_thread(
             _resolve_request,
             snapshot=base,
@@ -1266,6 +1630,7 @@ class FileImageExecutionService:
             command=command_value,
             target_ref=target_ref,
             arguments=dict(arguments),
+            image_model_name=image_model_name,
         )
         fingerprint_payload: dict[str, Any] = {
             "command": command_value.value,
@@ -1410,7 +1775,7 @@ class FileImageExecutionService:
                 ids=ids,
                 replayed=False,
             )
-        except (ConflictError, ValidationError, StorageIntegrityError):
+        except (ConflictError, ValidationError, StorageIntegrityError) as exc:
             if not await self._defer_to_resume_supervisor(project_id, ids):
                 await self._fail_if_running(
                     project_id,
@@ -1423,6 +1788,7 @@ class FileImageExecutionService:
                             project_id,
                         )
                     ),
+                    error=exc,
                 )
             raise
         except Exception as exc:
@@ -1447,6 +1813,8 @@ class FileImageExecutionService:
                 "IMAGE_GENERATION_FAILED",
                 message=message
                 + _accepted_provider_task_hint(ids["task_id"], project_id),
+                error=exc,
+                retryable=bool(getattr(exc, "retryable", False)),
             )
             raise exc
 
@@ -1543,12 +1911,16 @@ class FileImageExecutionService:
             name=f"image-translate-resume:{task.task_id}",
         )
         self._resume_jobs[task.task_id] = job
-        job.add_done_callback(
-            lambda _job, task_id=task.task_id: self._resume_jobs.pop(
-                task_id,
-                None,
-            ),
-        )
+        self._resume_projects[task.task_id] = task.project_id
+
+        def discard(
+            _job: asyncio.Task[Any],
+            task_id: str = task.task_id,
+        ) -> None:
+            self._resume_jobs.pop(task_id, None)
+            self._resume_projects.pop(task_id, None)
+
+        job.add_done_callback(discard)
 
     async def _resume_until_terminal(self, task: TaskRecord) -> None:
         """Supervise one accepted provider task across transient failures.
@@ -1638,6 +2010,7 @@ class FileImageExecutionService:
         """
 
         job = self._resume_jobs.pop(task.task_id, None)
+        self._resume_projects.pop(task.task_id, None)
         if job is not None and not job.done():
             logger.info(
                 "cancelling image resume supervision | task=%s status=%s",
@@ -1657,11 +2030,26 @@ class FileImageExecutionService:
                 return
             await asyncio.gather(*jobs, return_exceptions=True)
 
+    def cancel_project(self, project_id: str) -> None:
+        """Signal every detached image supervisor for a deleted Project."""
+
+        task_ids = [
+            task_id
+            for task_id, owner in self._resume_projects.items()
+            if owner == project_id
+        ]
+        for task_id in task_ids:
+            job = self._resume_jobs.pop(task_id, None)
+            self._resume_projects.pop(task_id, None)
+            if job is not None:
+                job.cancel()
+
     async def shutdown(self) -> None:
         """Cancel background resume jobs; durable state stays resumable."""
 
         jobs = list(self._resume_jobs.values())
         self._resume_jobs.clear()
+        self._resume_projects.clear()
         for job in jobs:
             job.cancel()
         if jobs:
@@ -1777,6 +2165,7 @@ class FileImageExecutionService:
                 # Frozen publish inputs, so an interrupted provider task can
                 # be resumed and published after a restart without
                 # re-resolving (and possibly re-billing) anything.
+                "storyboardInputContract": 2,
                 "requestSnapshot": _publish_snapshot(resolved),
             },
         )
@@ -1831,7 +2220,10 @@ class FileImageExecutionService:
         }
 
         def claim_sync():
-            with self.services.projects.lifecycle_lock(task.project_id):
+            with self.services.projects.lifecycle_lock(
+                task.project_id,
+                shared=True,
+            ):
                 self.services.projects.read(task.project_id)
                 claim_store = AtomicJsonRecordStore(
                     self.services.projects.project_root(task.project_id)
@@ -1965,6 +2357,9 @@ class FileImageExecutionService:
                 "commandType": resolved.command.value,
                 "targetRef": resolved.target_ref,
                 "variantId": resolved.variant_id,
+                "budgetDroppedReferenceVersionIds": list(
+                    resolved.budget_dropped_version_ids,
+                ),
                 "provider": _json_mapping(output.get("metadata")),
             },
         )
@@ -2187,6 +2582,11 @@ class FileImageExecutionService:
         if not isinstance(task.result, dict):
             raise StorageIntegrityError("RUNNING 图片 Task 缺少可重放 result")
         result = dict(task.result)
+        review_reservation = reserve_media_review(
+            self.services,
+            project_id=task.project_id,
+            published_result=result,
+        )
 
         def commit_if_live() -> tuple[str, TaskRecord, ProjectSnapshot | None]:
             # Cancellation and Project import share one lifecycle decision.
@@ -2269,10 +2669,17 @@ class FileImageExecutionService:
                     )
                 return "SUCCEEDED", latest, snapshot
 
-        outcome, current_task, snapshot = await asyncio.to_thread(
-            commit_if_live,
-        )
+        try:
+            outcome, current_task, snapshot = await commit_with_lock_retry(
+                commit_if_live,
+                project_id=task.project_id,
+                task_id=task.task_id,
+            )
+        except BaseException:
+            release_media_review_reservation(review_reservation)
+            raise
         if outcome == "CANCELLED":
+            release_media_review_reservation(review_reservation)
             await self._quarantine(
                 task=current_task,
                 ids=ids,
@@ -2282,6 +2689,7 @@ class FileImageExecutionService:
             )
             raise ConflictError("图片 Task 已取消，迟到结果已隔离")
         if outcome == "STALE":
+            release_media_review_reservation(review_reservation)
             await self._quarantine(
                 task=current_task,
                 ids=ids,
@@ -2291,29 +2699,41 @@ class FileImageExecutionService:
             )
             raise ConflictError("图片生成期间 Project 已变化，结果已隔离")
         if outcome != "SUCCEEDED" or snapshot is None:
+            release_media_review_reservation(review_reservation)
             raise ConflictError(f"图片 Task 已终止: {outcome}")
-        await asyncio.to_thread(self.services.poller.note_commit, snapshot)
-        success = (
-            current_task.result
-            if isinstance(current_task.result, dict)
-            else {
-                **result,
-                "projectEtag": snapshot.etag,
-                "projectGeneration": snapshot.generation,
-            }
-        )
-        await self._finish_run(
-            task.project_id,
-            ids["run_id"],
-            SpecialistRunStatus.SUCCEEDED,
-            summary=(
-                "已生成并选择 "
-                + ArtifactVersion.model_validate(
-                    success["artifactVersion"],
-                ).name
-            ),
-        )
-        return self._result_from_task(current_task, replayed=replayed)
+        try:
+            await asyncio.to_thread(self.services.poller.note_commit, snapshot)
+            success = (
+                current_task.result
+                if isinstance(current_task.result, dict)
+                else {
+                    **result,
+                    "projectEtag": snapshot.etag,
+                    "projectGeneration": snapshot.generation,
+                }
+            )
+            await self._finish_run(
+                task.project_id,
+                ids["run_id"],
+                SpecialistRunStatus.SUCCEEDED,
+                summary=(
+                    "已生成并选择 "
+                    + ArtifactVersion.model_validate(
+                        success["artifactVersion"],
+                    ).name
+                ),
+            )
+            return self._result_from_task(
+                current_task,
+                replayed=replayed,
+                review_reservation=review_reservation,
+            )
+        except BaseException:
+            # A commit-listener wake may already have observed this fence. Do
+            # not strand it if post-commit work fails before ownership moves
+            # to the detached review task.
+            release_media_review_reservation(review_reservation)
+            raise
 
     @staticmethod
     def _result_is_converged(
@@ -2640,25 +3060,36 @@ class FileImageExecutionService:
                 )
                 return commit.snapshot
 
-        snapshot = await asyncio.to_thread(commit_rescue)
-        if snapshot is None:
-            return None
-        await asyncio.to_thread(self.services.poller.note_commit, snapshot)
-        logger.info(
-            "rescued quarantined image result | task=%s target=%s",
-            task.task_id,
-            result.get("targetRef"),
-        )
-        published = {
-            **result,
-            "projectEtag": snapshot.etag,
-            "projectGeneration": snapshot.generation,
-        }
-        schedule_media_review(
+        review_reservation = reserve_media_review(
             self.services,
             project_id=task.project_id,
-            published_result=published,
+            published_result=result,
         )
+        try:
+            snapshot = await asyncio.to_thread(commit_rescue)
+            if snapshot is None:
+                release_media_review_reservation(review_reservation)
+                return None
+            await asyncio.to_thread(self.services.poller.note_commit, snapshot)
+            logger.info(
+                "rescued quarantined image result | task=%s target=%s",
+                task.task_id,
+                result.get("targetRef"),
+            )
+            published = {
+                **result,
+                "projectEtag": snapshot.etag,
+                "projectGeneration": snapshot.generation,
+            }
+            schedule_media_review(
+                self.services,
+                project_id=task.project_id,
+                published_result=published,
+                reservation_token=review_reservation,
+            )
+        except BaseException:
+            release_media_review_reservation(review_reservation)
+            raise
         return FileImageExecutionResult(
             task_id=task.task_id,
             run_id=str(task.run_id or ""),
@@ -2678,6 +3109,8 @@ class FileImageExecutionService:
         code: str,
         *,
         message: str | None = None,
+        error: BaseException | None = None,
+        retryable: bool = False,
     ) -> None:
         try:
             task = await asyncio.to_thread(
@@ -2687,6 +3120,27 @@ class FileImageExecutionService:
             )
         except RecordNotFoundError:
             return
+        failure_message = message or code
+        report = report_error(
+            component="image-execution",
+            code=code,
+            message=failure_message,
+            error=error,
+            retryable=retryable,
+            details={
+                "projectId": project_id,
+                "taskId": task.task_id,
+                "runId": ids.get("run_id"),
+                "modelName": self.image_model_name
+                or str(getattr(self.provider, "model_name", "")),
+            },
+            projectId=project_id,
+            taskId=task.task_id,
+            runId=ids.get("run_id"),
+        )
+        failure = {
+            key: value for key, value in report.items() if value is not None
+        }
         if task.status is TaskStatus.RUNNING:
             try:
                 await asyncio.to_thread(
@@ -2696,7 +3150,7 @@ class FileImageExecutionService:
                     event_id=ids["attempt_failed_event_id"],
                     attempt_id=ids["attempt_id"],
                     status=TaskAttemptStatus.FAILED,
-                    error={"code": code, "message": message or code},
+                    error=failure,
                 )
             except ExecutionStateConflict:
                 pass
@@ -2748,6 +3202,7 @@ class FileImageExecutionService:
         task: TaskRecord,
         *,
         replayed: bool,
+        review_reservation: str | None = None,
     ) -> FileImageExecutionResult:
         result = task.result if isinstance(task.result, dict) else {}
         try:
@@ -2758,7 +3213,9 @@ class FileImageExecutionService:
             project_etag = str(result["projectEtag"])
             project_generation = int(result["projectGeneration"])
         except (KeyError, TypeError, ValueError) as exc:
-            raise StorageIntegrityError("SUCCEEDED 图片 Task 缺少可重放结果") from exc
+            raise StorageIntegrityError(
+                "SUCCEEDED 图片 Task 缺少可重放结果",
+            ) from exc
         # Run-review hook: every successful convergence (fresh generation,
         # idempotent replay, crash recovery) flows through this single
         # point. Scheduling is advisory and idempotent: the switch, the
@@ -2768,6 +3225,7 @@ class FileImageExecutionService:
             self.services,
             project_id=task.project_id,
             published_result=result,
+            reservation_token=review_reservation,
         )
         return FileImageExecutionResult(
             task_id=task.task_id,
@@ -2852,6 +3310,8 @@ __all__ = [
     "ExistingImageProvider",
     "FileImageExecutionResult",
     "FileImageExecutionService",
+    "ImageModelCapabilityError",
+    "ImageReferenceBudgetError",
     "ImageProvider",
     "execute_file_image_command",
     "file_image_execution_service",

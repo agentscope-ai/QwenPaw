@@ -24,6 +24,11 @@ class _UsageEvent(NamedTuple):
     completion_tokens: int
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    cache_eligible_input_tokens: int = 0
+    cache_observed: bool = False
+    agent_id: str = ""
 
 
 class TokenUsageBuffer:
@@ -37,7 +42,7 @@ class TokenUsageBuffer:
         self._path = path
         self._flush_interval = flush_interval
 
-        # Format: { "2026-04-23": { "provider:model": {...} } }
+        # Format: { date: { colon key or unit-separator triple: {...} } }
         self._disk_cache: dict = {}
         self._cache_loaded = False
 
@@ -190,14 +195,16 @@ class TokenUsageBuffer:
 def _apply_event(cache: dict, ev: _UsageEvent) -> None:
     """Accumulate a single usage event into *cache* in-place.
 
-    Cache format: { "2026-04-23": { "provider:model": {...} } }
+    Cache format: { "2026-04-23": { key: {...} } }.
+    New events always use unit-separator keys
+    (agent_id\\x1fprovider_id\\x1fmodel_name), including empty agent_id
+    (\\x1fprovider\\x1fmodel), so they do not merge into legacy
+    provider:model rows. Old colon keys are left as-is (no migration).
     """
-    composite_key = f"{ev.provider_id}:{ev.model_name}"
-
-    # Get or create the day bucket
+    composite_key = "\x1f".join(
+        (ev.agent_id or "", ev.provider_id, ev.model_name),
+    )
     day_bucket = cache.setdefault(ev.date_str, {})
-
-    # Get or create the entry for this provider:model
     entry = day_bucket.setdefault(
         composite_key,
         {
@@ -205,13 +212,27 @@ def _apply_event(cache: dict, ev: _UsageEvent) -> None:
             "model_name": ev.model_name,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "cache_eligible_input_tokens": 0,
+            "cache_observed_calls": 0,
             "call_count": 0,
+            "agent_id": ev.agent_id,
         },
     )
-
-    # Accumulate the tokens
     entry["prompt_tokens"] += ev.prompt_tokens
     entry["completion_tokens"] += ev.completion_tokens
+    entry["cache_read_tokens"] = entry.get("cache_read_tokens", 0)
+    entry["cache_read_tokens"] += ev.cache_read_tokens
+    entry["cache_write_tokens"] = entry.get("cache_write_tokens", 0)
+    entry["cache_write_tokens"] += ev.cache_write_tokens
+    entry["cache_eligible_input_tokens"] = entry.get(
+        "cache_eligible_input_tokens",
+        0,
+    )
+    entry["cache_eligible_input_tokens"] += ev.cache_eligible_input_tokens
+    entry["cache_observed_calls"] = entry.get("cache_observed_calls", 0)
+    entry["cache_observed_calls"] += int(ev.cache_observed)
     entry["call_count"] += 1
 
 

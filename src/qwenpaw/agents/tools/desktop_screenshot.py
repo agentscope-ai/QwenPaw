@@ -2,16 +2,16 @@
 """Desktop/screen screenshot tool."""
 
 import json
+import mimetypes
 import os
 import platform
 import time
-import mimetypes
+from pathlib import Path
 from agentscope.message import DataBlock, TextBlock, URLSource
 from agentscope.tool import ToolChunk
 from agentscope.message import ToolResultState
 
-from ...config.context import get_current_workspace_dir
-from ...constant import WORKING_DIR
+from ...config.context import get_tool_base_dir
 from ...runtime.tool_registry import tool_descriptor
 from ...utils.io_utils import run_sync_io
 from .file_io import _path_to_file_url
@@ -163,7 +163,7 @@ async def desktop_screenshot(
     Args:
         path (`str`):
             Optional path to save the screenshot. If empty, saves under
-            the current workspace directory. Should end in .png for PNG output.
+            the current project directory. Should end in .png for PNG output.
         capture_window (`bool`):
             If True on macOS, the user can click a window to capture just
             that window. On Windows/Linux, only full-screen is supported
@@ -175,9 +175,16 @@ async def desktop_screenshot(
             or "error".
     """
     path = (path or "").strip()
+    # User-facing file tools resolve relative paths from the effective project
+    # directory (falling back to the workspace/working directory when unset).
+    base_dir = get_tool_base_dir()
     if not path:
-        base_dir = get_current_workspace_dir() or WORKING_DIR
         path = str(base_dir / f"desktop_screenshot_{int(time.time())}.png")
+    else:
+        output_path = Path(path).expanduser()
+        if not output_path.is_absolute():
+            output_path = base_dir / output_path
+        path = str(output_path.resolve())
     if not path.lower().endswith(".png"):
         path = path.rstrip("/\\") + ".png"
 

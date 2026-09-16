@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator
 from hashlib import sha256
 import json
 import logging
+import threading
 from typing import Any
 
 from fastapi import (
@@ -23,7 +24,7 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
-from domain.enums import TaskKind, TaskStatus
+from domain.enums import TaskStatus
 from domain.errors import (
     ConflictError,
     NotFoundError,
@@ -75,6 +76,11 @@ from .file_execution_routes import _cancel_task_sync
 logger = logging.getLogger("qwenpaw.creator.api.file_session_routes")
 
 
+def _log_safe(value: Any) -> str:
+    """Neutralize CR/LF in user-provided values before logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 router = APIRouter(
     prefix="/projects/{project_id}",
     tags=["creator-session-files"],
@@ -96,14 +102,26 @@ async def _cancel_active_project_tasks(
 ) -> None:
     """Durably cancel every unfinished Task before Agent cancellation returns."""
 
+    await asyncio.to_thread(
+        _cancel_active_project_tasks_sync,
+        services,
+        project_id,
+    )
+
+
+def _cancel_active_project_tasks_sync(
+    services: CreatorFileServices,
+    project_id: str,
+) -> None:
+    """Filesystem-only terminalization used by detached hard-stop cleanup."""
+
     execution_store = ProjectExecutionStore(services.root)
-    tasks = await asyncio.to_thread(execution_store.list_tasks, project_id)
+    tasks = execution_store.list_tasks(project_id)
     for task in tasks:
         if task.status not in {TaskStatus.QUEUED, TaskStatus.RUNNING}:
             continue
         try:
-            cancelled = await asyncio.to_thread(
-                _cancel_task_sync,
+            cancelled = _cancel_task_sync(
                 services,
                 project_id,
                 task.task_id,
@@ -112,14 +130,49 @@ async def _cancel_active_project_tasks(
         except ExecutionStateConflict:
             # The worker reached a terminal state after the snapshot above.
             continue
-        if cancelled.kind is TaskKind.R2V_GENERATION:
-            from services.media_files.r2v_execution import (
-                file_r2v_execution_service,
+        # Process-local workers were synchronously signalled before this
+        # detached durable pass. No event-loop notification is needed here.
+        _ = cancelled
+
+
+def _cancel_detached_project_tasks(
+    services: CreatorFileServices,
+    project_id: str,
+) -> None:
+    """Signal every process-local worker without waiting for its cleanup."""
+
+    from services.media_files.image_execution import (
+        file_image_execution_service,
+    )
+    from services.media_files.r2v_execution import file_r2v_execution_service
+    from services.run_review.media_review import cancel_project_media_reviews
+    from services.source_analysis.service import source_analysis_service
+
+    file_image_execution_service(services).cancel_project(project_id)
+    file_r2v_execution_service(services).cancel_project(project_id)
+    source_analysis_service(services).cancel_project(project_id)
+    cancel_project_media_reviews(project_id)
+
+
+def _schedule_stop_cleanup(
+    services: CreatorFileServices,
+    project_id: str,
+) -> None:
+    def cleanup() -> None:
+        try:
+            _cancel_active_project_tasks_sync(services, project_id)
+        except Exception:  # pylint: disable=broad-except
+            logger.warning(
+                "deferred stop cleanup failed for %s",
+                _log_safe(project_id),
+                exc_info=True,
             )
 
-            file_r2v_execution_service(services).notify_terminal_task(
-                cancelled,
-            )
+    threading.Thread(
+        target=cleanup,
+        name=f"creator-stop-cleanup:{project_id}",
+        daemon=True,
+    ).start()
 
 
 def _translate_runtime_error(error: BaseException) -> None:
@@ -339,8 +392,16 @@ async def list_messages(
     conversation_id: str,
     after: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=500),
+    before: int | None = Query(None, ge=1),
+    tail: bool = Query(False),
     services: CreatorFileServices = Depends(project_file_services),
 ) -> dict[str, Any]:
+    # ``after`` pages forward (live catch-up); ``before``/``tail`` page
+    # backward through history.  Mixing the two directions in one request
+    # has no coherent cursor, so it is rejected outright.
+    backward = before is not None or tail
+    if backward and after:
+        raise ValidationError("after 与 before/tail 不能同时使用")
     store = _store(services)
     try:
         session = await asyncio.to_thread(
@@ -357,7 +418,7 @@ async def list_messages(
             store.list_messages,
             project_id,
             session.session_id,
-            after_seq=after,
+            after_seq=0 if backward else after,
             limit=None,
         )
     except BaseException as error:
@@ -365,7 +426,21 @@ async def list_messages(
     matching = [
         item for item in messages if item.conversation_id == conversation_id
     ]
-    page = matching[:limit]
+    next_after: int | None = None
+    next_before: int | None = None
+    if backward:
+        older = (
+            matching
+            if before is None
+            else [item for item in matching if item.message_seq < before]
+        )
+        page = older[-limit:]
+        if page and len(older) > limit:
+            next_before = page[0].message_seq
+    else:
+        page = matching[:limit]
+        if len(matching) > limit:
+            next_after = page[-1].message_seq
     return {
         "items": [
             {
@@ -382,7 +457,8 @@ async def list_messages(
             }
             for item in page
         ],
-        "nextAfter": page[-1].message_seq if len(matching) > limit else None,
+        "nextAfter": next_after,
+        "nextBefore": next_before,
     }
 
 
@@ -401,9 +477,9 @@ async def post_message(
     parts, intent = _message_parts(request)
     logger.info(
         "agent dock message: conversation=%s client_message_id=%s content=%s",
-        request.conversation_id,
-        request.client_message_id,
-        intent,
+        _log_safe(request.conversation_id),
+        _log_safe(request.client_message_id),
+        _log_safe(intent),
     )
     key = resolve_idempotency_key(
         idempotency_key,
@@ -508,7 +584,7 @@ async def post_message(
     )
     logger.info(
         "message posted: project=%s session=%s seq=%d replayed=%s",
-        project_id,
+        _log_safe(project_id),
         session.session_id,
         admitted.message.message_seq,
         admitted.replayed,
@@ -615,21 +691,18 @@ async def interrupt(
                     "stopRequested": True,
                 },
             )
-        await _cancel_active_project_tasks(services, project_id)
-        if (
-            session.status.value != "CANCELLED"
-            or session.active_run_id is not None
-            or session.last_consumed_message_seq < session.last_message_seq
-        ):
-            await interrupt_creator_agent_runtime(
-                project_id,
-                superseded=False,
-                reason="user_interrupt",
-            )
-            session = await asyncio.to_thread(
-                store.get_project_session_snapshot,
-                project_id,
-            )
+        await interrupt_creator_agent_runtime(
+            project_id,
+            superseded=False,
+            reason="user_interrupt",
+        )
+        _cancel_detached_project_tasks(services, project_id)
+        session = await asyncio.to_thread(
+            store.hard_stop_session,
+            project_id,
+            session.session_id,
+        )
+        _schedule_stop_cleanup(services, project_id)
     except BaseException as error:
         _translate_runtime_error(error)
     return {

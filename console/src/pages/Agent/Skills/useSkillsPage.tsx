@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Form, Modal } from "@agentscope-ai/design";
 import type { PoolSkillSpec, SkillDetail, SkillSpec } from "../../../api/types";
 import type { SkillDrawerFormValues } from "./components";
@@ -8,6 +15,8 @@ import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
+import type { ChannelSchema } from "../../../api/modules/channel";
+import { getChannelLabel } from "../../../utils/channel";
 import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
@@ -89,6 +98,88 @@ export function useSkillsPage() {
   const [batchModeEnabled, setBatchModeEnabled] = useState(false);
   const [viewMode, setViewMode] = useState<"card" | "list">("card");
   const [filterOpen, setFilterOpen] = useState(false);
+
+  // ── Channel options ─────────────────────────────────────────────────────
+
+  const [channelTypes, setChannelTypes] = useState<string[]>([]);
+  const [channelSchemas, setChannelSchemas] = useState<
+    Record<string, ChannelSchema>
+  >({});
+  const [channelsLoading, setChannelsLoading] = useState(true);
+  const [channelsError, setChannelsError] = useState(false);
+  const [channelsLoaded, setChannelsLoaded] = useState(false);
+  const channelRequestIdRef = useRef(0);
+
+  const refreshChannelOptions = useCallback(() => {
+    const requestId = ++channelRequestIdRef.current;
+    setChannelsLoading(true);
+    setChannelsError(false);
+    void api.listChannelTypes().then(
+      (types) => {
+        if (requestId !== channelRequestIdRef.current) return;
+        setChannelTypes([...new Set(types)].filter((key) => key !== "all"));
+        setChannelsLoaded(true);
+        setChannelsLoading(false);
+      },
+      () => {
+        if (requestId !== channelRequestIdRef.current) return;
+        setChannelsError(true);
+        setChannelsLoading(false);
+      },
+    );
+    // Optional plugin names must not delay or block channel selection.
+    void api.listChannelSchemas().then(
+      (schemas) => {
+        if (requestId === channelRequestIdRef.current)
+          setChannelSchemas(schemas);
+      },
+      () => {
+        if (requestId === channelRequestIdRef.current) setChannelSchemas({});
+      },
+    );
+  }, []);
+
+  useEffect(() => {
+    setChannelTypes([]);
+    setChannelSchemas({});
+    setChannelsLoaded(false);
+    refreshChannelOptions();
+    return () => {
+      channelRequestIdRef.current += 1;
+    };
+  }, [selectedAgent, refreshChannelOptions]);
+
+  useEffect(() => {
+    if (drawerOpen) refreshChannelOptions();
+  }, [drawerOpen, refreshChannelOptions]);
+
+  const getChannelName = useCallback(
+    (key: string) =>
+      key === "all"
+        ? t("skills.allChannels")
+        : channelSchemas[key]?.label?.trim() || getChannelLabel(key, t),
+    [channelSchemas, t],
+  );
+  const channelOptions = useMemo(
+    () => ({
+      options: channelTypes.map((value) => ({
+        value,
+        label: getChannelName(value),
+      })),
+      loading: channelsLoading,
+      error: channelsError,
+      loaded: channelsLoaded,
+      onRetry: refreshChannelOptions,
+    }),
+    [
+      channelTypes,
+      getChannelName,
+      channelsLoading,
+      channelsError,
+      channelsLoaded,
+      refreshChannelOptions,
+    ],
+  );
 
   // ── Derived ─────────────────────────────────────────────────────────────
 
@@ -218,7 +309,12 @@ export function useSkillsPage() {
     setEditingSkillName("");
     setDrawerLoading(false);
     form.resetFields();
-    form.setFieldsValue({ enabled: false, channels: ["all"], tags: [] });
+    form.setFieldsValue({
+      enabled: false,
+      channels: ["all"],
+      preload: false,
+      tags: [],
+    });
     setDrawerOpen(true);
   };
 
@@ -320,6 +416,10 @@ export function useSkillsPage() {
         ) {
           sideUpdates.push(api.updateSkillChannels(result.name, newChannels));
         }
+        const newPreload = values.preload ?? false;
+        if (newPreload !== (editingSkill.preload ?? false)) {
+          sideUpdates.push(api.updateSkillPreload(result.name, newPreload));
+        }
         const newTags = values.tags || [];
         if (
           JSON.stringify(newTags) !== JSON.stringify(editingSkill.tags || [])
@@ -384,6 +484,7 @@ export function useSkillsPage() {
         const actualName = result.name || submitName;
         await Promise.all([
           api.updateSkillChannels(actualName, values.channels || ["all"]),
+          ...(values.preload ? [api.updateSkillPreload(actualName, true)] : []),
           ...(values.tags?.length
             ? [api.updateSkillTags(actualName, values.tags)]
             : []),
@@ -701,6 +802,8 @@ export function useSkillsPage() {
   };
 
   return {
+    channelOptions,
+    getChannelName,
     skills,
     providerSkills,
     sortedSkills,

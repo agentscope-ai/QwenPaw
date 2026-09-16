@@ -93,7 +93,7 @@ def test_host_runtime_requests_a_capability_only_when_needed(
     assert capability == runtime_module.RuntimeCapability(
         "pipe-1",
         "secret-1",
-        1,
+        runtime_module.COMPUTER_USE_PROTOCOL_VERSION,
     )
     assert received == {
         "token": token,
@@ -104,6 +104,7 @@ def test_host_runtime_requests_a_capability_only_when_needed(
 def test_coordinate_input_leaves_observation_context_to_client() -> None:
     method, params, include_images = _native_request(
         "click",
+        screenshot_id="screenshot-7",
         x=40,
         y=60,
         button="left",
@@ -113,11 +114,28 @@ def test_coordinate_input_leaves_observation_context_to_client() -> None:
     assert method == "click"
     assert include_images is False
     assert params == {
+        "screenshot_id": "screenshot-7",
         "x": 40,
         "y": 60,
         "button": "left",
         "count": 1,
     }
+
+
+def test_observe_window_requests_current_visual_and_semantic_state() -> None:
+    method, params, include_images = _native_request(
+        "observe_window",
+        window_id="42",
+    )
+
+    assert method == "observe_window"
+    assert params == {"window_id": "42"}
+    assert include_images is True
+
+
+def test_coordinate_input_requires_a_current_screenshot() -> None:
+    with pytest.raises(ValueError):
+        _native_request("click", x=40, y=60, button="left", count=1)
 
 
 def test_close_window_maps_to_the_native_method() -> None:
@@ -223,8 +241,8 @@ def test_client_rejects_action_before_observe() -> None:
     assert refusal.value.code == "observation_required"
 
 
-def test_screenshot_data_stays_out_of_the_text_block() -> None:
-    """Inline screenshot data must not be duplicated into the JSON text."""
+def test_screenshot_data_uses_base64_source_and_stays_out_of_text() -> None:
+    """Inline screenshots use the standard media representation once."""
     data_url = "data:image/jpeg;base64," + "A" * 4096
     payload = {
         "ok": True,
@@ -245,7 +263,9 @@ def test_screenshot_data_stays_out_of_the_text_block() -> None:
     ]
     text_blocks = [block for block in response.content if block.type == "text"]
     assert len(image_blocks) == 1
-    assert str(image_blocks[0].source.url) == data_url
+    assert image_blocks[0].source.type == "base64"
+    assert image_blocks[0].source.media_type == "image/jpeg"
+    assert image_blocks[0].source.data == "A" * 4096
     assert len(text_blocks) == 1
     assert data_url not in text_blocks[0].text
     assert "screenshot-1" in text_blocks[0].text
@@ -391,10 +411,13 @@ class _FakeTransport(ComputerUseTransport):
         payload = dict(message)
         self.messages.append(payload)
         if payload["method"] == "hello":
+            protocol_version = runtime_module.COMPUTER_USE_PROTOCOL_VERSION
             return {
                 "request_id": payload["request_id"],
                 "ok": True,
-                "result": {"protocol_version": 1},
+                "result": {
+                    "protocol_version": protocol_version,
+                },
             }
         result = {}
         if payload["method"] in client_module._OBSERVED_METHODS:
@@ -467,7 +490,11 @@ async def test_acquire_capability_retries_cold_start_misses(
 ) -> None:
     """A transient acquire miss must be retried before giving up."""
     attempts: list[int] = []
-    capability = runtime_module.RuntimeCapability("pipe-1", "secret-1", 1)
+    capability = runtime_module.RuntimeCapability(
+        "pipe-1",
+        "secret-1",
+        runtime_module.COMPUTER_USE_PROTOCOL_VERSION,
+    )
 
     def _flaky_acquire():
         attempts.append(len(attempts))
@@ -493,7 +520,11 @@ async def test_acquire_capability_rejects_an_incompatible_desktop(
     monkeypatch.setattr(
         client_module.HostRuntimeProvider,
         "acquire_capability",
-        lambda: runtime_module.RuntimeCapability("pipe-1", "secret-1", 2),
+        lambda: runtime_module.RuntimeCapability(
+            "pipe-1",
+            "secret-1",
+            runtime_module.COMPUTER_USE_PROTOCOL_VERSION + 1,
+        ),
     )
 
     with pytest.raises(ComputerUseProtocolError) as refusal:

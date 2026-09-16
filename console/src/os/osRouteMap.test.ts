@@ -3,7 +3,7 @@ import { baseFromRoutePath, pathToRouteId } from "./osRouteMap";
 
 const routes = [
   { id: "core.chat", path: "/chat/*", source: "core" },
-  { id: "core.app-center", path: "/apps", source: "core" },
+  { id: "core.marketplace", path: "/market", source: "core" },
   {
     id: "core.app-center.embed",
     path: "/apps/:appId",

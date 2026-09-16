@@ -11,6 +11,7 @@ from pathlib import Path
 
 from typing import (
     Any,
+    Awaitable,
     Callable,
     Dict,
     List,
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Callback when user reply was sent: (channel, user_id, session_id)
-OnLastDispatch = Optional[Callable[[str, str, str], None]]
+OnLastDispatch = Optional[Callable[[str, str, str], Awaitable[None]]]
 
 # Default max size per channel queue
 _CHANNEL_QUEUE_MAXSIZE = 1000

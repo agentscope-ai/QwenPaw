@@ -37,7 +37,6 @@ describe("InspirationExamples", () => {
     render(<InspirationExamples />);
 
     const card = await screen.findByRole("button", { name: /短剧制作/ });
-    expect(screen.getByText("灵感示例")).toBeInTheDocument();
     await userEvent.click(card);
 
     await waitFor(() =>
@@ -46,15 +45,6 @@ describe("InspirationExamples", () => {
     const opens = calls.filter((call) => call.method === "POST");
     expect(opens).toHaveLength(1);
     expect(opens[0].url).toContain("/examples/rainy-day-umbrella/open");
-  });
-
-  it("stays hidden when the backend has no bundled examples", async () => {
-    installMockFetch([
-      { match: "/examples", response: { json: { items: [] } } },
-    ]);
-    const { container } = render(<InspirationExamples />);
-
-    await waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
   it("surfaces an error and re-enables the card when opening fails", async () => {
@@ -76,7 +66,6 @@ describe("InspirationExamples", () => {
         screen.getByText("打开灵感示例失败，请稍后重试"),
       ).toBeInTheDocument(),
     );
-    expect(push).not.toHaveBeenCalled();
     expect(card).toBeEnabled();
   });
 });

@@ -12,6 +12,7 @@ Key patterns demonstrated:
 3. Lifecycle testing (start/stop)
 4. Simple mocking (no external dependencies)
 """
+
 # pylint: disable=redefined-outer-name,reimported,protected-access
 # pylint: disable=unused-argument
 from __future__ import annotations
@@ -407,8 +408,8 @@ class TestConsoleChannelFromConfig:
     def mock_process(self):
         return AsyncMock()
 
-    def test_from_config_uses_config_values(self, mock_process):
-        """from_config should use values from config object."""
+    def test_from_config_keeps_console_enabled(self, mock_process):
+        """from_config should keep the console channel enabled."""
         from qwenpaw.app.channels.console.channel import ConsoleChannel
         from qwenpaw.config.config import ConsoleConfig
 
@@ -422,7 +423,7 @@ class TestConsoleChannelFromConfig:
             config=config,
         )
 
-        assert channel.enabled is False
+        assert channel.enabled is True
         assert channel.bot_prefix == "[CFG] "
 
 
@@ -455,6 +456,67 @@ class TestConsolePrinting:
 
         captured = capsys.readouterr()
         assert "Hello World" in captured.out
+
+    def test_safe_print_suppresses_eio_after_one_warning(
+        self,
+        channel_for_print,
+        monkeypatch,
+        caplog,
+    ):
+        """Broken TTY (EIO) should warn once, then suppress prints."""
+        import errno
+        import logging
+
+        def _raise_eio(_text):
+            raise OSError(errno.EIO, "Input/output error")
+
+        monkeypatch.setattr(
+            "builtins.print",
+            _raise_eio,
+        )
+        with caplog.at_level(logging.WARNING):
+            channel_for_print._safe_print("first")
+            channel_for_print._safe_print("second")
+            channel_for_print._safe_print("third")
+
+        assert channel_for_print._stdout_broken is True
+        warnings = [
+            r
+            for r in caplog.records
+            if "Console stdout is unavailable" in r.getMessage()
+        ]
+        errors = [
+            r
+            for r in caplog.records
+            if r.levelno >= logging.ERROR and "Print failed" in r.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert errors == []
+
+    def test_safe_print_suppresses_broken_pipe(
+        self,
+        channel_for_print,
+        monkeypatch,
+        caplog,
+    ):
+        """BrokenPipeError should also disable further console prints."""
+        import logging
+
+        def _raise_broken_pipe(_text):
+            raise BrokenPipeError()
+
+        monkeypatch.setattr("builtins.print", _raise_broken_pipe)
+        with caplog.at_level(logging.WARNING):
+            channel_for_print._safe_print("first")
+            channel_for_print._safe_print("second")
+
+        assert channel_for_print._stdout_broken is True
+        warnings = [
+            r
+            for r in caplog.records
+            if "Console stdout is unavailable" in r.getMessage()
+        ]
+        assert len(warnings) == 1
 
     def test_print_parts_formats_text_content(
         self,

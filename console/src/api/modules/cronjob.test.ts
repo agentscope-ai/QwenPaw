@@ -92,3 +92,62 @@ describe("cronJobApi", () => {
     );
   });
 });
+
+describe("cronJobApi branches", () => {
+  beforeEach(() => {
+    vi.mocked(request).mockResolvedValue(undefined);
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("triggerCronJob posts to the run endpoint", async () => {
+    await cronJobApi.triggerCronJob("job-9");
+    expect(request).toHaveBeenCalledWith(
+      `/cron/jobs/${encodeURIComponent("job-9")}/run`,
+      { method: "POST" },
+    );
+  });
+
+  it("getCronJobState reads the state endpoint", async () => {
+    await cronJobApi.getCronJobState("job-9");
+    expect(request).toHaveBeenCalledWith(
+      `/cron/jobs/${encodeURIComponent("job-9")}/state`,
+    );
+  });
+
+  it("getCronJobHistory reads the history endpoint", async () => {
+    const records = [{ run_id: "r1" }];
+    vi.mocked(request).mockResolvedValue(records);
+    const result = await cronJobApi.getCronJobHistory("job-9");
+    expect(request).toHaveBeenCalledWith(
+      `/cron/jobs/${encodeURIComponent("job-9")}/history`,
+    );
+    expect(result).toEqual(records);
+  });
+
+  it("listCronDispatchTargets appends both query params", async () => {
+    await cronJobApi.listCronDispatchTargets({
+      channel: "web",
+      keyword: "report",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/cron/dispatch-targets?channel=web&keyword=report",
+    );
+  });
+
+  it("listCronDispatchTargets omits empty filters", async () => {
+    await cronJobApi.listCronDispatchTargets({});
+    expect(request).toHaveBeenCalledWith("/cron/dispatch-targets");
+    await cronJobApi.listCronDispatchTargets();
+    expect(request).toHaveBeenCalledWith("/cron/dispatch-targets");
+  });
+
+  it("listCronDispatchTargets accepts a single filter", async () => {
+    await cronJobApi.listCronDispatchTargets({ keyword: "nightly" });
+    expect(request).toHaveBeenCalledWith(
+      "/cron/dispatch-targets?keyword=nightly",
+    );
+  });
+});

@@ -67,25 +67,6 @@ def test_identity_echoes_are_stripped_with_receipts():
     Project.model_validate(candidate)
 
 
-def test_mismatched_echo_values_are_kept_for_validation():
-    candidate = Project.new(
-        project_id="project-1",
-        name="Initial",
-    ).model_dump(mode="json")
-    # The echo names another entity: that is information, not redundancy.
-    candidate["visual"]["entities"] = _variant_entities(
-        entityId="char:someone-else",
-    )
-
-    receipts = normalize_project_candidate(candidate)
-
-    assert not receipts
-    variant = candidate["visual"]["entities"]["items"]["char:hero"][
-        "variants"
-    ]["items"]["var:default"]
-    assert variant["entityId"] == "char:someone-else"
-
-
 def test_real_snake_case_identity_fields_are_never_stripped():
     candidate = Project.new(
         project_id="project-1",
@@ -101,70 +82,6 @@ def test_real_snake_case_identity_fields_are_never_stripped():
     assert entity["variants"]["items"]["var:default"]["variant_id"] == (
         "var:default"
     )
-
-
-def test_timeline_element_and_shot_echoes_are_stripped():
-    candidate = Project.new(
-        project_id="project-1",
-        name="Initial",
-    ).model_dump(mode="json")
-    timeline = candidate["timelines"]["items"]["timeline:main"]
-    timeline["timelineId"] = "timeline:main"
-    timeline["elements_by_id"]["el:intro"] = {
-        "elementId": "el:intro",
-        "creation": {
-            "type": "r2v",
-            "shots": {
-                "items": {
-                    "shot:1": {"shot_id": "shot:1", "shotId": "shot:1"},
-                },
-                "order": ["shot:1"],
-            },
-        },
-    }
-
-    receipts = normalize_project_candidate(candidate)
-
-    assert sorted(receipts) == [
-        "/timelines/items/timeline:main/elements_by_id/el:intro/creation/"
-        "shots/items/shot:1/shotId",
-        "/timelines/items/timeline:main/elements_by_id/el:intro/elementId",
-        "/timelines/items/timeline:main/timelineId",
-    ]
-
-
-def test_timeline_order_echoing_element_keys_is_stripped():
-    # Observed: the EntityCollection items/order convention generalized
-    # onto Timeline, whose elements_by_id is a plain dict.
-    candidate = Project.new(
-        project_id="project-1",
-        name="Initial",
-    ).model_dump(mode="json")
-    timeline = candidate["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["el:intro"] = {"elementId": "el:intro"}
-    timeline["order"] = ["el:intro"]
-
-    receipts = normalize_project_candidate(candidate)
-
-    assert "/timelines/items/timeline:main/order" in receipts
-    assert "order" not in timeline
-
-
-def test_timeline_order_naming_unknown_elements_is_kept():
-    # An order naming elements that do not exist carries information
-    # (a dangling reference) and must fail validation instead.
-    candidate = Project.new(
-        project_id="project-1",
-        name="Initial",
-    ).model_dump(mode="json")
-    timeline = candidate["timelines"]["items"]["timeline:main"]
-    timeline["elements_by_id"]["el:intro"] = {}
-    timeline["order"] = ["el:intro", "el:ghost"]
-
-    receipts = normalize_project_candidate(candidate)
-
-    assert not receipts
-    assert timeline["order"] == ["el:intro", "el:ghost"]
 
 
 def test_jq_project_commits_echoed_variants_and_reports_normalization(

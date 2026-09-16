@@ -371,7 +371,7 @@ def save_text_file(
         token = secrets.token_hex(8)
         temporary = target.with_name(f".{target.name}.{token}.qwenpaw.tmp")
         try:
-            temporary.write_text(content, encoding="utf-8")
+            temporary.write_bytes(content.encode("utf-8"))
             os.replace(temporary, target)
         except BaseException:
             temporary.unlink(missing_ok=True)

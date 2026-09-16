@@ -11,7 +11,7 @@ from ..app.auth import is_auth_enabled
 from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from ..config.utils import write_last_api
 from ..constant import LOG_LEVEL_ENV
-from ..utils.http import is_loopback_host
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 from ..utils.platform import warn_unelevated_sandbox
 
@@ -48,6 +48,34 @@ Recommended:
         logger.warning("\n%s", warning)
     else:
         click.echo(warning, err=True)
+
+
+def configure_server_process(
+    host: str,
+    port: int,
+    log_level: str,
+    hide_access_paths: tuple[str, ...],
+    *,
+    reload: bool = False,
+) -> None:
+    """Configure shared process state for an HTTP server command."""
+    write_last_api(probe_host_for_bind_host(host), port)
+    os.environ[LOG_LEVEL_ENV] = log_level
+    if reload:
+        os.environ["QWENPAW_RELOAD_MODE"] = "1"
+
+    setup_logger(log_level)
+    if log_level in ("debug", "trace"):
+        from .main import log_init_timings
+
+        log_init_timings()
+
+    paths = [path for path in hide_access_paths if path]
+    if paths:
+        logging.getLogger("uvicorn.access").addFilter(
+            SuppressPathAccessLogFilter(paths),
+        )
+    warn_unelevated_sandbox()
 
 
 @click.command("app")
@@ -107,7 +135,6 @@ def app_cmd(
     # admin, warn_unelevated_sandbox() below will log a warning about
     # reduced isolation before the server starts.
 
-    # Handle deprecated --workers parameter
     if workers is not None:
         click.echo(
             "⚠️  WARNING: --workers option is deprecated and will be removed "
@@ -121,32 +148,14 @@ def app_cmd(
         )
         click.echo(err=True)
 
-    # Persist last used host/port for other terminals
-    if host == "0.0.0.0":
-        write_last_api("127.0.0.1", port)
-    else:
-        write_last_api(host, port)
-    os.environ[LOG_LEVEL_ENV] = log_level
-    if reload:
-        os.environ["QWENPAW_RELOAD_MODE"] = "1"
-
-    setup_logger(log_level)
-    if log_level in ("debug", "trace"):
-        from .main import log_init_timings
-
-        log_init_timings()
-
-    paths = [p for p in hide_access_paths if p]
-    if paths:
-        logging.getLogger("uvicorn.access").addFilter(
-            SuppressPathAccessLogFilter(paths),
-        )
-
+    configure_server_process(
+        host,
+        port,
+        log_level,
+        hide_access_paths,
+        reload=reload,
+    )
     _warn_if_auth_off_non_loopback_bind(host, port)
-
-    # On Windows without admin, warn that sandbox runs in unelevated mode
-    # with limited isolation.
-    warn_unelevated_sandbox()
 
     uvicorn.run(
         "qwenpaw.app._app:app",

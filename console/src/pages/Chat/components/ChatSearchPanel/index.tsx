@@ -115,7 +115,10 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
         const query = searchQuery.toLowerCase();
         const results: SearchResult[] = [];
 
-        const chats = await chatApi.listChats({ archived: false });
+        const chats = await chatApi.listChats({
+          archived: false,
+          include_app_owned: false,
+        });
         if (seq !== searchSeqRef.current) return;
 
         const validChats = chats.filter(
@@ -149,7 +152,9 @@ const ChatSearchPanel: React.FC<ChatSearchPanelProps> = ({ open, onClose }) => {
 
           // Load this chat's messages, search, then let GC reclaim
           try {
-            const history = await chatApi.getChat(chatId);
+            const history = await chatApi.getChat(chatId, {
+              include_app_owned: false,
+            });
             if (seq !== searchSeqRef.current) return;
 
             const messages = history.messages || [];

@@ -30,7 +30,10 @@ from computer_use.transport.windows_pipe import (
     WindowsPipeTransport,
     _kernel32,
 )
-from qwenpaw.app.computer_use.runtime import RuntimeCapability
+from qwenpaw.app.computer_use.runtime import (
+    COMPUTER_USE_PROTOCOL_VERSION,
+    RuntimeCapability,
+)
 
 pytestmark = pytest.mark.skipif(
     os.name != "nt",
@@ -112,7 +115,7 @@ class _MockHelper:
             request_id = message.get("request_id")
             result: dict[str, Any]
             if method == "hello":
-                result = {"protocol_version": 1}
+                result = {"protocol_version": COMPUTER_USE_PROTOCOL_VERSION}
             elif method == "list_apps":
                 result = {"apps": []}
             elif method == "delayed":
@@ -132,7 +135,7 @@ class _MockHelper:
                         "warning": "",
                     },
                     "meta": message.get("meta"),
-                    "protocol_version": 1,
+                    "protocol_version": COMPUTER_USE_PROTOCOL_VERSION,
                 }
                 self._write_frame(kernel32, hpipe, reverse)
                 reply = self._read_message(kernel32, hpipe)
@@ -220,12 +223,16 @@ def _request(
             "turn_id": "test",
             "deadline_ms": deadline,
         },
-        "protocol_version": 1,
+        "protocol_version": COMPUTER_USE_PROTOCOL_VERSION,
     }
 
 
 def _transport(helper: _MockHelper) -> WindowsPipeTransport:
-    capability = RuntimeCapability(helper.pipe_name, helper.secret, 1)
+    capability = RuntimeCapability(
+        helper.pipe_name,
+        helper.secret,
+        COMPUTER_USE_PROTOCOL_VERSION,
+    )
     return WindowsPipeTransport(capability)
 
 

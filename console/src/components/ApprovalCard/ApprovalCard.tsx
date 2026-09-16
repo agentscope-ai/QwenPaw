@@ -21,6 +21,8 @@ export interface ApprovalCardProps {
   agentId: string;
   ownerAgentId?: string;
   showInboxAgentContext?: boolean;
+  // One-line rationale the agent emitted before requesting this tool call.
+  reasoning?: string;
   sessionId?: string;
   rootSessionId?: string;
   // Approval-scope choice (console-only). When true the card renders
@@ -47,6 +49,7 @@ export function ApprovalCard({
   agentId,
   ownerAgentId,
   showInboxAgentContext = false,
+  reasoning,
   sessionId,
   rootSessionId,
   isGeneralized,
@@ -97,6 +100,7 @@ export function ApprovalCard({
   }, [agentsById, ownerAgentId, agentId, t]);
   const shouldShowExecutionAgent =
     showInboxAgentContext && Boolean(isCrossSession);
+  const hasOwnerAgentIdentity = Boolean(ownerAgentId || agentId);
   const displayToolSource =
     toolSource && toolSource !== "builtin"
       ? toolSource
@@ -206,6 +210,15 @@ export function ApprovalCard({
               </div>
             ) : null}
           </>
+        ) : hasOwnerAgentIdentity ? (
+          <div className={styles.infoRow}>
+            <Text className={styles.label}>
+              {t("approval.agent", "Agent")}:
+            </Text>
+            <Tag color="success" className={styles.ownerAgentTag}>
+              {ownerAgentDisplayName}
+            </Tag>
+          </div>
         ) : null}
 
         <div className={styles.infoRow}>
@@ -242,6 +255,17 @@ export function ApprovalCard({
           </Text>
           <Text className={styles.value}>{findingsCount}</Text>
         </div>
+
+        {reasoning ? (
+          <div className={styles.reasoningRow}>
+            <Text className={styles.label}>
+              {t("approval.reason", "Reason")}:
+            </Text>
+            <Text
+              className={styles.reasoningText}
+            >{`\u201C${reasoning}\u201D`}</Text>
+          </div>
+        ) : null}
 
         {isCrossSession && !showInboxAgentContext && (
           <div className={styles.infoRow}>

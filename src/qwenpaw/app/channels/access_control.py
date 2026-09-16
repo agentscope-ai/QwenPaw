@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
 from ...constant import WORKING_DIR
+from ...utils.io_utils import write_json_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -194,20 +195,18 @@ class AccessControlStore:
         except OSError:
             pass
 
-    def _save(self) -> None:
+    def _save(self) -> bool:
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
             payload = {k: v.to_dict() for k, v in self._data.items()}
-            self._path.write_text(
-                json.dumps(payload, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
+            write_json_atomic(self._path, payload)
             self._last_mtime = self._path.stat().st_mtime
+            return True
         except Exception:
             logger.exception(
                 "Failed to save access control data to %s",
                 self._path,
             )
+            return False
 
     def _acl(self, channel: str) -> ChannelACL:
         if channel not in self._data:
@@ -507,7 +506,11 @@ class AccessControlStore:
             for uid in allow_from:
                 if uid not in acl.whitelist:
                     acl.whitelist[uid] = UserInfo()
-            self._save()
+            if not self._save():
+                raise OSError(
+                    f"Failed to persist access control migration to "
+                    f"{self._path}",
+                )
             logger.info(
                 "Imported %d allow_from entries to whitelist for channel %s",
                 len(allow_from),

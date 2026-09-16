@@ -15,6 +15,8 @@ open `http://127.0.0.1:8088/` in your browser to enter the Console.
 - Manage MCP clients
 - Modify runtime configuration
 - Manage multiple agents
+- Import conversations and tool settings from Codex and Qoder
+- Connect mailboxes and review automatic new-mail processing
 - Configure LLM providers and select models
 - Manage environment variables required by tools
 - Manage security options for tools and skills
@@ -74,7 +76,7 @@ row to delete it.
 > Sidebar: **Inbox → Inbox**
 
 Inbox is the centralized place to handle approvals and review execution results
-from cron jobs and heartbeat runs.
+from cron jobs, heartbeat runs, and automatic new-mail processing.
 
 **Unread indicator:**
 The Inbox entry shows an unread dot. Open Inbox regularly to avoid missing
@@ -94,6 +96,19 @@ with approval popups in chat.
 **Push messages:**
 For cron jobs and heartbeat, users can choose whether execution results should
 be pushed to Inbox. Click a message to view execution details, including traces.
+
+After new-mail automation is enabled for an agent, each message not blocked by
+mail access control creates an event here. When processing finishes, Inbox also
+shows the final summary and tool execution trace. The first monitor start only establishes the current UID
+baseline; it does not process historical messages. See
+[Mailbox Management](./mailbox#Automate-New-Mail) for the full pipeline.
+
+**Mail access control:**
+When mailbox access control is enabled, Inbox shows a **Mail access control**
+entry and pending count. Review unknown senders per agent; approve, block, or
+dismiss them; and maintain exact-address or `*@example.com` domain allowlists
+and blocklists. Approving a pending sender processes every message saved in that
+pending record; failed work remains in a retry queue that survives restarts.
 
 ![todo](https://img.alicdn.com/imgextra/i2/O1CN01iC21Ec20wD8uObwi2_!!6000000006913-2-tps-2886-1878.png)
 
@@ -345,10 +360,19 @@ cards. Click **Save** at the bottom (**Reset** reloads from the server).
 - **Context management** — Max input length, etc.
 - **Context compaction** — Compaction threshold ratio, etc.
 - **Tool result compaction** — Recent tool result window, etc.
-- **Memory summarization** — Max auto-search results, etc.
-- **Embedding model** — Whether to enable embedding cache, etc.
+- **Long-term memory** — Select ReMeLight, disabled memory, or an installed
+  memory-backend plugin. The selector is populated from the runtime registry;
+  the selected plugin can add its own configuration tab. ReMeLight exposes
+  Auto-Memory cadence; Auto-Dream, Daily Paper, and Auto Fin schedules and Inbox
+  delivery; automatic memory search; and index maintenance.
+- **Embedding model** — Embedding service, dimensions, cache, health checks, and pending-rebuild state.
 
-For mechanics, see [Context](./context) and [Config & working directory](./config).
+Saving a backend selection or plugin-owned memory configuration schedules an
+Agent reload. If a previously selected plugin is unavailable, the Console keeps
+the selection visible as unavailable instead of silently changing the Agent to
+another memory store.
+
+For mechanics, see [Context](./context), [Long-term Memory](./memory), [Embedding Models](./embedding), and [Config & working directory](./config).
 
 ---
 
@@ -364,6 +388,13 @@ when multiple agents collaborate — write a clear role.
 **Current agent** at the top-left of the Console selects which agent you operate
 on; this page edits each agent's metadata (name, description, custom workspace
 path, etc.). See [Multi-Agent](./multi-agent).
+
+For a native QwenPaw agent, this page also configures **Email Management**.
+Connect an existing personal mailbox or prepare a dedicated mailbox for later
+registration, then keep automation off or wake the agent for every new message.
+Mail access control is available when automation is on. Third-party agent
+backends do not support mail configuration. See
+[Mailbox Management and Automation](./mailbox) for setup and supported providers.
 
 ---
 
@@ -395,7 +426,9 @@ Global skill management. More detail: [Skills](./skills).
 On this page you can:
 
 - Broadcast skills to specific agents
-- Update built-in skills to the latest version
+- Update built-in skills to the current packaged version
+- Configure built-in **Auto Update** (packaged version → Skill Pool) and
+  **Auto Sync** (Skill Pool → agent workspaces) independently in skill details
 - Add skills through the **Add Skill** entry: Create Skill, Upload via
   Zip, Upload via URL, or Browse Market (clicking **Save** in the market saves
   into the pool)
@@ -433,6 +466,19 @@ Select rows → click **Delete** in the toolbar → confirm.
 > values.
 >
 > See [Config — Environment variables](./config#environment-variables).
+
+---
+
+## Import
+
+The **Import** page brings supported local Codex and Qoder conversations, memory,
+Skills, MCP, plugins, and scheduled tasks into the selected QwenPaw agent.
+
+Select a destination agent using the native QwenPaw backend, then follow
+**Applications → Choose content → Import**. Plugins are not selected by default.
+Afterwards, check Skill/MCP activation and review imported schedules separately.
+Import endpoints allow local access only. See [Import](./import) for the
+complete workflow.
 
 ---
 
@@ -533,6 +579,7 @@ python -c "import whisper; print('openai-whisper installed')"
 | Page                  | Sidebar path                   | What you can do                                |
 | --------------------- | ------------------------------ | ---------------------------------------------- |
 | Chat                  | Chat → Chat                    | Chat, voice, attachments, sessions             |
+| Inbox                 | Inbox → Inbox                  | Approvals, results, mail events and access     |
 | Channels              | Control → Channels             | Enable/disable, credentials                    |
 | Sessions              | Control → Sessions             | Filter, rename, delete                         |
 | Cron Jobs             | Control → Cron Jobs            | Create/edit/delete, run now                    |
@@ -558,6 +605,7 @@ python -c "import whisper; print('openai-whisper installed')"
 - [Config & working directory](./config) — Config fields, providers, env vars
 - [Channels](./channels) — Per-channel setup and credentials
 - [Skills](./skills) — Built-in skills and custom skills
+- [Mailbox Management](./mailbox) — Connect, triage, and control mail access
 - [Browser](./browser) — Browser tool tracks, identities, and settings
 - [Chrome extension](./chrome) — Connect QwenPaw to your own Chrome
 - [Heartbeat](./heartbeat) — Heartbeat configuration

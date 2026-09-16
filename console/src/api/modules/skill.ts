@@ -8,6 +8,8 @@ import type {
   HubSkillSpec,
   PoolSkillSpec,
   PoolSkillDetail,
+  SkillAutomationResponse,
+  SkillAutomationUpdate,
   SkillDetail,
   SkillSpec,
   WorkspaceSkillSummary,
@@ -50,10 +52,11 @@ export function invalidateSkillCache(options?: {
     }
 
     // Targeted invalidation based on options
-    if (options.pool && key === "/skills/pool") {
+    if (
+      options.pool &&
+      (key === "/skills/pool" || key.startsWith("/skills/pool/"))
+    ) {
       apiCache.delete(key);
-      apiCache.delete("/skills/pool/builtin-notice");
-      apiCache.delete("/skills/pool/builtin-sources");
     } else if (options.workspaces && key === "/skills/workspaces") {
       apiCache.delete(key);
     } else if (options.agentId && key === `/skills?agent=${options.agentId}`) {
@@ -463,6 +466,15 @@ export const skillApi = {
       },
     ),
 
+  updateSkillPreload: (skillName: string, preload: boolean) =>
+    request<{ updated: boolean; preload: boolean }>(
+      `/skills/${encodeURIComponent(skillName)}/preload`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ preload }),
+      },
+    ),
+
   updateSkillTags: (skillName: string, tags: string[]) =>
     request<{ updated: boolean; tags: string[] }>(
       `/skills/${encodeURIComponent(skillName)}/tags`,
@@ -481,7 +493,7 @@ export const skillApi = {
       },
     ),
 
-  updatePoolSkillAutoUpdate: (
+  updatePoolSkillAutoSync: (
     skillName: string,
     payload: { enabled: boolean; targets: string[] | null },
   ) =>
@@ -489,10 +501,22 @@ export const skillApi = {
       updated: boolean;
       enabled: boolean;
       targets: string[] | null;
-    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-update`, {
+    }>(`/skills/pool/${encodeURIComponent(skillName)}/auto-sync`, {
       method: "PUT",
       body: JSON.stringify(payload),
     }),
+
+  updatePoolSkillAutomation: (
+    skillName: string,
+    payload: SkillAutomationUpdate,
+  ) =>
+    request<SkillAutomationResponse>(
+      `/skills/pool/${encodeURIComponent(skillName)}/automation`,
+      {
+        method: "PUT",
+        body: JSON.stringify(payload),
+      },
+    ),
 
   streamOptimizeSkill: async function (
     content: string,

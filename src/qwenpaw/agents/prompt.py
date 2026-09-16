@@ -421,7 +421,7 @@ def _get_active_model_info():
         if not provider:
             return None, None
 
-        for m in provider.models + provider.extra_models:
+        for m in provider.all_models():
             if m.id == active.model:
                 return m, active.model
         return None, None

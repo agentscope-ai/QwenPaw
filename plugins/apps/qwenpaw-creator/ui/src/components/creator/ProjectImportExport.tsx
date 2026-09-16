@@ -144,7 +144,7 @@ export function ProjectImporter({
       title={null}
       styles={{ container: { padding: 0, overflow: "hidden" } }}
     >
-      <div className="flex h-16 items-center justify-between border-b border-[#EAE9E7] pl-5 pr-3">
+      <div className="flex h-16 items-center justify-between border-b border-[#EAE9E7] pl-5 pr-3 dark:border-[var(--color-border)]">
         <span className="text-base font-medium leading-7 text-[var(--color-text-primary)]">
           {t("importExport.importTitle")}
         </span>
@@ -161,7 +161,7 @@ export function ProjectImporter({
 
       <div className="p-5">
         {fileName ? (
-          <div className="flex h-[134px] flex-col items-center justify-center gap-4 rounded-md bg-white px-4">
+          <div className="flex h-[134px] flex-col items-center justify-center gap-4 rounded-md bg-white px-4 dark:bg-[var(--color-bg-card)]">
             <span className="max-w-full truncate text-base font-medium leading-7 text-[var(--color-text-primary)]">
               {fileName}
             </span>
@@ -188,16 +188,16 @@ export function ProjectImporter({
               const file = e.dataTransfer.files?.[0];
               if (file) void upload(file);
             }}
-            className={`flex h-[134px] w-full cursor-pointer flex-col items-center justify-center gap-2.5 rounded-md border-2 border-dashed bg-white transition-colors ${
+            className={`flex h-[134px] w-full cursor-pointer flex-col items-center justify-center gap-2.5 rounded-md border-2 border-dashed bg-white transition-colors dark:bg-[var(--color-bg-card)] ${
               dragOver
                 ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)]"
-                : "border-[#EAE9E7] hover:border-[var(--color-accent)]"
+                : "border-[#EAE9E7] hover:border-[var(--color-accent)] dark:border-[var(--color-border)]"
             }`}
           >
             <span className="text-base font-medium leading-7 text-[var(--color-text-primary)]">
               {t("importExport.dropzone")}
             </span>
-            <span className="text-sm leading-6 text-[rgba(26,26,29,0.45)]">
+            <span className="text-sm leading-6 text-[rgba(26,26,29,0.45)] dark:text-[var(--color-text-tertiary)]">
               {t("importExport.dropzoneDesc")}
             </span>
           </button>
@@ -330,7 +330,7 @@ export function ExportProgressCard({
   return (
     <div
       data-export-progress
-      className="fixed bottom-5 left-5 z-50 w-[300px] rounded-lg border border-[#EAE9E7] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.12)]"
+      className="fixed bottom-5 left-5 z-50 w-[300px] rounded-lg border border-[#EAE9E7] bg-white px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.12)] dark:border-[var(--color-border)] dark:bg-[var(--color-bg-elevated)]"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-[var(--color-text-primary)]">

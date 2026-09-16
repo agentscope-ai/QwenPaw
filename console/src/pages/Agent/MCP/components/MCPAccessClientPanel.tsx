@@ -16,6 +16,7 @@ import { MCPAccessRuleRows } from "./MCPAccessRuleRows";
 interface MCPAccessClientPanelProps {
   policy: MCPAccessPolicy;
   principalOptions: MCPAccessPrincipalOption[];
+  channelSourceValues: readonly string[];
   setDefaultEffect: (effect: MCPAccessEffect) => void;
   addClientAccessRule: () => void;
   updateClientRule: (
@@ -30,6 +31,7 @@ interface MCPAccessClientPanelProps {
 export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
   policy,
   principalOptions,
+  channelSourceValues,
   setDefaultEffect,
   addClientAccessRule,
   updateClientRule,
@@ -68,6 +70,7 @@ export const MCPAccessClientPanel: React.FC<MCPAccessClientPanelProps> = ({
       <MCPAccessRuleRows
         rules={policy.client_overrides}
         principalOptions={principalOptions}
+        channelSourceValues={channelSourceValues}
         getKey={accessRuleIdentityKey}
         updateRule={updateClientRule}
         setRuleEffect={setClientRuleEffect}

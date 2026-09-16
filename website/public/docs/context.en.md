@@ -336,7 +336,9 @@ Existing configurations that already use the AgentScope-native path continue to 
 
 > **Beta feature:** Visual Compact is disabled by default and remains under active development. It can reduce input tokens in long conversations, but model reading of text in images is not completely lossless and may affect answer quality. Try it on non-critical tasks first, then decide whether to keep it enabled based on your results.
 
-Visual Compact turns eligible older, longer context into visual pages before a request is sent to the model. Recent conversation remains as text. Because an image can carry a large amount of dense text, this approach can significantly reduce token usage in long conversations.
+Visual Compact turns older conversation history, including its tool interactions, into images to reduce input tokens. System prompts, tool definitions, Scroll summaries and history indexes, memory reminders, and recent conversation remain as text.
+
+Selected exact values, such as paths and version numbers, are kept in a textual **factsheet**. To check details, the Agent can use `recall_context` to search source text still retained in the current session. It cannot recover content removed from the current context by `/compact`.
 
 It works alongside the existing context strategy and long-term memory. It does not delete chat history, rewrite stored conversations, or save the generated images to local storage.
 
@@ -355,13 +357,13 @@ Use the multimodal capability test in model settings to confirm that the selecte
 3. Turn on **Enable Visual Compact**.
 4. Choose a compression intensity. Start with **Low** unless token pressure is more important than visual readability.
 
-| Intensity  | Behavior                                                                                                 |
-| ---------- | -------------------------------------------------------------------------------------------------------- |
-| **Low**    | Prioritizes readability and compresses less eligible content. Recommended as the default starting point. |
-| **Medium** | Balances visual readability with greater token savings.                                                  |
-| **High**   | Uses the densest pages and prioritizes token savings, with the highest recognition risk.                 |
+| Intensity  | Behavior                                                                              |
+| ---------- | ------------------------------------------------------------------------------------- |
+| **Low**    | Clearer text; prioritizes readability. Recommended starting point.                    |
+| **Medium** | Balances readability with token savings.                                              |
+| **High**   | Fits more text per page and prioritizes token savings, with greater recognition risk. |
 
-Higher intensity does not necessarily produce better answers.
+Higher intensity does not mean better answers. Actual savings also depend on the context and model.
 
 ### Use cases & known drawbacks
 
@@ -379,10 +381,10 @@ Visual Compact is most useful for long-running conversations, tool-heavy tasks, 
 
 - A model may misread small text, numbers, identifiers, formatting, or uncommon characters and return a plausible but incorrect answer.
 - Rendering visual pages consumes local CPU and memory and can add latency, especially the first time a long context is rendered.
-- QwenPaw provides an exact-source recovery tool when visual compression is applied, but the model may not always call it or may search for the wrong evidence.
+- The model may skip source retrieval or search for the wrong evidence.
 
 For tasks that require exact wording, such as checking an ID, hash, or version number, use **Low** intensity or disable Visual Compact.
 
-If an exact value appears incorrect, ask the Agent to use `recover_visual_context` to re-read the original source before answering. If answer quality remains unstable, switch to **Low** intensity or disable the feature.
+If an exact value appears incorrect, ask the Agent to use `recall_context` to re-read the original source before answering. If answer quality remains unstable, switch to **Low** intensity or disable the feature.
 
 > **Acknowledgment:** The engineering implementation of Visual Compact was informed by [pxpipe](https://github.com/teamchong/pxpipe).

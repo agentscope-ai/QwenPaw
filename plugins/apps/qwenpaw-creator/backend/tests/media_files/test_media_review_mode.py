@@ -2,8 +2,7 @@
 """media_review auto_approve: the last gate of the unattended ladder.
 
 ``required`` (default) parks generated media behind a pending Review;
-``auto_approve`` reuses the AUTO_FIX acceptance path so unattended runs
-never wait on a human quality gate.
+``auto_approve`` reuses the AUTO_FIX acceptance path.
 """
 from __future__ import annotations
 
@@ -12,18 +11,15 @@ import asyncio
 import pytest
 
 from services.media_files.image_execution import FileImageExecutionService
-from services.media_files.review_admission import media_review_policy
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
     ElementLocation,
-    EntityCollection,
     Project,
     R2VCreation,
-    Shot,
     TimelineElement,
     TimelineSpan,
 )
-from services.runtime_files.models import ReviewPolicy, ReviewStatus
+from services.runtime_files.models import ReviewStatus
 
 
 pytestmark = pytest.mark.unit
@@ -42,13 +38,6 @@ class _GoodProvider:
 def _services(tmp_path, monkeypatch) -> CreatorFileServices:
     monkeypatch.setenv("CREATOR_DATA_ROOT", str(tmp_path.resolve()))
     services = CreatorFileServices.create(tmp_path.resolve())
-    shot = Shot(
-        shot_id=f"{ELEMENT_ID}-shot",
-        description="主角走向舞台中央",
-        camera="→ 横摇右",
-        framing="全景",
-        duration_seconds=4,
-    )
     project = Project.new(project_id=PROJECT_ID, name="Media Review Mode")
     project.timelines.items["timeline:main"].elements_by_id[
         ELEMENT_ID
@@ -60,10 +49,6 @@ def _services(tmp_path, monkeypatch) -> CreatorFileServices:
         creation=R2VCreation(
             narrative="主角走向舞台中央",
             storyboard_prompt="动画分镜：主角走向舞台中央",
-            shots=EntityCollection(
-                items={shot.shot_id: shot},
-                order=[shot.shot_id],
-            ),
         ),
     )
     services.projects.create(
@@ -86,18 +71,6 @@ def _generate(services) -> None:
 
 def _active_review(services):
     return services.reviews.active(PROJECT_ID)
-
-
-def test_policy_defaults_to_require_review():
-    assert media_review_policy() is ReviewPolicy.REQUIRE_REVIEW
-
-
-def test_policy_switches_with_auto_approve_mode(monkeypatch):
-    monkeypatch.setattr(
-        "services.media_files.review_admission.get_media_review_mode",
-        lambda: "auto_approve",
-    )
-    assert media_review_policy() is ReviewPolicy.AUTO_FIX
 
 
 def test_required_mode_parks_media_behind_a_pending_review(

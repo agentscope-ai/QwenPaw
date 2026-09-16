@@ -17,15 +17,18 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOUSEEVENTF_WHEEL, VIRTUAL_KEY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetAncestor, GetForegroundWindow, GetWindowThreadProcessId, IsWindow,
-    SetCursorPos, SetForegroundWindow, ShowWindow, WindowFromPoint, GA_ROOT, GA_ROOTOWNER,
-    SW_RESTORE,
+    BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, IsWindow, SetCursorPos,
+    SetForegroundWindow, ShowWindow, WindowFromPoint, SW_RESTORE,
 };
 
-use super::super::state::{map_point, Observation, WindowInfo};
+use super::super::state::{
+    map_point, screenshot_target, Observation, ScreenshotTarget, WindowInfo,
+};
 use super::super::InputStep;
 use super::uia::{element_point, element_point_by_id, focused_text_input};
-use super::window::get_visible_window_rect;
+#[cfg(test)]
+use super::window::window_relation_matches;
+use super::window::{get_visible_window_rect, matches_observed_surface, matches_target_window};
 
 pub(crate) fn click(
     observation: &Observation,
@@ -111,8 +114,14 @@ fn drag_points(
             set_focus(&observation.window)?;
             ensure_observed_geometry(observation)?;
             Ok((
-                validate_target_point(observation, element_point_by_id(observation, source_id)?)?,
-                validate_target_point(observation, element_point_by_id(observation, target_id)?)?,
+                validate_target_point(
+                    observation.input_hwnd,
+                    element_point_by_id(observation, source_id)?,
+                )?,
+                validate_target_point(
+                    observation.input_hwnd,
+                    element_point_by_id(observation, target_id)?,
+                )?,
             ))
         }
         (None, None) => Ok((
@@ -382,7 +391,7 @@ fn verify_element_point(
     ensure_observed_geometry(observation)?;
     set_focus(&observation.window)?;
     ensure_observed_geometry(observation)?;
-    validate_target_point(observation, element_point(observation, params)?)
+    validate_target_point(observation.input_hwnd, element_point(observation, params)?)
 }
 
 fn verify_point_with_prefix(
@@ -390,16 +399,18 @@ fn verify_point_with_prefix(
     params: &Map<String, Value>,
     prefix: &str,
 ) -> Result<POINT, (&'static str, String)> {
-    ensure_observed_geometry(observation)?;
+    let screenshot = screenshot_target(observation, params)?;
+    ensure_screenshot_geometry(screenshot)?;
     set_focus(&observation.window)?;
+    ensure_screenshot_geometry(screenshot)?;
     let x = integer_param(params, &format!("{prefix}x"))?;
     let y = integer_param(params, &format!("{prefix}y"))?;
-    let (x_offset, y_offset) = map_point(observation, i64::from(x), i64::from(y))?;
+    let (x_offset, y_offset) = map_point(screenshot, i64::from(x), i64::from(y))?;
     let point = POINT {
-        x: observation.bounds[0] + x_offset as i32,
-        y: observation.bounds[1] + y_offset as i32,
+        x: screenshot.bounds[0] + x_offset as i32,
+        y: screenshot.bounds[1] + y_offset as i32,
     };
-    validate_target_point(observation, point)
+    validate_target_point(screenshot.hwnd, point)
 }
 
 fn ensure_observed_geometry(observation: &Observation) -> Result<(), (&'static str, String)> {
@@ -411,7 +422,7 @@ fn ensure_observed_geometry(observation: &Observation) -> Result<(), (&'static s
         current.right - current.left,
         current.bottom - current.top,
     ];
-    if current_bounds != observation.bounds {
+    if current_bounds != observation.window_bounds {
         return Err((
             "stale_observation",
             "Window geometry changed; observe it again.".to_string(),
@@ -420,15 +431,30 @@ fn ensure_observed_geometry(observation: &Observation) -> Result<(), (&'static s
     Ok(())
 }
 
-fn validate_target_point(
-    observation: &Observation,
-    point: POINT,
-) -> Result<POINT, (&'static str, String)> {
+fn ensure_screenshot_geometry(screenshot: &ScreenshotTarget) -> Result<(), (&'static str, String)> {
+    let current = get_visible_window_rect(HWND(screenshot.hwnd as _))
+        .map_err(|error| ("stale_window", error))?;
+    let current_bounds = [
+        current.left,
+        current.top,
+        current.right - current.left,
+        current.bottom - current.top,
+    ];
+    if current_bounds != screenshot.bounds {
+        return Err((
+            "stale_observation",
+            "Screenshot geometry changed; observe the window again.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_target_point(surface: isize, point: POINT) -> Result<POINT, (&'static str, String)> {
     let hit = unsafe { WindowFromPoint(point) };
-    if !matches_target_window(HWND(observation.window.hwnd as _), hit) {
+    if !matches_observed_surface(HWND(surface as _), hit) {
         return Err((
             "target_not_at_point",
-            "Target window is no longer at this point.".to_string(),
+            "The observed surface is no longer at this point.".to_string(),
         ));
     }
     Ok(point)
@@ -476,33 +502,10 @@ fn try_set_foreground(hwnd: HWND) -> bool {
     }
 }
 
-/// Accept activation when the target, one of its child popups, or an owned
-/// top-level window currently holds the foreground.
+/// Accept activation when the target or one of its related surfaces currently
+/// holds the foreground.
 fn foreground_matches(hwnd: HWND) -> bool {
     matches_target_window(hwnd, unsafe { GetForegroundWindow() })
-}
-
-fn matches_target_window(target: HWND, candidate: HWND) -> bool {
-    if candidate.0.is_null() {
-        return false;
-    }
-    unsafe {
-        window_relation_matches(
-            target,
-            GetAncestor(candidate, GA_ROOT),
-            GetAncestor(target, GA_ROOTOWNER),
-            GetAncestor(candidate, GA_ROOTOWNER),
-        )
-    }
-}
-
-fn window_relation_matches(
-    target: HWND,
-    candidate_root: HWND,
-    target_root_owner: HWND,
-    candidate_root_owner: HWND,
-) -> bool {
-    candidate_root == target || (target_root_owner == target && candidate_root_owner == target)
 }
 
 /// The foreground lock rejects background processes, so temporarily join

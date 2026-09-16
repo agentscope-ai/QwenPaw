@@ -85,12 +85,13 @@ describe("agentApi", () => {
       max_cache_size: 10000,
       max_input_length: 8192,
       max_batch_size: 10,
+      health_check_timeout: 45,
     };
     await agentApi.testEmbedding(config);
     expect(request).toHaveBeenCalledWith("/workspace/embedding/test", {
       method: "POST",
       body: JSON.stringify(config),
-      timeout: 30 * 1000,
+      timeout: 95 * 1000,
     });
   });
 

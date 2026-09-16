@@ -31,6 +31,12 @@ $QWENPAW_WORKING_DIR/                      # Default ~/.qwenpaw
 │   │   ├── PROFILE.md                   # Persona file
 │   │   ├── BOOTSTRAP.md                 # Initial setup guide (auto-deleted after completion)
 │   │   ├── MEMORY.md                    # Long-term memory
+│   │   ├── MAIL_TRIAGE.md               # Automatic mail triage rules (created with mail config)
+│   │   ├── CONTACTS.md                  # Mail contacts (created with mail config)
+│   │   ├── credentials.yaml             # Encrypted credential store (including mail credentials)
+│   │   ├── mail_access_control.json     # Mail allow/block/pending senders
+│   │   ├── mail_state/                  # Mail monitor, thread, and label state
+│   │   ├── drivers/mcp/qwenpawmail.yaml # Generated mail MCP driver card
 │   │   ├── skills/                      # Workspace-local skills
 │   │   ├── skill.json                   # Skill enabled state and config
 │   │   ├── memory/                      # Daily memory files
@@ -60,22 +66,27 @@ $QWENPAW_SECRET_DIR/                       # Default ~/.qwenpaw.secret
 
 **Agent Workspace (`~/.qwenpaw/workspaces/{agent_id}/`)**
 
-| File / Directory    | Purpose                                                      |
-| ------------------- | ------------------------------------------------------------ |
-| `agent.json`        | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
-| `chats.json`        | Conversation history                                         |
-| `jobs.json`         | Cron job list                                                |
-| `token_usage.json`  | Token usage records                                          |
-| `AGENTS.md`         | Persona file (see [Agent Persona](./persona))                |
-| `SOUL.md`           | Persona file (see [Agent Persona](./persona))                |
-| `PROFILE.md`        | Persona file (see [Agent Persona](./persona))                |
-| `BOOTSTRAP.md`      | Initial setup guide (auto-deleted after completion)          |
-| `MEMORY.md`         | Long-term memory (see [Memory](./memory))                    |
-| `skills/`           | Skills available in this workspace                           |
-| `skill.json`        | Skill enabled state, channel routing, and config             |
-| `memory/`           | Daily memory files (see [Memory](./memory))                  |
-| `.browser-profile/` | Browser persistent profile (see [Browser](./browser))        |
-| `browser/`          | Browser user data of the legacy implementation               |
+| File / Directory           | Purpose                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `agent.json`               | Agent config (channels, heartbeat, tools, skills, MCP, etc.)                  |
+| `chats.json`               | Conversation history                                                          |
+| `jobs.json`                | Cron job list                                                                 |
+| `token_usage.json`         | Token usage records                                                           |
+| `AGENTS.md`                | Persona file (see [Agent Persona](./persona))                                 |
+| `SOUL.md`                  | Persona file (see [Agent Persona](./persona))                                 |
+| `PROFILE.md`               | Persona file (see [Agent Persona](./persona))                                 |
+| `BOOTSTRAP.md`             | Initial setup guide (auto-deleted after completion)                           |
+| `MEMORY.md`                | Long-term memory (see [Memory](./memory))                                     |
+| `MAIL_TRIAGE.md`           | Automatic mail triage and safety rules                                        |
+| `CONTACTS.md`              | Known mail contacts and relationship context                                  |
+| `credentials.yaml`         | Encrypted workspace credential store, including mail secrets                  |
+| `mail_access_control.json` | Mail allowlist, blocklist, pending senders, and approved-message replay queue |
+| `mail_state/`              | Mail monitor, thread index, and custom label state                            |
+| `skills/`                  | Skills available in this workspace                                            |
+| `skill.json`               | Skill enabled state, channel routing, and config                              |
+| `memory/`                  | Daily memory files (see [Memory](./memory))                                   |
+| `.browser-profile/`        | Browser persistent profile (see [Browser](./browser))                         |
+| `browser/`                 | Browser user data of the legacy implementation                                |
 
 > **Persona files:** Agent behavior and personality are defined by persona files. Running `qwenpaw init` automatically creates template files based on your chosen language (`zh` / `en` / `ru`). For detailed explanation and management, see [Agent Persona](./persona).
 
@@ -102,15 +113,28 @@ You can customize paths and behavior via environment variables:
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                  |
-| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
-| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
-| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
+| Variable                               | Default         | Description                                                                                                                                                                                                     |
+| -------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                    | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)                                                                                                                                                 |
+| `QWENPAW_LOG_MAX_SIZE`                 | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB`                                                                                                                                    |
+| `QWENPAW_LOG_MAX_BACKUPS`              | `3`             | Number of rotated log backups to retain; `0` disables backups                                                                                                                                                   |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`     | `100000`        | Character threshold to trigger memory compaction                                                                                                                                                                |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT`   | `3`             | Number of recent messages to keep after compaction                                                                                                                                                              |
+| `QWENPAW_MEMORY_COMPACT_RATIO`         | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)                                                                                                                                     |
+| `QWENPAW_REMOTE_IMAGE_DOWNLOAD_MAX_MB` | `50`            | Remote image download limit for `view_image` in MiB. Any positive integer is accepted; invalid/nonpositive values use the default                                                                               |
+| `QWENPAW_MAX_IMAGE_PIXELS`             | unset           | Maximum inline-image pixel count (`width * height`) used for request-time proportional resizing. Unset, empty, or `0` disables resizing; invalid or negative values fail the request with a configuration error |
+| `QWENPAW_CONSOLE_STATIC_DIR`           | _(auto-detect)_ | Console frontend static files path                                                                                                                                                                              |
+
+When resizing is enabled, an image that requires resizing but cannot be processed fails the request with an explicit error. The original image is not sent as a fallback.
+
+**LLM streaming timeouts:**
+
+| Variable                                   | Default | Description                                                                                                                     |
+| ------------------------------------------ | ------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_LLM_STREAM_FIRST_CONTENT_TIMEOUT` | `30`    | Maximum cumulative upstream wait for the first content-bearing chunk; `0` disables the first-content timeout                    |
+| `QWENPAW_LLM_STREAM_IDLE_TIMEOUT`          | `30`    | Maximum cumulative upstream wait between content-bearing chunks after the first content arrives; `0` disables this idle timeout |
+
+These timeouts count only time spent waiting for the upstream stream, excluding pauses caused by downstream consumer backpressure. Empty control chunks neither switch phases nor restore a timeout budget. Environment variables are read at process startup, so restart QwenPaw after changing them.
 
 **Security & Authentication:**
 
@@ -140,6 +164,13 @@ Starting from **v0.1.0**, configuration is split into two layers:
 
 1. **Global config** - `~/.qwenpaw/config.json` (providers, environment variables, agent list)
 2. **Agent config** - `~/.qwenpaw/workspaces/{agent_id}/agent.json` (per-agent settings)
+
+QwenPaw serializes agent configuration writes within its single server
+process and rejects saves based on an older on-disk snapshot. Atomic file
+replacement prevents partial JSON. External editors do not participate in
+this lock, so changes made during the final validation-and-replace interval
+are outside the strict consistency guarantee; reload before retrying a 409
+conflict.
 
 ### Global config.json
 
@@ -174,15 +205,14 @@ Stores globally shared configuration:
 
 **Global config.json field descriptions:**
 
-| Field                 | Type           | Default             | Description                                                       |
-| --------------------- | -------------- | ------------------- | ----------------------------------------------------------------- |
-| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                         |
-| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                        |
-| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                        |
-| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                                |
-| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages      |
-| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                      |
-| `last_dispatch`       | object \| null | `null`              | Last message dispatch target (used for heartbeat `target="last"`) |
+| Field                 | Type           | Default             | Description                                                  |
+| --------------------- | -------------- | ------------------- | ------------------------------------------------------------ |
+| `agents.active_agent` | string         | `"default"`         | Currently active agent ID                                    |
+| `agents.profiles`     | object         | `{}`                | Agent profile references (key is agent_id)                   |
+| `last_api.host`       | string \| null | `null`              | Host address from last `qwenpaw app` start                   |
+| `last_api.port`       | int \| null    | `null`              | Port from last `qwenpaw app` start                           |
+| `show_tool_details`   | bool           | `true`              | Whether to show tool call/return details in channel messages |
+| `user_timezone`       | string         | _(system timezone)_ | IANA timezone name (e.g., `"Asia/Shanghai"`)                 |
 
 **`agents.profiles[agent_id]` reference fields:**
 
@@ -244,6 +274,20 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
     "timeoutSeconds": 300,
     "activeHours": null
   },
+  "mail": {
+    "is_new_account": false,
+    "credential": {
+      "name": "alex",
+      "domain": "163.com",
+      "provider": ""
+    },
+    "push": {
+      "mode": "agent_all",
+      "rules": [],
+      "poll_interval_seconds": 120,
+      "access_control_enabled": true
+    }
+  },
   "running": {
     "max_iters": 50,
     "llm_retry_enabled": true,
@@ -278,8 +322,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
       "mode": "warn"
     },
     "allow_no_auth_hosts": ["127.0.0.1", "::1"]
-  },
-  "last_dispatch": null
+  }
 }
 ```
 
@@ -327,6 +370,45 @@ Each MCP client includes name, enabled state, transport method (stdio/HTTP/SSE),
 > **Complete configuration:** Full field descriptions, config formats, examples, and usage for MCP clients are documented in [MCP](./mcp).
 
 Management: Console (Agent → MCP) or directly edit `agent.json`.
+
+---
+
+#### `mail` — Mailbox configuration
+
+Mailbox configuration is available only for the native QwenPaw backend. Prefer
+**Settings → Agent management → Email Management** in the Console so QwenPaw
+also creates the qwenpawmail MCP driver card and workspace files.
+
+| Field                         | Type           | Default     | Description                                                                                                                |
+| ----------------------------- | -------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `is_new_account`              | bool           | `false`     | `false` connects an existing account; `true` describes a dedicated agent mailbox awaiting registration                     |
+| `credential.name`             | string         | `""`        | Mailbox local part before `@`                                                                                              |
+| `credential.domain`           | string         | `"163.com"` | Mail domain                                                                                                                |
+| `credential.auth_code`        | string         | `""`        | Write-only authorization code, app password, or mailbox login password; encrypted and excluded from reads and `agent.json` |
+| `credential.password`         | string         | `""`        | Legacy dedicated-mailbox registration field retained for migration only; the current flow does not store it                |
+| `credential.phone_number`     | string         | `""`        | Legacy dedicated-mailbox registration field retained for migration only; the current flow does not store it                |
+| `credential.provider`         | string         | `""`        | Legacy enterprise custom-domain compatibility field; the current managed UI does not offer enterprise mail setup           |
+| `push`                        | object \| null | `null`      | New-mail monitor config; omit or set to `null` to keep the monitor stopped                                                 |
+| `push.mode`                   | string         | `"off"`     | `off` or `agent_all`; `rules_only` and `rules_then_agent` are compatibility modes for older configs                        |
+| `push.rules`                  | array          | `[]`        | Deterministic new-mail rules retained for older configs                                                                    |
+| `push.poll_interval_seconds`  | int            | `120`       | Polling interval after IMAP IDLE failure; runtime minimum is 10 seconds                                                    |
+| `push.access_control_enabled` | bool           | `false`     | Check sender allowlist, blocklist, and pending state before automatic processing                                           |
+
+Each `push.rules` entry has `field` (`from` / `content` / `keyword`, with
+`subject` as a legacy alias), `contains`, `action` (`mark_read` / `move` /
+`notify` / `wake_agent`), and `param`. The current Console focuses on **Off** and
+**Wake the agent for every email**. Existing rule modes continue to load but are
+not the recommended setup path for new configurations.
+
+The public mailbox identity and automatic-processing settings are stored in
+`agent.json`. `auth_code`, `password`, and `phone_number` are write-only secrets:
+QwenPaw excludes them from public configuration and encrypts them in the
+workspace's `credentials.yaml`. `drivers/mcp/qwenpawmail.yaml` stores only a
+credential reference, which is resolved when the MCP subprocess starts. Do not
+assume that a missing `auth_code` in the API or `agent.json` means no credential
+is configured, and do not write credentials directly into these public files.
+See [Mailbox Management and Automation](./mailbox) for setup, automation, and
+provider details.
 
 ---
 
@@ -388,8 +470,34 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 | `history_max_length`       | int    | `10000`         | Maximum output length (characters) for `/history` command               |
 | `context_manager_backend`  | string | `"light"`       | Context manager backend type                                            |
 | `memory_manager_backend`   | string | `"remelight"`   | Memory manager backend type                                             |
+| `memory_backend_configs`   | object | `{}`            | Per-Agent configuration maps owned by installed memory backend plugins  |
 | `light_context_config`     | object | _(see below)_   | Light context manager configuration                                     |
 | `reme_light_memory_config` | object | _(see below)_   | ReMeLight memory manager configuration                                  |
+
+**Plugin Memory Backend Configuration (`memory_backend_configs` object):**
+
+Each key is a normalized memory backend ID and each value is that plugin's
+configuration object. For example:
+
+```json
+{
+  "memory_manager_backend": "example-memory",
+  "memory_backend_configs": {
+    "example-memory": {
+      "endpoint": "https://memory.example.com",
+      "api_key": "secret"
+    }
+  }
+}
+```
+
+QwenPaw keeps these settings per Agent. When the corresponding plugin is
+installed, its Pydantic schema validates and normalizes the object before it is
+saved. Fields declared by the plugin as secrets are returned as `"***"` by the
+running-config API, and submitting that mask preserves the existing value.
+Selecting an unregistered backend is rejected instead of falling back to a
+different memory store. See [Long-Term Memory](./memory) for the bundled ADBPG
+and PowerContext plugin configurations.
 
 **Light Context Configuration (`light_context_config` object):**
 
@@ -418,31 +526,36 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                            | Type        | Default          | Description                                                                                                                                                                      |
-| -------------------------------- | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `metadata_dir`                   | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                                                                                           |
-| `session_dir`                    | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
-| `mem_session_dir`                | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
-| `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
-| `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
-| `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
-| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory results to the inbox                                                                                                                                 |
-| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream results to the inbox                                                                                                                                  |
-| `daily_paper_inbox_push_enabled` | bool        | `true`           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
-| `auto_memory_interval`           | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
-| `dream_cron_enabled`             | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
-| `dream_cron`                     | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
-| `daily_paper_cron_enabled`       | bool        | `false`          | Whether to enable the scheduled Daily Paper job                                                                                                                                  |
-| `daily_paper_cron`               | string      | `"0 9 * * *"`    | Valid 5-field cron expression for Daily Paper (required when enabled)                                                                                                            |
-| `daily_paper_use_hf_mirror`      | bool        | `false`          | Whether to fetch Daily Paper information through the Hugging Face mirror                                                                                                         |
-| `daily_paper_topics`             | string      | `""`             | Topics to prioritize when selecting Daily Paper papers                                                                                                                           |
-| `memory_search_enabled`          | bool        | `true`           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
-| `auto_memory_search_config`      | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
-| `embedding_model_config`         | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
-| `needs_reindex`                  | bool        | `false`          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
+| Field                            | Type        | Default                          | Description                                                                                                                                                                      |
+| -------------------------------- | ----------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metadata_dir`                   | string      | `"mem_metadata"`                 | Subdirectory for ReMe persistent state                                                                                                                                           |
+| `session_dir`                    | string      | `"mem_session"`                  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
+| `mem_session_dir`                | string      | `"mem_agent"`                    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
+| `resource_dir`                   | string      | `"resource"`                     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
+| `daily_dir`                      | string      | `"memory"`                       | Subdirectory for daily memory                                                                                                                                                    |
+| `digest_dir`                     | string      | `"digest"`                       | Subdirectory for digest memory                                                                                                                                                   |
+| `auto_memory_inbox_push_enabled` | bool        | `true`                           | Whether to push Auto-Memory changes and failures to the inbox                                                                                                                    |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`                           | Whether to push Auto-Dream changes and failures to the inbox                                                                                                                     |
+| `daily_paper_inbox_push_enabled` | bool        | `true`                           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
+| `auto_fin_inbox_push_enabled`    | bool        | `true`                           | Whether to push generated Auto Fin reports or failures to the inbox; successful skips are not pushed                                                                             |
+| `auto_memory_interval`           | int \| null | `5`                              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
+| `dream_cron_enabled`             | bool        | `true`                           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
+| `dream_cron`                     | string      | `"0 23 * * *"`                   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
+| `daily_paper_cron_enabled`       | bool        | `false`                          | Whether to enable the scheduled Daily Paper job                                                                                                                                  |
+| `daily_paper_cron`               | string      | `"0 9 * * *"`                    | Valid 5-field cron expression for Daily Paper (required when enabled)                                                                                                            |
+| `daily_paper_use_hf_mirror`      | bool        | `false`                          | Whether to fetch Daily Paper information through the Hugging Face mirror                                                                                                         |
+| `daily_paper_topics`             | string      | `""`                             | Topics to prioritize when selecting Daily Paper papers                                                                                                                           |
+| `auto_fin_cron_enabled`          | bool        | `false`                          | Whether to enable the scheduled Auto Fin job                                                                                                                                     |
+| `auto_fin_cron`                  | string      | `"0 18 * * *"`                   | Valid 5-field cron expression for Auto Fin (required when enabled)                                                                                                               |
+| `auto_fin_topics`                | string      | `"gold,robotics,semiconductors"` | Comma-separated topics used to filter CLS news                                                                                                                                   |
+| `auto_fin_window_hours`          | float       | `24`                             | Rolling number of hours of CLS telegraph news to fetch; must be between 1 and 168                                                                                                |
+| `memory_search_enabled`          | bool        | `true`                           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
+| `auto_memory_search_config`      | object      | _(see below)_                    | Auto memory search configuration                                                                                                                                                 |
+| `embedding_model_config`         | object      | _(see below)_                    | Embedding model configuration                                                                                                                                                    |
+| `needs_reindex`                  | bool        | `false`                          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
 
 > `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
-> maintenance API described in [Rebuilding the Memory Search Index](./memory#Rebuilding-the-Index).
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#runtime-status-and-rebuilding-the-index).
 
 The deprecated `inbox_push_enabled` field is accepted only for migration. Its value initializes any missing per-job
 Inbox switches, then the field is excluded from serialized configuration.
@@ -456,18 +569,19 @@ Inbox switches, then the field is excluded from serialized configuration.
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
-| Field              | Type   | Default    | Description                                                                                    |
-| ------------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      |
-| `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
-| `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
-| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
-| `dimensions`       | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches        |
-| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
-| `use_dimensions`   | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                    |
-| `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
-| `max_input_length` | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                     |
-| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
+| Field                  | Type   | Default    | Description                                                                                                         |
+| ---------------------- | ------ | ---------- | ------------------------------------------------------------------------------------------------------------------- |
+| `backend`              | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`                           |
+| `api_key`              | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends                              |
+| `base_url`             | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host                      |
+| `model_name`           | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                                             |
+| `dimensions`           | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches                             |
+| `enable_cache`         | bool   | `true`     | Whether to enable embedding cache                                                                                   |
+| `use_dimensions`       | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                                         |
+| `max_cache_size`       | int    | `10000`    | Maximum cache size                                                                                                  |
+| `max_input_length`     | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                                          |
+| `max_batch_size`       | int    | `10`       | Maximum batch size for batch processing                                                                             |
+| `health_check_timeout` | float  | `15.0`     | Per-attempt timeout in seconds for Embedding connection tests and ReMe startup health checks; must be in `(0, 300]` |
 
 `use_dimensions` only controls whether OpenAI-compatible requests include the `dimensions` parameter. When it is
 disabled, `dimensions` is still used to validate returned vectors and configure indexes and caches, so it must match
@@ -498,8 +612,11 @@ so no manual restart is required. An Embedding change is rejected with HTTP `409
 
 Changes to `backend`, normalized `base_url`, `model_name`, `dimensions`, or `use_dimensions` set `needs_reindex=true`.
 Changing only the API key or cache/batch limits does not. A hot vector-space change clears the Embedding cache, but it
-does **not** rebuild existing file vectors automatically. Complete the explicit Console or maintenance-API rebuild;
-only a successful rebuild for the still-current vector-space fingerprint clears `needs_reindex`.
+does **not** rebuild existing file vectors automatically. Vector search remains unavailable while BM25 continues to
+work. Complete an explicit `scope=embedding` or `scope=all` rebuild in the Console or maintenance API; only a successful
+rebuild for the still-current vector-space fingerprint clears `needs_reindex`. To abandon a change that has not yet
+been rebuilt, use the Console undo action or call `POST /api/agents/{agentId}/memory/reindex/undo` to restore the
+previous configuration that matches the existing vectors. See [Runtime Status and Rebuilding the Index](./memory#runtime-status-and-rebuilding-the-index).
 
 The Console's Embedding **Enabled/Disabled** status is calculated in real time from the current unsaved form. It only
 indicates whether the Backend, model name, and required credentials meet the enable conditions above; it does not prove
@@ -593,9 +710,11 @@ Management: Console (Settings → Security Config) or directly edit `agent.json`
 
 ---
 
-#### `last_dispatch` — Last message dispatch target
+#### `state/last_dispatch.json` — Last message dispatch state
 
 Records the last user message source, used for sending messages when heartbeat `target = "last"`.
+This runtime state lives in the agent workspace and is not part of
+`agent.json` configuration.
 
 | Field        | Type   | Default | Description                                   |
 | ------------ | ------ | ------- | --------------------------------------------- |
@@ -603,7 +722,7 @@ Records the last user message source, used for sending messages when heartbeat `
 | `user_id`    | string | `""`    | User ID in that channel                       |
 | `session_id` | string | `""`    | Session/conversation ID                       |
 
-Auto-updated; no manual configuration needed.
+It is updated atomically by the system; no manual configuration is needed.
 
 ---
 
@@ -790,3 +909,5 @@ Configure embeddings in `agent.json` under `running.reme_light_memory_config.emb
 - [Multi-Agent](./multi-agent) — Multi-agent setup, management, and collaboration
 - [Memory](./memory) — Memory system details
 - [Skills](./skills) — Skills system details
+- [MCP](./mcp) — MCP client configuration
+- [Mailbox Management and Automation](./mailbox) — Mail config, tools, automation, and access control

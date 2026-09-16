@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import click
 
-from ..envs import load_envs, set_env_var, delete_env_var
+from ..envs import delete_env_var, load_envs, set_env_var
+from ..envs.registry import validate_env_key, validate_env_value
 
 
 @click.group("env")
@@ -41,7 +42,12 @@ def list_cmd() -> None:
 @click.argument("value")
 def set_cmd(key: str, value: str) -> None:
     """Set an environment variable (KEY VALUE)."""
-    set_env_var(key, value)
+    try:
+        validate_env_key(key)
+        validate_env_value(key, value)
+        set_env_var(key, value)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
     click.echo(f"✓ {key} = {value}")
 
 
@@ -91,7 +97,13 @@ def configure_env_interactive() -> None:
             default=current or "",
             show_default=bool(current),
         )
-        set_env_var(key, value)
+        try:
+            validate_env_key(key)
+            validate_env_value(key, value)
+            set_env_var(key, value)
+        except ValueError as exc:
+            click.echo(click.style(f"  {exc}", fg="red"))
+            continue
         click.echo(f"  ✓ {key} = {value}")
         if not prompt_confirm("Add another variable?", default=False):
             break

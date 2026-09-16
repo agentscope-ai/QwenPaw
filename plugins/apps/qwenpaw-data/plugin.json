@@ -1,0 +1,78 @@
+{
+  "id": "qwenpaw-data",
+  "name": "QwenPaw-Data",
+  "version": "0.1.1",
+  "type": "app",
+  "description": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
+  "description_i18n": {
+    "zh-CN": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
+    "en-US": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale"
+  },
+  "author": "QwenPaw-Data Team",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/dist/index.js"
+  },
+  "pack_requires": [
+    "ui/dist/index.js",
+    "ui/dist/context-console/index.html",
+    "ui/dist/app/logo-mark-v4.png"
+  ],
+  "pack_requires_hint": "To run: install the runtime from PyPI with scripts/setup-pypi.sh (or pip install \"qwenpaw[qwenpaw-data]\"), or from source with scripts/setup-dev.sh; alternatively set QWENPAW_DATA_CONTEXT_MODE=external. For a one-shot demo with Neo4j + PostgreSQL + seeded GAAP data, run 'docker compose up -d' from plugins/apps/qwenpaw-data/. To build: run scripts/sync-context-ui.sh to vendor the context console, then 'npm ci && npm run build' in ui/ to produce ui/dist.",
+  "pack_exclude": [
+    ".venv-qwenpaw-data",
+    ".qwenpaw-data-dev",
+    "ui/public",
+    "ui/src",
+    "ui/package.json",
+    "ui/package-lock.json",
+    "ui/tsconfig.json",
+    "ui/vite.config.ts"
+  ],
+  "dependencies": [],
+  "qwenpaw_version": {
+    "min": "2.1.1b1",
+    "max": "2.2.0"
+  },
+  "meta": {
+    "pawapp": {
+      "icon": "\ud83d\udcca",
+      "icon_url": "/api/frontend_plugin/qwenpaw-data/files/ui/dist/app/logo-mark-v4.png",
+      "entry_page": "/apps/qwenpaw-data",
+      "launch_scope": "page",
+      "category": "data-analysis"
+    },
+    "permissions": {
+      "chat": true,
+      "storage": true,
+      "network": [
+        "loopback"
+      ]
+    },
+    "runtime_dependencies": {
+      "python_packages": [
+        "qwenpaw-data-context",
+        "qwenpaw-data-host-core",
+        "qwenpaw-data-cli",
+        "qwenpaw-data-skills"
+      ],
+      "context_service": {
+        "mode_env": "QWENPAW_DATA_CONTEXT_MODE",
+        "external_url_env": "QWENPAW_DATA_CONTEXT_URL",
+        "external_token_env": "QWENPAW_DATA_CONTEXT_TOKEN"
+      }
+    },
+    "features": [
+      "chat-analysis",
+      "context-graph",
+      "data-sources",
+      "semantic-management",
+      "graph-management"
+    ],
+    "planned_features": [
+      "task-graph",
+      "artifacts",
+      "tool-renderers"
+    ]
+  }
+}

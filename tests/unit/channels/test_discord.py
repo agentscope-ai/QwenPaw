@@ -14,6 +14,7 @@ Run:
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, Mock
+from pathlib import Path
 
 import pytest
 
@@ -21,8 +22,47 @@ from qwenpaw.schemas import (
     ContentType,
     TextContent,
     ImageContent,
+    FileContent,
 )
 from qwenpaw.exceptions import ChannelError
+
+
+@pytest.mark.parametrize("send_fails", [False, True])
+async def test_data_url_attachment_name_and_cleanup(
+    discord_channel,
+    mock_discord_client,
+    tmp_path,
+    send_fails,
+):
+    """Discord receives the display name and releases files after sending."""
+    discord_channel.enabled = True
+    discord_channel._client = mock_discord_client
+    discord_channel._media_dir = tmp_path
+    attachments = []
+
+    async def send(*, file):
+        attachments.append(file)
+        assert file.filename == "report.pdf"
+        assert file.fp.read() == b"pdf-data"
+        assert Path(file.fp.name).is_file()
+        if send_fails:
+            raise RuntimeError("upload failed")
+
+    target = Mock(send=AsyncMock(side_effect=send))
+    discord_channel._resolve_target = AsyncMock(return_value=target)
+    part = FileContent(
+        file_url="data:application/pdf;base64,cGRmLWRhdGE=",
+        filename="report.pdf",
+    )
+    if send_fails:
+        with pytest.raises(RuntimeError, match="upload failed"):
+            await discord_channel.send_media("123", part)
+    else:
+        await discord_channel.send_media("123", part)
+
+    target.send.assert_awaited_once()
+    assert attachments[0].fp.closed
+    assert not list(tmp_path.iterdir())
 
 
 # =============================================================================

@@ -31,6 +31,7 @@ from ...drivers.adapters.mcp_console import (
     mcp_credential_ref,
     mcp_oauth_credential_ref,
 )
+from ...drivers.capabilities import mcp_tool_is_enabled, mcp_tool_whitelist
 from ...drivers.constants import (
     CAPABILITY_KIND_TOOL,
     CREDENTIAL_ALIAS_OAUTH,
@@ -147,14 +148,13 @@ class MCPConfigService:
                 detail=f"Failed to query tools from MCP server: {exc}",
             ) from exc
 
-        whitelist = card.config.get("tools")
-        whitelist_set = set(whitelist) if whitelist is not None else None
+        # Disk card is source of truth; in-memory capability.enabled may lag.
+        whitelist = mcp_tool_whitelist(card.config.get("tools"))
         return [
             MCPToolInfo(
                 name=capability.name,
                 description=capability.description,
-                enabled=whitelist_set is None
-                or capability.name in whitelist_set,
+                enabled=mcp_tool_is_enabled(whitelist, capability.name),
                 input_schema=capability.input_schema,
             )
             for capability in capabilities
@@ -174,7 +174,19 @@ class MCPConfigService:
         card = await self.load_card(client_key)
         card.config = dict(card.config)
         card.config["tools"] = tools
-        await self._driver_config.save_card(card)
+        await self._driver_config.save_card(card, reload_driver=False)
+        manager = getattr(self._workspace, "driver_manager", None)
+        if manager is not None:
+            try:
+                await manager.refresh_driver(client_key)
+            except Exception as exc:
+                raise HTTPException(
+                    502,
+                    detail=(
+                        f"MCP tool whitelist saved but failed to apply to "
+                        f"the active runtime: {exc}"
+                    ),
+                ) from exc
         try:
             return await self.list_tools(client_key)
         except HTTPException:

@@ -19,7 +19,6 @@ from qwenpaw.tauri.env import (
     DESKTOP_READY_PREFIX,
     ensure_desktop_cors_origins,
 )
-from qwenpaw.browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from qwenpaw.tauri.sidecar_logging import install_sidecar_logging
 
 logger = logging.getLogger(__name__)
@@ -47,6 +46,28 @@ def _looks_like_python_invocation(args: Sequence[str]) -> bool:
         return True
     # Single-dash interpreter flags (-u, -E, -X ...), but not --options.
     return len(first) >= 2 and first[0] == "-" and first[1] != "-"
+
+
+def _abort_unhandled_multiprocessing_child(args: Sequence[str]) -> None:
+    """Stop a frozen multiprocessing child that escaped its runtime hook.
+
+    PyInstaller's multiprocessing runtime hook consumes this private flag and
+    dispatches ``spawn_main()`` before the application entry point runs.  If
+    the flag reaches this function, the packaged executable is missing or did
+    not execute that hook.  Never let such a child continue into backend
+    singleton reconciliation, where it could terminate its parent backend.
+    """
+    if not bool(getattr(sys, "frozen", False)):
+        return
+    if "--multiprocessing-fork" not in args:
+        return
+    if sys.stderr is not None:
+        print(
+            "qwenpaw-backend multiprocessing runtime hook did not handle "
+            "the child process",
+            file=sys.stderr,
+        )
+    raise SystemExit(2)
 
 
 def _bundled_python() -> str:
@@ -267,6 +288,9 @@ def _emit_backend_ready(port: int) -> None:
 def _run_backend_server(log_level: str) -> None:
     import uvicorn
 
+    from qwenpaw.browser.control_link.chrome.protocol import (
+        NM_MAX_INBOUND_BYTES,
+    )
     from qwenpaw.config.utils import write_last_api
     from qwenpaw.constant import LOG_LEVEL_ENV, WORKING_DIR
     from qwenpaw.utils.logging import (
@@ -356,6 +380,11 @@ def _socket_port(sock: socket.socket) -> int:
 
 
 def main() -> None:
+    # PyInstaller replaces this function on every platform. It must run before
+    # application initialization so multiprocessing workers and resource
+    # trackers do not re-enter the backend entry point.
+    mp.freeze_support()
+    _abort_unhandled_multiprocessing_child(sys.argv[1:])
     if _is_frozen_desktop() and _looks_like_python_invocation(sys.argv[1:]):
         _reexec_as_bundled_python(sys.argv[1:])
         return
@@ -389,5 +418,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    mp.freeze_support()
     main()

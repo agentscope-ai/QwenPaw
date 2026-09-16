@@ -3,6 +3,7 @@
 
 Covers:
 - normalize_agent_language
+- ensure_workspace_md_file
 - _resolve_md_lang_dir
 - _template_fallback_language_order
 - _copy_template_md_files
@@ -23,6 +24,7 @@ from qwenpaw.agents.utils.setup_utils import (
     copy_builtin_qa_md_files,
     copy_template_md_files,
     copy_workspace_md_files,
+    ensure_workspace_md_file,
     normalize_agent_language,
 )
 
@@ -44,6 +46,39 @@ class TestNormalizeAgentLanguage:
     def test_unsupported_language_falls_back(self):
         result = normalize_agent_language("xx")
         assert result == "en"
+
+
+# ---------------------------------------------------------------------------
+# ensure_workspace_md_file
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureWorkspaceMdFile:
+    """Tests for ensure_workspace_md_file."""
+
+    def test_rejects_path_traversal_filename(self, tmp_path):
+        workspace = tmp_path / "a" / "b" / "c"
+        escaped_parent = tmp_path / "config"
+        escaped_parent.mkdir()
+
+        ensure_workspace_md_file(
+            workspace,
+            "en",
+            "../../../config/config.py",
+        )
+
+        assert not (escaped_parent / "config.py").exists()
+
+    def test_sanitizes_rejected_filename_in_log(self, tmp_path, caplog):
+        with caplog.at_level(
+            "WARNING",
+            logger="qwenpaw.agents.utils.setup_utils",
+        ):
+            ensure_workspace_md_file(tmp_path, "en", "bad\nfilename.md")
+
+        message = caplog.records[-1].getMessage()
+        assert "\n" not in message
+        assert "badfilename.md" in message
 
 
 # ---------------------------------------------------------------------------

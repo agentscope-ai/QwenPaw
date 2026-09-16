@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qwenpawmail-mcp"
+version = "0.1.0"
+description = "MCP server for NetEase (163/126/yeah.net) and QQ (qq.com/foxmail.com) mailboxes over IMAP/SMTP"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "qwenpaw" }]
+keywords = ["mcp", "email", "imap", "smtp", "163", "netease"]
+dependencies = [
+    "mcp>=1.28,<2.0",
+    "imap-tools>=1.13,<2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-timeout>=2.3",
+]
+
+[project.scripts]
+qwenpawmail-mcp = "qwenpawmail_mcp.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qwenpawmail_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 60

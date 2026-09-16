@@ -46,13 +46,17 @@ class AgentsPage(BasePage):
     AGENT_TABLE = '.qwenpaw-table'
     AGENT_LIST = '.qwenpaw-table-tbody'
     AGENT_ITEM = '.qwenpaw-table-tbody tr.qwenpaw-table-row'
-    # Table column order: drag handle (1) | Name (2) | ID (3) | Description (4) | Workspace (5) | Model (6) | Actions (7)
+    # Column order: drag handle (1) | Name (2) | ID (3) | Backend (4) |
+    # Description (5) | Workspace (6) | Model (7) | Actions (8). Upstream
+    # #6397 inserted the Backend column after ID, shifting everything to
+    # its right. Actions is declared ``fixed: "right"``, so anchor it on
+    # the fixed-column class instead of a position that keeps drifting.
     AGENT_NAME_CELL = 'td.qwenpaw-table-cell:nth-child(2)'
     AGENT_ID_CELL = 'td.qwenpaw-table-cell:nth-child(3)'
-    AGENT_DESC_CELL = 'td.qwenpaw-table-cell:nth-child(4)'
-    AGENT_WORKSPACE_CELL = 'td.qwenpaw-table-cell:nth-child(5)'
-    AGENT_MODEL_CELL = 'td.qwenpaw-table-cell:nth-child(6)'
-    AGENT_ACTIONS_CELL = 'td.qwenpaw-table-cell:nth-child(7)'
+    AGENT_DESC_CELL = 'td.qwenpaw-table-cell:nth-child(5)'
+    AGENT_WORKSPACE_CELL = 'td.qwenpaw-table-cell:nth-child(6)'
+    AGENT_MODEL_CELL = 'td.qwenpaw-table-cell:nth-child(7)'
+    AGENT_ACTIONS_CELL = 'td.qwenpaw-table-cell-fix-right'
     # Post-#6198 the name cell shows an AgentStatusIndicator dot exposing a
     # ``data-status`` attribute (disabled/pending/starting/running/failed)
     # instead of a "Disabled" Tag.

@@ -7,6 +7,7 @@ import {
   LiveSelectionDemo,
   MockAgentChat,
   MockElementDetail,
+  MockSnapshotPanel,
   MockTimeline,
 } from "./TourMocks";
 
@@ -27,12 +28,17 @@ export default function ProjectTour() {
 
   const STEPS: TourStepBlueprint[] = [
     {
-      selectors: ['[data-onboarding-id="creative-brief"]'],
+      // The creative brief moved to the blueprint page; fall back to the plan
+      // header so the tour still anchors its first step on this page.
+      selectors: [
+        '[data-onboarding-id="creative-brief"]',
+        "[data-plan-page] header",
+      ],
       title: t("onboarding.projectTourBrief"),
       description: t("onboarding.projectTourBriefDesc"),
     },
     {
-      selectors: ["[data-timeline-panel]"],
+      selectors: ["[data-timeline-tracks]", "[data-timeline-panel]"],
       title: t("onboarding.projectTourTimeline"),
       description: (
         <div className="space-y-2">
@@ -42,7 +48,20 @@ export default function ProjectTour() {
       ),
     },
     {
-      selectors: ['[data-onboarding-id="element-detail"]'],
+      selectors: ["[data-snapshot-entry]"],
+      title: t("onboarding.projectTourSnapshot"),
+      description: (
+        <div className="space-y-2">
+          <p>{t("onboarding.projectTourSnapshotDesc")}</p>
+          <MockSnapshotPanel />
+        </div>
+      ),
+    },
+    {
+      selectors: [
+        '[data-onboarding-id="element-detail"]',
+        "[data-element-rail]",
+      ],
       title: t("onboarding.projectTourDetail"),
       description: (
         <div className="space-y-2">
@@ -52,7 +71,7 @@ export default function ProjectTour() {
       ),
     },
     {
-      selectors: ["[data-timeline-panel]"],
+      selectors: ["[data-timeline-tracks]", "[data-timeline-panel]"],
       title: t("onboarding.projectTourContext"),
       description: (
         <div className="space-y-2">
@@ -73,7 +92,9 @@ export default function ProjectTour() {
       ),
     },
     {
-      selectors: ["[data-download-render]"],
+      // Download / export moved to the blueprint page; this step anchors on
+      // the compose button and points the user there.
+      selectors: ["[data-compose-render]"],
       title: t("onboarding.projectTourDownload"),
       description: t("onboarding.projectTourDownloadDesc"),
     },

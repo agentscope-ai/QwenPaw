@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Modal } from "antd";
+import { Button, Modal } from "antd";
 import { useTranslation } from "react-i18next";
 import type { BackupMeta } from "@/api/types/backup";
 import { useBackupRunner } from "../shared/useBackupRunner";
@@ -47,7 +47,11 @@ export default function SilentBackupModal({
       title={t("backup.creatingPreRestoreBackup")}
       open={target !== null}
       onCancel={runner.cancel}
-      footer={null}
+      footer={
+        <Button danger onClick={runner.cancel}>
+          {t("common.cancel")}
+        </Button>
+      }
       destroyOnHidden
       centered
       closable={false}

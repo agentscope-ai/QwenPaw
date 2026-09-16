@@ -13,12 +13,22 @@ from __future__ import annotations
 import json
 import logging
 import os
+import secrets
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 from qwenpaw.constant import SECRET_DIR, WORKING_DIR
 from qwenpaw.security.secret_store import decrypt, encrypt, is_encrypted
+from qwenpaw.utils.io_utils import get_sync_path_lock, write_json_atomic
+
+from .registry import (
+    env_key_identity,
+    is_bootstrap_protected_env_key,
+    is_internal_env_key,
+    validate_unique_env_keys,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +41,7 @@ _LEGACY_ENVS_JSON_CANDIDATES = (
     Path(__file__).resolve().parent / "envs.json",
     _BOOTSTRAP_WORKING_DIR / "envs.json",
 )
+_HOST_ENV_VALUES: dict[str, str | None] = {}
 
 
 def _same_path(a: Path, b: Path) -> bool:
@@ -81,16 +92,6 @@ def _migrate_legacy_envs_json(path: Path) -> None:
             continue
 
 
-# Security-sensitive envs should come from process/system environment,
-# not persisted envs.json.
-_PROTECTED_BOOTSTRAP_KEYS = frozenset(
-    {
-        "QWENPAW_WORKING_DIR",
-        "QWENPAW_SECRET_DIR",
-    },
-)
-
-
 def get_envs_json_path() -> Path:
     """Return envs.json path under SECRET_DIR."""
     return _ENVS_JSON
@@ -112,15 +113,31 @@ def _apply_to_environ(
         envs: Key-value mapping to inject.
         overwrite: When False, existing process env values take precedence.
     """
+    seen: set[str] = set()
     for key, value in envs.items():
+        identity = env_key_identity(key)
+        if identity in seen:
+            logger.warning(
+                f"Skipping case-conflicting environment variable: {key}",
+            )
+            continue
+        seen.add(identity)
+        host_key = identity if os.name == "nt" else key
+        if host_key not in _HOST_ENV_VALUES:
+            _HOST_ENV_VALUES[host_key] = os.environ.get(key)
         if not overwrite and key in os.environ:
             continue
         os.environ[key] = value
 
 
 def _remove_from_environ(key: str) -> None:
-    """Remove *key* from ``os.environ`` if present."""
-    os.environ.pop(key, None)
+    """Restore the inherited value for *key*, or remove it if absent."""
+    host_key = env_key_identity(key) if os.name == "nt" else key
+    inherited = _HOST_ENV_VALUES.get(host_key)
+    if inherited is None:
+        os.environ.pop(key, None)
+    else:
+        os.environ[key] = inherited
 
 
 def _sync_environ(
@@ -139,16 +156,42 @@ def _sync_environ(
 # ------------------------------------------------------------------
 
 
-def load_envs(
-    path: Optional[Path] = None,
-) -> dict[str, str]:
-    """Load env vars from envs.json, decrypting values transparently.
-
-    Legacy plaintext values are detected and re-encrypted on disk.
-    """
+def _resolve_envs_path(path: Optional[Path]) -> tuple[Path, bool]:
     if path is None:
-        path = get_envs_json_path()
-        _migrate_legacy_envs_json(path)
+        return get_envs_json_path(), True
+    return path, False
+
+
+def _quarantine_corrupt_envs(path: Path, exc: Exception) -> None:
+    source = path.resolve(strict=False) if path.is_symlink() else path
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    quarantined = source.with_name(
+        f"{source.name}.corrupt-{timestamp}-{secrets.token_hex(4)}",
+    )
+    try:
+        source.rename(quarantined)
+        _chmod_best_effort(quarantined, 0o600)
+    except OSError as quarantine_exc:
+        logger.error(
+            "Failed to quarantine corrupt envs.json at %s: %s",
+            path,
+            quarantine_exc,
+        )
+        raise
+
+    logger.warning(
+        "Failed to load envs.json from %s; quarantined it to %s: %s",
+        path,
+        quarantined,
+        exc,
+    )
+
+
+def _load_envs_unlocked(
+    path: Path,
+    *,
+    fail_on_os_error: bool = False,
+) -> dict[str, str]:
     if path.exists() and not path.is_file():
         logger.error(
             "envs.json path exists but is not a regular file: %s",
@@ -160,24 +203,39 @@ def load_envs(
     try:
         with open(path, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        if isinstance(data, dict):
-            raw = {k: str(v) for k, v in data.items()}
-            has_plaintext = any(
-                v and not is_encrypted(v) for v in raw.values()
-            )
-            decrypted = {k: decrypt(v) for k, v in raw.items()}
-            if has_plaintext:
-                _rewrite_encrypted(path, decrypted)
-            return decrypted
-    except (json.JSONDecodeError, ValueError):
-        pass
+        if not isinstance(data, dict):
+            raise ValueError("envs.json root must be a JSON object")
+        raw = {k: str(v) for k, v in data.items()}
+        has_plaintext = any(v and not is_encrypted(v) for v in raw.values())
+        decrypted = {k: decrypt(v) for k, v in raw.items()}
+        if has_plaintext:
+            _rewrite_encrypted(path, decrypted)
+        return decrypted
+    except (json.JSONDecodeError, UnicodeError, ValueError) as exc:
+        _quarantine_corrupt_envs(path, exc)
     except OSError as exc:
         logger.warning(
             "Failed to read envs.json from %s due to OS error: %s",
             path,
             exc,
         )
+        if fail_on_os_error:
+            raise
     return {}
+
+
+def load_envs(
+    path: Optional[Path] = None,
+) -> dict[str, str]:
+    """Load env vars from envs.json, decrypting values transparently.
+
+    Legacy plaintext values are detected and re-encrypted on disk.
+    """
+    path, migrate_legacy = _resolve_envs_path(path)
+    with get_sync_path_lock(path):
+        if migrate_legacy:
+            _migrate_legacy_envs_json(path)
+        return _load_envs_unlocked(path)
 
 
 def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
@@ -188,22 +246,19 @@ def _rewrite_encrypted(path: Path, envs: dict[str, str]) -> None:
             for k, v in envs.items()
         }
         _prepare_secret_parent(path)
-        with open(path, "w", encoding="utf-8") as fh:
-            json.dump(encrypted, fh, indent=2, ensure_ascii=False)
         _chmod_best_effort(path, 0o600)
+        write_json_atomic(path, encrypted)
     except Exception as exc:
         logger.warning("Failed to re-encrypt envs.json: %s", exc)
 
 
-def save_envs(
+def _save_envs_unlocked(
     envs: dict[str, str],
-    path: Optional[Path] = None,
+    path: Path,
+    *,
+    old: dict[str, str],
 ) -> None:
-    """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
-    if path is None:
-        path = get_envs_json_path()
-        _migrate_legacy_envs_json(path)
-    old = load_envs(path)
+    validate_unique_env_keys(envs)
     if path.exists() and not path.is_file():
         raise IsADirectoryError(
             f"envs.json path exists but is not a regular file: {path}",
@@ -213,11 +268,22 @@ def save_envs(
         k: encrypt(v) if v and not is_encrypted(v) else v
         for k, v in envs.items()
     }
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(encrypted, fh, indent=2, ensure_ascii=False)
     _chmod_best_effort(path, 0o600)
-
+    write_json_atomic(path, encrypted)
     _sync_environ(old, envs)
+
+
+def save_envs(
+    envs: dict[str, str],
+    path: Optional[Path] = None,
+) -> None:
+    """Write env vars to envs.json (encrypted) and sync to ``os.environ``."""
+    path, migrate_legacy = _resolve_envs_path(path)
+    with get_sync_path_lock(path):
+        if migrate_legacy:
+            _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        _save_envs_unlocked(envs, path, old=old)
 
 
 def set_env_var(
@@ -225,18 +291,37 @@ def set_env_var(
     value: str,
 ) -> dict[str, str]:
     """Set a single env var. Returns updated dict."""
-    envs = load_envs()
-    envs[key] = value
-    save_envs(envs)
-    return envs
+    path = get_envs_json_path()
+    with get_sync_path_lock(path):
+        _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        envs = dict(old)
+        envs[key] = value
+        _save_envs_unlocked(envs, path, old=old)
+        return envs
+
+
+def update_env_vars(updates: dict[str, str]) -> dict[str, str]:
+    """Merge multiple values atomically and return the persisted mapping."""
+    path = get_envs_json_path()
+    with get_sync_path_lock(path):
+        _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        envs = {**old, **updates}
+        _save_envs_unlocked(envs, path, old=old)
+        return envs
 
 
 def delete_env_var(key: str) -> dict[str, str]:
     """Delete a single env var. Returns updated dict."""
-    envs = load_envs()
-    envs.pop(key, None)
-    save_envs(envs)
-    return envs
+    path = get_envs_json_path()
+    with get_sync_path_lock(path):
+        _migrate_legacy_envs_json(path)
+        old = _load_envs_unlocked(path, fail_on_os_error=True)
+        envs = dict(old)
+        envs.pop(key, None)
+        _save_envs_unlocked(envs, path, old=old)
+        return envs
 
 
 def load_envs_into_environ() -> dict[str, str]:
@@ -245,7 +330,7 @@ def load_envs_into_environ() -> dict[str, str]:
     Call this once at application startup so that environment
     variables persisted from a previous session are available
     immediately. Protected keys are excluded from injection, and
-    existing process/system env vars are preserved.
+    persisted values override existing process/system values.
 
     Returns:
         Full persisted mapping from envs.json, including protected keys
@@ -259,11 +344,17 @@ def load_envs_into_environ() -> dict[str, str]:
     with restore_process_lock():
         cleanup_stale_restore_artifacts(_BOOTSTRAP_SECRET_DIR)
         envs = load_envs()
+    blocked_internal = [key for key in envs if is_internal_env_key(key)]
+    for key in blocked_internal:
+        logger.warning(
+            f"Ignoring internally managed environment variable from "
+            f"{get_envs_json_path()}: {key}",
+        )
     bootstrap_envs = {
         key: value
         for key, value in envs.items()
-        if key not in _PROTECTED_BOOTSTRAP_KEYS
+        if not is_bootstrap_protected_env_key(key)
     }
-    # Do not override explicit runtime/system env vars.
-    _apply_to_environ(bootstrap_envs, overwrite=False)
+    # Console-managed values override the inherited process environment.
+    _apply_to_environ(bootstrap_envs, overwrite=True)
     return envs

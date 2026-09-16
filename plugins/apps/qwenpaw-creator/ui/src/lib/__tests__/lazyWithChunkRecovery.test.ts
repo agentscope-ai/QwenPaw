@@ -56,17 +56,15 @@ describe("lazy route chunk recovery", () => {
       loadWithChunkRecovery(() => Promise.reject(failure), { storage, reload }),
     ).rejects.toBe(failure);
     expect(reload).toHaveBeenCalledTimes(2);
-  });
 
-  it("does not reload for unrelated module errors", async () => {
-    const reload = vi.fn();
-    const failure = new Error("module executed but failed");
+    // Unrelated module errors never trigger a reload.
+    const unrelated = new Error("module executed but failed");
     await expect(
-      loadWithChunkRecovery(() => Promise.reject(failure), {
+      loadWithChunkRecovery(() => Promise.reject(unrelated), {
         storage: memoryStorage(),
         reload,
       }),
-    ).rejects.toBe(failure);
-    expect(reload).not.toHaveBeenCalled();
+    ).rejects.toBe(unrelated);
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 });

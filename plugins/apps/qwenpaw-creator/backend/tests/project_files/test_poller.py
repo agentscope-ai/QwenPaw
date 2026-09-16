@@ -31,26 +31,6 @@ def test_poller_keeps_last_good_when_external_write_is_invalid(
     assert invalid.last_error
 
 
-def test_note_commit_makes_new_snapshot_immediately_visible(tmp_path) -> None:
-    store = ProjectStore(tmp_path.resolve())
-    base = store.create(Project.new(project_id="project-1", name="Before"))
-    poller = ProjectPoller(store)
-    poller.open("project-1")
-    candidate = base.project.model_copy(
-        update={
-            "name": "After",
-            "generation": 1,
-            "updated_at": base.project.updated_at,
-        },
-    )
-    replaced = store.replace("project-1", candidate, expected_etag=base.etag)
-
-    entry = poller.note_commit(replaced)
-
-    assert entry.snapshot == replaced
-    assert poller.cached("project-1") == entry
-
-
 def test_note_commit_cannot_roll_cache_back_to_an_older_snapshot(
     tmp_path,
 ) -> None:

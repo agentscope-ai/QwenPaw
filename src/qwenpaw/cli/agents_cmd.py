@@ -22,7 +22,10 @@ from ..config.config import (
     generate_short_agent_id,
     save_agent_config,
 )
-from ..constant import WORKING_DIR
+from ..constant import (
+    DEFAULT_STREAM_TASK_TIMEOUT_SECONDS,
+    WORKING_DIR,
+)
 from ..config.config import ModelSlotConfig
 from ..providers.provider_manager import ProviderManager
 from .http import print_json, resolve_base_url
@@ -119,6 +122,11 @@ def _submit_background_task(
             timeout,
             task_timeout=task_timeout,
         )
+
+        error = result.get("error")
+        if error:
+            click.echo(f"ERROR: {error}", err=True)
+            return
 
         task_id = result.get("task_id")
         if not task_id:
@@ -788,7 +796,9 @@ def delete_cmd(
     default=None,
     help=(
         "Task execution timeout in seconds for background tasks. "
-        "Overrides server-side default stream_task_timeout."
+        "Overrides the server-side default "
+        f"({DEFAULT_STREAM_TASK_TIMEOUT_SECONDS}s). "
+        "Must be a positive number when set."
     ),
 )
 @click.option(
