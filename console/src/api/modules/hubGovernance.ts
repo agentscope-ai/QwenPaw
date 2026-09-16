@@ -1,3 +1,4 @@
+import type { BaseUrlOption, ModelInfo } from "../types";
 import { getApiToken, getApiUrl } from "../config";
 import { responseErrorMessage } from "../error";
 
@@ -25,7 +26,19 @@ export interface ModelPolicy {
   timezone: string;
   revision: number;
 }
+export interface ModelProviderPreset {
+  id: string;
+  name: string;
+  base_url: string;
+  api_key_prefix: string;
+  api_key_prefixes?: string[];
+  freeze_url: boolean;
+  base_url_options: BaseUrlOption[];
+  models: ModelInfo[];
+}
+
 export interface ModelConnection {
+  provider_id?: string | null;
   id: string;
   name: string;
   base_url: string;

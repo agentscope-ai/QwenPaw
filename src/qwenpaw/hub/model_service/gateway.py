@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from .budget import BudgetExceededError
 from .limiter import SharedLimiter
+from .provider_setup import provider_headers
 from .protocol import (
     safe_payload,
     upstream_payload,
@@ -77,6 +78,7 @@ class ModelGateway:
             "POST",
             f"{connection['base_url']}/chat/completions",
             headers={
+                **provider_headers(connection),
                 "Authorization": f"Bearer {self.catalog.key(connection)}",
             },
             json=payload,

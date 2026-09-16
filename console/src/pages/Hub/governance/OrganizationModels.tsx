@@ -14,6 +14,7 @@ import {
   governanceRequest as request,
   type ModelPolicy,
   type ModelConnection,
+  type ModelProviderPreset,
   type ManagedModel,
   type UsageReport,
 } from "../../../api/modules/hubGovernance";
@@ -30,6 +31,7 @@ export default function OrganizationModels({
   const { message } = App.useApp();
   const [policy, setPolicy] = useState<ModelPolicy>();
   const [connections, setConnections] = useState<ModelConnection[]>([]);
+  const [presets, setPresets] = useState<ModelProviderPreset[]>([]);
   const [models, setModels] = useState<ManagedModel[]>([]);
   const [users, setUsers] = useState<UsageReport["members"]>([]);
   const [status, setStatus] = useState<
@@ -52,13 +54,15 @@ export default function OrganizationModels({
   const [policyForm] = Form.useForm();
   const load = useCallback(async () => {
     try {
-      const [p, c, m, u, s] = await Promise.all([
+      const [p, c, m, u, s, presets] = await Promise.all([
         request<ModelPolicy>("admin/model-policy"),
         request<ModelConnection[]>("admin/model-connections"),
         request<ManagedModel[]>("admin/models"),
         request<UsageReport>("admin/usage"),
         request<typeof status>("admin/model-status"),
+        request<ModelProviderPreset[]>("admin/model-provider-presets"),
       ]);
+      setPresets(presets);
       setPolicy(p);
       setError("");
       setConnections(c);
@@ -76,6 +80,7 @@ export default function OrganizationModels({
   const open = (
     type: "connection" | "model",
     value?: ModelConnection | ManagedModel,
+    connectionId?: string,
   ) => {
     form.resetFields();
     if (type === "connection") {
@@ -93,16 +98,23 @@ export default function OrganizationModels({
             ).join("");
       setIndependentScope(scope);
       form.setFieldValue("quota_scope", scope);
+      form.setFieldValue("provider_id", connection?.provider_id ?? "");
     }
     if (value) {
       const data = editable(value);
       if ("has_key" in data) delete data.has_key;
       form.setFieldsValue(data);
+      if (type === "connection")
+        form.setFieldValue(
+          "provider_id",
+          (value as ModelConnection).provider_id ?? "",
+        );
     } else
       form.setFieldsValue(
         type === "connection"
           ? { enabled: true, requests_per_minute: 60, concurrency: 4 }
           : {
+              connection_id: connectionId ?? connections[0]?.id,
               description: "",
               enabled: true,
               all_members: true,
@@ -418,12 +430,19 @@ export default function OrganizationModels({
                                   : text("未配置", "Not configured")}
                               </strong>
                             </div>
-                            <Button
-                              icon={<Edit3 size={14} />}
-                              onClick={() => open("connection", c)}
-                            >
-                              {text("管理连接", "Manage connection")}
-                            </Button>
+                            <div className={styles.actions}>
+                              <Button
+                                icon={<Edit3 size={14} />}
+                                onClick={() => open("connection", c)}
+                              >
+                                {text("管理连接", "Manage connection")}
+                              </Button>
+                              <Button
+                                onClick={() => open("model", undefined, c.id)}
+                              >
+                                {text("添加模型", "Add model")}
+                              </Button>
+                            </div>
                           </article>
                         ))}
                       </div>
@@ -488,13 +507,31 @@ export default function OrganizationModels({
           form={form}
           layout="vertical"
           className={styles.form}
+          onValuesChange={(changed) => {
+            if (editing?.type !== "model") return;
+            if ("connection_id" in changed) {
+              form.setFieldsValue({
+                upstream_model: undefined,
+                name: undefined,
+                input_token_limit: undefined,
+                supports_image: false,
+                budget_verified: false,
+              });
+            } else if ("upstream_model" in changed) {
+              form.setFieldValue("budget_verified", false);
+            }
+          }}
           onFinish={async (values) => {
             if (!editing) return;
             setBusy(true);
             try {
               const body = { ...values, revision: editing.revision };
-              if (editing.type === "connection" && !body.api_key)
-                delete body.api_key;
+              if (editing.type === "connection") {
+                if (!body.api_key) delete body.api_key;
+                body.provider_id = body.provider_id || null;
+              } else {
+                body.name = body.name?.trim() || body.upstream_model?.trim();
+              }
               const path =
                 editing.type === "connection"
                   ? "admin/model-connections"
@@ -519,9 +556,14 @@ export default function OrganizationModels({
               connections={connections}
               connectionId={editing.id}
               independentScope={independentScope}
+              presets={presets}
             />
           ) : (
-            <ModelFields connections={connections} users={users} />
+            <ModelFields
+              connections={connections}
+              users={users}
+              presets={presets}
+            />
           )}
         </Form>
       </Modal>

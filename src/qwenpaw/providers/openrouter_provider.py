@@ -46,6 +46,10 @@ class OpenRouterProvider(Provider):
         "User-Agent": "QwenPaw/1.1",
     }
 
+    def request_headers(self) -> dict:
+        """Return provider headers for an externally owned HTTP transport."""
+        return self._build_default_headers()
+
     def _build_default_headers(self) -> dict:
         # Required OpenRouter headers come first; user custom_headers can
         # supplement or override them.

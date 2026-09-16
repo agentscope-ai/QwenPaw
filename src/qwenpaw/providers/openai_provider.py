@@ -153,6 +153,10 @@ class OpenAIProvider(Provider):
         ),
     )
 
+    def request_headers(self) -> dict:
+        """Return provider headers for an externally owned HTTP transport."""
+        return self._build_default_headers()
+
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
 

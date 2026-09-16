@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from ..api_models import PasswordChangeBody
+from .provider_setup import discover_models, provider_presets
 from .api_models import (
     BudgetBody,
     ConnectionBody,
@@ -54,6 +55,21 @@ def governance_router(
             catalog.save_policy,
             body,
         )
+
+    @router.get("/admin/model-provider-presets")
+    def presets(_admin=Depends(require_admin)):
+        return provider_presets()
+
+    @router.post("/admin/model-connections/{connection_id}/discover")
+    async def discover(connection_id: str, _admin=Depends(require_admin)):
+        try:
+            async with asyncio.timeout(15):
+                return await discover_models(catalog, connection_id)
+        except KeyError as exc:
+            raise HTTPException(404, "Connection not found") from exc
+        except Exception as exc:
+            # Provider errors may contain credentials or response data.
+            raise HTTPException(502, "hub_model_discovery_failed") from exc
 
     @router.get("/admin/model-connections")
     def connections(_admin=Depends(require_admin)):

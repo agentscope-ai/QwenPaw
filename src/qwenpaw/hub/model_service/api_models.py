@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .provider_setup import supported_presets
+
 
 class StrictBody(BaseModel):
     """Reject unknown fields instead of forwarding connection overrides."""
@@ -40,12 +42,21 @@ class ConnectionBody(StrictBody):
 
     revision: int | None = Field(default=None, ge=1)
     name: str = Field(min_length=1, max_length=120)
+    provider_id: str | None = None
     base_url: str = Field(max_length=2048)
     api_key: str | None = Field(default=None, min_length=1, max_length=8192)
     enabled: bool = True
     quota_scope: str = Field(min_length=1, max_length=120)
     requests_per_minute: int = Field(default=60, ge=1, le=100000)
     concurrency: int = Field(default=4, ge=1, le=1000)
+
+    @field_validator("provider_id")
+    @classmethod
+    def valid_provider(cls, value: str | None) -> str | None:
+        """Only accept presets supported by the gateway protocol."""
+        if value is not None and value not in supported_presets():
+            raise ValueError(f"Unsupported Hub provider: {value}")
+        return value
 
     @field_validator("base_url")
     @classmethod

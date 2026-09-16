@@ -1,5 +1,12 @@
 import { Form, Input, InputNumber, Select, Switch } from "antd";
-import type { ModelConnection } from "../../../api/modules/hubGovernance";
+import { ProviderConnectionFields } from "../../Settings/Models/components/modals/ProviderConnectionFields";
+import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
+import { getValidApiKeyPrefixes } from "../../Settings/Models/apiKeyValidation";
+import { HubModelIdentityFields } from "./HubModelIdentityFields";
+import type {
+  ModelConnection,
+  ModelProviderPreset,
+} from "../../../api/modules/hubGovernance";
 import styles from "./governance.module.less";
 import { useGovernanceText } from "./shared";
 
@@ -7,12 +14,18 @@ export function ConnectionFields({
   connections,
   connectionId,
   independentScope,
+  presets,
 }: {
   connections: ModelConnection[];
   connectionId?: string;
   independentScope: string;
+  presets: ModelProviderPreset[];
 }) {
   const text = useGovernanceText();
+  const form = Form.useFormInstance();
+  const providerId = Form.useWatch("provider_id", form);
+  const preset = presets.find((p) => p.id === providerId);
+
   const groups = new Map<string, string[]>();
   for (const connection of connections) {
     if (connection.id === connectionId) continue;
@@ -22,6 +35,38 @@ export function ConnectionFields({
   }
   return (
     <>
+      <Form.Item name="provider_id" label={text("供应商", "Provider")}>
+        <Select
+          showSearch
+          optionFilterProp="searchLabel"
+          disabled={!!connectionId}
+          onChange={(id) => {
+            const selected = presets.find((p) => p.id === id);
+            form.setFieldsValue({
+              name: selected?.name ?? "",
+              base_url: selected?.base_url ?? "",
+              api_key: undefined,
+            });
+          }}
+          options={[
+            {
+              value: "",
+              label: text("自定义 · OpenAI 兼容", "Custom · OpenAI compatible"),
+              searchLabel: "Custom 自定义",
+            },
+            ...presets.map((p) => ({
+              value: p.id,
+              searchLabel: p.name,
+              label: (
+                <span className={styles.actions}>
+                  <ProviderIcon providerId={p.id} size={20} />
+                  {p.name}
+                </span>
+              ),
+            })),
+          ]}
+        />
+      </Form.Item>
       <Form.Item
         name="name"
         label={text("连接名称", "Connection name")}
@@ -29,15 +74,19 @@ export function ConnectionFields({
       >
         <Input maxLength={120} />
       </Form.Item>
-      <Form.Item name="base_url" label="Base URL" rules={[{ required: true }]}>
-        <Input placeholder="https://example.com/v1" />
-      </Form.Item>
-      <Form.Item
-        name="api_key"
-        label={text("API Key（留空保留原值）", "API key (leave empty to keep)")}
-      >
-        <Input.Password autoComplete="new-password" />
-      </Form.Item>
+      <ProviderConnectionFields
+        canEditBaseUrl={!preset?.freeze_url}
+        baseUrlOptions={preset?.base_url_options ?? []}
+        baseUrlPlaceholder={preset?.base_url || "https://example.com/v1"}
+        apiKeyLabel="API Key"
+        apiKeyPlaceholder={
+          connectionId
+            ? text("留空保留已保存的密钥", "Leave blank to keep the saved key")
+            : text("输入供应商 API Key", "Enter your provider API key")
+        }
+        validApiKeyPrefixes={preset ? getValidApiKeyPrefixes(preset) : []}
+        requireApiKey={!connectionId}
+      />
       <details className={styles.help}>
         <summary>{text("高级设置 · 限流", "Advanced · Rate limits")}</summary>
         <Form.Item
@@ -100,23 +149,15 @@ export function RateFields() {
 export function ModelFields({
   connections,
   users,
+  presets,
 }: {
   connections: ModelConnection[];
   users: { user_id: string; username: string }[];
+  presets: ModelProviderPreset[];
 }) {
   const text = useGovernanceText();
   return (
     <>
-      <Form.Item
-        name="name"
-        label={text("成员看到的名称", "Display name")}
-        rules={[{ required: true }]}
-      >
-        <Input maxLength={120} />
-      </Form.Item>
-      <Form.Item name="description" label={text("能力说明", "Description")}>
-        <Input.TextArea maxLength={1000} />
-      </Form.Item>
       <Form.Item
         name="connection_id"
         label={text("连接", "Connection")}
@@ -126,12 +167,9 @@ export function ModelFields({
           options={connections.map((c) => ({ value: c.id, label: c.name }))}
         />
       </Form.Item>
-      <Form.Item
-        name="upstream_model"
-        label={text("上游模型 ID", "Upstream model ID")}
-        rules={[{ required: true }]}
-      >
-        <Input maxLength={256} />
+      <HubModelIdentityFields connections={connections} presets={presets} />
+      <Form.Item name="description" label={text("能力说明", "Description")}>
+        <Input.TextArea maxLength={1000} />
       </Form.Item>
       <Form.Item
         name="input_token_limit"

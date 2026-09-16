@@ -7,7 +7,7 @@ import {
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+import { ModelIdentityFields } from "./ModelIdentityFields";
 import {
   ChevronDown,
   CloudCog,
@@ -855,39 +855,10 @@ export function RemoteModelManageModal({
         (adding ? (
           <div className={styles.modelAddForm}>
             <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
-              <Form.Item
-                name="id"
-                label={t("models.modelIdLabel")}
-                rules={[{ required: true, message: t("models.modelIdLabel") }]}
-                style={{ marginBottom: 12 }}
-              >
-                <AutoComplete
-                  placeholder={t("models.modelIdPlaceholder")}
-                  options={discoveredModelOptions}
-                  filterOption={(
-                    inputValue: string,
-                    option?: { value?: string },
-                  ) =>
-                    option?.value
-                      ?.toLowerCase()
-                      .includes(inputValue.toLowerCase()) ?? false
-                  }
-                  notFoundContent={
-                    previewDiscovering
-                      ? t("common.loading")
-                      : t("models.modelDiscoveryUnavailableHint")
-                  }
-                >
-                  <Input />
-                </AutoComplete>
-              </Form.Item>
-              <Form.Item
-                name="name"
-                label={t("models.modelNameLabel")}
-                style={{ marginBottom: 12 }}
-              >
-                <Input placeholder={t("models.modelNamePlaceholder")} />
-              </Form.Item>
+              <ModelIdentityFields
+                options={discoveredModelOptions}
+                loading={previewDiscovering}
+              />
               <div
                 style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
               >
