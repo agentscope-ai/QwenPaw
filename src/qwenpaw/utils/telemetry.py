@@ -284,7 +284,7 @@ def mark_telemetry_collected(
                     "qwenpaw_version": current,
                     "collected_versions": versions,
                     "opted_out": opted_out or data.get("opted_out", False),
-                    "version": "1.3",
+                    "version": current,
                 },
             )
     except Exception as e:
