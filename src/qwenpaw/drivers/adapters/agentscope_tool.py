@@ -116,9 +116,18 @@ def _structured_covered_by_content(
             isinstance(structured, dict)
             and len(structured) == 1
             and "result" in structured
-            and structured["result"] == text
         ):
-            return True
+            inner = structured["result"]
+            if inner == text:
+                return True
+            # FastMCP ``wrap_output`` serialises non-str returns to JSON
+            # (``list``/``int``/``bool``/``dict``), so the inner value has
+            # to be compared against the parsed text as well.
+            try:
+                if json.loads(text) == inner:
+                    return True
+            except (TypeError, ValueError):
+                pass
     return False
 
 

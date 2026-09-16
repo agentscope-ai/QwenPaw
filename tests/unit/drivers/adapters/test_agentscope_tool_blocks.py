@@ -100,6 +100,22 @@ def test_structured_appended_when_not_covered() -> None:
     assert json.loads(blocks[1].text) == {"full": [1, 2, 3]}
 
 
+def test_wrap_output_non_str_result_not_wrapped() -> None:
+    """wrap_output for list/int/bool emits JSON text, not the raw value."""
+    for value in ([1, 2], 3, True, {"k": 1}):
+        result = _CallResult(
+            content=[
+                _TextItem(json.dumps(value, ensure_ascii=False, indent=2)),
+            ],
+            structured={"result": value},
+        )
+
+        blocks = _blocks_from_value(result)
+
+        assert len(blocks) == 1, f"duplicate block for {value!r}"
+        assert json.loads(blocks[0].text) == value
+
+
 def test_content_blocks_used_when_structured_absent() -> None:
     """With no structuredContent, the content blocks are kept unchanged."""
     result = _CallResult(
