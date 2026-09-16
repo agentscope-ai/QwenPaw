@@ -11,6 +11,7 @@ export interface AgentProjectDirs {
   project_dirs: ProjectDirEntry[];
   source: ChatProjectDirSource;
   workspace_dir: string;
+  workspace_exists?: boolean;
 }
 
 export interface ProjectDirectoryInfo {

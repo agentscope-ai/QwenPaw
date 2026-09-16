@@ -4042,13 +4042,7 @@
     "workingDir": "Diretório de trabalho",
     "importCopyNote": "A pasta será copiada para a biblioteca de projetos gerenciada do QwenPaw. Os arquivos originais não serão modificados.",
     "importCopyDesc": "A importacao cria uma copia da pasta. O Agent trabalha na copia e seus arquivos originais nao sao alterados. Para trabalhar diretamente no original, use \"Workspace padrão\".",
-    "tabOpenDir": "Workspace padrão",
-    "openDirDesc": "Abrir um diretório local existente — nenhum arquivo será copiado",
-    "openDirBtn": "Abrir este diretório",
-    "openDirLoading": "Carregando...",
     "openDirEmpty": "Sem subdiretórios",
-    "openDirHome": "Início",
-    "openDirRefresh": "Atualizar",
     "openDirHiddenFolders": "Pastas Ocultas"
   },
   "market": {

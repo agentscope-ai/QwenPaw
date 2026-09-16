@@ -174,6 +174,7 @@ def _project_dirs_snapshot(workspace) -> dict:
         ],
         "source": resolved.source,
         "workspace_dir": str(workspace.workspace_dir),
+        "workspace_exists": resolved.workspace_exists,
     }
 
 

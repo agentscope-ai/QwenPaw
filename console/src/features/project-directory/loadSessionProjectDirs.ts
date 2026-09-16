@@ -99,7 +99,7 @@ export async function loadSessionProjectDirs(
       {
         path: next.workspace_dir,
         label: null,
-        exists: true,
+        exists: next.workspace_exists ?? true,
         nested_with: null,
         is_workspace: true,
       },

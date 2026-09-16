@@ -1985,13 +1985,7 @@
     "workingDir": "Direktori kerja",
     "importCopyNote": "Folder akan disalin ke pustaka proyek terkelola QwenPaw. File asli tidak akan diubah.",
     "importCopyDesc": "Impor akan membuat salinan folder. Agent bekerja pada salinan, file asli tidak diubah. Untuk bekerja langsung pada aslinya, gunakan \"Workspace Bawaan\".",
-    "tabOpenDir": "Workspace Bawaan",
-    "openDirDesc": "Buka direktori lokal yang sudah ada — tidak ada file yang disalin",
-    "openDirBtn": "Buka Direktori Ini",
-    "openDirLoading": "Memuat...",
     "openDirEmpty": "Tidak ada subdirektori",
-    "openDirHome": "Beranda",
-    "openDirRefresh": "Segarkan",
     "openDirHiddenFolders": "Folder Tersembunyi"
   },
   "market": {
