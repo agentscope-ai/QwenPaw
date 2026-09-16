@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Reuse provider presets and discovery with isolated Hub credentials."""
 
+from ...utils.io_utils import run_sync_io
 from ...providers.openai_provider import OpenAIProvider
 from ...providers.openrouter_provider import OpenRouterProvider
 from ...providers.provider_catalog import BUILTIN_PROVIDERS
@@ -41,8 +42,8 @@ def provider_headers(connection: dict) -> dict:
     return preset.request_headers() if preset is not None else {}
 
 
-async def discover_models(catalog, connection_id: str):
-    """Discover through an ephemeral provider with Hub-owned credentials."""
+def _discovery_provider(catalog, connection_id: str):
+    """Load a connection and its credential on the same worker thread."""
     connection = next(
         (
             row
@@ -62,4 +63,10 @@ async def discover_models(catalog, connection_id: str):
     provider.base_url = connection["base_url"]
     provider.api_key = catalog.key(connection)
     provider.is_custom = True
+    return provider
+
+
+async def discover_models(catalog, connection_id: str):
+    """Discover through an ephemeral provider with Hub-owned credentials."""
+    provider = await run_sync_io(_discovery_provider, catalog, connection_id)
     return await provider.fetch_models(timeout=10)

@@ -47,6 +47,7 @@ from .utils.message_request_normalizer import (
 )
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
+from ..providers.provider import agent_thinking_level
 from ..providers.hub_managed import (
     PROVIDER_ID,
     hub_mode,
@@ -2117,7 +2118,6 @@ def _apply_model_fallbacks(
         return wrapped_model
 
     from ..providers.fallback_chat_model import FallbackChatModel
-    from ..providers.provider import agent_thinking_level
 
     fallback_models: list[ChatModelBase] = [wrapped_model]
     primary_model_name = getattr(wrapped_model, "model", "")
@@ -2190,6 +2190,27 @@ def _apply_model_fallbacks(
     return wrapped_model
 
 
+def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
+    """Share agent settings without adding retries or personal fallbacks."""
+    selected, catalog = managed_slot(model_slot, explicit=explicit)
+    if selected is None:
+        raise ProviderError(message="No organization model available")
+    provider = managed_provider(catalog)
+
+    with agent_thinking_level(settings.thinking_level):
+        model = provider.get_chat_model_instance(selected.model)
+    _ensure_model_context_size(model, provider, selected.model)
+    formatter = _install_model_formatter(model, provider_id=PROVIDER_ID)
+    return (
+        TokenRecordingModelWrapper(
+            PROVIDER_ID,
+            model,
+            compact_threshold=settings.compact_threshold,
+        ),
+        formatter,
+    )
+
+
 def create_model_and_formatter(
     agent_id: Optional[str] = None,
     model_slot_override: Any = None,
@@ -2237,13 +2258,11 @@ def create_model_and_formatter(
     if hub_mode() and (
         model_slot is None or model_slot.provider_id == PROVIDER_ID
     ):
-        selected, catalog = managed_slot(model_slot, explicit=slot is not None)
-        if selected is None:
-            raise ProviderError(message="No organization model available")
-        provider = managed_provider(catalog)
-        model = provider.get_chat_model_instance(selected.model)
-        formatter = _install_model_formatter(model, provider_id=PROVIDER_ID)
-        return TokenRecordingModelWrapper(PROVIDER_ID, model), formatter
+        return _create_hub_model_and_formatter(
+            settings,
+            model_slot,
+            explicit=slot is not None,
+        )
 
     # Create chat model from agent-specific or global config
     if model_slot and model_slot.provider_id and model_slot.model:
@@ -2254,8 +2273,6 @@ def create_model_and_formatter(
             raise ProviderError(
                 message=f"Provider '{model_slot.provider_id}' not found.",
             )
-
-        from ..providers.provider import agent_thinking_level
 
         with agent_thinking_level(settings.thinking_level):
             model = provider.get_chat_model_instance(model_slot.model)

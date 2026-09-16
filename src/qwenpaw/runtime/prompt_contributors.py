@@ -19,11 +19,13 @@ Contributors read configuration from ``ctx.extras``:
 
 from __future__ import annotations
 
+
 import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..utils.io_utils import run_sync_io
 from .prompt_manager import PromptManager, SyncPromptContributor
 from .protected_prompt import PROTECTED_EXECUTION_CONTRACT_PROMPT
 
@@ -255,6 +257,10 @@ class MultimodalHintContributor(SyncPromptContributor):
 
     name = "multimodal_hint"
     priority = 80
+
+    async def contribute(self, ctx: "HookContext") -> str | None:
+        """Resolve potentially remote model metadata outside the event loop."""
+        return await run_sync_io(self.contribute_sync, ctx)
 
     def contribute_sync(self, ctx: "HookContext") -> str | None:
         from ..agents.prompt import build_multimodal_hint

@@ -1,3 +1,4 @@
+import { createClientMessageId } from "../../../utils/clientMessageId";
 import { useCallback, useEffect, useState } from "react";
 import {
   App,
@@ -67,7 +68,7 @@ export default function Invitations() {
           icon={<Plus size={16} />}
           type="primary"
           onClick={() => {
-            setRequestId(crypto.randomUUID());
+            setRequestId(createClientMessageId());
             setOpen(true);
           }}
         >

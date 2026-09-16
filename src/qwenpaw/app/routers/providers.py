@@ -339,7 +339,7 @@ async def configure_provider(
     provider_id: str = Path(...),
     body: ProviderConfigRequest = Body(...),
 ) -> ProviderInfo:
-    provider = manager.get_provider(provider_id)
+    provider = await run_sync_io(manager.get_provider, provider_id)
     if (
         provider is not None
         and provider.is_custom
@@ -370,7 +370,7 @@ async def configure_provider(
             detail=f"Provider '{provider_id}' not found",
         )
 
-    provider = manager.get_provider(provider_id)
+    provider = await run_sync_io(manager.get_provider, provider_id)
     if _should_auto_discover(body, provider):
         prepared_discovery = await manager.prepare_provider_model_discovery(
             provider_id,
@@ -512,7 +512,7 @@ async def test_provider(
 ) -> TestConnectionResponse:
     """Test if a provider's URL and API key are valid."""
     try:
-        provider = manager.get_provider(provider_id)
+        provider = await run_sync_io(manager.get_provider, provider_id)
         if provider is None:
             raise ValueError(f"Provider '{provider_id}' not found")
         # Build a lightweight Pydantic copy with only the overridden fields;
@@ -555,7 +555,7 @@ async def discover_models(
     ),
 ) -> DiscoverModelsResponse:
     try:
-        provider = manager.get_provider(provider_id)
+        provider = await run_sync_io(manager.get_provider, provider_id)
         if provider is None:
             raise HTTPException(
                 status_code=404,

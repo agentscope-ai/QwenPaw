@@ -182,6 +182,7 @@ class ProviderManager(
         return provider_key
 
     def get_provider(self, provider_id: str) -> Provider | None:
+        """Resolve a provider, refreshing Hub metadata via synchronous I/O."""
         if hub_mode() and provider_id == PROVIDER_ID:
             return managed_provider()
         # Return a provider instance by its ID. This will be used to create
@@ -202,7 +203,7 @@ class ProviderManager(
         return await provider.get_info() if provider else None
 
     def get_active_model(self) -> ModelSlotConfig | None:
-        # Return the currently active provider/model configuration.
+        """Resolve the active model; Hub resolution refreshes its catalog."""
         if hub_mode() and (
             not self.active_model
             or self.active_model.provider_id == PROVIDER_ID
@@ -241,7 +242,7 @@ class ProviderManager(
         config: Dict,
     ) -> bool:
         """Persist a detached update snapshot, then commit it in memory."""
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             return False
         revision = self._provider_revision(provider_id)
@@ -274,7 +275,7 @@ class ProviderManager(
             # leaving this stale snapshot to swallow it on next restart.
             await self._restore_latest_snapshot(provider_id, provider_path)
             return False
-        current = self.get_provider(provider_id)
+        current = await run_sync_io(self.get_provider, provider_id)
         if current is None:
             await self._restore_latest_snapshot(provider_id, provider_path)
             return False
@@ -644,7 +645,7 @@ class ProviderManager(
         model_info: ModelInfo,
     ) -> ProviderInfo:
         provider_id = self._normalize_provider_id(provider_id)
-        if not self.get_provider(provider_id):
+        if not await run_sync_io(self.get_provider, provider_id):
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
@@ -704,7 +705,7 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
@@ -720,7 +721,7 @@ class ProviderManager(
     ) -> ProviderInfo:
         """Persist whether one discovery candidate is hidden from the UI."""
         provider_id = self._normalize_provider_id(provider_id)
-        if self.get_provider(provider_id) is None:
+        if (await run_sync_io(self.get_provider, provider_id)) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
@@ -737,7 +738,7 @@ class ProviderManager(
             candidate.hidden_model_ids = sorted(hidden_ids)
 
         await self._mutate_provider_async(provider_id, set_hidden)
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
@@ -752,7 +753,7 @@ class ProviderManager(
     ) -> ProviderInfo:
         """Update per-model configuration and persist to disk."""
         provider_id = self._normalize_provider_id(provider_id)
-        if self.get_provider(provider_id) is None:
+        if (await run_sync_io(self.get_provider, provider_id)) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
@@ -769,7 +770,7 @@ class ProviderManager(
                 )
 
         await self._mutate_provider_async(provider_id, update_model)
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
@@ -782,7 +783,7 @@ class ProviderManager(
         model_id: str,
     ) -> ProviderInfo:
         provider_id = self._normalize_provider_id(provider_id)
-        if self.get_provider(provider_id) is None:
+        if (await run_sync_io(self.get_provider, provider_id)) is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
@@ -795,7 +796,7 @@ class ProviderManager(
                 raise ProviderError(message=error_message)
 
         await self._mutate_provider_async(provider_id, delete_model)
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
@@ -818,7 +819,7 @@ class ProviderManager(
                 will remain at its previous value (not updated).
         """
         provider_id = self._normalize_provider_id(provider_id)
-        if self.get_provider(provider_id) is None:
+        if (await run_sync_io(self.get_provider, provider_id)) is None:
             return {"error": f"Provider '{provider_id}' not found"}
 
         async def probe_model(candidate: Provider) -> Any:

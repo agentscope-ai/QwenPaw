@@ -1343,7 +1343,11 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> Response:
         require_model_route(path)
         record = await ensure_personal_runtime(user)
-        require_model_runtime(governance, record.runtime_id)
+        await run_in_threadpool(
+            require_model_runtime,
+            governance,
+            record.runtime_id,
+        )
         target = runtime_url(
             record,
             scheme="http",

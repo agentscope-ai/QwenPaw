@@ -6,21 +6,19 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from contextlib import AsyncExitStack
 
-import anyio
 import httpx
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 
-from .budget import BudgetExceededError
+from ...utils.io_utils import run_sync_io
+from .request import GatewayRequest, GatewayStreamingResponse
 from .limiter import SharedLimiter
 from .provider_setup import provider_headers
 from .protocol import (
     safe_payload,
     upstream_payload,
     usage_tokens,
-    validate_request,
 )
 
 _TIMEOUT = 120
@@ -46,23 +44,8 @@ class ModelGateway:
         if orphan:
             self.limiter.cooldown_until = time.monotonic() + 2 * _TIMEOUT
 
-    def _reserve(self, identity, body):
-        limit = validate_request(body)
-        try:
-            return self.budgets.reserve(
-                identity,
-                body["model"],
-                self.catalog,
-                limit,
-            )
-        except BudgetExceededError as exc:
-            raise HTTPException(403, "hub_budget_exceeded") from exc
-        except PermissionError as exc:
-            raise HTTPException(403, "hub_model_unavailable") from exc
-        except ValueError as exc:
-            raise HTTPException(422, str(exc)) from exc
-
-    async def _open(self, stack, request_id, model, connection, payload):
+    async def _open(self, attempt, model, connection, payload):
+        stack = attempt.stack
         await stack.enter_async_context(
             self.limiter.acquire(model, connection),
         )
@@ -74,62 +57,61 @@ class ModelGateway:
                 trust_env=False,
             ),
         )
+        key = await run_sync_io(self.catalog.key, connection)
         request = client.build_request(
             "POST",
             f"{connection['base_url']}/chat/completions",
             headers={
                 **provider_headers(connection),
-                "Authorization": f"Bearer {self.catalog.key(connection)}",
+                "Authorization": f"Bearer {key}",
             },
             json=payload,
         )
-        self.budgets.dispatch(request_id)
+        await attempt.dispatch()
         response = await asyncio.wait_for(
             client.send(request, stream=True),
             timeout=_TIMEOUT,
         )
         stack.push_async_callback(response.aclose)
         if response.status_code != 200:
-            raise HTTPException(502, f"hub_upstream_error:{request_id}")
+            raise HTTPException(
+                502,
+                f"hub_upstream_error:{attempt.request_id}",
+            )
         return response
-
-    async def _close(self, stack, request_id, actual=None, error=None):
-        self.budgets.settle(request_id, actual, error)
-        with anyio.CancelScope(shield=True):
-            await stack.aclose()
 
     async def call(self, identity, body):
         """Reserve once and transfer resource ownership to the response."""
-        request_id, model, connection, cap = self._reserve(identity, body)
-        stack = AsyncExitStack()
+        attempt = GatewayRequest(self.budgets, self.catalog)
         try:
+            _, model, connection, cap = await attempt.reserve(identity, body)
             response = await self._open(
-                stack,
-                request_id,
+                attempt,
                 model,
                 connection,
                 upstream_payload(body, model, cap),
             )
         except BaseException as exc:
-            await self._close(stack, request_id, error="upstream_failed")
+            await attempt.close(error="upstream_failed")
             if isinstance(exc, (HTTPException, asyncio.CancelledError)):
                 raise
             raise HTTPException(
                 502,
-                f"hub_upstream_error:{request_id}",
+                f"hub_upstream_error:{attempt.request_id}",
             ) from None
         if body.get("stream", False):
-            return StreamingResponse(
-                self._stream(response, stack, request_id, body["model"]),
+            return GatewayStreamingResponse(
+                self._stream(response, attempt, body["model"]),
+                attempt,
                 media_type="text/event-stream",
                 headers={
-                    "X-Request-ID": request_id,
+                    "X-Request-ID": attempt.request_id,
                     "Cache-Control": "no-store",
                 },
             )
-        return await self._complete(response, stack, request_id, body["model"])
+        return await self._complete(response, attempt, body["model"])
 
-    async def _complete(self, response, stack, request_id, model_id):
+    async def _complete(self, response, attempt, model_id):
         actual = None
         error = "response_incomplete"
         try:
@@ -143,16 +125,19 @@ class ModelGateway:
             result = safe_payload(data, model_id)
             actual = usage_tokens(data)
             error = None
-            return JSONResponse(result, headers={"X-Request-ID": request_id})
+            return JSONResponse(
+                result,
+                headers={"X-Request-ID": attempt.request_id},
+            )
         except Exception:
             raise HTTPException(
                 502,
-                f"hub_upstream_error:{request_id}",
+                f"hub_upstream_error:{attempt.request_id}",
             ) from None
         finally:
-            await self._close(stack, request_id, actual, error)
+            await attempt.close(actual, error)
 
-    async def _stream(self, response, stack, request_id, model_id):
+    async def _stream(self, response, attempt, model_id):
         actual = None
         complete = False
         try:
@@ -178,15 +163,13 @@ class ModelGateway:
                 {
                     "error": {
                         "code": "hub_upstream_error",
-                        "request_id": request_id,
+                        "request_id": attempt.request_id,
                     },
                 },
             )
             yield f"data: {event}\n\n".encode()
         finally:
-            await self._close(
-                stack,
-                request_id,
+            await attempt.close(
                 actual if complete else None,
                 None if complete else "stream_incomplete",
             )

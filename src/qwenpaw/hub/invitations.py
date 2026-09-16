@@ -102,6 +102,7 @@ class InvitationService:
 
     def redeem(self, code: str, username: str, password: str):
         """Consume a code and create its ordinary member in one transaction."""
+        prepared = self.auth.prepare_user(username, password)
         try:
             with self.store.connect() as db:
                 db.execute("BEGIN IMMEDIATE")
@@ -113,7 +114,7 @@ class InvitationService:
                 ).fetchone()
                 if self.auth.registration_mode(db) != "invite" or row is None:
                     raise PermissionError("Invalid or unavailable invitation")
-                user_id = self.auth.insert_user(db, username, password)
+                user_id = self.auth.insert_user(db, prepared)
                 policy = json.loads(row["policy_json"])
                 for model_id in policy["model_ids"]:
                     model_row = db.execute(

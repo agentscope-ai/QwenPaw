@@ -146,7 +146,7 @@ class HubAuthService:
             has_users = self._user_count(connection) > 0
             if has_users and not self._registration_enabled(connection):
                 raise PermissionError("Registration is disabled.")
-        prepared = self._prepare_user(username, password)
+        prepared = self.prepare_user(username, password)
         with self._registration_lock:
             try:
                 with self._connect() as connection:
@@ -172,7 +172,7 @@ class HubAuthService:
 
     def initialize_admin(self, username: str, password: str) -> HubUser:
         """Create the first administrator from a trusted local command."""
-        prepared = self._prepare_user(username, password)
+        prepared = self.prepare_user(username, password)
         with self._registration_lock:
             try:
                 with self._connect() as connection:
@@ -211,7 +211,7 @@ class HubAuthService:
         role: str = "user",
     ) -> HubUser:
         """Create an account with a stable ID and PBKDF2 password hash."""
-        prepared = self._prepare_user(username, password)
+        prepared = self.prepare_user(username, password)
         if role not in {"admin", "user"}:
             raise ValueError(f"Invalid role: {role}")
         try:
@@ -225,17 +225,12 @@ class HubAuthService:
     def insert_user(
         self,
         connection: sqlite3.Connection,
-        username: str,
-        password: str,
-        role: str = "user",
+        prepared: _PreparedUser,
     ) -> str:
-        """Insert an account inside the caller's transaction."""
-        prepared = self._prepare_user(username, password)
-        if role not in {"admin", "user"}:
-            raise ValueError(f"Invalid role: {role}")
-        return self._insert_user(connection, prepared, role).user_id
+        """Insert a prepared ordinary member in the caller's transaction."""
+        return self._insert_user(connection, prepared, "user").user_id
 
-    def _prepare_user(self, username: str, password: str) -> _PreparedUser:
+    def prepare_user(self, username: str, password: str) -> _PreparedUser:
         """Validate and hash credentials before a database write lock."""
         normalized_username = username.strip()
         self._validate_credentials(normalized_username, password)

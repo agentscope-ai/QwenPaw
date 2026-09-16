@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import secrets
 import uuid
 
@@ -12,6 +13,7 @@ from ..invitations import secret_digest
 
 _SYSTEM = "__qwenpaw_hub_system__"
 _SCOPE = "organization-models"
+logger = logging.getLogger(__name__)
 
 
 class ModelCatalog:
@@ -77,31 +79,42 @@ class ModelCatalog:
         else:
             raise ValueError("An API key is required for a new connection")
         value["secret_ref"] = secret_name
-        with self.store.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
-            if updating:
-                self.require_revision(
-                    db,
-                    "hub_model_connections",
-                    connection_id,
-                    body.revision,
+        try:
+            with self.store.connect() as db:
+                db.execute("BEGIN IMMEDIATE")
+                if updating:
+                    self.require_revision(
+                        db,
+                        "hub_model_connections",
+                        connection_id,
+                        body.revision,
+                    )
+                db.execute(
+                    "INSERT INTO hub_model_connections(id, value_json) "
+                    "VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET "
+                    "value_json = excluded.value_json, "
+                    "revision = hub_model_connections.revision + 1",
+                    (connection_id, json.dumps(value)),
                 )
-            policy = self.store.settings(db)
-            models = self.rows("hub_managed_models", db)
-            if not body.enabled and any(
-                m["id"] == policy["default_model_id"]
-                and m["connection_id"] == connection_id
-                for m in models
-            ):
-                raise ValueError("Replace the default model first")
-            db.execute(
-                "INSERT INTO hub_model_connections(id, value_json) "
-                "VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET "
-                "value_json = excluded.value_json, "
-                "revision = hub_model_connections.revision + 1",
-                (connection_id, json.dumps(value)),
-            )
-            self.store.bump(db)
+                self._validate_default(
+                    db,
+                    self.store.settings(db)["default_model_id"],
+                )
+                self.store.bump(db)
+        except BaseException:
+            if body.api_key:
+                try:
+                    self.vault.delete(
+                        tenant_id=_SYSTEM,
+                        scope=_SCOPE,
+                        name=secret_name,
+                    )
+                except Exception:
+                    logger.exception(
+                        f"Could not remove unused model secret: {secret_name}",
+                    )
+            raise
+        # Replaced secrets stay valid for already-admitted request snapshots.
         return {"id": connection_id}
 
     def connections(self) -> list[dict]:
@@ -140,11 +153,6 @@ class ModelCatalog:
                     (user_id,),
                 ).fetchone():
                     raise ValueError("Unknown member")
-            policy = self.store.settings(db)
-            if model_id == policy["default_model_id"] and (
-                not body.enabled or not body.all_members
-            ):
-                raise ValueError("The default must be enabled for everyone")
             db.execute(
                 "INSERT INTO hub_managed_models "
                 "(id, connection_id, value_json) VALUES (?, ?, ?) "
@@ -153,6 +161,10 @@ class ModelCatalog:
                 "value_json = excluded.value_json, "
                 "revision = hub_managed_models.revision + 1",
                 (model_id, body.connection_id, json.dumps(value)),
+            )
+            self._validate_default(
+                db,
+                self.store.settings(db)["default_model_id"],
             )
             self.store.bump(db)
         return {"id": model_id}
@@ -171,31 +183,7 @@ class ModelCatalog:
                 ).fetchone()
             ):
                 raise ValueError("Budget timezone is fixed after first use")
-            if body.default_model_id is not None:
-                model = next(
-                    (
-                        m
-                        for m in self.rows(
-                            "hub_managed_models",
-                            db,
-                        )
-                        if m["id"] == body.default_model_id
-                    ),
-                    None,
-                )
-                connections = self.rows("hub_model_connections", db)
-                if (
-                    not model
-                    or not model["enabled"]
-                    or not (
-                        model["all_members"]
-                        and any(
-                            c["id"] == model["connection_id"] and c["enabled"]
-                            for c in connections
-                        )
-                    )
-                ):
-                    raise ValueError("Choose an enabled all-member default")
+            self._validate_default(db, body.default_model_id)
             db.execute(
                 "UPDATE hub_governance_settings SET value_json = ?, "
                 "revision = revision + 1 WHERE singleton = 1",
@@ -203,45 +191,77 @@ class ModelCatalog:
             )
         return self.store.settings()
 
+    def _validate_default(self, db, model_id):
+        """Validate the default within every catalog write transaction."""
+        if model_id is None:
+            return
+        model = next(
+            (
+                m
+                for m in self.rows("hub_managed_models", db)
+                if m["id"] == model_id
+            ),
+            None,
+        )
+        if model and model["enabled"] and model["all_members"]:
+            if any(
+                c["id"] == model["connection_id"] and c["enabled"]
+                for c in self.rows("hub_model_connections", db)
+            ):
+                return
+        raise ValueError("Choose an enabled all-member default")
+
+    @staticmethod
+    def _available(model, connection, user_id, *, test=False):
+        """Apply one authorization rule to both discovery and inference."""
+        return bool(
+            connection
+            and connection["enabled"]
+            and (
+                test
+                or (
+                    model["enabled"]
+                    and (model["all_members"] or user_id in model["user_ids"])
+                )
+            ),
+        )
+
     def resolve(self, user_id, model_id, db=None, *, test=False):
         """Resolve the current policy, alias, and upstream snapshot."""
         if db is None:
             with self.store.connect() as connection:
+                connection.execute("BEGIN")
                 return self.resolve(user_id, model_id, connection, test=test)
         policy = self.store.settings(db)
+        connections = {
+            c["id"]: c for c in self.rows("hub_model_connections", db)
+        }
         for model in self.rows("hub_managed_models", db):
-            if model["id"] != model_id or (not model["enabled"] and not test):
-                continue
-            if (
-                not test
-                and not model["all_members"]
-                and user_id not in model["user_ids"]
+            connection = connections.get(model["connection_id"])
+            if model["id"] == model_id and self._available(
+                model,
+                connection,
+                user_id,
+                test=test,
             ):
-                break
-            connection = next(
-                (
-                    c
-                    for c in self.rows(
-                        "hub_model_connections",
-                        db,
-                    )
-                    if c["id"] == model["connection_id"] and c["enabled"]
-                ),
-                None,
-            )
-            if connection:
                 return policy, model, connection
         raise PermissionError("Model is unavailable or not authorized")
 
     def member_catalog(self, user_id: str) -> dict:
         """Build an explicit allowlisted directory, without upstream fields."""
         with self.store.connect() as db:
+            db.execute("BEGIN")
             policy = self.store.settings(db)
+            connections = {
+                c["id"]: c for c in self.rows("hub_model_connections", db)
+            }
             items = []
             for model in self.rows("hub_managed_models", db):
-                try:
-                    self.resolve(user_id, model["id"], db)
-                except PermissionError:
+                if not self._available(
+                    model,
+                    connections.get(model["connection_id"]),
+                    user_id,
+                ):
                     continue
                 items.append(
                     {

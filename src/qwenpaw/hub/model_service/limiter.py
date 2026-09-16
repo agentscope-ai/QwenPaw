@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import HTTPException
 
+from ...utils.io_utils import run_sync_io
+
 
 class SharedLimiter:
     """Aggregate aliases and connections that share upstream quota scopes."""
@@ -18,22 +20,15 @@ class SharedLimiter:
         self.starts = defaultdict(deque)
         self.cooldown_until = 0.0
 
-    @asynccontextmanager
-    async def acquire(self, model, connection):
-        """Reject immediately rather than buffering an unbounded queue."""
-        now = time.monotonic()
-        if now < self.cooldown_until:
-            raise HTTPException(
-                429,
-                "Model service recovering",
-                headers={"Retry-After": "120"},
-            )
+    def _limits(self, model, connection):
+        """Load one configuration snapshot in the caller's worker thread."""
         scope = connection["quota_scope"]
         model_scope = f"{scope}:{model['upstream_model']}"
         # The strictest configured limit wins for a shared supplier quota.
-        connections = []
-        models = []
+        connections = [connection]
+        models = [model]
         with self.store.connect() as db:
+            db.execute("BEGIN")
             for row in db.execute(
                 "SELECT value_json FROM hub_model_connections",
             ):
@@ -57,10 +52,22 @@ class SharedLimiter:
                     and value["upstream_model"] == model["upstream_model"]
                 ):
                     models.append(value)
-        limits = [
+        return [
             (f"connection:{scope}", connections),
             (f"model:{model_scope}", models),
         ]
+
+    @asynccontextmanager
+    async def acquire(self, model, connection):
+        """Reject immediately rather than buffering an unbounded queue."""
+        limits = await run_sync_io(self._limits, model, connection)
+        now = time.monotonic()
+        if now < self.cooldown_until:
+            raise HTTPException(
+                429,
+                "Model service recovering",
+                headers={"Retry-After": "120"},
+            )
         for key, values in limits:
             history = self.starts[key]
             while history and history[0] <= now - 60:
