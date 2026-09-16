@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from qwenpaw.app.chats.models import ChatSpec, SessionSource
 from qwenpaw.app.realtime_voice.contracts import (
     PROTOCOL_VERSION,
     RealtimeVoiceServiceError,
@@ -167,3 +168,53 @@ def test_capabilities_advertise_the_media_protocol_version():
         current_workspace
     )
     assert capabilities["protocol_version"] == PROTOCOL_VERSION
+
+
+@pytest.mark.asyncio
+async def test_new_voice_chat_uses_downgrade_safe_chat_source():
+    chat_manager = SimpleNamespace(
+        create_chat=AsyncMock(side_effect=lambda chat: chat),
+    )
+    current_workspace = SimpleNamespace(
+        agent_id="default",
+        chat_manager=chat_manager,
+    )
+    config = SimpleNamespace(
+        provider_id="dashscope",
+        realtime_model="qwen-omni-turbo-realtime",
+        region="cn-beijing",
+        voice="Cherry",
+    )
+
+    chat = await RealtimeVoiceService._resolve_chat(
+        current_workspace,
+        "local-single-user",
+        None,
+        config,
+    )
+
+    assert chat.source == SessionSource.chat
+    assert chat.meta["realtime_voice"]["version"] == 3
+    chat_manager.create_chat.assert_awaited_once_with(chat)
+
+
+@pytest.mark.asyncio
+async def test_voice_chat_resume_uses_capability_metadata():
+    voice_chat = ChatSpec(
+        session_id="realtime_voice:voice-1",
+        user_id="local-single-user",
+        meta={"realtime_voice": {"version": 3}},
+    )
+    chat_manager = SimpleNamespace(
+        get_chat=AsyncMock(return_value=voice_chat),
+    )
+    current_workspace = SimpleNamespace(chat_manager=chat_manager)
+
+    resolved = await RealtimeVoiceService._resolve_chat(
+        current_workspace,
+        "local-single-user",
+        voice_chat.id,
+        SimpleNamespace(),
+    )
+
+    assert resolved is voice_chat

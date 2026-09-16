@@ -58,7 +58,8 @@ def chat() -> ChatSpec:
         session_id="realtime_voice:chat-1",
         user_id="local-single-user",
         channel="console",
-        source=SessionSource.realtime_voice,
+        source=SessionSource.chat,
+        meta={"realtime_voice": {"version": 3}},
     )
 
 

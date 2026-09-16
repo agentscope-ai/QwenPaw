@@ -42,6 +42,9 @@ _COMMAND_TIMEOUT_SECONDS = 20
 _RESPONSE_TIMEOUT_SECONDS = 90
 _BARGE_IN_CANCEL_FALLBACK_SECONDS = 0.75
 _INPUT_CLEANUP_FALLBACK_SECONDS = 2.0
+_EXPECTED_CLOSE_REASONS = {
+    "response_idle_timeout": "idle_timeout",
+}
 
 
 def _event_id(payload: dict[str, Any]) -> str:
@@ -134,6 +137,7 @@ class DashScopeRealtimeSession:
         self._output_final_emitted = False
         self._active_output_text = ""
         self._drop_audio = False
+        self._expected_close_reason: str | None = None
         self._closed = False
 
     @property
@@ -362,7 +366,7 @@ class DashScopeRealtimeSession:
         except asyncio.CancelledError:
             raise
         except ConnectionClosed as exc:
-            if not self._closed:
+            if not self._closed and self._expected_close_reason is None:
                 await self._emit_exception(exc, "connection", True)
         except Exception as exc:  # noqa: BLE001
             await self._emit_exception(exc, "protocol", False)
@@ -698,6 +702,20 @@ class DashScopeRealtimeSession:
                 return
             message = str(error.get("message") or "DashScope realtime error")
             code = str(error.get("code") or "provider_error")
+            close_reason = _EXPECTED_CLOSE_REASONS.get(code)
+            if close_reason is not None:
+                self._expected_close_reason = close_reason
+                await self._events.put(
+                    ProviderEvent(
+                        "session.closed",
+                        event_id,
+                        {
+                            "reason": close_reason,
+                            "recoverable": True,
+                        },
+                    )
+                )
+                return
             await self._events.put(
                 ProviderEvent(
                     "error",

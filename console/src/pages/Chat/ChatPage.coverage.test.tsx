@@ -39,6 +39,7 @@ const {
   mockFetchActiveLoopMode,
   mockSessionProjectDirectory,
   mockHydrateBackgroundTasksForSession,
+  mockUpdateMessage,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -58,6 +59,7 @@ const {
   mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   mockSessionProjectDirectory: vi.fn(),
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
+  mockUpdateMessage: vi.fn(),
 }));
 
 let capturedOptions: any = null;
@@ -109,6 +111,7 @@ vi.mock("@agentscope-ai/chat", () => ({
         getSessionMessages: vi.fn(() => []),
         getMessages: vi.fn(() => []),
         setSessionMessages: vi.fn(),
+        updateMessage: mockUpdateMessage,
       },
       execution: {
         execute: mockRuntimeSubmit,
@@ -205,6 +208,13 @@ vi.mock("@/contexts/ThemeContext", () => ({
 }));
 
 vi.mock("./sessionApi", () => ({
+  convertMessages: vi.fn((messages: Array<Record<string, unknown>>) =>
+    messages.map((message) => ({
+      id: String(message.id),
+      role: message.role,
+      cards: [],
+    })),
+  ),
   default: {
     onSessionIdResolved: null,
     onSessionRemoved: null,
@@ -549,6 +559,7 @@ describe("ChatPage coverage", () => {
     mockFetchActiveLoopMode.mockClear();
     mockSessionProjectDirectory.mockClear();
     mockHydrateBackgroundTasksForSession.mockClear();
+    mockUpdateMessage.mockClear();
     mockHoldOwnershipLock.mockReset();
     mockHoldOwnershipLock.mockImplementation((_key: string, cb: () => void) => {
       cb();
@@ -933,20 +944,71 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── responseParser: replay_end → heartbeat ─────────────────────────────
-  it("responseParser preserves replay_end for the run lifecycle", async () => {
+  // ── responseParser: host lifecycle markers → heartbeat ────────────────
+  it.each(["run_started", "replay_end", "run_sealed"])(
+    "responseParser keeps %s out of the AgentScope runtime protocol",
+    async (type) => {
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+
+      if (capturedOptions?.api?.responseParser) {
+        const parsed = capturedOptions.api.responseParser(
+          JSON.stringify({ type }),
+        );
+        expect(parsed).toEqual({ object: "message", type: "heartbeat" });
+      }
+    },
+  );
+
+  it("keeps replayed user input out of the assistant response", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
 
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({ type: "replay_end" }),
-      );
-      expect(parsed).toEqual({ type: "replay_end" });
-    }
+    const parser = capturedOptions?.api?.responseParser;
+    expect(parser).toBeTypeOf("function");
+    parser(JSON.stringify({ type: "run_started", replay: true }));
+    const parsed = parser(
+      JSON.stringify({
+        id: "voice-input-1",
+        object: "message",
+        role: "user",
+        type: "message",
+        status: "completed",
+        content: [{ type: "text", text: "check the previous result" }],
+      }),
+    );
+
+    expect(parsed).toEqual({ object: "message", type: "heartbeat" });
+    expect(mockUpdateMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "voice-input-1", role: "user" }),
+    );
+  });
+
+  it("does not rewrite user events from a direct request stream", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const parser = capturedOptions?.api?.responseParser;
+    expect(parser).toBeTypeOf("function");
+    parser(JSON.stringify({ type: "run_started", replay: false }));
+    const payload = {
+      id: "direct-input-1",
+      object: "message",
+      role: "user",
+      type: "message",
+      status: "completed",
+      content: [{ type: "text", text: "hello" }],
+    };
+
+    expect(parser(JSON.stringify(payload))).toEqual(payload);
+    expect(mockUpdateMessage).not.toHaveBeenCalled();
   });
 
   // ── responseParser: rate_limited → null ────────────────────────────────

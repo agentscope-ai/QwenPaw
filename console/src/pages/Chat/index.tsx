@@ -28,6 +28,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi, { convertMessages } from "./sessionApi";
+import { RuntimeTimelineAccumulator } from "./runtimeTimelineProjection";
 import {
   getDraftStorageKey,
   parseDraft,
@@ -55,6 +56,7 @@ import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
 import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import { isRealtimeVoiceChat } from "../../api/types/chat";
 import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
@@ -174,9 +176,6 @@ type IAgentScopeRuntimeWebUIOptions =
   import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIOptions;
 type IAgentScopeRuntimeWebUIRef =
   import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIRef;
-type ParsedChatResponse = ReturnType<
-  NonNullable<IAgentScopeRuntimeWebUIOptions["api"]["responseParser"]>
->;
 type IAgentScopeRuntimeWebUISenderBeforeSubmitResult = {
   proceed: true;
   query: string;
@@ -1515,6 +1514,11 @@ export default function ChatPage() {
   const headlineStreamFilterRef = useRef<HeadlineStreamFilterState>(
     createHeadlineFilterState(),
   );
+  const replayingResponseRef = useRef(false);
+  const voiceTimelineRef = useRef(new RuntimeTimelineAccumulator());
+  const voiceProjectionFrameRef = useRef<number | null>(null);
+  const voiceProjectionGenerationRef = useRef(0);
+  const voiceProjectedIdsRef = useRef<string[]>([]);
   const pendingFallbackEventsRef = useRef<ModelFallbackEvent[]>([]);
   const pendingFallbackEventKeysRef = useRef<Set<string>>(new Set());
   // Use sessionApi.lastActiveChatId when available to avoid "new" collision
@@ -2433,7 +2437,7 @@ export default function ChatPage() {
           status: "ready",
           agentId: selectedAgent,
           chatId: backendChatId,
-          kind: chat.source === "realtime_voice" ? "voice" : "ordinary",
+          kind: isRealtimeVoiceChat(chat) ? "voice" : "ordinary",
         });
       })
       .catch(() => {
@@ -2503,25 +2507,82 @@ export default function ChatPage() {
     [navigate, selectedAgent, setLastChatId],
   );
 
-  const handleVoiceAgentRunStarted = useCallback(() => {
-    if (!backendChatId) return;
-    document.dispatchEvent(
-      new CustomEvent("handleReconnect", {
-        detail: { session_id: backendChatId },
-      }),
-    );
+  const renderVoiceTimeline = useCallback(() => {
+    voiceProjectionFrameRef.current = null;
+    const messagesApi = chatRef.current?.messages;
+    if (!messagesApi) return;
+    const projected = convertMessages(voiceTimelineRef.current.messages());
+    const projectedIds = projected.map((message) => message.id);
+    const structureChanged =
+      projectedIds.length !== voiceProjectedIdsRef.current.length ||
+      projectedIds.some(
+        (id, index) => id !== voiceProjectedIdsRef.current[index],
+      );
+    if (structureChanged) messagesApi.removeAllMessages();
+    for (const message of projected) messagesApi.updateMessage(message);
+    voiceProjectedIdsRef.current = projectedIds;
+  }, []);
+
+  const scheduleVoiceTimelineRender = useCallback(() => {
+    if (voiceProjectionFrameRef.current !== null) return;
+    voiceProjectionFrameRef.current =
+      window.requestAnimationFrame(renderVoiceTimeline);
+  }, [renderVoiceTimeline]);
+
+  useEffect(
+    () => () => {
+      if (voiceProjectionFrameRef.current !== null) {
+        window.cancelAnimationFrame(voiceProjectionFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    voiceProjectionGenerationRef.current += 1;
+    voiceTimelineRef.current.reset();
+    voiceProjectedIdsRef.current = [];
   }, [backendChatId]);
+
+  const handleVoiceAgentRunStarted = useCallback(() => {
+    if (!backendChatId || !chatId) return;
+    const generation = ++voiceProjectionGenerationRef.current;
+    voiceTimelineRef.current.reset();
+    void chatApi
+      .getChat(backendChatId, {
+        include_app_owned: false,
+        fresh: true,
+      })
+      .then((history) => {
+        if (generation !== voiceProjectionGenerationRef.current) return;
+        voiceTimelineRef.current.replaceBase(history.messages ?? []);
+        scheduleVoiceTimelineRender();
+      })
+      .catch((reason) => {
+        console.warn("Failed to seed Voice timeline projection:", reason);
+      })
+      .finally(() => {
+        if (generation !== voiceProjectionGenerationRef.current) return;
+        // Voice submits the run over its own channel, so this tab holds no SSE
+        // stream for it. resume() is the SDK's host entry point for attaching
+        // to an already-accepted Run, and it is keyed by SDK session id.
+        void Promise.resolve(
+          chatRef.current?.execution.resume({ sessionId: chatId }),
+        ).catch((reason: unknown) => {
+          console.warn("Failed to attach the Voice run stream:", reason);
+        });
+      });
+  }, [backendChatId, chatId, scheduleVoiceTimelineRender]);
 
   const handleVoiceTimelineChanged = useCallback(
     (messages: unknown[]) => {
-      if (!messages.length || !chatRef.current || !backendChatId) return;
-      for (const message of convertMessages(
+      if (!messages.length || !backendChatId) return;
+      voiceTimelineRef.current.mergeBase(
         messages as Parameters<typeof convertMessages>[0],
-      )) {
-        chatRef.current.messages.updateMessage(message);
-      }
+      );
+      scheduleVoiceTimelineRender();
     },
-    [backendChatId],
+    [backendChatId, scheduleVoiceTimelineRender],
   );
 
   const voiceEnabled = usesQwenPawBackend && chatSurfaceReady;
@@ -4568,12 +4629,38 @@ export default function ChatPage() {
         fetch: customFetch,
         responseParser: (chunk: string) => {
           const payload = JSON.parse(chunk) as Record<string, unknown>;
-          if (
-            ["run_started", "replay_end", "run_sealed"].includes(
-              String(payload.type),
-            )
-          ) {
-            return payload as ParsedChatResponse;
+          if (payload.type === "run_started") {
+            replayingResponseRef.current = payload.replay === true;
+            // These are QwenPaw stream-lifecycle markers, not AgentScope
+            // runtime messages. Passing them through makes the SDK classify
+            // an otherwise successful response as failed.
+            return STREAM_HEARTBEAT;
+          }
+          if (payload.type === "replay_end") return STREAM_HEARTBEAT;
+          if (payload.type === "run_sealed") {
+            replayingResponseRef.current = false;
+            if (isVoiceChat && backendChatId) {
+              const generation = voiceProjectionGenerationRef.current;
+              void chatApi
+                .getChat(backendChatId, {
+                  include_app_owned: false,
+                  fresh: true,
+                })
+                .then((history) => {
+                  if (generation !== voiceProjectionGenerationRef.current) {
+                    return;
+                  }
+                  voiceTimelineRef.current.reset(history.messages ?? []);
+                  scheduleVoiceTimelineRender();
+                })
+                .catch((reason) => {
+                  console.warn(
+                    "Failed to finalize Voice timeline projection:",
+                    reason,
+                  );
+                });
+            }
+            return STREAM_HEARTBEAT;
           }
           // CoPaw's wire enum uses "cancelled"; the SDK uses "canceled".
           // Preserve cancellation instead of fabricating a completed, empty
@@ -4600,6 +4687,25 @@ export default function ChatPage() {
             }
           }
           markLoopModeRunning();
+
+          if (
+            !isVoiceChat &&
+            replayingResponseRef.current &&
+            payload.object === "message" &&
+            payload.role === "user"
+          ) {
+            // A reconnect replays both sides of the active run, but the SDK's
+            // reconnect entry point only owns an assistant response card.
+            // Keep replayed inputs in the ordinary message timeline and out
+            // of the assistant response builder.
+            for (const message of convertMessages([
+              payload as Parameters<typeof convertMessages>[0][number],
+            ])) {
+              chatRef.current?.messages.updateMessage(message);
+            }
+            return STREAM_HEARTBEAT;
+          }
+
           sanitizeHeadlinePayload(payload, headlineStreamFilterRef.current);
 
           for (const event of parseModelFallbackEvents(payload)) {
@@ -4670,6 +4776,11 @@ export default function ChatPage() {
             if (payloadCompletesResponse(payload)) {
               scheduleHistoryClear();
             }
+          }
+
+          if (isVoiceChat && voiceTimelineRef.current.ingest(payload)) {
+            scheduleVoiceTimelineRender();
+            return STREAM_HEARTBEAT;
           }
 
           return payload as any;
@@ -4883,6 +4994,7 @@ export default function ChatPage() {
     realtimeVoice,
     canStartRealtimeVoice,
     handleCreateVoiceChat,
+    scheduleVoiceTimelineRender,
   ]);
 
   const filesDrawerClass =
@@ -4897,16 +5009,6 @@ export default function ChatPage() {
       className={`${styles.chatPageRoot} ${filesDrawerClass}`}
       onClickCapture={handleInternalFileLink}
     >
-      <AnimatePresence initial={false} mode="popLayout">
-        {chatSurfaceReady && filesDrawerState.kind !== "closed" ? (
-          <FilesDrawer
-            key="session-files-drawer"
-            state={filesDrawerState}
-            dispatch={dispatchFilesDrawer}
-            scope={sessionScope}
-          />
-        ) : null}
-      </AnimatePresence>
       <RealtimeVoiceConflictModal voice={realtimeVoice} />
       {/* Main chat area */}
       <motion.div
@@ -5153,6 +5255,16 @@ export default function ChatPage() {
         </Modal>
       </motion.div>
       {/* End of main chat area */}
+      <AnimatePresence initial={false} mode="popLayout">
+        {filesDrawerState.kind !== "closed" ? (
+          <FilesDrawer
+            key="session-files-drawer"
+            state={filesDrawerState}
+            dispatch={dispatchFilesDrawer}
+            scope={sessionScope}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

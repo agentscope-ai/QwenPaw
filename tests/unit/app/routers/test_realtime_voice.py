@@ -13,6 +13,7 @@ from qwenpaw.app.realtime_voice.contracts import (
 from qwenpaw.app.routers.realtime_voice import (
     _client_to_coordinator,
     _coordinator_to_client,
+    realtime_voice_stream,
 )
 from qwenpaw.providers.realtime_voice import ProviderEvent
 
@@ -207,3 +208,116 @@ async def test_invalid_audio_sequence_is_rejected():
             ),
             coordinator,
         )
+
+
+@pytest.mark.asyncio
+async def test_clean_coordinator_close_ignores_late_input_send_failure():
+    closed = asyncio.Event()
+
+    class Coordinator:
+        async def events(self):
+            closed.set()
+            yield ProviderEvent(
+                "session.closed",
+                "closed-1",
+                {"reason": "idle_timeout", "recoverable": True},
+            )
+
+        async def send_audio(self, _payload):
+            await closed.wait()
+            raise ConnectionError("provider socket is already closed")
+
+    frame = encode_audio_frame(
+        AudioFrame(
+            kind=AudioFrameKind.INPUT_PCM16,
+            sequence=0,
+            sample_rate=16000,
+            channels=1,
+            payload=b"pcm",
+        )
+    )
+    live = SimpleNamespace(
+        generation=2,
+        media=SimpleNamespace(
+            input_sample_rate=16000,
+            output_sample_rate=24000,
+            channels=1,
+        ),
+        config=SimpleNamespace(max_session_seconds=60),
+        chat=SimpleNamespace(id="chat-1"),
+    )
+    service = SimpleNamespace(
+        consume_grant=AsyncMock(return_value=live),
+        connect=AsyncMock(return_value=Coordinator()),
+        end_session=AsyncMock(),
+    )
+    websocket = SimpleNamespace(
+        query_params={"token": "ticket"},
+        app=SimpleNamespace(
+            state=SimpleNamespace(realtime_voice_service=service)
+        ),
+        accept=AsyncMock(),
+        receive=AsyncMock(
+            return_value={"type": "websocket.receive", "bytes": frame}
+        ),
+        send_json=AsyncMock(),
+        send_bytes=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await realtime_voice_stream(websocket, "session-1")
+
+    events = [call.args[0] for call in websocket.send_json.await_args_list]
+    assert [event["type"] for event in events] == [
+        "session.connected",
+        "session.closed",
+    ]
+    assert events[-1]["reason"] == "idle_timeout"
+    websocket.close.assert_awaited_once_with(code=1000)
+    service.end_session.assert_awaited_once_with(live)
+
+
+@pytest.mark.asyncio
+async def test_coordinator_failure_remains_an_upstream_error():
+    class Coordinator:
+        async def events(self):
+            if False:
+                yield
+            raise RuntimeError("provider failed")
+
+    async def receive():
+        await asyncio.Event().wait()
+
+    live = SimpleNamespace(
+        generation=1,
+        media=SimpleNamespace(output_sample_rate=24000, channels=1),
+        config=SimpleNamespace(max_session_seconds=60),
+        chat=SimpleNamespace(id="chat-1"),
+    )
+    service = SimpleNamespace(
+        consume_grant=AsyncMock(return_value=live),
+        connect=AsyncMock(return_value=Coordinator()),
+        end_session=AsyncMock(),
+    )
+    websocket = SimpleNamespace(
+        query_params={"token": "ticket"},
+        app=SimpleNamespace(
+            state=SimpleNamespace(realtime_voice_service=service)
+        ),
+        accept=AsyncMock(),
+        receive=receive,
+        send_json=AsyncMock(),
+        send_bytes=AsyncMock(),
+        close=AsyncMock(),
+    )
+
+    await realtime_voice_stream(websocket, "session-1")
+
+    events = [call.args[0] for call in websocket.send_json.await_args_list]
+    assert [event["type"] for event in events] == [
+        "session.connected",
+        "error",
+    ]
+    assert events[-1]["code"] == "upstream_unavailable"
+    websocket.close.assert_awaited_once_with(code=1011)
+    service.end_session.assert_awaited_once_with(live)
