@@ -192,7 +192,7 @@ class PlaywrightControlLink:
         self._procs: dict[tuple[str, str], dict[str, Any]] = {}
         self._fixed_profile_workspaces: dict[str, str] = {}
         self._contexts: dict[OwnerKey, Any] = {}
-        self._opening: set[tuple[OwnerKey, str, object]] = set()
+        self._opening: set[tuple[OwnerKey, str, Any]] = set()
         self._sessions: dict[OwnerKey, dict[str, str]] = {}
         self._pages: dict[tuple[OwnerKey, str], Page] = {}
         self._active: dict[OwnerKey, str | None] = {}
@@ -238,6 +238,8 @@ class PlaywrightControlLink:
             victim = lost.driver
             failure = lost.cause
         except Exception as exc:
+            if method == "open_session" and self._pw is not victim:
+                victim = self._pw
             if not _driver_connection_dead(victim):
                 raise
             failure = exc
@@ -387,8 +389,10 @@ class PlaywrightControlLink:
             owner[0] == workspace_id and info["context"] == kind
             for owner, info in self._sessions.items()
         ) or any(
-            owner[0] == workspace_id and opening_kind == kind
-            for owner, opening_kind, _marker in self._opening
+            owner[0] == workspace_id
+            and opening_kind == kind
+            and opening_driver is self._pw
+            for owner, opening_kind, opening_driver in self._opening
         )
 
     # pylint: disable-next=too-many-statements
@@ -530,7 +534,7 @@ class PlaywrightControlLink:
             driver = self._pw
 
         launch_kwargs, context_kwargs = _build_launch_kwargs(params)
-        opening = (owner, context_kind, object())
+        opening = (owner, context_kind, driver)
         self._opening.add(opening)
         try:
             context = await self._create_session_context(
@@ -750,15 +754,12 @@ class PlaywrightControlLink:
             if self._pw is not victim:
                 return
             dead_owners = set(self._contexts) | set(self._sessions)
+            dead_processes = list(self._procs.values())
             logger.warning(
                 "browser Playwright driver connection died; resetting "
                 "the provider so the next session restarts it",
             )
-            for process in list(self._procs.values()):
-                target = process.get("context") or process.get("browser")
-                if target is not None:
-                    with contextlib.suppress(Exception):
-                        await target.close()
+            self._pw = None
             self._procs.clear()
             self._contexts.clear()
             self._sessions.clear()
@@ -767,11 +768,15 @@ class PlaywrightControlLink:
             self._last_used.clear()
             self._fixed_profile_workspaces.clear()
             self._closed_sessions.update(dead_owners)
-            self._pw = None
             # ``_opening`` and ``_launch_locks`` are deliberately kept: each
             # opener discards its own marker, and dropping a launch lock
             # would let a new opener run concurrently with one that is still
             # holding the old lock for the same proc key.
+        for process in dead_processes:
+            target = process.get("context") or process.get("browser")
+            if target is not None:
+                with contextlib.suppress(Exception):
+                    await target.close()
         if victim is not None:
             with contextlib.suppress(Exception):
                 await victim.stop()
@@ -1076,15 +1081,31 @@ class PlaywrightControlLink:
 
     async def close_all(self) -> None:
         """Close all contexts/processes and reset multiplexer state."""
-        for session_id, context in list(self._contexts.items()):
-            info = self._sessions.get(session_id) or {}
-            if info.get("context") != "profile":
-                try:
-                    await context.close()
-                # intentional boundary: best-effort per-context shutdown.
-                except Exception:
-                    pass
-        for process in self._procs.values():
+        async with self._pw_lock:
+            contexts = [
+                (owner, context, self._sessions.get(owner) or {})
+                for owner, context in self._contexts.items()
+            ]
+            processes = list(self._procs.values())
+            driver = self._pw
+            self._pw = None
+            self._procs.clear()
+            self._contexts.clear()
+            self._sessions.clear()
+            self._pages.clear()
+            self._active.clear()
+            self._last_used.clear()
+            self._closed_sessions.clear()
+            self._fixed_profile_workspaces.clear()
+        for _owner, context, info in contexts:
+            if info.get("context") == "profile":
+                continue
+            try:
+                await context.close()
+            # intentional boundary: best-effort per-context shutdown.
+            except Exception:
+                pass
+        for process in processes:
             try:
                 if process.get("context") is not None:
                     await process["context"].close()
@@ -1093,19 +1114,11 @@ class PlaywrightControlLink:
             # intentional boundary: best-effort process shutdown.
             except Exception:
                 pass
-        if self._pw is not None:
-            await self._pw.stop()
-        self._procs.clear()
-        self._contexts.clear()
-        self._sessions.clear()
-        self._pages.clear()
-        self._active.clear()
-        self._last_used.clear()
-        self._closed_sessions.clear()
-        self._fixed_profile_workspaces.clear()
-        self._pw = None
-        if self in _LIVE:
-            _LIVE.remove(self)
+        if driver is not None:
+            await driver.stop()
+        async with self._pw_lock:
+            if self._pw is None and self in _LIVE:
+                _LIVE.remove(self)
 
 
 def register() -> None:
