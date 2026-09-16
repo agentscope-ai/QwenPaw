@@ -9,6 +9,7 @@ the whole YAML, silently dropping the other writer's entry.
 The store is now a process-level singleton keyed by canonical path; this
 test widens the read-modify-write window and verifies both refs survive.
 """
+
 # pylint: disable=protected-access
 
 from __future__ import annotations
@@ -68,3 +69,22 @@ async def test_concurrent_writes_preserve_both_refs(tmp_path) -> None:
     assert "tool/b" in refs
     assert await store_a.get("tool/a") is not None
     assert await store_a.get("tool/b") is not None
+
+
+@pytest.mark.asyncio
+async def test_put_if_absent_keeps_the_existing_credential(tmp_path) -> None:
+    store = AsyncCredentialStore(tmp_path / "credentials.yaml")
+    original = CredentialRecord(
+        ref="tool/shared",
+        kind="static",
+        secrets={"api_key": "original"},
+    )
+    replacement = CredentialRecord(
+        ref="tool/shared",
+        kind="static",
+        secrets={"api_key": "replacement"},
+    )
+
+    assert await store.put_if_absent(original) is True
+    assert await store.put_if_absent(replacement) is False
+    assert (await store.get("tool/shared")).secrets == {"api_key": "original"}

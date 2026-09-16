@@ -546,6 +546,7 @@ describe("CronJobsPage column handlers", () => {
     expect(values.request.input).toBe(
       JSON.stringify({ key: "value" }, null, 2),
     );
+    expect(values.request.model_slot_override).toBeNull();
   });
 });
 
@@ -704,6 +705,35 @@ describe("CronJobsPage drawer submit", () => {
       });
     });
     expect(createJob.mock.calls[2][0].schedule.cron).toBe("0 9 * * *");
+  });
+
+  it("saves a selected model and removes overrides when returning to Default", async () => {
+    const createJob = vi.fn().mockResolvedValue(false);
+    const drawer = await renderPage({ createJob });
+    const slot = { provider_id: "p", model: "m" };
+    for (const selection of [slot, null]) {
+      await act(async () => {
+        await drawer.onSubmit({
+          name: "Agent",
+          task_type: "agent",
+          schedule: {},
+          request: {
+            input: "[]",
+            model_slot_override: selection,
+            request_context: { model_slot_override: slot, custom: true },
+          },
+        });
+      });
+    }
+    expect(createJob.mock.calls[0][0].request.model_slot_override).toEqual(
+      slot,
+    );
+    expect(
+      createJob.mock.calls[1][0].request.model_slot_override,
+    ).toBeUndefined();
+    expect(createJob.mock.calls[1][0].request.request_context).toEqual({
+      custom: true,
+    });
   });
 
   it("parses agent-task request input JSON and keeps it on parse failure", async () => {

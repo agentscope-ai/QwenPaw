@@ -67,6 +67,10 @@ vi.mock("./components/MailAccessControlDrawer", () => ({
     open ? <div data-testid="mail-acl-drawer" /> : null,
 }));
 
+vi.mock("./components/MailProcessingPauses", () => ({
+  MailProcessingPauses: () => <div data-testid="mail-processing-pauses" />,
+}));
+
 vi.mock("./components", () => ({
   PushMessageCard: ({
     message,

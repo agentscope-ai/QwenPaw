@@ -468,6 +468,34 @@ describe("JobDrawer dispatch target options", () => {
 });
 
 describe("JobDrawer request input validation", () => {
+  it("submits a plain-text task as a user message without requiring JSON input", async () => {
+    const onSubmit = vi.fn();
+    const { getForm } = renderDrawer({ onSubmit });
+    await screen.findByText("cronJobs.createJob");
+    act(() => {
+      getForm().setFieldsValue({
+        name: "weather",
+        task_type: "agent",
+        dispatch: {
+          channel: "console",
+          target: { user_id: "u1", session_id: "s1" },
+        },
+      });
+    });
+    fireEvent.change(
+      screen.getByPlaceholderText("cronJobs.requestTextPlaceholder"),
+      {
+        target: { value: "杭州今天天气如何？" },
+      },
+    );
+    fireEvent.click(screen.getByText("common.save"));
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledOnce());
+    expect(JSON.parse(onSubmit.mock.calls[0][0].request.input)).toEqual([
+      { role: "user", content: [{ type: "text", text: "杭州今天天气如何？" }] },
+    ]);
+    expect(screen.queryByText("cronJobs.requestInputExample")).toBeNull();
+  });
+
   it("accepts valid JSON and rejects malformed JSON for agent tasks", async () => {
     const onSubmit = vi.fn();
     const { getForm } = renderDrawer({ onSubmit });

@@ -65,6 +65,7 @@
   );
   --app-accent-border: color-mix(in srgb, var(--app-accent) 42%, transparent);
   --app-accent-ring: color-mix(in srgb, var(--app-accent) 20%, transparent);
+  --app-focus-ring: var(--app-accent-text);
 
   /* Navigation selection stays neutral in the light shell. */
   --app-nav-selected-bg: rgba(43, 18, 0, 0.08);
@@ -156,6 +157,7 @@ html.dark-mode {
     transparent
   );
   --app-accent-border: color-mix(in srgb, var(--app-accent) 50%, transparent);
+  --app-focus-ring: var(--app-accent-text);
 
   /* Dark navigation uses the brand accent for a clear active state. */
   --app-nav-selected-bg: var(--app-accent-soft);

@@ -1992,6 +1992,42 @@ def _resolved_provider_id(provider: Any, configured_provider_id: str) -> str:
     return str(getattr(provider, "id", "") or configured_provider_id)
 
 
+def _ensure_model_context_size(
+    model: Any,
+    provider: Any,
+    model_id: str,
+) -> None:
+    """Restore missing or defaulted windows from provider resolution."""
+    current = getattr(model, "context_size", None)
+    if isinstance(current, (int, float)) and current > 0 and current != 32768:
+        return
+    try:
+        resolved = provider.get_context_size(model_id)
+        needs_restore = not (isinstance(current, (int, float)) and current > 0)
+        defaulted_context = current == 32768 and resolved != 32768
+        if (
+            isinstance(resolved, int)
+            and resolved > 0
+            and (needs_restore or defaulted_context)
+        ):
+            setattr(model, "context_size", resolved)
+            logger.warning(
+                "Model %s:%s context_size=%r; restored %s "
+                "from Provider configuration",
+                getattr(provider, "id", "unknown"),
+                model_id,
+                current,
+                resolved,
+            )
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.warning(
+            "Unable to restore context_size for model %s:%s: %s",
+            getattr(provider, "id", "unknown"),
+            model_id,
+            exc,
+        )
+
+
 @dataclass
 class _AgentModelSettings:
     """Model routing settings loaded for one agent."""
@@ -2109,6 +2145,11 @@ def _apply_model_fallbacks(
                 fallback_model,
                 fallback_provider_id,
             )
+            _ensure_model_context_size(
+                fallback_model,
+                fallback_provider,
+                fallback_slot.model,
+            )
             _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
@@ -2200,11 +2241,16 @@ def create_model_and_formatter(
         with agent_thinking_level(settings.thinking_level):
             model = provider.get_chat_model_instance(model_slot.model)
         provider_id = _resolved_provider_id(provider, model_slot.provider_id)
+        selected_model_id = model_slot.model
     else:
         # Fallback to global active model
-        model = ProviderManager.get_active_chat_model()
-        global_model = ProviderManager.get_instance().get_active_model()
-        if not global_model:
+        manager = ProviderManager.get_instance()
+        global_model = manager.get_active_model()
+        if (
+            global_model is None
+            or not global_model.provider_id
+            or not global_model.model
+        ):
             raise ProviderError(
                 message=(
                     "No active model configured. "
@@ -2212,14 +2258,19 @@ def create_model_and_formatter(
                     "or set an agent-specific model."
                 ),
             )
-        provider_id = _resolved_provider_id(
-            ProviderManager.get_instance().get_provider(
-                global_model.provider_id,
-            ),
-            global_model.provider_id,
-        )
+        provider = manager.get_provider(global_model.provider_id)
+        if provider is None:
+            raise ProviderError(
+                message=(
+                    f"Active provider '{global_model.provider_id}' not found."
+                ),
+            )
+        provider_id = _resolved_provider_id(provider, global_model.provider_id)
+        selected_model_id = global_model.model
+        model = provider.get_chat_model_instance(selected_model_id)
 
     provider_id = _bind_provider_id_to_model(model, provider_id)
+    _ensure_model_context_size(model, provider, selected_model_id)
 
     # Create the formatter based on the model's native one.  In 2.0 every
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its

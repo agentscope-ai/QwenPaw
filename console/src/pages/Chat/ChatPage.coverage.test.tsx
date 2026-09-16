@@ -14,6 +14,7 @@ import ChatPage from "./index";
 import sessionApi from "./sessionApi";
 import { stopBackgroundQueue } from "./backgroundQueueRegistry";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
+import { useSessionFilesDrawer } from "@/stores/filesSurfaceStore";
 
 // ---------------------------------------------------------------------------
 // Hoisted mocks
@@ -2447,6 +2448,40 @@ describe("ChatPage coverage", () => {
         url: "http://example.com/test.txt?token=abc123",
       });
       expect(true).toBe(true);
+    }
+  });
+
+  // ── files drawer placement — regression for #7700 ──────────────────────
+  // The drawer is a flex sibling of the chat area, so which side it appears
+  // on is decided by DOM order alone. FilesDrawer unit tests cannot catch a
+  // move back before the chat content, so assert the order here.
+  it("renders the files drawer after the chat main area (#7700)", async () => {
+    const drawerState = vi.mocked(useSessionFilesDrawer);
+    drawerState.mockReturnValue({
+      kind: "preview",
+      target: { source: "workspace", path: "hello.txt", root: "project" },
+      trigger: null,
+    });
+    try {
+      const { container } = renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+
+      const children = Array.from(
+        container.querySelector('[class*="chatPageRoot"]')?.children ?? [],
+      );
+      const chatIndex = children.findIndex((child) =>
+        child.className.includes("chatMainArea"),
+      );
+      const drawerIndex = children.findIndex(
+        (child) =>
+          child.tagName === "ASIDE" && child.className.includes("drawer"),
+      );
+      expect(chatIndex).toBeGreaterThanOrEqual(0);
+      expect(drawerIndex).toBeGreaterThan(chatIndex);
+    } finally {
+      drawerState.mockReturnValue({ kind: "closed" });
     }
   });
 });

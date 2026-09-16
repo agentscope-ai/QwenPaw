@@ -20,12 +20,34 @@ name: Full Tests Nightly
 # which only combines and renders — it does not run pytest itself.
 
 on:
+  # Reusable so release.yml can invoke the release-time gate form
+  # (full-test-gate job) without duplicating any matrix definition.
+  workflow_call:
+    inputs:
+      form:
+        description: 'release = release-time gate form (backend full + E2E gate/watch only)'
+        required: false
+        default: 'nightly'
+        type: string
+      coverage_platforms:
+        description: 'Which platforms collect integration coverage'
+        required: false
+        default: 'linux'
+        type: string
   schedule:
     # 17:17 UTC daily ~= 01:17 Beijing the next day.
     # Off-the-hour to avoid the global GitHub Actions cron rush at :00 / :30.
     - cron: '17 17 * * *'
   workflow_dispatch:
     inputs:
+      form:
+        description: 'release = release-time gate form (backend full + E2E gate/watch only)'
+        required: false
+        default: 'nightly'
+        type: choice
+        options:
+          - 'nightly'
+          - 'release'
       coverage_platforms:
         description: 'Which platforms collect integration coverage (schedule always uses all)'
         required: false
@@ -319,7 +341,7 @@ jobs:
           if [ "${{ github.event_name }}" = "schedule" ]; then
             PLATFORMS="all"
           else
-            PLATFORMS="${{ inputs.coverage_platforms }}"
+            PLATFORMS="${{ github.event.inputs.coverage_platforms || 'linux' }}"
           fi
           OS="${{ matrix.os }}"
           ENABLED=""
@@ -426,6 +448,7 @@ jobs:
   # would silently drag in 12 slash_commands cases that carry a
   # priority marker but no integration marker.
   e2e-p0:
+    if: inputs.form != 'release'
     uses: ./.github/workflows/_e2e-job.yml
     with:
       test_marker: 'integration and p0'
@@ -433,6 +456,7 @@ jobs:
     secrets: inherit
 
   e2e-p1:
+    if: inputs.form != 'release'
     uses: ./.github/workflows/_e2e-job.yml
     with:
       test_marker: 'integration and p1'
@@ -440,10 +464,34 @@ jobs:
     secrets: inherit
 
   e2e-p2:
+    if: inputs.form != 'release'
     uses: ./.github/workflows/_e2e-job.yml
     with:
       test_marker: 'integration and p2'
       shard_suffix: p2
+    secrets: inherit
+
+  # ── Release gate form: reviewed blocking set + report-only set ──────────
+  # Maintainer decision 2026-09-09: release-time E2E runs the p0 blocking set
+  # only; p1/p2 stay in the nightly form. The blocking set is an explicit,
+  # reviewed node-id list (see .github/ci/e2e-release-gate-manifest.md), not a
+  # marker, so entry/exit is auditable and never automatic.
+  e2e-release-gate:
+    if: inputs.form == 'release'
+    uses: ./.github/workflows/_e2e-job.yml
+    with:
+      test_marker: 'integration and p0'
+      node_ids_file: .github/ci/e2e-release-gate-tests.txt
+      shard_suffix: releasegate
+    secrets: inherit
+
+  e2e-release-watch:
+    if: inputs.form == 'release'
+    uses: ./.github/workflows/_e2e-job.yml
+    with:
+      test_marker: 'integration and p0'
+      node_ids_file: .github/ci/e2e-release-watch-tests.txt
+      shard_suffix: releasewatch
     secrets: inherit
 
   frontend-tests:
@@ -685,7 +733,7 @@ jobs:
 
   test-summary:
     name: Test Summary
-    needs: [unit-tests, contract-tests, integrated-tests, e2e-p0, e2e-p1, e2e-p2, frontend-tests, coverage-report]
+    needs: [unit-tests, contract-tests, integrated-tests, e2e-p0, e2e-p1, e2e-p2, e2e-release-gate, e2e-release-watch, frontend-tests, coverage-report]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -698,6 +746,8 @@ jobs:
           echo "E2E p0: ${{ needs.e2e-p0.result }}"
           echo "E2E p1: ${{ needs.e2e-p1.result }}"
           echo "E2E p2: ${{ needs.e2e-p2.result }}"
+          echo "E2E release gate: ${{ needs.e2e-release-gate.result }}"
+          echo "E2E release watch (report-only, never blocks): ${{ needs.e2e-release-watch.result }}"
           echo "Frontend tests: ${{ needs.frontend-tests.result }}"
 
           # Fail-closed: any result that is not an outright success
@@ -706,13 +756,19 @@ jobs:
           # killed by its job timeout (result "cancelled") still passed
           # the summary -- which masked the nightly E2E timeout for
           # weeks behind a green summary.
+          FORM="${{ inputs.form }}"
+          # Form-aware fail-closed: in the nightly form the three E2E shards
+          # must all succeed; in the release form they are intentionally
+          # skipped and the reviewed gate set must succeed instead. The watch
+          # set never blocks (report-only by maintainer decision).
           if [ "${{ needs.unit-tests.result }}" != "success" ] || \
              [ "${{ needs.contract-tests.result }}" != "success" ] || \
              [ "${{ needs.integrated-tests.result }}" != "success" ] || \
-             [ "${{ needs.e2e-p0.result }}" != "success" ] || \
-             [ "${{ needs.e2e-p1.result }}" != "success" ] || \
-             [ "${{ needs.e2e-p2.result }}" != "success" ] || \
-             [ "${{ needs.frontend-tests.result }}" != "success" ]; then
+             [ "${{ needs.frontend-tests.result }}" != "success" ] || \
+             { [ "$FORM" != "release" ] && { [ "${{ needs.e2e-p0.result }}" != "success" ] || \
+               [ "${{ needs.e2e-p1.result }}" != "success" ] || \
+               [ "${{ needs.e2e-p2.result }}" != "success" ]; }; } || \
+             { [ "$FORM" == "release" ] && [ "${{ needs.e2e-release-gate.result }}" != "success" ]; }; then
             echo "❌ Some tests did not succeed"
             exit 1
           else

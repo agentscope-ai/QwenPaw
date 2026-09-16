@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...utils.io_utils import run_sync_io
 
@@ -99,6 +99,44 @@ class MailACLRemarkBody(BaseModel):
     agent_id: str
     address: str
     remark: str
+
+
+class MailProcessingResumeBody(BaseModel):
+    pause_id: str = Field(min_length=1, max_length=128)
+
+
+@router.get("/processing-pauses")
+async def get_processing_pauses(request: Request):
+    """List runtime pauses independently of sender ACL and inbox history."""
+    manager = getattr(request.app.state, "multi_agent_manager", None)
+    result = []
+    if manager is not None:
+        for agent_id in manager.list_loaded_agents():
+            workspace = manager.get_loaded_agent(agent_id)
+            monitor = getattr(workspace, "mail_monitor", None)
+            if monitor is not None:
+                pause = await monitor.get_processing_pause()
+                if pause is not None:
+                    result.append({**pause, "agent_id": agent_id})
+    return result
+
+
+@router.post("/processing/{agent_id}/resume")
+async def resume_processing(
+    agent_id: str,
+    body: MailProcessingResumeBody,
+    request: Request,
+):
+    """Resume only the displayed pause; never lazy-start another workspace."""
+    manager = getattr(request.app.state, "multi_agent_manager", None)
+    workspace = manager.get_loaded_agent(agent_id) if manager else None
+    monitor = getattr(workspace, "mail_monitor", None)
+    if monitor is None or not await monitor.resume_processing(body.pause_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Mail processing pause changed or monitor is not running",
+        )
+    return {"status": "ok"}
 
 
 def _group_action_entries(

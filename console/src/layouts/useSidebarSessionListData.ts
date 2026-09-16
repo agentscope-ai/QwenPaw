@@ -10,7 +10,7 @@ import {
   useContextMenu,
   type ContextMenuItem,
 } from "../components/ContextMenu";
-import { getChannelLabel } from "../pages/Control/Channels/components";
+import { getChannelLabel } from "../utils/channel";
 import { syncSessionsGlobal } from "../stores/sessionListStore";
 import { useAgentStore } from "../stores/agentStore";
 import { useAppMessage } from "../hooks/useAppMessage";
