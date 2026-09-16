@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -61,7 +60,6 @@ try:
         encrypt as qwenpaw_encrypt,
         is_encrypted as qwenpaw_is_encrypted,
     )
-    from qwenpaw.constant import SECRET_DIR as QWENPAW_SECRET_DIR
 
     QWENPAW_SECRET_AVAILABLE = True
 except ImportError:
@@ -69,7 +67,6 @@ except ImportError:
     qwenpaw_decrypt = None
     qwenpaw_encrypt = None
     qwenpaw_is_encrypted = None
-    QWENPAW_SECRET_DIR = None
 
 from .dependencies import (
     CreatorErrorRoute,
@@ -481,68 +478,6 @@ def load_model_config(*, include_environment: bool = True) -> ModelConfigData:
     )
 
 
-# ---------------------------------------------------------------------------
-# Host Provider API Key Sync
-# ---------------------------------------------------------------------------
-
-
-def get_host_provider_api_key(provider_id: str) -> str | None:
-    """Read a provider's API key from the QwenPaw encrypted store.
-
-    Lookup order:
-    1. builtin providers: ~/.qwenpaw.secret/providers/builtin/{provider_id}.json
-    2. custom providers: ~/.qwenpaw.secret/providers/custom/{provider_id}.json
-
-    Returns:
-        str: the decrypted API key, or None when missing or undecryptable
-    """
-    if not QWENPAW_SECRET_AVAILABLE or QWENPAW_SECRET_DIR is None:
-        logger.debug("QwenPaw secret store not available")
-        return None
-
-    # provider_id lands in a filesystem path; reject anything that could
-    # escape the providers directory.
-    if not re.fullmatch(r"[A-Za-z0-9._-]+", provider_id):
-        logger.warning(
-            f"Rejected invalid provider id {_log_safe(provider_id)}",
-        )
-        return None
-
-    for subdir in ["builtin", "custom"]:
-        provider_file = (
-            QWENPAW_SECRET_DIR / "providers" / subdir / f"{provider_id}.json"
-        )
-        if provider_file.exists():
-            try:
-                with open(provider_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    encrypted_key = data.get("api_key", "")
-                    if not encrypted_key:
-                        continue
-                    # Decrypt values in the ENC: format.
-                    if encrypted_key.startswith("ENC:"):
-                        decrypted = qwenpaw_decrypt(encrypted_key)
-                        # On failure decrypt returns the original value
-                        # (still carrying the ENC: prefix).
-                        if decrypted.startswith("ENC:"):
-                            logger.warning(
-                                "Failed to decrypt API key for provider "
-                                f"{_log_safe(provider_id)}",
-                            )
-                            continue
-                        return decrypted
-                    # Plaintext value (legacy versions or test environments).
-                    return encrypted_key
-            except Exception as e:
-                logger.warning(
-                    f"Failed to read provider {_log_safe(provider_id)} "
-                    f"from {_log_safe(provider_file)}: {e}",
-                )
-                continue
-
-    return None
-
-
 # Placeholder returned instead of persisted secrets; a submitted placeholder
 # means "keep the stored value".
 SECRET_MASK = "__CREATOR_SECRET__"
@@ -553,6 +488,75 @@ _SECRET_FIELDS = (
     "tavily_api_key",
     "serper_api_key",
 )
+
+_MODEL_CONFIG_SECTIONS = (
+    "llm",
+    "vlm",
+    "grounding",
+    "asr",
+    "tts",
+    "s2v",
+    "embedding",
+    "image",
+    "video",
+)
+
+
+def _same_endpoint(left: str, right: str) -> bool:
+    """Compare configured provider endpoints without trailing-slash noise."""
+    return left.strip().rstrip("/") == right.strip().rstrip("/")
+
+
+def _host_provider_fields(
+    provider_manager: Any,
+    provider_id: str,
+    requested_base_url: str,
+) -> tuple[str, str]:
+    """Resolve one Host provider without exposing its credential to callers."""
+    if provider_manager is None:
+        raise ValidationError("Host Provider 服务尚未就绪")
+    provider = provider_manager.get_provider(provider_id)
+    if provider is None:
+        raise ValidationError(f"Host Provider 不存在: {provider_id}")
+    provider_base_url = str(getattr(provider, "base_url", "") or "")
+    if not provider_base_url:
+        raise ValidationError(f"Host Provider 未配置 Base URL: {provider_id}")
+    if requested_base_url and not _same_endpoint(
+        requested_base_url,
+        provider_base_url,
+    ):
+        raise ValidationError(
+            "Host Provider 凭证只能用于其已配置的 Base URL；" + "请保存新的独立凭证后再测试其他地址",
+        )
+    api_key = str(getattr(provider, "api_key", "") or "")
+    if getattr(provider, "require_api_key", True) and not api_key:
+        raise ValidationError(f"Host Provider 未配置 API Key: {provider_id}")
+    return provider_base_url, api_key
+
+
+def _resolve_host_provider_bindings(
+    data: ModelConfigData,
+    provider_manager: Any,
+    *,
+    sections: tuple[str, ...] = _MODEL_CONFIG_SECTIONS,
+) -> ModelConfigData:
+    """Materialize selected Host credentials only inside the backend."""
+    payload = data.model_dump()
+    for section_name in sections:
+        section = payload.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        provider_id = str(section.get("host_provider_id") or "")
+        if not provider_id:
+            continue
+        base_url, api_key = _host_provider_fields(
+            provider_manager,
+            provider_id,
+            str(section.get("base_url") or ""),
+        )
+        section["base_url"] = base_url
+        section["api_key"] = api_key
+    return ModelConfigData.model_validate(payload)
 
 
 def _decrypt_secret_fields(data: dict) -> dict:
@@ -1183,6 +1187,7 @@ async def get_tts_capabilities() -> dict[str, Any]:
 @router.post("/config")
 async def update_model_config(
     data: ModelConfigData,
+    request: Request,
     response: Response,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict[str, bool]:
@@ -1194,6 +1199,10 @@ async def update_model_config(
 
     def mutate(current: ModelConfigData) -> ModelConfigData:
         resolved = _resolve_secret_masks(data, current)
+        resolved = _resolve_host_provider_bindings(
+            resolved,
+            getattr(request.app.state, "provider_manager", None),
+        )
         resolved.llm.enabled = True
         _ensure_grounding_model_configured(
             resolved,
@@ -1476,6 +1485,7 @@ async def patch_self_review(
 @router.patch("/config/{section}")
 async def patch_model_config_section(
     section: str,
+    request: Request,
     data: dict[str, Any] = Body(...),
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
 ) -> dict[str, bool]:
@@ -1507,6 +1517,12 @@ async def patch_model_config_section(
                 ModelConfigData.model_validate(merged),
                 current,
             )
+            if section in _MODEL_CONFIG_SECTIONS:
+                resolved = _resolve_host_provider_bindings(
+                    resolved,
+                    getattr(request.app.state, "provider_manager", None),
+                    sections=(section,),
+                )
         except PydanticValidationError as exc:
             first_error = exc.errors()[0] if exc.errors() else {}
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
@@ -1884,31 +1900,97 @@ def _probe_payload(
     return _dashscope_policy_probe(body, headers)
 
 
+def _resolve_connection_selection(
+    body: ModelConnectionTestRequest,
+    loaded: ModelConfigData,
+    provider_manager: Any,
+) -> ModelConnectionTestRequest:
+    """Bind stored credentials to a server-approved target endpoint."""
+    config_section = body.config_section or body.type
+    credential_section = body.credential_section or config_section
+    target = getattr(loaded, config_section)
+    credential = getattr(loaded, credential_section)
+    request_api_key = (
+        body.api_key if body.api_key not in {"", SECRET_MASK} else ""
+    )
+    requested_base_url = body.base_url or target.base_url
+
+    if request_api_key:
+        selected_base_url = requested_base_url
+        selected_api_key = request_api_key
+    else:
+        allowed_credential_section = config_section
+        if config_section in {
+            "asr",
+            "tts",
+            "s2v",
+            "image",
+            "video",
+        } and getattr(target, "reuse_llm_key", False):
+            allowed_credential_section = "llm"
+        elif config_section == "embedding" and getattr(
+            target,
+            "reuse_vlm_key",
+            False,
+        ):
+            allowed_credential_section = "llm" if loaded.vlm.use_llm else "vlm"
+        if credential_section != allowed_credential_section:
+            raise ValidationError(
+                "凭证来源与已保存的复用配置不一致；请保存配置后重试",
+            )
+        provider_id = body.host_provider_id or getattr(
+            credential,
+            "host_provider_id",
+            "",
+        )
+        if provider_id:
+            selected_base_url, selected_api_key = _host_provider_fields(
+                provider_manager,
+                provider_id,
+                requested_base_url,
+            )
+        else:
+            if body.base_url and not _same_endpoint(
+                body.base_url,
+                target.base_url,
+            ):
+                raise ValidationError(
+                    "已保存的凭证只能用于当前配置的 Base URL；" + "测试其他地址时必须提供新的 API Key",
+                )
+            selected_base_url = target.base_url
+            selected_api_key = credential.api_key
+            if (
+                not selected_api_key
+                and credential_section == config_section
+                and body.type in ("asr", "tts", "s2v", "image", "video")
+                and getattr(target, "reuse_llm_key", False)
+            ):
+                selected_api_key = loaded.llm.api_key
+
+    return body.model_copy(
+        update={
+            "base_url": selected_base_url,
+            "api_key": selected_api_key,
+            "model_name": body.model_name or target.model_name,
+            "protocol": body.protocol or target.protocol,
+            "provider": body.provider or getattr(target, "provider", None),
+            "voice": body.voice or getattr(target, "voice", ""),
+        },
+    )
+
+
 # Semantic diagnostic read: this performs no Creator/runtime/config mutation,
 # so it is intentionally outside the mutating-route idempotency registry.
 @router.post("/test", response_model=ConnectionTestResponse)
 async def test_model_connection(
+    request: Request,
     body: ModelConnectionTestRequest = Body(...),
 ) -> ConnectionTestResponse:
     loaded = await asyncio.to_thread(load_model_config)
-    item = getattr(loaded, body.type)
-    fallback_api_key = item.api_key
-    if (
-        body.type in ("asr", "tts", "s2v", "image", "video")
-        and getattr(item, "reuse_llm_key", False)
-        and not fallback_api_key
-    ):
-        fallback_api_key = loaded.llm.api_key
-    request_api_key = "" if body.api_key == SECRET_MASK else body.api_key
-    selected = body.model_copy(
-        update={
-            "base_url": body.base_url or item.base_url,
-            "api_key": request_api_key or fallback_api_key,
-            "model_name": body.model_name or item.model_name,
-            "protocol": body.protocol or item.protocol,
-            "provider": body.provider or getattr(item, "provider", None),
-            "voice": body.voice or getattr(item, "voice", ""),
-        },
+    selected = _resolve_connection_selection(
+        body,
+        loaded,
+        getattr(request.app.state, "provider_manager", None),
     )
     missing: list[str] = []
     if not selected.base_url:
@@ -2010,6 +2092,26 @@ async def test_model_connection(
         )
 
 
+def _resolve_oss_probe(body: OssConfig, persisted: OssConfig) -> OssConfig:
+    """Bind a masked OSS secret to its persisted endpoint and bucket."""
+    if not _same_endpoint(body.endpoint, persisted.endpoint):
+        raise ValidationError(
+            "已保存的 OSS 凭证只能用于当前配置的 Endpoint；"
+            + "测试其他地址时必须提供新的 Access Key Secret",
+        )
+    if body.access_key_id != persisted.access_key_id:
+        raise ValidationError(
+            "已保存的 OSS 凭证只能与当前 Access Key ID 一起使用",
+        )
+    if body.bucket != persisted.bucket:
+        raise ValidationError(
+            "已保存的 OSS 凭证只能用于当前配置的 Bucket",
+        )
+    return body.model_copy(
+        update={"access_key_secret": persisted.access_key_secret},
+    )
+
+
 # Test the incoming config only. Not impacting the current backend config.
 @router.post("/test-oss", response_model=ConnectionTestResponse)
 async def test_oss_connection(
@@ -2020,9 +2122,7 @@ async def test_oss_connection(
             load_model_config,
             include_environment=False,
         )
-        body = body.model_copy(
-            update={"access_key_secret": persisted.oss.access_key_secret},
-        )
+        body = _resolve_oss_probe(body, persisted.oss)
     if (
         not body.endpoint
         or not body.access_key_id
@@ -2066,51 +2166,3 @@ async def test_oss_connection(
                 error="无法连接到 OSS 服务，请检查 Endpoint 和网络",
             )
         return ConnectionTestResponse(ok=False, error=exc_str)
-
-
-# ---------------------------------------------------------------------------
-# Real API Key Retrieval (for testing)
-# ---------------------------------------------------------------------------
-
-
-@router.get("/real-api-key/{section}")
-async def get_real_api_key(section: str) -> dict[str, str]:
-    """Return the real API key of the given config section (for testing).
-
-    When VLM/Grounding/ASR reuse the LLM config, the frontend needs the real
-    API key to run connection tests, because it only stores the mask
-    "__CREATOR_SECRET__".
-    """
-    valid_sections = {
-        "llm",
-        "vlm",
-        "asr",
-        "tts",
-        "embedding",
-        "image",
-        "video",
-        "grounding",
-    }
-    if section not in valid_sections:
-        raise ValidationError(
-            f"不支持的配置项: {section}，必须是 {', '.join(valid_sections)} 之一",
-        )
-
-    config = load_model_config()
-    item = getattr(config, section)
-    return {"api_key": item.api_key}
-
-
-# ---------------------------------------------------------------------------
-# Host Provider API Key Sync
-# ---------------------------------------------------------------------------
-
-
-@router.get("/host-provider/{provider_id}/api-key")
-async def get_host_provider_key(provider_id: str) -> dict[str, str | None]:
-    """Fetch the API key of the given provider from the QwenPaw host.
-
-    Used to auto-sync the API key when picking an LLM/VLM provider in Creator.
-    """
-    api_key = get_host_provider_api_key(provider_id)
-    return {"api_key": api_key}

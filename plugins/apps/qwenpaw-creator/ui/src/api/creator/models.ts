@@ -213,13 +213,3 @@ export function patchSelfReview(
     body: jsonBody(tiers),
   });
 }
-
-export function getRealApiKey(section: string): Promise<{ api_key: string }> {
-  return creatorRequest(`/models/real-api-key/${section}`);
-}
-
-export function getHostProviderApiKey(
-  providerId: string,
-): Promise<{ api_key: string | null }> {
-  return creatorRequest(`/models/host-provider/${providerId}/api-key`);
-}

@@ -92,7 +92,7 @@ const speechBaseConfig: ModelConfigData = {
     model_name: "fun-asr",
     base_url: DASH,
     protocol: "DashScope Fun-ASR",
-    provider: "fun-asr",
+    provider: "fun-asr" as const,
     language: "",
     reuse_llm_key: true,
   }),
@@ -242,11 +242,6 @@ describe("ModelConfigModal configuration lifecycle", () => {
         },
         { ok: true, ms: 8 },
       ),
-      {
-        match: "/models/real-api-key/llm",
-        method: "GET",
-        response: { json: { apiKey: "saved-secret" } },
-      },
     ]);
     render(<ModelConfigModal open onClose={onClose} />);
 
@@ -259,6 +254,13 @@ describe("ModelConfigModal configuration lifecycle", () => {
         true,
       ),
     );
+    expect(
+      calls.some(
+        (call) =>
+          call.url.includes("real-api-key") ||
+          call.url.includes("host-provider"),
+      ),
+    ).toBe(false);
 
     // The VLM badge keeps reflecting the reused LLM model.
     expect(screen.queryByText("qwen-vl-max（已停用）")).not.toBeInTheDocument();
