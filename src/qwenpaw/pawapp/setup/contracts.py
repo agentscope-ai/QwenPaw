@@ -157,6 +157,18 @@ class SuggestedValue(Contract):
 
     @model_validator(mode="after")
     def validate_json(self) -> SuggestedValue:
+        normalized = self.name.casefold().replace("-", "_")
+        if any(
+            marker in normalized
+            for marker in (
+                "secret",
+                "password",
+                "token",
+                "api_key",
+                "credential",
+            )
+        ):
+            raise ValueError("suggested values cannot contain credentials")
         canonical_json(self.value)
         return self
 

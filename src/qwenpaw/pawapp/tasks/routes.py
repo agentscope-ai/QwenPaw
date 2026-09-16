@@ -115,6 +115,7 @@ def _error(exc):
         "action_not_found",
         "origin_not_found",
         "handoff_not_found",
+        "setup_request_not_found",
     }:
         status = 404
     elif code in {"action_forbidden", "workspace_unavailable"}:
@@ -123,6 +124,7 @@ def _error(exc):
         "task_policy_unavailable",
         "task_runtime_closed",
         "handoff_store_unavailable",
+        "setup_runtime_unavailable",
     }:
         status = 503
     elif isinstance(exc, ValueError):

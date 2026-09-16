@@ -10,8 +10,15 @@ from collections.abc import Callable
 from typing import Any
 
 from ..tasks.binding import ActionRegistration
-from ..tasks.contracts import TaskScope, TaskStoreError
-from .contracts import PrepareResult, ReadinessResult
+from ..tasks.contracts import ProjectRef, TaskScope, TaskStoreError
+from .contracts import (
+    PrepareResult,
+    ReadinessResult,
+    SetupPresentation,
+    SetupResult,
+    SuggestedValue,
+)
+from .store import SetupStore
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +31,7 @@ class SetupCoordinator:
         *,
         checks: Callable[[], dict],
         entries: Callable[[], dict],
+        store: SetupStore | None = None,
         timeout: float = 5.0,
         empty_ttl: float = 30.0,
     ):
@@ -31,6 +39,7 @@ class SetupCoordinator:
             raise ValueError("setup timing values must be positive")
         self._checks = checks
         self._entries = entries
+        self.store = store
         self.timeout = timeout
         self.empty_ttl = empty_ttl
 
@@ -137,3 +146,137 @@ class SetupCoordinator:
             checked_at=now,
             expires_at=expires_at,
         )
+
+    def _store(self) -> SetupStore:
+        if self.store is None:
+            raise TaskStoreError("setup_runtime_unavailable")
+        return self.store
+
+    async def request(
+        self,
+        scope: TaskScope,
+        registration: ActionRegistration,
+        prepared: PrepareResult,
+        *,
+        idempotency_key: str,
+        input_digest: str,
+        origin_ref: str,
+        presentation: SetupPresentation,
+        entry_id: str | None = None,
+        requirement_ids: tuple[str, ...] = (),
+        project_ref: ProjectRef | None = None,
+        plan_digest: str | None = None,
+        expected_revisions: dict[str, int] | None = None,
+        scopes: tuple[str, ...] = (),
+        suggested_values: tuple[SuggestedValue, ...] = (),
+        return_target: str,
+        expires_in_seconds: float = 900,
+    ):
+        """Persist one request for actionable blockers from a fresh prepare."""
+        if prepared.descriptor_digest != registration.action.descriptor_digest:
+            raise TaskStoreError("descriptor_changed")
+        actionable = {
+            result.requirement_id
+            for result in prepared.results
+            if result.state
+            in {"needs_input", "needs_configuration", "needs_authorization"}
+        }
+        selected_ids = requirement_ids or tuple(
+            requirement.id
+            for requirement in prepared.requirements
+            if requirement.id in actionable
+        )
+        if not selected_ids or not set(selected_ids).issubset(actionable):
+            raise TaskStoreError("unsupported_setup")
+        selected = tuple(
+            requirement
+            for requirement in prepared.requirements
+            if requirement.id in selected_ids
+        )
+        entries = {item.setup_entry_ref for item in selected}
+        if entry_id is None:
+            if len(entries) != 1:
+                raise TaskStoreError("setup_entry_required")
+            entry_id = next(iter(entries))
+        if entries != {entry_id}:
+            raise TaskStoreError("setup_requirement_entry_mismatch")
+        entry = self.entry(scope.app_id, entry_id).descriptor
+        if presentation not in entry.presentations:
+            raise TaskStoreError("presentation_unsupported")
+        if project_ref is not None and project_ref.app_id != scope.app_id:
+            raise TaskStoreError("setup_project_scope_mismatch")
+        if not 60 <= expires_in_seconds <= 3600:
+            raise TaskStoreError("invalid_setup_expiry")
+        selected_id_set = set(selected_ids)
+        checked_revisions = {
+            result.requirement_id: result.checked_revision
+            for result in prepared.results
+            if result.checked_revision is not None
+            and result.requirement_id in selected_id_set
+        }
+        supplied_revisions = expected_revisions or {}
+        if not set(supplied_revisions).issubset(selected_id_set):
+            raise TaskStoreError("setup_revision_scope_mismatch")
+        if any(
+            key in supplied_revisions and supplied_revisions[key] != value
+            for key, value in checked_revisions.items()
+        ):
+            raise TaskStoreError("context_conflict")
+        return await self._store().create(
+            scope,
+            idempotency_key=idempotency_key,
+            meaning_context={"input_digest": input_digest},
+            values={
+                "descriptor_digest": registration.action.descriptor_digest,
+                "entry_id": entry_id,
+                "requirement_ids": tuple(item.id for item in selected),
+                "origin_ref": origin_ref,
+                "action_id": registration.action.action_id,
+                "project_ref": project_ref,
+                "plan_digest": plan_digest,
+                "expected_revisions": {
+                    **supplied_revisions,
+                    **checked_revisions,
+                },
+                "scopes": scopes,
+                "suggested_values": suggested_values,
+                "presentation": presentation,
+                "expires_at": time.time() + expires_in_seconds,
+                "return_target": return_target,
+            },
+        )
+
+    async def get(self, scope: TaskScope, request_id: str):
+        return await self._store().get(scope, request_id)
+
+    async def open(self, scope: TaskScope, request_id: str):
+        record = await self.get(scope, request_id)
+        if record.request.state in {
+            "saved",
+            "cancelled",
+            "failed",
+            "expired",
+        }:
+            raise TaskStoreError("setup_request_closed")
+        if record.open_action is not None:
+            return record
+        entry = self.entry(scope.app_id, record.request.entry_id)
+        if record.request.presentation not in entry.descriptor.presentations:
+            raise TaskStoreError("presentation_unsupported")
+        action = await entry.opener(record.request)
+        return await self._store().opened(scope, request_id, action)
+
+    async def waiting_external(self, scope: TaskScope, request_id: str):
+        self.entry(
+            scope.app_id,
+            (await self.get(scope, request_id)).request.entry_id,
+        )
+        return await self._store().waiting_external(scope, request_id)
+
+    async def complete(self, scope: TaskScope, result: SetupResult):
+        record = await self.get(scope, result.request_id)
+        self.entry(scope.app_id, record.request.entry_id)
+        return await self._store().complete(scope, result)
+
+    async def cancel(self, scope: TaskScope, request_id: str):
+        return await self._store().cancel(scope, request_id)

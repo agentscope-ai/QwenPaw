@@ -133,12 +133,24 @@ new authentication bypass. Same-process malicious plugin isolation is not claime
 
 Data readiness checks durable submission compatibility, the Engine's actual
 analysis-model configuration, and presence of the selected datasource in DataBridge.
-It makes no provider or SQL query. Missing configuration yields `state: blocked`,
-a reason, `setup: unsupported_setup`, and the registered App settings entry.
-No task or latent execution is created: the caller explicitly retries after setup.
-Readiness is rechecked immediately before each submission attempt. An already
-accepted or uncertain request keeps its durable identity even when setup changes.
-Readiness is not a connectivity guarantee or an authorization grant.
+It makes no provider or SQL query. Apps can declare typed requirements and register
+bounded readiness checks plus setup entry handlers. Actionable blockers yield
+`setup: required`; undeclared legacy blockers retain `setup: unsupported_setup`.
+
+The Host persists setup requests in `setup.sqlite3`, scoped by principal, workspace,
+and App. `POST .../actions/{action_id}/setup-requests` reauthorizes the origin,
+reruns readiness, binds the idempotency key to the action inputs by digest, and
+creates no task. `GET .../setup-requests/{request_id}`, `POST .../open`, and
+`POST .../cancel` expose the request lifecycle. The registered App backend opens
+the presentation and completes it with a typed, scoped receipt; browsers cannot
+submit completion receipts. Raw action inputs and credentials are not stored in
+the setup database; optional setup suggestions are explicitly non-secret.
+
+A saved receipt does not claim readiness and does not start work. The caller
+explicitly retries task creation, which rechecks readiness immediately before
+submission. An already accepted or uncertain request keeps its durable identity
+even when setup changes. Readiness is not a connectivity guarantee or an
+authorization grant.
 
 The `task_audit` table records dispatch intent, blocked outcomes and authorization
 denials with scope and request identity, without prompts, credentials or output.

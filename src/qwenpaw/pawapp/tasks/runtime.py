@@ -9,7 +9,12 @@ from functools import partial
 from typing import Callable
 
 from .binding import ActionRegistration, AuthorizeOrigin, ManagedTaskAdapter
-from .contracts import TERMINAL_STATUSES, TaskScope, TaskStoreError
+from .contracts import (
+    TERMINAL_STATUSES,
+    TaskScope,
+    TaskStoreError,
+    content_digest,
+)
 from .coordinator import TaskCoordinator
 from .policy import FileTaskPolicy
 from .store import TaskStore
@@ -362,6 +367,68 @@ class HostTaskRuntime:
         )
         self._wake(submission)
         return {"state": "accepted", "task": submission.handle}
+
+    async def create_setup_request(
+        self,
+        scope,
+        action_id,
+        *,
+        idempotency_key,
+        inputs,
+        origin,
+        presentation,
+        entry_id=None,
+        requirement_ids=(),
+        project_ref=None,
+        plan_digest=None,
+        expected_revisions=None,
+        scopes=(),
+        suggested_values=(),
+        expires_in_seconds=900,
+    ):
+        """Prepare again and persist setup without creating latent work."""
+        if self.setup is None:
+            raise TaskStoreError("setup_runtime_unavailable")
+        await self._sync()
+        binding = self._binding(scope, action_id)
+        action = binding.coordinator.describe(scope.app_id, action_id)
+        action.validate_inputs(inputs)
+        if origin.engagement not in action.engagements:
+            raise TaskStoreError("unsupported_engagement")
+        await self._authorize(scope, action, origin, inputs)
+        if not binding.registration.requirement_ids:
+            raise TaskStoreError("unsupported_setup")
+        prepared = await self.setup.prepare_for_task(
+            scope,
+            binding.registration,
+            inputs,
+        )
+        record, replayed = await self.setup.request(
+            scope,
+            binding.registration,
+            prepared,
+            idempotency_key=idempotency_key,
+            input_digest=content_digest(inputs),
+            origin_ref=origin.origin_ref,
+            presentation=presentation,
+            entry_id=entry_id,
+            requirement_ids=requirement_ids,
+            project_ref=project_ref,
+            plan_digest=plan_digest,
+            expected_revisions=expected_revisions,
+            scopes=scopes,
+            suggested_values=suggested_values,
+            return_target=origin.origin_ref,
+            expires_in_seconds=expires_in_seconds,
+        )
+        await self.store.audit(
+            scope,
+            action_id,
+            "setup",
+            "replayed" if replayed else "requested",
+            request_id=record.request.request_id,
+        )
+        return record, replayed
 
     async def get(self, scope, task_id):
         submission = await self.store.get(scope, task_id)

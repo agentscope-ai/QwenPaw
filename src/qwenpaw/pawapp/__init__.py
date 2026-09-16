@@ -31,9 +31,11 @@ from .setup import (
     SetupEntryDescriptor,
     SetupEntryRegistration,
     SetupOpenAction,
+    SetupRecord,
     SetupRequest,
     SetupRequirement,
     SetupResult,
+    SetupStore,
     SuggestedValue,
 )
 
@@ -57,9 +59,11 @@ __all__ = [
     "SetupEntryDescriptor",
     "SetupEntryRegistration",
     "SetupOpenAction",
+    "SetupRecord",
     "SetupRequest",
     "SetupRequirement",
     "SetupResult",
+    "SetupStore",
     "SuggestedValue",
     "get_ctx",
     "get_scoped_ctx",

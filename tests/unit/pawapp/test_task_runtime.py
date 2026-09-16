@@ -38,7 +38,10 @@ from qwenpaw.pawapp.setup import (
     SetupEntryRegistration,
     SetupOpenAction,
     SetupRequirement,
+    SetupResult,
+    SetupStore,
 )
+from qwenpaw.pawapp.setup.routes import router as setup_router
 from tests.pawapp_data_task_support import load_data_task_bridge
 
 ACTION = load_data_task_bridge().data_action_descriptor()
@@ -192,6 +195,7 @@ async def host(tmp_path, monkeypatch):
         tmp_path / "handoffs.sqlite3",
         artifacts,
     )
+    setup_store = await SetupStore.open(tmp_path / "setup.sqlite3")
     runs = {}
     adapters = []
 
@@ -207,7 +211,13 @@ async def host(tmp_path, monkeypatch):
             settings_entry="/apps/qwenpaw-data",
         ),
     }
-    setup_holder = [None]
+    setup_holder = [
+        SetupCoordinator(
+            checks=lambda: {},
+            entries=lambda: {},
+            store=setup_store,
+        ),
+    ]
 
     def runtime(task_store):
         return HostTaskRuntime(
@@ -225,9 +235,11 @@ async def host(tmp_path, monkeypatch):
     app.add_middleware(auth.AuthMiddleware)
     app.include_router(router, prefix="/api")
     app.include_router(artifact_router, prefix="/api")
+    app.include_router(setup_router, prefix="/api")
     app.state.pawapp_task_origins = origins
     app.state.pawapp_tasks = runtime(store)
     app.state.pawapp_artifacts = artifacts
+    app.state.pawapp_setup = setup_holder[0]
     await app.state.pawapp_tasks.start()
     await app.state.pawapp_tasks.describe(SCOPE, "analyze")
     async with httpx.AsyncClient(
@@ -248,6 +260,7 @@ async def host(tmp_path, monkeypatch):
             artifacts=artifacts,
             handoffs=handoffs,
             setup_holder=setup_holder,
+            setup_store=setup_store,
         )
     await app.state.pawapp_tasks.aclose()
 
@@ -746,7 +759,9 @@ async def test_readiness_rechecked_before_engine_submission(host):
 
 @pytest.mark.asyncio
 async def test_generic_setup_blocks_without_creating_latent_task(host):
-    now = time.time()
+    # pylint: disable=too-many-statements
+    configured = [False]
+    opened_requests = []
     requirement = SetupRequirement(
         id="analysis-model",
         summary="Configure an analysis model",
@@ -757,15 +772,18 @@ async def test_generic_setup_blocks_without_creating_latent_task(host):
     )
 
     async def check(_scope, _inputs):
+        now = time.time()
         return ReadinessResult(
             requirement_id=requirement.id,
-            state="needs_configuration",
-            reason_code="analysis_model_missing",
+            state="ready" if configured[0] else "needs_configuration",
+            reason_code=None if configured[0] else "analysis_model_missing",
+            checked_revision=3,
             checked_at=now,
             expires_at=now + 30,
         )
 
     async def open_entry(request):
+        opened_requests.append(request.request_id)
         return SetupOpenAction(
             app_id=request.scope.app_id,
             request_id=request.request_id,
@@ -791,6 +809,7 @@ async def test_generic_setup_blocks_without_creating_latent_task(host):
             ),
         },
         entries=lambda: {(SCOPE.app_id, "agent-models"): entry},
+        store=host.setup_store,
     )
     await host.app.state.pawapp_tasks.aclose()
     current = host.registrations[(SCOPE.app_id, ACTION.action_id)]
@@ -801,6 +820,7 @@ async def test_generic_setup_blocks_without_creating_latent_task(host):
         requirement_ids=(requirement.id,),
     )
     host.setup_holder[0] = setup
+    host.app.state.pawapp_setup = setup
     host.app.state.pawapp_tasks = host.runtime(host.store)
     await host.app.state.pawapp_tasks.start()
 
@@ -818,3 +838,105 @@ async def test_generic_setup_blocks_without_creating_latent_task(host):
     )
     assert await host.store.find_request(SCOPE, BODY["request_id"]) is None
     assert not host.runs
+
+    setup_body = {
+        "chat_id": BODY["chat_id"],
+        "engagement": BODY["engagement"],
+        "inputs": BODY["inputs"],
+        "presentation": "app_entry",
+    }
+    created = await host.client.post(
+        PREFIX + "/actions/analyze/setup-requests",
+        json=setup_body,
+        headers={"Idempotency-Key": "setup-intent-1"},
+    )
+    assert created.status_code == 201, created.text
+    assert "private prompt" not in created.text
+    request_id = created.json()["request"]["request_id"]
+    assert created.json()["request"]["state"] == "requested"
+    assert created.json()["request"]["expected_revisions"] == {
+        requirement.id: 3,
+    }
+    replayed = await host.client.post(
+        PREFIX + "/actions/analyze/setup-requests",
+        json=setup_body,
+        headers={"Idempotency-Key": "setup-intent-1"},
+    )
+    assert replayed.status_code == 200
+    assert replayed.headers["X-Idempotent-Replay"] == "true"
+    assert replayed.json()["request"]["request_id"] == request_id
+    conflict = await host.client.post(
+        PREFIX + "/actions/analyze/setup-requests",
+        json={**setup_body, "scopes": ["other-scope"]},
+        headers={"Idempotency-Key": "setup-intent-1"},
+    )
+    assert conflict.status_code == 409
+    input_conflict = await host.client.post(
+        PREFIX + "/actions/analyze/setup-requests",
+        json={
+            **setup_body,
+            "inputs": {**setup_body["inputs"], "text": "changed prompt"},
+        },
+        headers={"Idempotency-Key": "setup-intent-1"},
+    )
+    assert input_conflict.status_code == 409
+    revision_conflict = await host.client.post(
+        PREFIX + "/actions/analyze/setup-requests",
+        json={**setup_body, "expected_revisions": {requirement.id: 2}},
+        headers={"Idempotency-Key": "setup-intent-2"},
+    )
+    assert revision_conflict.status_code == 409
+
+    opened = await host.client.post(
+        PREFIX + f"/setup-requests/{request_id}/open",
+    )
+    assert opened.status_code == 200
+    assert opened.json()["request"]["state"] == "opened"
+    assert opened.json()["open_action"]["path"].startswith(
+        "/apps/qwenpaw-data/settings/models",
+    )
+
+    saved = await setup.complete(
+        SCOPE,
+        SetupResult(
+            request_id=request_id,
+            result_id="setup-result-1",
+            outcome="saved",
+            changed_requirement_ids=(requirement.id,),
+            config_revisions={requirement.id: 1},
+        ),
+    )
+    assert saved.request.state == "saved"
+    assert not host.runs
+    assert await host.store.find_request(SCOPE, BODY["request_id"]) is None
+    queried = await host.client.get(PREFIX + f"/setup-requests/{request_id}")
+    assert queried.json()["request"]["state"] == "saved"
+    denied = await host.client.get(
+        PREFIX + f"/setup-requests/{request_id}",
+        headers={"Authorization": "Bearer bob-token"},
+    )
+    assert denied.status_code == 404
+    wrong_app = await host.client.get(
+        "/api/pawapps/other/workspaces/sales/setup-requests/" + request_id,
+    )
+    assert wrong_app.status_code == 404
+
+    cancelled = await host.client.post(
+        PREFIX + "/actions/analyze/setup-requests",
+        json=setup_body,
+        headers={"Idempotency-Key": "setup-intent-cancelled"},
+    )
+    cancelled_id = cancelled.json()["request"]["request_id"]
+    await host.client.post(PREFIX + f"/setup-requests/{cancelled_id}/cancel")
+    closed = await host.client.post(
+        PREFIX + f"/setup-requests/{cancelled_id}/open",
+    )
+    assert closed.status_code == 409
+    assert opened_requests == [request_id]
+
+    configured[0] = True
+    dispatched = await host.client.post(
+        PREFIX + "/actions/analyze/tasks",
+        json=BODY,
+    )
+    assert dispatched.status_code == 202, dispatched.text

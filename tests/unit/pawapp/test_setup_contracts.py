@@ -17,6 +17,7 @@ from qwenpaw.pawapp import (
     SetupEntryRegistration,
     SetupOpenAction,
     SetupRequirement,
+    SuggestedValue,
 )
 from qwenpaw.pawapp.tasks import ActionDescriptor
 from qwenpaw.pawapp.tasks.binding import ActionRegistration
@@ -113,6 +114,13 @@ def test_setup_navigation_cannot_leave_own_app() -> None:
             entry_id="video-model",
             presentation="app_entry",
             path="/apps/other/settings",
+        )
+
+    with pytest.raises(ValidationError, match="cannot contain credentials"):
+        SuggestedValue(
+            name="provider_api_key",
+            value="must-not-enter-setup-context",
+            provenance="caller",
         )
 
 

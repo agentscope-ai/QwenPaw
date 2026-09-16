@@ -13,6 +13,7 @@ from .contracts import (
 )
 from .registry import SetupCheckRegistration, SetupEntryRegistration
 from .runtime import SetupCoordinator
+from .store import SetupRecord, SetupStore
 
 __all__ = [
     "PrepareResult",
@@ -25,5 +26,7 @@ __all__ = [
     "SetupRequest",
     "SetupRequirement",
     "SetupResult",
+    "SetupRecord",
+    "SetupStore",
     "SuggestedValue",
 ]

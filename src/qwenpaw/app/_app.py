@@ -32,6 +32,7 @@ from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
 from ..pawapp.tasks.routes import router as pawapp_task_router
+from ..pawapp.setup.routes import router as pawapp_setup_router
 from ..pawapp.capability_routes import router as pawapp_capability_router
 from ..pawapp.artifact_routes import router as pawapp_artifact_router
 from ..utils.io_utils import run_sync_io
@@ -337,7 +338,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     from ..pawapp.tasks.runtime import HostTaskRuntime
     from ..pawapp.tasks.continuation import ContinuationWorker
     from ..pawapp.tasks.routes import HostOrigins, workspace_enabled
-    from ..pawapp.setup import SetupCoordinator
+    from ..pawapp.setup import SetupCoordinator, SetupStore
     from ..plugins.registry import PluginRegistry
 
     task_root = Path(WORKING_DIR) / "pawapp"
@@ -355,6 +356,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.pawapp_setup = SetupCoordinator(
         checks=PluginRegistry().get_pawapp_setup_checks,
         entries=PluginRegistry().get_pawapp_setup_entries,
+        store=await SetupStore.open(task_root / "setup.sqlite3"),
     )
     app.state.pawapp_tasks = HostTaskRuntime(
         await TaskStore.open(task_root / "tasks.sqlite3"),
@@ -906,6 +908,7 @@ async def post_desktop_shutdown(
 app.include_router(api_router, prefix="/api")
 
 app.include_router(pawapp_task_router, prefix="/api")
+app.include_router(pawapp_setup_router, prefix="/api")
 app.include_router(pawapp_artifact_router, prefix="/api")
 app.include_router(pawapp_capability_router, prefix="/api")
 
