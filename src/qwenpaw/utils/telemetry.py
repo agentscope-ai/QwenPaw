@@ -250,11 +250,16 @@ def telemetry_marker(working_dir: Path) -> Iterator[dict[str, Any]]:
     """Update shared telemetry state using the existing lock and writer."""
     path = working_dir / TELEMETRY_MARKER_FILE
     with get_sync_path_lock(path):
-        data = (
-            json.loads(path.read_text(encoding="utf-8"))
-            if path.exists()
-            else {}
-        )
+        try:
+            data = (
+                json.loads(path.read_text(encoding="utf-8"))
+                if path.exists()
+                else {}
+            )
+        except json.JSONDecodeError:
+            data = {}
+        if not isinstance(data, dict):
+            data = {}
         before = json.dumps(data)
         yield data
         if json.dumps(data) != before:
@@ -283,7 +288,8 @@ def mark_telemetry_collected(
                     "collected_at": time.time(),
                     "qwenpaw_version": current,
                     "collected_versions": versions,
-                    "opted_out": opted_out or data.get("opted_out", False),
+                    "opted_out": opted_out
+                    or data.get("opted_out", False) is True,
                     "version": current,
                 },
             )
