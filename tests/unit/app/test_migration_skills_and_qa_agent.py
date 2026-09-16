@@ -263,14 +263,105 @@ class TestLegacySkillsCopyPipeline:
         migrated_env,
         single_default_workspace,
     ):
-        _write_skill(migrated_env / "active_skills", "sk", "from-legacy")
+        # The legacy layout must live *inside* the workspace. Putting it at
+        # the WORKING_DIR root instead would not reach the copy phase at all:
+        # a default workspace that already contains a skill suppresses the
+        # legacy_root source, so _copy_if_missing is never called and the
+        # "not overwritten" assertion below would hold vacuously.
+        _write_skill(
+            single_default_workspace / "active_skills",
+            "sk",
+            "from-legacy",
+        )
         existing = single_default_workspace / "skills" / "sk"
         existing.mkdir(parents=True)
         (existing / "SKILL.md").write_text("KEEP-ME", encoding="utf-8")
 
         assert migration._do_migrate_legacy_skills() is False
 
+        # The copy was skipped, so the user's own content survives...
         assert (existing / "SKILL.md").read_text(encoding="utf-8") == "KEEP-ME"
+        # ...but the skill was listed under active_skills, so the reconcile
+        # phase still enables it. Skipping the copy must not lose that.
+        assert _enabled_map(single_default_workspace) == {"sk": True}
+
+    def test_existing_target_with_identical_signature_is_skipped(
+        self,
+        migrated_env,
+        single_default_workspace,
+    ):
+        source = _write_skill(
+            single_default_workspace / "customized_skills",
+            "sk",
+            "same",
+        )
+        # OS artifacts must not make the two signatures differ: the source
+        # carries noise files that the existing copy never had.
+        (source / ".DS_Store").write_bytes(b"ds")
+        (source / "__pycache__").mkdir()
+        (source / "__pycache__" / "x.pyc").write_bytes(b"junk")
+        existing = single_default_workspace / "skills" / "sk"
+        existing.mkdir(parents=True)
+        (existing / "SKILL.md").write_text(
+            SKILL_BODY.format(name="sk", body="same"),
+            encoding="utf-8",
+        )
+
+        assert migration._do_migrate_legacy_skills() is False
+
+        assert not (existing / ".DS_Store").exists()
+        assert not (existing / "__pycache__").exists()
+        # customized_skills only -> discovered by reconcile but not enabled
+        assert _enabled_map(single_default_workspace) == {"sk": False}
+
+    def test_existing_target_that_is_not_a_directory_is_left_alone(
+        self,
+        migrated_env,
+        single_default_workspace,
+    ):
+        _write_skill(
+            single_default_workspace / "customized_skills",
+            "sk",
+            "legacy",
+        )
+        # A plain file where a skill directory should be: the signature
+        # comparison cannot succeed, and the guard must degrade to "skip"
+        # rather than clobbering the file or aborting the whole migration.
+        blocked = single_default_workspace / "skills" / "sk"
+        blocked.parent.mkdir(parents=True, exist_ok=True)
+        blocked.write_text("i-am-a-file", encoding="utf-8")
+        assert blocked.is_file()
+
+        assert migration._do_migrate_legacy_skills() is False
+
+        assert blocked.is_file()
+        assert blocked.read_text(encoding="utf-8") == "i-am-a-file"
+        # reconcile only recognises directories holding a SKILL.md
+        assert _read_manifest(single_default_workspace)["skills"] == {}
+
+    def test_dot_prefixed_legacy_skill_is_copied_but_never_enabled(
+        self,
+        migrated_env,
+        single_default_workspace,
+    ):
+        _write_skill(
+            single_default_workspace / "active_skills",
+            ".hidden",
+            "dot",
+        )
+
+        assert migration._do_migrate_legacy_skills() is True
+
+        # The discovery filter here does not exclude dot names, so the copy
+        # really happens...
+        assert (
+            single_default_workspace / "skills" / ".hidden" / "SKILL.md"
+        ).is_file()
+        # ...but the reconcile phase treats a dot-prefixed entry as an
+        # artifact and never adds it to the manifest. The activation step
+        # therefore looks the name up and finds no entry, which must be a
+        # no-op rather than an error.
+        assert _read_manifest(single_default_workspace)["skills"] == {}
 
     def test_no_legacy_skill_dirs_creates_workspace_skeleton_only(
         self,
