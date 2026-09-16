@@ -1,4 +1,11 @@
-"""Authenticated relay for native realtime voice sessions."""
+"""Authenticated relay for native realtime voice sessions.
+
+HTTP/WebSocket boundary only: it authorizes requests, encodes/decodes the
+renderer frame protocol and wires the socket lifecycle to
+``RealtimeVoiceService``. All session business logic (coordination, admission,
+presentation, provider I/O) lives in ``qwenpaw.app.realtime_voice``; keep this
+module free of it.
+"""
 
 from __future__ import annotations
 

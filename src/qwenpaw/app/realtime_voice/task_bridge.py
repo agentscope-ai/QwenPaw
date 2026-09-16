@@ -30,32 +30,11 @@ from .contracts import (
     VoiceTaskSnapshot,
     VoiceTaskStatus,
 )
+from .labels import VOICE_CHAT_PLACEHOLDER_NAME, task_ref_label
 
 _BRIDGE_OBSERVER = "realtime_voice_task_bridge"
 _TERMINAL = {"responded", "failed", "cancelled"}
 _MAX_PENDING_ADMISSIONS = 32
-_TASK_ORDINALS = (
-    "一",
-    "二",
-    "三",
-    "四",
-    "五",
-    "六",
-    "七",
-    "八",
-    "九",
-    "十",
-    "十一",
-    "十二",
-    "十三",
-    "十四",
-    "十五",
-    "十六",
-    "十七",
-    "十八",
-    "十九",
-    "二十",
-)
 
 
 @dataclass
@@ -450,13 +429,13 @@ class VoiceTaskBridge:
             submission.events,
             submission.run_id,
         )
-        if self._chat.name == "Voice Chat":
+        if self._chat.name == VOICE_CHAT_PLACEHOLDER_NAME:
             asyncio.create_task(
                 generate_and_update_title(
                     workspace=self._workspace,
                     chat_id=self._chat.id,
                     user_message=request,
-                    placeholder_name="Voice Chat",
+                    placeholder_name=VOICE_CHAT_PLACEHOLDER_NAME,
                 )
             )
         return VoiceTaskReceipt(
@@ -476,12 +455,7 @@ class VoiceTaskBridge:
     ) -> _TaskRecord:
         ordinal = self._next_task_ref
         self._next_task_ref += 1
-        suffix = (
-            _TASK_ORDINALS[ordinal - 1]
-            if ordinal <= len(_TASK_ORDINALS)
-            else str(ordinal)
-        )
-        task_ref = f"请求{suffix}"
+        task_ref = task_ref_label(ordinal)
         record = _TaskRecord(
             task_id=task_id,
             task_ref=task_ref,

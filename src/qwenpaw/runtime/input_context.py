@@ -33,6 +33,14 @@ class ChatInputContext:
     Registration and capture are synchronous on the Chat event loop. A capture
     has an explicit cutoff: later inputs belong to the next model request.
     Nothing here starts, drains, cancels or acknowledges a task.
+
+    Boundary with ``ReplyCycleContext``: this object owns the *input* side of
+    truth (committed identities, their order, and admission status). The
+    ``InputStateEvent`` values kept in ``self._states`` are a read-only
+    projection pushed from ``ReplyCycleContext`` (the *reply*/run side of
+    truth); this class never feeds state back. On any apparent disagreement,
+    input identity and order are authoritative here, while run and reply
+    identity are authoritative in ``ReplyCycleContext``.
     """
 
     def __init__(self) -> None:

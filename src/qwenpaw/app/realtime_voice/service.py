@@ -27,6 +27,7 @@ from .contracts import (
     VoiceAdmissionMode,
 )
 from .coordinator import VoiceCoordinator
+from .labels import VOICE_CHAT_PLACEHOLDER_NAME
 from .task_bridge import VoiceTaskBridge
 from .turn_commit import (
     ProviderModelVoiceTurnRouter,
@@ -235,7 +236,7 @@ class RealtimeVoiceService:
         chat_uuid = str(uuid4())
         chat = ChatSpec(
             id=chat_uuid,
-            name="Voice Chat",
+            name=VOICE_CHAT_PLACEHOLDER_NAME,
             session_id=f"realtime_voice:{chat_uuid}",
             user_id=principal,
             channel="console",

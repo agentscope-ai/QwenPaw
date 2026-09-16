@@ -20,6 +20,7 @@ from qwenpaw.app.realtime_voice.presentation import (
     PresentationIntent,
     PresentationQueue,
 )
+from qwenpaw.app.realtime_voice.prompts import snapshot_facts
 from qwenpaw.app.realtime_voice.task_bridge import VoiceAdmissionHandle
 from qwenpaw.app.realtime_voice.turn_commit import (
     CommittedSpokenTurn,
@@ -1132,7 +1133,7 @@ async def test_reply_error_is_scoped_and_not_reannounced_on_save(
                 assert coordinator._announce_changes == {"m:b"}
             if version == 3:
                 assert not coordinator._announce_changes
-            facts = coordinator._snapshot_facts((current,))
+            facts = snapshot_facts((current,))
             assert '"state": "执行失败"' not in facts
             if version >= 2:
                 assert '"stage": "answer_generation"' in facts
@@ -1443,7 +1444,7 @@ def test_facts_keep_pending_inputs_separate_from_reply_source():
             ChatReply("m", "b", "run", ("a",), 1, "final", "任务一完成，结果201"),
         ),
     )
-    facts = VoiceCoordinator._snapshot_facts([task])
+    facts = snapshot_facts([task])
     scope, source = facts.split("对应请求的Agent原文", 1)
     assert "第二步202" in scope and "第三步203" in scope
     assert '"other_requests_pending"' in scope
@@ -1465,7 +1466,7 @@ def test_waiting_facts_do_not_imply_user_action():
         input_states=(("input", "waiting"),),
         background_work=({"execution": "running", "delivery": "pending"},),
     )
-    facts = VoiceCoordinator._snapshot_facts([task])
+    facts = snapshot_facts([task])
     assert '"state": "请求正在等待后续处理"' in facts
     assert '"execution": "running", "delivery": "pending"' in facts
     assert "等待外部操作或用户处理" not in facts

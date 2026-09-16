@@ -146,6 +146,14 @@ class ReplyCycleContext:
     Input admission never mutates this object. The Agent activates a new
     snapshot only after it actually drains a mailbox batch for its next model
     request. Tool calls retain the snapshot active when the call began.
+
+    Boundary with ``ChatInputContext``: that object owns the *input* side of
+    truth (which identities were committed, their order and admission status).
+    This object owns the *reply* side of truth (which run produced which saved
+    content, and the timeline order of replies). ``InputStateEvent`` flows from
+    here to ``ChatInputContext`` as a read-only projection; the reverse never
+    happens. When they appear to disagree, input identity/order comes from
+    ``ChatInputContext`` and reply/run identity comes from here.
     """
 
     def __init__(
