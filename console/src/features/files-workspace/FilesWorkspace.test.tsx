@@ -34,6 +34,7 @@ const lifecycle = vi.hoisted(() => ({
   editorProps: null as {
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
+    showTabBar?: boolean;
   } | null,
 }));
 
@@ -95,6 +96,7 @@ vi.mock("../../pages/Coding/TabbedEditor", () => ({
   default: function MockTabbedEditor(props: {
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
+    showTabBar?: boolean;
   }) {
     lifecycle.editorProps = props;
     useEffect(() => {
@@ -224,6 +226,47 @@ describe("FilesWorkspace directory changes", () => {
     act(() => lifecycle.navigatorProps?.onShowMemoryGraph("wiki"));
     expect(screen.queryByText(/memory-graph/)).not.toBeInTheDocument();
     expect(screen.getByText("editor")).toBeInTheDocument();
+  });
+
+  it("supports a lazy right navigator and a shell-owned tab strip", () => {
+    const { container } = render(
+      <FilesWorkspace
+        navigatorOpen={false}
+        navigatorPosition="right"
+        scope={{ kind: "agent", agentId: "agent-a" }}
+        showEditorTabs={false}
+      />,
+    );
+
+    expect(lifecycle.navigatorMounted).not.toHaveBeenCalled();
+    expect(lifecycle.editorProps?.showTabBar).toBe(false);
+    expect(container.firstElementChild?.className).toContain(
+      "workspaceNavigatorRight",
+    );
+  });
+
+  it("reports an activated file to the Workbench shell", async () => {
+    const onFileActivated = vi.fn();
+    lifecycle.tabs = [
+      {
+        path: "src/app.ts",
+        displayPath: "src/app.ts",
+        content: "loaded",
+        dirty: false,
+      },
+    ];
+
+    render(
+      <FilesWorkspace
+        initialTarget={{ source: "workspace", path: "src/app.ts" }}
+        onFileActivated={onFileActivated}
+        scope={{ kind: "agent", agentId: "agent-a" }}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onFileActivated).toHaveBeenCalledWith("src/app.ts"),
+    );
   });
 
   it("opens the section-relative path supplied by the memory graph", async () => {

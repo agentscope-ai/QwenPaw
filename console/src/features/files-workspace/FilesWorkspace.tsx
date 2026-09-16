@@ -39,6 +39,12 @@ interface FilesWorkspaceProps {
   embedded?: boolean;
   /** Keep chat Workbench focused on project files and bound directories. */
   workspaceOnly?: boolean;
+  /** Mount the directory navigator only while its Workbench drawer is open. */
+  navigatorOpen?: boolean;
+  navigatorPosition?: "left" | "right";
+  /** Global Files owns local tabs; Chat Workbench owns shared resource tabs. */
+  showEditorTabs?: boolean;
+  onFileActivated?: (path: string) => void;
 }
 
 function inferPreviewKind(
@@ -65,6 +71,10 @@ export default function FilesWorkspace({
   scope,
   embedded = false,
   workspaceOnly = false,
+  navigatorOpen = true,
+  navigatorPosition = "left",
+  showEditorTabs = true,
+  onFileActivated,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
@@ -328,6 +338,7 @@ export default function FilesWorkspace({
       if (existing) {
         setLoadError("");
         setActiveTab(scopeKey, tabPath);
+        onFileActivated?.(tabPath);
         return;
       }
       try {
@@ -346,11 +357,20 @@ export default function FilesWorkspace({
           etag: loaded.etag,
         });
         setActiveTab(scopeKey, tabPath);
+        onFileActivated?.(tabPath);
       } catch {
         setLoadError(t("files.loadFailed"));
       }
     },
-    [loadTarget, openTab, resolveEditableTarget, scopeKey, setActiveTab, t],
+    [
+      loadTarget,
+      onFileActivated,
+      openTab,
+      resolveEditableTarget,
+      scopeKey,
+      setActiveTab,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -404,7 +424,7 @@ export default function FilesWorkspace({
     <div
       className={`${styles.workspace} ${
         tabs.length === 0 && !memoryGraphRoot ? styles.workspaceEmpty : ""
-      }`}
+      } ${navigatorPosition === "right" ? styles.workspaceNavigatorRight : ""}`}
     >
       {codingMode && !embedded && (
         <nav className={styles.activityRail} aria-label={t("files.workspace")}>
@@ -428,7 +448,7 @@ export default function FilesWorkspace({
           ) : null}
         </nav>
       )}
-      {activity === "files" || !codingMode ? (
+      {navigatorOpen && (activity === "files" || !codingMode) ? (
         <FilesNavigator
           key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
           scope={effectiveScope}
@@ -447,7 +467,7 @@ export default function FilesWorkspace({
           onShowFiles={() => setMemoryGraphRoot(null)}
           workspaceOnly={workspaceOnly}
         />
-      ) : (
+      ) : navigatorOpen ? (
         <aside className={styles.sourcePanel}>
           <header>
             <GitBranch size={15} />
@@ -455,7 +475,7 @@ export default function FilesWorkspace({
           </header>
           <GitPanel chatId={chatId} />
         </aside>
-      )}
+      ) : null}
       <main className={styles.documentSurface}>
         {loadError && (
           <div className={styles.loadError} role="alert">
@@ -490,6 +510,7 @@ export default function FilesWorkspace({
             onLoadFile={loadTabContent}
             chatId={chatId}
             projectDirOverride={projectDirOverride}
+            showTabBar={showEditorTabs}
             navigation={editorNavigation}
             onDownloadFile={async (path) => {
               const tab = tabsRef.current.find((item) => item.path === path);

@@ -160,8 +160,8 @@ queue state.
 1. [x] Resizable Workbench shell and lazy capability boundaries.
 2. [x] User-configurable capability tabs and per-session restoration.
 3. [x] Chat Files restricted to project and bound directories.
-4. [ ] Unified file and capability resource tabs.
-5. [ ] Right-side on-demand file-tree drawer.
+4. [x] Unified file and capability resource tabs.
+5. [x] Right-side on-demand file-tree drawer.
 6. [ ] Lazy breadcrumb directory navigation.
 7. [ ] Changes resource and non-Git turn review.
 8. [ ] Bottom-capable terminal resource with explicit permissions.

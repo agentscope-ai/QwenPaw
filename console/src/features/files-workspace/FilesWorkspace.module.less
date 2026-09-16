@@ -220,6 +220,16 @@
   background: var(--files-bg);
 }
 
+.workspaceNavigatorRight {
+  flex-direction: row-reverse;
+
+  .navigator,
+  .sourcePanel {
+    border-right: 0;
+    border-left: 1px solid var(--files-line);
+  }
+}
+
 .activityRail {
   width: 46px;
   padding: 8px 6px;

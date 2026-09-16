@@ -54,6 +54,18 @@
   }
 }
 
+.fileTab {
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.dirtyDot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--app-warning);
+}
+
 .tabSelect {
   min-width: 0;
   height: 100%;
@@ -109,6 +121,7 @@
 }
 
 .addButton,
+.fileTreeButton,
 .closeButton {
   width: 34px;
   height: 34px;
@@ -135,6 +148,12 @@
 
 .addButton {
   border-color: transparent;
+}
+
+.fileTreeButtonActive {
+  color: var(--app-accent);
+  border-color: color-mix(in srgb, var(--app-accent) 35%, var(--app-border));
+  background: var(--app-accent-soft);
 }
 
 .closeButton {

@@ -15,11 +15,13 @@ describe("workbenchPreferences", () => {
     storeWorkbenchLayout(key, {
       openTabs: ["terminal", "files"],
       activeTab: "terminal",
+      fileTreeOpen: true,
     });
 
     expect(readStoredWorkbenchLayout(key)).toEqual({
       openTabs: ["terminal", "files"],
       activeTab: "terminal",
+      fileTreeOpen: true,
     });
   });
 
@@ -36,6 +38,22 @@ describe("workbenchPreferences", () => {
     expect(readStoredWorkbenchLayout(key)).toEqual({
       openTabs: ["files"],
       activeTab: null,
+      fileTreeOpen: false,
+    });
+  });
+
+  it("restores a file resource without duplicating its buffer state", () => {
+    const key = workbenchLayoutStorageKey("agent-a", "chat-1");
+    storeWorkbenchLayout(key, {
+      openTabs: ["files", "changes"],
+      activeTab: "file:src/app.ts",
+      fileTreeOpen: false,
+    });
+
+    expect(readStoredWorkbenchLayout(key)).toEqual({
+      openTabs: ["files", "changes"],
+      activeTab: "file:src/app.ts",
+      fileTreeOpen: false,
     });
   });
 
@@ -44,6 +62,7 @@ describe("workbenchPreferences", () => {
     storeWorkbenchLayout(sourceLayoutKey, {
       openTabs: ["terminal"],
       activeTab: "terminal",
+      fileTreeOpen: false,
     });
     localStorage.setItem(workbenchWidthStorageKey("agent-a", "new"), "720");
 
@@ -51,7 +70,11 @@ describe("workbenchPreferences", () => {
 
     expect(
       readStoredWorkbenchLayout(workbenchLayoutStorageKey("agent-a", "chat-1")),
-    ).toEqual({ openTabs: ["terminal"], activeTab: "terminal" });
+    ).toEqual({
+      openTabs: ["terminal"],
+      activeTab: "terminal",
+      fileTreeOpen: false,
+    });
     expect(
       localStorage.getItem(workbenchWidthStorageKey("agent-a", "chat-1")),
     ).toBe("720");
@@ -67,10 +90,12 @@ describe("workbenchPreferences", () => {
     storeWorkbenchLayout(sourceKey, {
       openTabs: ["tools"],
       activeTab: "tools",
+      fileTreeOpen: false,
     });
     storeWorkbenchLayout(targetKey, {
       openTabs: ["files"],
       activeTab: "files",
+      fileTreeOpen: true,
     });
 
     migrateWorkbenchPreferences("agent-a", "new", "chat-1");
@@ -78,6 +103,7 @@ describe("workbenchPreferences", () => {
     expect(readStoredWorkbenchLayout(targetKey)).toEqual({
       openTabs: ["files"],
       activeTab: "files",
+      fileTreeOpen: true,
     });
     expect(localStorage.getItem(sourceKey)).toBeNull();
   });

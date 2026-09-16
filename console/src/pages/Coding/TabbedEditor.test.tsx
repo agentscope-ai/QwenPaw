@@ -61,9 +61,11 @@ vi.mock("../../hooks/useAppMessage", () => ({
 function Harness({
   onSaveFile,
   onDownloadFile,
+  showTabBar,
 }: {
   onSaveFile: (path: string, content: string) => Promise<void>;
   onDownloadFile?: (path: string) => Promise<void>;
+  showTabBar?: boolean;
 }) {
   const tabs = useCodingTabsStore(
     (state) => state.tabsByAgent[SCOPE_KEY] ?? [],
@@ -94,6 +96,7 @@ function Harness({
       }
       onDownloadFile={onDownloadFile}
       onSaveFile={onSaveFile}
+      showTabBar={showTabBar}
     />
   );
 }
@@ -291,6 +294,41 @@ describe("TabbedEditor tab context menu", () => {
     await waitFor(() => {
       expect(useCodingTabsStore.getState().tabsByAgent[SCOPE_KEY]).toEqual([]);
     });
+  });
+});
+
+describe("TabbedEditor single-document mode", () => {
+  beforeEach(() => {
+    useCodingTabsStore.setState({
+      tabsByAgent: {
+        [SCOPE_KEY]: [
+          {
+            path: "hello.txt",
+            content: "hello",
+            dirty: false,
+            previewKind: "text",
+          },
+        ],
+      },
+      activeTabByAgent: { [SCOPE_KEY]: "hello.txt" },
+      diffsByAgent: { [SCOPE_KEY]: {} },
+    });
+  });
+
+  it("keeps document actions while the shell owns the tab strip", () => {
+    render(
+      <Harness onSaveFile={vi.fn(async () => undefined)} showTabBar={false} />,
+    );
+
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(
+      screen
+        .getAllByText("hello.txt")
+        .filter((element) => !element.closest("[hidden]")),
+    ).toHaveLength(1);
+    expect(
+      screen.getByRole("button", { name: /copy|复制/i }),
+    ).toBeInTheDocument();
   });
 });
 

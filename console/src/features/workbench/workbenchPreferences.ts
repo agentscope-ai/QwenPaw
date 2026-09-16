@@ -1,8 +1,11 @@
 export type WorkbenchCapabilityId = "files" | "changes" | "terminal" | "tools";
+export type WorkbenchFileTabId = `file:${string}`;
+export type WorkbenchActiveTabId = WorkbenchCapabilityId | WorkbenchFileTabId;
 
 export interface WorkbenchLayout {
   openTabs: WorkbenchCapabilityId[];
-  activeTab: WorkbenchCapabilityId | null;
+  activeTab: WorkbenchActiveTabId | null;
+  fileTreeOpen: boolean;
 }
 
 const LAYOUT_STORAGE_PREFIX = "qwenpaw-workbench-layout";
@@ -17,10 +20,29 @@ const CAPABILITY_IDS: WorkbenchCapabilityId[] = [
 export const EMPTY_WORKBENCH_LAYOUT: WorkbenchLayout = {
   openTabs: [],
   activeTab: null,
+  fileTreeOpen: false,
 };
 
 function isCapabilityId(value: unknown): value is WorkbenchCapabilityId {
   return CAPABILITY_IDS.includes(value as WorkbenchCapabilityId);
+}
+
+export function workbenchFileTabId(path: string): WorkbenchFileTabId {
+  return `file:${path}`;
+}
+
+export function isWorkbenchFileTabId(
+  value: unknown,
+): value is WorkbenchFileTabId {
+  return (
+    typeof value === "string" &&
+    value.startsWith("file:") &&
+    value.length > "file:".length
+  );
+}
+
+export function workbenchFilePath(id: WorkbenchFileTabId): string {
+  return id.slice("file:".length);
 }
 
 export function workbenchLayoutStorageKey(
@@ -48,12 +70,18 @@ export function readStoredWorkbenchLayout(storageKey: string): WorkbenchLayout {
       (value: unknown, index: number, values: unknown[]) =>
         isCapabilityId(value) && values.indexOf(value) === index,
     ) as WorkbenchCapabilityId[];
-    const activeTab = isCapabilityId(parsed.activeTab)
-      ? parsed.activeTab
-      : null;
+    const activeTab =
+      isCapabilityId(parsed.activeTab) || isWorkbenchFileTabId(parsed.activeTab)
+        ? parsed.activeTab
+        : null;
     return {
       openTabs,
-      activeTab: activeTab && openTabs.includes(activeTab) ? activeTab : null,
+      activeTab:
+        activeTab &&
+        (isWorkbenchFileTabId(activeTab) || openTabs.includes(activeTab))
+          ? activeTab
+          : null,
+      fileTreeOpen: parsed.fileTreeOpen === true,
     };
   } catch {
     return EMPTY_WORKBENCH_LAYOUT;

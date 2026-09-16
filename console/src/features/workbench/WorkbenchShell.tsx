@@ -1,19 +1,30 @@
 import { Dropdown } from "antd";
+import { FileCode2, FolderTree, GitCompareArrows, Plus, X } from "lucide-react";
 import { lazy, Suspense, useCallback, useLayoutEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import {
+  type EditorTab,
+  useActiveTabPathForScope,
+  useCodingTabsStore,
+  useDiffsForScope,
+  useTabsForScope,
+} from "../../stores/codingTabsStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import type { FilesWorkspaceScope } from "../files-workspace/filesWorkspaceScope";
+import { filesWorkspaceScopeKey } from "../files-workspace/filesWorkspaceScope";
 import type { FileTarget } from "../files-workspace/types";
 import {
   getWorkbenchCapability,
   WORKBENCH_CAPABILITIES,
 } from "./workbenchCapabilities";
 import {
+  isWorkbenchFileTabId,
   readStoredWorkbenchLayout,
   storeWorkbenchLayout,
   type WorkbenchCapabilityId,
   type WorkbenchLayout,
+  workbenchFilePath,
+  workbenchFileTabId,
   workbenchLayoutStorageKey,
 } from "./workbenchPreferences";
 import styles from "./WorkbenchShell.module.less";
@@ -27,12 +38,18 @@ interface WorkbenchShellProps {
   onClose: () => void;
 }
 
+function fileLabel(tab: EditorTab): string {
+  const path = (tab.displayPath ?? tab.path).replace(/\\/g, "/");
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
+
 function withFilesTarget(
   layout: WorkbenchLayout,
   target?: FileTarget,
 ): WorkbenchLayout {
   if (!target) return layout;
   return {
+    ...layout,
     openTabs: layout.openTabs.includes("files")
       ? layout.openTabs
       : [...layout.openTabs, "files"],
@@ -47,6 +64,11 @@ export default function WorkbenchShell({
 }: WorkbenchShellProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
+  const scopeKey = filesWorkspaceScopeKey(scope);
+  const fileTabs = useTabsForScope(scopeKey);
+  const activeFilePath = useActiveTabPathForScope(scopeKey);
+  const pendingDiffs = useDiffsForScope(scopeKey);
+  const { closeTab, setActiveTab: setActiveFile } = useCodingTabsStore();
   const storageKey = workbenchLayoutStorageKey(scope.agentId, scope.sessionId);
   const changesAvailable =
     codingMode && Boolean(scope.chatId || !scope.projectDirOverride);
@@ -67,35 +89,86 @@ export default function WorkbenchShell({
     const availableTabs = stored.openTabs.filter(
       (id) => id !== "changes" || changesAvailable,
     );
-    const sanitized = {
-      openTabs: availableTabs,
-      activeTab:
-        stored.activeTab && availableTabs.includes(stored.activeTab)
-          ? stored.activeTab
-          : availableTabs[0] ?? null,
-    } satisfies WorkbenchLayout;
-    const next = withFilesTarget(sanitized, initialTarget);
-    setLayout(next);
-    if (
-      next.activeTab !== stored.activeTab ||
-      next.openTabs.length !== stored.openTabs.length ||
-      next.openTabs.some((id, index) => id !== stored.openTabs[index])
-    ) {
-      storeWorkbenchLayout(storageKey, next);
+    if (fileTabs.length > 0 && !availableTabs.includes("files")) {
+      availableTabs.push("files");
     }
-  }, [changesAvailable, initialTarget, storageKey]);
+
+    const storedFilePath = isWorkbenchFileTabId(stored.activeTab)
+      ? workbenchFilePath(stored.activeTab)
+      : null;
+    const storedFileAvailable =
+      storedFilePath !== null &&
+      fileTabs.some((tab) => tab.path === storedFilePath);
+    const fallbackFilePath =
+      fileTabs.find((tab) => tab.path === activeFilePath)?.path ??
+      fileTabs[0]?.path;
+    const fallbackCapability =
+      availableTabs.find((id) => id !== "files") ??
+      (availableTabs.includes("files") ? "files" : null);
+    const activeTab = storedFileAvailable
+      ? stored.activeTab
+      : stored.activeTab &&
+        !isWorkbenchFileTabId(stored.activeTab) &&
+        availableTabs.includes(stored.activeTab)
+      ? stored.activeTab
+      : fallbackFilePath
+      ? workbenchFileTabId(fallbackFilePath)
+      : fallbackCapability;
+    if (isWorkbenchFileTabId(activeTab)) {
+      setActiveFile(scopeKey, workbenchFilePath(activeTab));
+    }
+
+    const sanitized = withFilesTarget(
+      {
+        openTabs: availableTabs,
+        activeTab,
+        fileTreeOpen: stored.fileTreeOpen,
+      },
+      initialTarget,
+    );
+    setLayout(sanitized);
+    if (JSON.stringify(sanitized) !== JSON.stringify(stored)) {
+      storeWorkbenchLayout(storageKey, sanitized);
+    }
+  }, [
+    activeFilePath,
+    changesAvailable,
+    fileTabs,
+    initialTarget,
+    scopeKey,
+    setActiveFile,
+    storageKey,
+  ]);
 
   const openCapability = useCallback(
     (id: WorkbenchCapabilityId) => {
       if (id === "changes" && !changesAvailable) return;
-      persistLayout({
-        openTabs: layout.openTabs.includes(id)
-          ? layout.openTabs
-          : [...layout.openTabs, id],
-        activeTab: id,
-      });
+      const openTabs = layout.openTabs.includes(id)
+        ? layout.openTabs
+        : [...layout.openTabs, id];
+      if (id === "files") {
+        const path =
+          fileTabs.find((tab) => tab.path === activeFilePath)?.path ??
+          fileTabs[0]?.path;
+        persistLayout({
+          openTabs,
+          activeTab: path ? workbenchFileTabId(path) : "files",
+          fileTreeOpen: true,
+        });
+        if (path) setActiveFile(scopeKey, path);
+        return;
+      }
+      persistLayout({ ...layout, openTabs, activeTab: id });
     },
-    [changesAvailable, layout.openTabs, persistLayout],
+    [
+      activeFilePath,
+      changesAvailable,
+      fileTabs,
+      layout,
+      persistLayout,
+      scopeKey,
+      setActiveFile,
+    ],
   );
 
   const closeCapability = useCallback(
@@ -106,10 +179,72 @@ export default function WorkbenchShell({
         layout.activeTab === id
           ? openTabs[Math.min(index, openTabs.length - 1)] ?? null
           : layout.activeTab;
-      persistLayout({ openTabs, activeTab });
+      persistLayout({ ...layout, openTabs, activeTab });
     },
     [layout, persistLayout],
   );
+
+  const activateFile = useCallback(
+    (path: string) => {
+      setActiveFile(scopeKey, path);
+      persistLayout({
+        ...layout,
+        openTabs: layout.openTabs.includes("files")
+          ? layout.openTabs
+          : [...layout.openTabs, "files"],
+        activeTab: workbenchFileTabId(path),
+      });
+    },
+    [layout, persistLayout, scopeKey, setActiveFile],
+  );
+
+  const closeFile = useCallback(
+    (path: string) => {
+      const index = fileTabs.findIndex((tab) => tab.path === path);
+      const remaining = fileTabs.filter((tab) => tab.path !== path);
+      closeTab(scopeKey, path);
+      if (layout.activeTab !== workbenchFileTabId(path)) return;
+      const nextPath =
+        remaining[Math.min(index, remaining.length - 1)]?.path ?? null;
+      const nextCapability =
+        layout.openTabs.find((id) => id !== "files") ?? "files";
+      if (nextPath) setActiveFile(scopeKey, nextPath);
+      persistLayout({
+        ...layout,
+        activeTab: nextPath ? workbenchFileTabId(nextPath) : nextCapability,
+      });
+    },
+    [closeTab, fileTabs, layout, persistLayout, scopeKey, setActiveFile],
+  );
+
+  const toggleFileTree = useCallback(() => {
+    const visible =
+      layout.fileTreeOpen &&
+      (layout.activeTab === "files" || isWorkbenchFileTabId(layout.activeTab));
+    if (visible) {
+      persistLayout({ ...layout, fileTreeOpen: false });
+      return;
+    }
+    const path =
+      fileTabs.find((tab) => tab.path === activeFilePath)?.path ??
+      fileTabs[0]?.path;
+    if (path) setActiveFile(scopeKey, path);
+    persistLayout({
+      ...layout,
+      openTabs: layout.openTabs.includes("files")
+        ? layout.openTabs
+        : [...layout.openTabs, "files"],
+      activeTab: path ? workbenchFileTabId(path) : "files",
+      fileTreeOpen: true,
+    });
+  }, [
+    activeFilePath,
+    fileTabs,
+    layout,
+    persistLayout,
+    scopeKey,
+    setActiveFile,
+  ]);
 
   const menuItems = WORKBENCH_CAPABILITIES.map((capability) => {
     const Icon = capability.icon;
@@ -132,12 +267,54 @@ export default function WorkbenchShell({
     onClick: ({ key }: { key: string }) =>
       openCapability(key as WorkbenchCapabilityId),
   };
+  const fileResourceActive = isWorkbenchFileTabId(layout.activeTab);
+  const filesSurfaceActive = fileResourceActive || layout.activeTab === "files";
 
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
         <nav className={styles.tabs} aria-label={t("workbench.navigation")}>
           {layout.openTabs.map((id) => {
+            if (id === "files") {
+              return fileTabs.map((tab) => {
+                const resourceId = workbenchFileTabId(tab.path);
+                const active = layout.activeTab === resourceId;
+                const hasDiff = Boolean(pendingDiffs[tab.path]);
+                const label = fileLabel(tab);
+                return (
+                  <div
+                    key={resourceId}
+                    className={`${styles.tab} ${styles.fileTab} ${
+                      active ? styles.activeTab : ""
+                    }`}
+                    title={tab.displayPath ?? tab.path}
+                  >
+                    <button
+                      type="button"
+                      className={styles.tabSelect}
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => activateFile(tab.path)}
+                    >
+                      {hasDiff ? (
+                        <GitCompareArrows size={14} />
+                      ) : (
+                        <FileCode2 size={14} />
+                      )}
+                      <span>{label}</span>
+                      {tab.dirty && <i className={styles.dirtyDot} />}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.tabClose}
+                      aria-label={`${t("files.closeTab")}: ${label}`}
+                      onClick={() => closeFile(tab.path)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </div>
+                );
+              });
+            }
             const capability = getWorkbenchCapability(id);
             const Icon = capability.icon;
             const label = t(capability.labelKey);
@@ -180,6 +357,19 @@ export default function WorkbenchShell({
         </nav>
         <button
           type="button"
+          className={`${styles.fileTreeButton} ${
+            layout.fileTreeOpen && filesSurfaceActive
+              ? styles.fileTreeButtonActive
+              : ""
+          }`}
+          aria-label={t("files.navigator")}
+          aria-pressed={layout.fileTreeOpen && filesSurfaceActive}
+          onClick={toggleFileTree}
+        >
+          <FolderTree size={17} />
+        </button>
+        <button
+          type="button"
           className={styles.closeButton}
           aria-label={t("common.close")}
           onClick={onClose}
@@ -193,11 +383,15 @@ export default function WorkbenchShell({
           <Suspense
             fallback={<div className={styles.empty}>{t("common.loading")}</div>}
           >
-            {layout.activeTab === "files" ? (
+            {filesSurfaceActive ? (
               <FilesWorkspace
                 initialTarget={initialTarget}
                 scope={scope}
                 embedded
+                navigatorOpen={layout.fileTreeOpen}
+                navigatorPosition="right"
+                onFileActivated={activateFile}
+                showEditorTabs={false}
                 workspaceOnly
               />
             ) : layout.activeTab === "changes" ? (

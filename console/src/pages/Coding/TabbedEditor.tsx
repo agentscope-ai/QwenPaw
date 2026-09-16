@@ -80,6 +80,8 @@ interface TabbedEditorProps {
   onDownloadFile?: (path: string) => Promise<void>;
   chatId?: string;
   projectDirOverride?: string;
+  /** Workbench renders file resources in its shared top-level tab strip. */
+  showTabBar?: boolean;
   navigation?: {
     path: string;
     line: number;
@@ -193,6 +195,7 @@ export default function TabbedEditor({
   onDownloadFile,
   chatId,
   projectDirOverride,
+  showTabBar = true,
   navigation,
 }: TabbedEditorProps) {
   const { t } = useTranslation();
@@ -1021,7 +1024,7 @@ export default function TabbedEditor({
   return (
     <div className={styles.wrap} onKeyDown={handleKeyDown}>
       {/* ── Tab bar ────────────────────────────────────────────────────── */}
-      <div className={styles.tabBar}>
+      <div className={styles.tabBar} hidden={!showTabBar}>
         <div className={styles.tabViewport} ref={tabViewportRef} role="tablist">
           <div className={styles.tabRail}>
             {tabs.map((tab, index) => {

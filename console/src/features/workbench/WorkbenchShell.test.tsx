@@ -11,25 +11,56 @@ import {
 
 const mocks = vi.hoisted(() => ({
   codingMode: true,
+  tabs: [] as Array<{
+    path: string;
+    displayPath?: string;
+    content: string;
+    dirty: boolean;
+  }>,
+  activeFilePath: "",
+  diffs: {} as Record<string, unknown>,
+  closeTab: vi.fn(),
+  setActiveFile: vi.fn(),
 }));
 
 vi.mock("../../stores/codingModeStore", () => ({
   useCodingMode: () => ({ codingMode: mocks.codingMode }),
 }));
 
+vi.mock("../../stores/codingTabsStore", () => ({
+  useTabsForScope: () => mocks.tabs,
+  useActiveTabPathForScope: () => mocks.activeFilePath,
+  useDiffsForScope: () => mocks.diffs,
+  useCodingTabsStore: () => ({
+    closeTab: mocks.closeTab,
+    setActiveTab: mocks.setActiveFile,
+  }),
+}));
+
 vi.mock("../files-workspace/FilesWorkspace", () => ({
   default: ({
     initialTarget,
+    navigatorOpen,
+    onFileActivated,
+    showEditorTabs,
     workspaceOnly,
   }: {
     initialTarget?: { path: string };
+    navigatorOpen?: boolean;
+    onFileActivated?: (path: string) => void;
+    showEditorTabs?: boolean;
     workspaceOnly?: boolean;
   }) => (
     <div
       data-testid="files-capability"
+      data-navigator-open={String(navigatorOpen)}
+      data-show-editor-tabs={String(showEditorTabs)}
       data-workspace-only={String(workspaceOnly)}
     >
       {initialTarget?.path}
+      <button type="button" onClick={() => onFileActivated?.("src/app.ts")}>
+        activate-file
+      </button>
     </div>
   ),
 }));
@@ -50,6 +81,11 @@ describe("WorkbenchShell", () => {
   afterEach(() => {
     localStorage.clear();
     mocks.codingMode = true;
+    mocks.tabs = [];
+    mocks.activeFilePath = "";
+    mocks.diffs = {};
+    mocks.closeTab.mockReset();
+    mocks.setActiveFile.mockReset();
   });
 
   it("starts empty without rendering a capability", () => {
@@ -79,13 +115,19 @@ describe("WorkbenchShell", () => {
     expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
       openTabs: ["files"],
       activeTab: "files",
+      fileTreeOpen: true,
     });
+    expect(screen.getByTestId("files-capability")).toHaveAttribute(
+      "data-show-editor-tabs",
+      "false",
+    );
   });
 
   it("restores open tabs and the active capability for the session", async () => {
     storeWorkbenchLayout(layoutKey, {
       openTabs: ["files", "tools"],
       activeTab: "tools",
+      fileTreeOpen: false,
     });
     renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
 
@@ -99,6 +141,7 @@ describe("WorkbenchShell", () => {
     storeWorkbenchLayout(layoutKey, {
       openTabs: ["tools"],
       activeTab: "tools",
+      fileTreeOpen: false,
     });
     renderWithProviders(
       <WorkbenchShell
@@ -111,9 +154,10 @@ describe("WorkbenchShell", () => {
     expect(await screen.findByTestId("files-capability")).toHaveTextContent(
       "src/app.ts",
     );
-    expect(
-      screen.getByRole("button", { name: "workbench.files" }),
-    ).toHaveAttribute("aria-current", "page");
+    expect(screen.getByTestId("files-capability")).toHaveAttribute(
+      "data-navigator-open",
+      "false",
+    );
   });
 
   it("closes one panel without closing the Workbench", async () => {
@@ -122,6 +166,7 @@ describe("WorkbenchShell", () => {
     storeWorkbenchLayout(layoutKey, {
       openTabs: ["files", "tools"],
       activeTab: "files",
+      fileTreeOpen: false,
     });
     renderWithProviders(<WorkbenchShell scope={scope} onClose={onClose} />);
 
@@ -131,8 +176,9 @@ describe("WorkbenchShell", () => {
 
     expect(onClose).not.toHaveBeenCalled();
     expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
-      openTabs: ["tools"],
-      activeTab: "tools",
+      openTabs: ["files"],
+      activeTab: "files",
+      fileTreeOpen: false,
     });
   });
 
@@ -140,10 +186,12 @@ describe("WorkbenchShell", () => {
     storeWorkbenchLayout(layoutKey, {
       openTabs: ["tools"],
       activeTab: "tools",
+      fileTreeOpen: false,
     });
     storeWorkbenchLayout(workbenchLayoutStorageKey("default", "session-2"), {
       openTabs: ["terminal"],
       activeTab: "terminal",
+      fileTreeOpen: false,
     });
     const { rerender } = renderWithProviders(
       <WorkbenchShell scope={scope} onClose={vi.fn()} />,
@@ -168,6 +216,7 @@ describe("WorkbenchShell", () => {
     storeWorkbenchLayout(layoutKey, {
       openTabs: ["changes"],
       activeTab: "changes",
+      fileTreeOpen: false,
     });
     renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
 
@@ -175,6 +224,7 @@ describe("WorkbenchShell", () => {
       expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
         openTabs: [],
         activeTab: null,
+        fileTreeOpen: false,
       });
     });
     expect(screen.queryByTestId("changes-capability")).not.toBeInTheDocument();
@@ -187,5 +237,51 @@ describe("WorkbenchShell", () => {
 
     await user.click(screen.getByRole("button", { name: "common.close" }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("renders restored files as top-level resource tabs", async () => {
+    mocks.tabs = [
+      {
+        path: "src/app.ts",
+        displayPath: "src/app.ts",
+        content: "",
+        dirty: true,
+      },
+    ];
+    mocks.activeFilePath = "src/app.ts";
+    storeWorkbenchLayout(layoutKey, {
+      openTabs: ["files", "changes"],
+      activeTab: "file:src/app.ts",
+      fileTreeOpen: false,
+    });
+
+    renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: "app.ts" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(screen.getByTestId("files-capability")).toBeInTheDocument();
+    expect(screen.getByTestId("files-capability")).toHaveAttribute(
+      "data-show-editor-tabs",
+      "false",
+    );
+  });
+
+  it("opens the file tree on the right only when requested", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "files.navigator" }));
+
+    expect(await screen.findByTestId("files-capability")).toHaveAttribute(
+      "data-navigator-open",
+      "true",
+    );
+    expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
+      openTabs: ["files"],
+      activeTab: "files",
+      fileTreeOpen: true,
+    });
   });
 });
