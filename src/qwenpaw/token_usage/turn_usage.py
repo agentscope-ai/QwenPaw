@@ -219,6 +219,7 @@ async def resolve_turn_usage(
         "max_input_length": stats["max_input_length"],
         "context_usage_ratio": stats["context_usage_ratio"],
     }
+    ctx = apply_measured_context_tokens(ctx, turn)
     if turn is None:
         turn = _turn_from_stats(stats)
     else:
@@ -228,6 +229,30 @@ async def resolve_turn_usage(
         getattr(agent_state, "context", None),
     )
     return turn, ctx, agent_state
+
+
+def apply_measured_context_tokens(
+    ctx: dict[str, Any],
+    turn: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Prefer the provider-measured context size over the byte estimate.
+
+    The byte estimate only covers ``state.context`` + summary at a fixed
+    4 bytes/token. The real request additionally carries the system prompt
+    and every tool/skill/MCP schema (tens of thousands of tokens) and dense
+    content (code, JSON, non-English text) runs closer to 2 bytes/token, so
+    the ring showed a fraction of the real fill level. When the provider
+    reported usage for this turn, its last call is the ground truth.
+    """
+    measured = int((turn or {}).get("last_call_context_tokens", 0) or 0)
+    max_input_length = int(ctx.get("max_input_length", 0) or 0)
+    if measured <= 0 or max_input_length <= 0:
+        return ctx
+    return {
+        **ctx,
+        "estimated_tokens": measured,
+        "context_usage_ratio": measured / max_input_length * 100,
+    }
 
 
 def find_turn_closing_assistant_in_context(messages: Any) -> Any | None:

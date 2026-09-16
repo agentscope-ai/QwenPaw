@@ -165,6 +165,15 @@ class TokenRecordingModelWrapper(ChatModelBase):
                 if cache_eligible > 0
                 else None
             ),
+            # Real size of the context after THIS call: the full prompt the
+            # provider billed (incl. system prompt, tool/skill/MCP schemas and
+            # cached prefix) plus the reply that is now part of the history.
+            # Not summed across calls in ``_store_usage`` — the latest call
+            # wins, which is exactly the current context fill level.
+            "last_call_context_tokens": (
+                cache_eligible if cache_observed else pt
+            )
+            + ct,
             # Context window of the wrapped model, so the UI can show how full
             # the *current* context is (prompt_tokens / context_size), distinct
             # from the cumulative session totals. 0 = unknown.

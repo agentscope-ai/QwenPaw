@@ -30,7 +30,10 @@ from qwenpaw.token_usage.model_wrapper import (
     _cache_usage_metrics,
 )
 from qwenpaw.token_usage.storage import load_data, save_data_sync
-from qwenpaw.token_usage.turn_usage import add_session_cache_usage
+from qwenpaw.token_usage.turn_usage import (
+    add_session_cache_usage,
+    apply_measured_context_tokens,
+)
 
 _EMPTY_AGENT_KEY = "\x1f".join(("", "openai", "gpt-4"))
 _NAMED_AGENT_KEY = "\x1f".join(("bot-a", "openai", "gpt-4"))
@@ -1104,6 +1107,33 @@ class TestTokenRecordingModelWrapper:
         assert stored["cache_read_tokens"] == 180
         assert stored["cache_eligible_input_tokens"] == 220
         assert stored["cache_hit_rate"] == pytest.approx(180 / 220 * 100)
+        # Context fill level is the LAST call (prompt + reply), not the sum.
+        assert stored["last_call_context_tokens"] == 140
+
+    def test_measured_context_tokens_replace_byte_estimate(self):
+        """Ring must show the provider-measured size, incl. system/tools."""
+        ctx = {
+            "estimated_tokens": 392,
+            "max_input_length": 131072,
+            "context_usage_ratio": 392 / 131072 * 100,
+        }
+        turn = {"prompt_tokens": 24137, "last_call_context_tokens": 24566}
+        fixed = apply_measured_context_tokens(ctx, turn)
+        assert fixed["estimated_tokens"] == 24566
+        assert fixed["max_input_length"] == 131072
+        assert fixed["context_usage_ratio"] == pytest.approx(
+            24566 / 131072 * 100,
+        )
+
+    def test_measured_context_tokens_fall_back_to_estimate(self):
+        """Without provider usage the byte estimate stays untouched."""
+        ctx = {
+            "estimated_tokens": 500,
+            "max_input_length": 131072,
+            "context_usage_ratio": 0.4,
+        }
+        assert apply_measured_context_tokens(ctx, None) == ctx
+        assert apply_measured_context_tokens(ctx, {"prompt_tokens": 9}) == ctx
 
     def test_session_cache_usage_uses_latest_persisted_checkpoint(self):
         """Session totals should extend the newest durable checkpoint."""
