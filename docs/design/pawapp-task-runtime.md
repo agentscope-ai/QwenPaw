@@ -457,5 +457,7 @@ failure, exact command receipts, cancellation, input conflict detection, and
 project/target readiness. Its package verifier covers authenticated project
 handoff routing into the embedded UI.
 
-The remaining roadmap begins with Artifact Canvas and typed cross-App material
-handoff. Cross-App Exchange is not part of this implementation.
+P1b artifact publication, task-card preview/download, typed project handoff,
+and Creator media ArtifactRefs are implemented. The remaining P2 validation
+covers the no-model file-browser adapter and an explicitly authorized limited
+real provider run. Cross-App Exchange is not part of this implementation.

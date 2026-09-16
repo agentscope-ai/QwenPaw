@@ -20,7 +20,7 @@
     "required": ["project_id", "target_ref"],
     "additionalProperties": false
   },
-  "output_types": ["text/plain"],
+  "output_types": ["text/plain", "qwenpaw:file"],
   "permissions": [
     "creator.project.read",
     "creator.project.write",

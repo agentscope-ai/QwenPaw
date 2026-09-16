@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Protocol-1 projection of Creator's durable R2V task ledger."""
 
+import hashlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,9 +10,13 @@ import pytest
 from domain.enums import TaskKind, TaskStatus
 from domain.errors import ValidationError
 from services import pawapp_tasks
+from services.project_files.assets import AssetFileStore
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import (
+    ArtifactSlot,
+    ArtifactVersion,
     ElementLocation,
+    IndexedFile,
     Project,
     R2VCreation,
     TimelineElement,
@@ -19,9 +24,12 @@ from services.project_files.models import (
 )
 from services.runtime_files.execution_models import TaskRecord
 from services.runtime_files.execution_store import ProjectExecutionStore
+from services.runtime_files.models import utc_now
 
+from qwenpaw.pawapp.artifacts import ArtifactStore
 from qwenpaw.pawapp.tasks import (
     ActionDescriptor,
+    ExecutorEvent,
     TaskCommand,
     TaskHandle,
     TaskOrigin,
@@ -74,6 +82,73 @@ def _services(tmp_path: Path) -> CreatorFileServices:
     )
     services.projects.create(project)
     return services
+
+
+def _add_creator_artifact(
+    services: CreatorFileServices,
+    *,
+    version_id: str,
+    task_id: str,
+    content: bytes,
+    media_type: str = "video/mp4",
+) -> None:
+    snapshot = services.projects.read(PROJECT_ID)
+    project = snapshot.project.model_copy(deep=True)
+    created_at = utc_now()
+    file_id = f"file-{version_id}"
+    slot_id = f"slot-{version_id}"
+    suffix = ".mp4" if media_type == "video/mp4" else ".png"
+    relative_uri = f"assets/artifacts/{file_id}{suffix}"
+    digest = hashlib.sha256(content).hexdigest()
+    indexed = IndexedFile(
+        file_id=file_id,
+        kind="artifact_payload",
+        relative_uri=relative_uri,
+        sha256=digest,
+        size_bytes=len(content),
+        media_type=media_type,
+        created_at=created_at,
+    )
+    kind = (
+        "element_video"
+        if media_type.startswith("video/")
+        else "r2v_storyboard_image"
+    )
+    project.assets.files_by_id[file_id] = indexed
+    project.assets.artifact_slots_by_id[slot_id] = ArtifactSlot(
+        slot_id=slot_id,
+        kind=kind,
+        owner_ref=TARGET_REF,
+        version_ids=[version_id],
+        selected_version_id=version_id,
+    )
+    project.assets.artifact_versions_by_id[version_id] = ArtifactVersion(
+        version_id=version_id,
+        slot_id=slot_id,
+        kind=kind,
+        owner_ref=TARGET_REF,
+        name="Generated shot",
+        file_id=file_id,
+        checksum=digest,
+        based_on_generation=snapshot.generation,
+        created_at=created_at,
+        metadata={"taskId": task_id},
+    )
+    files = AssetFileStore(services.projects.project_root(PROJECT_ID))
+    staged = files.stage_bytes(content, staging_id="host-publication")
+    files.publish(
+        staged,
+        relative_uri,
+        expected_sha256=digest,
+        expected_size_bytes=len(content),
+    )
+    project = project.model_copy(
+        update={
+            "generation": snapshot.generation + 1,
+            "updated_at": created_at,
+        },
+    )
+    services.projects.replace(PROJECT_ID, project, snapshot.etag)
 
 
 def _submission(
@@ -251,6 +326,124 @@ async def test_attach_replays_attempts_and_terminal_project_reference(
     assert events[-1].text_result == (
         "Creator generated video for element:shot-1."
     )
+
+
+@pytest.mark.asyncio
+async def test_success_publishes_exact_creator_media_as_host_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path / "creator")
+    runtime = _FakeR2VService(services)
+    _patch_runtime(monkeypatch, runtime)
+    adapter = pawapp_tasks.CreatorVideoTaskAdapter(
+        lambda: services,
+        poll_interval_seconds=0.01,
+    )
+    submission = _submission()
+    run_ref = await adapter.submit(submission)
+    content = b"small deterministic video fixture"
+    version_id = "video-version-host-1"
+    _add_creator_artifact(
+        services,
+        version_id=version_id,
+        task_id=runtime.task_id,
+        content=content,
+    )
+    store = ProjectExecutionStore(services.root)
+    store.append_task_attempt(
+        PROJECT_ID,
+        runtime.task_id,
+        event_id="host-attempt-started-1",
+        attempt_id="host-attempt-1",
+        status="RUNNING",
+    )
+    store.append_task_attempt(
+        PROJECT_ID,
+        runtime.task_id,
+        event_id="host-attempt-succeeded-1",
+        attempt_id="host-attempt-1",
+        status="SUCCEEDED",
+        output={"outputRef": f"artifact-version:{version_id}"},
+        output_refs=[f"artifact-version:{version_id}"],
+    )
+    events = [event async for event in adapter.attach(submission)]
+    terminal = events[-1]
+    host_submission = submission.model_copy(
+        update={
+            "handle": submission.handle.model_copy(
+                update={"executor_run_ref": run_ref},
+            ),
+        },
+    )
+    artifacts = await ArtifactStore.open(tmp_path / "host-artifacts")
+
+    first = await adapter.materialize_event(
+        host_submission,
+        terminal,
+        artifacts,
+    )
+    replay = await adapter.materialize_event(
+        host_submission,
+        terminal,
+        artifacts,
+    )
+
+    assert "creator_artifact_version_id" not in first.detail
+    assert first.detail == replay.detail
+    ref = first.detail["artifact_ref"]
+    assert ref["media_type"] == "video/mp4"
+    assert ref["name"] == "Generated shot.mp4"
+    assert ref["producer"]["source_id"] == version_id
+    stored_ref, stored_content = await artifacts.read(
+        host_submission.handle.scope,
+        ref["artifact_id"],
+        ref["version"],
+    )
+    assert stored_ref.model_dump(mode="json") == ref
+    assert stored_content == content
+
+
+@pytest.mark.asyncio
+async def test_host_publication_rejects_another_creator_tasks_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path / "creator")
+    runtime = _FakeR2VService(services)
+    _patch_runtime(monkeypatch, runtime)
+    adapter = pawapp_tasks.CreatorVideoTaskAdapter(lambda: services)
+    submission = _submission()
+    run_ref = await adapter.submit(submission)
+    version_id = "foreign-video-version-1"
+    _add_creator_artifact(
+        services,
+        version_id=version_id,
+        task_id="another-creator-task",
+        content=b"foreign task bytes",
+    )
+    host_submission = submission.model_copy(
+        update={
+            "handle": submission.handle.model_copy(
+                update={"executor_run_ref": run_ref},
+            ),
+        },
+    )
+    event = ExecutorEvent(
+        run_ref=run_ref,
+        sequence=1,
+        cursor="creator-video-attempt-1",
+        status="succeeded",
+        text_result="Creator generated video.",
+        detail={"creator_artifact_version_id": version_id},
+    )
+    artifacts = await ArtifactStore.open(tmp_path / "host-artifacts")
+
+    with pytest.raises(
+        TaskStoreError,
+        match="creator_video_artifact_mismatch",
+    ):
+        await adapter.materialize_event(host_submission, event, artifacts)
 
 
 @pytest.mark.asyncio

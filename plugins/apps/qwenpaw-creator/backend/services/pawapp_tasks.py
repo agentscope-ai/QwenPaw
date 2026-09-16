@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import datetime
+from pathlib import PurePosixPath
 from typing import Literal
 
 from pydantic import Field
@@ -22,6 +23,7 @@ from services.media_files.r2v_execution import (
     execute_file_r2v_command,
     file_r2v_execution_service,
 )
+from services.project_files.assets import AssetFileError, AssetFileStore
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.errors import RecordNotFoundError
@@ -52,6 +54,8 @@ VIDEO_ACTION_ID = "generate-video"
 STORYBOARD_ACTION_ID = "generate-storyboard"
 VIDEO_EXECUTOR_ID = "qwenpaw-creator.video"
 STORYBOARD_EXECUTOR_ID = "qwenpaw-creator.storyboard"
+_ARTIFACT_VERSION_DETAIL = "creator_artifact_version_id"
+_MAX_HOST_ARTIFACT_BYTES = 64 * 1024 * 1024
 # Backward-compatible module names for the first shipped action.
 ACTION_ID = VIDEO_ACTION_ID
 EXECUTOR_ID = VIDEO_EXECUTOR_ID
@@ -91,7 +95,7 @@ def creator_video_action_descriptor() -> ActionDescriptor:
             "required": ["project_id", "target_ref"],
             "additionalProperties": False,
         },
-        output_types=("text/plain",),
+        output_types=("text/plain", "qwenpaw:file"),
         permissions=(
             "creator.project.read",
             "creator.project.write",
@@ -131,7 +135,7 @@ def creator_storyboard_action_descriptor() -> ActionDescriptor:
             "required": ["project_id", "target_ref"],
             "additionalProperties": False,
         },
-        output_types=("text/plain",),
+        output_types=("text/plain", "qwenpaw:file"),
         permissions=(
             "creator.project.read",
             "creator.project.write",
@@ -544,6 +548,132 @@ class _CreatorMediaTaskAdapter:
             },
         }
 
+    @staticmethod
+    def _artifact_version_id(
+        output: dict | None,
+        output_refs: list[str] | None = None,
+    ) -> str | None:
+        payload = output or {}
+        output_ref = payload.get("outputRef")
+        if isinstance(output_ref, str) and output_ref.startswith(
+            "artifact-version:",
+        ):
+            version_id = output_ref.removeprefix("artifact-version:")
+            return version_id or None
+        version_id = payload.get("artifactVersionId")
+        if isinstance(version_id, str) and version_id:
+            return version_id
+        for candidate in output_refs or []:
+            if candidate.startswith("artifact-version:"):
+                version_id = candidate.removeprefix("artifact-version:")
+                return version_id or None
+        return None
+
+    async def _terminal_detail(
+        self,
+        services: CreatorFileServices,
+        record: CreatorMediaSubmission,
+        *,
+        output: dict | None,
+        output_refs: list[str] | None = None,
+    ) -> dict:
+        version_id = self._artifact_version_id(output, output_refs)
+        if version_id is None:
+            raise TaskStoreError(self._code("artifact_missing"))
+        detail = await self._project_detail(services, record)
+        detail[_ARTIFACT_VERSION_DETAIL] = version_id
+        return detail
+
+    def _read_artifact(
+        self,
+        services: CreatorFileServices,
+        record: CreatorMediaSubmission,
+        version_id: str,
+    ) -> tuple[dict, bytes]:
+        try:
+            snapshot = services.projects.read(record.project_id)
+            version = snapshot.project.assets.artifact_versions_by_id.get(
+                version_id,
+            )
+            if version is None:
+                raise TaskStoreError(self._code("artifact_missing"))
+            indexed = snapshot.project.assets.files_by_id.get(version.file_id)
+            if indexed is None:
+                raise TaskStoreError(self._code("artifact_missing"))
+            publication_shape_valid = (
+                len(version.version_id) <= 256
+                and len(indexed.relative_uri) <= 4096
+                and len(indexed.media_type) <= 256
+                and indexed.media_type.casefold().startswith(
+                    self.media_type_prefix,
+                )
+                and indexed.size_bytes <= _MAX_HOST_ARTIFACT_BYTES
+            )
+            if (
+                version.owner_ref != record.target_ref
+                or version.metadata.get("taskId") != record.creator_task_id
+                or not publication_shape_valid
+            ):
+                raise TaskStoreError(self._code("artifact_mismatch"))
+            content = AssetFileStore(
+                services.projects.project_root(record.project_id),
+            ).read_verified(indexed)
+        except TaskStoreError:
+            raise
+        except (AssetFileError, OSError, ValueError):
+            raise TaskStoreError(self._code("artifact_unavailable")) from None
+
+        suffix = PurePosixPath(indexed.relative_uri).suffix
+        name = version.name.strip()
+        if (
+            not name
+            or name in {".", ".."}
+            or any(char in name for char in "/\\\x00")
+        ):
+            name = f"{version.version_id}{suffix}"
+        elif suffix and not name.casefold().endswith(suffix.casefold()):
+            name += suffix
+        if len(name) > 512:
+            name = f"{version.version_id}{suffix}"
+        return (
+            {
+                "source_id": version.version_id,
+                "name": name,
+                "path": indexed.relative_uri,
+                "media_type": indexed.media_type,
+                "size_bytes": indexed.size_bytes,
+                "digest": f"sha256:{indexed.sha256}",
+            },
+            content,
+        )
+
+    async def materialize_event(self, submission, event, artifacts):
+        """Publish one exact Creator output through Host artifact storage."""
+        version_id = event.detail.get(_ARTIFACT_VERSION_DETAIL)
+        if version_id is None:
+            return event
+        if event.status != "succeeded" or not isinstance(version_id, str):
+            raise TaskStoreError(self._code("artifact_mismatch"))
+        services = self._services()
+        record = await asyncio.to_thread(
+            self._read_submission,
+            services,
+            submission,
+            required=True,
+        )
+        assert record is not None
+        source, content = await asyncio.to_thread(
+            self._read_artifact,
+            services,
+            record,
+            version_id,
+        )
+        ref = await artifacts.publish(submission, source, content)
+        detail = dict(event.detail)
+        detail.pop(_ARTIFACT_VERSION_DETAIL, None)
+        detail["artifact_ref"] = ref.model_dump(mode="json")
+        return event.model_copy(update={"detail": detail})
+
     async def attach(self, submission: TaskSubmission):
         services = self._services()
         record = await asyncio.to_thread(
@@ -601,6 +731,14 @@ class _CreatorMediaTaskAdapter:
                 if event.attempt_seq <= after:
                     continue
                 status = self._attempt_status(event)
+                event_detail = detail
+                if status == "succeeded":
+                    event_detail = await self._terminal_detail(
+                        services,
+                        record,
+                        output=event.output,
+                        output_refs=event.output_refs,
+                    )
                 yield ExecutorEvent(
                     run_ref=run_ref,
                     sequence=event.attempt_seq,
@@ -610,7 +748,7 @@ class _CreatorMediaTaskAdapter:
                     ),
                     status=status,
                     text_result=self._text(status, record.target_ref),
-                    detail=detail,
+                    detail=event_detail,
                 )
                 after = event.attempt_seq
             task_status = self._host_status(task.status)
@@ -620,6 +758,14 @@ class _CreatorMediaTaskAdapter:
                 )
                 if final_attempt_status != task_status:
                     sequence = max(after + 1, task.last_attempt_seq + 1)
+                    terminal_detail = detail
+                    if task_status == "succeeded":
+                        terminal_detail = await self._terminal_detail(
+                            services,
+                            record,
+                            output=task.result,
+                            output_refs=task.output_refs,
+                        )
                     yield ExecutorEvent(
                         run_ref=run_ref,
                         sequence=sequence,
@@ -629,7 +775,7 @@ class _CreatorMediaTaskAdapter:
                         ),
                         status=task_status,
                         text_result=self._text(task_status, record.target_ref),
-                        detail=detail,
+                        detail=terminal_detail,
                     )
                 return
             await asyncio.sleep(self.poll_interval_seconds)
@@ -872,6 +1018,7 @@ class CreatorVideoTaskAdapter(_CreatorMediaTaskAdapter):
     executor_id = VIDEO_EXECUTOR_ID
     storage_key = "video"
     media_name = "video"
+    media_type_prefix = "video/"
     task_kind = TaskKind.R2V_GENERATION
 
     def action_descriptor(self) -> ActionDescriptor:
@@ -905,6 +1052,7 @@ class CreatorStoryboardTaskAdapter(_CreatorMediaTaskAdapter):
     executor_id = STORYBOARD_EXECUTOR_ID
     storage_key = "storyboard"
     media_name = "storyboard"
+    media_type_prefix = "image/"
     task_kind = TaskKind.IMAGE_GENERATION
 
     def action_descriptor(self) -> ActionDescriptor:
