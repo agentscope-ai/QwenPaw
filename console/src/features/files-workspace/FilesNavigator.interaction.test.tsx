@@ -68,7 +68,7 @@ const mdFile = (filename: string) => ({
   modified_time: "2026-01-01T00:00:00Z",
 });
 
-function renderNavigator() {
+function renderNavigator({ workspaceOnly = false } = {}) {
   return render(
     <FilesNavigator
       selectedPath=""
@@ -77,6 +77,7 @@ function renderNavigator() {
       onShowMemoryGraph={vi.fn()}
       onShowFiles={vi.fn()}
       scope={{ kind: "agent", agentId: "default" }}
+      workspaceOnly={workspaceOnly}
     />,
   );
 }
@@ -119,6 +120,18 @@ describe("FilesNavigator system prompt interactions", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Workspace" }));
     expect(screen.getByRole("button", { name: "Upload" })).toBeInTheDocument();
+  });
+
+  it("shows only project files without loading private agent sources", async () => {
+    renderNavigator({ workspaceOnly: true });
+
+    expect(
+      await screen.findByRole("button", { name: "Upload" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(mocks.listFiles).not.toHaveBeenCalled();
+    expect(mocks.getSystemPromptFiles).not.toHaveBeenCalled();
+    expect(mocks.listMemoryFiles).not.toHaveBeenCalled();
   });
 
   it("can add a custom prompt again after disabling it", async () => {

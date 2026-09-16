@@ -358,6 +358,8 @@ interface FilesNavigatorProps {
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
   scope: FilesWorkspaceScope;
+  /** Restrict navigation to project/workspace roots in chat Workbench. */
+  workspaceOnly?: boolean;
 }
 
 export default function FilesNavigator({
@@ -367,6 +369,7 @@ export default function FilesNavigator({
   onShowMemoryGraph,
   onShowFiles,
   scope,
+  workspaceOnly = false,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
@@ -399,7 +402,8 @@ export default function FilesNavigator({
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
   const [profilePickerOpen, setProfilePickerOpen] = useState(false);
   const [profileSearch, setProfileSearch] = useState("");
-  const [source, setSource] = useState<NavigatorSource>("workspace");
+  const [selectedSource, setSource] = useState<NavigatorSource>("workspace");
+  const source: NavigatorSource = workspaceOnly ? "workspace" : selectedSource;
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
@@ -703,8 +707,10 @@ export default function FilesNavigator({
   }, []);
 
   useEffect(() => {
-    void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
-  }, [loadDirectoryIdentity, loadProfile, loadRoot]);
+    const requests = [loadDirectoryIdentity(), loadRoot()];
+    if (!workspaceOnly) requests.push(loadProfile());
+    void Promise.all(requests);
+  }, [loadDirectoryIdentity, loadProfile, loadRoot, workspaceOnly]);
 
   // Keep the viewed root one the switcher actually offers. Covers both the
   // primary-is-the-workspace case (where "project" is never offered) and a
@@ -720,9 +726,10 @@ export default function FilesNavigator({
   }, [roots, workspaceRoot]);
 
   useEffect(() => {
+    if (workspaceOnly) return;
     if (source === "profile") void loadProfile();
     if (source === "daily" || source === "digest") void loadMemory(source);
-  }, [loadMemory, loadProfile, source]);
+  }, [loadMemory, loadProfile, source, workspaceOnly]);
 
   const refreshCurrent = async () => {
     if (source === "daily" || source === "digest") {
@@ -752,7 +759,9 @@ export default function FilesNavigator({
       );
       setPendingUploads(null);
       setConflictingNames([]);
-      await Promise.all([loadRoot(), loadProfile()]);
+      const requests = [loadRoot()];
+      if (!workspaceOnly) requests.push(loadProfile());
+      await Promise.all(requests);
     } catch (error) {
       if (error instanceof UploadConflictError) {
         setPendingUploads(files);
@@ -922,9 +931,11 @@ export default function FilesNavigator({
           }}
         />
       </header>
-      <div className={styles.sourceTabs} role="tablist">
-        {(["workspace", "profile", "daily", "digest"] as NavigatorSource[]).map(
-          (item) => (
+      {!workspaceOnly && (
+        <div className={styles.sourceTabs} role="tablist">
+          {(
+            ["workspace", "profile", "daily", "digest"] as NavigatorSource[]
+          ).map((item) => (
             <button
               type="button"
               role="tab"
@@ -941,9 +952,9 @@ export default function FilesNavigator({
             >
               {t(`files.${item}`)}
             </button>
-          ),
-        )}
-      </div>
+          ))}
+        </div>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}

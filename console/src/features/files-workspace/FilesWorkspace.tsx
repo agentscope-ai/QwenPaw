@@ -37,6 +37,8 @@ interface FilesWorkspaceProps {
   scope: FilesWorkspaceScope;
   /** Hide the legacy activity rail when hosted by the Workbench shell. */
   embedded?: boolean;
+  /** Keep chat Workbench focused on project files and bound directories. */
+  workspaceOnly?: boolean;
 }
 
 function inferPreviewKind(
@@ -62,6 +64,7 @@ export default function FilesWorkspace({
   initialTarget,
   scope,
   embedded = false,
+  workspaceOnly = false,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
@@ -438,8 +441,11 @@ export default function FilesWorkspace({
             void openTarget(target);
           }}
           activeMemoryGraphRoot={memoryGraphRoot}
-          onShowMemoryGraph={(root) => setMemoryGraphRoot(root)}
+          onShowMemoryGraph={(root) => {
+            if (!workspaceOnly) setMemoryGraphRoot(root);
+          }}
           onShowFiles={() => setMemoryGraphRoot(null)}
+          workspaceOnly={workspaceOnly}
         />
       ) : (
         <aside className={styles.sourcePanel}>
@@ -457,7 +463,7 @@ export default function FilesWorkspace({
             <span>{loadError}</span>
           </div>
         )}
-        {memoryGraphRoot ? (
+        {memoryGraphRoot && !workspaceOnly ? (
           <MemoryGraphView
             agentId={scope.agentId}
             root={memoryGraphRoot}

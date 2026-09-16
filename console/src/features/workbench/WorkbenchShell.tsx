@@ -198,6 +198,7 @@ export default function WorkbenchShell({
                 initialTarget={initialTarget}
                 scope={scope}
                 embedded
+                workspaceOnly
               />
             ) : layout.activeTab === "changes" ? (
               <GitPanel chatId={scope.chatId} />

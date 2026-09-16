@@ -18,8 +18,19 @@ vi.mock("../../stores/codingModeStore", () => ({
 }));
 
 vi.mock("../files-workspace/FilesWorkspace", () => ({
-  default: ({ initialTarget }: { initialTarget?: { path: string } }) => (
-    <div data-testid="files-capability">{initialTarget?.path}</div>
+  default: ({
+    initialTarget,
+    workspaceOnly,
+  }: {
+    initialTarget?: { path: string };
+    workspaceOnly?: boolean;
+  }) => (
+    <div
+      data-testid="files-capability"
+      data-workspace-only={String(workspaceOnly)}
+    >
+      {initialTarget?.path}
+    </div>
   ),
 }));
 
@@ -61,6 +72,10 @@ describe("WorkbenchShell", () => {
     await user.click(await screen.findByText("workbench.files"));
 
     expect(await screen.findByTestId("files-capability")).toBeInTheDocument();
+    expect(screen.getByTestId("files-capability")).toHaveAttribute(
+      "data-workspace-only",
+      "true",
+    );
     expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
       openTabs: ["files"],
       activeTab: "files",

@@ -14,6 +14,7 @@ const lifecycle = vi.hoisted(() => ({
   navigatorProps: null as {
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
+    workspaceOnly?: boolean;
   } | null,
   memoryGraphProps: null as {
     onOpenFile: (section: "daily" | "digest", path: string) => void;
@@ -64,6 +65,7 @@ vi.mock("./FilesNavigator", () => ({
   default: function MockFilesNavigator(props: {
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
+    workspaceOnly?: boolean;
   }) {
     lifecycle.navigatorProps = props;
     useEffect(() => {
@@ -207,6 +209,20 @@ describe("FilesWorkspace directory changes", () => {
     expect(screen.queryByText("editor")).not.toBeInTheDocument();
 
     act(() => lifecycle.navigatorProps?.onShowFiles());
+    expect(screen.getByText("editor")).toBeInTheDocument();
+  });
+
+  it("keeps a workspace-only host out of memory views", () => {
+    render(
+      <FilesWorkspace
+        scope={{ kind: "agent", agentId: "agent-a" }}
+        workspaceOnly
+      />,
+    );
+
+    expect(lifecycle.navigatorProps?.workspaceOnly).toBe(true);
+    act(() => lifecycle.navigatorProps?.onShowMemoryGraph("wiki"));
+    expect(screen.queryByText(/memory-graph/)).not.toBeInTheDocument();
     expect(screen.getByText("editor")).toBeInTheDocument();
   });
 
