@@ -184,6 +184,7 @@ function ConfiguredEmbeddingForm({
             api_key: "secret",
             dimensions: 1024,
             enable_cache: true,
+            health_check_timeout: 15,
           },
         },
       }}
@@ -722,6 +723,79 @@ describe("long-term memory defaults", () => {
 });
 
 describe("embedding card separation", () => {
+  it("allows fractional health check timeout input without clamping", () => {
+    renderWithProviders(<ConfiguredEmbeddingForm />);
+
+    const timeoutInput = screen.getByLabelText(
+      "agentConfig.embeddingHealthCheckTimeout",
+    ) as HTMLInputElement;
+    expect(timeoutInput).not.toHaveAttribute("aria-valuemin");
+    expect(timeoutInput).not.toHaveAttribute("aria-valuemax");
+    expect(timeoutInput).toHaveAttribute("step", "0.001");
+    fireEvent.change(timeoutInput, { target: { value: "1.5" } });
+    fireEvent.blur(timeoutInput);
+    expect(Number(timeoutInput.value)).toBe(1.5);
+  });
+
+  it.each(["0", "-1", "300.0001"])(
+    "reports invalid health check timeout %s without rewriting it",
+    async (value) => {
+      const testEmbedding = vi.spyOn(api, "testEmbedding");
+      renderWithProviders(<ConfiguredEmbeddingForm />);
+
+      const timeoutInput = screen.getByLabelText(
+        "agentConfig.embeddingHealthCheckTimeout",
+      ) as HTMLInputElement;
+      fireEvent.change(timeoutInput, { target: { value } });
+      fireEvent.blur(timeoutInput);
+
+      expect(
+        await screen.findByText("agentConfig.embeddingHealthCheckTimeoutRange"),
+      ).toBeInTheDocument();
+      expect(Number(timeoutInput.value)).toBe(Number(value));
+
+      await act(async () => {
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: "agentConfig.embeddingTestConnection",
+          }),
+        );
+      });
+      expect(testEmbedding).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["0.001", "300"])(
+    "tests the embedding service with valid boundary timeout %s",
+    async (value) => {
+      const testEmbedding = vi.spyOn(api, "testEmbedding").mockResolvedValue({
+        success: true,
+        configured_dimensions: 1024,
+        actual_dimensions: 1024,
+        latency_ms: 1,
+        message: "ok",
+      });
+      renderWithProviders(<ConfiguredEmbeddingForm />);
+
+      const timeoutInput = screen.getByLabelText(
+        "agentConfig.embeddingHealthCheckTimeout",
+      ) as HTMLInputElement;
+      fireEvent.change(timeoutInput, { target: { value } });
+      fireEvent.blur(timeoutInput);
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: "agentConfig.embeddingTestConnection",
+        }),
+      );
+
+      await waitFor(() =>
+        expect(testEmbedding).toHaveBeenCalledWith(
+          expect.objectContaining({ health_check_timeout: Number(value) }),
+        ),
+      );
+    },
+  );
+
   it("keeps embedding settings out of the long-term memory card", async () => {
     renderWithProviders(<MemoryForm />);
 

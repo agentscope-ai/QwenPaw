@@ -168,7 +168,10 @@ vi.mock("@/stores/agentStore", () => {
 });
 
 vi.mock("@/contexts/ThemeContext", () => ({
-  useTheme: vi.fn(() => ({ isDark: false })),
+  useTheme: vi.fn(() => ({
+    isDark: false,
+    previewTheme: { accent: "#0b57d0" },
+  })),
 }));
 
 vi.mock("./sessionApi", () => ({
@@ -1892,6 +1895,7 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
 
     expect(capturedOptions?.theme?.darkMode).toBe(false);
+    expect(capturedOptions?.theme?.colorPrimary).toBe("#0b57d0");
     expect(capturedOptions?.theme?.rightHeader).toBeTruthy();
   });
 

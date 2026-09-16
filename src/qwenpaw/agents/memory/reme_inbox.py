@@ -58,6 +58,19 @@ def empty_result_body(name: str) -> str:
     }.get(name, "Memory job completed with no returned content.")
 
 
+def empty_error_body(name: str) -> str:
+    label = {
+        "auto_memory": "Auto-memory",
+        "auto_dream": "Auto-dream",
+        "daily_paper": "Daily Paper",
+        "auto_fin": "Auto Fin",
+    }.get(name, "Memory job")
+    return (
+        f"{label} failed with no returned error details. "
+        "Check the application logs for more information."
+    )
+
+
 def build_payload(
     name: str,
     kwargs: dict[str, Any],
@@ -150,7 +163,10 @@ async def emit_job_result(
             status="success" if success else "error",
             severity="info" if success else "error",
             title=result_title(name),
-            body=answer or empty_result_body(name),
+            body=answer
+            or (
+                empty_result_body(name) if success else empty_error_body(name)
+            ),
             payload=build_payload(name, kwargs, metadata),
         )
         if isinstance(metadata, dict):

@@ -10,9 +10,9 @@
   /* Provider-managed skills intentionally keep their warm visual identity. */
   --skills-warm-banner-border: #f0dfd2;
   --skills-warm-banner-bg: #fffaf5;
-  --skills-warm-accent: #d45f00;
-  --skills-warm-accent-text: #b54e00;
-  --skills-warm-accent-bg: #fff0e3;
+  --skills-warm-accent: var(--app-accent);
+  --skills-warm-accent-text: var(--app-accent-text);
+  --skills-warm-accent-bg: var(--app-accent-soft);
   --skills-warm-heading: #2d231d;
   --skills-warm-muted: #7b716a;
   --skills-warm-card: #fffdfa;
@@ -25,7 +25,7 @@
   --skills-warm-enabled: #357544;
   --skills-warm-disabled: #8b8179;
   --skills-warm-shadow-hover: 0 8px 22px rgba(104, 65, 35, 0.08);
-  --skills-warm-outline: rgba(255, 127, 22, 0.42);
+  --skills-warm-outline: var(--app-accent-border);
   --skills-selected-ring: 0 0 0 1px var(--app-accent-ring);
 
   --skills-empty-from: var(--app-surface);
@@ -1580,10 +1580,10 @@
 /* --- Dark mode palette overrides --- */
 :global(.dark-mode) .skillsPage {
   --skills-warm-banner-border: #42372f;
-  --skills-warm-banner-bg: rgba(255, 127, 22, 0.07);
-  --skills-warm-accent: #ff9a47;
-  --skills-warm-accent-text: #ff9a47;
-  --skills-warm-accent-bg: rgba(255, 127, 22, 0.13);
+  --skills-warm-banner-bg: var(--app-accent-faint);
+  --skills-warm-accent: var(--app-accent);
+  --skills-warm-accent-text: var(--app-accent-text);
+  --skills-warm-accent-bg: var(--app-accent-soft);
   --skills-warm-heading: #f5eee8;
   --skills-warm-muted: #a99d94;
   --skills-warm-card: #211e1b;
@@ -1596,7 +1596,7 @@
   --skills-warm-enabled: #357544;
   --skills-warm-disabled: #8b8179;
   --skills-warm-shadow-hover: 0 8px 22px rgba(0, 0, 0, 0.18);
-  --skills-warm-outline: rgba(255, 127, 22, 0.42);
+  --skills-warm-outline: var(--app-accent-border);
   --skills-selected-ring: 0 0 0 1px var(--app-accent-border);
 
   --skills-empty-from: #17191f;

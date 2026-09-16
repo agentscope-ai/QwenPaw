@@ -70,7 +70,7 @@ describe("SettingsCenter", () => {
     });
   });
 
-  it("uses the dark settings surface when dark theme is active", () => {
+  it("uses dark preset swatches when dark theme is active", async () => {
     localStorage.setItem("qwenpaw-theme", "dark");
 
     const { container } = renderWithProviders(
@@ -81,6 +81,19 @@ describe("SettingsCenter", () => {
     );
 
     expect(container.querySelector('[data-theme="dark"]')).not.toBeNull();
+    await userEvent.click(
+      screen.getByRole("combobox", { name: "Theme palette" }),
+    );
+
+    const swatches = Array.from(
+      document.querySelectorAll<HTMLElement>('[aria-hidden="true"]'),
+    ).filter((element) => element.textContent === "Aa");
+    expect(swatches.length).toBeGreaterThanOrEqual(6);
+    expect(
+      swatches.every(
+        (swatch) => swatch.style.background !== "rgb(255, 255, 255)",
+      ),
+    ).toBe(true);
   });
 
   it("persists the standard and wide message widths", async () => {
@@ -120,6 +133,48 @@ describe("SettingsCenter", () => {
     await userEvent.click(standard);
 
     expect(localStorage.getItem("qwenpaw_chat_wide_mode")).toBeNull();
+  });
+
+  it("offers color palettes without font controls", async () => {
+    renderWithProviders(<SettingsCenter />, {
+      initialEntries: ["/settings/general"],
+    });
+
+    const palette = screen.getByRole("combobox", {
+      name: "Theme palette",
+    });
+    await userEvent.click(palette);
+
+    const swatches = Array.from(
+      document.querySelectorAll<HTMLElement>('[aria-hidden="true"]'),
+    ).filter((element) => element.textContent === "Aa");
+    expect(swatches.length).toBeGreaterThanOrEqual(6);
+    expect(
+      swatches.every(
+        (swatch) => swatch.style.background === "rgb(255, 255, 255)",
+      ),
+    ).toBe(true);
+
+    for (const name of [
+      "QwenPaw",
+      "Codex",
+      "Ayu",
+      "Catppuccin",
+      "Dracula",
+      "Everforest",
+    ]) {
+      expect(screen.getAllByText(name).length).toBeGreaterThan(0);
+    }
+    expect(screen.queryByText("Font family")).not.toBeInTheDocument();
+    expect(screen.queryByText("Monospace family")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText("Dracula"));
+
+    expect(
+      screen
+        .getAllByText("Dracula")
+        .some((element) => element.closest(".ant-select-selection-item")),
+    ).toBe(true);
   });
 
   it("persists message display preferences", async () => {
