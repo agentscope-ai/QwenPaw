@@ -1,5 +1,11 @@
 import { FileWarning, Files, GitBranch } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
@@ -45,6 +51,7 @@ interface FilesWorkspaceProps {
   /** Global Files owns local tabs; Chat Workbench owns shared resource tabs. */
   showEditorTabs?: boolean;
   showBreadcrumbs?: boolean;
+  toolbarTrailing?: ReactNode;
   onFileActivated?: (path: string) => void;
 }
 
@@ -76,6 +83,7 @@ export default function FilesWorkspace({
   navigatorPosition = "left",
   showEditorTabs = true,
   showBreadcrumbs = false,
+  toolbarTrailing,
   onFileActivated,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
@@ -514,6 +522,7 @@ export default function FilesWorkspace({
             projectDirOverride={projectDirOverride}
             showBreadcrumbs={showBreadcrumbs}
             showTabBar={showEditorTabs}
+            toolbarTrailing={toolbarTrailing}
             onOpenWorkspaceFile={(path, root) => {
               void openTarget({ source: "workspace", path, root });
             }}

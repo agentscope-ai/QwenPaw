@@ -36,6 +36,7 @@ const lifecycle = vi.hoisted(() => ({
     onSaveFile: (path: string, content: string) => Promise<void>;
     showBreadcrumbs?: boolean;
     showTabBar?: boolean;
+    toolbarTrailing?: React.ReactNode;
   } | null,
 }));
 
@@ -238,12 +239,14 @@ describe("FilesWorkspace directory changes", () => {
         scope={{ kind: "agent", agentId: "agent-a" }}
         showBreadcrumbs
         showEditorTabs={false}
+        toolbarTrailing={<button type="button">tree-toggle</button>}
       />,
     );
 
     expect(lifecycle.navigatorMounted).not.toHaveBeenCalled();
     expect(lifecycle.editorProps?.showBreadcrumbs).toBe(true);
     expect(lifecycle.editorProps?.showTabBar).toBe(false);
+    expect(lifecycle.editorProps?.toolbarTrailing).toBeTruthy();
     expect(container.firstElementChild?.className).toContain(
       "workspaceNavigatorRight",
     );

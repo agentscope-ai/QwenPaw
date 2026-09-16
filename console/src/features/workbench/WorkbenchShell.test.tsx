@@ -44,6 +44,7 @@ vi.mock("../files-workspace/FilesWorkspace", () => ({
     onFileActivated,
     showBreadcrumbs,
     showEditorTabs,
+    toolbarTrailing,
     workspaceOnly,
   }: {
     initialTarget?: { path: string };
@@ -51,6 +52,7 @@ vi.mock("../files-workspace/FilesWorkspace", () => ({
     onFileActivated?: (path: string) => void;
     showBreadcrumbs?: boolean;
     showEditorTabs?: boolean;
+    toolbarTrailing?: React.ReactNode;
     workspaceOnly?: boolean;
   }) => (
     <div
@@ -64,6 +66,7 @@ vi.mock("../files-workspace/FilesWorkspace", () => ({
       <button type="button" onClick={() => onFileActivated?.("src/app.ts")}>
         activate-file
       </button>
+      {toolbarTrailing}
     </div>
   ),
 }));
@@ -279,12 +282,20 @@ describe("WorkbenchShell", () => {
     const user = userEvent.setup();
     renderWithProviders(<WorkbenchShell scope={scope} onClose={vi.fn()} />);
 
-    await user.click(screen.getByRole("button", { name: "files.navigator" }));
+    const launcherTreeButton = screen.getByRole("button", {
+      name: "files.navigator",
+    });
+    await user.click(launcherTreeButton);
 
     expect(await screen.findByTestId("files-capability")).toHaveAttribute(
       "data-navigator-open",
       "true",
     );
+    expect(
+      screen
+        .getByRole("button", { name: "files.navigator" })
+        .closest('[data-testid="files-capability"]'),
+    ).not.toBeNull();
     expect(readStoredWorkbenchLayout(layoutKey)).toEqual({
       openTabs: ["files"],
       activeTab: "files",

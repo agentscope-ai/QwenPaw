@@ -355,19 +355,17 @@ export default function WorkbenchShell({
             </button>
           </Dropdown>
         </nav>
-        <button
-          type="button"
-          className={`${styles.fileTreeButton} ${
-            layout.fileTreeOpen && filesSurfaceActive
-              ? styles.fileTreeButtonActive
-              : ""
-          }`}
-          aria-label={t("files.navigator")}
-          aria-pressed={layout.fileTreeOpen && filesSurfaceActive}
-          onClick={toggleFileTree}
-        >
-          <FolderTree size={17} />
-        </button>
+        {!filesSurfaceActive && (
+          <button
+            type="button"
+            className={styles.headerFileTreeButton}
+            aria-label={t("files.navigator")}
+            aria-pressed={false}
+            onClick={toggleFileTree}
+          >
+            <FolderTree size={17} />
+          </button>
+        )}
         <button
           type="button"
           className={styles.closeButton}
@@ -393,6 +391,19 @@ export default function WorkbenchShell({
                 onFileActivated={activateFile}
                 showBreadcrumbs
                 showEditorTabs={false}
+                toolbarTrailing={
+                  <button
+                    type="button"
+                    className={`${styles.fileTreeButton} ${
+                      layout.fileTreeOpen ? styles.fileTreeButtonActive : ""
+                    }`}
+                    aria-label={t("files.navigator")}
+                    aria-pressed={layout.fileTreeOpen}
+                    onClick={toggleFileTree}
+                  >
+                    <FolderTree size={15} />
+                  </button>
+                }
                 workspaceOnly
               />
             ) : layout.activeTab === "changes" ? (

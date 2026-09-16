@@ -1,9 +1,12 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FilesNavigator from "./FilesNavigator";
+import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
 
 const mocks = vi.hoisted(() => ({
   getProjectDirectory: vi.fn(),
+  getChatProjectDirectory: vi.fn(),
+  loadSessionProjectDirs: vi.fn(),
   getSystemPromptFiles: vi.fn(),
   listDirectory: vi.fn(),
   listFiles: vi.fn(),
@@ -47,6 +50,14 @@ vi.mock("../../api/modules/projectDirectory", () => ({
   projectDirectoryApi: { get: mocks.getProjectDirectory },
 }));
 
+vi.mock("../../api/modules/chatProjectDirectory", () => ({
+  chatProjectDirectoryApi: { get: mocks.getChatProjectDirectory },
+}));
+
+vi.mock("../project-directory/loadSessionProjectDirs", () => ({
+  loadSessionProjectDirs: mocks.loadSessionProjectDirs,
+}));
+
 vi.mock("../../stores/codingTabsStore", () => ({
   useCodingTabsStore: {
     getState: () => ({
@@ -68,7 +79,13 @@ const mdFile = (filename: string) => ({
   modified_time: "2026-01-01T00:00:00Z",
 });
 
-function renderNavigator({ workspaceOnly = false } = {}) {
+function renderNavigator({
+  workspaceOnly = false,
+  scope = { kind: "agent", agentId: "default" },
+}: {
+  workspaceOnly?: boolean;
+  scope?: FilesWorkspaceScope;
+} = {}) {
   return render(
     <FilesNavigator
       selectedPath=""
@@ -76,7 +93,7 @@ function renderNavigator({ workspaceOnly = false } = {}) {
       activeMemoryGraphRoot={null}
       onShowMemoryGraph={vi.fn()}
       onShowFiles={vi.fn()}
-      scope={{ kind: "agent", agentId: "default" }}
+      scope={scope}
       workspaceOnly={workspaceOnly}
     />,
   );
@@ -92,6 +109,23 @@ describe("FilesNavigator system prompt interactions", () => {
     mocks.getProjectDirectory.mockResolvedValue({
       path: "/project",
       workspace_dir: "/workspace",
+    });
+    mocks.getChatProjectDirectory.mockResolvedValue({
+      project_dir: "/project",
+      exists: true,
+    });
+    mocks.loadSessionProjectDirs.mockResolvedValue({
+      dirs: [
+        {
+          path: "/project",
+          label: null,
+          exists: true,
+          nested_with: null,
+          is_workspace: false,
+        },
+      ],
+      source: "session",
+      agentProjectDir: "/project",
     });
     mocks.listDirectory.mockResolvedValue({
       entries: [],
@@ -132,6 +166,52 @@ describe("FilesNavigator system prompt interactions", () => {
     expect(mocks.listFiles).not.toHaveBeenCalled();
     expect(mocks.getSystemPromptFiles).not.toHaveBeenCalled();
     expect(mocks.listMemoryFiles).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("files.projectDirectory"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "files.switchRoot" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers directory switching in Workbench only for multiple roots", async () => {
+    mocks.loadSessionProjectDirs.mockResolvedValue({
+      dirs: [
+        {
+          path: "/project-a",
+          label: "Project A",
+          exists: true,
+          nested_with: null,
+          is_workspace: false,
+        },
+        {
+          path: "/project-b",
+          label: "Project B",
+          exists: true,
+          nested_with: null,
+          is_workspace: false,
+        },
+      ],
+      source: "chat",
+      agentProjectDir: "/project-a",
+    });
+
+    renderNavigator({
+      workspaceOnly: true,
+      scope: {
+        kind: "session",
+        agentId: "default",
+        sessionId: "session-1",
+        chatId: "chat-1",
+      },
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "files.switchRoot" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("files.projectDirectory"),
+    ).not.toBeInTheDocument();
   });
 
   it("can add a custom prompt again after disabling it", async () => {

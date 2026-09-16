@@ -11,7 +11,13 @@
  *   • Cmd/Ctrl+S to save
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import "../../monacoSetup";
 import Editor, {
   DiffEditor,
@@ -85,6 +91,7 @@ interface TabbedEditorProps {
   /** Workbench renders file resources in its shared top-level tab strip. */
   showTabBar?: boolean;
   showBreadcrumbs?: boolean;
+  toolbarTrailing?: ReactNode;
   onOpenWorkspaceFile?: (path: string, root: WorkspaceRoot) => void;
   navigation?: {
     path: string;
@@ -201,6 +208,7 @@ export default function TabbedEditor({
   projectDirOverride,
   showTabBar = true,
   showBreadcrumbs = false,
+  toolbarTrailing,
   onOpenWorkspaceFile,
   navigation,
 }: TabbedEditorProps) {
@@ -1375,6 +1383,7 @@ export default function TabbedEditor({
               </>
             )}
           </div>
+          {toolbarTrailing}
         </div>
       </div>
 

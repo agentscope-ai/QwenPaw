@@ -498,7 +498,15 @@ export default function FilesNavigator({
         : 0,
     [boundDirs, extraRootsPending],
   );
-  const roots = useMemo(() => workspaceRoots(rootDirs), [rootDirs]);
+  const roots = useMemo(() => {
+    const availableRoots = workspaceRoots(rootDirs);
+    if (!workspaceOnly) return availableRoots;
+    const workingDirectoryRoots = availableRoots.filter(isProjectRoot);
+    // A workspace fallback is the working directory when no project is bound.
+    return workingDirectoryRoots.length > 0
+      ? workingDirectoryRoots
+      : availableRoots.slice(0, 1);
+  }, [rootDirs, workspaceOnly]);
   const profileFiles = useMemo(
     () => selectProfileFiles(allProfileFiles, enabledFiles),
     [allProfileFiles, enabledFiles],
@@ -596,14 +604,22 @@ export default function FilesNavigator({
         ),
       });
     }
-    if (scopeKind === "session") {
+    if (scopeKind === "session" && !workspaceOnly) {
       items.push(
         { type: "divider" },
         { key: MANAGE_DIRS_KEY, label: t("files.manageDirs") },
       );
     }
     return items;
-  }, [describeRoot, pendingRootCount, roots, scopeKind, t, workspaceRoot]);
+  }, [
+    describeRoot,
+    pendingRootCount,
+    roots,
+    scopeKind,
+    t,
+    workspaceOnly,
+    workspaceRoot,
+  ]);
   const managedProfileNames = useMemo(
     () => new Set(profileFiles.map((file) => file.path)),
     [profileFiles],
@@ -827,9 +843,11 @@ export default function FilesNavigator({
               )}
             </span>
             <div className={styles.directoryContextBody}>
-              <span className={styles.directoryContextLabel}>
-                {t(`files.${rootFlavour}Directory`)}
-              </span>
+              {!workspaceOnly && (
+                <span className={styles.directoryContextLabel}>
+                  {t(`files.${rootFlavour}Directory`)}
+                </span>
+              )}
               {/* One plain-text identity for every root. Binding is reached
                   through the switcher's "manage directories" item, so the
                   header does not carry a second interactive control. */}
@@ -863,7 +881,8 @@ export default function FilesNavigator({
                 it is the only way to reach "manage directories", and a session
                 with nothing bound yet has exactly one root — the case where
                 binding a directory matters most. */}
-            {(roots.length > 1 || scopeKind === "session") && (
+            {(roots.length > 1 ||
+              (scopeKind === "session" && !workspaceOnly)) && (
               <Dropdown
                 menu={{
                   items: rootMenuItems,
