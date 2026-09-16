@@ -11,6 +11,9 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from ..constant import WORKING_DIR, TOKEN_USAGE_FILE
+from ..identity.runtime import get_identity_schema
+from ..persistence.mode import StorageMode
+from ..persistence.settings import load_database_settings
 from .buffer import TokenUsageBuffer, _UsageEvent
 
 logger = logging.getLogger(__name__)
@@ -70,7 +73,20 @@ class TokenUsageManager:
 
     def __init__(self) -> None:
         path: Path = (WORKING_DIR / TOKEN_USAGE_FILE).expanduser()
-        self._buffer = TokenUsageBuffer(path)
+        settings = load_database_settings()
+        self._postgres = (
+            settings.multi_user_enabled
+            and settings.storage_mode is StorageMode.POSTGRES
+        )
+        if self._postgres:
+            from .postgres_buffer import PostgresUsageBuffer
+            from .usage_repository import PostgresUsageRepository
+
+            self._buffer = PostgresUsageBuffer(
+                repository=PostgresUsageRepository(schema=get_identity_schema())
+            )
+        else:
+            self._buffer = TokenUsageBuffer(path)
         self._flush_interval = 10  # default
 
     def start(self, flush_interval: int = 10) -> None:
@@ -81,7 +97,7 @@ class TokenUsageManager:
         """
         self._flush_interval = flush_interval
         # Recreate buffer with desired flush_interval if different from default
-        if flush_interval != 10:
+        if not self._postgres and flush_interval != 10:
             path: Path = (WORKING_DIR / TOKEN_USAGE_FILE).expanduser()
             self._buffer = TokenUsageBuffer(
                 path,

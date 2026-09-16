@@ -1,6 +1,9 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
+import {
+  useChatAnywhereSessionsState,
+  type IAgentScopeRuntimeWebUIRef,
+} from "@agentscope-ai/chat";
 import sessionApi from "../../sessionApi";
 import {
   buildChatPath,
@@ -11,25 +14,29 @@ import {
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
 import { useCreateNewSession } from "../../hooks/useCreateNewSession";
+import { useAgentStore } from "../../../../stores/agentStore";
+import { replaceRuntimeMessageSnapshot } from "../../runtimeMessageSnapshot";
+
+interface ChatSessionInitializerProps {
+  runtimeRef?: React.RefObject<IAgentScopeRuntimeWebUIRef | null>;
+}
 
 /**
  * URL chatId → context currentSessionId (one direction of bidirectional sync).
  *
  * Extracts the session ID from the canonical `/chat/<id>` URL.
  *
- * Only reacts to URL or session list changes. currentSessionId is read via ref
- * to avoid triggering the effect when the context changes from the other direction
- * (context → URL via onSessionSelected), which would cause circular re-loads.
- *
- * IMPORTANT: sessions array reference changes (e.g. from polling in pinned drawer)
- * must NOT re-trigger setCurrentSessionId when the chatId hasn't changed, otherwise
- * it causes an infinite loop of getSession calls bouncing between two chat IDs.
+ * The URL is the selection authority. History reads must not navigate elsewhere.
+ * Compare the resolved SDK id before updating: list polling is a no-op when in
+ * sync, but a stale SDK selection after completion must still be corrected.
  *
  * Also handles sidebar events:
  *  - qwenpaw:sidebar-select-session → switch to the given sessionId
  *  - qwenpaw:sidebar-new-chat       → create a new session
  */
-const ChatSessionInitializer: React.FC = () => {
+const ChatSessionInitializer: React.FC<ChatSessionInitializerProps> = ({
+  runtimeRef,
+}) => {
   const location = useLocation();
   const navigate = useNavigate();
   const chatId = useMemo(
@@ -41,6 +48,28 @@ const ChatSessionInitializer: React.FC = () => {
     useChatAnywhereSessionsState();
   const createNewSession = useCreateNewSession();
   const { syncFromLibrary } = useSessionListStore();
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
+
+  // Persist canonical, accessible URL selections even when SDK callbacks skip
+  // an already-loaded session. Polling must not trigger another navigation.
+  useEffect(() => {
+    if (!chatId || !selectedAgent) return;
+    if (sessionApi.getActiveOwner().agentId !== selectedAgent) return;
+    const matching = sessions.find(
+      (entry) =>
+        entry.id === chatId || (entry as ExtendedSession).realId === chatId,
+    );
+    if (!matching) return;
+    const id = (matching as ExtendedSession).realId || matching.id;
+    if (/^\d+(?:-[a-z0-9]+)?$/.test(id)) return;
+    const store = useAgentStore.getState();
+    if (
+      store.lastChatIdByAgent[selectedAgent] !== id ||
+      sessionApi.lastActiveChatId !== id
+    ) {
+      sessionApi.trackNavigatedSession(id, store.setLastChatId, selectedAgent);
+    }
+  }, [chatId, sessions, selectedAgent]);
 
   // Sync library sessions → shared Zustand store whenever they change.
   // This makes the session list available to components outside the context tree
@@ -53,9 +82,6 @@ const ChatSessionInitializer: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessions]);
 
-  const currentSessionIdRef = useRef(currentSessionId);
-  currentSessionIdRef.current = currentSessionId;
-
   const sessionsRef = useRef(sessions);
   sessionsRef.current = sessions;
 
@@ -65,10 +91,18 @@ const ChatSessionInitializer: React.FC = () => {
   /** AbortController for embedded session switch — aborted when a new switch starts. */
   const switchControllerRef = useRef<AbortController | null>(null);
 
-  /** Track the last chatId for which we called setCurrentSessionId, so that
-   *  subsequent sessions array reference changes (from polling in pinned drawer)
-   *  don't re-trigger setCurrentSessionId and cause infinite getSession loops. */
-  const lastAppliedChatIdRef = useRef<string | undefined>(undefined);
+  const [switchCompletion, setSwitchCompletion] = useState(0);
+  useEffect(() => {
+    // The singleton lock is not React state. Retry a deferred URL selection
+    // when it is released, even if the SDK session list has not changed.
+    const handleSwitchDone = () => setSwitchCompletion((value) => value + 1);
+    window.addEventListener("qwenpaw:sidebar-switch-done", handleSwitchDone);
+    return () =>
+      window.removeEventListener(
+        "qwenpaw:sidebar-switch-done",
+        handleSwitchDone,
+      );
+  }, []);
 
   useEffect(() => {
     if (!chatId || !sessions.length) return;
@@ -79,21 +113,9 @@ const ChatSessionInitializer: React.FC = () => {
     // library getSession → onSessionSelected → …
     if (sessionApi.isSessionSwitching) return;
 
-    // If onSessionSelected already navigated to this chatId, skip.
-    // This prevents the displayId→realId URL change from triggering
-    // an unnecessary setCurrentSessionId(realId) that would cause
-    // a redundant getSession call (issue #4557).
+    // A navigation marker acknowledges the URL, not the SDK's displayed session.
     if (sessionApi.lastNavigatedChatId === chatId) {
-      lastAppliedChatIdRef.current = chatId;
       sessionApi.lastNavigatedChatId = null;
-      return;
-    }
-
-    // If we already applied this exact chatId and the context is in sync, skip.
-    // This prevents the polling-triggered sessions refresh (pinned drawer)
-    // from re-calling setCurrentSessionId and causing circular getSession loops.
-    if (chatId === lastAppliedChatIdRef.current) {
-      return;
     }
 
     // Match by multiple criteria in order of specificity:
@@ -113,16 +135,67 @@ const ChatSessionInitializer: React.FC = () => {
       );
     }
 
-    if (matching && currentSessionIdRef.current !== matching.id) {
-      lastAppliedChatIdRef.current = chatId;
+    if (matching && currentSessionId !== matching.id) {
       setCurrentSessionId(matching.id);
-    } else if (matching) {
-      // Already in sync, just record that we've handled this chatId
-      lastAppliedChatIdRef.current = chatId;
     }
-    // Intentionally exclude currentSessionId from deps: only react to URL / session list changes.
-    // currentSessionId is read via ref to avoid circular triggers.
-  }, [chatId, sessions, setCurrentSessionId]);
+  }, [
+    chatId,
+    sessions,
+    currentSessionId,
+    setCurrentSessionId,
+    switchCompletion,
+  ]);
+
+  // The sessions context survives route changes while the SDK message provider
+  // is mounted anew. In that state the selected id already matches the URL, so
+  // setCurrentSessionId is intentionally a no-op and the page would show the
+  // new-chat welcome screen. Restore the persisted snapshot into the empty
+  // runtime instead.
+  const restoredRuntimeRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!runtimeRef?.current || !chatId || !sessions.length) return;
+    if (sessionApi.isSessionSwitching) return;
+
+    const matching = sessions.find(
+      (session) =>
+        session.id === chatId ||
+        (session as ExtendedSession).realId === chatId ||
+        (session as ExtendedSession).sessionId === chatId,
+    );
+    if (!matching || currentSessionId !== matching.id) return;
+    if (runtimeRef.current.messages.getMessages().length > 0) return;
+
+    const restoreKey = `${selectedAgent || ""}:${matching.id}:${chatId}`;
+    if (restoredRuntimeRef.current === restoreKey) return;
+    restoredRuntimeRef.current = restoreKey;
+
+    const controller = new AbortController();
+    sessionApi
+      .preloadSession(matching.id, controller.signal)
+      .then(({ session }) => {
+        if (controller.signal.aborted || !runtimeRef.current) return;
+        if (runtimeRef.current.messages.getMessages().length > 0) return;
+        replaceRuntimeMessageSnapshot(
+          runtimeRef.current.messages,
+          session.messages || [],
+        );
+      })
+      .catch((error) => {
+        if (error?.name !== "AbortError") {
+          restoredRuntimeRef.current = null;
+          console.debug("[Chat route restore] skipped:", error);
+        }
+      });
+
+    return () => controller.abort();
+  }, [
+    chatId,
+    currentSessionId,
+    runtimeRef,
+    selectedAgent,
+    sessions,
+    switchCompletion,
+  ]);
 
   // ── Sidebar event handlers ────────────────────────────────────────────────
 
@@ -169,9 +242,6 @@ const ChatSessionInitializer: React.FC = () => {
           .finally(() => {
             if (!controller.signal.aborted) {
               sessionApi.finishSessionSwitch();
-              window.dispatchEvent(
-                new CustomEvent("qwenpaw:sidebar-switch-done"),
-              );
             }
           });
       }

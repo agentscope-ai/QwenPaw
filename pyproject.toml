@@ -70,6 +70,11 @@ dependencies = [
     # wheels for all three OSes.
     "ast-grep-cli>=0.20",
     "html2text>=2024.2.26",
+    "pypdf>=6.0,<7",
+    "sqlalchemy>=2.0,<3",
+    "asyncpg>=0.29,<1",
+    "alembic>=1.13,<2",
+    "pwdlib[argon2]>=0.3,<1",
 ]
 
 [project.urls]
@@ -162,6 +167,8 @@ sip-livekit = [
 ]
 
 [tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+pythonpath = ["tests/integration"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [

@@ -1,5 +1,5 @@
 import { Button } from "@agentscope-ai/design";
-import { Alert, Spin } from "antd";
+import { Alert, Spin, Input, Select, Result } from "antd";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
 import { useVoiceTranscription } from "./useVoiceTranscription";
@@ -14,6 +14,17 @@ function VoiceTranscriptionPage() {
   const { t } = useTranslation();
   const {
     loading,
+    canManage,
+    canSave,
+    canTest,
+    testing,
+    testResult,
+    model,
+    setModel,
+    localModel,
+    setLocalModel,
+    localModels,
+    handleTest,
     saving,
     audioMode,
     setAudioMode,
@@ -29,6 +40,8 @@ function VoiceTranscriptionPage() {
     fetchSettings,
     handleSave,
   } = useVoiceTranscription();
+
+  if (!canManage) return <Result status="403" title="403" />;
 
   if (loading) {
     return (
@@ -83,17 +96,67 @@ function VoiceTranscriptionPage() {
             )}
           </>
         )}
+        {showProviderSection && isWhisperApi && (
+          <label>
+            {t("voiceTranscription.remoteModel")}
+            <Input
+              aria-label={t("voiceTranscription.remoteModel")}
+              data-testid="voice-remote-model"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            />
+          </label>
+        )}
+        {showProviderSection && isLocalWhisper && (
+          <label>
+            {t("voiceTranscription.localModel")}
+            <Select
+              aria-label={t("voiceTranscription.localModel")}
+              data-testid="voice-local-model"
+              value={localModel}
+              options={localModels.map((value) => ({ value, label: value }))}
+              onChange={setLocalModel}
+              style={{ minWidth: 160 }}
+            />
+          </label>
+        )}
+        <label>
+          {t("voiceTranscription.testSaved")}
+          <input
+            type="file"
+            accept="audio/*"
+            aria-label={t("voiceTranscription.testSaved")}
+            data-testid="voice-test-upload"
+            disabled={!canTest}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) void handleTest(file);
+            }}
+          />
+        </label>
+        <p>{t("voiceTranscription.testSavedHint")}</p>
+        {testing && <Spin />}
+        {testResult && (
+          <output data-testid="voice-test-result">{testResult}</output>
+        )}
       </div>
 
       <div className={styles.footerButtons}>
         <Button
           onClick={fetchSettings}
-          disabled={saving}
+          disabled={saving || testing}
           style={{ marginRight: 8 }}
         >
           {t("common.reset")}
         </Button>
-        <Button type="primary" onClick={handleSave} loading={saving}>
+        <Button
+          type="primary"
+          onClick={handleSave}
+          loading={saving}
+          disabled={!canSave}
+          data-testid="voice-save"
+        >
           {t("common.save")}
         </Button>
       </div>

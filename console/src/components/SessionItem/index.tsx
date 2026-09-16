@@ -24,6 +24,8 @@ export interface SessionItemProps {
   generating?: boolean;
   pinned?: boolean;
   archived?: boolean;
+  readOnly?: boolean;
+  sharedBy?: string | null;
   time?: string; // Only used by the drawer variant
 
   // -- State --
@@ -41,6 +43,7 @@ export interface SessionItemProps {
   onDelete?: (sessionId: string) => void;
   onPin?: (sessionId: string) => void;
   onArchive?: (sessionId: string) => void;
+  onShare?: (sessionId: string) => void;
   onEditChange?: (value: string) => void;
   onEditSubmit?: () => void;
   onEditCancel?: () => void;
@@ -55,6 +58,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
   generating,
   pinned,
   archived,
+  readOnly,
+  sharedBy,
   time,
   active,
   disabled,
@@ -66,6 +71,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   onDelete,
   onPin,
   onArchive,
+  onShare,
   onEditChange,
   onEditSubmit,
   onEditCancel,
@@ -80,6 +86,9 @@ const SessionItem: React.FC<SessionItemProps> = ({
   const statusAriaLabel = inProgress
     ? t("chat.statusInProgress")
     : t("chat.statusIdle");
+  const hasSessionActions = Boolean(
+    onPin || onEdit || onArchive || onShare || onDelete,
+  );
 
   const handleClick = useCallback(() => {
     if (disabled || editing) return;
@@ -128,6 +137,15 @@ const SessionItem: React.FC<SessionItemProps> = ({
           : t("sessions.archive.action", "Archive"),
         onClick: () => onArchive?.(sessionId),
       },
+      ...(onShare
+        ? [
+            {
+              key: "share",
+              label: t("chat.contextMenu.share", "分享会话"),
+              onClick: () => onShare(sessionId),
+            },
+          ]
+        : []),
       { type: "divider" as const },
       {
         key: "delete",
@@ -144,6 +162,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
       t,
       onPin,
       onArchive,
+      onShare,
       onDelete,
       handleStartEdit,
     ],
@@ -235,6 +254,12 @@ const SessionItem: React.FC<SessionItemProps> = ({
         {/* Drawer variant: show time and channel in meta row */}
         {variant === "drawer" && (
           <div className={styles.metaRow}>
+            {readOnly && (
+              <span className={styles.channelTag}>
+                {t("chat.sharedReadOnlyBadge")}
+                {sharedBy ? ` · ${sharedBy}` : ""}
+              </span>
+            )}
             {time && <span className={styles.time}>{time}</span>}
             {(channelKey || channelLabel) && (
               <span
@@ -261,7 +286,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
       )}
 
       {/* More button — unified for both variants */}
-      {!editing && (
+      {!editing && hasSessionActions && (
         <Dropdown
           menu={{ items: dropdownItems }}
           trigger={["click"]}
@@ -275,6 +300,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
       )}
     </div>
   );
+
+  if (!hasSessionActions) return itemContent;
 
   return (
     <Dropdown menu={{ items: dropdownItems }} trigger={["contextMenu"]}>

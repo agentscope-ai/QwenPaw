@@ -28,6 +28,7 @@ import {
 } from "./utils";
 import { ProviderIcon } from "./components/ProviderIconComponent";
 import styles from "./index.module.less";
+import GovernancePanel from "./GovernancePanel";
 
 /* ------------------------------------------------------------------ */
 /* Main Page                                                           */
@@ -285,6 +286,7 @@ function ModelsPage() {
 
   return (
     <div className={styles.settingsPage}>
+      <GovernancePanel />
       {loading ? (
         <LoadingState message={t("models.loading")} />
       ) : error ? (

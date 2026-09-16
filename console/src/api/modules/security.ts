@@ -90,6 +90,28 @@ export interface SecurityScanErrorResponse {
   findings: BlockedSkillFinding[];
 }
 
+export interface SecurityPolicy {
+  tool_guard: ToolGuardConfig;
+  file_guard: {
+    enabled: boolean;
+    sensitive_files: string[];
+    allow_preview_outside_workspace: boolean;
+  };
+  skill_scanner: SkillScannerConfig;
+  sandbox_enabled: boolean;
+  allow_no_auth_hosts: string[];
+  trusted_proxies: string[];
+}
+
+export interface SecurityPolicyResponse {
+  scope: "platform" | "agent";
+  agent_id: string | null;
+  platform_locked_fields: string[];
+  platform_baseline: SecurityPolicy;
+  agent_override: SecurityPolicy | null;
+  effective_policy: SecurityPolicy;
+}
+
 // ── Allow No Auth Hosts types ──────────────────────────────────────
 
 export interface AllowNoAuthHostsResponse {
@@ -101,6 +123,11 @@ export interface AllowNoAuthHostsUpdateBody {
 }
 
 export const securityApi = {
+  getSecurityPolicy: (agentId: string) =>
+    request<SecurityPolicyResponse>(
+      `/agents/${encodeURIComponent(agentId)}/config/security/policy`,
+    ),
+
   // ── Tool Guard ──────────────────────────────────────────────────
 
   getToolGuard: () => request<ToolGuardConfig>("/config/security/tool-guard"),

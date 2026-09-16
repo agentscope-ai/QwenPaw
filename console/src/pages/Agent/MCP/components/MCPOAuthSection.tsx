@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Button, Input, Tooltip } from "@agentscope-ai/design";
 import { Switch } from "antd";
 import {
@@ -14,6 +14,8 @@ import { useTranslation } from "react-i18next";
 import api from "../../../../api";
 import type { MCPClientOAuthStatus } from "../../../../api/types";
 import { openExternalLink } from "../../../../utils/openExternalLink";
+import { useSkillScope } from "../../../../api/skillScope";
+import { getOAuthSessionTerminal, matchesOAuthMessage } from "../oauthMessage";
 
 interface MCPOAuthSectionProps {
   /** MCP server URL — used for OAuth discovery */
@@ -33,6 +35,7 @@ interface MCPOAuthSectionProps {
   scope?: string;
   authEndpoint?: string;
   tokenEndpoint?: string;
+  revision?: number;
   onClientIdChange?: (v: string) => void;
   onScopeChange?: (v: string) => void;
   onAuthEndpointChange?: (v: string) => void;
@@ -44,6 +47,7 @@ type OAuthPhase =
   | "starting"
   | "waiting"
   | "success"
+  | "expired"
   | "error"
   | "revoking";
 
@@ -58,33 +62,61 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
   scope = "",
   authEndpoint = "",
   tokenEndpoint = "",
+  revision,
   onClientIdChange,
   onScopeChange,
   onAuthEndpointChange,
   onTokenEndpointChange,
 }) => {
   const { t } = useTranslation();
+  const requestScope = useSkillScope();
+  const apiContext = {
+    agentId: requestScope.agentId,
+    signal: requestScope.signal,
+  };
 
   const [phase, setPhase] = useState<OAuthPhase>("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState("");
+  const clearMessageListenerRef = useRef<() => void>(() => undefined);
+
+  useEffect(
+    () => () => {
+      clearMessageListenerRef.current();
+    },
+    [],
+  );
 
   // Poll backend every 2s when waiting, for existing clients
   useEffect(() => {
-    if (phase !== "waiting" || !clientKey) return;
+    if (phase !== "waiting" || !clientKey || !activeSessionId) return;
     const timer = setInterval(async () => {
       try {
-        const st = await api.getOAuthStatus(clientKey);
-        if (st.authorized) {
+        const st = await api.getOAuthStatus(clientKey, activeSessionId, apiContext);
+        if (!requestScope.current()) return;
+        const terminal = getOAuthSessionTerminal(st, activeSessionId);
+        if (terminal === "success") {
+          clearMessageListenerRef.current();
           setPhase("success");
           onAuthChanged?.();
+        } else if (terminal === "failed" || terminal === "expired") {
+          clearMessageListenerRef.current();
+          setPhase(terminal === "expired" ? "expired" : "error");
+          setErrorMsg(
+            t(
+              terminal === "expired"
+                ? "mcp.oauth.sessionExpired"
+                : "mcp.oauth.authFailed",
+            ),
+          );
         }
       } catch {
         // ignore
       }
     }, 2000);
     return () => clearInterval(timer);
-  }, [phase, clientKey, onAuthChanged]);
+  }, [phase, clientKey, activeSessionId, onAuthChanged, requestScope]);
 
   // Determine combined authorized state
   const isAuthorized =
@@ -94,11 +126,12 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
       currentOAuthStatus?.authorized === true);
 
   const isExpired =
-    !isNewClient &&
-    phase === "idle" &&
-    currentOAuthStatus?.authorized &&
-    currentOAuthStatus.expires_at > 0 &&
-    currentOAuthStatus.expires_at < Date.now() / 1000;
+    phase === "expired" ||
+    (!isNewClient &&
+      phase === "idle" &&
+      currentOAuthStatus?.authorized &&
+      currentOAuthStatus.expires_at > 0 &&
+      currentOAuthStatus.expires_at < Date.now() / 1000);
 
   // Capture before any type narrowing caused by isAuthorized/isExpired guards
   const isRevoking = phase === "revoking";
@@ -123,9 +156,37 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
         client_id: clientId,
         auth_endpoint: authEndpoint,
         token_endpoint: tokenEndpoint,
-      });
+        expected_revision: revision,
+      }, apiContext);
 
+      setActiveSessionId(resp.session_id);
       setPhase("waiting");
+      const captured = {
+        origin: window.location.origin,
+        sessionId: resp.session_id,
+        clientKey,
+        agentId: requestScope.agentId,
+      };
+      const onMessage = (event: MessageEvent) => {
+        if (!matchesOAuthMessage(event, captured) || !requestScope.current()) return;
+        clearMessageListenerRef.current();
+        if (event.data.type === "mcp-oauth-success") {
+          setPhase("success");
+          onAuthChanged?.();
+        } else {
+          setPhase("error");
+          setErrorMsg(t("mcp.oauth.authFailed"));
+        }
+      };
+      clearMessageListenerRef.current();
+      clearMessageListenerRef.current = () =>
+        window.removeEventListener("message", onMessage);
+      window.addEventListener("message", onMessage, { once: false });
+      requestScope.signal.addEventListener(
+        "abort",
+        clearMessageListenerRef.current,
+        { once: true },
+      );
       openExternalLink(resp.auth_url, "_blank", "popup,width=600,height=700");
       // The existing useEffect polls backend every 2s while phase === "waiting"
     } catch (err: unknown) {
@@ -134,19 +195,22 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
       setPhase("error");
       setErrorMsg(msg);
     }
-  }, [url, clientKey, scope, clientId, authEndpoint, tokenEndpoint, t]);
+  }, [url, clientKey, scope, clientId, authEndpoint, tokenEndpoint, revision, t, requestScope, onAuthChanged]);
 
   const handleRevoke = useCallback(async () => {
     if (!clientKey) return;
     setPhase("revoking");
     try {
-      await api.revokeOAuth(clientKey);
+      await api.revokeOAuth(clientKey, revision, apiContext);
       setPhase("idle");
       onAuthChanged?.();
-    } catch {
+    } catch (error: unknown) {
       setPhase("idle");
+      setErrorMsg(
+        error instanceof Error ? error.message : t("mcp.oauth.authFailed"),
+      );
     }
-  }, [clientKey, onAuthChanged]);
+  }, [clientKey, revision, onAuthChanged, requestScope, t]);
 
   if (!oauthEnabled) {
     return null;
@@ -200,6 +264,7 @@ export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
             </Button>
           )}
           <Button
+            data-testid={`mcp-oauth-start-${clientKey ?? "new"}`}
             size="small"
             type={isAuthorized && !isExpired ? "default" : "primary"}
             onClick={handleStartOAuth}

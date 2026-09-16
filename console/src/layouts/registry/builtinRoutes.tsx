@@ -17,6 +17,7 @@ import { Navigate } from "react-router-dom";
 import { lazyImportWithRetry } from "../../utils/lazyWithRetry";
 import { routeRegistry } from "../../plugins/registry/store";
 import type { Route } from "../../plugins/registry/types";
+import { Capability } from "../../access/capabilities";
 
 // Eager pages
 import Chat from "../../pages/Chat";
@@ -33,8 +34,11 @@ const SkillPoolPage = lazyImportWithRetry("../../pages/Settings/SkillPool");
 const ToolsPage = lazyImportWithRetry("../../pages/Agent/Tools");
 const CheckpointsPage = lazyImportWithRetry("../../pages/Agent/Checkpoints");
 const MCPPage = lazyImportWithRetry("../../pages/Agent/MCP");
-const ACPPage = lazyImportWithRetry("../../pages/Agent/ACP");
 const ModelsPage = lazyImportWithRetry("../../pages/Settings/Models");
+const AdminUsersPage = lazyImportWithRetry("../../pages/Admin/Users");
+const AdminPublicationsPage = lazyImportWithRetry(
+  "../../pages/Admin/Publications",
+);
 const EnvironmentsPage = lazyImportWithRetry(
   "../../pages/Settings/Environments",
 );
@@ -42,6 +46,10 @@ const OffloadPolicyPage = lazyImportWithRetry(
   "../../pages/Settings/OffloadPolicy",
 );
 const SecurityPage = lazyImportWithRetry("../../pages/Settings/Security");
+const SystemStatusPage = lazyImportWithRetry("../../pages/Admin/SystemStatus");
+const MigrationPreviewPage = lazyImportWithRetry(
+  "../../pages/Admin/MigrationPreview",
+);
 const TokenUsagePage = lazyImportWithRetry("../../pages/Settings/TokenUsage");
 const AgentStatsPage = lazyImportWithRetry("../../pages/Settings/AgentStats");
 const VoiceTranscriptionPage = lazyImportWithRetry(
@@ -63,11 +71,6 @@ function DefaultRedirect() {
   return <Navigate to="/chat" replace />;
 }
 
-/** Synonym for /acp. Kept for plugins / external links that reference uppercase. */
-function ACPRedirect() {
-  return <Navigate to="/acp" replace />;
-}
-
 export const BUILTIN_ROUTES: Route[] = [
   { id: "core.root", path: "/", component: DefaultRedirect },
   { id: "core.chat", path: "/chat/*", component: Chat },
@@ -78,43 +81,94 @@ export const BUILTIN_ROUTES: Route[] = [
   { id: "core.cron-jobs", path: "/cron-jobs", component: CronJobsPage },
   { id: "core.heartbeat", path: "/heartbeat", component: HeartbeatPage },
   { id: "core.skills", path: "/skills", component: SkillsPage },
-  { id: "core.skill-pool", path: "/skill-pool", component: SkillPoolPage },
+  {
+    id: "core.skill-pool",
+    path: "/skill-pool",
+    component: SkillPoolPage,
+    capability: Capability.PlatformSettingsManage,
+  },
   { id: "core.tools", path: "/tools", component: ToolsPage },
   { id: "core.mcp", path: "/mcp", component: MCPPage },
-  { id: "core.acp", path: "/acp", component: ACPPage },
-  { id: "core.acp-alias", path: "/ACP", component: ACPRedirect },
   { id: "core.checkpoints", path: "/checkpoints", component: CheckpointsPage },
   { id: "core.agents", path: "/agents", component: AgentsPage },
-  { id: "core.models", path: "/models", component: ModelsPage },
+  {
+    id: "core.models",
+    path: "/models",
+    component: ModelsPage,
+    capability: Capability.PlatformSettingsManage,
+  },
+  {
+    id: "core.admin-users",
+    path: "/admin/users",
+    component: AdminUsersPage,
+    capability: Capability.UsersManage,
+  },
+  {
+    id: "core.admin-publications",
+    path: "/admin/publications",
+    component: AdminPublicationsPage,
+    capability: Capability.PublicationsReview,
+  },
   {
     id: "core.environments",
     path: "/environments",
     component: EnvironmentsPage,
+    capability: Capability.PlatformSettingsManage,
   },
   {
     id: "core.offload-policy",
     path: "/offload-policy",
     component: OffloadPolicyPage,
+    capability: Capability.PlatformSettingsManage,
   },
   {
     id: "core.agent-config",
     path: "/agent-config",
     component: AgentConfigPage,
   },
-  { id: "core.security", path: "/security", component: SecurityPage },
+  {
+    id: "core.security",
+    path: "/security",
+    component: SecurityPage,
+    capability: Capability.PlatformSettingsManage,
+  },
+  {
+    id: "core.system-status",
+    path: "/system-status",
+    component: SystemStatusPage,
+    capability: Capability.PlatformSettingsManage,
+  },
+  {
+    id: "core.migration-preview",
+    path: "/migration-preview",
+    component: MigrationPreviewPage,
+    capability: Capability.PlatformSettingsManage,
+  },
   { id: "core.token-usage", path: "/token-usage", component: TokenUsagePage },
   { id: "core.agent-stats", path: "/agent-stats", component: AgentStatsPage },
   {
     id: "core.voice-transcription",
     path: "/voice-transcription",
     component: VoiceTranscriptionPage,
+    capability: Capability.PlatformSettingsManage,
   },
-  { id: "core.debug", path: "/debug", component: DebugPage },
-  { id: "core.backups", path: "/backups", component: BackupsPage },
+  {
+    id: "core.debug",
+    path: "/debug",
+    component: DebugPage,
+    capability: Capability.PlatformSettingsManage,
+  },
+  {
+    id: "core.backups",
+    path: "/backups",
+    component: BackupsPage,
+    capability: Capability.PlatformSettingsManage,
+  },
   {
     id: "core.plugin-manager",
     path: "/plugin-manager",
     component: PluginManagerPage,
+    capability: Capability.PlatformSettingsManage,
   },
   { id: "core.app-center", path: "/apps", component: AppCenterPage },
   // Deep-link / refresh target: `/apps/<id>` also lands on the App Center,

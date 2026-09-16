@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import api from "../../../api";
+import { useSkillRuntime } from "../../Agent/Skills/useSkillRuntime";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { MarketResult } from "../../../api/modules/market";
 
@@ -31,21 +31,37 @@ const POLL_MS = 1000;
 const TIMEOUT_MS = 90_000;
 
 export function useMarketInstall(opts: UseMarketInstallOptions) {
+  const { scope, api } = useSkillRuntime(opts.selectedAgent);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [queue, setQueueState] = useState<InstallQueueItem[]>([]);
   const queueRef = useRef<InstallQueueItem[]>([]);
   const runningRef = useRef(false);
   const cancelledRef = useRef<Set<string>>(new Set());
   const currentTaskIdRef = useRef<string | null>(null);
   const currentInstallingItemIdRef = useRef<string | null>(null);
-  const selectedAgentRef = useRef(opts.selectedAgent);
   useEffect(() => {
-    selectedAgentRef.current = opts.selectedAgent;
-  }, [opts.selectedAgent]);
+    queueRef.current = [];
+    setQueueState([]);
+    runningRef.current = false;
+    currentTaskIdRef.current = null;
+    currentInstallingItemIdRef.current = null;
+    cancelledRef.current.clear();
+  }, [scope]);
 
-  const setQueue = useCallback((next: InstallQueueItem[]) => {
-    queueRef.current = next;
-    setQueueState(next);
-  }, []);
+  const setQueue = useCallback(
+    (next: InstallQueueItem[]) => {
+      if (!scope.current() || !mounted.current) return;
+      queueRef.current = next;
+      setQueueState(next);
+    },
+    [scope],
+  );
 
   const updateItem = useCallback(
     (id: string, patch: Partial<InstallQueueItem>) => {
@@ -59,7 +75,8 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
 
   const installWorkspace = useCallback(
     async (item: InstallQueueItem, overrideName: string | undefined) => {
-      const agentId = selectedAgentRef.current;
+      if (!scope.current() || !mounted.current || !scope.canEdit) return;
+      const agentId = scope.agentId;
       const task = await api.startHubSkillInstall(
         {
           bundle_url: item.result.source_url,
@@ -73,7 +90,11 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
       currentInstallingItemIdRef.current = item.id;
       const startedAt = Date.now();
       try {
-        while (currentTaskIdRef.current === task.task_id) {
+        while (
+          scope.current() &&
+          mounted.current &&
+          currentTaskIdRef.current === task.task_id
+        ) {
           if (cancelledRef.current.has(item.id)) {
             await api.cancelHubSkillInstall(task.task_id, agentId);
             updateItem(item.id, { status: "cancelled", message: "" });
@@ -123,11 +144,12 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
         }
       }
     },
-    [opts, updateItem],
+    [opts, updateItem, api, scope],
   );
 
   const installOne = useCallback(
     async (item: InstallQueueItem, overrideName: string | undefined) => {
+      if (!scope.current() || !mounted.current) return;
       updateItem(item.id, { status: "installing", message: "" });
       try {
         if (item.target === "pool") {
@@ -158,19 +180,20 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
           await installWorkspace(item, overrideName);
         }
       } catch (err) {
+        if (!scope.current() || !mounted.current) return;
         const msg = err instanceof Error ? err.message : String(err);
         updateItem(item.id, { status: "failed", message: msg });
         opts.onError?.({ ...item, status: "failed" }, err);
       }
     },
-    [installWorkspace, opts, updateItem],
+    [installWorkspace, opts, updateItem, api, scope],
   );
 
   const runQueue = useCallback(async () => {
     if (runningRef.current) return;
     runningRef.current = true;
     try {
-      while (true) {
+      while (scope.current() && mounted.current) {
         const next = queueRef.current.find((it) => it.status === "queued");
         if (!next) break;
         if (cancelledRef.current.has(next.id)) {
@@ -181,12 +204,18 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
         await installOne(next, undefined);
       }
     } finally {
-      runningRef.current = false;
+      if (scope.current()) runningRef.current = false;
     }
-  }, [installOne, updateItem]);
+  }, [installOne, updateItem, scope]);
 
   const enqueue = useCallback(
     (results: MarketResult[], target: InstallTarget) => {
+      if (
+        !scope.current() ||
+        !mounted.current ||
+        (target === "pool" ? !scope.isAdmin : !scope.canEdit)
+      )
+        return [];
       const items: InstallQueueItem[] = results.map((r) => ({
         id: `${r.source}:${r.slug}:${Date.now()}:${Math.random()
           .toString(36)
@@ -200,11 +229,12 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
       void runQueue();
       return items;
     },
-    [runQueue, setQueue],
+    [runQueue, setQueue, scope],
   );
 
   const cancel = useCallback(
     (id: string) => {
+      if (!scope.current() || !mounted.current) return;
       cancelledRef.current.add(id);
       if (id !== currentInstallingItemIdRef.current) {
         updateItem(id, { status: "cancelled", message: "" });
@@ -212,10 +242,10 @@ export function useMarketInstall(opts: UseMarketInstallOptions) {
       }
       const taskId = currentTaskIdRef.current;
       if (taskId) {
-        void api.cancelHubSkillInstall(taskId, selectedAgentRef.current);
+        void api.cancelHubSkillInstall(taskId, scope.agentId).catch(() => {});
       }
     },
-    [updateItem],
+    [updateItem, api, scope],
   );
 
   const retry = useCallback(

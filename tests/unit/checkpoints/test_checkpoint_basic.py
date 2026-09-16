@@ -122,9 +122,9 @@ def test_session_key_is_unambiguous_and_bounded() -> None:
     )
 
     assert len({left, right, punctuation, repeated}) == 4
-    assert len(long_key.encode("ascii")) <= 89
+    assert len(long_key.encode("ascii")) == 32
     assert long_key.rsplit("-", 1)[-1].isalnum()
-    assert len(long_key.rsplit("-", 1)[-1]) == 64
+    assert len(long_key.rsplit("-", 1)[-1]) == 32
 
 
 def test_shadow_git_preserves_crlf_despite_user_git_rules(
@@ -659,9 +659,17 @@ async def test_snapshot_reuses_index_and_timeline_batches_git_reads(
     calls: list[tuple[str, ...]] = []
     original_run_git = engine.repository.run_git
 
-    def recording_run_git(*args: str, input_text: str | None = None) -> str:
+    def recording_run_git(
+        *args: str,
+        input_text: str | None = None,
+        input_bytes: bytes | None = None,
+    ) -> str:
         calls.append(args)
-        return original_run_git(*args, input_text=input_text)
+        return original_run_git(
+            *args,
+            input_text=input_text,
+            input_bytes=input_bytes,
+        )
 
     monkeypatch.setattr(engine.repository, "run_git", recording_run_git)
     _write_session(tmp_path, "second")

@@ -12,7 +12,6 @@ describe("checkpointsApi", () => {
     const body = {
       commit: "a".repeat(40),
       session_id: "session",
-      user_id: "user",
       channel: "console",
       include_memory: true,
       include_files: false,
@@ -34,7 +33,6 @@ describe("checkpointsApi", () => {
     const body = {
       commit: "b".repeat(40),
       session_id: "session",
-      user_id: "user",
       channel: "console",
       include_memory: false,
       include_files: true,

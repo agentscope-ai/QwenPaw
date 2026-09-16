@@ -5,6 +5,8 @@ Provides centralized management for multiple Workspace objects,
 including lazy loading, lifecycle management, and hot reloading.
 """
 
+
+from ..platform_ops.maintenance_lifecycle import admitted
 import asyncio
 import logging
 import time
@@ -71,6 +73,7 @@ class MultiAgentManager:
         """Return an already loaded workspace without starting it."""
         return self.agents.get(agent_id)
 
+    @admitted
     async def get_agent(self, agent_id: str) -> Workspace:
         """Get agent workspace by ID (lazy loading with dedup).
 
@@ -352,6 +355,7 @@ class MultiAgentManager:
                     f"New instance is active and serving requests.",
                 )
 
+    @admitted
     async def stop_agent(self, agent_id: str) -> bool:
         """Stop a specific agent instance.
 
@@ -399,6 +403,7 @@ class MultiAgentManager:
             )
         # pylint: enable=protected-access
 
+    @admitted
     async def reload_agent(self, agent_id: str) -> bool:
         """Reload a specific agent instance with zero-downtime.
 
@@ -710,6 +715,7 @@ class MultiAgentManager:
         task.add_done_callback(discard)
         return task
 
+    @admitted
     async def _start_agent_with_limit(self, agent_id: str) -> bool:
         """Start one custom agent inside the process-wide startup bound."""
         if agent_id in self.agents:

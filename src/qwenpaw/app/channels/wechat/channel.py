@@ -15,6 +15,8 @@ Authentication:
 
 from __future__ import annotations
 
+from ....platform_ops.maintenance_lifecycle import admitted_listener
+
 import asyncio
 import hashlib
 import json
@@ -425,6 +427,8 @@ class WeChatChannel(BaseChannel):
 
     def _save_context_tokens(self) -> None:
         """Persist current context_tokens dict to file."""
+        if self._stop_event.is_set():
+            return
         try:
             self._context_tokens_file.parent.mkdir(
                 parents=True,
@@ -477,6 +481,10 @@ class WeChatChannel(BaseChannel):
     # QR code login
     # ------------------------------------------------------------------
 
+    @admitted_listener
+    async def _persist_login_token(self, token: str) -> None:
+        self._save_token_to_file(token)
+
     async def _do_qrcode_login(self) -> bool:
         """Perform QR code login and update self.bot_token.
 
@@ -511,7 +519,7 @@ class WeChatChannel(BaseChannel):
             if base_url and base_url != self._client.base_url:
                 self._client.base_url = base_url.rstrip("/")
                 self._base_url = base_url.rstrip("/")
-            self._save_token_to_file(token)
+            await self._persist_login_token(token)
             logger.info("wechat: QR code login succeeded")
             return True
         except Exception:
@@ -620,12 +628,15 @@ class WeChatChannel(BaseChannel):
     # Inbound message handler
     # ------------------------------------------------------------------
 
+    @admitted_listener
     async def _on_message(
         self,
         msg: Dict[str, Any],
         client: ILinkClient,
     ) -> None:
         """Parse one inbound WeChatMessage and enqueue for processing."""
+        if self._stop_event.is_set():
+            return
         try:
             from_user_id = msg.get("from_user_id", "")
             to_user_id = msg.get("to_user_id", "")
@@ -1792,8 +1803,6 @@ class WeChatChannel(BaseChannel):
         )
 
     async def stop(self) -> None:
-        if not self.enabled:
-            return
         # Signal poll thread to stop accepting new work BEFORE stopping loop
         self._loop_accepting.clear()
         self._stop_event.set()
@@ -1804,7 +1813,12 @@ class WeChatChannel(BaseChannel):
             except Exception:
                 pass
         if self._poll_thread:
-            self._poll_thread.join(timeout=10)
+            await asyncio.to_thread(self._poll_thread.join, timeout=10)
+            if self._poll_thread.is_alive():
+                raise ChannelError(
+                    channel_name="wechat",
+                    message="WeChat poll thread did not stop within 10 seconds",
+                )
         self._poll_thread = None
 
         # Stop all active typing indicators before closing the client

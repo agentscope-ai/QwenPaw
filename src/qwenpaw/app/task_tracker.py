@@ -7,7 +7,10 @@ completes.
 """
 from __future__ import annotations
 
+from ..platform_ops.maintenance_lifecycle import admitted_stream
+
 import asyncio
+from contextlib import aclosing
 import json
 import logging
 import weakref
@@ -35,6 +38,7 @@ class _RunState:
     start_time: Optional[datetime] = None
     finish_time: Optional[datetime] = None
     owner: object | None = None
+    access_scope: str | None = None
 
 
 class TaskTracker:
@@ -177,16 +181,30 @@ class TaskTracker:
         except asyncio.TimeoutError:
             return False
 
-    async def attach(self, run_key: str) -> asyncio.Queue | None:
+    async def attach(
+        self,
+        run_key: str,
+        *,
+        access_scope: str | None = None,
+    ) -> asyncio.Queue | None:
         """Attach to an existing run.
 
         Returns a new queue pre-filled with the event buffer plus a
         ``replay_end`` marker, or ``None`` if no run is active for
-        *run_key*.
+        *run_key* or the supplied access scope does not own the run.
         """
         async with self._lock:
             state = self._runs.get(run_key)
             if state is None or state.task.done():
+                return None
+            if (
+                state.access_scope is not None
+                and state.access_scope != access_scope
+            ):
+                logger.warning(
+                    "Rejected cross-scope stream attach: run_key=%s",
+                    run_key,
+                )
                 return None
             q: asyncio.Queue = asyncio.Queue()
             for sse in state.buffer:
@@ -249,14 +267,23 @@ class TaskTracker:
         payload: Any,
         stream_fn: Callable[..., Coroutine],
         owner: object | None = None,
+        access_scope: str | None = None,
     ) -> tuple[asyncio.Queue, bool]:
         """Attach to an existing run or start a new one.
 
-        Returns ``(queue, is_new_run)``.
+        Returns ``(queue, is_new_run)``. Reusing an active scoped run from a
+        different access scope raises ``PermissionError``.
         """
         async with self._lock:
             state = self._runs.get(run_key)
             if state is not None and not state.task.done():
+                if (
+                    state.access_scope is not None
+                    and state.access_scope != access_scope
+                ):
+                    raise PermissionError(
+                        f"Run {run_key} belongs to another access scope",
+                    )
                 q: asyncio.Queue = asyncio.Queue()
                 for sse in state.buffer:
                     q.put_nowait(sse)
@@ -269,6 +296,7 @@ class TaskTracker:
                 queues=[my_queue],
                 buffer=[],
                 owner=owner,
+                access_scope=access_scope,
             )
             self._runs[run_key] = run
 
@@ -285,14 +313,17 @@ class TaskTracker:
                             # pylint: disable=protected-access
                             tracker._global_last_run_at = start_time
 
-                    async for sse in stream_fn(payload):
-                        tracker = tracker_ref()
-                        if tracker is None:
-                            return
-                        async with tracker.lock:
-                            run.buffer.append(sse)
-                            for q in run.queues:
-                                q.put_nowait(sse)
+                    async with aclosing(
+                        admitted_stream(stream_fn)(payload),
+                    ) as producer_stream:
+                        async for sse in producer_stream:
+                            tracker = tracker_ref()
+                            if tracker is None:
+                                return
+                            async with tracker.lock:
+                                run.buffer.append(sse)
+                                for q in run.queues:
+                                    q.put_nowait(sse)
                 except asyncio.CancelledError:
                     logger.debug("run cancelled run_key=%s", run_key)
                 except Exception:

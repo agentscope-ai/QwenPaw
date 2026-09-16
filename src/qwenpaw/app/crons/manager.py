@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from ...platform_ops.maintenance_lifecycle import admitted
+
 import asyncio
+import contextvars
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -57,6 +60,19 @@ CRON_KEEPALIVE_INTERVAL_SECONDS = 60
 logger = logging.getLogger(__name__)
 
 
+def heartbeat_can_schedule(config: Any) -> bool:
+    """Return whether heartbeat has enough identity to enter the scheduler."""
+    from ...identity.runtime import is_multi_user_enabled
+
+    if not getattr(config, "enabled", False):
+        return False
+    return not is_multi_user_enabled() or getattr(
+        config,
+        "authorized_by_user_id",
+        None,
+    ) is not None
+
+
 @dataclass
 class _Runtime:
     sem: asyncio.Semaphore
@@ -73,11 +89,13 @@ class CronManager(ManagerBase):
         channel_manager: Any,
         timezone: str = "UTC",  # pylint: disable=redefined-outer-name
         agent_id: Optional[str] = None,
+        authorization_service: Any | None = None,
     ):
         self._repo = repo
         self._workspace = workspace
         self._channel_manager = channel_manager
         self._agent_id = agent_id
+        self._authorization_service = authorization_service
         self._scheduler = AsyncIOScheduler(timezone=timezone)
         self._executor = CronExecutor(
             workspace=workspace,
@@ -90,6 +108,19 @@ class CronManager(ManagerBase):
         self._rt: Dict[str, _Runtime] = {}
         self._started = False
         self._keepalive_task: Optional[asyncio.Task] = None
+
+    async def _inbox_recipient_user_id(self) -> str | None:
+        """Resolve the Agent owner who should receive cron results."""
+        from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+
+        if not is_multi_user_enabled() or not self._agent_id:
+            return None
+        from ...access.agent_repository import PostgresAgentRepository
+
+        governance = await PostgresAgentRepository(
+            schema=get_identity_schema(),
+        ).get_governance(self._agent_id)
+        return str(governance.owner_user_id) if governance else None
 
     async def start(self) -> None:
         async with self._lock:
@@ -104,6 +135,11 @@ class CronManager(ManagerBase):
             self._register_scheduler_listeners()
             self._scheduler.start()
             for job in jobs_file.jobs:
+                if (
+                    self._authorization_service is not None
+                    and job.status != "active"
+                ):
+                    continue
                 try:
                     await self._register_or_update(job)
                 except Exception as e:  # pylint: disable=broad-except
@@ -132,7 +168,7 @@ class CronManager(ManagerBase):
 
             # Heartbeat: scheduled job when enabled in config
             hb = get_heartbeat_config(self._agent_id)
-            if getattr(hb, "enabled", False):
+            if heartbeat_can_schedule(hb):
                 trigger = self._build_heartbeat_trigger(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
@@ -214,6 +250,18 @@ class CronManager(ManagerBase):
             self._history[job_id] = await self._repo.get_history(job_id)
         return self._history[job_id]
 
+    @property
+    def authorization_service(self):
+        return self._authorization_service
+
+    async def refresh_job(self, job_id: str) -> CronJobSpec:
+        job = await self._repo.get_job(job_id)
+        if job is None:
+            raise KeyError(f"Job not found: {job_id}")
+        if self._started:
+            await self._register_or_update(job)
+        return job
+
     # ----- write/control -----
 
     @api_action(
@@ -286,7 +334,7 @@ class CronManager(ManagerBase):
                 self._scheduler.remove_job(HEARTBEAT_JOB_ID)
 
             # Add heartbeat job if enabled
-            if getattr(hb, "enabled", False):
+            if heartbeat_can_schedule(hb):
                 trigger = self._build_heartbeat_trigger(hb.every)
                 self._scheduler.add_job(
                     self._heartbeat_callback,
@@ -555,6 +603,11 @@ class CronManager(ManagerBase):
         # Validate and build trigger first. If schedule is invalid, fail fast
         # without mutating scheduler/runtime state.
         assert spec.id is not None, "Job must have an id"
+        if self._authorization_service is not None and spec.status != "active":
+            if self._scheduler.get_job(spec.id):
+                self._scheduler.remove_job(spec.id)
+            self._states.setdefault(spec.id, CronJobState()).next_run_at = None
+            return
         trigger = self._build_trigger(spec)
 
         # per-job concurrency semaphore
@@ -718,7 +771,13 @@ class CronManager(ManagerBase):
     ) -> None:
         """Run a service-contributed job with common scheduler behavior."""
         try:
-            await declaration.callback()
+            # 服务定时任务必须在全新的 Context 中运行，不能继承触发调度
+            # 时恰好存在的用户、会话或请求身份。
+            task = asyncio.create_task(
+                admitted(declaration.callback)(),
+                context=contextvars.Context(),
+            )
+            await task
             logger.debug(
                 "%s cron job executed successfully: %s",
                 source,
@@ -741,6 +800,7 @@ class CronManager(ManagerBase):
             )
 
     # pylint: disable-next=too-many-branches,too-many-statements
+    @admitted
     async def _execute_once(
         self,
         job: CronJobSpec,
@@ -762,7 +822,18 @@ class CronManager(ManagerBase):
             delivery_failed = False
 
             try:
-                execution_result = await self._executor.execute(job)
+                authorization_payload = None
+                if self._authorization_service is not None:
+                    job, authorization = (
+                        await self._authorization_service.validate_execution(
+                            job.id
+                        )
+                    )
+                    authorization_payload = authorization.model_dump(mode="json")
+                execution_result = await self._executor.execute(
+                    job,
+                    authorization=authorization_payload,
+                )
                 execution_succeeded = True
                 delivery_failed = (
                     execution_result.get("delivery_status") == "failed"
@@ -828,6 +899,9 @@ class CronManager(ManagerBase):
                                     "Task executed successfully, "
                                     "but channel delivery failed."
                                 ),
+                                recipient_user_id=(
+                                    await self._inbox_recipient_user_id()
+                                ),
                                 payload={
                                     "job_id": job.id,
                                     "job_name": job.name,
@@ -858,6 +932,9 @@ class CronManager(ManagerBase):
                                 severity="info",
                                 title=f"Cron result: {job.name}",
                                 body=body,
+                                recipient_user_id=(
+                                    await self._inbox_recipient_user_id()
+                                ),
                                 payload={
                                     "job_id": job.id,
                                     "job_name": job.name,

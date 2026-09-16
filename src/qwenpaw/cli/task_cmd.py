@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import sys
 import tempfile
 import time
@@ -19,6 +20,19 @@ logger = logging.getLogger(__name__)
 _SKILL_FS_NAMES = {"skills", "skill", "skill.json", ".skill.json.lock"}
 
 
+def _link_overlay_entry(source: Path, target: Path) -> None:
+    """Use links when available, otherwise copy into the disposable overlay."""
+    try:
+        target.symlink_to(source, target_is_directory=source.is_dir())
+    except OSError as exc:
+        if getattr(exc, "winerror", None) != 1314:
+            raise
+        if source.is_dir():
+            shutil.copytree(source, target)
+        else:
+            shutil.copy2(source, target)
+
+
 @contextmanager
 def _isolated_skills_workspace(
     skills_dir: str | None,
@@ -29,7 +43,8 @@ def _isolated_skills_workspace(
     The overlay symlinks the external skills directory as ``skills/`` and
     pre-populates a manifest with every discovered skill enabled.  Non-skill
     files from *base_workspace* are symlinked so that prompt/bootstrap files
-    remain accessible.  All manifest writes land in the temporary directory,
+    remain accessible. Windows without symlink privilege uses temporary
+    copies instead. All manifest writes land in the temporary directory,
     keeping the real workspace untouched.
     """
     if not skills_dir:
@@ -39,7 +54,7 @@ def _isolated_skills_workspace(
     with tempfile.TemporaryDirectory(prefix="qwenpaw_headless_") as tmp:
         tmp_path = Path(tmp)
         resolved = Path(skills_dir).resolve()
-        (tmp_path / "skills").symlink_to(resolved)
+        _link_overlay_entry(resolved, tmp_path / "skills")
 
         skill_entries: dict = {}
         if resolved.is_dir():
@@ -71,7 +86,7 @@ def _isolated_skills_workspace(
                     continue
                 target = tmp_path / item.name
                 if not target.exists():
-                    target.symlink_to(item)
+                    _link_overlay_entry(item.resolve(), target)
 
         yield tmp_path
 

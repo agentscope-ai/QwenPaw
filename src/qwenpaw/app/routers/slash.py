@@ -75,6 +75,36 @@ def _command_items(plan_enabled: bool) -> list[SlashCatalogItem]:
             icon="✦",
             group="Commands",
         ),
+        SlashCatalogItem(
+            id="command:dream",
+            type="command",
+            label="/dream",
+            command="/dream",
+            insertText="/dream ",
+            description="Run one private-memory optimization pass",
+            icon="☾",
+            group="Memory",
+        ),
+        SlashCatalogItem(
+            id="command:memorize",
+            type="command",
+            label="/memorize",
+            command="/memorize",
+            insertText="/memorize ",
+            description="Memorize recent assistant replies",
+            icon="◆",
+            group="Memory",
+        ),
+        SlashCatalogItem(
+            id="command:reme_status",
+            type="command",
+            label="/reme_status",
+            command="/reme_status",
+            insertText="/reme_status",
+            description="Inspect the active ReMe memory runtime",
+            icon="ⓘ",
+            group="Memory",
+        ),
     ]
     if plan_enabled:
         items.append(
@@ -115,12 +145,14 @@ async def slash_catalog(request: Request) -> list[SlashCatalogItem]:
             ),
         )
 
-    mcp_cfg = getattr(agent_config, "mcp", None)
-    clients = getattr(mcp_cfg, "clients", None) or {}
-    for client_key, client_cfg in sorted(clients.items()):
-        if not getattr(client_cfg, "enabled", True):
+    from ..mcp.config_service import MCPConfigService
+
+    mcp_service = MCPConfigService(workspace)
+    for card in await mcp_service.list_cards():
+        client_key = card.name
+        if not card.enabled:
             continue
-        client_name = getattr(client_cfg, "name", "") or client_key
+        client_name = str(card.config.get("display_name") or client_key)
         mcp_items.append(
             SlashCatalogItem(
                 id=f"mcp-client:{client_key}",
@@ -128,23 +160,20 @@ async def slash_catalog(request: Request) -> list[SlashCatalogItem]:
                 label=client_name,
                 command=f"/mcp {client_key}",
                 insertText=f"/mcp {client_key} ",
-                description=getattr(client_cfg, "description", "") or "",
+                description=str(card.config.get("description") or ""),
                 icon="◇",
                 group="MCP",
             ),
         )
-        manager = getattr(workspace, "mcp_manager", None)
+        manager = getattr(workspace, "driver_manager", None)
         if manager is None:
             continue
         try:
-            mcp_client = await manager.get_client(client_key)
-            if mcp_client is None or not getattr(
-                mcp_client,
-                "is_connected",
-                False,
-            ):
-                continue
-            tools = await mcp_client.list_tools()
+            tools = await manager.list_driver_capabilities(
+                client_key,
+                kind="tool",
+                request_context={},
+            )
         except Exception as exc:  # pylint: disable=broad-except
             logger.debug(
                 "Failed to list MCP tools for slash catalog: %s %s",

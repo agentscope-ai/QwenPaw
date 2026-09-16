@@ -136,10 +136,18 @@ class BrowserKernelManager:
     ) -> None:
         """Close browser tabs after a chat is archived or deleted."""
         await self._runtime.close_session(workspace_id, session_id)
+        from ..tool_entrypoint import _LIMITER
+
+        if _LIMITER is not None:
+            await _LIMITER.release(f"{workspace_id}/{session_id}")
 
     async def close_workspace(self, workspace_id: str) -> None:
         """Reclaim every provider session owned by one restored workspace."""
         await self._runtime.close_workspace(workspace_id)
+        from ..tool_entrypoint import _LIMITER
+
+        if _LIMITER is not None:
+            await _LIMITER.release_workspace(workspace_id)
 
     def mark_handoff_pending(self, workspace_id: str, session_id: str) -> None:
         """Protect a browser worker until the user resumes after handoff."""

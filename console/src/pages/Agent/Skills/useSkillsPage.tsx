@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Form, Modal } from "@agentscope-ai/design";
-import type { PoolSkillSpec, SkillDetail, SkillSpec } from "../../../api/types";
+import { Form } from "@agentscope-ai/design";
+import type { SkillDetail, SkillSpec, PoolSkillSpec } from "../../../api/types";
 import type { SkillDrawerFormValues } from "./components";
 import { useConflictRenameModal } from "./components";
 import { useProgressiveRender } from "../../../hooks/useProgressiveRender";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
-import { useAppMessage } from "../../../hooks/useAppMessage";
-import api from "../../../api";
+import { createSkillGovernanceApi } from "@/api/modules/skillGovernance";
+import type {
+  SkillCatalogItem,
+  SkillPreview,
+} from "@/api/types/skillGovernance";
+import {
+  useSkillRuntime,
+  confirmSkillAction,
+  skillErrorMessage,
+} from "./useSkillRuntime";
 import { useUploadLimitStore } from "../../../stores/uploadLimitStore";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
@@ -36,11 +44,15 @@ export type DownloadConflict =
       current_language: string;
     };
 
+type AdminPoolDraft = PoolSkillSpec & SkillPreview;
+type PoolEntry = SkillCatalogItem | PoolSkillSpec | AdminPoolDraft;
+
 // ─── Hook ───────────────────────────────────────────────────────────────────
 
 export function useSkillsPage() {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
+  const { scope, api, message, modal: Modal } = useSkillRuntime();
+  const governance = useMemo(() => createSkillGovernanceApi(scope), [scope]);
   const { selectedAgent } = useAgentStore();
 
   const {
@@ -49,6 +61,7 @@ export function useSkillsPage() {
     loading,
     uploading,
     importing,
+    readOnly,
     createSkill,
     uploadSkill,
     importFromHub,
@@ -81,7 +94,16 @@ export function useSkillsPage() {
   const detailRequestIdRef = useRef(0);
   const [form] = Form.useForm<SkillDrawerFormValues>();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
+  const [poolError, setPoolError] = useState("");
+  const [publicationResult, setPublicationResult] = useState<{
+    submitted: string[];
+    pending: string[];
+    error: string;
+  } | null>(null);
+  const [poolLoading, setPoolLoading] = useState(false);
+  const [poolBusy, setPoolBusy] = useState(false);
+  const poolBusyRef = useRef(false);
+  const [poolSkills, setPoolSkills] = useState<PoolEntry[]>([]);
   const [poolModal, setPoolModal] = useState<"upload" | "download" | null>(
     null,
   );
@@ -111,13 +133,49 @@ export function useSkillsPage() {
   // ── Effects ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    if (poolModal === "upload" || poolModal === "download") {
-      void api
-        .listSkillPoolSkills()
-        .then(setPoolSkills)
-        .catch(() => undefined);
-    }
-  }, [poolModal]);
+    setPoolSkills([]);
+    setPoolError("");
+    setPoolLoading(false);
+    if (poolModal !== "download" || !scope.canEdit) return;
+    let active = true;
+    setPoolLoading(true);
+    const loadPoolSkills = async (): Promise<PoolEntry[]> => {
+      if (!scope.multiUser) return api.listSkillPoolSkills();
+      if (!scope.isAdmin) return (await governance.catalog()).items;
+
+      const [preview, registered] = await Promise.all([
+        governance.preview(),
+        governance.items(),
+      ]);
+      const registeredByName = new Map(
+        registered.items.map((item) => [item.name, item]),
+      );
+      return preview.items.reduce<PoolEntry[]>((result, candidate) => {
+        const item = registeredByName.get(candidate.name);
+        if (item?.status === "disabled") return result;
+        result.push(
+          item?.content_hash === candidate.content_hash
+            ? item
+            : { ...candidate, source: "custom" },
+        );
+        return result;
+      }, []);
+    };
+    void loadPoolSkills()
+      .then((data) => {
+        if (active && scope.current()) setPoolSkills(data);
+      })
+      .catch((error) => {
+        if (active && scope.current())
+          setPoolError(skillErrorMessage(error, t));
+      })
+      .finally(() => {
+        if (active && scope.current()) setPoolLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [poolModal, governance, scope, api, t]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -134,11 +192,13 @@ export function useSkillsPage() {
     });
 
   const checkScanWarnings = async (skillName: string) => {
+    if (!scope.current()) return;
     await checkScanWarningsShared(
       skillName,
       api.getBlockedHistory,
       api.getSkillScanner,
       t,
+      scope,
     );
   };
 
@@ -205,7 +265,7 @@ export function useSkillsPage() {
           suggested_name: c.suggested_name,
         })),
       );
-      if (!newRenames) break;
+      if (!newRenames || !scope.current()) break;
       renameMap = { ...renameMap, ...newRenames };
     }
   };
@@ -213,6 +273,7 @@ export function useSkillsPage() {
   // ── Create / Edit / Delete ──────────────────────────────────────────────
 
   const handleCreate = () => {
+    if (!scope.current() || !scope.canEdit) return;
     detailRequestIdRef.current += 1;
     setEditingSkill(null);
     setEditingSkillName("");
@@ -245,7 +306,7 @@ export function useSkillsPage() {
             suggested_name: String(suggested),
           },
         ]);
-        if (renameMap) {
+        if (renameMap && scope.current()) {
           const newName = Object.values(renameMap)[0];
           if (newName) await handleConfirmImport(url, newName);
         }
@@ -254,6 +315,7 @@ export function useSkillsPage() {
   };
 
   const handleEdit = async (skill: SkillSpec) => {
+    if (!scope.current() || !scope.canEdit) return;
     const requestId = detailRequestIdRef.current + 1;
     detailRequestIdRef.current = requestId;
     setEditingSkill(null);
@@ -266,6 +328,7 @@ export function useSkillsPage() {
       if (detailRequestIdRef.current !== requestId) return;
       setEditingSkill(detail);
     } catch (error) {
+      if (!scope.current()) return;
       if (detailRequestIdRef.current !== requestId) return;
       message.error(
         error instanceof Error ? error.message : t("skills.loadFailed"),
@@ -301,16 +364,18 @@ export function useSkillsPage() {
   // ── Drawer submit ───────────────────────────────────────────────────────
 
   const handleSubmit = async (values: SkillDetail) => {
+    if (!scope.current() || !scope.canEdit) return;
     if (editingSkill) {
       const sourceName = editingSkill.name;
       const targetName = values.name;
-      const saveEditedSkill = async (overwrite = false) => {
+      const saveEditedSkill = async (overwrite = false, expectedHash?: string) => {
         const result = await api.saveSkill({
           name: targetName,
           content: values.content,
           source_name: sourceName !== targetName ? sourceName : undefined,
           config: values.config,
           overwrite,
+          ...(expectedHash ? { expected_content_hash: expectedHash } : {}),
         });
         const sideUpdates: Promise<unknown>[] = [];
         const newChannels = values.channels || ["all"];
@@ -345,6 +410,7 @@ export function useSkillsPage() {
       try {
         await saveEditedSkill();
       } catch (error) {
+        if (!scope.current()) return;
         const detail = parseErrorDetail(error);
         if (detail?.reason === "conflict") {
           const confirmed = await confirmOverwrite(
@@ -354,12 +420,14 @@ export function useSkillsPage() {
               <ul style={{ margin: 0, paddingLeft: 20 }}>
                 <li>{targetName}</li>
               </ul>
+              <code>{detail.expected_content_hash}</code>
             </div>,
           );
-          if (!confirmed) return;
+          if (!confirmed || !scope.current()) return;
           try {
-            await saveEditedSkill(true);
+            await saveEditedSkill(true, detail.expected_content_hash);
           } catch (retryError) {
+            if (!scope.current()) return;
             message.error(
               retryError instanceof Error
                 ? retryError.message
@@ -401,7 +469,7 @@ export function useSkillsPage() {
             suggested_name: result.conflict!.suggested_name,
           },
         ]);
-        if (renameMap) {
+        if (renameMap && scope.current()) {
           const newName = Object.values(renameMap)[0];
           if (newName) await handleSubmit({ ...values, name: newName });
         }
@@ -411,180 +479,188 @@ export function useSkillsPage() {
 
   // ── Pool transfer ───────────────────────────────────────────────────────
 
-  const handleUploadToPool = async (workspaceSkillNames: string[]) => {
-    if (workspaceSkillNames.length === 0) return;
+  const legacyTransfer = async (names: string[], upload: boolean) => {
+    if (!scope.current() || !scope.canEdit || poolBusyRef.current) return;
+    poolBusyRef.current = true;
+    setPoolBusy(true);
+    setPoolError("");
+    const transfer = (name: string, preview: boolean, overwrite: boolean) => upload
+      ? api.uploadWorkspaceSkillToPool({ workspace_id: scope.agentId, skill_name: name, preview_only: preview, overwrite })
+      : api.downloadSkillPoolSkill({ skill_name: name, targets: [{ workspace_id: scope.agentId }], preview_only: preview, overwrite });
     try {
-      const conflictingNames: string[] = [];
-      for (const skillName of workspaceSkillNames) {
-        try {
-          await api.uploadWorkspaceSkillToPool({
-            workspace_id: selectedAgent,
-            skill_name: skillName,
-            preview_only: true,
-          });
-        } catch (error) {
+      const conflicts = new Map<string, string>();
+      for (const name of names) {
+        scope.assert();
+        try { await transfer(name, true, false); }
+        catch (error) {
+          scope.assert();
           const detail = parseErrorDetail(error);
-          if (detail?.reason === "conflict") {
-            conflictingNames.push(skillName);
-            continue;
-          }
-          throw error;
+          if (detail?.reason !== "conflict" && !detail?.conflicts?.length) throw error;
+          conflicts.set(name, JSON.stringify(detail));
         }
       }
-      if (conflictingNames.length > 0) {
-        const confirmed = await confirmOverwrite(
-          t("skillPool.overwriteConfirm"),
-          <div style={{ display: "grid", gap: 8 }}>
-            <div>{t("skills.overwriteExistingList")}</div>
-            <ul style={{ margin: 0, paddingLeft: 20 }}>
-              {conflictingNames.map((name) => (
-                <li key={name}>{name}</li>
-              ))}
-            </ul>
-          </div>,
-        );
-        if (!confirmed) return;
+      if (conflicts.size && !await confirmOverwrite(t("skillPool.overwriteConfirm"),
+        <div>{[...conflicts].map(([name, detail]) => <p key={name}>{name}: {detail}</p>)}</div>)) return;
+      for (const name of names) {
+        scope.assert();
+        await transfer(name, false, conflicts.has(name));
       }
-      for (const skillName of workspaceSkillNames) {
-        await api.uploadWorkspaceSkillToPool({
-          workspace_id: selectedAgent,
-          skill_name: skillName,
-          overwrite: conflictingNames.includes(skillName),
-        });
-      }
-      message.success(t("skills.uploadedToPool"));
+      scope.assert();
       closePoolModal();
-      invalidateSkillCache({ agentId: selectedAgent, pool: true });
+      invalidateSkillCache({ pool: upload, agentId: scope.agentId });
       await refreshSkills();
-      setPoolSkills(await api.listSkillPoolSkills());
+      message.success(t("skillGovernance.completed"));
     } catch (error) {
-      message.error(
-        error instanceof Error ? error.message : t("skills.uploadFailed"),
-      );
+      if (scope.current()) setPoolError(skillErrorMessage(error, t));
+    } finally {
+      if (scope.current()) { setPoolBusy(false); poolBusyRef.current = false; }
     }
   };
 
-  const handleDownloadFromPool = async (poolSkillNames: string[]) => {
-    if (poolSkillNames.length === 0) return;
+  const handleUploadToPool = async (workspaceSkillNames: string[]) => {
+    if (!scope.multiUser) return legacyTransfer(workspaceSkillNames, true);
+    if (!scope.current() || !scope.canSubmit || poolBusyRef.current) return;
+    const names = workspaceSkillNames.filter((name) =>
+      skills.some(
+        (skill) => skill.name === name && !skill.source_pool_version_id,
+      ),
+    );
+    if (!names.length) return;
+    poolBusyRef.current = true;
+    setPoolBusy(true);
+    setPoolError("");
+    setPublicationResult(null);
+    const submitted: string[] = [];
+    let failure = "";
     try {
-      const conflicts: DownloadConflict[] = [];
-      for (const skillName of poolSkillNames) {
-        try {
-          await api.downloadSkillPoolSkill({
-            skill_name: skillName,
-            targets: [{ workspace_id: selectedAgent }],
-            preview_only: true,
-          });
-        } catch (error) {
-          const detail = parseErrorDetail(error);
-          const returnedConflicts = Array.isArray(detail?.conflicts)
-            ? detail.conflicts
-            : [];
-          if (!returnedConflicts.length) throw error;
-          conflicts.push(
-            ...returnedConflicts.map((conflict): DownloadConflict => {
-              if (conflict?.reason === "builtin_upgrade") {
-                return {
-                  skill_name: conflict.skill_name || skillName,
-                  reason: "builtin_upgrade" as const,
-                  current_version_text: conflict.current_version_text || "",
-                  source_version_text: conflict.source_version_text || "",
-                };
-              }
-              if (conflict?.reason === "language_switch") {
-                return {
-                  skill_name: conflict.skill_name || skillName,
-                  reason: "language_switch" as const,
-                  source_language: conflict.source_language || "",
-                  current_language: conflict.current_language || "",
-                };
-              }
-              return {
-                skill_name: conflict?.skill_name || skillName,
-                reason: "conflict" as const,
-              };
-            }),
-          );
+      for (const name of names) {
+        scope.assert();
+        await governance.submit(name);
+        scope.assert();
+        submitted.push(name);
+      }
+      if (scope.current()) {
+        message.success(t("skillGovernance.submitted"));
+        closePoolModal();
+      }
+    } catch (error) {
+      if (!scope.current()) return;
+      failure = skillErrorMessage(error, t);
+      setPoolError(failure);
+    } finally {
+      if (scope.current()) {
+        setSelectedSkills(
+          (previous) =>
+            new Set([...previous].filter((name) => !submitted.includes(name))),
+        );
+        setPublicationResult({
+          submitted,
+          pending: names.filter((name) => !submitted.includes(name)),
+          error: failure,
+        });
+        setPoolBusy(false);
+        poolBusyRef.current = false;
+      }
+    }
+  };
+
+  const handleDownloadFromPool = async (names: string[]) => {
+    if (!scope.multiUser) return legacyTransfer(names, false);
+    if (
+      !scope.current() ||
+      !scope.canEdit ||
+      poolBusyRef.current ||
+      !names.length
+    )
+      return;
+    const selected = poolSkills.filter((item) => names.includes(item.name));
+    if (selected.length !== names.length) return;
+    poolBusyRef.current = true;
+    setPoolBusy(true);
+    setPoolError("");
+    try {
+      let catalogItems = selected.filter(
+        (item): item is SkillCatalogItem => "id" in item,
+      );
+      if (scope.isAdmin) {
+        const drafts = selected
+          .filter(
+            (item): item is AdminPoolDraft =>
+              !("id" in item) && "content_hash" in item,
+          )
+          .map(({ name, content_hash }) => ({ name, content_hash }));
+        if (drafts.length) {
+          await governance.register(drafts);
+          scope.assert();
+        }
+        const registered = (await governance.items()).items;
+        scope.assert();
+        catalogItems = registered.filter(
+          (item) => item.status === "active" && names.includes(item.name),
+        );
+        if (catalogItems.length !== names.length) {
+          setPoolError(t("skillGovernance.draft"));
+          return;
+        }
+        for (const item of catalogItems) {
+          await governance.grant(item.id, scope.agentId, true);
+          scope.assert();
         }
       }
-      if (conflicts.length > 0) {
-        const allBuiltinUpgrades = conflicts.every(
-          (c) => c.reason === "builtin_upgrade",
-        );
-        const allLanguageSwitch = conflicts.every(
-          (c) => c.reason === "language_switch",
-        );
-        const title = allBuiltinUpgrades
-          ? t("skills.builtinUpgradeTitle")
-          : allLanguageSwitch
-          ? t("skills.languageSwitchTitle")
-          : t("skillPool.overwriteConfirm");
-        const subtitle = allBuiltinUpgrades
-          ? t("skillPool.builtinOverwriteTargetsContent")
-          : allLanguageSwitch
-          ? t("skills.languageSwitchContent")
-          : t("skills.overwriteExistingList");
-        const confirmed = await confirmOverwrite(
-          title,
-          <div style={{ display: "grid", gap: 8 }}>
-            <div>{subtitle}</div>
-            {conflicts.map((conflict) => (
-              <div key={conflict.skill_name}>
-                <strong>{conflict.skill_name}</strong>
-                {conflict.reason === "builtin_upgrade" ? (
-                  <>
-                    {"  "}
-                    {t("skillPool.currentVersion")}:{" "}
-                    {conflict.current_version_text || "-"}
-                    {"  ->  "}
-                    {t("skillPool.sourceVersion")}:{" "}
-                    {conflict.source_version_text || "-"}
-                  </>
-                ) : null}
-                {conflict.reason === "language_switch" ? (
-                  <>
-                    {"  "}
-                    {conflict.current_language === "zh"
-                      ? t("skillPool.langZh")
-                      : t("skillPool.langEn")}
-                    {"  →  "}
-                    {conflict.source_language === "zh"
-                      ? t("skillPool.langZh")
-                      : t("skillPool.langEn")}
-                  </>
-                ) : null}
-              </div>
-            ))}
-          </div>,
-        );
-        if (!confirmed) return;
-      }
-      for (const skillName of poolSkillNames) {
-        const shouldOverwrite = conflicts.some(
-          (c) => c.skill_name === skillName,
-        );
-        await api.downloadSkillPoolSkill({
-          skill_name: skillName,
-          targets: [{ workspace_id: selectedAgent }],
-          overwrite: shouldOverwrite,
+      if (catalogItems.length !== names.length) return;
+      // Confirm every known collision before starting any writes.
+      const hashes = new Map<string, string>();
+      for (const item of catalogItems) {
+        const existing = skills.find((skill) => skill.name === item.name);
+        if (!existing) continue;
+        if (!existing.content_hash) {
+          setPoolError(t("skillGovernance.conflict"));
+          invalidateSkillCache({ agentId: scope.agentId });
+          await refreshSkills();
+          return;
+        }
+        const confirmed = await confirmSkillAction(scope, Modal, {
+          title: t("skillPool.overwriteConfirm"),
+          content: (
+            <div>
+              <p>
+                {t("skillGovernance.overwriteWarning", { name: item.name })}
+              </p>
+              <code>{existing.content_hash}</code>
+            </div>
+          ),
+          okText: t("common.confirm"),
+          cancelText: t("common.cancel"),
         });
+        if (!confirmed || !scope.current()) return;
+        hashes.set(item.id, existing.content_hash);
       }
-      message.success(t("skills.downloadedToWorkspace"));
+      for (const item of catalogItems) {
+        scope.assert();
+        await governance.load(item.id, hashes.get(item.id));
+      }
+      if (!scope.current()) return;
+      message.success(t("skillGovernance.completed"));
       closePoolModal();
-      invalidateSkillCache({ agentId: selectedAgent, pool: true });
+      invalidateSkillCache({ agentId: scope.agentId });
       await refreshSkills();
     } catch (error) {
-      message.error(
-        error instanceof Error
-          ? error.message
-          : t("common.download") + " failed",
-      );
+      if (!scope.current()) return;
+      setPoolError(skillErrorMessage(error, t));
+      invalidateSkillCache({ agentId: scope.agentId });
+      await refreshSkills();
+    } finally {
+      if (scope.current()) {
+        setPoolBusy(false);
+        poolBusyRef.current = false;
+      }
     }
   };
 
   // ── Batch enable / disable ───────────────────────────────────────────────
 
   const handleBatchEnable = async () => {
+    if (!scope.current() || !scope.canEdit) return;
     const names = Array.from(selectedSkills);
     if (names.length === 0) return;
     try {
@@ -597,7 +673,7 @@ export function useSkillsPage() {
       for (const [, result] of failed) {
         const detail = result.detail;
         if (result.reason !== "security_scan_failed" || !detail) continue;
-        showScanErrorModal(detail as SecurityScanErrorResponse, t);
+        showScanErrorModal(detail as SecurityScanErrorResponse, t, scope);
       }
       if (failed.length > 0) {
         message.warning(
@@ -618,6 +694,7 @@ export function useSkillsPage() {
         await checkScanWarnings(name);
       }
     } catch (error) {
+      if (!scope.current()) return;
       message.error(
         error instanceof Error ? error.message : t("skills.batchEnableFailed"),
       );
@@ -625,6 +702,7 @@ export function useSkillsPage() {
   };
 
   const handleBatchDisable = async () => {
+    if (!scope.current() || !scope.canEdit) return;
     const names = Array.from(selectedSkills);
     if (names.length === 0) return;
     try {
@@ -646,6 +724,7 @@ export function useSkillsPage() {
       invalidateSkillCache({ agentId: selectedAgent });
       await refreshSkills();
     } catch (error) {
+      if (!scope.current()) return;
       message.error(
         error instanceof Error ? error.message : t("skills.batchDisableFailed"),
       );
@@ -655,6 +734,7 @@ export function useSkillsPage() {
   // ── Batch delete ────────────────────────────────────────────────────────
 
   const handleBatchDelete = async () => {
+    if (!scope.current() || !scope.canEdit) return;
     const names = Array.from(selectedSkills);
     if (names.length === 0) return;
     const confirmed = await new Promise<boolean>((resolve) => {
@@ -674,7 +754,7 @@ export function useSkillsPage() {
         onCancel: () => resolve(false),
       });
     });
-    if (!confirmed) return;
+    if (!confirmed || !scope.current()) return;
     try {
       const { results } = await api.batchDeleteSkills(names);
       const failed = Object.entries(results).filter(([, r]) => !r.success);
@@ -694,6 +774,7 @@ export function useSkillsPage() {
       invalidateSkillCache({ agentId: selectedAgent });
       await refreshSkills();
     } catch (error) {
+      if (!scope.current()) return;
       message.error(
         error instanceof Error ? error.message : t("skills.batchDeleteFailed"),
       );
@@ -708,12 +789,19 @@ export function useSkillsPage() {
     hasMore,
     sentinelRef,
     poolSkills,
+    poolError,
+    publicationResult,
+    poolLoading,
+    poolBusy,
+    canSubmit: scope.multiUser ? scope.canSubmit : scope.canEdit,
+    multiUser: scope.multiUser,
     allTags,
     filteredSkills,
     conflictRenameModal,
     loading,
     uploading,
     importing,
+    readOnly,
     drawerOpen,
     drawerLoading,
     editingSkillName,

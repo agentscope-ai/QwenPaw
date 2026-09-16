@@ -99,6 +99,9 @@ const BASE_FIELDS = [
   "tool_result_max_length",
   "show_thinking",
   "isBuiltin",
+  "bindingId",
+  "display_name",
+  "configuredSecretFields",
 ];
 
 // Resolve a plugin-provided localized text (a plain string or a
@@ -150,6 +153,8 @@ interface ChannelDrawerProps {
   channelSchema?: ChannelSchema;
   onClose: () => void;
   onSubmit: (values: Record<string, unknown>) => void;
+  canDelete?: boolean;
+  onDelete?: () => void;
 }
 
 export function ChannelDrawer({
@@ -163,6 +168,8 @@ export function ChannelDrawer({
   channelSchema,
   onClose,
   onSubmit,
+  canDelete = false,
+  onDelete,
 }: ChannelDrawerProps) {
   const { t, i18n } = useTranslation();
   const { selectedAgent, agents } = useAgentStore();
@@ -1633,6 +1640,11 @@ export function ChannelDrawer({
 
   const drawerFooter = (
     <div className={styles.formActions}>
+      {canDelete && onDelete && (
+        <Button danger loading={saving} onClick={onDelete}>
+          {t("channels.removeBinding")}
+        </Button>
+      )}
       <Button onClick={onClose}>{t("common.cancel")}</Button>
       <Button type="primary" loading={saving} onClick={() => form.submit()}>
         {t("common.save")}
@@ -1669,6 +1681,18 @@ export function ChannelDrawer({
             }
           }}
         >
+          {Array.isArray(initialValues?.configuredSecretFields) &&
+            initialValues.configuredSecretFields.length > 0 && (
+              <Alert
+                type="success"
+                showIcon
+                message={t("channels.secretsConfigured")}
+                description={t("channels.secretsConfiguredDescription", {
+                  fields: initialValues.configuredSecretFields.join(", "),
+                })}
+                style={{ marginBottom: 16 }}
+              />
+            )}
           <Form.Item
             name="enabled"
             label={t("common.enabled")}

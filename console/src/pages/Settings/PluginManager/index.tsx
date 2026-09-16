@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { Button, Empty, Spin, Table, Tabs } from "antd";
+import { useRequest } from "ahooks";
 import { ExternalLink, Package, Plus } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
+import { adminUsersApi } from "@/api/modules/adminUsers";
 import { usePluginManager } from "./hooks/usePluginManager";
 import { usePluginColumns } from "./hooks/usePluginColumns";
 import { useInstallModal } from "./hooks/useInstallModal";
@@ -13,14 +15,25 @@ import styles from "./index.module.less";
 export default function PluginManagerPage() {
   const { t } = useTranslation();
 
-  const { plugins, loading, refresh, uninstallingId, handleUninstall } =
-    usePluginManager();
+  const {
+    plugins,
+    loading,
+    refresh,
+    uninstallingId,
+    handleUninstall,
+    handleEnabledChange,
+    handleAudienceChange,
+  } = usePluginManager();
 
   const installModal = useInstallModal(refresh);
+  const { data: users = [] } = useRequest(adminUsersApi.list);
 
   const columns = usePluginColumns({
     uninstallingId,
     onUninstall: handleUninstall,
+    onEnabledChange: handleEnabledChange,
+    onAudienceChange: handleAudienceChange,
+    users,
   });
 
   const tabItems = [

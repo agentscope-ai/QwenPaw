@@ -55,4 +55,17 @@ describe("tokenUsageApi", () => {
       "/token-usage/details?start_date=2026-02-01&end_date=2026-02-28",
     );
   });
+
+  it("getTokenUsageDetails includes trusted aggregate scope", async () => {
+    vi.mocked(request).mockResolvedValue([]);
+    await tokenUsageApi.getTokenUsageDetails({
+      start_date: "2026-09-01",
+      end_date: "2026-09-07",
+      scope: "agent",
+      agent_id: "shared-agent",
+    });
+    expect(request).toHaveBeenCalledWith(
+      "/token-usage/details?start_date=2026-09-01&end_date=2026-09-07&scope=agent&agent_id=shared-agent",
+    );
+  });
 });

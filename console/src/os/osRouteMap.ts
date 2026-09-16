@@ -29,6 +29,7 @@ export const SETTINGS_ROUTE_IDS = new Set<string>([
   "core.skill-pool",
   "core.environments",
   "core.security",
+  "core.migration-preview",
   "core.token-usage",
   "core.backups",
   "core.voice-transcription",

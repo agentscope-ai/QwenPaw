@@ -14,6 +14,7 @@ import { getChannelLabel } from "../../../Control/Channels/components";
 import { syncSessionsGlobal } from "../../../../stores/sessionListStore";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
+import { approvalLevelStorageKey } from "../ApprovalLevelToggle";
 
 export { ContextMenu, useContextMenu, type ContextMenuItem, getChannelLabel };
 
@@ -271,7 +272,7 @@ export function useSessionListData(
 
       // Per-session cleanup is safe regardless of the active agent: it is
       // keyed to the deleted conversation only.
-      localStorage.removeItem(`approval_level-${sessionId}`);
+      localStorage.removeItem(approvalLevelStorageKey(sessionId));
 
       // Clear the message queue for the deleted session so stale items don't
       // linger in storage or get sent after deletion. The queue may be keyed

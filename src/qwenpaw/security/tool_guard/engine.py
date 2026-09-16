@@ -15,10 +15,12 @@ Usage::
 Custom guardians can be registered at construction time or later via
 :meth:`register_guardian`.
 """
+
 from __future__ import annotations
 
 import logging
 import time
+import json
 from typing import Any
 
 from ...constant import EnvVarLoader
@@ -46,10 +48,11 @@ def _guard_enabled() -> bool:
         return env_val.lower() in _TRUE_STRINGS
 
     try:
-        from qwenpaw.config import load_config
+        from qwenpaw.platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
-        cfg = load_config()
-        return cfg.security.tool_guard.enabled
+        return load_effective_security_policy().tool_guard.enabled
     except Exception:
         return True
 
@@ -141,6 +144,13 @@ class ToolGuardEngine:
 
     @property
     def enabled(self) -> bool:
+        try:
+            from ...identity.runtime import is_multi_user_enabled
+
+            if is_multi_user_enabled():
+                return _guard_enabled()
+        except Exception:
+            pass
         return self._enabled
 
     @enabled.setter
@@ -183,26 +193,48 @@ class ToolGuardEngine:
 
     def is_denied(self, tool_name: str) -> bool:
         """``True`` when *tool_name* is unconditionally denied."""
+        try:
+            from ...identity.runtime import is_multi_user_enabled
+
+            if is_multi_user_enabled():
+                from .utils import resolve_denied_tools
+
+                return tool_name in resolve_denied_tools()
+        except Exception:
+            pass
         return tool_name in self._denied_tools
 
     def should_auto_deny_result(self, result: ToolGuardResult | None) -> bool:
         """``True`` when guard findings hit any configured auto-deny rule."""
-        if (
-            result is None
-            or not result.findings
-            or not self._auto_denied_rules
-        ):
+        auto_denied_rules = self._auto_denied_rules
+        try:
+            from ...identity.runtime import is_multi_user_enabled
+
+            if is_multi_user_enabled():
+                from .utils import resolve_auto_denied_rules
+
+                auto_denied_rules = resolve_auto_denied_rules()
+        except Exception:
+            pass
+        if result is None or not result.findings or not auto_denied_rules:
             return False
-        return any(
-            finding.rule_id in self._auto_denied_rules
-            for finding in result.findings
-        )
+        return any(finding.rule_id in auto_denied_rules for finding in result.findings)
 
     def is_guarded(self, tool_name: str) -> bool:
         """``True`` when *tool_name* falls within the guard scope."""
-        if self._guarded_tools is None:
+        guarded_tools = self._guarded_tools
+        try:
+            from ...identity.runtime import is_multi_user_enabled
+
+            if is_multi_user_enabled():
+                from .utils import resolve_guarded_tools
+
+                guarded_tools = resolve_guarded_tools()
+        except Exception:
+            pass
+        if guarded_tools is None:
             return True
-        return tool_name in self._guarded_tools
+        return tool_name in guarded_tools
 
     # ------------------------------------------------------------------
     # Core interface
@@ -242,10 +274,20 @@ class ToolGuardEngine:
             params=params,
         )
 
+        try:
+            from ...identity.runtime import is_multi_user_enabled
+
+            active_guardians = (
+                _effective_guardians(self._default_guardians)
+                if is_multi_user_enabled()
+                else self._guardians
+            )
+        except Exception:
+            active_guardians = self._guardians
         guardians = (
-            [g for g in self._guardians if g.always_run]
+            [g for g in active_guardians if g.always_run]
             if only_always_run
-            else self._guardians
+            else active_guardians
         )
 
         for guardian in guardians:
@@ -269,6 +311,26 @@ class ToolGuardEngine:
 
 
 _engine_instance: ToolGuardEngine | None = None
+_effective_guardian_cache: dict[str, list[BaseToolGuardian]] = {}
+
+
+def _effective_guardians(factory) -> list[BaseToolGuardian]:
+    """Cache immutable guardian sets by effective policy content."""
+    from ...platform_ops.security_policy import load_effective_security_policy
+
+    policy = load_effective_security_policy()
+    cache_key = json.dumps(
+        policy.model_dump(mode="json"),
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    guardians = _effective_guardian_cache.get(cache_key)
+    if guardians is None:
+        guardians = factory()
+        if len(_effective_guardian_cache) >= 64:
+            _effective_guardian_cache.clear()
+        _effective_guardian_cache[cache_key] = guardians
+    return guardians
 
 
 def get_guard_engine() -> ToolGuardEngine:

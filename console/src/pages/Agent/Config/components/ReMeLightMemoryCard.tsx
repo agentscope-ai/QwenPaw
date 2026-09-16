@@ -16,6 +16,7 @@ import { useAgentStore } from "@/stores/agentStore";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { ReMeStatusModal } from "./ReMeStatusModal";
+import type { AgentRequestContext } from "@/api/modules/agentRequestContext";
 
 export function isValidDreamCronShape(value?: string) {
   if (!value?.trim()) {
@@ -48,7 +49,11 @@ export function isValidDreamCronShape(value?: string) {
   });
 }
 
-export function ReMeLightMemoryCard() {
+export function ReMeLightMemoryCard({
+  requestContext,
+}: {
+  requestContext?: AgentRequestContext;
+}) {
   const { t, i18n } = useTranslation();
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
@@ -72,7 +77,10 @@ export function ReMeLightMemoryCard() {
       onOk: async () => {
         setReindexing(true);
         try {
-          await agentsApi.rebuildMemoryIndex(selectedAgent || "default");
+          await agentsApi.rebuildMemoryIndex(
+            requestContext?.agentId || selectedAgent || "default",
+            requestContext,
+          );
           setNeedsReindex(false);
           message.success(t("agentConfig.rebuildMemoryIndexSuccess"));
         } catch (error) {

@@ -49,12 +49,15 @@ describe("commandsApi", () => {
       "req-1",
       "sess-1",
       "looks good",
+      undefined,
+      "conversation-1",
     );
     expect(request).toHaveBeenCalledWith("/approval/approve", {
       method: "POST",
       body: JSON.stringify({
         request_id: "req-1",
         session_id: "sess-1",
+        conversation_id: "conversation-1",
         reason: "looks good",
       }),
     });
@@ -68,12 +71,16 @@ describe("commandsApi", () => {
       "deny",
       "req-2",
       "sess-2",
+      undefined,
+      undefined,
+      "conversation-2",
     );
     expect(request).toHaveBeenCalledWith("/approval/deny", {
       method: "POST",
       body: JSON.stringify({
         request_id: "req-2",
         session_id: "sess-2",
+        conversation_id: "conversation-2",
         reason: undefined,
       }),
     });

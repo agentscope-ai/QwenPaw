@@ -228,6 +228,7 @@ class ConsoleChannel(BaseChannel):
                     return AudioContent(
                         type=ContentType.AUDIO,
                         data=url,
+                        attachment_id=getattr(part, "attachment_id", None),
                     )
             elif content_type == ContentType.FILE:
                 url = getattr(part, "file_url", None)
@@ -278,6 +279,9 @@ class ConsoleChannel(BaseChannel):
         mso = payload.get("model_slot_override")
         if mso is not None:
             request.model_slot_override = mso
+        authority = payload.get("_model_authority")
+        if authority is not None:
+            object.__setattr__(request, "_model_authority", authority)
         return request
 
     async def _extract_media_message(self, message: Message) -> Message | None:

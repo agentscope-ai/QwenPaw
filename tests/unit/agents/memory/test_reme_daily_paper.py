@@ -83,6 +83,7 @@ async def test_daily_paper_reports_the_real_execution_failure() -> None:
         run_job=AsyncMock(side_effect=ConnectionError("mirror unreachable")),
     )
     manager._lifecycle_condition = asyncio.Condition()
+    manager._lifecycle_writer_lock = asyncio.Lock()
     manager._lifecycle_operation = None
     manager._active_reme_jobs = 0
     manager._update_qwenpaw_model = AsyncMock()
@@ -206,10 +207,13 @@ def test_reme_declares_its_enabled_cron_jobs() -> None:
 
     assert [job.key for job in jobs] == ["dream", "daily-paper"]
     assert jobs[0].callback.__self__ is manager
-    assert jobs[0].callback.__func__ is ReMeLightMemoryManager.dream
+    assert jobs[0].callback.__func__ is ReMeLightMemoryManager.public_dream
     assert jobs[0].jitter_seconds == 60
     assert jobs[1].callback.__self__ is manager
-    assert jobs[1].callback.__func__ is ReMeLightMemoryManager.daily_paper
+    assert (
+        jobs[1].callback.__func__
+        is ReMeLightMemoryManager.public_daily_paper
+    )
 
 
 @pytest.mark.asyncio

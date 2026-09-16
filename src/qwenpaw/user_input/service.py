@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """In-memory service for structured user input requests."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +9,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Any
+
+from ..identity.runtime import is_multi_user_enabled
 
 from .broadcast import broadcast_user_input_update
 from .schemas import (
@@ -52,8 +55,13 @@ class UserInputService:
         title: str | None,
         questions: list[UserInputQuestion],
         timeout_seconds: float = 300.0,
+        recipient_user_id: str | None = None,
     ) -> UserInputRequest:
         """Create a pending request and broadcast it."""
+        if is_multi_user_enabled():
+            if not recipient_user_id:
+                raise ValueError("User input requires a trusted user identity")
+            user_id = recipient_user_id
         request_id = str(uuid.uuid4())
         loop = asyncio.get_running_loop()
         request = UserInputRequest(
@@ -98,6 +106,7 @@ class UserInputService:
         *,
         agent_id: str,
         session_id: str,
+        user_id: str | None = None,
     ) -> UserInputRequest | None:
         """Return the oldest pending request for the session/root session."""
         async with self._lock:
@@ -105,6 +114,10 @@ class UserInputService:
                 pending.request
                 for pending in self._pending.values()
                 if pending.request.agent_id == agent_id
+                and (
+                    not is_multi_user_enabled()
+                    or (user_id and pending.request.user_id == user_id)
+                )
                 and pending.request.status == "pending"
                 and (
                     pending.request.session_id == session_id
@@ -119,11 +132,20 @@ class UserInputService:
         self,
         request_id: str,
         answer: UserInputAnswer,
+        *,
+        agent_id: str | None = None,
+        user_id: str | None = None,
     ) -> UserInputRequest | None:
         """Resolve or advance a pending request from a frontend answer."""
         async with self._lock:
             pending = self._pending.get(request_id)
             if pending is None:
+                return None
+            if is_multi_user_enabled() and (
+                not user_id
+                or pending.request.user_id != user_id
+                or pending.request.agent_id != agent_id
+            ):
                 return None
 
             if answer.action == "submit":
@@ -190,6 +212,9 @@ class UserInputService:
     async def cancel_all_pending_by_root_session(
         self,
         root_session_id: str,
+        *,
+        agent_id: str | None = None,
+        user_id: str | None = None,
     ) -> int:
         """Cancel all pending requests for a root session."""
         cancelled = 0
@@ -198,6 +223,14 @@ class UserInputService:
                 (key, pending)
                 for key, pending in self._pending.items()
                 if pending.request.root_session_id == root_session_id
+                and (
+                    not is_multi_user_enabled()
+                    or (
+                        user_id
+                        and pending.request.user_id == user_id
+                        and pending.request.agent_id == agent_id
+                    )
+                )
                 and pending.request.status == "pending"
             ]
             for key, pending in items:
@@ -244,7 +277,7 @@ class UserInputService:
         }
         if result is not None:
             payload["result"] = result.model_dump()
-        broadcast_user_input_update(request.agent_id, payload)
+        broadcast_user_input_update(request.agent_id, payload, user_id=request.user_id)
 
     def _gc_pending_locked(self) -> None:
         now = time.time()

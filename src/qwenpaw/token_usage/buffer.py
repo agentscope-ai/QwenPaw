@@ -24,6 +24,12 @@ class _UsageEvent(NamedTuple):
     completion_tokens: int
     date_str: str  # YYYY-MM-DD, pre-computed by producer
     now_iso: str  # ISO-8601 timestamp, pre-computed by producer
+    user_id: str | None = None
+    actor_type: str = "user"
+    agent_key: str | None = None
+    conversation_id: str | None = None
+    run_id: str | None = None
+    automation_schedule_id: str | None = None
 
 
 class TokenUsageBuffer:

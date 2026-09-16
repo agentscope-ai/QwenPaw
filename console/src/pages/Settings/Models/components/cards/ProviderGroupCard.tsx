@@ -119,9 +119,9 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
 
         <div className={styles.groupCardField}>
           <span className={styles.groupCardFieldLabel}>API Key</span>
-          {activeProvider.api_key ? (
+          {activeProvider.api_key_configured || activeProvider.api_key ? (
             <div className={styles.groupCardMono}>
-              <span>{activeProvider.api_key}</span>
+              <span>••••••</span>
               <span
                 className={styles.groupCardChangeBtn}
                 onClick={() => onOpenConfig(activeProvider)}

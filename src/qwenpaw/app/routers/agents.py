@@ -8,6 +8,7 @@ import json
 import logging
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal
 from fastapi import APIRouter, Body, HTTPException, Request
 from fastapi import Path as PathParam
@@ -15,9 +16,32 @@ from pydantic import BaseModel, Field, field_validator
 
 from qwenpaw.exceptions import (
     AppBaseException,
+    ProviderError,
 )
 
+from ...access.actor import ActorContext
+from ...access.agent_membership import (
+    AccessibleAgent,
+    AgentAccessDeniedError,
+    AgentMembershipService,
+)
+from ...access.agent_repository import (
+    AgentResourceRole,
+    AgentVisibility,
+    LegacyAgentRecord,
+    PostgresAgentRepository,
+)
+from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+from ...memory_scope.models import (
+    MemoryIndexState,
+    MemoryScope,
+    MemoryWorkspaceStatus,
+)
+from ...memory_scope.resolver import MemoryScopeResolver
+from ...persistence.agent_user_workspaces import AgentUserWorkspaceRepository
+
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
+from ...agents.effective_model import resolve_effective_model
 from ..utils import schedule_agent_reload
 from ...config.config import (
     AgentProfileConfig,
@@ -38,6 +62,7 @@ from ..agent_startup import AgentStartupStatus
 from ..multi_agent_manager import MultiAgentManager
 from ...constant import WORKING_DIR
 from ...utils.io_utils import run_sync_io
+from ...workspaces.layout import ensure_artifacts_directory
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +84,18 @@ class AgentSummary(BaseModel):
     backend_model: str | None = None
     backend_reasoning_effort: str | None = None
     active_model: ModelSlotConfig | None = None
+    access_role: AgentResourceRole = AgentResourceRole.OWNER
+    registration_state: Literal["registered", "legacy_preview"] = "registered"
+    can_edit: bool = True
+    can_delete: bool = True
+    can_copy: bool = True
+    can_export: bool = True
+    can_toggle: bool = True
+    can_reorder: bool = True
+    visibility: AgentVisibility = AgentVisibility.PRIVATE
+    can_manage_members: bool = True
+    model_locked: bool = False
+    historical_read_only: bool = False
 
 
 class AgentListResponse(BaseModel):
@@ -160,6 +197,24 @@ class ReMeMemoryStatusResponse(BaseModel):
     runtime: MemoryRuntimeStatus
 
 
+class MemoryScopeSummary(BaseModel):
+    """不暴露物理路径和用户身份的记忆作用域摘要。"""
+
+    scope: MemoryScope
+    can_read: bool
+    can_edit: bool
+    status: MemoryWorkspaceStatus
+    index_state: MemoryIndexState
+    index_version: int = 0
+
+
+class MemoryScopesResponse(BaseModel):
+    """当前请求主体可访问的记忆作用域。"""
+
+    agent_id: str
+    scopes: list[MemoryScopeSummary]
+
+
 class CreateAgentRequest(BaseModel):
     """Request model for creating a new agent.
 
@@ -246,6 +301,237 @@ def _get_multi_agent_manager(request: Request) -> MultiAgentManager:
     return request.app.state.multi_agent_manager
 
 
+def _get_agent_metadata_repository() -> PostgresAgentRepository:
+    """按当前身份 Schema 装配唯一 Agent 元数据 Repository。"""
+    return PostgresAgentRepository(schema=get_identity_schema())
+
+
+def _get_agent_membership_service() -> AgentMembershipService:
+    return AgentMembershipService(_get_agent_metadata_repository())
+
+
+def _get_agent_user_workspace_repository() -> AgentUserWorkspaceRepository:
+    return AgentUserWorkspaceRepository(schema=get_identity_schema())
+
+
+def _get_memory_scope_resolver() -> MemoryScopeResolver:
+    return MemoryScopeResolver()
+
+
+def _model_mode(active_model: ModelSlotConfig | None) -> Literal[
+    "inherited",
+    "explicit",
+]:
+    if active_model and active_model.provider_id and active_model.model:
+        return "explicit"
+    return "inherited"
+
+
+def _validate_agent_effective_model(agent_config: AgentProfileConfig) -> None:
+    """拒绝无法解析到有效模型的 QwenPaw 智能体配置。"""
+    if agent_config.backend != "qwenpaw":
+        return
+    try:
+        resolve_effective_model(agent_config)
+    except ProviderError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/{agentId}/memory/scopes",
+    response_model=MemoryScopesResponse,
+    summary="Get safe memory scope summary",
+)
+async def get_memory_scopes(
+    agentId: str = PathParam(..., min_length=1),
+    request: Request = None,
+) -> MemoryScopesResponse:
+    """返回当前主体可用的公共/私有记忆作用域，不返回路径或其他用户 ID。"""
+    governance = bool(
+        request is not None
+        and request.headers.get("X-Agent-Governance") == "runtime-config"
+    )
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles={
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+            AgentResourceRole.USER,
+        },
+    )
+    actor = _request_actor(request)
+    resolver = _get_memory_scope_resolver()
+    public_context = resolver.resolve_public(
+        actor=actor,
+        agent_id=agentId,
+        governance=governance,
+    )
+    resolver.ensure_workspace(public_context)
+    public_can_edit = governance or (
+        access is not None
+        and access.role
+        in {AgentResourceRole.OWNER, AgentResourceRole.COLLABORATOR}
+        and not access.historical_read_only
+    )
+    try:
+        agent_config = await run_sync_io(load_agent_config, agentId)
+        public_index_state = (
+            MemoryIndexState.NEEDS_REINDEX
+            if agent_config.running.reme_light_memory_config.needs_reindex
+            else MemoryIndexState.READY
+        )
+    except Exception:
+        public_index_state = MemoryIndexState.NEEDS_REINDEX
+    loaded_manager = None
+    if request is not None:
+        manager = getattr(getattr(request, "app", None), "state", None)
+        multi_agent_manager = getattr(manager, "multi_agent_manager", None)
+        loaded_workspace = (
+            multi_agent_manager.get_loaded_agent(agentId)
+            if multi_agent_manager is not None
+            else None
+        )
+        loaded_manager = getattr(loaded_workspace, "memory_manager", None)
+    if getattr(loaded_manager, "is_reindexing", False):
+        public_index_state = MemoryIndexState.REINDEXING
+    summaries = [
+        MemoryScopeSummary(
+            scope=MemoryScope.PUBLIC,
+            can_read=True,
+            can_edit=public_can_edit,
+            status=MemoryWorkspaceStatus.ACTIVE,
+            index_state=public_index_state,
+        )
+    ]
+    if not governance and actor.user_id is not None:
+        private_context = resolver.resolve_private(
+            actor=actor,
+            agent_id=agentId,
+        )
+        resolver.ensure_workspace(private_context)
+        repository = _get_agent_user_workspace_repository()
+        record = await repository.ensure_private(
+            user_id=actor.user_id,
+            agent_key=agentId,
+            workspace_key=resolver.workspace_key(private_context),
+        )
+        summaries.append(
+            MemoryScopeSummary(
+                scope=MemoryScope.PRIVATE,
+                can_read=True,
+                can_edit=True,
+                status=record.status,
+                index_state=record.index_state,
+                index_version=record.index_version,
+            )
+        )
+    return MemoryScopesResponse(agent_id=agentId, scopes=summaries)
+
+
+def _request_actor(request: Request | None) -> ActorContext:
+    actor = getattr(getattr(request, "state", None), "actor", None)
+    if not isinstance(actor, ActorContext):
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    return actor
+
+
+def _legacy_agent_record(
+    agent_id: str,
+    agent_ref: AgentProfileRef,
+    agent_config: AgentProfileConfig,
+) -> LegacyAgentRecord:
+    return LegacyAgentRecord(
+        key=agent_id,
+        name=agent_config.name,
+        description=agent_config.description or "",
+        workspace_key=agent_ref.workspace_dir,
+        status=("active" if getattr(agent_ref, "enabled", True) else "disabled"),
+    )
+
+
+async def _require_agent_role(
+    *,
+    request: Request | None,
+    agent_id: str,
+    allowed_roles: set[AgentResourceRole],
+) -> AccessibleAgent | None:
+    """Legacy 不改变原行为；多用户模式统一执行资源角色校验。"""
+    if not is_multi_user_enabled():
+        return None
+    if (
+        request is not None
+        and getattr(request, "headers", {}).get("X-Agent-Governance")
+        == "runtime-config"
+    ):
+        from ..agent_context import get_running_config_workspace
+
+        workspace = await get_running_config_workspace(
+            request,
+            action="agent.admin.runtime_config.memory",
+        )
+        if getattr(workspace, "agent_id", None) != agent_id:
+            raise HTTPException(status_code=403, detail="forbidden")
+        return None
+    config = load_config()
+    agent_ref = config.agents.profiles.get(agent_id)
+    if agent_ref is None:
+        raise HTTPException(status_code=403, detail="forbidden")
+    try:
+        agent_config = load_agent_config(agent_id)
+        return await _get_agent_membership_service().require_role(
+            actor=_request_actor(request),
+            agent=_legacy_agent_record(agent_id, agent_ref, agent_config),
+            allowed_roles=allowed_roles,
+        )
+    except AgentAccessDeniedError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+
+
+async def _register_legacy_preview(
+    *,
+    access: AccessibleAgent | None,
+    request: Request | None,
+    repository: PostgresAgentRepository,
+) -> None:
+    """用户首次修改旧 Agent 时登记 owner；只读列表仍保持预览。"""
+    if access is None or access.registration_state != "legacy_preview":
+        return
+    actor = _request_actor(request)
+    if actor.user_id is None:  # pragma: no cover - guarded by auth
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    await repository.register_owner(
+        agent=access.agent,
+        owner_user_id=actor.user_id,
+    )
+
+
+async def _accessible_agents_for_config(
+    *,
+    config,
+    request: Request | None,
+) -> list[AccessibleAgent]:
+    records: list[LegacyAgentRecord] = []
+    for agent_id in _display_agent_order(config):
+        agent_ref = config.agents.profiles[agent_id]
+        try:
+            agent_config = load_agent_config(agent_id)
+        except Exception:  # noqa: BLE001 - preserve legacy catalog fallback
+            agent_config = AgentProfileConfig(
+                id=agent_id,
+                name=agent_id.title(),
+                description="",
+                workspace_dir=agent_ref.workspace_dir,
+            )
+        records.append(_legacy_agent_record(agent_id, agent_ref, agent_config))
+    return await _get_agent_membership_service().list_accessible(
+        actor=_request_actor(request),
+        legacy_agents=records,
+    )
+
+
 def _normalized_agent_order(config) -> list[str]:
     """Return a deduplicated agent order covering every configured agent."""
     profile_ids = list(config.agents.profiles.keys())
@@ -326,10 +612,33 @@ def _read_profile_description(workspace_dir: str) -> str:
 async def list_agents(request: Request = None) -> AgentListResponse:
     """List all configured agents."""
     config = load_config()
-    manager = (
-        _get_multi_agent_manager(request) if request is not None else None
-    )
+    manager = _get_multi_agent_manager(request) if request is not None else None
     ordered_agent_ids = _display_agent_order(config)
+    access_by_id: dict[str, AccessibleAgent] = {}
+    if is_multi_user_enabled():
+        legacy_agents: list[LegacyAgentRecord] = []
+        for agent_id in ordered_agent_ids:
+            agent_ref = config.agents.profiles[agent_id]
+            try:
+                agent_config = load_agent_config(agent_id)
+            except Exception:  # noqa: BLE001 - preserve legacy fallback
+                agent_config = AgentProfileConfig(
+                    id=agent_id,
+                    name=agent_id.title(),
+                    description="",
+                    workspace_dir=agent_ref.workspace_dir,
+                )
+            legacy_agents.append(
+                _legacy_agent_record(agent_id, agent_ref, agent_config)
+            )
+        accessible = await _get_agent_membership_service().list_accessible(
+            actor=_request_actor(request),
+            legacy_agents=legacy_agents,
+        )
+        access_by_id = {item.agent.key: item for item in accessible}
+        ordered_agent_ids = [
+            agent_id for agent_id in ordered_agent_ids if agent_id in access_by_id
+        ]
 
     agents = []
     for agent_id in ordered_agent_ids:
@@ -344,11 +653,45 @@ async def list_agents(request: Request = None) -> AgentListResponse:
             manager.get_agent_startup_status(agent_id, enabled=enabled)
             if manager is not None
             else (
-                AgentStartupStatus.PENDING
-                if enabled
-                else AgentStartupStatus.DISABLED
+                AgentStartupStatus.PENDING if enabled else AgentStartupStatus.DISABLED
             )
         )
+        access = access_by_id.get(agent_id)
+        role = access.role if access else AgentResourceRole.OWNER
+        can_manage = role in {
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+        }
+        historical_read_only = bool(
+            access is not None and access.historical_read_only
+        )
+        access_fields = {
+            "access_role": role,
+            "registration_state": (
+                access.registration_state if access else "registered"
+            ),
+            "can_edit": can_manage and not historical_read_only,
+            "can_delete": (
+                role is AgentResourceRole.OWNER and not historical_read_only
+            ),
+            "can_copy": can_manage and not historical_read_only,
+            "can_export": (
+                role is AgentResourceRole.OWNER and not historical_read_only
+            ),
+            "can_toggle": can_manage and not historical_read_only,
+            # Order and pin state are shared profile metadata. Collaborators
+            # may edit the Agent configuration, but only its owner controls
+            # where that shared Agent appears and whether it is pinned.
+            "can_reorder": (
+                role is AgentResourceRole.OWNER and not historical_read_only
+            ),
+            "visibility": access.visibility if access else AgentVisibility.PRIVATE,
+            "can_manage_members": (
+                role is AgentResourceRole.OWNER and not historical_read_only
+            ),
+            "model_locked": False,
+            "historical_read_only": historical_read_only,
+        }
         try:
             agent_config = load_agent_config(agent_id)
             description = agent_config.description or ""
@@ -389,6 +732,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                         )
                     ),
                     active_model=active_model,
+                    **access_fields,
                 ),
             )
         except Exception:  # noqa: E722
@@ -401,6 +745,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
                     enabled=enabled,
                     pinned=pinned,
                     startup_status=startup_status,
+                    **access_fields,
                 ),
             )
 
@@ -414,6 +759,7 @@ async def list_agents(request: Request = None) -> AgentListResponse:
 )
 async def reorder_agents(
     reorder_request: ReorderAgentsRequest = Body(...),
+    request: Request = None,
 ) -> dict:
     """Persist the full ordered list of agent IDs."""
     config = load_config()
@@ -425,13 +771,41 @@ async def reorder_agents(
             detail="Each configured agent ID must appear exactly once.",
         )
 
-    if set(reorder_request.agent_ids) != set(configured_ids):
+    expected_ids = configured_ids
+    if is_multi_user_enabled():
+        accessible = await _accessible_agents_for_config(
+            config=config,
+            request=request,
+        )
+        expected_ids = [
+            item.agent.key
+            for item in accessible
+            if item.role in {AgentResourceRole.OWNER, AgentResourceRole.COLLABORATOR}
+        ]
+
+    if set(reorder_request.agent_ids) != set(expected_ids):
         raise HTTPException(
             status_code=400,
             detail="Each configured agent ID must appear exactly once.",
         )
 
-    if not _is_valid_display_order(config, reorder_request.agent_ids):
+    persisted_order = list(reorder_request.agent_ids)
+    if is_multi_user_enabled():
+        persisted_order = _normalized_agent_order(config)
+        visible = set(expected_ids)
+        positions = [
+            index
+            for index, agent_id in enumerate(persisted_order)
+            if agent_id in visible
+        ]
+        for index, agent_id in zip(
+            positions,
+            reorder_request.agent_ids,
+            strict=True,
+        ):
+            persisted_order[index] = agent_id
+
+    if not _is_valid_display_order(config, persisted_order):
         raise HTTPException(
             status_code=400,
             detail=(
@@ -440,10 +814,10 @@ async def reorder_agents(
             ),
         )
 
-    config.agents.agent_order = list(reorder_request.agent_ids)
+    config.agents.agent_order = persisted_order
     save_config(config)
 
-    return {"success": True, "agent_ids": config.agents.agent_order}
+    return {"success": True, "agent_ids": list(reorder_request.agent_ids)}
 
 
 @router.patch(
@@ -454,6 +828,7 @@ async def reorder_agents(
 async def set_agent_pinned(
     agentId: str = PathParam(...),
     pinned: bool = Body(..., embed=True),
+    request: Request = None,
 ) -> dict:
     """Persist an agent's pinned state without changing enabled state."""
     config = load_config()
@@ -470,11 +845,27 @@ async def set_agent_pinned(
             detail="Cannot unpin the default agent",
         )
 
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles={
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+        },
+    )
+
     agent_ref = config.agents.profiles[agentId]
     if agentId != "default":
         agent_ref.pinned = pinned
         config.agents.agent_order = _display_agent_order(config)
         save_config(config)
+
+    if is_multi_user_enabled():
+        await _register_legacy_preview(
+            access=access,
+            request=request,
+            repository=_get_agent_metadata_repository(),
+        )
 
     return {
         "success": True,
@@ -489,8 +880,19 @@ async def set_agent_pinned(
     summary="Get agent details",
     description="Get complete configuration for a specific agent",
 )
-async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
+async def get_agent(
+    agentId: str = PathParam(...),
+    request: Request = None,
+) -> AgentProfileConfig:
     """Get agent configuration."""
+    await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles={
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+        },
+    )
     try:
         agent_config = load_agent_config(agentId)
         return agent_config
@@ -508,8 +910,17 @@ async def get_agent(agentId: str = PathParam(...)) -> AgentProfileConfig:
 async def update_backend_settings(
     body: BackendSettingsRequest,
     agentId: str = PathParam(...),
+    request: Request = None,
 ) -> AgentProfileConfig:
     """Persist model controls owned by a third-party agent backend."""
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles={
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+        },
+    )
     try:
         agent_config = load_agent_config(agentId)
     except (ValueError, AppBaseException) as exc:
@@ -534,6 +945,20 @@ async def update_backend_settings(
             settings.pop("reasoning_effort", None)
     agent_config.backend_settings = settings
     save_agent_config(agentId, agent_config)
+    if is_multi_user_enabled():
+        repository = _get_agent_metadata_repository()
+        await _register_legacy_preview(
+            access=access,
+            request=request,
+            repository=repository,
+        )
+        await repository.update_metadata(
+            agent=_legacy_agent_record(
+                agentId,
+                load_config().agents.profiles[agentId],
+                agent_config,
+            )
+        )
     return agent_config
 
 
@@ -592,6 +1017,36 @@ async def create_agent(
     workspace_dir = Path(
         request.workspace_dir or f"{WORKING_DIR}/workspaces/{new_id}",
     ).expanduser()
+
+    active_model = request.active_model if request.backend == "qwenpaw" else None
+    if request.backend == "qwenpaw":
+        # Validate the effective model before creating database/file drafts,
+        # while preserving ``None`` as the inheritance configuration fact.
+        try:
+            resolve_effective_model(
+                SimpleNamespace(active_model=active_model),
+            )
+        except ProviderError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    metadata_repository = None
+    if is_multi_user_enabled():
+        actor = _request_actor(http_request)
+        if actor.user_id is None:  # pragma: no cover - guarded by auth
+            raise HTTPException(status_code=401, detail="not_authenticated")
+        metadata_repository = _get_agent_metadata_repository()
+        await metadata_repository.register_owner(
+            agent=LegacyAgentRecord(
+                key=new_id,
+                name=request.name,
+                description=request.description,
+                workspace_key=str(workspace_dir),
+                status="draft",
+            ),
+            owner_user_id=actor.user_id,
+            status="draft",
+        )
+
     workspace_dir.mkdir(parents=True, exist_ok=True)
 
     from ...config.config import (
@@ -604,21 +1059,6 @@ async def create_agent(
     language = normalize_agent_language(
         request.language or config.agents.language or "en",
     )
-
-    active_model = (
-        request.active_model if request.backend == "qwenpaw" else None
-    )
-    if request.backend == "qwenpaw" and (
-        not active_model or not active_model.provider_id
-    ):
-        try:
-            from ...providers import ProviderManager
-
-            global_model = ProviderManager.get_instance().get_active_model()
-            if global_model and global_model.provider_id:
-                active_model = global_model
-        except Exception:
-            pass
 
     agent_config = AgentProfileConfig(
         id=new_id,
@@ -637,9 +1077,7 @@ async def create_agent(
 
     _initialize_agent_workspace(
         workspace_dir,
-        skill_names=(
-            request.skill_names if request.skill_names is not None else []
-        ),
+        skill_names=(request.skill_names if request.skill_names is not None else []),
         language=language,
     )
 
@@ -653,6 +1091,23 @@ async def create_agent(
     config.agents.agent_order = _normalized_agent_order(config)
     save_config(config)
     save_agent_config(new_id, agent_config)
+
+    if metadata_repository is not None:
+        await metadata_repository.update_metadata(
+            agent=LegacyAgentRecord(
+                key=new_id,
+                name=agent_config.name,
+                description=agent_config.description or "",
+                workspace_key=str(workspace_dir),
+                status="active",
+            )
+        )
+        update_model_mode = getattr(metadata_repository, "update_model_mode", None)
+        if callable(update_model_mode):
+            await update_model_mode(
+                new_id,
+                _model_mode(agent_config.active_model),
+            )
 
     logger.info(f"Created new agent: {new_id} (name={request.name})")
 
@@ -737,6 +1192,15 @@ async def copy_agent(
             detail=f"Agent '{agentId}' not found",
         )
 
+    await _require_agent_role(
+        request=http_request,
+        agent_id=agentId,
+        allowed_roles={
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+        },
+    )
+
     try:
         source_config = load_agent_config(agentId)
     except (ValueError, AppBaseException) as e:
@@ -750,17 +1214,47 @@ async def copy_agent(
     new_id = _generate_unique_id(existing_ids)
     new_name = (request.name or "").strip() or f"{source_config.name} Copy"
     workspace_dir = Path(f"{WORKING_DIR}/workspaces/{new_id}").expanduser()
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-
-    language = normalize_agent_language(
-        source_config.language or config.agents.language or "en",
-    )
 
     agent_config = _build_copied_agent_config(
         source_config=source_config,
         new_id=new_id,
         new_name=new_name,
         workspace_dir=workspace_dir,
+    )
+    if (
+        agent_config.backend == "qwenpaw"
+        and agent_config.active_model is not None
+    ):
+        # A copy retains the source model mode. Validate it before creating
+        # database drafts or filesystem state so a stale explicit model cannot
+        # leave a partially copied agent behind.
+        try:
+            resolve_effective_model(agent_config)
+        except ProviderError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    metadata_repository = None
+    if is_multi_user_enabled():
+        actor = _request_actor(http_request)
+        if actor.user_id is None:  # pragma: no cover - guarded by auth
+            raise HTTPException(status_code=401, detail="not_authenticated")
+        metadata_repository = _get_agent_metadata_repository()
+        await metadata_repository.register_owner(
+            agent=LegacyAgentRecord(
+                key=new_id,
+                name=new_name,
+                description=source_config.description or "",
+                workspace_key=str(workspace_dir),
+                status="draft",
+            ),
+            owner_user_id=actor.user_id,
+            status="draft",
+        )
+
+    workspace_dir.mkdir(parents=True, exist_ok=True)
+
+    language = normalize_agent_language(
+        source_config.language or config.agents.language or "en",
     )
 
     _initialize_agent_workspace(
@@ -788,9 +1282,23 @@ async def copy_agent(
     save_config(config)
     save_agent_config(new_id, agent_config)
 
+    if metadata_repository is not None:
+        await metadata_repository.update_metadata(
+            agent=LegacyAgentRecord(
+                key=new_id,
+                name=agent_config.name,
+                description=agent_config.description or "",
+                workspace_key=str(workspace_dir),
+                status="active",
+            )
+        )
+        await metadata_repository.update_model_mode(
+            new_id,
+            _model_mode(agent_config.active_model),
+        )
+
     logger.info(
-        "Copied agent %s -> %s "
-        "(name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
+        "Copied agent %s -> %s " "(name=%s, agent_json=%s, md=%s, skills=%s, jobs=%s)",
         agentId,
         new_id,
         new_name,
@@ -827,6 +1335,39 @@ async def update_agent(
             detail=f"Agent '{agentId}' not found",
         )
 
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles={
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+        },
+    )
+
+    _validate_agent_effective_model(agent_config)
+
+    await _persist_agent_update(
+        agentId=agentId,
+        agent_config=agent_config,
+        request=request,
+        access=access,
+    )
+
+    return agent_config
+
+
+async def _persist_agent_update(
+    *,
+    agentId: str,
+    agent_config: AgentProfileConfig,
+    request: Request | None,
+    access: AccessibleAgent | None = None,
+) -> None:
+    """复用原更新语义，授权由调用入口在执行前完成。"""
+    config = load_config()
+    if agentId not in config.agents.profiles:
+        raise HTTPException(status_code=404, detail=f"Agent '{agentId}' not found")
+
     update_data = agent_config.model_dump(exclude_unset=True)
 
     def apply_update(existing_config: AgentProfileConfig) -> None:
@@ -856,7 +1397,26 @@ async def update_agent(
     await update_agent_config_async(agentId, apply_update)
     schedule_agent_reload(request, agentId)
 
-    return agent_config
+    if is_multi_user_enabled():
+        repository = _get_agent_metadata_repository()
+        await _register_legacy_preview(
+            access=access,
+            request=request,
+            repository=repository,
+        )
+        persisted = load_agent_config(agentId)
+        await repository.update_metadata(
+            agent=_legacy_agent_record(
+                agentId,
+                config.agents.profiles[agentId],
+                persisted,
+            )
+        )
+        await repository.update_model_mode(
+            agentId,
+            _model_mode(persisted.active_model),
+        )
+
 
 
 @router.post(
@@ -867,6 +1427,7 @@ async def update_agent(
 async def rebuild_agent_memory_index(
     agentId: str = PathParam(...),
     request: Request = None,
+    scope: MemoryScope = MemoryScope.PUBLIC,
 ) -> dict[str, str]:
     """Run the expensive ReMe reindex job as an explicit maintenance task."""
     config = await run_sync_io(load_config)
@@ -875,6 +1436,15 @@ async def rebuild_agent_memory_index(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles=(
+            {AgentResourceRole.OWNER, AgentResourceRole.COLLABORATOR}
+            if scope is MemoryScope.PUBLIC
+            else set(AgentResourceRole)
+        ),
+    )
 
     agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
@@ -892,20 +1462,74 @@ async def rebuild_agent_memory_index(
             detail="Memory manager is not available",
         )
 
+    target_manager = memory_manager
+    private_record = None
+    if scope is MemoryScope.PRIVATE:
+        actor = _request_actor(request)
+        repository = _get_agent_user_workspace_repository()
+        if (
+            request.headers.get("X-Agent-Governance") == "runtime-config"
+            or access is None
+            or access.historical_read_only
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        private_record = await repository.ensure_private(
+            user_id=actor.user_id,
+            agent_key=agentId,
+            workspace_key=f"user_workspaces/{actor.user_id}/{agentId}",
+        )
+        target_manager = await memory_manager.get_private_runtime(actor.user_id)
+        await repository.update_index_state(
+            user_id=actor.user_id,
+            agent_key=agentId,
+            index_state=MemoryIndexState.REINDEXING,
+            index_version=private_record.index_version,
+        )
     try:
-        response = await memory_manager.rebuild_index()
+        response = await target_manager.rebuild_index()
     except RuntimeError as exc:
         if str(exc) == "Memory index rebuild is already running":
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise
+    except Exception:
+        if private_record is not None:
+            await repository.update_index_state(
+                user_id=actor.user_id,
+                agent_key=agentId,
+                index_state=MemoryIndexState.REINDEX_FAILED,
+                index_version=private_record.index_version,
+            )
+        raise
 
     if response is None:
+        if private_record is not None:
+            await repository.update_index_state(
+                user_id=actor.user_id,
+                agent_key=agentId,
+                index_state=MemoryIndexState.REINDEX_FAILED,
+                index_version=private_record.index_version,
+            )
         raise HTTPException(
             status_code=503,
             detail="ReMe is not started or the reindex job failed",
         )
     if not response.success:
+        if private_record is not None:
+            await repository.update_index_state(
+                user_id=actor.user_id,
+                agent_key=agentId,
+                index_state=MemoryIndexState.REINDEX_FAILED,
+                index_version=private_record.index_version,
+            )
         raise HTTPException(status_code=500, detail=str(response.answer))
+
+    if private_record is not None:
+        await repository.update_index_state(
+            user_id=actor.user_id,
+            agent_key=agentId,
+            index_state=MemoryIndexState.READY,
+            index_version=private_record.index_version + 1,
+        )
 
     return {"status": "completed"}
 
@@ -927,6 +1551,11 @@ async def get_agent_memory_runtime_status(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
+    await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles=set(AgentResourceRole),
+    )
 
     agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
@@ -964,6 +1593,11 @@ async def get_agent_memory_status(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
+    await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles=set(AgentResourceRole),
+    )
 
     agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
@@ -1028,6 +1662,7 @@ async def get_agent_memory_status(
 async def get_agent_memory_graph(
     agentId: str = PathParam(...),
     request: Request = None,
+    scope: MemoryScope = MemoryScope.PUBLIC,
 ) -> MemoryGraphSnapshot:
     """Return a frontend-ready graph snapshot from embedded ReMe."""
     config = await run_sync_io(load_config)
@@ -1036,6 +1671,11 @@ async def get_agent_memory_graph(
             status_code=404,
             detail=f"Agent '{agentId}' not found",
         )
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles=set(AgentResourceRole),
+    )
 
     agent_config = await run_sync_io(load_agent_config, agentId)
     if agent_config.running.memory_manager_backend != "remelight":
@@ -1053,7 +1693,17 @@ async def get_agent_memory_graph(
             detail="Memory manager is not available",
         )
 
-    response = await memory_manager.graph_snapshot()
+    target_manager = memory_manager
+    if scope is MemoryScope.PRIVATE:
+        actor = _request_actor(request)
+        if (
+            request.headers.get("X-Agent-Governance") == "runtime-config"
+            or access is None
+            or access.historical_read_only
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        target_manager = await memory_manager.get_private_runtime(actor.user_id)
+    response = await target_manager.graph_snapshot()
     if response is None:
         raise HTTPException(
             status_code=503,
@@ -1111,12 +1761,41 @@ async def delete_agent(
             detail="Cannot delete the default agent",
         )
 
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles={AgentResourceRole.OWNER},
+    )
+
     manager = _get_multi_agent_manager(request)
     if manager.is_agent_startup_in_progress(agentId):
         raise HTTPException(
             status_code=409,
             detail=f"Agent '{agentId}' cannot be deleted while starting",
         )
+
+    if is_multi_user_enabled():
+        repository = _get_agent_metadata_repository()
+        await _register_legacy_preview(
+            access=access,
+            request=request,
+            repository=repository,
+        )
+        references = await repository.reference_counts(agentId)
+        await _get_agent_user_workspace_repository().mark_agent_cleanup_pending(
+            agent_key=agentId,
+        )
+        await repository.set_status(agentId, "deleted")
+        await manager.stop_agent(agentId)
+        return {
+            "success": True,
+            "agent_id": agentId,
+            "soft_deleted": True,
+            "references": {
+                key: value for key, value in references.as_dict().items() if value > 0
+            },
+        }
+
     await manager.stop_agent(agentId)
 
     del config.agents.profiles[agentId]
@@ -1151,6 +1830,15 @@ async def toggle_agent_enabled(
             detail="Cannot disable the default agent",
         )
 
+    access = await _require_agent_role(
+        request=request,
+        agent_id=agentId,
+        allowed_roles={
+            AgentResourceRole.OWNER,
+            AgentResourceRole.COLLABORATOR,
+        },
+    )
+
     agent_ref = config.agents.profiles[agentId]
     manager = _get_multi_agent_manager(request)
 
@@ -1158,8 +1846,7 @@ async def toggle_agent_enabled(
         raise HTTPException(
             status_code=409,
             detail=(
-                f"Agent '{agentId}' is still starting and cannot be "
-                "disabled yet"
+                f"Agent '{agentId}' is still starting and cannot be " "disabled yet"
             ),
         )
 
@@ -1168,6 +1855,18 @@ async def toggle_agent_enabled(
 
     agent_ref.enabled = enabled
     save_config(config)
+
+    if is_multi_user_enabled():
+        repository = _get_agent_metadata_repository()
+        await _register_legacy_preview(
+            access=access,
+            request=request,
+            repository=repository,
+        )
+        await repository.set_status(
+            agentId,
+            "active" if enabled else "disabled",
+        )
 
     if enabled:
         manager.schedule_agent_startup(agentId)
@@ -1275,6 +1974,8 @@ def _initialize_agent_workspace(
 
     (workspace_dir / "sessions").mkdir(exist_ok=True)
     (workspace_dir / "memory").mkdir(exist_ok=True)
+    (workspace_dir / "media").mkdir(exist_ok=True)
+    ensure_artifacts_directory(workspace_dir)
     if create_skills_dir:
         get_workspace_skills_dir(workspace_dir).mkdir(exist_ok=True)
 
@@ -1311,3 +2012,42 @@ def _initialize_agent_workspace(
                 ensure_ascii=False,
                 indent=2,
             )
+
+
+def ensure_agent_workspace_md_files(
+    agent_id: str,
+    workspace_dir: Path | str,
+) -> list[str]:
+    """补齐旧 Agent 缺失的标准档案文件，且绝不覆盖已有内容。"""
+    target = Path(workspace_dir).expanduser()
+    target.mkdir(parents=True, exist_ok=True)
+    ensure_artifacts_directory(target)
+    language = normalize_agent_language(load_agent_config(agent_id).language)
+    bootstrap_existed = (target / "BOOTSTRAP.md").exists()
+    copied = copy_workspace_md_files(
+        language,
+        target,
+        only_if_missing=True,
+    )
+    if not bootstrap_existed and "BOOTSTRAP.md" in copied:
+        (target / "BOOTSTRAP.md").unlink(missing_ok=True)
+        copied.remove("BOOTSTRAP.md")
+    return copied
+
+
+def ensure_all_agent_workspace_md_files() -> int:
+    """补齐当前运行目录中全部已登记 Agent 的缺失档案文件。"""
+    repaired = 0
+    for agent_id, reference in load_config().agents.profiles.items():
+        copied = ensure_agent_workspace_md_files(
+            agent_id,
+            reference.workspace_dir,
+        )
+        if copied:
+            repaired += 1
+            logger.info(
+                "Backfilled Agent workspace files for %s: %s",
+                agent_id,
+                ", ".join(copied),
+            )
+    return repaired

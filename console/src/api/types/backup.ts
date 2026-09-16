@@ -33,6 +33,7 @@ export interface CreateBackupRequest {
 }
 
 export interface RestoreBackupRequest {
+  confirmation_token?: string | null;
   include_agents: boolean;
   agent_ids: string[];
   include_global_config: boolean;
@@ -44,9 +45,21 @@ export interface RestoreBackupRequest {
   trust_mode?: BackupTrustMode | null;
 }
 
+export interface RestoreImpact {
+  backup_id: string;
+  mode: "full" | "custom";
+  agents: string[];
+  components: string[];
+  platform_manifest: Record<string, unknown>;
+  requires_pre_restore_backup: boolean;
+  confirmation_token: string;
+  expires_at: number;
+}
+
 export interface RestoreBackupResponse {
   ok: boolean;
   preserved_local_keys: string[];
+  pre_restore_backup_id?: string | null;
 }
 
 /**

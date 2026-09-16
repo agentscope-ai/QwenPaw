@@ -347,6 +347,7 @@ async def _ask_user_approval(
     ctx = request_context or {}
     session_id = str(ctx.get("session_id") or "")
     user_id = str(ctx.get("user_id") or "")
+    approval_user_id = str(ctx.get("approval_user_id") or user_id)
     channel = str(ctx.get("channel") or "")
     root_session_id = str(ctx.get("root_session_id") or session_id)
     owner_agent_id = str(ctx.get("root_agent_id") or agent_id or "unknown")
@@ -377,10 +378,13 @@ async def _ask_user_approval(
             },
             "channel_meta": ctx.get("channel_meta"),
             "_channel_instance": ctx.get("_channel_instance"),
+            "conversation_id": ctx.get("conversation_id"),
+            "run_id": ctx.get("run_id"),
             **(
                 {"_spawn_subagent": True} if ctx.get("_spawn_subagent") else {}
             ),
         },
+        approval_user_id=approval_user_id,
     )
 
     logger.info(

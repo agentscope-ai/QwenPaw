@@ -6,19 +6,24 @@ load_config) for paths and settings.
 """
 from __future__ import annotations
 
+from ...platform_ops.maintenance_lifecycle import admitted
+
 import asyncio
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, Optional
+from uuid import UUID
 
 from ...agents.utils.file_handling import read_text_file_with_encoding_fallback
 from ...config import (
     get_heartbeat_config,
     get_heartbeat_query_path,
+    get_last_dispatch_for_user,
     load_config,
 )
 from ...constant import (
@@ -35,6 +40,7 @@ from ..inbox_trace_store import (
     read_session_messages,
 )
 from ..crons.models import _crontab_dow_to_name
+from ...identity.runtime import get_identity_schema, is_multi_user_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +63,120 @@ _DOW_FIELD_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _HEARTBEAT_SOURCE_ID = "_heartbeat"
+
+
+class HeartbeatIdentityError(RuntimeError):
+    """Heartbeat cannot resolve a valid multi-user execution identity."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass(frozen=True, slots=True)
+class HeartbeatRunIdentity:
+    """Trusted identity used by one heartbeat execution."""
+
+    authorized_user_id: UUID | None
+    user_id: str
+    session_id: str
+    request_context: dict[str, Any]
+
+
+def build_heartbeat_run_identity(
+    *,
+    agent_id: str | None,
+    authorized_user_id: UUID | None,
+) -> HeartbeatRunIdentity:
+    """Build a stable automation session without impersonating a chat turn."""
+    if authorized_user_id is None:
+        return HeartbeatRunIdentity(
+            authorized_user_id=None,
+            user_id="main",
+            session_id="main",
+            request_context={"source": "heartbeat"},
+        )
+    if not agent_id:
+        raise HeartbeatIdentityError("heartbeat_agent_required")
+    user_id = str(authorized_user_id)
+    return HeartbeatRunIdentity(
+        authorized_user_id=authorized_user_id,
+        user_id=user_id,
+        session_id=f"heartbeat:{agent_id}:{user_id}:main",
+        request_context={
+            "source": "heartbeat",
+            "actor_type": "automation",
+            "automation_kind": "agent_automation",
+            "authorized_by_user_id": user_id,
+            "agent_id": agent_id,
+            "actor_context": {
+                "user_id": user_id,
+                "actor_type": "automation",
+                "admin_mode": False,
+            },
+        },
+    )
+
+
+async def validate_heartbeat_authorization(
+    *,
+    agent_id: str,
+    authorized_user_id: UUID,
+) -> None:
+    """Require an active user with current access to an active Agent."""
+    from ...access.agent_repository import PostgresAgentRepository
+    from ...identity.governance import UserNotFoundError
+    from ...identity.repository import PostgresUserRepository
+
+    schema = get_identity_schema()
+    try:
+        user = await PostgresUserRepository(schema=schema).get_user(
+            authorized_user_id
+        )
+    except UserNotFoundError as exc:
+        raise HeartbeatIdentityError(
+            "heartbeat_authorization_invalid"
+        ) from exc
+    if user.status != "active":
+        raise HeartbeatIdentityError("heartbeat_authorization_invalid")
+    access = await PostgresAgentRepository(schema=schema).get_accessible(
+        agent_key=agent_id,
+        user_id=authorized_user_id,
+    )
+    if access is None or access.status != "active" or access.historical_read_only:
+        raise HeartbeatIdentityError("heartbeat_agent_access_revoked")
+
+
+async def validate_heartbeat_last_target(
+    *,
+    agent_id: str,
+    authorized_user_id: UUID,
+    target: Any,
+) -> bool:
+    """Validate one user's recent target and its personal channel binding."""
+    if not target.channel or not target.user_id or not target.session_id:
+        return False
+    binding_id = str(getattr(target, "binding_id", "") or "").strip()
+    if not binding_id:
+        return target.channel == DEFAULT_CHANNEL
+    try:
+        parsed_binding_id = UUID(binding_id)
+    except ValueError:
+        return False
+    from ...access.channel_bindings import PostgresChannelBindingRepository
+
+    bindings = await PostgresChannelBindingRepository(
+        schema=get_identity_schema()
+    ).list_for_user(
+        agent_key=agent_id,
+        owner_user_id=authorized_user_id,
+    )
+    return any(
+        record.id == parsed_binding_id
+        and record.enabled
+        and record.channel_type == target.channel
+        for record in bindings
+    )
 
 
 def is_cron_expression(every: str) -> bool:
@@ -184,6 +304,7 @@ def _last_preview_from_delta(delta: list[dict[str, Any]]) -> str | None:
 
 
 # pylint: disable=too-many-branches,too-many-statements
+@admitted
 async def run_heartbeat_once(
     *,
     workspace: Any,
@@ -201,6 +322,25 @@ async def run_heartbeat_once(
         logger.debug("heartbeat skipped: outside active hours")
         return
     timeout_seconds = hb.timeout_seconds
+    multi_user = is_multi_user_enabled()
+    authorized_user_id = (
+        UUID(hb.authorized_by_user_id)
+        if hb.authorized_by_user_id is not None
+        else None
+    )
+    if multi_user and authorized_user_id is None:
+        raise HeartbeatIdentityError("heartbeat_authorization_required")
+    identity = build_heartbeat_run_identity(
+        agent_id=agent_id,
+        authorized_user_id=authorized_user_id if multi_user else None,
+    )
+    if multi_user:
+        assert agent_id is not None
+        assert identity.authorized_user_id is not None
+        await validate_heartbeat_authorization(
+            agent_id=agent_id,
+            authorized_user_id=identity.authorized_user_id,
+        )
 
     # Use workspace_dir if provided, otherwise fall back to global path
     if workspace_dir:
@@ -225,15 +365,20 @@ async def run_heartbeat_once(
                 "content": [{"type": "text", "text": query_text}],
             },
         ],
-        "session_id": "main",
-        "user_id": "main",
+        "session_id": identity.session_id,
+        "user_id": identity.user_id,
         "channel": DEFAULT_CHANNEL,
-        "request_context": {"source": "heartbeat"},
+        "request_context": identity.request_context,
     }
 
     # Get last_dispatch from agent config if agent_id provided
     last_dispatch = None
-    if agent_id:
+    if multi_user and agent_id and identity.authorized_user_id is not None:
+        last_dispatch = get_last_dispatch_for_user(
+            agent_id=agent_id,
+            platform_user_id=str(identity.authorized_user_id),
+        )
+    elif agent_id:
         try:
             agent_config = load_agent_config(agent_id)
             last_dispatch = agent_config.last_dispatch
@@ -245,6 +390,45 @@ async def run_heartbeat_once(
         last_dispatch = config.last_dispatch
 
     target = (hb.target or "").strip().lower()
+    if target == HEARTBEAT_TARGET_LAST and multi_user and not last_dispatch:
+        await append_inbox_event(
+            agent_id=agent_id,
+            source_type="heartbeat",
+            source_id=_HEARTBEAT_SOURCE_ID,
+            event_type="heartbeat_last_target_unavailable",
+            status="blocked",
+            severity="warning",
+            title="Heartbeat target unavailable",
+            body="No valid recent target is available for this heartbeat.",
+            recipient_user_id=identity.user_id,
+            payload={"target": target},
+        )
+        return
+    if (
+        target == HEARTBEAT_TARGET_LAST
+        and multi_user
+        and last_dispatch
+        and identity.authorized_user_id is not None
+        and agent_id is not None
+        and not await validate_heartbeat_last_target(
+            agent_id=agent_id,
+            authorized_user_id=identity.authorized_user_id,
+            target=last_dispatch,
+        )
+    ):
+        await append_inbox_event(
+            agent_id=agent_id,
+            source_type="heartbeat",
+            source_id=_HEARTBEAT_SOURCE_ID,
+            event_type="heartbeat_last_target_unavailable",
+            status="blocked",
+            severity="warning",
+            title="Heartbeat target unavailable",
+            body="The recent target is no longer authorized for this heartbeat.",
+            recipient_user_id=identity.user_id,
+            payload={"target": target},
+        )
+        return
     if target == HEARTBEAT_TARGET_LAST and last_dispatch:
         ld = last_dispatch
         if ld.channel and (ld.user_id or ld.session_id):
@@ -321,6 +505,7 @@ async def run_heartbeat_once(
                 severity="info",
                 title="Heartbeat result",
                 body=body,
+                recipient_user_id=req["user_id"],
                 payload={
                     "run_id": run_id,
                     "target": target,
@@ -354,6 +539,7 @@ async def run_heartbeat_once(
                 severity="error",
                 title="Heartbeat timed out",
                 body=f"Heartbeat run timed out after {timeout_seconds}s.",
+                recipient_user_id=req["user_id"],
                 payload={
                     "run_id": run_id,
                     "target": target,
@@ -380,6 +566,7 @@ async def run_heartbeat_once(
                 severity="error",
                 title="Heartbeat execution failed",
                 body=repr(e),
+                recipient_user_id=req["user_id"],
                 payload={
                     "run_id": run_id,
                     "target": target,

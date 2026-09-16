@@ -12,6 +12,7 @@ import {
   lazy,
   useRef,
   useState,
+  useMemo,
   Suspense,
 } from "react";
 import { useTranslation } from "react-i18next";
@@ -23,6 +24,7 @@ import { setTextareaValue } from "../../pages/Chat/utils";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 import type { FileMetadata, FilesDrawerEvent, FilesDrawerState } from "./types";
 import type { FilesWorkspaceScope } from "./filesWorkspaceScope";
+import FilePreviewPane from "./FilePreviewPane";
 import styles from "./FilesWorkspace.module.less";
 
 const PREVIEW_WIDTH_STORAGE_KEY = "qwenpaw-files-preview-width";
@@ -30,6 +32,7 @@ const WORKSPACE_WIDTH_STORAGE_KEY = "qwenpaw-files-workspace-width";
 const MIN_DRAWER_WIDTH = 420;
 const MIN_CHAT_WIDTH = 420;
 const FilesWorkspace = lazy(() => import("./FilesWorkspace"));
+const UnifiedFileCenter = lazy(() => import("./UnifiedFileCenter"));
 
 interface FilesDrawerProps {
   state: Exclude<FilesDrawerState, { kind: "closed" }>;
@@ -74,6 +77,11 @@ export default function FilesDrawer({
   const chatId = scope.chatId;
   const projectDirOverride = scope.projectDirOverride;
   const target = state.target;
+  const locator = state.locator;
+  const requestContext = useMemo(
+    () => ({ agentId: scope.agentId }),
+    [scope.agentId],
+  );
   const widthStorageKey = isWorkspace
     ? WORKSPACE_WIDTH_STORAGE_KEY
     : PREVIEW_WIDTH_STORAGE_KEY;
@@ -103,6 +111,13 @@ export default function FilesDrawer({
   }, [close]);
 
   useEffect(() => {
+    if (locator) {
+      setMetadata(null);
+      setContent("");
+      setLoadFailed(false);
+      setLoading(false);
+      return;
+    }
     if (!target) {
       setMetadata(null);
       setContent("");
@@ -149,7 +164,7 @@ export default function FilesDrawer({
         })
       : target.source === "workspace"
       ? workspaceApi
-          .getFileMetadata(target.path, chatId, target.root, projectDirOverride)
+          .getFileMetadata(target.path, chatId, target.root, projectDirOverride, {agentId: scope.agentId})
           .then(async (nextMetadata) => {
             const loaded =
               nextMetadata.preview_kind === "text" ||
@@ -159,6 +174,7 @@ export default function FilesDrawer({
                     chatId,
                     target.root,
                     projectDirOverride,
+                    {agentId: scope.agentId},
                   )
                 : null;
             return {
@@ -213,7 +229,7 @@ export default function FilesDrawer({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [chatId, projectDirOverride, target]);
+  }, [chatId, projectDirOverride, target, scope.agentId, locator]);
 
   const resizeFromPointer = (event: React.PointerEvent) => {
     event.preventDefault();
@@ -245,7 +261,7 @@ export default function FilesDrawer({
   };
 
   const drawerStyle = width > 0 ? { width: `${width}px` } : undefined;
-  const filename = target?.path.split("/").pop() ?? t("files.title");
+  const filename = (locator?.relativePath ?? target?.path)?.split("/").pop() ?? t("files.title");
 
   return (
     <motion.aside
@@ -331,7 +347,7 @@ export default function FilesDrawer({
             </span>
           )}
         </div>
-        {isWorkspace && target && (
+        {isWorkspace && (target || locator) && (
           <button
             type="button"
             className={styles.secondaryButton}
@@ -406,12 +422,22 @@ export default function FilesDrawer({
                 <div className={styles.empty}>{t("common.loading")}</div>
               }
             >
-              <FilesWorkspace initialTarget={target} scope={scope} />
+              {locator ? (
+                <UnifiedFileCenter
+                  agentId={scope.agentId}
+                  requestContext={requestContext}
+                  initialLocator={locator}
+                />
+              ) : (
+                <FilesWorkspace initialTarget={target} scope={scope} />
+              )}
             </Suspense>
           ) : (
             <>
-              <div className={styles.previewSurface} aria-busy={loading}>
-                {loading ? (
+              <div className={styles.previewSurface} aria-busy={locator ? false : loading}>
+                {locator ? (
+                  <FilePreviewPane locator={locator} requestContext={requestContext} />
+                ) : loading ? (
                   <div className={styles.empty}>{t("common.loading")}</div>
                 ) : loadFailed ? (
                   <div className={styles.empty}>{t("files.loadFailed")}</div>
@@ -446,14 +472,14 @@ export default function FilesDrawer({
                     {t("files.mentionInChat")}
                   </button>
                 )}
-                {target && (
+                {(target || locator) && (
                   <button
                     type="button"
                     className={styles.primaryButton}
                     onClick={() => dispatch({ type: "EXPAND_WORKSPACE" })}
                   >
                     <Expand size={15} />
-                    {t("files.expandWorkspace")}
+                    {locator ? t("files.fileCenter.open") : t("files.expandWorkspace")}
                   </button>
                 )}
               </footer>

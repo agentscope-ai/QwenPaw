@@ -55,7 +55,7 @@
 // ─── Sidebar ─────────────────────────────────────────────────────────────────
 .sider {
   background: #f9f8f4 !important;
-  overflow: auto;
+  overflow: hidden;
   height: calc(100vh - 64px) !important;
   padding: 0 16px;
 
@@ -80,6 +80,15 @@
   -ms-overflow-style: none;
   /* IE and Edge */
 
+  :global {
+    .qwenpaw-layout-sider-children {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      min-height: 0;
+    }
+  }
+
   // Agent-scoped section: selector + Chat + Control + Workspace
   .agentScopedSection {
     flex-shrink: 0;
@@ -94,15 +103,24 @@
       }
     }
   }
-  // AgentSelector + Chat container - sticky at top
+  // Agent selector remains outside the shared menu scroll area.
   .agentSelectorContainer {
-    position: sticky;
-    top: 0;
-    z-index: 10;
+    flex-shrink: 0;
     margin-bottom: 4px;
-    // Opaque background so scrolled content is hidden behind
     background: #f9f7f3;
-    border-radius: 12px 12px 0 0;
+    border-radius: 12px;
+  }
+
+  .menuScrollArea {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+
+    &::-webkit-scrollbar {
+      display: none;
+    }
   }
 
   // Sticky Chat button — matches menu item appearance
@@ -133,24 +151,7 @@
 
   // Menu takes remaining space
   .sideMenu {
-    flex: 1;
-    overflow-y: auto;
-
-    // Hide scrollbar for menu too
-    &::-webkit-scrollbar {
-      display: none;
-    }
-
-    &::-moz-scrollbar {
-      display: none;
-    }
-
-    &::-ms-scrollbar {
-      display: none;
-    }
-
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    overflow: visible;
   }
 
   &.siderSimple {
@@ -419,8 +420,39 @@
 // ─── Auth actions (account + logout) ──────────────────────────────────────────
 .authActions {
   flex-shrink: 0;
+  margin-top: auto;
+  position: sticky;
+  bottom: 48px;
+  z-index: 11;
   padding: 12px 16px;
   border-top: 1px solid #f0f0f0;
+  background: #f9f8f4;
+}
+
+.accountPopoverActions {
+  width: 220px;
+
+  :global(.qwenpaw-btn) {
+    justify-content: flex-start;
+  }
+}
+
+.accountPopoverHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 12px 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+
+  span {
+    color: rgba(0, 0, 0, 0.45);
+    font-size: 12px;
+  }
+}
+
+.settingsMenu {
+  padding-bottom: 0;
 }
 
 .authBtn {

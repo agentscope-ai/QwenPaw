@@ -176,4 +176,39 @@ describe("projectDirectoryApi", () => {
       },
     );
   });
+
+  it("routes every project operation to the explicit governance target", async () => {
+    const context = {
+      agentId: "governed-agent",
+      governance: true,
+    };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ path: "/p", name: "p" }),
+    } as unknown as Response);
+    const file = new File(["zip"], "project.zip", {
+      type: "application/zip",
+    });
+
+    await projectDirectoryApi.get(context);
+    await projectDirectoryApi.set("/p", context);
+    await projectDirectoryApi.create("p", context);
+    await projectDirectoryApi.list(context);
+    await projectDirectoryApi.importLocal("/source", "p", context);
+    await projectDirectoryApi.browseDirs("/", false, context);
+    await projectDirectoryApi.uploadZip(file, "p", context);
+    await projectDirectoryApi.cloneStream("https://git.example/p.git", "p", context);
+
+    const governanceHeaders = {
+      "X-Agent-Id": "governed-agent",
+      "X-Agent-Governance": "runtime-config",
+    };
+    for (const call of vi.mocked(request).mock.calls) {
+      expect(call[1]).toMatchObject({ headers: governanceHeaders });
+    }
+    for (const call of vi.mocked(fetch).mock.calls) {
+      expect(call[1]?.headers).toMatchObject(governanceHeaders);
+    }
+  });
 });

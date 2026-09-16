@@ -17,6 +17,7 @@ from .policy import (
     GIT_REQUIRED_MESSAGE,
     SNAPSHOT_EXCLUDE_PATHSPECS,
     ensure_git_available,
+    canonical_session_key,
 )
 from .git_batch import GitBlobBatch
 from .models import CheckpointError
@@ -73,6 +74,8 @@ class CheckpointRepository:
         return [
             "git",
             "-c",
+            "core.longpaths=true",
+            "-c",
             "core.quotePath=false",
             "-c",
             "core.autocrlf=false",
@@ -94,7 +97,14 @@ class CheckpointRepository:
             env.pop(name, None)
         return env
 
-    def run_git(self, *args: str, input_text: str | None = None) -> str:
+    def run_git(
+        self,
+        *args: str,
+        input_text: str | None = None,
+        input_bytes: bytes | None = None,
+    ) -> str:
+        if input_text is not None and input_bytes is not None:
+            raise ValueError("Git input must be text or bytes, not both")
         try:
             proc = subprocess.run(
                 self._git_command(*args),
@@ -103,7 +113,7 @@ class CheckpointRepository:
                 input=(
                     input_text.encode("utf-8")
                     if input_text is not None
-                    else None
+                    else input_bytes
                 ),
                 capture_output=True,
                 check=False,
@@ -139,7 +149,7 @@ class CheckpointRepository:
         if not self.git_dir.exists():
             try:
                 subprocess.run(
-                    ["git", "init", "--bare", str(self.git_dir)],
+                    self._git_command("init", "--bare", str(self.git_dir)),
                     env=self._git_init_env(),
                     capture_output=True,
                     text=True,
@@ -193,7 +203,7 @@ class CheckpointRepository:
         if not isinstance(data, dict):
             return {}
         return {
-            key: value
+            canonical_session_key(key): value
             for key, value in data.items()
             if isinstance(key, str) and isinstance(value, str)
         }
@@ -259,12 +269,38 @@ class CheckpointRepository:
             ) from exc
         self._pending_index_policy = None
 
-    def write_workspace_tree(self) -> str:
+    def write_workspace_tree(
+        self,
+        extra_blobs: dict[str, bytes] | None = None,
+    ) -> str:
         """Stage the snapshot boundary and return its Git tree object."""
         pathspecs = tuple(SNAPSHOT_EXCLUDE_PATHSPECS)
         if not self._index_policy_matches(pathspecs):
             self.run_git("read-tree", "--empty")
+        # Excluded paths remain in a persistent index after blob injection.
+        # Remove only their cached entries before injecting this session.
+        self.run_git("rm", "-r", "-f", "--cached", "--ignore-unmatch", "--", "sessions")
         self.run_git("add", "-f", "-A", "--", ".", *pathspecs)
+        for rel, content in sorted((extra_blobs or {}).items()):
+            normalized = Path(rel).as_posix().removeprefix("./")
+            if not normalized or Path(normalized).is_absolute() or ".." in Path(
+                normalized,
+            ).parts:
+                raise CheckpointError(f"Unsafe checkpoint blob path: {rel}")
+            object_id = self.run_git(
+                "hash-object",
+                "-w",
+                "--stdin",
+                input_bytes=content,
+            )
+            self.run_git(
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                "100644",
+                object_id,
+                normalized,
+            )
         tree = self.run_git("write-tree")
         self._commit_index_policy()
         return tree
@@ -272,10 +308,22 @@ class CheckpointRepository:
     def reset(self) -> None:
         """Delete and recreate all checkpoint-owned persistence."""
         if self.state_dir.exists():
+            state_path: str | Path = self.state_dir
+            if os.name == "nt":
+                # Git can create refs beyond MAX_PATH. Preserve the exact
+                # checkpoint target while allowing Python to traverse them.
+                raw_path = str(self.state_dir)
+                if not raw_path.startswith("\\\\?\\"):
+                    raw_path = (
+                        "\\\\?\\UNC\\" + raw_path[2:]
+                        if raw_path.startswith("\\\\")
+                        else "\\\\?\\" + raw_path
+                    )
+                state_path = raw_path
             # Keep Python 3.11 compatibility; shutil.rmtree(onexc=...) is
             # unavailable there.
             # pylint: disable-next=deprecated-argument
-            shutil.rmtree(self.state_dir, onerror=self._reset_onerror)
+            shutil.rmtree(state_path, onerror=self._reset_onerror)
         self._heads = None
         self.ensure_repo()
 

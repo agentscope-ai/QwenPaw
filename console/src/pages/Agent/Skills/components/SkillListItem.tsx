@@ -17,6 +17,8 @@ interface SkillListItemProps {
   onClick: () => void;
   onToggleEnabled: () => Promise<void>;
   onDelete: () => void;
+  readOnly?: boolean;
+  sourceActions?: React.ReactNode;
 }
 
 export function SkillListItem({
@@ -27,6 +29,8 @@ export function SkillListItem({
   onClick,
   onToggleEnabled,
   onDelete,
+  readOnly = false,
+  sourceActions,
 }: SkillListItemProps) {
   const { t } = useTranslation();
   const isBuiltin = isSkillBuiltin(skill.source);
@@ -40,6 +44,7 @@ export function SkillListItem({
         isSelected ? styles.selectedListItem : ""
       }`}
       onClick={() => {
+        if (readOnly) return;
         if (batchModeEnabled) onSelect();
         else onClick();
       }}
@@ -70,6 +75,7 @@ export function SkillListItem({
               </span>
             )}
           </div>
+          {sourceActions}
           <p className={styles.listItemDesc}>{skill.description || "-"}</p>
           {!!skill.tags?.length && (
             <div className={styles.listItemTags}>
@@ -82,25 +88,27 @@ export function SkillListItem({
           )}
         </div>
       </div>
-      <div className={styles.listItemRight}>
-        <span onClick={(e) => e.stopPropagation()}>
-          <Switch
-            checked={skill.enabled}
+      {!readOnly && (
+        <div className={styles.listItemRight}>
+          <span onClick={(e) => e.stopPropagation()}>
+            <Switch
+              checked={skill.enabled}
+              disabled={batchModeEnabled}
+              onChange={onToggleEnabled}
+            />
+          </span>
+          <Button
+            danger
             disabled={batchModeEnabled}
-            onChange={onToggleEnabled}
-          />
-        </span>
-        <Button
-          danger
-          disabled={batchModeEnabled}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-        >
-          {t("common.delete")}
-        </Button>
-      </div>
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            {t("common.delete")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

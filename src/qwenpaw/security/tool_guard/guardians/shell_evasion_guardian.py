@@ -11,6 +11,7 @@ malicious intent from simpler regex-only detection:
 - Comment-quote desync attacks
 - Quoted newline + comment-line stripping attacks
 """
+
 from __future__ import annotations
 
 import re
@@ -169,8 +170,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            "Command contains ANSI-C quoting ($'...') "
-            "which can hide characters",
+            "Command contains ANSI-C quoting ($'...') " "which can hide characters",
             command,
             risk_type="obfuscated_flags",
         )
@@ -179,8 +179,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            'Command contains locale quoting ($"...") '
-            "which can hide characters",
+            'Command contains locale quoting ($"...") ' "which can hide characters",
             command,
             risk_type="obfuscated_flags",
         )
@@ -189,8 +188,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            "Command contains empty special quotes before dash "
-            "(potential bypass)",
+            "Command contains empty special quotes before dash " "(potential bypass)",
             command,
             risk_type="obfuscated_flags",
         )
@@ -199,8 +197,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
         return _finding(
             "SHELL_EVASION_OBFUSCATED_FLAGS",
             GuardSeverity.HIGH,
-            "Command contains empty quotes before dash "
-            "(potential flag bypass)",
+            "Command contains empty quotes before dash " "(potential flag bypass)",
             command,
             risk_type="obfuscated_flags",
         )
@@ -228,8 +225,7 @@ def _check_obfuscated_flags(command: str) -> GuardFinding | None:
                     return _finding(
                         "SHELL_EVASION_OBFUSCATED_FLAGS",
                         GuardSeverity.HIGH,
-                        "Command contains quoted flag name "
-                        "(potential obfuscation)",
+                        "Command contains quoted flag name " "(potential obfuscation)",
                         command,
                         risk_type="obfuscated_flags",
                         matched=command[i : j + 1],
@@ -402,9 +398,7 @@ def _check_comment_quote_desync(command: str) -> GuardFinding | None:
                     " which can desync quote tracking",
                     command,
                     risk_type="comment_quote_desync",
-                    matched=command[
-                        i : (line_end if line_end != -1 else i + 40)
-                    ],
+                    matched=command[i : (line_end if line_end != -1 else i + 40)],
                 )
             # Skip rest of comment line
             if line_end == -1:
@@ -445,9 +439,7 @@ def _check_quoted_newline(command: str) -> GuardFinding | None:
                     " line-based permission checks",
                     command,
                     risk_type="quoted_newline",
-                    matched=command[
-                        max(0, i - 10) : min(len(command), line_end + 10)
-                    ],
+                    matched=command[max(0, i - 10) : min(len(command), line_end + 10)],
                 )
 
     return None
@@ -520,9 +512,11 @@ def _load_check_enabled_map() -> dict[str, bool]:
     Unknown keys are ignored. Missing keys default to disabled.
     """
     try:
-        from qwenpaw.config import load_config
+        from qwenpaw.platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
-        raw = load_config().security.tool_guard.shell_evasion_checks
+        raw = load_effective_security_policy().tool_guard.shell_evasion_checks
     except Exception:
         return {}
 

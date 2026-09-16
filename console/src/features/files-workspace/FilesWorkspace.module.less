@@ -345,6 +345,18 @@
   white-space: nowrap;
 }
 
+.workspaceKindBadge {
+  margin-left: 6px;
+  padding: 1px 5px;
+  color: #5f4e98;
+  border-radius: 999px;
+  background: color-mix(in srgb, #7867b8 12%, transparent);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
 .directoryIdentity {
   min-width: 0;
   display: flex;
@@ -573,6 +585,88 @@
     color: var(--source-color, var(--files-accent));
     background: var(--source-soft, var(--files-accent-soft));
   }
+}
+
+.memoryScopePanel {
+  margin: 0 10px 8px;
+  padding: 7px;
+  border: 1px solid var(--files-line);
+  border-radius: 10px;
+  background: var(--files-bg);
+}
+
+.memoryScopeTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.memoryScopeTab,
+.memoryScopeTabActive {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--files-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.memoryScopeTabActive {
+  color: var(--files-accent);
+  background: var(--files-accent-soft);
+  font-weight: 650;
+}
+
+.memoryScopeStatus {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  color: var(--files-muted);
+  font-size: 11px;
+
+  button {
+    min-height: 26px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--files-line);
+    border-radius: 7px;
+    color: var(--files-ink);
+    background: var(--files-panel);
+    cursor: pointer;
+  }
+}
+
+.memoryScopeActions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 5px;
+
+  button {
+    justify-content: center;
+    white-space: nowrap;
+  }
+}
+
+.memoryCreateButton {
+  color: var(--files-accent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--files-accent) 45%,
+    var(--files-line)
+  ) !important;
+  background: var(--files-accent-soft) !important;
+}
+
+.iconButton:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .navigator[data-root="workspace"] {

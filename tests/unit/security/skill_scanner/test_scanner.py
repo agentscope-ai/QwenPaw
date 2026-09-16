@@ -11,6 +11,7 @@ Covers:
 """
 # pylint: disable=redefined-outer-name,protected-access,unused-argument
 from unittest.mock import MagicMock
+from pathlib import Path
 
 import pytest
 
@@ -215,17 +216,29 @@ class TestSkillScannerDiscoverFiles:
         assert len(files) == 1
         assert files[0].relative_path == "code.py"
 
-    def test_skips_symlinks(self, scanner, tmp_path):
+    def test_skips_symlinks(self, scanner, tmp_path, create_symlink):
         """Should skip symlinks to prevent path traversal."""
         target = tmp_path / "real.txt"
         target.write_text("content")
         link = tmp_path / "link.txt"
-        link.symlink_to(target)
+        create_symlink(link, target)
         files = scanner._discover_files(tmp_path)
         # Only the real file should appear
         names = [f.relative_path for f in files]
         assert "real.txt" in names
         assert "link.txt" not in names
+
+    def test_symlink_classification_is_excluded_without_os_privilege(
+        self, scanner, tmp_path, monkeypatch
+    ):
+        (tmp_path / "real.txt").write_text("real", encoding="utf-8")
+        (tmp_path / "link.txt").write_text("external", encoding="utf-8")
+        original = Path.is_symlink
+        monkeypatch.setattr(
+            Path, "is_symlink",
+            lambda path: path.name == "link.txt" or original(path),
+        )
+        assert [f.relative_path for f in scanner._discover_files(tmp_path)] == ["real.txt"]
 
     def test_respects_max_file_size(self, default_policy, tmp_path):
         """Should skip files exceeding max_file_size."""

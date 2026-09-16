@@ -99,9 +99,7 @@ def _get_workspace_root() -> Path:
         from qwenpaw.constant import WORKING_DIR
 
         workspace_dir = (
-            get_current_project_dir()
-            or get_current_workspace_dir()
-            or WORKING_DIR
+            get_current_project_dir() or get_current_workspace_dir() or WORKING_DIR
         )
         return Path(workspace_dir)
     except (ImportError, AttributeError, OSError) as e:
@@ -555,9 +553,11 @@ def _load_config_rules() -> tuple[list[GuardRule], set[str]]:
     Returns ``(custom_rules, disabled_ids)``.
     """
     try:
-        from qwenpaw.config import load_config
+        from qwenpaw.platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
-        cfg = load_config().security.tool_guard
+        cfg = load_effective_security_policy().tool_guard
     except Exception:
         return [], set()
 
@@ -617,21 +617,15 @@ def _shared_safety_findings(
             continue
         if kind == "catastrophic":
             rule_id = "SAFETY_CHECKS_DESTRUCTIVE_COMMAND"
-            title = (
-                "[CRITICAL] Catastrophic command matched shared safety check"
-            )
+            title = "[CRITICAL] Catastrophic command matched shared safety check"
             remediation = (
                 "Do not run catastrophic shell commands "
                 "(e.g. recursive delete of system roots, mkfs, dd)."
             )
         else:
             rule_id = "SAFETY_CHECKS_SYSTEM_POWER"
-            title = (
-                "[CRITICAL] System power command matched shared safety check"
-            )
-            remediation = (
-                "Confirm before running shutdown/reboot/halt/poweroff."
-            )
+            title = "[CRITICAL] System power command matched shared safety check"
+            remediation = "Confirm before running shutdown/reboot/halt/poweroff."
         findings.append(
             GuardFinding(
                 id=f"GUARD-{uuid.uuid4().hex}",
@@ -747,9 +741,7 @@ class RuleBasedToolGuardian(BaseToolGuardian):
         """Scan all string-like parameter values against loaded rules."""
         findings: list[GuardFinding] = []
 
-        applicable_rules = [
-            r for r in self._rules if r.applies_to_tool(tool_name)
-        ]
+        applicable_rules = [r for r in self._rules if r.applies_to_tool(tool_name)]
 
         if not applicable_rules:
             return findings
@@ -863,8 +855,7 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                                     "💡 Reminder: Please verify file location "
                                     "and content.",
                                     "❌ 如不确定，请拒绝本次删除。",
-                                    "❌ If unsure, please reject this "
-                                    "operation.",
+                                    "❌ If unsure, please reject this " "operation.",
                                 ],
                             }
 
@@ -874,10 +865,7 @@ class RuleBasedToolGuardian(BaseToolGuardian):
                             rule_id=rule.id,
                             category=rule.category,
                             severity=rule.severity,
-                            title=(
-                                f"[{rule.severity.value}]"
-                                f" {rule.description}"
-                            ),
+                            title=(f"[{rule.severity.value}]" f" {rule.description}"),
                             description=description,
                             tool_name=tool_name,
                             param_name=param_name,

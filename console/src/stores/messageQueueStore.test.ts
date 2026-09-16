@@ -58,6 +58,22 @@ describe("messageQueueStore", () => {
     expect(getStorageKey("abc")).toBe("qwenpaw:message-queue:abc");
   });
 
+  it("uses different persistent queue keys for two authenticated users with the same session id", () => {
+    localStorage.setItem("qwenpaw_authenticated_user_id", "user-a");
+    const userAKey = getStorageKey("shared-session");
+
+    localStorage.setItem("qwenpaw_authenticated_user_id", "user-b");
+    const userBKey = getStorageKey("shared-session");
+
+    expect(userAKey).toBe(
+      "qwenpaw:message-queue:user:user-a:shared-session",
+    );
+    expect(userBKey).toBe(
+      "qwenpaw:message-queue:user:user-b:shared-session",
+    );
+    expect(userAKey).not.toBe(userBKey);
+  });
+
   it("MAX_QUEUE_SIZE is 50", () => {
     expect(MAX_QUEUE_SIZE).toBe(50);
   });

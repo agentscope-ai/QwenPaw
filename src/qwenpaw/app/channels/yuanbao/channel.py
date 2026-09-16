@@ -8,6 +8,8 @@ Supports C2C (direct) and group chat with streaming output.
 
 from __future__ import annotations
 
+from ....platform_ops.maintenance_lifecycle import admitted_listener
+
 import asyncio
 import json
 import logging
@@ -869,6 +871,7 @@ class YuanbaoChannel(BaseChannel):
     # ------------------------------------------------------------------
 
     # pylint: disable=too-many-branches
+    @admitted_listener
     async def _handle_chat_message(
         self,
         inbound: Dict[str, Any],

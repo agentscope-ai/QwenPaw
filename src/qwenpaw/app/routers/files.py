@@ -24,10 +24,12 @@ _file_guardian = FilePathToolGuardian()
 def _is_preview_outside_workspace_allowed() -> bool:
     """Check ``security.file_guard.allow_preview_outside_workspace``."""
     try:
-        from qwenpaw.config import load_config
+        from qwenpaw.platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
         return bool(
-            load_config().security.file_guard.allow_preview_outside_workspace,
+            load_effective_security_policy().file_guard.allow_preview_outside_workspace
         )
     except Exception:
         return False
@@ -44,14 +46,20 @@ def _check_path(path: Path) -> str | None:
     resolved = path.resolve()
     # 1. Must not be a FileGuard-sensitive path.
     normalized = _normalize_path(str(resolved))
+    guardian = _file_guardian
+    try:
+        from qwenpaw.identity.runtime import is_multi_user_enabled
+
+        if is_multi_user_enabled():
+            guardian = FilePathToolGuardian()
+    except Exception:
+        pass
     # pylint: disable-next=protected-access
-    if _file_guardian._is_sensitive(normalized):
+    if guardian._is_sensitive(normalized):
         return "SENSITIVE_FILE_BLOCKED"
     # 2. Workspace scope check (skippable via config).
     if not _is_preview_outside_workspace_allowed():
-        if not (
-            resolved == _ALLOWED_ROOT or resolved.is_relative_to(_ALLOWED_ROOT)
-        ):
+        if not (resolved == _ALLOWED_ROOT or resolved.is_relative_to(_ALLOWED_ROOT)):
             return "OUTSIDE_WORKSPACE"
     return None
 

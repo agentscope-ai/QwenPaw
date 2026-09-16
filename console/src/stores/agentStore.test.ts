@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { useAgentStore } from "./agentStore";
+import { isAgentHistoricalReadOnly, useAgentStore } from "./agentStore";
 import type { AgentSummary } from "@/api/types/agents";
 
 const mocks = vi.hoisted(() => ({
@@ -18,6 +18,8 @@ const mockAgent = (id: string): AgentSummary =>
 describe("agentStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
+    sessionStorage.clear();
     // Reset to initial state before each test
     useAgentStore.setState({
       selectedAgent: "default",
@@ -38,6 +40,16 @@ describe("agentStore", () => {
     expect(useAgentStore.getState().agents).toEqual([]);
   });
 
+  it("detects historical read-only access for the selected agent", () => {
+    expect(
+      isAgentHistoricalReadOnly(
+        [{ ...mockAgent("history"), historical_read_only: true }],
+        "history",
+      ),
+    ).toBe(true);
+    expect(isAgentHistoricalReadOnly([], "history")).toBe(false);
+  });
+
   // ---------------------------------------------------------------------------
   // setSelectedAgent
   // ---------------------------------------------------------------------------
@@ -45,6 +57,20 @@ describe("agentStore", () => {
   it("setSelectedAgent updates selectedAgent", () => {
     useAgentStore.getState().setSelectedAgent("agent-123");
     expect(useAgentStore.getState().selectedAgent).toBe("agent-123");
+  });
+
+  it("persists agent selection under the authenticated user namespace", () => {
+    localStorage.setItem("qwenpaw_authenticated_user_id", "user-a");
+
+    useAgentStore.getState().setSelectedAgent("agent-a");
+
+    expect(
+      localStorage.getItem("qwenpaw-last-used-agent:user:user-a"),
+    ).toBe("agent-a");
+    expect(localStorage.getItem("qwenpaw-last-used-agent")).toBeNull();
+    expect(
+      localStorage.getItem("qwenpaw-agent-storage:user:user-a"),
+    ).not.toBeNull();
   });
 
   // ---------------------------------------------------------------------------
@@ -104,6 +130,43 @@ describe("agentStore", () => {
     expect(useAgentStore.getState().agents).toEqual([mockAgent("1")]);
   });
 
+  it("selects the first accessible enabled agent when the persisted selection is unavailable", async () => {
+    useAgentStore.setState({ selectedAgent: "default" });
+    mocks.listAgents.mockResolvedValue({
+      agents: [
+        { ...mockAgent("private-agent"), enabled: true },
+        { ...mockAgent("disabled-agent"), enabled: false },
+      ],
+    });
+
+    await useAgentStore.getState().refreshAgents();
+
+    expect(useAgentStore.getState().selectedAgent).toBe("private-agent");
+  });
+
+  it("keeps the selected agent when it remains accessible and enabled", async () => {
+    useAgentStore.setState({ selectedAgent: "agent-2" });
+    mocks.listAgents.mockResolvedValue({
+      agents: [
+        { ...mockAgent("agent-1"), enabled: true },
+        { ...mockAgent("agent-2"), enabled: true },
+      ],
+    });
+
+    await useAgentStore.getState().refreshAgents();
+
+    expect(useAgentStore.getState().selectedAgent).toBe("agent-2");
+  });
+
+  it("clears the selected agent when the user has no accessible agents", async () => {
+    useAgentStore.setState({ selectedAgent: "default" });
+    mocks.listAgents.mockResolvedValue({ agents: [] });
+
+    await useAgentStore.getState().refreshAgents();
+
+    expect(useAgentStore.getState().selectedAgent).toBe("");
+  });
+
   // ---------------------------------------------------------------------------
   // addAgent
   // ---------------------------------------------------------------------------
@@ -137,6 +200,31 @@ describe("agentStore", () => {
     useAgentStore.getState().setAgents([mockAgent("1")]);
     useAgentStore.getState().removeAgent("999");
     expect(useAgentStore.getState().agents).toHaveLength(1);
+  });
+
+  it("removeAgent selects another accessible agent instead of assuming default", () => {
+    useAgentStore.setState({
+      selectedAgent: "agent-1",
+      agents: [
+        { ...mockAgent("agent-1"), enabled: true },
+        { ...mockAgent("agent-2"), enabled: true },
+      ],
+    });
+
+    useAgentStore.getState().removeAgent("agent-1");
+
+    expect(useAgentStore.getState().selectedAgent).toBe("agent-2");
+  });
+
+  it("removeAgent clears the selection when no accessible agent remains", () => {
+    useAgentStore.setState({
+      selectedAgent: "agent-1",
+      agents: [{ ...mockAgent("agent-1"), enabled: true }],
+    });
+
+    useAgentStore.getState().removeAgent("agent-1");
+
+    expect(useAgentStore.getState().selectedAgent).toBe("");
   });
 
   // ---------------------------------------------------------------------------

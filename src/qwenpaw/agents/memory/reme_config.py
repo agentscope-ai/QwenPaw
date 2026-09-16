@@ -11,6 +11,8 @@ from typing import Any
 
 from qwenpaw.config.config import AgentProfileConfig, EmbeddingModelConfig
 
+from . import reme_root_memory as _reme_root_memory  # noqa: F401
+
 # Keep in sync with ReMeLightMemoryCard.tsx OPENAI_COMPAT_EMBEDDING_BACKENDS.
 _OPENAI_COMPAT_EMBEDDING_BACKENDS = {
     "openai",
@@ -84,6 +86,25 @@ def _base_config() -> dict[str, Any]:
                     },
                 ],
             },
+            "root_memory_update_loop": {
+                "backend": "background",
+                "max_file_bytes": _MAX_FILE_BYTES,
+                "steps": [
+                    {
+                        "backend": "qwenpaw_root_memory_sync_step",
+                        "dispatch_steps": ["update_index_step"],
+                    },
+                    {
+                        "backend": "qwenpaw_root_memory_watch_step",
+                        "dispatch_steps": [
+                            {
+                                "backend": "update_index_step",
+                                "persist": True,
+                            },
+                        ],
+                    },
+                ],
+            },
             "version": {
                 "backend": "base",
                 "description": "return reme package version",
@@ -124,6 +145,10 @@ def _base_config() -> dict[str, Any]:
                         "backend": "init_changes_step",
                         "monitor_type": "file_store",
                         "monitor_name": "default",
+                        "dispatch_steps": ["update_index_step"],
+                    },
+                    {
+                        "backend": "qwenpaw_root_memory_sync_step",
                         "dispatch_steps": ["update_index_step"],
                     },
                 ],

@@ -18,19 +18,19 @@ import { renderHook, act, waitFor } from "@testing-library/react";
 import type { InboxEvent } from "../../../api/modules/console";
 import { PUSH_MESSAGE_SOURCES } from "../../../utils/inboxEvents";
 
-const { stableT, mockGetInboxEvents, mockMarkInboxRead, mockDeleteInboxEvent } =
+const { stableT, mockGetInboxEvents, mockMarkInboxRead, mockDeleteInboxEvents } =
   vi.hoisted(() => ({
     stableT: (k: string) => k,
     mockGetInboxEvents: vi.fn(),
     mockMarkInboxRead: vi.fn(),
-    mockDeleteInboxEvent: vi.fn(),
+    mockDeleteInboxEvents: vi.fn(),
   }));
 
 vi.mock("../../../api", () => ({
   default: {
     getInboxEvents: mockGetInboxEvents,
     markInboxRead: mockMarkInboxRead,
-    deleteInboxEvent: mockDeleteInboxEvent,
+    deleteInboxEvents: mockDeleteInboxEvents,
   },
 }));
 
@@ -80,10 +80,12 @@ describe("useInboxData", () => {
   beforeEach(() => {
     mockGetInboxEvents.mockReset();
     mockMarkInboxRead.mockReset();
-    mockDeleteInboxEvent.mockReset();
+    mockDeleteInboxEvents.mockReset();
     mockGetInboxEvents.mockResolvedValue(makeResolvedEvents([]));
     mockMarkInboxRead.mockResolvedValue({ updated: 1 });
-    mockDeleteInboxEvent.mockResolvedValue({ deleted: true });
+    mockDeleteInboxEvents.mockImplementation((ids: string[]) =>
+      Promise.resolve({ deleted: ids.length }),
+    );
   });
 
   afterEach(() => {
@@ -240,26 +242,10 @@ describe("useInboxData", () => {
       returnedCount = await result.current.deleteMessages(["m1", "m3"]);
     });
 
-    // Source computes the return count inside a setPushMessages functional
-    // updater (see useInboxData.ts line ~234). Under React 18 act(), that
-    // updater runs after the await resolves, so the synchronous return value
-    // is not reliable in tests. We assert observable effects instead and only
-    // sanity-check that a number was returned.
-    expect(typeof returnedCount).toBe("number");
-    expect(returnedCount).toBeGreaterThanOrEqual(0);
-
-    // Each requested id issues one deleteInboxEvent call → effective count of 2
-    expect(mockDeleteInboxEvent).toHaveBeenCalledTimes(2);
-    expect(mockDeleteInboxEvent).toHaveBeenCalledWith("m1");
-    expect(mockDeleteInboxEvent).toHaveBeenCalledWith("m3");
+    expect(returnedCount).toBe(2);
+    expect(mockDeleteInboxEvents).toHaveBeenCalledTimes(1);
+    expect(mockDeleteInboxEvents).toHaveBeenCalledWith(["m1", "m3"]);
     expect(result.current.pushMessages.map((m) => m.id)).toEqual(["m2"]);
-    // Summary counts in the source are derived from the same functional-updater
-    // counter (deleted/unreadDeleted). Because that counter is not yet updated
-    // when setSummary reads it under React 18 act(), the summary is not
-    // recomputed to reflect the deletion in this test environment. We assert
-    // only the pushMessages list here (states pushMessages is the source of
-    // truth for actual removal); summary accounting is exercised indirectly via
-    // the markAll* tests which use a pre-computed length.
     expect(result.current.pushMessages).toHaveLength(1);
   });
 
@@ -277,7 +263,7 @@ describe("useInboxData", () => {
     });
 
     expect(deleted).toBe(0);
-    expect(mockDeleteInboxEvent).not.toHaveBeenCalled();
+    expect(mockDeleteInboxEvents).not.toHaveBeenCalled();
     expect(result.current.pushMessages).toHaveLength(1);
   });
 

@@ -96,6 +96,8 @@ class QwenPawDriverApprovalGate:
                 },
                 "channel_meta": ctx.get("channel_meta"),
                 "_channel_instance": ctx.get("_channel_instance"),
+                "conversation_id": ctx.get("conversation_id"),
+                "run_id": ctx.get("run_id"),
                 **(
                     {
                         "_spawn_subagent": True,
@@ -104,6 +106,9 @@ class QwenPawDriverApprovalGate:
                     else {}
                 ),
             },
+            approval_user_id=str(
+                ctx.get("approval_user_id") or ctx.get("user_id") or "",
+            ),
         )
         decision = await svc.wait_for_approval(
             pending.request_id,

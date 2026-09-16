@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Structured user input API endpoints."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,6 +9,8 @@ import logging
 
 from fastapi import APIRouter, Body, HTTPException, Request
 from starlette.responses import StreamingResponse
+
+from ...runtime_status.scope import request_user_id
 
 from ...user_input.broadcast import (
     register_sse_client,
@@ -41,6 +44,7 @@ async def get_pending_user_input(
     return await get_user_input_service().get_pending(
         agent_id=workspace.agent_id,
         session_id=session_id,
+        user_id=request_user_id(request),
     )
 
 
@@ -50,11 +54,18 @@ async def get_pending_user_input(
     summary="Answer a structured user input request",
 )
 async def answer_user_input(
+    request: Request,
     request_id: str,
     body: UserInputAnswer = Body(...),
 ) -> UserInputRequest:
     """Resolve a pending structured user input request."""
-    resolved = await get_user_input_service().answer_request(request_id, body)
+    workspace = await _get_workspace(request)
+    resolved = await get_user_input_service().answer_request(
+        request_id,
+        body,
+        agent_id=workspace.agent_id,
+        user_id=request_user_id(request),
+    )
     if resolved is None:
         raise HTTPException(
             status_code=404,
@@ -71,7 +82,8 @@ async def user_input_stream(request: Request) -> StreamingResponse:
     """Server-Sent Events endpoint for user-input request updates."""
     workspace = await _get_workspace(request)
     agent_id = workspace.agent_id
-    q = register_sse_client(agent_id)
+    user_id = request_user_id(request)
+    q = register_sse_client(agent_id, user_id=user_id)
 
     async def event_generator():
         try:
@@ -81,14 +93,11 @@ async def user_input_stream(request: Request) -> StreamingResponse:
                     break
                 try:
                     payload = await asyncio.wait_for(q.get(), timeout=30.0)
-                    yield (
-                        f"data: "
-                        f"{json.dumps(payload, ensure_ascii=False)}\n\n"
-                    )
+                    yield (f"data: " f"{json.dumps(payload, ensure_ascii=False)}\n\n")
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         finally:
-            unregister_sse_client(agent_id, q)
+            unregister_sse_client(agent_id, q, user_id=user_id)
 
     return StreamingResponse(
         event_generator(),

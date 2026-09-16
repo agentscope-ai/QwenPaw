@@ -136,11 +136,13 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     testApi.sessionRequests.clear();
     testApi.lastSelectedIds.clear();
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
     sessionStorage.clear();
+    localStorage.clear();
   });
 
   it("patches the pending user message while generating (status running)", async () => {
@@ -157,6 +159,28 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-running`)).not.toBe(
       null,
     );
+  });
+
+  it("stores identical pending session ids under separate authenticated user keys", () => {
+    localStorage.setItem("qwenpaw_authenticated_user_id", "user-a");
+    sessionApi.setLastUserMessage("same-chat", "user-a-message");
+
+    localStorage.setItem("qwenpaw_authenticated_user_id", "user-b");
+    sessionApi.setLastUserMessage("same-chat", "user-b-message");
+
+    expect(
+      sessionStorage.getItem(
+        "qwenpaw_pending_user_msg_:user:user-a:same-chat",
+      ),
+    ).toContain("user-a-message");
+    expect(
+      sessionStorage.getItem(
+        "qwenpaw_pending_user_msg_:user:user-b:same-chat",
+      ),
+    ).toContain("user-b-message");
+    expect(
+      sessionStorage.getItem("qwenpaw_pending_user_msg_same-chat"),
+    ).toBeNull();
   });
 
   it("attaches the client id without dropping existing metadata", () => {
@@ -209,6 +233,29 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
       1,
     );
     expect(sessionStorage.getItem(`${STORAGE_PREFIX}chat-done`)).toBe(null);
+  });
+
+  it("clears a client-tagged pending message when legacy history confirms the exact text", async () => {
+    seedSessionList("chat-legacy-confirmed");
+    sessionApi.setLastUserMessage(
+      "chat-legacy-confirmed",
+      "persisted legacy question",
+      undefined,
+      "client-new",
+    );
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "persisted legacy question"),
+        assistantMsg("a1", "final answer"),
+      ],
+      status: "idle",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-legacy-confirmed");
+    expect(userCardTexts(session)).toEqual(["persisted legacy question"]);
+    expect(
+      sessionStorage.getItem(`${STORAGE_PREFIX}chat-legacy-confirmed`),
+    ).toBeNull();
   });
 
   it("keeps the cache and patches the message on idle when history is missing it (flush window)", async () => {

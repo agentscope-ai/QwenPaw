@@ -828,6 +828,9 @@ def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
     )
 
     inherited = get_current_approval_route() or {}
+    from ...config.context import get_current_request_context
+
+    actor = (get_current_request_context() or {}).get("actor_context")
     context: dict[str, Any] = {
         "root_session_id": (
             inherited.get("root_session_id")
@@ -840,6 +843,8 @@ def _build_spawn_request_context(current_agent_id: str) -> dict[str, Any]:
         "channel": inherited.get("channel") or get_current_channel() or "",
         "_spawn_subagent": True,
     }
+    if isinstance(actor, dict):
+        context["actor_context"] = dict(actor)
     safe_meta = _json_safe_channel_meta(inherited.get("channel_meta") or {})
     if isinstance(safe_meta, dict) and safe_meta:
         context["channel_meta"] = safe_meta

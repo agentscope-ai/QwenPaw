@@ -70,7 +70,16 @@ class Engine:
         from .identity import resolve_identity
         from .launch_resolve import resolve_launch_env
 
-        config = load_config().browser
+        from ...identity.runtime import is_multi_user_enabled
+        from ..policy import isolated_browser_config
+
+        multi_user = is_multi_user_enabled()
+        config = isolated_browser_config(
+            load_config().browser,
+            multi_user=multi_user,
+        )
+        if multi_user:
+            identity = "guest"
         facts = await availability()
         resolution = resolve_identity(
             model_identity=identity,

@@ -6,6 +6,8 @@ export interface GetTokenUsageParams {
   end_date: string;
   model?: string;
   provider?: string;
+  scope?: "personal" | "agent" | "platform";
+  agent_id?: string;
 }
 
 function buildQuery(params: GetTokenUsageParams): string {
@@ -15,6 +17,8 @@ function buildQuery(params: GetTokenUsageParams): string {
   });
   if (params.model) search.set("model", params.model);
   if (params.provider) search.set("provider", params.provider);
+  if (params.scope) search.set("scope", params.scope);
+  if (params.agent_id) search.set("agent_id", params.agent_id);
   return `?${search.toString()}`;
 }
 

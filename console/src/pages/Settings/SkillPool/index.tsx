@@ -1,3 +1,6 @@
+import GovernancePanel from "./GovernancePanel";
+import { useSkillScope } from "@/api/skillScope";
+import { Alert, Tabs } from "antd";
 import { Button, Input, Select, Tooltip } from "@agentscope-ai/design";
 import { Badge } from "antd";
 import {
@@ -44,6 +47,21 @@ function SkillPoolPage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const marketView = searchParams.get("view") === "market";
+  const tabParam = searchParams.get("tab");
+  const activeTab =
+    tabParam === "published" || tabParam === "requests" ? tabParam : "skills";
+
+  const changeTab = useCallback(
+    (tab: string) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (tab === "skills") next.delete("tab");
+        else next.set("tab", tab);
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
 
   const openMarket = useCallback(() => {
     setSearchParams((prev) => {
@@ -90,112 +108,138 @@ function SkillPoolPage() {
       <PageHeader
         items={[{ title: t("nav.settings") }, { title: t("nav.skillPool") }]}
         extra={
-          <div className={styles.headerRight}>
-            <input
-              type="file"
-              accept=".zip"
-              ref={pool.zipInputRef}
-              onChange={pool.handleZipImport}
-              style={{ display: "none" }}
-            />
-            {pool.batchModeEnabled ? (
-              <div className={styles.batchActions}>
-                <span className={styles.batchCount}>
-                  {t("skills.selectedCount", {
-                    count: pool.selectedPoolSkills.size,
-                  })}
-                </span>
-                <Button type="default" onClick={pool.selectAllPool}>
-                  {t("skills.selectAll")}
-                </Button>
-                <Button
-                  type="default"
-                  onClick={pool.clearPoolSelection}
-                  icon={<CloseOutlined />}
-                >
-                  {t("skills.clearSelection")}
-                </Button>
-                <Button
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={pool.handleBatchDeletePool}
-                >
-                  {t("common.delete")} ({pool.selectedPoolSkills.size})
-                </Button>
-                <Button type="primary" onClick={pool.toggleBatchMode}>
-                  {t("skills.exitBatch")}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div className={styles.headerActionsLeft}>
-                  <Tooltip title={t("skillPool.refreshHint")}>
-                    <Button
-                      type="default"
-                      icon={<ReloadOutlined spin={pool.loading} />}
-                      onClick={pool.handleRefresh}
-                      disabled={pool.loading}
-                    />
-                  </Tooltip>
-                  <Tooltip title={t("skillPool.broadcastHint")}>
-                    <Button
-                      type="default"
-                      className={styles.primaryTransferButton}
-                      icon={<SendOutlined />}
-                      onClick={() => pool.openBroadcast()}
-                    >
-                      {t("skillPool.broadcast")}
-                    </Button>
-                  </Tooltip>
-                  <Tooltip
-                    title={
-                      pool.hasUnseenBuiltinNotice
-                        ? builtinNoticeLines.length > 0
-                          ? builtinNoticeLines.map((line) => (
-                              <div key={line}>{line}</div>
-                            ))
-                          : t("skillPool.importBuiltinAlertHint", {
-                              count: pool.builtinNoticeTotal,
-                            })
-                        : t("skillPool.importBuiltinHint")
-                    }
+          activeTab === "skills" ? (
+            <div className={styles.headerRight}>
+              <input
+                type="file"
+                accept=".zip"
+                ref={pool.zipInputRef}
+                onChange={pool.handleZipImport}
+                style={{ display: "none" }}
+              />
+              {pool.batchModeEnabled ? (
+                <div className={styles.batchActions}>
+                  <span className={styles.batchCount}>
+                    {t("skills.selectedCount", {
+                      count: pool.selectedPoolSkills.size,
+                    })}
+                  </span>
+                  <Button type="default" onClick={pool.selectAllPool}>
+                    {t("skills.selectAll")}
+                  </Button>
+                  <Button
+                    type="default"
+                    onClick={pool.clearPoolSelection}
+                    icon={<CloseOutlined />}
                   >
-                    <Badge
-                      dot={pool.hasUnseenBuiltinNotice}
-                      color="rgba(255, 157, 77, 1)"
-                      offset={[-4, 4]}
-                    >
+                    {t("skills.clearSelection")}
+                  </Button>
+                  <Button
+                    danger
+                    icon={<DeleteOutlined />}
+                    onClick={pool.handleBatchDeletePool}
+                  >
+                    {t("common.delete")} ({pool.selectedPoolSkills.size})
+                  </Button>
+                  <Button type="primary" onClick={pool.toggleBatchMode}>
+                    {t("skills.exitBatch")}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className={styles.headerActionsLeft}>
+                    <Tooltip title={t("skillPool.refreshHint")}>
                       <Button
                         type="default"
-                        icon={<SyncOutlined />}
-                        onClick={() => void pool.openImportBuiltin()}
+                        icon={<ReloadOutlined spin={pool.loading} />}
+                        onClick={pool.handleRefresh}
+                        disabled={pool.loading}
+                      />
+                    </Tooltip>
+                    <Tooltip title={t("skillPool.broadcastHint")}>
+                      <Button
+                        type="default"
+                        className={styles.primaryTransferButton}
+                        icon={<SendOutlined />}
+                        onClick={() => pool.openBroadcast()}
                       >
-                        {t("skillPool.importBuiltin")}
+                        {t("skillPool.broadcast")}
                       </Button>
-                    </Badge>
-                  </Tooltip>
-                </div>
-                <div className={styles.headerActionsRight}>
-                  <Button type="primary" onClick={pool.toggleBatchMode}>
-                    {t("skills.batchOperation")}
-                  </Button>
-                  <AddSkillDropdown
-                    onCreate={pool.openCreate}
-                    onUploadZip={() => pool.zipInputRef.current?.click()}
-                    onFromUrl={() => pool.setImportModalOpen(true)}
-                    onBrowseMarket={openMarket}
-                  />
-                </div>
-              </>
-            )}
-          </div>
+                    </Tooltip>
+                    <Tooltip
+                      title={
+                        pool.hasUnseenBuiltinNotice
+                          ? builtinNoticeLines.length > 0
+                            ? builtinNoticeLines.map((line) => (
+                                <div key={line}>{line}</div>
+                              ))
+                            : t("skillPool.importBuiltinAlertHint", {
+                                count: pool.builtinNoticeTotal,
+                              })
+                          : t("skillPool.importBuiltinHint")
+                      }
+                    >
+                      <Badge
+                        dot={pool.hasUnseenBuiltinNotice}
+                        color="rgba(255, 157, 77, 1)"
+                        offset={[-4, 4]}
+                      >
+                        <Button
+                          type="default"
+                          icon={<SyncOutlined />}
+                          onClick={() => void pool.openImportBuiltin()}
+                        >
+                          {t("skillPool.importBuiltin")}
+                        </Button>
+                      </Badge>
+                    </Tooltip>
+                  </div>
+                  <div className={styles.headerActionsRight}>
+                    <Button type="primary" onClick={pool.toggleBatchMode}>
+                      {t("skills.batchOperation")}
+                    </Button>
+                    <AddSkillDropdown
+                      onCreate={pool.openCreate}
+                      onUploadZip={() => pool.zipInputRef.current?.click()}
+                      onFromUrl={() => pool.setImportModalOpen(true)}
+                      onBrowseMarket={openMarket}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null
         }
+      />
+
+      <Tabs
+        activeKey={activeTab}
+        onChange={changeTab}
+        style={{ padding: "0 24px" }}
+        items={[
+          { key: "skills", label: t("skillGovernance.skillsTab") },
+          { key: "published", label: t("skillGovernance.publishedTab") },
+          { key: "requests", label: t("skillGovernance.requestsTab") },
+        ]}
       />
 
       {/* ---- Scrollable Content ---- */}
       <div className={styles.content}>
         {/* Toolbar */}
-        {!pool.loading && pool.skills.length > 0 && (
+        {activeTab === "published" && <GovernancePanel view="published" />}
+        {activeTab === "requests" && <GovernancePanel view="requests" />}
+        {activeTab === "skills" && pool.broadcastResults.length > 0 && (
+          <Alert
+            type="info"
+            message={t("skillPool.broadcast")}
+            description={pool.broadcastResults.map((row, index) => (
+              <p key={index}>
+                {pool.describeBroadcastResult(row)}
+              </p>
+            ))}
+          />
+        )}
+        {activeTab === "skills" && !pool.loading && pool.skills.length > 0 && (
           <div className={styles.toolbar}>
             <div className={styles.searchContainer}>
               <Input
@@ -257,51 +301,56 @@ function SkillPoolPage() {
           </div>
         )}
 
-        {pool.loading ? (
-          <div className={styles.loading}>
-            <span className={styles.loadingText}>{t("common.loading")}</span>
-          </div>
-        ) : pool.sortedSkills.length === 0 && pool.skills.length > 0 ? (
-          <div className={styles.noSearchResults}>
-            <span className={styles.noSearchResultsIcon}>🔍</span>
-            <span className={styles.noSearchResultsText}>
-              {t("skills.noSearchResults")}
-            </span>
-          </div>
-        ) : pool.viewMode === "card" ? (
-          <div className={`${styles.skillsGrid} responsive-grid`}>
-            {visibleSkills.map((skill: PoolSkillSpec) => (
-              <PoolSkillCard
-                key={skill.name}
-                skill={skill}
-                isSelected={pool.selectedPoolSkills.has(skill.name)}
-                batchModeEnabled={pool.batchModeEnabled}
-                onToggleSelect={pool.togglePoolSelect}
-                onEdit={pool.openEdit}
-                onBroadcast={pool.openBroadcast}
-                onDelete={pool.handleDelete}
-                onToggleAutoUpdate={pool.handleToggleAutoUpdate}
-              />
-            ))}
-            {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
-          </div>
-        ) : (
-          <div className={styles.skillsList}>
-            {visibleSkills.map((skill: PoolSkillSpec) => (
-              <PoolSkillListItem
-                key={skill.name}
-                skill={skill}
-                isSelected={pool.selectedPoolSkills.has(skill.name)}
-                batchModeEnabled={pool.batchModeEnabled}
-                onToggleSelect={pool.togglePoolSelect}
-                onEdit={pool.openEdit}
-                onBroadcast={pool.openBroadcast}
-                onDelete={pool.handleDelete}
-              />
-            ))}
-            {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
-          </div>
-        )}
+        {activeTab === "skills" &&
+          (pool.loading ? (
+            <div className={styles.loading}>
+              <span className={styles.loadingText}>{t("common.loading")}</span>
+            </div>
+          ) : pool.sortedSkills.length === 0 && pool.skills.length > 0 ? (
+            <div className={styles.noSearchResults}>
+              <span className={styles.noSearchResultsIcon}>🔍</span>
+              <span className={styles.noSearchResultsText}>
+                {t("skills.noSearchResults")}
+              </span>
+            </div>
+          ) : pool.viewMode === "card" ? (
+            <div className={`${styles.skillsGrid} responsive-grid`}>
+              {visibleSkills.map((skill: PoolSkillSpec) => (
+                <PoolSkillCard
+                  key={skill.name}
+                  skill={skill}
+                  isSelected={pool.selectedPoolSkills.has(skill.name)}
+                  batchModeEnabled={pool.batchModeEnabled}
+                  onToggleSelect={pool.togglePoolSelect}
+                  onEdit={pool.openEdit}
+                  onBroadcast={pool.openBroadcast}
+                  onDelete={pool.handleDelete}
+                  onToggleAutoUpdate={pool.handleToggleAutoUpdate}
+                  publicationState={pool.publicationState(skill.name)}
+                  onPublish={pool.handlePublish}
+                />
+              ))}
+              {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+            </div>
+          ) : (
+            <div className={styles.skillsList}>
+              {visibleSkills.map((skill: PoolSkillSpec) => (
+                <PoolSkillListItem
+                  key={skill.name}
+                  skill={skill}
+                  isSelected={pool.selectedPoolSkills.has(skill.name)}
+                  batchModeEnabled={pool.batchModeEnabled}
+                  onToggleSelect={pool.togglePoolSelect}
+                  onEdit={pool.openEdit}
+                  onBroadcast={pool.openBroadcast}
+                  onDelete={pool.handleDelete}
+                  publicationState={pool.publicationState(skill.name)}
+                  onPublish={pool.handlePublish}
+                />
+              ))}
+              {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
+            </div>
+          ))}
       </div>
 
       <ImportHubModal
@@ -361,4 +410,10 @@ function SkillPoolPage() {
   );
 }
 
-export default SkillPoolPage;
+export default function ScopedSkillPoolPage() {
+  const scope = useSkillScope();
+  const { t } = useTranslation();
+  if (!scope.isAdmin)
+    return <Alert type="info" message={t("skillGovernance.forbidden")} />;
+  return <SkillPoolPage key={scope.key} />;
+}

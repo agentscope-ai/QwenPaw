@@ -208,7 +208,9 @@ class AgentMdManager:
         return {
             "filename": filename,
             "size": stat.st_size,
-            "path": str(file_path),
+            # Memory file APIs expose the managed relative identity. Returning
+            # the physical path would leak the private user/Agent workspace.
+            "path": filename,
             "created_time": datetime.fromtimestamp(
                 stat.st_ctime,
                 tz=timezone.utc,
@@ -319,3 +321,15 @@ class AgentMdManager:
         file_path = self._memory_path_for_read_write(md_name, section)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         file_path.write_text(content, encoding="utf-8")
+
+    def create_memory_md(
+        self,
+        md_name: str,
+        content: str,
+        section: Literal["daily", "digest"] | None = None,
+    ) -> None:
+        """Create a memory markdown file without overwriting an existing file."""
+        file_path = self._memory_path_for_read_write(md_name, section)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with file_path.open("x", encoding="utf-8") as file:
+            file.write(content)

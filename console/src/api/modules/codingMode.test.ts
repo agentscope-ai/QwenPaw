@@ -34,4 +34,29 @@ describe("codingModeApi", () => {
     });
     expect(result).toEqual(resp);
   });
+
+  it("routes reads and writes to the explicit governance target", async () => {
+    const context = {
+      agentId: "governed-agent",
+      governance: true,
+    };
+
+    await codingModeApi.get(context);
+    await codingModeApi.toggle(true, context);
+
+    expect(request).toHaveBeenNthCalledWith(1, "/coding-mode", {
+      headers: {
+        "X-Agent-Id": "governed-agent",
+        "X-Agent-Governance": "runtime-config",
+      },
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "/coding-mode", {
+      method: "POST",
+      body: JSON.stringify({ enabled: true }),
+      headers: {
+        "X-Agent-Id": "governed-agent",
+        "X-Agent-Governance": "runtime-config",
+      },
+    });
+  });
 });

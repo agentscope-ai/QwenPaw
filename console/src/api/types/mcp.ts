@@ -49,6 +49,24 @@ export interface MCPClientInfo {
   oauth_status: MCPClientOAuthStatus | null;
   /** Summarised MCP access policy */
   access_summary: MCPAccessSummary;
+  /** Names of configured secrets. Secret values are never returned. */
+  credential_fields?: { headers: string[]; env: string[] };
+  /** Optimistic concurrency revision for all configuration mutations. */
+  revision?: number;
+  /** Runtime materialization state; saved configuration may not be active yet. */
+  runtime_status?: string;
+  runtime_error?: string | null;
+  /** Whether the captured actor may edit this client. */
+  can_edit?: boolean;
+}
+
+export type MCPSecretAction =
+  | { action: "keep" | "delete" }
+  | { action: "replace"; value: string };
+
+export interface MCPCredentialUpdates {
+  headers?: Record<string, MCPSecretAction>;
+  env?: Record<string, MCPSecretAction>;
 }
 
 export interface MCPOAuthStartRequest {
@@ -62,6 +80,7 @@ export interface MCPOAuthStartRequest {
   auth_endpoint?: string;
   /** Override token endpoint (skips auto-discovery) */
   token_endpoint?: string;
+  expected_revision?: number;
 }
 
 export interface MCPOAuthStartResponse {
@@ -75,6 +94,8 @@ export interface MCPOAuthStatusResponse {
   authorized: boolean;
   expires_at: number;
   scope: string;
+  session_id?: string;
+  status?: "pending" | "completed" | "failed" | "expired";
 }
 
 export interface MCPClientCreateRequest {
@@ -189,14 +210,14 @@ export interface MCPClientUpdateRequest {
   transport?: "stdio" | "streamable_http" | "sse";
   /** Remote MCP endpoint URL for HTTP/SSE transport */
   url?: string;
-  /** HTTP headers for remote transport */
-  headers?: Record<string, string>;
   /** Command to launch the MCP server */
   command?: string;
   /** Command-line arguments */
   args?: string[];
-  /** Environment variables */
-  env?: Record<string, string>;
   /** Working directory for stdio command */
   cwd?: string;
+  /** Explicit actions for configured secrets. */
+  credential_updates?: MCPCredentialUpdates;
+  /** Revision observed when editing began. */
+  expected_revision?: number;
 }

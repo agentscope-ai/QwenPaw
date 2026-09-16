@@ -1099,7 +1099,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                 )
             try:
                 enabled = bool(existing.get("enabled", False))
-                channels = existing.get("channels") or ["all"]
+                channels = existing.get("channels", ["all"])
 
                 # Inherit source from manifest when the entry already exists.
                 # For new skills, default to "builtin" if name matches a
@@ -1120,6 +1120,7 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
                     protected=False,
                 )
                 next_entry = {
+                    **existing,
                     "enabled": enabled,
                     "channels": channels,
                     "source": source,
@@ -1147,6 +1148,14 @@ def reconcile_workspace_manifest(workspace_dir: Path) -> dict[str, Any]:
 
         for skill_name in list(skills):
             if skill_name not in discovered:
+                # Keep recoverable bound copies and their private runtime settings.
+                if (
+                    normalize_skill_manifest_entry(skills[skill_name]).get(
+                        "source_pool_version_id"
+                    )
+                    and safe_skill_dir(workspace_skills_dir, skill_name).is_dir()
+                ):
+                    continue
                 skills.pop(skill_name, None)
 
         return payload
@@ -1208,7 +1217,7 @@ def resolve_effective_skills(
     for skill_name, entry in sorted(manifest.get("skills", {}).items()):
         if not entry.get("enabled", False):
             continue
-        channels = entry.get("channels") or ["all"]
+        channels = entry.get("channels", ["all"])
         if "all" in channels or channel_name in channels:
             skill_dir = get_workspace_skills_dir(workspace_dir) / skill_name
             if skill_dir.exists():

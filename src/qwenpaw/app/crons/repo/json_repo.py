@@ -18,6 +18,10 @@ from ....utils.io_utils import (
     unlink_async,
     write_json_atomic,
 )
+from ....persistence.repository_provider import (
+    CutoverDomain,
+    assert_legacy_write_allowed,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +61,7 @@ class JsonJobRepository(BaseJobRepository):
 
     def _save_sync(self, jobs_file: JobsFile) -> None:
         """Serialize and atomically save jobs in one worker thread."""
+        assert_legacy_write_allowed(CutoverDomain.CRON)
         write_json_atomic(
             self._path,
             jobs_file.model_dump(mode="json"),
@@ -141,6 +146,7 @@ class JsonJobRepository(BaseJobRepository):
         records: list[CronExecutionRecord],
     ) -> None:
         """Serialize and atomically save job history in one worker thread."""
+        assert_legacy_write_allowed(CutoverDomain.CRON)
         write_json_atomic(
             self._history_file_path(job_id),
             [record.model_dump(mode="json") for record in records],
@@ -191,6 +197,7 @@ def migrate_legacy_weixin_jobs_file(jobs_path: Path | str) -> None:
     if not mutated:
         return
 
+    assert_legacy_write_allowed(CutoverDomain.CRON)
     try:
         backup_path = path.with_suffix(
             path.suffix + f".{uuid.uuid4().hex[:8]}.weixin-migrate.bak",
@@ -268,6 +275,8 @@ def migrate_final_mode_to_stream(jobs_path: Path | str) -> None:
             mutated = True
 
     data["version"] = 2
+
+    assert_legacy_write_allowed(CutoverDomain.CRON)
 
     if not mutated:
         # Still bump version so we never re-enter this function.

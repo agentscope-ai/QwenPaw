@@ -38,6 +38,7 @@ import { useAppMessage } from "@/hooks/useAppMessage";
 import { buildGraphRows, graphLaneCount } from "./graphLayout";
 import { CheckpointGraph } from "./CheckpointGraph";
 import { RestoreModal } from "./RestoreModal";
+import { restoreCreatesNewChat } from "./restoreMode";
 import styles from "./index.module.less";
 
 const EMPTY_SUMMARY: CheckpointGraphResponse["summary"] = {
@@ -300,8 +301,12 @@ export default function CheckpointsPage() {
         className={styles.pageHeader}
         items={[{ title: t("nav.agent") }, { title: t("checkpoints.title") }]}
         afterBreadcrumb={
-          status?.workspace_dir ? (
-            <span className={styles.workspacePath}>{status.workspace_dir}</span>
+          status ? (
+            <span className={styles.workspacePath}>
+              {status.scope === "user_runtime"
+                ? "个人运行空间"
+                : "Agent 工作区"}
+            </span>
           ) : null
         }
         extra={
@@ -620,6 +625,7 @@ export default function CheckpointsPage() {
         node={selected}
         onClose={() => setRestoreOpen(false)}
         onRestored={() => void load(true)}
+        createsNewChat={restoreCreatesNewChat(status)}
       />
     </div>
   );

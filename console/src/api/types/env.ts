@@ -1,4 +1,9 @@
 export interface EnvVar {
   key: string;
-  value: string;
+  configured: boolean;
 }
+
+export type EnvOperation =
+  | { key: string; action: "keep" }
+  | { key: string; action: "replace"; value: string }
+  | { key: string; action: "delete" };

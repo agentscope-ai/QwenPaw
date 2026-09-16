@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { DatePicker } from "antd";
+import { DatePicker, Segmented, Tag } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs, { type Dayjs } from "dayjs";
 import { useTheme } from "../../../contexts/ThemeContext";
@@ -7,6 +7,8 @@ import api from "../../../api";
 import type { TokenUsageRecord } from "../../../api/types/tokenUsage";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { PageHeader } from "@/components/PageHeader";
+import { useAuthStore } from "@/stores/authStore";
+import { useAgentStore } from "@/stores/agentStore";
 import {
   LoadingState,
   SummaryCards,
@@ -24,6 +26,12 @@ function TokenUsagePage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark } = useTheme();
+  const { mode, user } = useAuthStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const selectedAgentInfo = agents.find((agent) => agent.id === selectedAgent);
+  const [scope, setScope] = useState<"personal" | "agent" | "platform">(
+    "personal",
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [records, setRecords] = useState<TokenUsageRecord[]>([]);
@@ -39,6 +47,14 @@ function TokenUsagePage() {
       const detailsData = await api.getTokenUsageDetails({
         start_date: startDate.format("YYYY-MM-DD"),
         end_date: endDate.format("YYYY-MM-DD"),
+        ...(mode === "multi_user"
+          ? {
+              scope,
+              ...(scope === "agent" && selectedAgent
+                ? { agent_id: selectedAgent }
+                : {}),
+            }
+          : {}),
       });
       setRecords(detailsData);
     } catch (err) {
@@ -49,7 +65,7 @@ function TokenUsagePage() {
     } finally {
       setLoading(false);
     }
-  }, [startDate, endDate, message, t]);
+  }, [startDate, endDate, message, mode, scope, selectedAgent, t]);
 
   useEffect(() => {
     fetchData();
@@ -133,6 +149,34 @@ function TokenUsagePage() {
 
       <div className={styles.content}>
         <div className={styles.toolbar}>
+          {mode === "multi_user" && (
+            <Segmented
+              value={scope}
+              onChange={(value) =>
+                setScope(value as "personal" | "agent" | "platform")
+              }
+              options={[
+                { label: t("tokenUsage.personalScope"), value: "personal" },
+                { label: t("tokenUsage.agentScope"), value: "agent" },
+                ...(user?.platform_role === "admin"
+                  ? [
+                      {
+                        label: t("tokenUsage.platformScope"),
+                        value: "platform",
+                      },
+                    ]
+                  : []),
+              ]}
+            />
+          )}
+          {mode === "multi_user" && scope === "agent" && (
+            <Tag>
+              {selectedAgentInfo?.access_role === "owner" ||
+              selectedAgentInfo?.access_role === "collaborator"
+                ? t("tokenUsage.anonymousAggregate")
+                : t("tokenUsage.personalAgentAggregate")}
+            </Tag>
+          )}
           <DatePicker.RangePicker
             value={[startDate, endDate]}
             onChange={handleDateChange}

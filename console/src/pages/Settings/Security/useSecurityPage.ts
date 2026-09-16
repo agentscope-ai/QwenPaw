@@ -1,9 +1,11 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Form } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
+import { useAgentStore } from "../../../stores/agentStore";
+import type { SecurityPolicyResponse } from "../../../api/modules/security";
 
 const BUILTIN_TOOLS = [
   "execute_shell_command",
@@ -29,6 +31,24 @@ export function useSecurityPage() {
   const [editForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("toolGuard");
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const [policy, setPolicy] = useState<SecurityPolicyResponse | null>(null);
+
+  const fetchPolicy = useCallback(async () => {
+    if (!selectedAgent) {
+      setPolicy(null);
+      return;
+    }
+    try {
+      setPolicy(await api.getSecurityPolicy(selectedAgent));
+    } catch {
+      setPolicy(null);
+    }
+  }, [selectedAgent]);
+
+  useEffect(() => {
+    void fetchPolicy();
+  }, [fetchPolicy]);
 
   // FileGuard handlers exposed from child component
   const [fileGuardHandlers, setFileGuardHandlers] = useState<{
@@ -127,6 +147,7 @@ export function useSecurityPage() {
       setEnabled(body.enabled);
       markSandboxSaved();
       message.success(t("security.saveSuccess"));
+      await fetchPolicy();
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) {
         return;
@@ -147,6 +168,7 @@ export function useSecurityPage() {
     markSandboxSaved,
     setEnabled,
     message,
+    fetchPolicy,
   ]);
 
   const handleReset = useCallback(() => {
@@ -242,6 +264,7 @@ export function useSecurityPage() {
     // Tab state
     activeTab,
     setActiveTab,
+    policy,
 
     // Tool Guard form
     form,

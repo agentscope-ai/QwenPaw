@@ -2,6 +2,7 @@ import type { ComponentType } from "react";
 import { LightContextCard } from "../pages/Agent/Config/components/LightContextCard";
 import { ReMeLightMemoryCard } from "../pages/Agent/Config/components/ReMeLightMemoryCard";
 import { ADBPGConfigCard } from "../pages/Agent/Config/components/ADBPGConfigCard";
+import type { AgentRequestContext } from "../api/modules/agentRequestContext";
 
 interface BackendMapping<T> {
   configField: string;
@@ -24,7 +25,7 @@ export const CONTEXT_MANAGER_BACKEND_MAPPINGS: Record<
 
 export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
   string,
-  BackendMapping<object>
+  BackendMapping<{ requestContext?: AgentRequestContext }>
 > = {
   remelight: {
     configField: "reme_light_memory_config",

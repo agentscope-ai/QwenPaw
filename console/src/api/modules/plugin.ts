@@ -28,6 +28,9 @@ export interface PluginInfo {
   plugin_type: PluginType;
   /** Frontend JS entry-point path (if any). */
   frontend_entry?: string;
+  status?: "installing" | "active" | "disabled" | "uninstalling" | "failed";
+  audience_mode?: "all_members" | "selected_users";
+  selected_user_ids?: string[];
 }
 
 export interface InstallPluginResult {
@@ -160,6 +163,46 @@ export async function uninstallPlugin(pluginId: string): Promise<void> {
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.detail ?? `Uninstall failed (${response.status})`);
+  }
+}
+
+export async function updatePluginAudience(
+  pluginId: string,
+  audience: {
+    mode: "all_members" | "selected_users";
+    selected_user_ids?: string[];
+  },
+): Promise<void> {
+  const response = await fetch(
+    getApiUrl(`/plugins/${encodeURIComponent(pluginId)}/audience`),
+    {
+      method: "PUT",
+      headers: { ...buildAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(audience),
+    },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      body.detail ?? `Audience update failed (${response.status})`,
+    );
+  }
+}
+
+export async function setPluginEnabled(
+  pluginId: string,
+  enabled: boolean,
+): Promise<void> {
+  const action = enabled ? "enable" : "disable";
+  const response = await fetch(
+    getApiUrl(`/plugins/${encodeURIComponent(pluginId)}/${action}`),
+    { method: "POST", headers: buildAuthHeaders() },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(
+      body.detail ?? `Plugin ${action} failed (${response.status})`,
+    );
   }
 }
 

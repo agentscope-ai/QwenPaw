@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from functools import partial
 from typing import Any, AsyncGenerator
 
 from .builder import AgentBuilder
@@ -25,6 +26,8 @@ from .executor import AgentExecutor
 from .hooks import HookAction, HookContext
 from .message_convert import _get_last_user_text, _request_input_to_msgs
 from .phases import Phase
+from ..runtime_status.broadcast import broadcast_runtime_status
+from ..runtime_status.stream_events import emit_runtime_final_status
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +61,7 @@ class Runtime:
         envelope = Envelope(session_id=ctx.session_id)
         ctx._envelope = envelope  # pylint: disable=protected-access
         skip_agent = False
+        artifacts_collected = False
 
         try:
             # --- [phase 1] PRE_DISPATCH ---
@@ -136,6 +140,15 @@ class Runtime:
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
 
+            from ..artifacts.middleware import collect_safely
+
+            if getattr(ctx, "agent", None) is not None:
+                await collect_safely(
+                    getattr(ctx.agent, "_request_context", None)
+                    or getattr(ctx.request, "request_context", None) or {},
+                )
+                artifacts_collected = True
+
             # Finalize envelope (complete message + response).
             async for ev in envelope.finalize():
                 yield ev
@@ -190,6 +203,24 @@ class Runtime:
                 yield ev
             raise
         finally:
+            request_context = (
+                getattr(ctx.request, "request_context", None) or {}
+            )
+            # Also collect outputs from tools that did not send a file, and
+            # recover completed outputs when a turn errors or is cancelled.
+            from ..artifacts.middleware import collect_safely
+
+            if not artifacts_collected and getattr(ctx, "agent", None) is not None:
+                await collect_safely(
+                    getattr(ctx.agent, "_request_context", None) or request_context,
+                )
+            emit_runtime_final_status(
+                partial(broadcast_runtime_status, ctx.agent_id),
+                session_id=ctx.session_id,
+                root_session_id=ctx.root_session_id,
+                chat_id=request_context.get("chat_id"),
+                error=ctx.error,
+            )
             # Close agent first so governor can flush audit log and persist
             # policy before downstream FINALLY hooks observe the context.
             # See ``QwenPawAgent.close`` (agents/react_agent.py).
@@ -508,10 +539,15 @@ class Runtime:
             return
         try:
             from agentscope.message import Msg, TextBlock
+            from qwenpaw.constant import (
+                QWENPAW_MESSAGE_TAG_KEY,
+                RUNTIME_CONTEXT_MESSAGE_TAG,
+            )
 
             hint_msg = Msg(
                 name="system",
                 role="user",
+                metadata={QWENPAW_MESSAGE_TAG_KEY: RUNTIME_CONTEXT_MESSAGE_TAG},
                 content=[
                     TextBlock(
                         type="text",

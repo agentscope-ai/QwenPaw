@@ -29,6 +29,8 @@ def inbox_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Redirect the module-level _INBOX_PATH to a tmp file."""
     target = tmp_path / "inbox_events.json"
     monkeypatch.setattr(inbox_store, "_INBOX_PATH", target)
+    monkeypatch.setattr(inbox_store, "_postgres_repository", lambda: None)
+    monkeypatch.setattr(inbox_store.logger, "disabled", False)
     return target
 
 
@@ -57,6 +59,71 @@ async def test_append_event_creates_file_and_returns_event(inbox_path: Path):
     assert event["read"] is False
     assert event["severity"] == "info"
     assert event["payload"] == {}
+
+
+@pytest.mark.asyncio
+async def test_query_events_filters_by_recipient_user(inbox_path: Path):
+    await inbox_store.append_event(
+        agent_id="A",
+        source_type="memory",
+        source_id="private-a",
+        event_type="auto_memory_result",
+        status="success",
+        title="A",
+        body="only A",
+        recipient_user_id="user-a",
+    )
+    await inbox_store.append_event(
+        agent_id="A",
+        source_type="memory",
+        source_id="private-b",
+        event_type="auto_memory_result",
+        status="success",
+        title="B",
+        body="only B",
+        recipient_user_id="user-b",
+    )
+
+    events, total, unread = await inbox_store.query_events(
+        recipient_user_id="user-a",
+    )
+
+    assert [event["body"] for event in events] == ["only A"]
+    assert total == 1
+    assert unread == 1
+
+
+@pytest.mark.asyncio
+async def test_read_and_delete_cannot_mutate_another_users_event(
+    inbox_path: Path,
+):
+    event = await inbox_store.append_event(
+        agent_id="A",
+        source_type="memory",
+        source_id="private-a",
+        event_type="auto_memory_result",
+        status="success",
+        title="A",
+        body="only A",
+        recipient_user_id="user-a",
+    )
+
+    assert (
+        await inbox_store.mark_read(
+            [event["id"]],
+            recipient_user_id="user-b",
+        )
+        == 0
+    )
+    deleted, _run_id, _still_referenced = await inbox_store.delete_event(
+        event["id"],
+        recipient_user_id="user-b",
+    )
+    assert deleted is False
+
+    events = await inbox_store.list_events(recipient_user_id="user-a")
+    assert len(events) == 1
+    assert events[0]["read"] is False
 
 
 @pytest.mark.asyncio

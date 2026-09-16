@@ -134,6 +134,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         scroll_state: dict | None = None,
         session_id: str | None = None,
         prompt_context: Any = None,
+        actor_user_id: str | None = None,
+        source_conversation_id: str | None = None,
     ):
         """Initialize command handler.
 
@@ -177,6 +179,8 @@ class CommandHandler(ConversationCommandHandlerMixin):
         self._scroll_state = scroll_state
         self._session_id = session_id
         self._prompt_context = prompt_context
+        self._actor_user_id = actor_user_id
+        self._source_conversation_id = source_conversation_id
         # Set by a standalone scroll ``/compact`` to the manager's refreshed
         # checkpoint, so the adapter can persist it back to the session.
         self._updated_scroll_state: dict | None = None
@@ -841,10 +845,21 @@ class CommandHandler(ConversationCommandHandlerMixin):
 
         hint = args.strip()
         try:
+            dream_kwargs: dict[str, Any] = {}
             if hint:
-                await self.memory_manager.dream(hint=hint)
+                dream_kwargs["hint"] = hint
+            if self._source_conversation_id:
+                dream_kwargs["_source_conversation_id"] = (
+                    self._source_conversation_id
+                )
+            scoped_dream = getattr(self.memory_manager, "scoped_dream", None)
+            if self._actor_user_id and callable(scoped_dream):
+                await scoped_dream(
+                    actor_user_id=self._actor_user_id,
+                    **dream_kwargs,
+                )
             else:
-                await self.memory_manager.dream()
+                await self.memory_manager.dream(**dream_kwargs)
         except Exception as e:
             logger.exception("auto-dream failed: %s", e)
             return await self._make_system_msg(
@@ -958,12 +973,33 @@ class CommandHandler(ConversationCommandHandlerMixin):
             )
 
         try:
-            await self.memory_manager.auto_memory(
-                memory_messages,
-                session_id=self._current_session_id(),
-                reply_id=reply_ids[-1],
-                reply_ids=reply_ids,
+            kwargs = {
+                "session_id": self._current_session_id(),
+                "reply_id": reply_ids[-1],
+                "reply_ids": reply_ids,
+            }
+            if self._source_conversation_id:
+                kwargs["_source_conversation_id"] = (
+                    self._source_conversation_id
+                )
+            scoped_auto_memory = getattr(
+                self.memory_manager,
+                "scoped_auto_memory",
+                None,
             )
+            if self._actor_user_id and callable(scoped_auto_memory):
+                await scoped_auto_memory(
+                    messages=memory_messages,
+                    actor_user_id=self._actor_user_id,
+                    **kwargs,
+                )
+            else:
+                if self._actor_user_id:
+                    kwargs["actor_user_id"] = self._actor_user_id
+                await self.memory_manager.auto_memory(
+                    memory_messages,
+                    **kwargs,
+                )
         except Exception as e:
             logger.exception("manual auto-memory failed: %s", e)
             return await self._make_system_msg(

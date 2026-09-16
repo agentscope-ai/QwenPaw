@@ -68,6 +68,17 @@ export const Form = Object.assign(passThrough, {
 export const InputNumber = (props: Record<string, unknown>) =>
   React.createElement("input", { type: "number", ...props } as any);
 export const Spin = passThrough;
+export const Checkbox = ({
+  checked,
+  onChange,
+  ...props
+}: Record<string, unknown>) =>
+  React.createElement("input", {
+    type: "checkbox",
+    checked,
+    onChange,
+    ...props,
+  } as any);
 
 export default {
   IconButton,
@@ -81,4 +92,5 @@ export default {
   Form,
   InputNumber,
   Spin,
+  Checkbox,
 };

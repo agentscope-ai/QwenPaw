@@ -8,6 +8,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Any
+from ...identity.runtime import is_multi_user_enabled
 
 from ...exceptions import SkillsError
 from ..utils.file_handling import read_text_file_with_encoding_fallback
@@ -679,6 +680,7 @@ class SkillPoolService:
             "name": final_name,
             "renamed": migration["renamed"],
             "overwritten": migration["overwritten"],
+            "results": migration.get("results", []),
         }
 
     def rename_in_workspaces(
@@ -689,6 +691,12 @@ class SkillPoolService:
         targets: list[str] | None = None,
     ) -> dict[str, list[str]]:
         """Migrate auto-update copies of ``old_name`` to ``new_name``."""
+        if is_multi_user_enabled():
+            keys = targets if targets is not None else [ws["agent_id"] for ws in list_workspaces()]
+            return {"renamed": [], "overwritten": [], "results": [
+                {"agent_id": key, "status": "skipped", "reason": "immutable_version_required"}
+                for key in keys
+            ]}
         try:
             old_name = normalize_skill_dir_name(old_name)
             new_name = normalize_skill_dir_name(new_name)
@@ -823,8 +831,15 @@ class SkillPoolService:
         if preview_only:
             return {"success": True, "name": final_name}
 
+        from ...skills.snapshots import directory_hash, require_no_shared_credentials
+
+        source_hash = directory_hash(source_dir)
         with staged_skill_dir(final_name) as staged_dir:
-            copy_skill_dir(source_dir, staged_dir)
+            # Verify the full source before the final copy filters OS/cache artifacts.
+            copy_skill_dir(source_dir, staged_dir, exact=True)
+            if directory_hash(staged_dir) != source_hash:
+                raise ValueError("snapshot_source_changed")
+            require_no_shared_credentials(staged_dir)
             scan_skill_dir_or_raise(staged_dir, final_name)
             copy_skill_dir(staged_dir, target_dir)
 
@@ -833,7 +848,6 @@ class SkillPoolService:
             default_workspace_manifest(),
         )
         workspace_entry = ws_manifest.get("skills", {}).get(skill_name, {})
-        ws_config = workspace_entry.get("config") or {}
         ws_tags = workspace_entry.get("tags")
         ws_installed_from = str(
             workspace_entry.get("installed_from", "") or "",
@@ -846,7 +860,7 @@ class SkillPoolService:
                 target_dir,
                 source="customized",
                 installed_from=ws_installed_from,
-                config=ws_config if ws_config else None,
+                config=None,
                 tags=ws_tags,
                 preserve_from={},
             )
@@ -984,6 +998,8 @@ class SkillPoolService:
         *,
         overwrite: bool = False,
     ) -> dict[str, Any]:
+        if is_multi_user_enabled():
+            return {"success": False, "reason": "authorized_lifecycle_required"}
         try:
             skill_name = normalize_skill_dir_name(skill_name)
         except SkillsError:
@@ -1148,6 +1164,9 @@ def _push_auto_update_skill(
 
     Returns ``{"ok": [agent labels], "failed": [agent labels]}``.
     """
+    if is_multi_user_enabled():
+        return {"ok": [], "failed": [str(ws.get("agent_id", "")) for ws in targets],
+                "results": [{"agent_id": ws.get("agent_id"), "status": "skipped", "reason": "authorized_lifecycle_required"} for ws in targets]}
     ok: list[str] = []
     failed: list[str] = []
     for ws in targets:
@@ -1219,6 +1238,9 @@ def run_pool_auto_update_sync(
     skill_name: str | None = None,
 ) -> dict[str, Any]:
     """Sync changed auto-update pool skills into their target workspaces."""
+    if is_multi_user_enabled():
+        return {"synced": [], "failed": [], "checked": 0,
+                "reason": "authorized_async_lifecycle_required"}
     manifest = read_skill_pool_manifest()
     entries = manifest.get("skills", {})
     changed, checked = _detect_changed_auto_update_skills(entries, skill_name)
@@ -1261,3 +1283,69 @@ def run_pool_auto_update_sync(
         )
 
     return {"synced": synced, "failed": failed, "checked": checked}
+
+
+async def run_authorized_pool_auto_update_sync(skill_name: str | None = None) -> dict[str, Any]:
+    """Run on the application's DB event loop; explicit grants are checked per Agent."""
+    from ...skills.runtime import get_skill_lifecycle_service
+
+    lifecycle = get_skill_lifecycle_service()
+    entries = read_skill_pool_manifest().get("skills", {})
+    workspaces = list_workspaces()
+    items = {row["name"]: row for row in await lifecycle.repository.list_items()}
+    results, synced, failed = [], [], []
+    checked = 0
+    for name, entry in entries.items():
+        if (
+            not isinstance(entry, dict)
+            or not entry.get("auto_update")
+            or (skill_name is not None and name != skill_name)
+        ):
+            continue
+        checked += 1
+        # Resolve targets from trusted server config, including copies without legacy manifest registration.
+        keys = [ws["agent_id"] for ws in workspaces]
+        explicit = entry.get("auto_update_targets")
+        if isinstance(explicit, list) and explicit:
+            keys = [str(key) for key in explicit]
+        item = items.get(name)
+        if item is None:
+            outcome = {
+                "results": [
+                    {
+                        "agent_id": key,
+                        "status": "skipped",
+                        "reason": "immutable_version_required",
+                    }
+                    for key in keys
+                ]
+            }
+        else:
+            try:
+                outcome = await lifecycle.auto_update(item["id"], keys)
+            except Exception:
+                logger.warning("Authorized skill update batch failed for '%s'", name)
+                outcome = {
+                    "results": [
+                        {
+                            "agent_id": key,
+                            "status": "failed",
+                            "reason": "batch_rolled_back",
+                        }
+                        for key in keys
+                    ]
+                }
+        results.append({"skill": name, **outcome})
+        updated = [
+            row["agent_id"] for row in outcome["results"] if row["status"] == "updated"
+        ]
+        skipped = [
+            row["agent_id"]
+            for row in outcome["results"]
+            if row["status"] in {"skipped", "failed"}
+        ]
+        if updated:
+            synced.append({"skill": name, "agents": updated})
+        if skipped:
+            failed.append({"skill": name, "agents": skipped})
+    return {"synced": synced, "failed": failed, "checked": checked, "results": results}

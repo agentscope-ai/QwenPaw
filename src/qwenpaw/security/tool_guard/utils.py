@@ -4,6 +4,7 @@
 * Configuration resolution – which tools to guard and which to deny.
 * Structured logging for guard findings.
 """
+
 from __future__ import annotations
 
 import logging
@@ -54,9 +55,11 @@ def _load_config_tool_guard():
     Returns ``None`` when config cannot be loaded.
     """
     try:
-        from qwenpaw.config import load_config
+        from qwenpaw.platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
-        return load_config().security.tool_guard
+        return load_effective_security_policy().tool_guard
     except Exception:
         return None
 
@@ -196,9 +199,7 @@ def log_findings(tool_name: str, result: "ToolGuardResult") -> None:
         )
 
     summary_fn = (
-        logger.warning
-        if result.max_severity in _HIGH_SEVERITIES
-        else logger.info
+        logger.warning if result.max_severity in _HIGH_SEVERITIES else logger.info
     )
     summary_fn(
         "[TOOL GUARD] Summary for tool '%s': %d finding(s), "

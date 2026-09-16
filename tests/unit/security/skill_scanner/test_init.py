@@ -84,13 +84,25 @@ class TestComputeSkillContentHash:
         assert isinstance(h, str)
         assert len(h) == 64
 
-    def test_skips_symlinks(self, tmp_path):
+    def test_skips_symlinks(self, tmp_path, create_symlink):
         """Symlinks should be skipped."""
         (tmp_path / "real.txt").write_text("content")
         link = tmp_path / "link.txt"
-        link.symlink_to(tmp_path / "real.txt")
+        baseline = compute_skill_content_hash(tmp_path)
+        create_symlink(link, tmp_path / "real.txt")
         h = compute_skill_content_hash(tmp_path)
-        assert isinstance(h, str)
+        assert h == baseline
+
+    def test_symlink_classification_does_not_change_hash(self, tmp_path, monkeypatch):
+        (tmp_path / "real.txt").write_text("real", encoding="utf-8")
+        baseline = compute_skill_content_hash(tmp_path)
+        (tmp_path / "link.txt").write_text("external", encoding="utf-8")
+        original = Path.is_symlink
+        monkeypatch.setattr(
+            Path, "is_symlink",
+            lambda path: path.name == "link.txt" or original(path),
+        )
+        assert compute_skill_content_hash(tmp_path) == baseline
 
     def test_nested_files(self, tmp_path):
         """Nested files should be included."""

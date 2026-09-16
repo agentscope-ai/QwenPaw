@@ -431,6 +431,25 @@ def _register_non_descriptor_tools(registry: ToolRegistry) -> None:
         policy_name="MemorySearch",
         owner="builtin",
     )
+    # 个人资料库工具按认证用户和当前 Agent 绑定闭包，运行时动态创建，
+    # 因此不会进入全局 descriptor 集合；仍须在 Phase 0 注册治理身份，
+    # 否则会被误判为未知工具而拒绝执行。
+    register_tool_governance(
+        registry,
+        python_name="personal_library_search",
+        tool_type="internal",
+        target_param="",
+        policy_name="PersonalLibrarySearch",
+        owner="builtin",
+    )
+    register_tool_governance(
+        registry,
+        python_name="personal_library_read",
+        tool_type="internal",
+        target_param="",
+        policy_name="PersonalLibraryRead",
+        owner="builtin",
+    )
     # Visual compact recovery is feature-scoped and collected by AgentBuilder,
     # so it stays out of the global @tool_descriptor builtin set.
     register_tool_governance(

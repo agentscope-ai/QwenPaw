@@ -21,8 +21,12 @@ import {
   Bug,
   Package,
   SlidersHorizontal,
+  ScanSearch,
   type LucideIcon,
 } from "lucide-react";
+import { useAuthStore } from "../stores/authStore";
+import { can } from "../access/capabilities";
+import CapabilityBoundary from "../access/CapabilityBoundary";
 import { useRoutes } from "../plugins/registry/hooks";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
 import { useOsRoute } from "./osRouteStore";
@@ -70,6 +74,12 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     Icon: ShieldCheck,
   },
   {
+    routeId: "core.migration-preview",
+    labelKey: "nav.migrationPreview",
+    fallback: "Migration Preview",
+    Icon: ScanSearch,
+  },
+  {
     routeId: "core.token-usage",
     labelKey: "nav.tokenUsage",
     fallback: "Token Usage",
@@ -104,7 +114,16 @@ const SETTINGS_ITEMS: SettingsItem[] = [
 export default function SettingsApp() {
   const { styles, cx } = useOsStyles();
   const { t } = useTranslation();
-  const routes = useRoutes();
+  const registeredRoutes = useRoutes();
+  const mode = useAuthStore((state) => state.mode);
+  const role = useAuthStore((state) => state.user?.platform_role ?? null);
+  const routes = useMemo(
+    () =>
+      registeredRoutes.filter(
+        (route) => !route.capability || can(mode, role, route.capability),
+      ),
+    [registeredRoutes, mode, role],
+  );
 
   const componentById = useMemo(() => {
     const map = new Map<string, React.ComponentType>();
@@ -125,7 +144,8 @@ export default function SettingsApp() {
   );
 
   const [active, setActive] = useState<string>("");
-  const current = active || items[0]?.routeId || "";
+  const current =
+    (componentById.has(active) ? active : items[0]?.routeId) || "";
   const Active = componentById.get(current);
 
   // Deep-link IN: a cross-app navigation to a settings route (e.g. Chat ->
@@ -172,7 +192,15 @@ export default function SettingsApp() {
                 key={current}
                 routeId={current}
                 base={baseFromRoutePath(routePathById.get(current))}
-                element={<Active />}
+                element={
+                  <CapabilityBoundary
+                    capability={
+                      routes.find((route) => route.id === current)?.capability
+                    }
+                  >
+                    <Active />
+                  </CapabilityBoundary>
+                }
               />
             </Suspense>
           </ChunkErrorBoundary>

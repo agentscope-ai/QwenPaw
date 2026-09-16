@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from ..platform_ops.maintenance_lifecycle import admitted
+
 import asyncio
 import logging
 import threading
@@ -97,6 +99,8 @@ class CheckpointRuntime:
     def get_for_workspace(self, workspace: Any) -> CheckpointService:
         service = self.get_for_workspace_dir(workspace.workspace_dir)
         service.workspace = workspace
+        service.agent_id = str(getattr(workspace, "agent_id", "") or "")
+        service.checkpoint_scope = "agent_workspace"
         return service
 
     async def get_for_workspace_async(
@@ -108,6 +112,8 @@ class CheckpointRuntime:
             workspace.workspace_dir,
         )
         service.workspace = workspace
+        service.agent_id = str(getattr(workspace, "agent_id", "") or "")
+        service.checkpoint_scope = "agent_workspace"
         return service
 
     async def get_for_workspace_dir_async(
@@ -136,6 +142,7 @@ class CheckpointRuntime:
                 task.add_done_callback(_completed)
         return await asyncio.shield(task)
 
+    @admitted
     async def _initialize_service(self, key: str) -> CheckpointService:
         repository, policy = await run_sync_io(
             self._initialize_storage,
@@ -201,10 +208,20 @@ class CheckpointRuntime:
         user_id: str,
         channel: str,
         query_text: str | None = None,
+        workspace_dir: str | Path | None = None,
     ) -> None:
         if not session_id:
             return
-        service = await self.get_for_workspace_async(workspace)
+        if workspace_dir is None:
+            service = await self.get_for_workspace_async(workspace)
+        else:
+            service = await self.get_for_workspace_dir_async(workspace_dir)
+            service.workspace = workspace
+            service.agent_id = str(
+                getattr(workspace, "agent_id", "") or "",
+            )
+            service.checkpoint_scope = "user_runtime"
+            service.conversation_workspace_dir = Path(workspace.workspace_dir)
         auto_enabled, debounce_seconds = await service.auto_settings()
         if not auto_enabled:
             return
@@ -218,6 +235,7 @@ class CheckpointRuntime:
         with self._lock:
             generation = self._generation
 
+        @admitted
         async def _snapshot() -> None:
             try:
                 # The setting may have been disabled while this debounced task
@@ -276,46 +294,61 @@ class CheckpointRuntime:
         sessions: list[tuple[str, str, str]],
     ) -> tuple[str, ...]:
         """Quiesce auto snapshots, then remove session checkpoint state."""
+        from uuid import UUID
+
+        from ..identity.runtime import is_multi_user_enabled
+        from ..workspaces.resolver import WorkspaceKind, WorkspaceResolver
+
+        workspace_key = self._workspace_key(workspace.workspace_dir)
+        roots = {workspace_key}
         with self._lock:
-            cached = next(
-                (
-                    (key, candidate)
-                    for key, candidate in self._services.items()
-                    if candidate.workspace is workspace
-                ),
-                None,
+            roots.update(
+                key for key, candidate in self._services.items()
+                if candidate.workspace is workspace
             )
-        if cached is not None:
-            workspace_key, service = cached
-            workspace_dir = service.workspace_dir
-        else:
-            workspace_key = await run_sync_io(
-                self._workspace_key,
-                workspace.workspace_dir,
-            )
-            workspace_dir = Path(workspace_key)
-            with self._lock:
-                service = self._services.get(workspace_key)
-        if service is None:
-            storage_exists = await run_sync_io(
-                (workspace_dir / "checkpoints" / "shadow.git").is_dir,
-            )
-            if not storage_exists:
-                return ()
-            service = await self.get_for_workspace_dir_async(workspace_dir)
-        service.workspace = workspace
+        if is_multi_user_enabled() and getattr(workspace, "agent_id", None):
+            resolver = WorkspaceResolver()
+            for _, user_id, _ in sessions:
+                try:
+                    actor_user_id = UUID(user_id)
+                except ValueError:
+                    continue
+                resolved = resolver.resolve(
+                    kind=WorkspaceKind.USER_RUNTIME,
+                    resource_id=workspace.agent_id,
+                    actor_user_id=actor_user_id,
+                )
+                roots.add(str(resolved.path))
+
+        services = []
         active_tasks: set[asyncio.Task[None]] = set()
-        for session_id, user_id, channel in sessions:
-            key = session_key(
-                channel=channel,
-                user_id=user_id,
-                session_id=session_id,
-            )
-            debounce_key = f"{service.workspace_dir}:{key}"
-            active_tasks.update(self.debouncer.cancel_pending(debounce_key))
+        for root in sorted(roots):
+            # Cancel every matching timer before waiting or deleting any ref.
+            for session_id, user_id, channel in sessions:
+                key = session_key(
+                    channel=channel, user_id=user_id, session_id=session_id,
+                )
+                active_tasks.update(
+                    self.debouncer.cancel_pending(f"{root}:{key}"),
+                )
         if active_tasks:
             await asyncio.gather(*active_tasks, return_exceptions=True)
-        return await service.delete_sessions(sessions)
+        for root in sorted(roots):
+            with self._lock:
+                service = self._services.get(root)
+            if service is None:
+                storage_exists = await run_sync_io(
+                    (Path(root) / "checkpoints" / "shadow.git").is_dir,
+                )
+                if not storage_exists:
+                    continue
+                service = await self.get_for_workspace_dir_async(root)
+            service.workspace = workspace
+            services.append(service)
+        deleted = []
+        for service in services:
+            deleted.extend(await service.delete_sessions(sessions))
+        return tuple(deleted)
 
 
 RUNTIME = CheckpointRuntime()

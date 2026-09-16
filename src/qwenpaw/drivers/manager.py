@@ -68,6 +68,7 @@ class DriverManager:
         self._handler_types: dict[str, type[DriverHandler]] = {}
         self._endpoint_validators: dict[str, EndpointValidator] = {}
         self._handlers: dict[str, DriverHandler] = {}
+        self._runtime_errors: dict[str, str] = {}
         self._handler_scopes: dict[str, str] = {}
         self._scope_handlers: dict[str, set[str]] = {}
         self._cleanup_tasks: set[asyncio.Task[None]] = set()
@@ -97,13 +98,8 @@ class DriverManager:
         for path in await self._card_store.list_paths():
             try:
                 card = await self._card_store.load_path(path)
-            except Exception as exc:
-                logger.warning(
-                    "Failed to build Driver from %s: %s",
-                    path,
-                    exc,
-                    exc_info=True,
-                )
+            except Exception:
+                logger.warning("Driver configuration could not be loaded")
                 continue
             try:
                 if not card.enabled:
@@ -114,13 +110,12 @@ class DriverManager:
                     continue
                 handler = await self._build_and_init_handler(card)
                 built[card.name] = handler
-            except Exception as exc:
-                logger.warning(
-                    "Failed to build Driver '%s': %s",
-                    card.name,
-                    exc,
-                    exc_info=True,
+                self._runtime_errors.pop(card.name, None)
+            except Exception:
+                self._runtime_errors[card.name] = (
+                    "Driver activation failed; check configuration and retry"
                 )
+                logger.warning("Driver activation failed")
 
         collisions: set[str] = set()
         old_handlers: list[DriverHandler] = []
@@ -143,8 +138,7 @@ class DriverManager:
             await self._shutdown_handlers(built.values())
             names = ", ".join(sorted(collisions))
             raise ValueError(
-                f"Persistent Drivers collide with transient Drivers: "
-                f"{names}",
+                f"Persistent Drivers collide with transient Drivers: " f"{names}",
             )
 
         await self._shutdown_handlers(old_handlers)
@@ -195,6 +189,17 @@ class DriverManager:
             await self._shutdown_handler(old)
 
     async def reload_driver(self, name: str) -> DriverRuntimeInfo | None:
+        try:
+            result = await self._reload_driver(name)
+        except Exception:
+            self._runtime_errors[name] = (
+                "Driver activation failed; check configuration and retry"
+            )
+            raise
+        self._runtime_errors.pop(name, None)
+        return result
+
+    async def _reload_driver(self, name: str) -> DriverRuntimeInfo | None:
         """Build-before-swap reload. Failure keeps old handler."""
         path = await self._card_store.stored_path(name)
         if path is None:
@@ -306,14 +311,15 @@ class DriverManager:
         names = [card.name for card in cards]
         if len(names) != len(set(names)):
             raise ValueError(
-                f"Transient Driver names must be unique in scope "
-                f"'{scope_id}'",
+                f"Transient Driver names must be unique in scope " f"'{scope_id}'",
             )
 
         built: dict[str, DriverHandler] = {}
         try:
             for card in cards:
-                built[card.name] = await self._build_and_init_handler(card)
+                built[card.name] = await self._build_and_init_handler(
+                    card, persistent=False
+                )
         except BaseException:
             await self._shutdown_handlers(built.values())
             raise
@@ -391,13 +397,13 @@ class DriverManager:
         for path in await self._card_store.list_paths():
             try:
                 card = await self._card_store.load_path(path)
-            except Exception as exc:
+            except Exception:
                 cards[path.stem] = DriverRuntimeInfo(
                     name=path.stem,
                     protocol="",
                     enabled=False,
                     status="error",
-                    error=str(exc),
+                    error="Driver configuration could not be loaded",
                 )
                 continue
             if protocol is not None and card.protocol != protocol:
@@ -420,6 +426,8 @@ class DriverManager:
         capabilities: list[DriverCapability] = []
         for handler in handlers:
             try:
+                if not await self._handler_is_current(handler):
+                    continue
                 handler_capabilities = await handler.list_capabilities(
                     request_context=request_context,
                 )
@@ -446,6 +454,8 @@ class DriverManager:
     ) -> list[DriverCapability]:
         """Return capabilities from one active Driver only."""
         handler = self._get_handler(name)
+        if not await self._handler_is_current(handler):
+            raise DriverNotFoundError(name)
         scope_id = self._handler_scopes.get(name)
         request_scope = str(
             (request_context or {}).get(DRIVER_SCOPE_CONTEXT_KEY) or "",
@@ -502,7 +512,26 @@ class DriverManager:
                 ),
                 metadata={"driver_name": driver_name},
             )
+        try:
+            if not await self._handler_is_current(handler):
+                return DriverInvocationResult(
+                    ok=False,
+                    error_type="driver_configuration_changed",
+                    message="Driver configuration changed; retry after activation",
+                )
+        except Exception:
+            return DriverInvocationResult(
+                ok=False,
+                error_type="driver_unavailable",
+                message="Driver configuration is unavailable",
+            )
         return await handler.invoke_capability(invocation)
+
+    async def _handler_is_current(self, handler) -> bool:
+        if handler.card.name in self._handler_scopes:
+            return True
+        checker = getattr(self._card_store, "is_current", None)
+        return await checker(handler.card) if checker is not None else True
 
     def _get_handler(self, name: str) -> DriverHandler:
         handler = self._handlers.get(name)
@@ -524,14 +553,14 @@ class DriverManager:
         ]
         if protocol is not None:
             handlers = [
-                handler
-                for handler in handlers
-                if handler.card.protocol == protocol
+                handler for handler in handlers if handler.card.protocol == protocol
             ]
         return sorted(handlers, key=lambda handler: handler.name)
 
-    async def _build_and_init_handler(self, card: DriverCard) -> DriverHandler:
-        handler = self._build_handler(card)
+    async def _build_and_init_handler(
+        self, card: DriverCard, *, persistent: bool = True
+    ) -> DriverHandler:
+        handler = self._build_handler(card, persistent=persistent)
         try:
             await handler.init()
         except asyncio.CancelledError:
@@ -543,7 +572,9 @@ class DriverManager:
             raise
         return handler
 
-    def _build_handler(self, card: DriverCard) -> DriverHandler:
+    def _build_handler(
+        self, card: DriverCard, *, persistent: bool = True
+    ) -> DriverHandler:
         card = self._validate_card_for_registered_protocol(card)
         handler_type = self._resolve_handler_type(card.protocol)
         refs = iter_credential_refs(card)
@@ -561,6 +592,15 @@ class DriverManager:
                 self._credential_store,
             )
             providers = {CREDENTIAL_ALIAS_DEFAULT: primary}
+        guard = getattr(self._card_store, "guard_provider", None)
+        if guard is not None and persistent:
+            primary_alias = next(
+                alias for alias, provider in providers.items() if provider is primary
+            )
+            providers = {
+                alias: guard(card, provider) for alias, provider in providers.items()
+            }
+            primary = providers[primary_alias]
         return handler_type(
             card,
             primary,
@@ -587,12 +627,19 @@ class DriverManager:
 
     def _runtime_info_from_card(self, card: DriverCard) -> DriverRuntimeInfo:
         active = card.name in self._handlers
+        if active and getattr(self._card_store, "authoritative", False):
+            active = self._handlers[card.name].card.config.get(
+                "_postgres_revision"
+            ) == card.config.get("_postgres_revision")
         if active:
             status = "active"
         elif card.enabled:
             status = "inactive"
         else:
             status = "disabled"
+        error = self._runtime_errors.get(card.name, "")
+        if error and not active and card.enabled:
+            status = "error"
         return DriverRuntimeInfo(
             name=card.name,
             protocol=card.protocol,
@@ -600,6 +647,7 @@ class DriverManager:
             status=status,
             display_name=str(card.config.get("display_name") or card.name),
             description=str(card.config.get("description") or ""),
+            error=error,
         )
 
     @property
@@ -616,10 +664,7 @@ class DriverManager:
 
     async def _shutdown_handlers(self, handlers) -> None:
         results = await asyncio.gather(
-            *[
-                self._shutdown_handler_with_timeout(handler)
-                for handler in handlers
-            ],
+            *[self._shutdown_handler_with_timeout(handler) for handler in handlers],
             return_exceptions=True,
         )
         for result in results:

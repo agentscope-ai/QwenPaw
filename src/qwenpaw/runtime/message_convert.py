@@ -6,6 +6,7 @@ import logging
 import mimetypes
 from typing import Any, List
 from urllib.parse import urlparse
+from uuid import UUID
 
 from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
@@ -14,6 +15,7 @@ from ..constant import (
 from .._compat.message import _ensure_url_scheme
 
 logger = logging.getLogger(__name__)
+AUDIO_ATTACHMENT_METADATA_KEY = "qwenpaw_audio_attachments"
 
 
 def _request_message_metadata(
@@ -86,6 +88,7 @@ def _request_input_to_msgs(
             role = "assistant"
 
         blocks: list = []
+        audio_attachments: dict[str, str] = {}
         for c in getattr(m, "content", None) or []:
             ctype = getattr(c, "type", None)
             if hasattr(ctype, "value"):
@@ -116,14 +119,13 @@ def _request_input_to_msgs(
                         fallback_ext = "jpeg" if ctype == "image" else "mpeg"
                         media_type = f"{_MEDIA_TYPES[ctype]}/{fallback_ext}"
                     try:
-                        blocks.append(
-                            DataBlock(
-                                source=URLSource(
-                                    url=url,
-                                    media_type=media_type,
-                                ),
-                            ),
+                        block = DataBlock(
+                            source=URLSource(url=url, media_type=media_type),
                         )
+                        blocks.append(block)
+                        attachment_id = getattr(c, "attachment_id", None)
+                        if ctype == "audio" and attachment_id:
+                            audio_attachments[block.id] = str(UUID(str(attachment_id)))
                     except Exception:
                         logger.debug(
                             "Failed to create DataBlock for %s url=%s",
@@ -154,15 +156,17 @@ def _request_input_to_msgs(
         if not blocks:
             continue
 
+        metadata = _request_message_metadata(role, getattr(m, "metadata", None))
+        # Rebuild this map from the resolved content; never accept a client map.
+        metadata.pop(AUDIO_ATTACHMENT_METADATA_KEY, None)
+        if audio_attachments:
+            metadata[AUDIO_ATTACHMENT_METADATA_KEY] = audio_attachments
         out.append(
             Msg(
                 name=role,
                 role=role,
                 content=blocks,
-                metadata=_request_message_metadata(
-                    role,
-                    getattr(m, "metadata", None),
-                ),
+                metadata=metadata,
             ),
         )
     return out

@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -687,18 +688,30 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     if config_path is None:
         config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as file:
-        json.dump(
-            config.model_dump(mode="json", by_alias=True),
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=config_path.parent,
+            prefix=f".{config_path.name}.", suffix=".tmp", delete=False,
+        ) as file:
+            temporary_path = Path(file.name)
+            json.dump(
+                config.model_dump(mode="json", by_alias=True),
+                file,
+                indent=2,
+                ensure_ascii=False,
+            )
+            file.flush()
+            os.fsync(file.fileno())
 
-    # Invalidate cache after saving
-    with _config_lock:
-        _config_cache = None
-        _config_mtime = None
+        # Same-directory replacement preserves the last complete file on failure.
+        with _config_lock:
+            os.replace(temporary_path, config_path)
+            _config_cache = None
+            _config_mtime = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
@@ -732,6 +745,8 @@ def update_last_dispatch(
     user_id: str,
     session_id: str,
     agent_id: Optional[str] = None,
+    platform_user_id: Optional[str] = None,
+    binding_id: Optional[str] = None,
 ) -> None:
     """Persist last user-reply dispatch target (user send+reply only).
 
@@ -740,6 +755,8 @@ def update_last_dispatch(
         user_id: User ID
         session_id: Session ID
         agent_id: Agent ID to update. If None, updates root config (legacy).
+        platform_user_id: Trusted platform user used to isolate multi-user targets.
+        binding_id: Personal channel binding that produced the target.
     """
     if agent_id is not None:
         try:
@@ -748,7 +765,17 @@ def update_last_dispatch(
                 channel=channel,
                 user_id=user_id,
                 session_id=session_id,
+                binding_id=binding_id or "",
             )
+            if platform_user_id:
+                agent_config.last_dispatch_by_user[platform_user_id] = (
+                    LastDispatchConfig(
+                        channel=channel,
+                        user_id=user_id,
+                        session_id=session_id,
+                        binding_id=binding_id or "",
+                    )
+                )
             save_agent_config(agent_id, agent_config)
             return
         except Exception:
@@ -760,8 +787,22 @@ def update_last_dispatch(
         channel=channel,
         user_id=user_id,
         session_id=session_id,
+        binding_id=binding_id or "",
     )
     save_config(config)
+
+
+def get_last_dispatch_for_user(
+    *,
+    agent_id: str,
+    platform_user_id: str,
+) -> LastDispatchConfig | None:
+    """Return one user's saved target without falling back to another user."""
+    try:
+        agent_config = load_agent_config(agent_id)
+    except Exception:
+        return None
+    return agent_config.last_dispatch_by_user.get(platform_user_id)
 
 
 # In-process cache for the current server's API address.

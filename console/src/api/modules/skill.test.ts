@@ -9,6 +9,13 @@ vi.mock("../authHeaders", () => ({
 }));
 
 import { request } from "../request";
+import { useAgentStore } from "@/stores/agentStore";
+
+beforeEach(() => useAgentStore.setState({ selectedAgent: "" }));
+const scopedTransport = () => ({
+  headers: new Headers(),
+  signal: expect.any(AbortSignal),
+});
 import { skillApi, invalidateSkillCache } from "./skill";
 
 // ---------------------------------------------------------------------------
@@ -23,7 +30,7 @@ describe("skillApi.listSkills", () => {
 
   it("calls /skills without agent header when no agentId", async () => {
     await skillApi.listSkills();
-    expect(request).toHaveBeenCalledWith("/skills", {});
+    expect(request).toHaveBeenCalledWith("/skills", scopedTransport());
   });
 
   it("passes X-Agent-Id header when agentId is provided", async () => {
@@ -75,7 +82,10 @@ describe("skillApi.listSkillWorkspaces", () => {
 
   it("calls /skills/workspaces", async () => {
     await skillApi.listSkillWorkspaces();
-    expect(request).toHaveBeenCalledWith("/skills/workspaces");
+    expect(request).toHaveBeenCalledWith(
+      "/skills/workspaces",
+      scopedTransport(),
+    );
   });
 
   it("returns cached value on second call", async () => {
@@ -98,7 +108,7 @@ describe("skillApi.listSkillPoolSkills", () => {
   it("calls /skills/pool and returns data", async () => {
     vi.mocked(request).mockResolvedValue([{ name: "pool-skill" }]);
     const result = await skillApi.listSkillPoolSkills();
-    expect(request).toHaveBeenCalledWith("/skills/pool");
+    expect(request).toHaveBeenCalledWith("/skills/pool", scopedTransport());
     expect(result).toEqual([{ name: "pool-skill" }]);
   });
 
@@ -148,13 +158,17 @@ describe("skillApi.searchHubSkills", () => {
     await skillApi.searchHubSkills("hello world", 10);
     expect(request).toHaveBeenCalledWith(
       "/skills/hub/search?q=hello%20world&limit=10",
+      scopedTransport(),
     );
   });
 
   it("uses default limit of 20", async () => {
     vi.mocked(request).mockResolvedValue([]);
     await skillApi.searchHubSkills("test");
-    expect(request).toHaveBeenCalledWith("/skills/hub/search?q=test&limit=20");
+    expect(request).toHaveBeenCalledWith(
+      "/skills/hub/search?q=test&limit=20",
+      scopedTransport(),
+    );
   });
 });
 
@@ -168,6 +182,7 @@ describe("skillApi.createSkill", () => {
     vi.mocked(request).mockResolvedValue({ created: true, name: "myskill" });
     await skillApi.createSkill("myskill", "# content", { key: "val" }, true);
     expect(request).toHaveBeenCalledWith("/skills", {
+      ...scopedTransport(),
       method: "POST",
       body: JSON.stringify({
         name: "myskill",
@@ -189,6 +204,7 @@ describe("skillApi.enableSkill", () => {
     vi.mocked(request).mockResolvedValue(undefined);
     await skillApi.enableSkill("my skill");
     expect(request).toHaveBeenCalledWith("/skills/my%20skill/enable", {
+      ...scopedTransport(),
       method: "POST",
     });
   });
@@ -201,6 +217,7 @@ describe("skillApi.disableSkill", () => {
     vi.mocked(request).mockResolvedValue(undefined);
     await skillApi.disableSkill("special/skill");
     expect(request).toHaveBeenCalledWith("/skills/special%2Fskill/disable", {
+      ...scopedTransport(),
       method: "POST",
     });
   });
@@ -216,6 +233,7 @@ describe("skillApi.deleteSkill", () => {
     vi.mocked(request).mockResolvedValue({ deleted: true });
     const result = await skillApi.deleteSkill("rm-me");
     expect(request).toHaveBeenCalledWith("/skills/rm-me", {
+      ...scopedTransport(),
       method: "DELETE",
     });
     expect(result).toEqual({ deleted: true });
@@ -265,6 +283,7 @@ describe("skillApi.batchEnableSkills", () => {
     vi.mocked(request).mockResolvedValue(undefined);
     await skillApi.batchEnableSkills(["skill-a", "skill-b"]);
     expect(request).toHaveBeenCalledWith("/skills/batch-enable", {
+      ...scopedTransport(),
       method: "POST",
       body: JSON.stringify(["skill-a", "skill-b"]),
     });
@@ -283,6 +302,7 @@ describe("skillApi.batchDeleteSkills", () => {
     });
     const result = await skillApi.batchDeleteSkills(["skill-a"]);
     expect(request).toHaveBeenCalledWith("/skills/batch-delete", {
+      ...scopedTransport(),
       method: "POST",
       body: JSON.stringify(["skill-a"]),
     });

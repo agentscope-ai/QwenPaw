@@ -97,6 +97,12 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
             required: true,
             message: t("agentConfig.tokenCountEstimateDivisorRequired"),
           },
+          {
+            type: "number",
+            min: 2,
+            max: 5,
+            message: t("agentConfig.tokenCountEstimateDivisorRange"),
+          },
         ]}
         tooltip={t("agentConfig.tokenCountEstimateDivisorTooltip")}
       >
@@ -140,6 +146,12 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                       required: true,
                       message: t("agentConfig.contextCompactRatioRequired"),
                     },
+                    {
+                      type: "number",
+                      min: 0.1,
+                      max: 0.9,
+                      message: t("agentConfig.contextCompactRatioRange"),
+                    },
                   ]}
                   tooltip={t("agentConfig.contextCompactRatioTooltip")}
                 >
@@ -181,6 +193,12 @@ export function LightContextCard({ maxInputLength }: LightContextCardProps) {
                       message: t(
                         "agentConfig.contextCompactReserveRatioRequired",
                       ),
+                    },
+                    {
+                      type: "number",
+                      min: 0.01,
+                      max: 0.3,
+                      message: t("agentConfig.contextCompactReserveRatioRange"),
                     },
                   ]}
                   tooltip={t("agentConfig.contextCompactReserveRatioTooltip")}

@@ -6,6 +6,8 @@ MatrixChannel: QwenPaw BaseChannel implementation for Matrix (via matrix-nio).
 
 from __future__ import annotations
 
+from ....platform_ops.maintenance_lifecycle import admitted_listener
+
 import asyncio
 import html
 import inspect
@@ -903,6 +905,7 @@ class MatrixChannel(BaseChannel):
                     exc,
                 )
 
+    @admitted_listener
     async def _e2ee_maintenance(self) -> None:
         """Perform E2EE key maintenance tasks after each sync.
 
@@ -1470,6 +1473,14 @@ class MatrixChannel(BaseChannel):
         return "; ".join(parts) if parts else "unavailable"
 
     # pylint: disable=too-many-branches,too-many-statements
+    @admitted_listener
+    async def _sync_once(self, **kwargs):
+        # nio sync can write its encrypted store while dispatching callbacks.
+        response = await self._client.sync(**kwargs)
+        if isinstance(response, SyncResponse) and response.next_batch is not None:
+            self._save_sync_token(response.next_batch)
+        return response
+
     async def _sync_loop(self) -> None:
         next_batch: Optional[str] = self._load_sync_token()
 
@@ -1490,7 +1501,7 @@ class MatrixChannel(BaseChannel):
                 saved_cbs = self._client.event_callbacks[:]
                 self._client.event_callbacks.clear()
                 try:
-                    resp = await self._client.sync(
+                    resp = await self._sync_once(
                         timeout=self.sync_timeout_ms,
                         full_state=True,
                     )
@@ -1498,8 +1509,6 @@ class MatrixChannel(BaseChannel):
                     self._client.event_callbacks.extend(saved_cbs)
                 if isinstance(resp, SyncResponse):
                     next_batch = resp.next_batch
-                    if next_batch is not None:
-                        self._save_sync_token(next_batch)
                     # Still auto-join invited rooms during catch-up
                     for room_id in resp.rooms.invite:
                         logger.info("MatrixChannel: auto-joining %s", room_id)
@@ -1529,15 +1538,13 @@ class MatrixChannel(BaseChannel):
                 "performing full-state sync to load room state",
             )
             try:
-                resp = await self._client.sync(
+                resp = await self._sync_once(
                     timeout=self.sync_timeout_ms,
                     since=next_batch,
                     full_state=True,
                 )
                 if isinstance(resp, SyncResponse):
                     next_batch = resp.next_batch
-                    if next_batch is not None:
-                        self._save_sync_token(next_batch)
                     for room_id in resp.rooms.invite:
                         logger.info("MatrixChannel: auto-joining %s", room_id)
                         await self._client.join(room_id)
@@ -1555,15 +1562,13 @@ class MatrixChannel(BaseChannel):
 
         while True:
             try:
-                resp = await self._client.sync(
+                resp = await self._sync_once(
                     timeout=self.sync_timeout_ms,
                     since=next_batch,
                     full_state=False,
                 )
                 if isinstance(resp, SyncResponse):
                     next_batch = resp.next_batch
-                    if next_batch is not None:
-                        self._save_sync_token(next_batch)
                     # Auto-join invited rooms
                     for room_id in resp.rooms.invite:
                         logger.info("MatrixChannel: auto-joining %s", room_id)

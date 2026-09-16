@@ -23,6 +23,11 @@ import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
 import styles from "../../index.module.less";
+import {
+  buildCredentialUpdate,
+  buildCustomHeadersUpdate,
+  buildBaseUrlUpdate,
+} from "../../providerCredentials";
 
 interface ProviderConfigFormValues
   extends Omit<
@@ -264,6 +269,7 @@ interface ProviderConfigModalProps {
     id: string;
     name: string;
     api_key?: string;
+    api_key_configured?: boolean;
     api_key_prefix?: string;
     api_key_prefixes?: string[];
     base_url?: string;
@@ -305,6 +311,7 @@ export function ProviderConfigModal({
       value,
     })),
   );
+  const [customHeadersDirty, setCustomHeadersDirty] = useState(false);
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
 
@@ -372,7 +379,7 @@ export function ProviderConfigModal({
   }, [provider.api_key_prefix, provider.api_key_prefixes]);
 
   const apiKeyPlaceholder = useMemo(() => {
-    if (provider.api_key) {
+    if (provider.api_key_configured || provider.api_key) {
       return t("models.leaveBlankKeep");
     }
     if (validApiKeyPrefixes.length > 0) {
@@ -381,7 +388,7 @@ export function ProviderConfigModal({
       });
     }
     return t("models.enterApiKeyOptional");
-  }, [provider.api_key, validApiKeyPrefixes, t]);
+  }, [provider.api_key, provider.api_key_configured, validApiKeyPrefixes, t]);
 
   const apiKeyLabel =
     isAnthropicProvider && authMode === "auth_token"
@@ -479,6 +486,7 @@ export function ProviderConfigModal({
           value,
         })),
       );
+      setCustomHeadersDirty(false);
     }
   }, [provider, form, open]);
 
@@ -502,7 +510,10 @@ export function ProviderConfigModal({
           }, {});
         const result = await api.testProviderConnection(provider.id, {
           api_key: values.api_key,
-          base_url: values.base_url,
+          base_url:
+            values.base_url?.trim() === provider.base_url?.trim()
+              ? undefined
+              : values.base_url?.trim() || undefined,
           chat_model: values.chat_model,
           custom_headers: testHeaders,
           auth_mode: isAnthropicProvider ? authMode : undefined,
@@ -523,12 +534,12 @@ export function ProviderConfigModal({
         }, {});
 
       await api.configureProvider(provider.id, {
-        api_key: values.api_key,
+        ...buildCredentialUpdate(values.api_key, false),
+        ...buildCustomHeadersUpdate(headersObj, customHeadersDirty),
+        ...buildBaseUrlUpdate(values.base_url, provider.base_url),
         name: provider.is_custom ? values.name?.trim() : undefined,
-        base_url: values.base_url,
         chat_model: values.chat_model,
         generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
-        custom_headers: headersObj,
         auth_mode: isAnthropicProvider ? authMode : undefined,
       });
 
@@ -566,7 +577,10 @@ export function ProviderConfigModal({
         }, {});
       const result = await api.testProviderConnection(provider.id, {
         api_key: values.api_key,
-        base_url: values.base_url,
+        base_url:
+          values.base_url?.trim() === provider.base_url?.trim()
+            ? undefined
+            : values.base_url?.trim() || undefined,
         chat_model: values.chat_model,
         custom_headers: testHeaders,
         auth_mode: isAnthropicProvider ? authMode : undefined,
@@ -604,7 +618,7 @@ export function ProviderConfigModal({
       cancelText: t("models.cancel"),
       onOk: async () => {
         try {
-          await api.configureProvider(provider.id, { api_key: "" });
+          await api.configureProvider(provider.id, { clear_api_key: true });
           await onSaved();
           onClose();
           if (isActiveLlmProvider) {
@@ -635,7 +649,7 @@ export function ProviderConfigModal({
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.api_key && (
+            {(provider.api_key_configured || provider.api_key) && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
@@ -861,6 +875,7 @@ export function ProviderConfigModal({
                         const next = [...customHeaders];
                         next[index] = { ...next[index], key: e.target.value };
                         setCustomHeaders(next);
+                        setCustomHeadersDirty(true);
                         setFormDirty(true);
                       }}
                     />
@@ -875,6 +890,7 @@ export function ProviderConfigModal({
                           value: e.target.value,
                         };
                         setCustomHeaders(next);
+                        setCustomHeadersDirty(true);
                         setFormDirty(true);
                       }}
                     />
@@ -884,6 +900,7 @@ export function ProviderConfigModal({
                         setCustomHeaders(
                           customHeaders.filter((_, i) => i !== index),
                         );
+                        setCustomHeadersDirty(true);
                         setFormDirty(true);
                       }}
                     />
@@ -897,6 +914,7 @@ export function ProviderConfigModal({
                       ...customHeaders,
                       { key: "", value: "" },
                     ]);
+                    setCustomHeadersDirty(true);
                     setFormDirty(true);
                   }}
                 >

@@ -1052,7 +1052,18 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 return None
 
             tool_config = agent_config.tools.builtin_tools[tool_name]
-            return tool_config.config if tool_config.config else None
+            config = dict(tool_config.config or {})
+            from ..identity.runtime import is_multi_user_enabled
+
+            if is_multi_user_enabled():
+                from ..app.tools.runtime_credentials import (
+                    TOOL_CREDENTIAL_CACHE,
+                )
+
+                config.update(
+                    TOOL_CREDENTIAL_CACHE.get(agent_id, tool_name),
+                )
+            return config or None
         except Exception as e:
             logger.error(f"Failed to load tool config: {e}")
             return None

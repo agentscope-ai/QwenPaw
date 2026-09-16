@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Card, Empty, Button } from "@agentscope-ai/design";
-import { Spin, Tooltip } from "antd";
+import { Spin, Tag, Tooltip } from "antd";
 import { DatePicker } from "antd";
 import type { Dayjs } from "dayjs";
 import dayjs from "dayjs";
@@ -13,6 +13,7 @@ import { useAppMessage } from "../../../hooks/useAppMessage";
 import { formatCompact } from "../../../utils/formatNumber";
 import { useTheme } from "../../../contexts/ThemeContext";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useAuthStore } from "../../../stores/authStore";
 import { getAgentDisplayName } from "../../../utils/agentDisplayName";
 import { SummaryCard } from "./SummaryCard";
 import styles from "./index.module.less";
@@ -99,6 +100,7 @@ function AgentStatsPage() {
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
+  const multiUser = useAuthStore((state) => state.mode === "multi_user");
   const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
   const agentName = selectedAgentInfo
     ? getAgentDisplayName(selectedAgentInfo, t)
@@ -308,6 +310,14 @@ function AgentStatsPage() {
         ) : (
           <>
             <div className={styles.filters}>
+              {multiUser && (
+                <Tag>
+                  {selectedAgentInfo?.access_role === "owner" ||
+                  selectedAgentInfo?.access_role === "collaborator"
+                    ? t("agentStats.anonymousAgentScope")
+                    : t("agentStats.personalAgentScope")}
+                </Tag>
+              )}
               <DatePicker.RangePicker
                 value={[startDate, endDate]}
                 onChange={handleDateChange}
@@ -328,8 +338,8 @@ function AgentStatsPage() {
                 <div className={styles.summaryCards}>
                   <SummaryCard
                     value={data.total_active_sessions}
-                    label={t("agentStats.totalSessions")}
-                    tooltip={t("agentStats.totalSessionsTooltip")}
+                    label={t("agentStats.activeSessions")}
+                    tooltip={t("agentStats.activeSessionsTooltip")}
                   />
                   <SummaryCard
                     value={data.total_messages}

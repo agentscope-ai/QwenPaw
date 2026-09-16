@@ -7,6 +7,7 @@ vi.mock("../../../api", () => ({
   default: {
     listChannels: vi.fn(),
     listChannelTypes: vi.fn(),
+    listUserChannelBindings: vi.fn(),
   },
 }));
 
@@ -22,6 +23,9 @@ describe("useChannels", () => {
     vi.clearAllMocks();
     (api.listChannels as ReturnType<typeof vi.fn>).mockResolvedValue({});
     (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (api.listUserChannelBindings as ReturnType<typeof vi.fn>).mockResolvedValue(
+      [],
+    );
   });
 
   it("初始 loading=true，fetch 成功后 loading=false", async () => {
@@ -159,5 +163,90 @@ describe("useChannels", () => {
 
     expect(result.current.isBuiltin("dingtalk")).toBe(false);
     expect(result.current.isBuiltin("non-existent-key")).toBe(false);
+  });
+
+  it("个人绑定模式只读取当前用户绑定，不读取智能体频道配置", async () => {
+    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([
+      "console",
+      "telegram",
+    ]);
+    (
+      api.listUserChannelBindings as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([
+      {
+        id: "binding-1",
+        channel_type: "telegram",
+        display_name: "我的 Telegram",
+        enabled: true,
+        config: { bot_prefix: "mine" },
+        configured_secret_fields: ["bot_token"],
+      },
+    ]);
+
+    const { result } = renderHook(() => useChannels("user"));
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(api.listChannels).not.toHaveBeenCalled();
+    expect(api.listUserChannelBindings).toHaveBeenCalledWith("agent-1");
+    expect(result.current.channels.telegram).toEqual({
+      enabled: true,
+      bot_prefix: "mine",
+      display_name: "我的 Telegram",
+      isBuiltin: true,
+      bindingId: "binding-1",
+      configuredSecretFields: ["bot_token"],
+    });
+    expect(result.current.channels.console).toEqual({
+      enabled: false,
+      bot_prefix: "",
+      display_name: "",
+      isBuiltin: true,
+      configuredSecretFields: [],
+    });
+  });
+
+  it("切换到个人绑定后忽略较晚返回的旧视图请求", async () => {
+    let resolveAgentChannels: (
+      value: Record<string, Record<string, unknown>>,
+    ) => void = () => {};
+    const agentChannels = new Promise<
+      Record<string, Record<string, unknown>>
+    >((resolve) => {
+      resolveAgentChannels = resolve;
+    });
+    (api.listChannelTypes as ReturnType<typeof vi.fn>).mockResolvedValue([
+      "telegram",
+    ]);
+    (api.listChannels as ReturnType<typeof vi.fn>).mockReturnValue(
+      agentChannels,
+    );
+    (
+      api.listUserChannelBindings as ReturnType<typeof vi.fn>
+    ).mockResolvedValue([
+      {
+        id: "binding-new",
+        channel_type: "telegram",
+        display_name: "我的 Telegram",
+        enabled: false,
+        config: { bot_prefix: "mine" },
+        configured_secret_fields: ["bot_token"],
+      },
+    ]);
+
+    const { result, rerender } = renderHook(
+      ({ mode }: { mode: "agent" | "user" }) => useChannels(mode),
+      { initialProps: { mode: "agent" as "agent" | "user" } },
+    );
+
+    rerender({ mode: "user" as const });
+    await waitFor(() => {
+      expect(result.current.channels.telegram?.bot_prefix).toBe("mine");
+    });
+
+    resolveAgentChannels({ telegram: { bot_prefix: "stale-agent" } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(result.current.channels.telegram?.bot_prefix).toBe("mine");
   });
 });

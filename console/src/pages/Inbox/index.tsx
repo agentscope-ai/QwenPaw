@@ -26,6 +26,7 @@ import { PackageOpen, Bell, BellRing } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { PageHeader } from "@/components/PageHeader";
 import { externalLinkMarkdownComponents } from "@/components/Markdown/externalLinkComponents";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
@@ -48,6 +49,11 @@ import {
   formatToolBlockContent,
 } from "./utils/traceUtils";
 import styles from "./index.module.less";
+import { buildFileCenterPath } from "../../features/files-workspace/fileLocator";
+import {
+  memoryLocatorsFromInboxPayload,
+  sourceConversationIdFromInboxPayload,
+} from "./memoryFileLinks";
 
 type TabKey = "approvals" | "messages";
 const INBOX_TAB_STORAGE_KEY = "qwenpaw.inbox.activeTab";
@@ -83,6 +89,7 @@ const renderMarkdownText = (text: string, className: string) => (
 
 export default function InboxPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabKey>(resolveInitialTab);
   const [markAllReading, setMarkAllReading] = useState(false);
   const [selectedAgentFilter, setSelectedAgentFilter] = useState<
@@ -260,6 +267,13 @@ export default function InboxPage() {
     }
     openMessageDetail(found);
   };
+  const selectedMemoryFiles = memoryLocatorsFromInboxPayload(
+    selectedMessage?.metadata?.payload,
+    selectedMessage?.metadata?.agentId || DEFAULT_AGENT_ID,
+  );
+  const selectedSourceConversationId = sourceConversationIdFromInboxPayload(
+    selectedMessage?.metadata?.payload,
+  );
 
   const handleMarkAllRead = async () => {
     if (summary.pushMessages.unread <= 0) {
@@ -580,6 +594,40 @@ export default function InboxPage() {
                 {selectedMessage.id || "-"}
               </Descriptions.Item>
             </Descriptions>
+
+            {selectedMemoryFiles.length > 0 ? (
+              <div className={styles.messageDetailBlock}>
+                <div className={styles.messageDetailLabel}>
+                  {t("inbox.memoryFiles")}
+                </div>
+                <div className={styles.memoryFileLinks}>
+                  {selectedMemoryFiles.map((locator) => (
+                    <Button
+                      key={`${locator.memorySection}:${locator.relativePath}`}
+                      onClick={() => {
+                        closeDetail();
+                        navigate(buildFileCenterPath(locator));
+                      }}
+                    >
+                      {locator.relativePath}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {selectedSourceConversationId ? (
+              <div className={styles.messageDetailBlock}>
+                <Button
+                  onClick={() => {
+                    closeDetail();
+                    navigate(`/chat/${selectedSourceConversationId}`);
+                  }}
+                >
+                  {t("inbox.openSourceConversation")}
+                </Button>
+              </div>
+            ) : null}
 
             <div className={styles.messageDetailBlock}>
               <div className={styles.messageDetailLabel}>

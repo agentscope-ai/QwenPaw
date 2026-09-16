@@ -4,8 +4,10 @@ export interface FileReferenceSegment {
 }
 
 export interface ParsedFileReference {
-  kind: "file" | "editor";
+  kind: "file" | "editor" | "personal-library" | "chat-file";
+  source?: string;
   path: string;
+  documentId?: string;
   startLine?: number;
   endLine?: number;
 }
@@ -32,7 +34,7 @@ export function compactFileReferenceLabel(
 ): string {
   const filename =
     reference.path.split(/[\\/]/).filter(Boolean).pop() || reference.path;
-  if (reference.kind === "file") {
+  if (reference.kind !== "editor") {
     return filename;
   }
   const startLine = reference.startLine ?? 1;
@@ -49,6 +51,8 @@ interface ParsedFileReferenceRange {
 }
 
 const FILE_MENTION_PATTERN = /@ ([^\s\n]+)/g;
+const PERSONAL_LIBRARY_MENTION_PATTERN =
+  /@\[((?:\\.|[^\]])+)\]\(personal-library:([A-Za-z0-9-]+)\)/g;
 const EDITOR_LINE_SUFFIX_PATTERN = /:(\d+)(?:-(\d+))?$/;
 
 function looksLikeEditorPath(path: string): boolean {
@@ -63,8 +67,31 @@ function looksLikeEditorPath(path: string): boolean {
 
 function fileReferenceRanges(value: string): ParsedFileReferenceRange[] {
   const ranges: ParsedFileReferenceRange[] = [];
+  for (const match of value.matchAll(/@\[((?:\\.|[^\]])+)\]\(chat-file:(temporary|personal_library|agent_profile|artifact):([^\s)]+)\)/g)) {
+    let id: string;
+    try { id = decodeURIComponent(match[3]); } catch { continue; }
+    const start = match.index ?? 0;
+    ranges.push({start, end: start + match[0].length, reference: {
+      kind: "chat-file", path: match[1].replace(/\\([\\\]])/g, "$1"), source: match[2], documentId: id,
+    }});
+  }
+  for (const match of value.matchAll(PERSONAL_LIBRARY_MENTION_PATTERN)) {
+    const start = match.index ?? 0;
+    ranges.push({
+      start,
+      end: start + match[0].length,
+      reference: {
+        kind: "personal-library",
+        path: match[1].replace(/\\([\\\]])/g, "$1"),
+        documentId: match[2],
+      },
+    });
+  }
   for (const match of value.matchAll(FILE_MENTION_PATTERN)) {
     const start = match.index ?? 0;
+    if (ranges.some((range) => start < range.end && start + match[0].length > range.start)) {
+      continue;
+    }
     ranges.push({
       start,
       end: start + match[0].length,

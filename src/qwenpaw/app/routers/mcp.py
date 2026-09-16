@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Path, Request
+from fastapi import APIRouter, Body, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 
 from ..mcp.config_service import (
@@ -41,14 +41,60 @@ __all__ = [
 ]
 
 
-def _mcp_service(agent: Any) -> MCPConfigService:
-    return MCPConfigService(agent)
+def _mcp_service(agent: Any, request: Request | None = None) -> MCPConfigService:
+    actor_user_id = None
+    if request is not None:
+        from ...access.dependencies import get_actor
+
+        actor_user_id = get_actor(request).user_id
+    return MCPConfigService(agent, actor_user_id=actor_user_id)
 
 
 async def _agent_for_request(request: Request) -> Any:
     from ..agent_context import get_agent_for_request
 
     return await get_agent_for_request(request)
+
+
+def _require_mcp_config_access(request: Request) -> None:
+    from ...access.agent_repository import AgentResourceRole
+    from ..agent_context import get_agent_access_state
+
+    role, historical = get_agent_access_state(request)
+    if historical or role not in {
+        AgentResourceRole.OWNER,
+        AgentResourceRole.COLLABORATOR,
+    }:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def _can_edit_mcp(request: Request) -> bool:
+    from ...access.agent_repository import AgentResourceRole
+    from ..agent_context import get_agent_access_state
+
+    role, historical = get_agent_access_state(request)
+    return not historical and role in {
+        AgentResourceRole.OWNER,
+        AgentResourceRole.COLLABORATOR,
+    }
+
+
+def _safe_user_projection(info: MCPClientInfo) -> MCPClientInfo:
+    return MCPClientInfo(
+        key=info.key,
+        name=info.name,
+        description=info.description,
+        enabled=info.enabled,
+        transport=info.transport,
+        tools=None,
+        runtime_status=info.runtime_status,
+        can_edit=False,
+    )
+
+
+def _editable(info: MCPClientInfo) -> MCPClientInfo:
+    info.can_edit = True
+    return info
 
 
 async def _ensure_mcp_driver_active(manager: Any, client_key: str) -> None:
@@ -81,7 +127,7 @@ async def list_mcp_tools(
 ) -> List[MCPToolInfo]:
     """Query a running MCP server for its available tools."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).list_tools(client_key)
+    return await _mcp_service(agent, request).list_tools(client_key)
 
 
 class MCPToolWhitelistRequest(BaseModel):
@@ -92,6 +138,7 @@ class MCPToolWhitelistRequest(BaseModel):
         description="List of tool names to enable. "
         "None means enable all tools (remove whitelist).",
     )
+    expected_revision: Optional[int] = None
 
 
 @router.put(
@@ -111,9 +158,11 @@ async def update_mcp_tool_whitelist(
     enabled status.
     """
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).update_tool_whitelist(
+    _require_mcp_config_access(request)
+    return await _mcp_service(agent, request).update_tool_whitelist(
         client_key,
         body.tools,
+        expected_revision=body.expected_revision,
     )
 
 
@@ -128,7 +177,8 @@ async def get_mcp_policy(
 ) -> MCPAccessPolicy:
     """Return saved MCP access policy without querying the MCP server."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).get_policy(client_key)
+    _require_mcp_config_access(request)
+    return await _mcp_service(agent, request).get_policy(client_key)
 
 
 @router.put(
@@ -143,7 +193,12 @@ async def update_mcp_policy(
 ) -> MCPAccessPolicy:
     """Update console-managed MCP policy without querying the MCP server."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).update_policy(client_key, access)
+    _require_mcp_config_access(request)
+    return await _mcp_service(agent, request).update_policy(
+        client_key,
+        access,
+        expected_revision=access.expected_revision,
+    )
 
 
 @router.get(
@@ -156,7 +211,8 @@ async def list_mcp_access_principals(
 ) -> List[MCPAccessPrincipalOption]:
     """Return recent users with their source scope for policy editing."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).list_access_principals()
+    _require_mcp_config_access(request)
+    return await _mcp_service(agent, request).list_access_principals()
 
 
 @router.get(
@@ -167,7 +223,10 @@ async def list_mcp_access_principals(
 async def list_mcp_clients(request: Request) -> List[MCPClientInfo]:
     """Get list of all configured MCP clients."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).list_clients()
+    clients = await _mcp_service(agent, request).list_clients()
+    if _can_edit_mcp(request):
+        return [_editable(item) for item in clients]
+    return [_safe_user_projection(item) for item in clients]
 
 
 @router.post(
@@ -183,7 +242,10 @@ async def create_mcp_client(
 ) -> MCPClientInfo:
     """Create a new MCP client configuration."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).create_client(client_key, client)
+    _require_mcp_config_access(request)
+    return _editable(
+        await _mcp_service(agent, request).create_client(client_key, client)
+    )
 
 
 @router.patch(
@@ -194,10 +256,17 @@ async def create_mcp_client(
 async def toggle_mcp_client(
     request: Request,
     client_key: str = Path(...),
+    expected_revision: Optional[int] = Query(None),
 ) -> MCPClientInfo:
     """Toggle the enabled status of an MCP client."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).toggle_client(client_key)
+    _require_mcp_config_access(request)
+    return _editable(
+        await _mcp_service(agent, request).toggle_client(
+            client_key,
+            expected_revision=expected_revision,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -217,9 +286,10 @@ async def get_mcp_client(
 ) -> MCPClientInfo:
     """Get details of a specific MCP client."""
     agent = await _agent_for_request(request)
-    service = _mcp_service(agent)
+    _require_mcp_config_access(request)
+    service = _mcp_service(agent, request)
     card = await service.load_card(client_key)
-    return await service.build_info_from_card(card)
+    return _editable(await service.build_info_from_card(card))
 
 
 @router.put(
@@ -234,7 +304,10 @@ async def update_mcp_client(
 ) -> MCPClientInfo:
     """Update an existing MCP client configuration."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).update_client(client_key, updates)
+    _require_mcp_config_access(request)
+    return _editable(
+        await _mcp_service(agent, request).update_client(client_key, updates)
+    )
 
 
 @router.delete(
@@ -245,7 +318,12 @@ async def update_mcp_client(
 async def delete_mcp_client(
     request: Request,
     client_key: str = Path(...),
+    expected_revision: Optional[int] = Query(None),
 ) -> Dict[str, str]:
     """Delete an MCP client configuration."""
     agent = await _agent_for_request(request)
-    return await _mcp_service(agent).delete_client(client_key)
+    _require_mcp_config_access(request)
+    return await _mcp_service(agent, request).delete_client(
+        client_key,
+        expected_revision=expected_revision,
+    )

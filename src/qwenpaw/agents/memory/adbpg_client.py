@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 import httpx
 
+from ...memory_scope.models import MemoryScopeDenied
+
 logger = logging.getLogger(__name__)
 
 
@@ -45,12 +47,17 @@ class ADBPGMemoryClient:
         metadata: dict | None = None,
     ) -> None:
         """Store memories via REST API."""
+        identity = self._private_identity(
+            agent_id=agent_id or "",
+            user_id=user_id,
+            run_id=run_id or "",
+        )
         body: dict = {
             "messages": messages,
-            **self._identity(agent_id or "", user_id),
+            "agent_id": identity["agent_id"],
+            "user_id": identity["user_id"],
+            "run_id": identity["run_id"],
         }
-        if run_id:
-            body["run_id"] = run_id
         if metadata:
             body["metadata"] = metadata
 
@@ -79,16 +86,22 @@ class ADBPGMemoryClient:
     ) -> list[dict]:
         """Search memories via REST API.
 
-        The current REST search endpoint filters by identity fields
-        (``agent_id`` and ``user_id``). ``run_id`` is accepted for API
-        compatibility with add operations, but is not sent as a search
-        filter.
+        权限过滤使用 ``agent_id + user_id``；``run_id`` 作为顶层审计字段，
+        不限制跨会话长期记忆检索。
         """
-        _ = run_id
+        identity = self._private_identity(
+            agent_id=agent_id or "",
+            user_id=user_id,
+            run_id=run_id or "",
+        )
 
         body: dict = {
             "query": query,
-            "filters": self._identity(agent_id or "", user_id),
+            "filters": {
+                "agent_id": identity["agent_id"],
+                "user_id": identity["user_id"],
+            },
+            "run_id": identity["run_id"],
             "top_k": limit,
         }
 
@@ -128,14 +141,29 @@ class ADBPGMemoryClient:
         return f"{self._config.rest_base_url.rstrip('/')}{path}"
 
     @staticmethod
-    def _identity(agent_id: str, user_id: str) -> dict:
-        """Common identity fields for REST requests."""
-        identity: dict = {}
-        if agent_id:
-            identity["agent_id"] = agent_id
-        if user_id:
-            identity["user_id"] = user_id
-        return identity
+    def _private_identity(
+        *,
+        agent_id: str,
+        user_id: str,
+        run_id: str,
+    ) -> dict[str, str]:
+        """校验私有记忆请求的完整可信身份，禁止 shared 回退。"""
+        agent_id = str(agent_id or "").strip()
+        user_id = str(user_id or "").strip()
+        run_id = str(run_id or "").strip()
+        if not user_id:
+            raise MemoryScopeDenied("authenticated_user_required")
+        if not agent_id:
+            raise MemoryScopeDenied("agent_id_required")
+        if not run_id:
+            raise MemoryScopeDenied("run_id_required")
+        if "shared" in {agent_id.lower(), user_id.lower(), run_id.lower()}:
+            raise MemoryScopeDenied("shared_identity_denied")
+        return {
+            "agent_id": agent_id,
+            "user_id": user_id,
+            "run_id": run_id,
+        }
 
     def _log_rest_curl(self, method: str, url: str, body: dict) -> None:
         """Log an equivalent curl command for debugging REST calls."""

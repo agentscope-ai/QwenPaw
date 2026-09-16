@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import type { HarnessApprovalPreset } from "@/api/modules/harness";
 import styles from "./HarnessApprovalToggle.module.less";
+import { getUserScopedStorageKey } from "../../../stores/identityStorage";
 
 interface HarnessApprovalToggleProps {
   backend: string;
@@ -14,8 +15,11 @@ interface HarnessApprovalToggleProps {
   onChange: (settings: Record<string, unknown>) => void;
 }
 
-function storageKey(backend: string, sessionId: string): string {
-  return `harness-approval-${backend}-${sessionId}`;
+export function harnessApprovalStorageKey(
+  backend: string,
+  sessionId: string,
+): string {
+  return getUserScopedStorageKey(`harness-approval-${backend}-${sessionId}`);
 }
 
 export default function HarnessApprovalToggle({
@@ -31,7 +35,9 @@ export default function HarnessApprovalToggle({
   onChangeRef.current = onChange;
 
   useEffect(() => {
-    const saved = localStorage.getItem(storageKey(backend, sessionId));
+    const saved = localStorage.getItem(
+      harnessApprovalStorageKey(backend, sessionId),
+    );
     const selected = presets.find((item) => item.id === saved) ?? presets[0];
     setSelectedId(selected?.id ?? "");
     onChangeRef.current(selected?.settings ?? {});
@@ -61,7 +67,10 @@ export default function HarnessApprovalToggle({
         ),
         onClick: () => {
           setSelectedId(preset.id);
-          localStorage.setItem(storageKey(backend, sessionId), preset.id);
+          localStorage.setItem(
+            harnessApprovalStorageKey(backend, sessionId),
+            preset.id,
+          );
           onChangeRef.current(preset.settings);
         },
       })),

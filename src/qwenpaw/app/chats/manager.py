@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from collections.abc import Awaitable, Callable
 from typing import Optional
+from uuid import UUID
 
 from .models import (
     BatchArchiveResult,
@@ -17,12 +19,19 @@ from .models import (
     SessionSource,
 )
 from .repo import BaseChatRepository
+from .repo.conversation import ConversationAccessRecord
 from ..channels.schema import DEFAULT_CHANNEL
 from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
 MAX_BATCH_SIZE = 500
+
+
+@dataclass(frozen=True, slots=True)
+class AccessibleChat:
+    chat: ChatSpec
+    access: ConversationAccessRecord
 
 
 class ChatManager:
@@ -39,6 +48,10 @@ class ChatManager:
         *,
         repo: BaseChatRepository,
         on_session_closed: Callable[[str], Awaitable[None]] | None = None,
+        on_chat_created: Callable[[ChatSpec], Awaitable[None]] | None = None,
+        on_chats_deleted: Callable[[list[ChatSpec]], Awaitable[None]] | None = None,
+        run_persistence: object | None = None,
+        conversation_repository: object | None = None,
     ):
         """Initialize chat manager.
 
@@ -47,6 +60,10 @@ class ChatManager:
         """
         self._repo = repo
         self._on_session_closed = on_session_closed
+        self._on_chat_created = on_chat_created
+        self._on_chats_deleted = on_chats_deleted
+        self._run_persistence = run_persistence
+        self._conversation_repository = conversation_repository
         self._lock = asyncio.Lock()
         logger.debug(
             f"ChatManager created with repo path: {repo.path}",
@@ -58,6 +75,73 @@ class ChatManager:
     ) -> None:
         """Update the browser lifecycle callback when a service is reused."""
         self._on_session_closed = callback
+
+    def set_on_chat_created(
+        self,
+        callback: Callable[[ChatSpec], Awaitable[None]] | None,
+    ) -> None:
+        """更新持久化会话创建后的关系记录回调。"""
+        self._on_chat_created = callback
+
+    def set_on_chats_deleted(
+        self,
+        callback: Callable[[list[ChatSpec]], Awaitable[None]] | None,
+    ) -> None:
+        """更新持久化会话删除前的权威状态同步回调。"""
+        self._on_chats_deleted = callback
+
+    def set_run_persistence(self, persistence: object | None) -> None:
+        """更新可选的后台 Run 持久化包装器。"""
+        self._run_persistence = persistence
+
+    def set_conversation_repository(self, repository: object | None) -> None:
+        """Update the PostgreSQL conversation authority when a service is reused."""
+        self._conversation_repository = repository
+
+    @property
+    def conversation_repository(self):
+        """返回 PostgreSQL 会话权限事实源。"""
+        return self._conversation_repository
+
+    @property
+    def run_persistence(self):
+        """返回用于恢复离线事件载荷的持久化服务。"""
+        return self._run_persistence
+
+    async def list_accessible_chats(
+        self,
+        *,
+        user_id: UUID,
+        scope: str = "all",
+        channel: str | None = None,
+        archived: bool | None = None,
+    ) -> list[AccessibleChat]:
+        """Project PostgreSQL access authority onto legacy ChatSpecs."""
+        repository = self._conversation_repository
+        if repository is None:
+            raise RuntimeError("conversation_repository_unavailable")
+        access_rows = await repository.with_user(user_id).list_conversations_for_user(
+            user_id=user_id,
+            scope=scope,
+        )
+        specs = await self._repo.filter_chats(channel=channel, archived=archived)
+        by_id = {spec.id: spec for spec in specs}
+        return [
+            AccessibleChat(chat=by_id[str(item.conversation.id)], access=item)
+            for item in access_rows
+            if str(item.conversation.id) in by_id
+        ]
+
+    def persisting_stream_source(self, chat: ChatSpec, stream_fn):
+        """返回保持原 wire 的持久化事件源；Legacy 时返回原函数。"""
+        persistence = self._run_persistence
+        if persistence is None:
+            return stream_fn
+        return persistence.wrap_stream(
+            chat=chat,
+            initiated_by=UUID(chat.user_id),
+            stream_fn=stream_fn,
+        )
 
     # ----- Read Operations -----
 
@@ -161,6 +245,8 @@ class ChatManager:
             logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)
             await self._repo.upsert_chat(spec)
+            if self._on_chat_created is not None:
+                await self._on_chat_created(spec)
             logger.info(
                 f"Auto-registered new chat: {spec.id} -> {session_id}",
             )
@@ -177,6 +263,8 @@ class ChatManager:
         """
         async with self._lock:
             await self._repo.upsert_chat(spec)
+            if self._on_chat_created is not None:
+                await self._on_chat_created(spec)
             return spec
 
     async def patch_chat(
@@ -187,6 +275,21 @@ class ChatManager:
         """Merge a partial update into the latest persisted chat spec."""
         async with self._lock:
             return await self._patch_locked(chat_id, patch)
+
+    async def set_legacy_model_override(self, chat_id, selection):
+        """Update only trusted private model metadata under the manager lock."""
+        async with self._lock:
+            chat = await self._repo.get_chat(chat_id)
+            if chat is None:
+                raise ValueError("conversation_not_found")
+            updated = chat.model_copy(
+                update={
+                    "meta": {**chat.meta, "model_override": selection},
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            )
+            await self._repo.upsert_chat(updated)
+            return updated
 
     async def patch_chat_if_name_matches(
         self,
@@ -273,12 +376,16 @@ class ChatManager:
         Returns:
             True if deleted, False if not found
         """
+        chats: list[ChatSpec] = []
         session_ids: set[str] = set()
         async with self._lock:
             for chat_id in chat_ids:
                 chat = await self._repo.get_chat(chat_id)
                 if chat is not None:
+                    chats.append(chat)
                     session_ids.add(chat.session_id)
+            if chats and self._on_chats_deleted is not None:
+                await self._on_chats_deleted(chats)
             deleted = await self._repo.delete_chats(chat_ids)
 
             if deleted:

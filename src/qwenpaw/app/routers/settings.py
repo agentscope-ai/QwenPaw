@@ -1,14 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Global UI settings (language, theme, etc.).
+"""Global UI settings (language, theme, tool execution policy, etc.).
 
 Persisted in ``WORKING_DIR/settings.json``, independent of
-per-agent configuration.  All endpoints are public (no auth required).
+per-agent configuration. Sensitive deployment-level writes require an
+explicit platform capability.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ...access.actor import ActorContext
+from ...access.dependencies import (
+    get_actor,  # noqa: F401 -- exposed for dependency overrides in tests
+    require_platform_settings_manage,
+)
 from ...agents.skill_system.registry import (
     set_builtin_skill_language_preference,
 )
@@ -108,6 +114,7 @@ async def get_offload_policy() -> dict[str, str]:
 async def set_offload_policy(
     body: OffloadPolicyRequest,
     request: Request,
+    _actor: ActorContext = Depends(require_platform_settings_manage),
 ) -> dict[str, str]:
     async with get_path_lock(_SETTINGS_FILE):
         settings = await _load()

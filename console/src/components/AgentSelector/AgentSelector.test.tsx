@@ -25,6 +25,13 @@ vi.mock("@/api/modules/agents", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => ({
+  pickAccessibleAgentId: (
+    candidates: Array<{ id: string; enabled?: boolean }>,
+    current: string,
+  ) =>
+    candidates.find((agent) => agent.id === current && agent.enabled)?.id ??
+    candidates.find((agent) => agent.enabled)?.id ??
+    "",
   useAgentStore: vi.fn(() => ({
     ...mocks.storeState,
     setSelectedAgent: mocks.setSelectedAgent,

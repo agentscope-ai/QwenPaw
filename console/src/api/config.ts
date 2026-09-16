@@ -2,6 +2,19 @@ declare const VITE_API_BASE_URL: string;
 declare const TOKEN: string;
 
 const AUTH_TOKEN_KEY = "qwenpaw_auth_token";
+let memoryAuthToken = "";
+let authMode: "legacy" | "multi_user" = "legacy";
+
+export function setApiAuthMode(mode: "legacy" | "multi_user"): void {
+  authMode = mode;
+  if (mode === "multi_user") {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+  }
+}
+
+export function getApiAuthMode(): "legacy" | "multi_user" {
+  return authMode;
+}
 
 /**
  * Get the full API URL with /api prefix
@@ -21,6 +34,8 @@ export function getApiUrl(path: string): string {
  * @returns API token string or empty string
  */
 export function getApiToken(): string {
+  if (memoryAuthToken) return memoryAuthToken;
+  if (authMode === "multi_user") return "";
   const stored = localStorage.getItem(AUTH_TOKEN_KEY);
   if (stored) return stored;
   return typeof TOKEN !== "undefined" ? TOKEN : "";
@@ -30,6 +45,11 @@ export function getApiToken(): string {
  * Store the auth token in localStorage after login.
  */
 export function setAuthToken(token: string): void {
+  if (authMode === "multi_user") {
+    memoryAuthToken = token;
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    return;
+  }
   localStorage.setItem(AUTH_TOKEN_KEY, token);
 }
 
@@ -37,6 +57,7 @@ export function setAuthToken(token: string): void {
  * Remove the auth token from localStorage (logout / 401).
  */
 export function clearAuthToken(): void {
+  memoryAuthToken = "";
   localStorage.removeItem(AUTH_TOKEN_KEY);
 }
 

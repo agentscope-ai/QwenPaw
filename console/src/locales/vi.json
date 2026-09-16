@@ -16,6 +16,7 @@
     "disable": "Tắt",
     "enabled": "Đã bật",
     "disabled": "Đã tắt",
+    "readOnly": "Chỉ đọc",
     "preview": "Xem trước",
     "raw": "Mã nguồn",
     "view": "Xem",
@@ -454,6 +455,8 @@
     "detailContent": "Đầu ra",
     "detailPayload": "Payload",
     "detailExecutionTrace": "Trace thực thi",
+    "memoryFiles": "Generated memory files",
+    "openSourceConversation": "Open source conversation",
     "detailTraceEmpty": "Không có trace",
     "filterByAgent": "Lọc theo agent",
     "filterBySourceType": "Lọc theo nguồn",
@@ -790,6 +793,7 @@
     "copyFailed": "Sao chép cấu hình agent thất bại"
   },
   "environments": {
+    "deploymentScopeNotice": "Trang này chỉ quản lý biến môi trường triển khai của nền tảng. Không thể xem lại giá trị đã lưu. Hãy quản lý thông tin xác thực của agent, công cụ và MCP trong phần cài đặt tương ứng.",
     "parent": "Cài đặt",
     "environments": "Biến môi trường",
     "title": "Biến môi trường",
@@ -835,6 +839,10 @@
     "asyncExecution": "Thực thi bất đồng bộ",
     "asyncExecutionEnabled": "Đã bật thực thi bất đồng bộ",
     "asyncExecutionDisabled": "Đã tắt thực thi bất đồng bộ",
+    "credentialKeep": "Giữ thông tin xác thực hiện tại",
+    "credentialReplace": "Thay thế thông tin xác thực",
+    "credentialDelete": "Xóa thông tin xác thực",
+    "browserPolicyLocked": "Bị tắt theo chính sách nền tảng",
     "browserUnifiedMode": "Trình duyệt hợp nhất (Beta)",
     "browserLegacyMode": "Chế độ tương thích cũ",
     "browserUnifiedModeButton": "Mới (Beta)",
@@ -1076,6 +1084,7 @@
     "openDirHiddenFolders": "Thư mục ẩn"
   },
   "files": {
+    "fileCenter": {"attachments":"Temporary attachments","library":"Personal library","artifacts":"Artifacts","agentConfig":"Agent configuration","memory":"Memory","myMemory":"My memory","publicMemory":"Public memory","memoryScopeLabel":"Memory scope","memoryTypeLabel":"Memory type","conversationMemory":"Memory journal","distilledMemory":"Long-term memory","open":"Open in File Center","loadFailed":"Failed to load the file.","memoryLoadFailed":"Failed to load memory files","memoryPreviewFailed":"This memory file cannot be previewed right now. Try again.","memoryScopeLoadFailed":"Failed to load memory scopes","memoryIndexState":"Memory index status: {{state}}. Existing memory files remain available.","memoryIndexNotice":{"needs_reindex":"The memory search index needs an update. File browsing and preview remain available.","reindexing":"The memory search index is updating. File browsing and preview remain available.","reindex_failed":"The memory search index update failed. File browsing and preview remain available.","unavailable":"Memory search is unavailable. File browsing and preview remain available."},"memorySectionDescription":{"daily":"Conversation journals saved by date. Files can be opened and previewed directly.","digest":"Long-term topic memories distilled by Dream. Files can be opened and previewed directly."},"noMemoryFiles":"No memory files","noMemoryAccess":"This account has no readable memory scope","selectMemory":"Select a memory file"},
     "title": "Tệp",
     "navigator": "Trình duyệt tệp",
     "source": "Nguồn",

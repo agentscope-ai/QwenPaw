@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from ..hooks.base import LifecycleHook
 from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
@@ -30,6 +31,27 @@ def _last_user_text(ctx: HookContext) -> str:
     return ""
 
 
+def _checkpoint_workspace_dir(ctx: HookContext) -> str | None:
+    """仅使用服务端标记的个人运行目录作为快照根目录。"""
+    request_context = getattr(ctx.request, "request_context", None)
+    if not isinstance(request_context, dict):
+        return None
+    if request_context.get("project_dir_source") != "user_runtime":
+        return None
+    value = request_context.get("project_dir")
+    if not isinstance(value, str) or not value:
+        return None
+    path = Path(value)
+    return str(path) if path.is_absolute() else None
+
+
+async def _checkpoint_service(ctx: HookContext):
+    workspace_dir = _checkpoint_workspace_dir(ctx)
+    if workspace_dir is not None:
+        return await RUNTIME.get_for_workspace_dir_async(workspace_dir)
+    return await RUNTIME.get_for_workspace_async(ctx.workspace)
+
+
 def is_slash_like_input(text: str) -> bool:
     """Return whether *text* should be treated as slash-command input."""
     return (text or "").lstrip().startswith("/")
@@ -45,7 +67,7 @@ class CheckpointQueryGateHook(LifecycleHook):
     async def run(self, ctx: HookContext) -> HookResult:
         try:
             if ctx.workspace is not None:
-                engine = await RUNTIME.get_for_workspace_async(ctx.workspace)
+                engine = await _checkpoint_service(ctx)
                 await engine.query_gate.wait()
         except Exception:
             logger.exception("Checkpoint query gate failed")
@@ -69,13 +91,16 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
             text = _last_user_text(ctx)
             if is_slash_like_input(text):
                 return HookResult()
-            await RUNTIME.schedule_auto_snapshot(
-                ctx.workspace,
-                session_id=ctx.session_id,
-                user_id=_request_user_id(ctx),
-                channel=context_channel(ctx),
-                query_text=text or None,
-            )
+            kwargs = {
+                "session_id": ctx.session_id,
+                "user_id": _request_user_id(ctx),
+                "channel": context_channel(ctx),
+                "query_text": text or None,
+            }
+            workspace_dir = _checkpoint_workspace_dir(ctx)
+            if workspace_dir is not None:
+                kwargs["workspace_dir"] = workspace_dir
+            await RUNTIME.schedule_auto_snapshot(ctx.workspace, **kwargs)
         except Exception:
             logger.exception("Checkpoint POST_RESPONSE auto snapshot failed")
         return HookResult()

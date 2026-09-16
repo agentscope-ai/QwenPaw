@@ -14,6 +14,7 @@ const { MockVariableSizeList } = vi.hoisted(() => {
   const MockVariableSizeList = React.forwardRef((props: any, ref: any) => {
     React.useImperativeHandle(ref, () => ({
       resetAfterIndex: () => {},
+      scrollToItem: () => {},
     }));
     const Row = props.children;
     return (
@@ -39,6 +40,7 @@ const {
   mockGetSessionList,
   mockNavigate,
   mockGetEffectiveSessionId,
+  mockTrackNavigatedSession,
 } = vi.hoisted(() => ({
   mockCreateSession: vi.fn().mockResolvedValue(undefined),
   mockSetCurrentSessionId: vi.fn(),
@@ -48,6 +50,7 @@ const {
   mockGetSessionList: vi.fn().mockResolvedValue([]),
   mockNavigate: vi.fn(),
   mockGetEffectiveSessionId: vi.fn((id: string) => id),
+  mockTrackNavigatedSession: vi.fn(),
 }));
 
 vi.mock("@agentscope-ai/chat", () => ({
@@ -82,6 +85,7 @@ vi.mock("../../sessionApi", () => ({
     finishSessionSwitch: vi.fn(),
     lastNavigatedChatId: null,
     getEffectiveSessionId: mockGetEffectiveSessionId,
+    trackNavigatedSession: mockTrackNavigatedSession,
     // Ownership epoch helpers: tests run under a single stable owner.
     getActiveOwner: vi.fn(() => ({ agentId: "default", generation: 0 })),
     isActiveOwner: vi.fn(() => true),
@@ -228,6 +232,13 @@ describe("ChatSessionDrawer", () => {
     expect(screen.getByText("chat.allChats")).toBeInTheDocument();
   });
 
+  it("exposes all and owned conversation filters", () => {
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    expect(screen.getByText("chat.scopeAll")).toBeInTheDocument();
+    expect(screen.getByText("chat.scopeOwned")).toBeInTheDocument();
+    expect(screen.getByText("chat.scopeShared")).toBeInTheDocument();
+  });
+
   it("clicking new chat calls createSession", async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();
@@ -253,6 +264,26 @@ describe("ChatSessionDrawer", () => {
     );
     await user.click(screen.getByText("Session One"));
     expect(mockNavigate).toHaveBeenCalledWith("/chat/s1");
+  });
+
+  it("navigates an explicit selection even when the SDK already reports that id", async () => {
+    withSession();
+    vi.mocked(useChatAnywhereSessionsState).mockReturnValue({
+      sessions: [{ id: "s1", name: "Session One" }],
+      currentSessionId: "s1",
+      setCurrentSessionId: mockSetCurrentSessionId,
+      setSessions: mockSetSessions,
+    } as any);
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await userEvent.click(await screen.findByText("Session One"));
+    expect(mockNavigate).toHaveBeenCalledWith("/chat/s1");
+  });
+
+  it("remembers the clicked conversation before its history finishes loading", async () => {
+    withSession();
+    renderWithProviders(<ChatSessionDrawer {...defaultProps} />);
+    await userEvent.click(await screen.findByText("Session One"));
+    expect(mockTrackNavigatedSession).toHaveBeenCalledWith("s1");
   });
 
   it("clicking the close button calls onClose", async () => {

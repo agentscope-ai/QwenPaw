@@ -154,3 +154,17 @@ docs-site/
 # Local review notes
 docs/reviews/
 tmp/
+/data/
+/deploy/service.local.json
+
+# Local multi-user refactor review workspaces and browser snapshots
+/.superpowers/
+/.playwright-mcp/
+
+# Local acceptance outputs kept outside version control
+/backend-unit-contract-*.xml
+/qwenpaw-login.png
+/task-*-migration-preview*.png
+
+# Local account handover file (contains deployment-specific credentials)
+/docs/accoun.md

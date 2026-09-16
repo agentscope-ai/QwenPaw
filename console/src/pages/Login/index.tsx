@@ -5,7 +5,8 @@ import { Button, Form, Input } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
-import { setAuthToken } from "../../api/config";
+import { setApiAuthMode } from "../../api/config";
+import { useAuthStore } from "../../stores/authStore";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getPostLoginHref } from "../../utils/navigationMode";
 
@@ -18,6 +19,8 @@ export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
   const { message } = useAppMessage();
+  const login = useAuthStore((state) => state.login);
+  const register = useAuthStore((state) => state.register);
   const rawRedirect = searchParams.get("redirect") || "/chat";
   const redirect =
     rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
@@ -40,6 +43,13 @@ export default function LoginPage() {
     authApi
       .getStatus()
       .then((res) => {
+        const mode = res.mode ?? "legacy";
+        setApiAuthMode(mode);
+        useAuthStore.setState({
+          authEnabled: res.enabled,
+          mode,
+          phase: "anonymous",
+        });
         if (!res.enabled) {
           finishNavigation(redirect);
           return;
@@ -56,21 +66,12 @@ export default function LoginPage() {
     setLoading(true);
     try {
       if (isRegister) {
-        const res = await authApi.register(values.username, values.password);
-        if (res.token) {
-          setAuthToken(res.token);
-          message.success(t("login.registerSuccess"));
-          finishNavigation(redirect);
-        }
+        await register(values.username, values.password);
+        message.success(t("login.registerSuccess"));
+        finishNavigation(redirect);
       } else {
-        const res = await authApi.login(values.username, values.password);
-        if (res.token) {
-          setAuthToken(res.token);
-          finishNavigation(redirect);
-        } else {
-          message.info(t("login.authNotEnabled"));
-          finishNavigation(redirect);
-        }
+        await login(values.username, values.password);
+        finishNavigation(redirect);
       }
     } catch (err) {
       let errorMsg = t("login.failed");

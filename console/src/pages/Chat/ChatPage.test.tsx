@@ -13,6 +13,7 @@ import userEvent from "@testing-library/user-event";
 import { renderWithProviders } from "@/test/common_setup";
 import ChatPage from "./index";
 import { chatExtensions } from "@/plugins/registry/chatExtensions";
+import { useSessionListStore } from "@/stores/sessionListStore";
 
 // ---------------------------------------------------------------------------
 // Capture AgentScopeRuntimeWebUI options
@@ -26,6 +27,7 @@ const {
   mockFilePreviewUrl,
   mockGetApiUrl,
   mockSelectedAgent,
+  mockAgents,
   mockSetSelectedAgent,
   mockGetTranscriptionProviderType,
 } = vi.hoisted(() => ({
@@ -35,6 +37,7 @@ const {
   mockFilePreviewUrl: vi.fn((f: string) => `/preview/${f}`),
   mockGetApiUrl: vi.fn((p: string) => `/api${p}`),
   mockSelectedAgent: vi.fn(() => "default"),
+  mockAgents: vi.fn((): any[] => []),
   mockSetSelectedAgent: vi.fn(),
   mockGetTranscriptionProviderType: vi.fn(),
 }));
@@ -131,10 +134,47 @@ vi.mock("@/api/config", () => ({
 }));
 
 vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({
-    selectedAgent: mockSelectedAgent(),
-    setSelectedAgent: mockSetSelectedAgent,
-  })),
+  useAgentStore: Object.assign(
+    vi.fn(() => ({
+      selectedAgent: mockSelectedAgent(),
+      agents: mockAgents(),
+      setSelectedAgent: mockSetSelectedAgent,
+    })),
+    {
+      getState: () => ({
+        selectedAgent: mockSelectedAgent(),
+        agents: mockAgents(),
+      }),
+      subscribe: () => () => {},
+    },
+  ),
+}));
+vi.mock("@/stores/authStore", () => ({
+  useAuthStore: Object.assign(
+    (selector?: (state: any) => unknown) =>
+      selector
+        ? selector({ mode: "legacy", user: null })
+        : { mode: "legacy", user: null },
+    { getState: () => ({ mode: "legacy", user: null }) },
+  ),
+}));
+vi.mock("@/api/modules/modelCatalog", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/modules/modelCatalog")>()),
+  modelCatalogApi: {
+    list: async () => ({
+      enforced: false,
+      models: (await mockListProviders()).flatMap((provider: any) =>
+        (provider.models ?? []).map((model: any) => ({
+          ...model,
+          provider_id: provider.id,
+          provider_name: provider.name,
+          model: model.id,
+        })),
+      ),
+    }),
+    default: mockGetActiveModels,
+    current: mockGetActiveModels,
+  },
 }));
 
 vi.mock("@/contexts/ThemeContext", () => ({
@@ -212,6 +252,8 @@ describe("ChatPage", () => {
     mockGetTranscriptionProviderType.mockResolvedValue({
       transcription_provider_type: "disabled",
     });
+    mockAgents.mockReturnValue([]);
+    useSessionListStore.setState({ sessions: [], lastUpdated: 0 });
   });
 
   afterEach(() => {
@@ -224,6 +266,47 @@ describe("ChatPage", () => {
   it("renders AgentScopeRuntimeWebUI", async () => {
     renderWithProviders(<ChatPage />, { initialEntries: ["/chat"] });
     expect(await screen.findByTestId("chat-ui")).toBeInTheDocument();
+  });
+
+  it("keeps historical Agent conversations read-only", async () => {
+    mockAgents.mockReturnValue([
+      {
+        id: "default",
+        enabled: true,
+        historical_read_only: true,
+      },
+    ]);
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/chat-1"] });
+
+    await waitFor(() => expect(capturedOptions).not.toBeNull());
+    expect(capturedOptions.sender.placeholder).toContain("只读");
+    const response = await capturedOptions.api.fetch({ input: [] });
+    expect(response.status).toBe(403);
+  });
+
+  it("keeps a shared conversation read-only while preserving its history UI", async () => {
+    useSessionListStore.setState({
+      sessions: [
+        {
+          id: "chat-1",
+          realId: "chat-1",
+          name: "Shared rich history",
+          accessRole: "viewer",
+          readOnly: true,
+          sharedBy: "owner-user",
+        },
+      ] as any,
+      lastUpdated: Date.now(),
+    });
+
+    renderWithProviders(<ChatPage />, { initialEntries: ["/chat/chat-1"] });
+
+    await waitFor(() => expect(capturedOptions).not.toBeNull());
+    expect(capturedOptions.sender.placeholder).toContain("只读");
+    const response = await capturedOptions.api.fetch({ input: [] });
+    expect(response.status).toBe(403);
+    expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
   });
 
   it("renders child components ModelSelector / ChatActionGroup / ChatHeaderTitle", async () => {

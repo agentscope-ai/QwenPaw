@@ -748,6 +748,7 @@ class PluginLoader:
         self,
         configs: Optional[Dict[str, Dict]] = None,
         types: Optional[List[str]] = None,
+        allowed_plugin_ids: Optional[set[str]] = None,
     ) -> Dict[str, PluginRecord]:
         """Discover and load all plugins.
 
@@ -765,6 +766,11 @@ class PluginLoader:
         discovered = self.discover_plugins()
 
         for manifest, plugin_dir in discovered:
+            if (
+                allowed_plugin_ids is not None
+                and manifest.id not in allowed_plugin_ids
+            ):
+                continue
             if types is not None and manifest.plugin_type not in types:
                 continue
             config = configs.get(manifest.id) if configs else None

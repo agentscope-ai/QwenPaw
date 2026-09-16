@@ -10,6 +10,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from ...access.capabilities import Capability
+from ...access.dependencies import get_actor
+from ...access.service import AuthorizationDeniedError, AuthorizationService
+from ...identity.runtime import is_multi_user_enabled
+
 from ...providers.oauth import (
     OAuthSessionStore,
     OpenRouterOAuthFlow,
@@ -19,9 +24,25 @@ from ...providers.provider_manager import ProviderManager
 
 logger = logging.getLogger(__name__)
 
+
+def _require_provider_oauth_manage(request: Request) -> None:
+    if request.url.path.rstrip("/").endswith("/oauth/callback"):
+        return
+    if not is_multi_user_enabled():
+        return
+    try:
+        AuthorizationService().require(
+            get_actor(request),
+            Capability.MODELS_MANAGE,
+        )
+    except AuthorizationDeniedError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+
+
 router = APIRouter(
     prefix="/providers",
     tags=["provider-oauth"],
+    dependencies=[Depends(_require_provider_oauth_manage)],
 )
 
 # Singleton session store (lives in process memory)
@@ -162,11 +183,9 @@ async def oauth_callback(
             code_verifier=session.code_verifier,
             callback_url=session.callback_url,
         )
-    except Exception as exc:
-        logger.exception(
-            f"OAuth exchange failed for {provider_id}",
-        )
-        _session_store.fail(session_state, str(exc))
+    except Exception:
+        logger.error("OAuth exchange failed for provider '%s'", provider_id)
+        _session_store.fail(session_state, "Authorization failed")
         return HTMLResponse(
             content=_error_html("Authorization failed. Please retry."),
             status_code=500,

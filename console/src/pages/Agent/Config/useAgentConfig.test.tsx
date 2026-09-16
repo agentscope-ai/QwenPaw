@@ -15,10 +15,16 @@ const hoisted = vi.hoisted(() => {
   };
   const messageMock = {
     success: vi.fn(),
+    warning: vi.fn(),
     error: vi.fn(),
   };
   const apiMocks = {
+    getAgentRunningConfigAccess: vi.fn(),
+    getAgentRunningConfigSummary: vi.fn(),
     getAgentRunningConfig: vi.fn(),
+    getAgentRunningConfigVersion: vi.fn(),
+    getAgentRunningConfigRuntimeStatus: vi.fn(),
+    retryAgentRunningConfigReload: vi.fn(),
     getAgentLanguage: vi.fn(),
     getUserTimezone: vi.fn(),
     updateAgentRunningConfig: vi.fn(),
@@ -125,8 +131,11 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   };
 }
 
-function renderConfigHook(onConfigLoaded?: (config: Config) => void) {
-  return renderHook(() => useAgentConfig(onConfigLoaded));
+function renderConfigHook(
+  onConfigLoaded?: (config: Config) => void,
+  governanceAgentId?: string,
+) {
+  return renderHook(() => useAgentConfig(onConfigLoaded, governanceAgentId));
 }
 
 describe("useAgentConfig", () => {
@@ -136,16 +145,46 @@ describe("useAgentConfig", () => {
     mockValidateFields.mockReset();
     mockGetFieldsValue.mockReset();
     apiMocks.getAgentRunningConfig.mockReset();
+    apiMocks.getAgentRunningConfigAccess.mockReset();
+    apiMocks.getAgentRunningConfigSummary.mockReset();
+    apiMocks.getAgentRunningConfigVersion.mockReset();
+    apiMocks.getAgentRunningConfigRuntimeStatus.mockReset();
+    apiMocks.retryAgentRunningConfigReload.mockReset();
     apiMocks.getAgentLanguage.mockReset();
     apiMocks.getUserTimezone.mockReset();
     apiMocks.updateAgentRunningConfig.mockReset();
     apiMocks.updateAgentLanguage.mockReset();
     apiMocks.updateUserTimezone.mockReset();
     messageMock.success.mockReset();
+    messageMock.warning.mockReset();
     messageMock.error.mockReset();
     modalConfirmMock.mockReset();
 
+    apiMocks.getAgentRunningConfigAccess.mockResolvedValue({
+      agent_id: "agent-1",
+      access_role: "owner",
+      can_view: true,
+      can_edit: true,
+      is_governance: false,
+      visibility: "private",
+      owner_user_id: "owner-1",
+    });
+    apiMocks.getAgentRunningConfigSummary.mockResolvedValue({
+      agent_id: "agent-1",
+      name: "Shared Agent",
+      language: "zh",
+      timezone: "Asia/Shanghai",
+      active_model: { provider_id: "provider-1", model: "model-1" },
+      model_switchable: true,
+      access_role: "user",
+      can_edit: false,
+      read_only_reason: "仅使用权限",
+    });
     apiMocks.getAgentRunningConfig.mockResolvedValue(makeConfig());
+    apiMocks.getAgentRunningConfigVersion.mockResolvedValue({ version: 4 });
+    apiMocks.getAgentRunningConfigRuntimeStatus.mockResolvedValue({
+      state: "applied",
+    });
     apiMocks.getAgentLanguage.mockResolvedValue({ language: "en" });
     apiMocks.getUserTimezone.mockResolvedValue({ timezone: "UTC" });
     mockValidateFields.mockResolvedValue(makeConfig());
@@ -162,6 +201,52 @@ describe("useAgentConfig", () => {
     await waitFor(() => {
       expect(result!.result.current.loading).toBe(false);
     });
+  });
+
+  it("loads only the safe summary for a read-only user", async () => {
+    apiMocks.getAgentRunningConfigAccess.mockResolvedValue({
+      agent_id: "agent-1",
+      access_role: "user",
+      can_view: true,
+      can_edit: false,
+      is_governance: false,
+      visibility: "public",
+      owner_user_id: "owner-1",
+    });
+    const { result } = renderConfigHook();
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.isReadOnly).toBe(true);
+    expect(result.current.readOnlySummary?.name).toBe("Shared Agent");
+    expect(apiMocks.getAgentRunningConfigSummary).toHaveBeenCalledTimes(1);
+    expect(apiMocks.getAgentRunningConfig).not.toHaveBeenCalled();
+    expect(apiMocks.getAgentRunningConfigVersion).not.toHaveBeenCalled();
+    expect(apiMocks.getAgentLanguage).not.toHaveBeenCalled();
+    expect(apiMocks.getUserTimezone).not.toHaveBeenCalled();
+    expect(apiMocks.getAgentRunningConfigRuntimeStatus).not.toHaveBeenCalled();
+  });
+
+  it("loads editable config with the explicit server-verified governance context", async () => {
+    apiMocks.getAgentRunningConfigAccess.mockResolvedValue({
+      agent_id: "managed-agent",
+      access_role: "admin_governance",
+      can_view: true,
+      can_edit: true,
+      is_governance: true,
+      visibility: "private",
+      owner_user_id: "owner-2",
+    });
+
+    const { result } = renderConfigHook(undefined, "managed-agent");
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const governance = { agentId: "managed-agent", governance: true };
+    expect(apiMocks.getAgentRunningConfigAccess).toHaveBeenCalledWith(
+      governance,
+    );
+    expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledWith(governance);
+    expect(result.current.access?.is_governance).toBe(true);
   });
 
   it("fetchConfig sets language from api.getAgentLanguage", async () => {
@@ -249,7 +334,114 @@ describe("useAgentConfig", () => {
     });
 
     expect(apiMocks.updateAgentRunningConfig).toHaveBeenCalledTimes(1);
+    expect(apiMocks.updateAgentRunningConfig).toHaveBeenCalledWith(
+      expect.any(Object),
+      4,
+    );
     expect(messageMock.success).toHaveBeenCalledWith("agentConfig.saveSuccess");
+  });
+
+  it("exposes pending reload after persistence and retries it", async () => {
+    apiMocks.updateAgentRunningConfig.mockResolvedValue(makeConfig());
+    apiMocks.getAgentRunningConfigRuntimeStatus
+      .mockResolvedValueOnce({ state: "applied" })
+      .mockResolvedValueOnce({ state: "pending_reload" });
+    apiMocks.retryAgentRunningConfigReload.mockResolvedValue({
+      state: "applied",
+    });
+    const { result } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(result.current.runtimeState).toBe("pending_reload");
+    expect(messageMock.warning).toHaveBeenCalledWith(
+      "agentConfig.savedPendingReload",
+    );
+
+    await act(async () => {
+      await result.current.handleRetryReload();
+    });
+
+    expect(apiMocks.retryAgentRunningConfigReload).toHaveBeenCalledTimes(1);
+    expect(result.current.runtimeState).toBe("applied");
+  });
+
+  it("keeps pending reload visible when a retry fails", async () => {
+    apiMocks.getAgentRunningConfigRuntimeStatus.mockResolvedValue({
+      state: "pending_reload",
+    });
+    apiMocks.retryAgentRunningConfigReload.mockRejectedValue(
+      new Error("reload failed"),
+    );
+    const { result } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.handleRetryReload();
+    });
+
+    expect(result.current.runtimeState).toBe("pending_reload");
+    expect(messageMock.error).toHaveBeenCalledWith("reload failed");
+  });
+
+  it("shows a reload confirmation when the config version is stale", async () => {
+    apiMocks.updateAgentRunningConfig.mockRejectedValue(
+      new Error(
+        'Configuration changed - {"detail":{"code":"config_version_conflict","current_version":5}}',
+      ),
+    );
+    const { result } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(modalConfirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "agentConfig.versionConflictTitle",
+        content: "agentConfig.versionConflictContent",
+      }),
+    );
+    expect(messageMock.error).not.toHaveBeenCalled();
+  });
+
+  it("refreshes into the read-only summary when edit access is revoked", async () => {
+    apiMocks.updateAgentRunningConfig.mockRejectedValue(
+      new Error('403 - {"detail":"forbidden"}'),
+    );
+    apiMocks.getAgentRunningConfigAccess
+      .mockResolvedValueOnce({
+        agent_id: "agent-1",
+        access_role: "owner",
+        can_view: true,
+        can_edit: true,
+        is_governance: false,
+        visibility: "private",
+      })
+      .mockResolvedValueOnce({
+        agent_id: "agent-1",
+        access_role: "user",
+        can_view: true,
+        can_edit: false,
+        is_governance: false,
+        visibility: "public",
+      });
+
+    const { result } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    await waitFor(() => expect(result.current.isReadOnly).toBe(true));
+    expect(apiMocks.getAgentRunningConfigSummary).toHaveBeenCalledTimes(1);
+    expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(2);
+    expect(messageMock.error).not.toHaveBeenCalled();
   });
 
   it("reports the server config after save", async () => {
@@ -372,6 +564,40 @@ describe("useAgentConfig", () => {
     expect(saved.loop.custom_modes).toEqual([customMode]);
   });
 
+  it("handleSave rebases form values on the latest config so independent settings are preserved", async () => {
+    const loadedConfig = makeConfig({
+      coding_mode: { enabled: false },
+      plan: { enabled: false },
+    } as Partial<Config>);
+    const latestConfig = makeConfig({
+      coding_mode: { enabled: true },
+      plan: { enabled: true },
+    } as Partial<Config>);
+    apiMocks.getAgentRunningConfig
+      .mockResolvedValueOnce(loadedConfig)
+      .mockResolvedValueOnce(latestConfig);
+    mockGetFieldsValue.mockReturnValue({ shell_command_timeout: 90 });
+    apiMocks.updateAgentRunningConfig.mockImplementation(
+      async (config) => config,
+    );
+
+    const { result } = renderConfigHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    const saved = apiMocks.updateAgentRunningConfig.mock
+      .calls[0][0] as Config & {
+      coding_mode: { enabled: boolean };
+      plan: { enabled: boolean };
+    };
+    expect(saved.shell_command_timeout).toBe(90);
+    expect(saved.coding_mode.enabled).toBe(true);
+    expect(saved.plan.enabled).toBe(true);
+  });
+
   it("handleSave calls message.error when update fails", async () => {
     apiMocks.updateAgentRunningConfig.mockRejectedValue(
       new Error("save failed"),
@@ -422,6 +648,19 @@ describe("useAgentConfig", () => {
     expect(messageMock.success).not.toHaveBeenCalled();
   });
 
+  it("keeps the previous timezone and reports the backend error when saving fails", async () => {
+    apiMocks.updateUserTimezone.mockRejectedValue(new Error("timezone failed"));
+    const { result } = renderConfigHook();
+    await waitFor(() => expect(result.current.timezone).toBe("UTC"));
+
+    await act(async () => {
+      await result.current.handleTimezoneChange("Asia/Shanghai");
+    });
+
+    expect(result.current.timezone).toBe("UTC");
+    expect(messageMock.error).toHaveBeenCalledWith("timezone failed");
+  });
+
   it("handleLanguageChange opens Modal.confirm when value differs", async () => {
     const { result } = renderConfigHook();
     await waitFor(() => {
@@ -435,5 +674,22 @@ describe("useAgentConfig", () => {
     expect(modalConfirmMock).toHaveBeenCalledTimes(1);
     const options = modalConfirmMock.mock.calls[0][0] as { title: string };
     expect(options.title).toBe("agentConfig.languageConfirmTitle");
+  });
+
+  it("keeps the previous language and reports the backend error when saving fails", async () => {
+    apiMocks.updateAgentLanguage.mockRejectedValue(
+      new Error("language failed"),
+    );
+    const { result } = renderConfigHook();
+    await waitFor(() => expect(result.current.language).toBe("en"));
+
+    act(() => result.current.handleLanguageChange("zh"));
+    const options = modalConfirmMock.mock.calls[0][0] as {
+      onOk: () => Promise<void>;
+    };
+    await act(async () => options.onOk());
+
+    expect(result.current.language).toBe("en");
+    expect(messageMock.error).toHaveBeenCalledWith("language failed");
   });
 });

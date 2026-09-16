@@ -310,6 +310,58 @@ class AppServer:
 
 
 @pytest.fixture(scope="module")
+def skills_model_ready(app_server: AppServer) -> Iterator[None]:
+    """Opt-in local model prerequisite for legacy skill CRUD tests only."""
+    from http.server import HTTPServer
+
+    from tests.integration.helpers import MockLLMHandler
+
+    server = HTTPServer(("127.0.0.1", 0), MockLLMHandler)
+    server.force_error = False
+    server.force_tool_call = False
+    server.request_count = 0
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}/v1"
+    provider_id = "legacy-skills-mock"
+    try:
+        create = app_server.api_request(
+            "POST",
+            "/api/models/custom-providers",
+            json={
+                "id": provider_id,
+                "name": "Legacy Skills Mock",
+                "default_base_url": base_url,
+                "chat_model": "OpenAIChatModel",
+                "models": [{"id": "mock-model", "name": "Mock Model"}],
+            },
+        )
+        assert create.status_code == 201, create.text
+        configure = app_server.api_request(
+            "PUT",
+            f"/api/models/{provider_id}/config",
+            json={"api_key": "test-key-mock", "base_url": base_url},
+        )
+        assert configure.status_code == 200, configure.text
+        activate = app_server.api_request(
+            "PUT",
+            "/api/models/active",
+            json={
+                "provider_id": provider_id,
+                "model": "mock-model",
+                "scope": "global",
+            },
+        )
+        assert activate.status_code == 200, activate.text
+        yield
+    finally:
+        # Provider state belongs to this module's isolated app workspace.
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@pytest.fixture(scope="module")
 def app_server(  # pylint: disable=too-many-statements,too-many-branches
     tmp_path_factory: pytest.TempPathFactory,
 ) -> Iterator[AppServer]:
@@ -347,6 +399,9 @@ def app_server(  # pylint: disable=too-many-statements,too-many-branches
     # touch the developer's OS keychain. Force file-backed secrets so first
     # encryption does not block on desktop keyring discovery.
     env["QWENPAW_RUNNING_IN_CONTAINER"] = "true"
+    # PowerShell/部分 CI 启动链可能不向子进程传递该 Windows 变量，
+    # 本地模型后端会因此把架构解析为空字符串并在应用启动前失败。
+    env.setdefault("PROCESSOR_ARCHITECTURE", "AMD64")
     env["NO_PROXY"] = "*"
     env["PYTHONUNBUFFERED"] = "1"
     # Force UTF-8 stdio in the subprocess so non-ASCII log lines (e.g.

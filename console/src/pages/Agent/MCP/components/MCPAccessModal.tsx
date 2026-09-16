@@ -29,12 +29,14 @@ import {
 import styles from "../index.module.less";
 import { MCPAccessClientPanel } from "./MCPAccessClientPanel";
 import { MCPAccessToolPanel } from "./MCPAccessToolPanel";
+import { useSkillScope } from "../../../../api/skillScope";
 
 interface MCPAccessModalProps {
   client: MCPClientInfo;
   open: boolean;
   onClose: () => void;
-  onSave: (policy: MCPAccessPolicy) => Promise<boolean>;
+  onSave: (policy: MCPAccessPolicy, expectedRevision?: number) => Promise<boolean>;
+  canEdit: boolean;
 }
 
 export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
@@ -42,9 +44,12 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   open,
   onClose,
   onSave,
+  canEdit,
 }) => {
   const { t } = useTranslation();
   const { message } = useAppMessage();
+  const scope = useSkillScope();
+  const apiContext = { agentId: scope.agentId, signal: scope.signal };
   const [policy, setPolicy] = useState<MCPAccessPolicy | null>(null);
   const [tools, setTools] = useState<MCPToolInfo[]>([]);
   const [principalOptions, setPrincipalOptions] = useState<
@@ -54,6 +59,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
   const [saving, setSaving] = useState(false);
   const [toolsError, setToolsError] = useState("");
   const [initialPolicySignature, setInitialPolicySignature] = useState("");
+  const [openedRevision, setOpenedRevision] = useState<number>();
 
   useEffect(() => {
     if (!open) return;
@@ -64,15 +70,21 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
       setPrincipalOptions([]);
       setToolsError("");
       try {
-        const savedPolicy = await api.getMCPPolicy(client.key);
+        if (!canEdit) {
+          const currentTools = await api.listMCPTools(client.key, apiContext);
+          if (!cancelled && scope.current()) setTools(currentTools);
+          return;
+        }
+        const savedPolicy = await api.getMCPPolicy(client.key, apiContext);
         if (!cancelled) {
           const normalized = normalizeMCPAccessPolicy(savedPolicy);
           setPolicy(normalized);
           setInitialPolicySignature(policySignature(normalized));
+          setOpenedRevision(client.revision);
         }
 
         try {
-          const principals = await api.listMCPAccessPrincipals();
+          const principals = await api.listMCPAccessPrincipals(apiContext);
           if (!cancelled) {
             setPrincipalOptions(principals);
           }
@@ -90,7 +102,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
         }
 
         try {
-          const currentTools = await api.listMCPTools(client.key);
+          const currentTools = await api.listMCPTools(client.key, apiContext);
           if (!cancelled) {
             setTools(currentTools);
           }
@@ -115,7 +127,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [open, client.key, client.enabled, t]);
+  }, [open, client.key, client.enabled, t, scope]);
 
   const groups = useMemo(
     () => (policy ? buildMCPAccessToolGroups(tools, policy) : []),
@@ -191,7 +203,7 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     }
     setSaving(true);
     try {
-      const ok = await onSave(policy);
+      const ok = await onSave(policy, openedRevision);
       if (ok) {
         setInitialPolicySignature(policySignature(policy));
         onClose();
@@ -215,6 +227,35 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
     });
   };
 
+  if (!canEdit) {
+    return (
+      <Modal
+        title={`${client.name} - ${t("mcp.tools")}`}
+        open={open}
+        onCancel={onClose}
+        width="min(1040px, calc(100vw - 32px))"
+        footer={<Button onClick={onClose}>{t("common.close")}</Button>}
+      >
+        {loading ? (
+          <div className={styles.toolsLoading}><Spin /></div>
+        ) : toolsError ? (
+          <div className={styles.toolsError}>{toolsError}</div>
+        ) : tools.length === 0 ? (
+          <Empty description={t("mcp.noTools")} />
+        ) : (
+          <div className={styles.accessToolGroups}>
+            {tools.map((tool) => (
+              <div key={tool.name} className={styles.accessToolGroup}>
+                <strong>{tool.name}</strong>
+                {tool.description && <p>{tool.description}</p>}
+              </div>
+            ))}
+          </div>
+        )}
+      </Modal>
+    );
+  }
+
   return (
     <Modal
       title={`${client.name} - ${t("mcp.tools")}`}
@@ -226,14 +267,14 @@ export const MCPAccessModal: React.FC<MCPAccessModalProps> = ({
           <Button onClick={handleClose} style={{ marginRight: 8 }}>
             {t("common.cancel")}
           </Button>
-          <Button
+          {canEdit && <Button
             type="primary"
             onClick={handleSave}
             loading={saving}
             disabled={!policy || loading}
           >
             {t("common.save")}
-          </Button>
+          </Button>}
         </div>
       }
     >

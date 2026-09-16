@@ -25,7 +25,12 @@ class CronExecutor:
         self._channel_manager = channel_manager
 
     # pylint: disable=too-many-statements,too-many-branches
-    async def execute(self, job: CronJobSpec) -> dict[str, Any]:
+    async def execute(
+        self,
+        job: CronJobSpec,
+        *,
+        authorization: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Execute one job once.
 
         - task_type text: send fixed text to channel
@@ -105,11 +110,20 @@ class CronExecutor:
         )
         request_context["source"] = "cron"
         request_context["cron_job_id"] = job.id or ""
-        request_context["approval_level"] = (
-            ToolExecutionLevel.AUTO.value
-            if job.runtime.tool_safety
-            else ToolExecutionLevel.OFF.value
-        )
+        request_context["actor_type"] = "automation"
+        request_context["approval_level"] = ToolExecutionLevel.AUTO.value
+        # Never inherit a client-supplied actor from the stored request body.
+        request_context.pop("actor_context", None)
+        if authorization is not None:
+            request_context["automation_authorization"] = dict(authorization)
+            if authorization.get("authorized_by_user_id"):
+                request_context["actor_context"] = {
+                    "user_id": str(authorization["authorized_by_user_id"]),
+                    "actor_type": "automation",
+                    "admin_mode": False,
+                }
+        else:
+            request_context.pop("automation_authorization", None)
         req["request_context"] = request_context
 
         # Determine session_id based on share_session

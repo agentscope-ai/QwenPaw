@@ -15,6 +15,7 @@ import {
   normalizeLevel,
   type ToolExecutionLevel,
 } from "../../../utils/approval";
+import { getUserScopedStorageKey } from "../../../stores/identityStorage";
 
 const LEVEL_META: Record<
   ToolExecutionLevel,
@@ -26,8 +27,8 @@ const LEVEL_META: Record<
   OFF: { color: "#52c41a", icon: <CheckCircle size={12} /> },
 };
 
-function storageKey(chatId: string): string {
-  return `approval_level-${chatId}`;
+export function approvalLevelStorageKey(chatId: string): string {
+  return getUserScopedStorageKey(`approval_level-${chatId}`);
 }
 
 interface ApprovalLevelToggleProps {
@@ -68,17 +69,19 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
 
       // Migrate if transitioning from local/temp to real
       if (isLocalId(prevSessionId) && isRealId(sessionId)) {
-        const prevLevel = localStorage.getItem(storageKey(prevSessionId));
+        const prevLevel = localStorage.getItem(
+          approvalLevelStorageKey(prevSessionId),
+        );
         if (prevLevel && LEVELS.includes(prevLevel as ToolExecutionLevel)) {
-          localStorage.setItem(storageKey(sessionId), prevLevel);
-          localStorage.removeItem(storageKey(prevSessionId));
+          localStorage.setItem(approvalLevelStorageKey(sessionId), prevLevel);
+          localStorage.removeItem(approvalLevelStorageKey(prevSessionId));
         }
       }
     }
 
     prevSessionIdRef.current = sessionId;
 
-    const saved = localStorage.getItem(storageKey(sessionId));
+    const saved = localStorage.getItem(approvalLevelStorageKey(sessionId));
     if (saved && LEVELS.includes(saved as ToolExecutionLevel)) {
       setSessionLevel(saved as ToolExecutionLevel);
     } else {
@@ -96,7 +99,7 @@ const ApprovalLevelToggle: React.FC<ApprovalLevelToggleProps> = ({
   const handleSelect = useCallback(
     (level: ToolExecutionLevel) => {
       setSessionLevel(level);
-      localStorage.setItem(storageKey(sessionId), level);
+      localStorage.setItem(approvalLevelStorageKey(sessionId), level);
       onChangeRef.current?.(level);
     },
     [sessionId],

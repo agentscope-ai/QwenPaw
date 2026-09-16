@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Runtime status API endpoints."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,6 +8,8 @@ import json
 
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
+
+from ...runtime_status.scope import request_user_id
 
 from ...runtime_status.broadcast import (
     get_runtime_status,
@@ -29,14 +32,17 @@ async def get_current_runtime_status(
     session_id: str,
 ) -> dict | None:
     workspace = await _get_workspace(request)
-    return get_runtime_status(workspace.agent_id, session_id)
+    return get_runtime_status(
+        workspace.agent_id, session_id, user_id=request_user_id(request)
+    )
 
 
 @router.get("/stream")
 async def runtime_status_stream(request: Request) -> StreamingResponse:
     workspace = await _get_workspace(request)
     agent_id = workspace.agent_id
-    q = register_sse_client(agent_id)
+    user_id = request_user_id(request)
+    q = register_sse_client(agent_id, user_id=user_id)
 
     async def event_generator():
         try:
@@ -46,14 +52,11 @@ async def runtime_status_stream(request: Request) -> StreamingResponse:
                     break
                 try:
                     payload = await asyncio.wait_for(q.get(), timeout=30.0)
-                    yield (
-                        f"data: "
-                        f"{json.dumps(payload, ensure_ascii=False)}\n\n"
-                    )
+                    yield (f"data: " f"{json.dumps(payload, ensure_ascii=False)}\n\n")
                 except asyncio.TimeoutError:
                     yield ": heartbeat\n\n"
         finally:
-            unregister_sse_client(agent_id, q)
+            unregister_sse_client(agent_id, q, user_id=user_id)
 
     return StreamingResponse(
         event_generator(),

@@ -624,10 +624,103 @@ describe("session id + status helpers", () => {
     expect(newList[0].id).toBe("ts-1");
   });
 
+  it("resolveRealId chooses the newest backend chat when session_id is duplicated", () => {
+    const list: any[] = [
+      {
+        id: "uuid-old",
+        sessionId: "1786857244059-2focx04",
+        createdAt: "2026-08-16T05:14:05Z",
+        updatedAt: "2026-08-16T05:14:10Z",
+      },
+      {
+        id: "uuid-new",
+        sessionId: "1786857244059-2focx04",
+        createdAt: "2026-09-02T14:08:00Z",
+        updatedAt: "2026-09-02T15:24:33Z",
+      },
+    ];
+
+    const { realId } = resolveRealId(list, "1786857244059-2focx04");
+
+    expect(realId).toBe("uuid-new");
+  });
+
   it("resolveRealId returns null when nothing matches (no crash)", () => {
     const list: any[] = [{ id: "uuid-9", sessionId: "other" }];
     const { realId } = resolveRealId(list, "ts-missing");
     expect(realId).toBeNull();
+  });
+
+  it("refresh restoration binds a local URL id to the newest duplicate session", () => {
+    const localId = "1786857244059-2focx04";
+    (sessionApiDefaultExport as any).sessionList = [];
+    (sessionApiDefaultExport as any).preferredChatId = localId;
+
+    const result = (sessionApiDefaultExport as any).applyChatsToSessionList([
+      {
+        id: "uuid-new",
+        name: "完整的新会话",
+        session_id: localId,
+        user_id: "user-a",
+        channel: "console",
+        created_at: "2026-09-02T14:08:00Z",
+        updated_at: "2026-09-02T15:24:33Z",
+        status: "idle",
+      },
+      {
+        id: "uuid-old",
+        name: "友好问候",
+        session_id: localId,
+        user_id: "user-a",
+        channel: "console",
+        created_at: "2026-08-16T05:14:05Z",
+        updated_at: "2026-08-16T05:14:10Z",
+        status: "idle",
+      },
+    ]);
+
+    expect(result[0].id).toBe(localId);
+    expect((result[0] as any).realId).toBe("uuid-new");
+    expect(result[0].name).toBe("完整的新会话");
+  });
+
+  it("list merging does not let an older duplicate claim the unresolved local session", () => {
+    const localId = "1786857244059-2focx04";
+    (sessionApiDefaultExport as any).sessionList = [
+      {
+        id: localId,
+        sessionId: localId,
+        name: "New Chat",
+      },
+    ];
+    (sessionApiDefaultExport as any).preferredChatId = null;
+
+    const result = (sessionApiDefaultExport as any).applyChatsToSessionList([
+      {
+        id: "uuid-new",
+        name: "完整的新会话",
+        session_id: localId,
+        user_id: "user-a",
+        channel: "console",
+        created_at: "2026-09-02T14:08:00Z",
+        updated_at: "2026-09-02T15:24:33Z",
+        status: "idle",
+      },
+      {
+        id: "uuid-old",
+        name: "友好问候",
+        session_id: localId,
+        user_id: "user-a",
+        channel: "console",
+        created_at: "2026-08-16T05:14:05Z",
+        updated_at: "2026-08-16T05:14:10Z",
+        status: "idle",
+      },
+    ]);
+
+    const resolved = result.find((session: any) => session.id === localId);
+    expect(resolved?.realId).toBe("uuid-new");
+    expect(resolved?.name).toBe("完整的新会话");
   });
 });
 

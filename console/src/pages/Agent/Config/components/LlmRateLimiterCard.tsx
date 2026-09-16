@@ -2,14 +2,10 @@ import { Card, Form, InputNumber } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import styles from "../index.module.less";
 
-const RL_PAUSE_FIELD = "llm_rate_limit_pause";
-const RL_JITTER_FIELD = "llm_rate_limit_jitter";
 const RL_MAX_QPM_FIELD = "llm_max_qpm";
 
 export function LlmRateLimiterCard() {
   const { t } = useTranslation();
-  const form = Form.useFormInstance();
-
   return (
     <Card
       className={styles.formCard}
@@ -112,7 +108,6 @@ export function LlmRateLimiterCard() {
       <Form.Item
         label={t("agentConfig.llmAcquireTimeout")}
         name="llm_acquire_timeout"
-        dependencies={[RL_PAUSE_FIELD, RL_JITTER_FIELD]}
         rules={[
           {
             required: true,
@@ -122,21 +117,6 @@ export function LlmRateLimiterCard() {
             type: "number",
             min: 10.0,
             message: t("agentConfig.llmAcquireTimeoutMin"),
-          },
-          {
-            validator: async (_, value) => {
-              const pause = form.getFieldValue(RL_PAUSE_FIELD);
-              const jitter = form.getFieldValue(RL_JITTER_FIELD);
-              if (
-                typeof value !== "number" ||
-                typeof pause !== "number" ||
-                typeof jitter !== "number" ||
-                value > pause + jitter
-              ) {
-                return;
-              }
-              throw new Error(t("agentConfig.llmAcquireTimeoutGtPauseJitter"));
-            },
           },
         ]}
         tooltip={t("agentConfig.llmAcquireTimeoutTooltip")}

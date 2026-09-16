@@ -65,5 +65,5 @@ export const deriveInstalledFromLabel = (
   installed_from: string | undefined,
 ): string => {
   if (!installed_from) return "";
-  return INSTALLED_FROM_LABELS[installed_from] ?? installed_from;
+  return INSTALLED_FROM_LABELS[installed_from] ?? "";
 };

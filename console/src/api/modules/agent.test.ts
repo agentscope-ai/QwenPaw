@@ -61,6 +61,43 @@ describe("agentApi", () => {
     expect(result).toEqual(config);
   });
 
+  it("reads running-config access and safe summary", async () => {
+    vi.mocked(request)
+      .mockResolvedValueOnce({ can_edit: false })
+      .mockResolvedValueOnce({ agent_id: "agent-1", name: "Shared Agent" });
+
+    await agentApi.getAgentRunningConfigAccess();
+    await agentApi.getAgentRunningConfigSummary();
+
+    expect(request).toHaveBeenNthCalledWith(1, "/workspace/access");
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/workspace/running-config/summary",
+    );
+  });
+
+  it("sends the explicit governance context only for runtime-config requests", async () => {
+    await agentApi.getAgentRunningConfigAccess({
+      agentId: "managed-agent",
+      governance: true,
+    });
+    await agentApi.getAgentRunningConfig({
+      agentId: "managed-agent",
+      governance: true,
+    });
+
+    const headers = {
+      "X-Agent-Id": "managed-agent",
+      "X-Agent-Governance": "runtime-config",
+    };
+    expect(request).toHaveBeenNthCalledWith(1, "/workspace/access", {
+      headers,
+    });
+    expect(request).toHaveBeenNthCalledWith(2, "/workspace/running-config", {
+      headers,
+    });
+  });
+
   it("updateAgentRunningConfig sends PUT with config body", async () => {
     const config = { agents: [{ name: "test" }] } as any;
     vi.mocked(request).mockResolvedValue(config);
@@ -71,6 +108,45 @@ describe("agentApi", () => {
       timeout: 10 * 60 * 1000,
     });
     expect(result).toEqual(config);
+  });
+
+  it("reads the running-config version and sends it with saves", async () => {
+    const versionedConfig = { max_iters: 101 } as any;
+    vi.mocked(request)
+      .mockResolvedValueOnce({ version: 3 })
+      .mockResolvedValueOnce({ max_iters: 101 });
+    await expect(agentApi.getAgentRunningConfigVersion()).resolves.toEqual({
+      version: 3,
+    });
+    await agentApi.updateAgentRunningConfig(versionedConfig, 3);
+    expect(request).toHaveBeenLastCalledWith("/workspace/running-config", {
+      method: "PUT",
+      body: JSON.stringify(versionedConfig),
+      headers: { "If-Match": '"3"' },
+      timeout: 10 * 60 * 1000,
+    });
+  });
+
+  it("reads and retries the running-config runtime status", async () => {
+    vi.mocked(request)
+      .mockResolvedValueOnce({ state: "pending_reload" })
+      .mockResolvedValueOnce({ state: "applied" });
+
+    await expect(
+      agentApi.getAgentRunningConfigRuntimeStatus(),
+    ).resolves.toEqual({ state: "pending_reload" });
+    await expect(agentApi.retryAgentRunningConfigReload()).resolves.toEqual({
+      state: "applied",
+    });
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/workspace/running-config/runtime-status",
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/workspace/running-config/reload",
+      { method: "POST" },
+    );
   });
 
   it("testEmbedding sends unsaved embedding config", async () => {
@@ -91,6 +167,36 @@ describe("agentApi", () => {
       method: "POST",
       body: JSON.stringify(config),
       timeout: 30 * 1000,
+    });
+  });
+
+  it("testEmbedding keeps the explicit governance target", async () => {
+    const config = {
+      backend: "ollama" as const,
+      api_key: "",
+      base_url: "http://localhost:11434",
+      model_name: "nomic-embed-text",
+      dimensions: 768,
+      enable_cache: true,
+      use_dimensions: false,
+      max_cache_size: 10000,
+      max_input_length: 8192,
+      max_batch_size: 10,
+    };
+
+    await agentApi.testEmbedding(config, {
+      agentId: "governed-agent",
+      governance: true,
+    });
+
+    expect(request).toHaveBeenCalledWith("/workspace/embedding/test", {
+      method: "POST",
+      body: JSON.stringify(config),
+      timeout: 30 * 1000,
+      headers: {
+        "X-Agent-Id": "governed-agent",
+        "X-Agent-Governance": "runtime-config",
+      },
     });
   });
 

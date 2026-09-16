@@ -22,6 +22,25 @@ export interface ToolInfo {
   requires_config?: boolean;
   config_fields?: ToolConfigField[];
   config_values?: Record<string, any>;
+  credential_status?: Record<string, "missing" | "configured" | "revoked">;
+  can_edit?: boolean;
+  policy_locked?: boolean;
+  policy_reason?: string | null;
+}
+
+export interface ToolCredentialAction {
+  action: "keep" | "replace" | "delete";
+  value?: string;
+}
+
+export interface ToolConfigView {
+  config: Record<string, unknown>;
+  credential_status: Record<string, "missing" | "configured" | "revoked">;
+}
+
+export interface ToolConfigUpdate {
+  config: Record<string, unknown>;
+  credential_updates: Record<string, ToolCredentialAction>;
 }
 
 export const toolsApi = {
@@ -54,19 +73,17 @@ export const toolsApi = {
    * Get tool configuration
    */
   getToolConfig: (toolName: string) =>
-    request<Record<string, any>>(
-      `/tools/${encodeURIComponent(toolName)}/config`,
-    ),
+    request<ToolConfigView>(`/tools/${encodeURIComponent(toolName)}/config`),
 
   /**
    * Update tool configuration
    */
-  updateToolConfig: (toolName: string, config: Record<string, any>) =>
+  updateToolConfig: (toolName: string, body: ToolConfigUpdate) =>
     request<{ status: string; message: string }>(
       `/tools/${encodeURIComponent(toolName)}/config`,
       {
         method: "POST",
-        body: JSON.stringify({ config }),
+        body: JSON.stringify(body),
       },
     ),
 };

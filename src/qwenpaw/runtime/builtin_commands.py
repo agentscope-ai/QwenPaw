@@ -11,6 +11,7 @@ and delegates to the original handler.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +22,29 @@ if TYPE_CHECKING:
     from agentscope.message import Msg
 
 logger = logging.getLogger(__name__)
+
+
+def _bind_command_memory_manager(
+    memory_manager: Any,
+    request: Any,
+    request_context: Any,
+) -> Any:
+    """Bind a slash command to the request's trusted user and model slot."""
+    if memory_manager is None:
+        return None
+    bind = getattr(memory_manager, "for_model_request", None)
+    if not callable(bind):
+        return memory_manager
+    trusted_context = (
+        dict(request_context) if isinstance(request_context, Mapping) else {}
+    )
+    actor_user_id = getattr(request, "user_id", None)
+    if actor_user_id:
+        trusted_context["user_id"] = actor_user_id
+    return bind(
+        trusted_context,
+        getattr(request, "_model_authority", None),
+    )
 
 
 # ======================================================================
@@ -463,16 +487,33 @@ def _make_conversation_adapter(
         except Exception:
             agent_name = "QwenPaw"
 
+        command_request = getattr(ctx, "request", None)
+        command_request_context = (
+            getattr(command_request, "request_context", None) or {}
+        )
+        command_memory_manager = _bind_command_memory_manager(
+            getattr(workspace, "memory_manager", None),
+            command_request,
+            command_request_context,
+        )
         cmd_handler = CommandHandler(
             agent_name=agent_name,
             state=state,
             agent_id=agent_id,
-            memory_manager=getattr(workspace, "memory_manager", None),
+            memory_manager=command_memory_manager,
             offloader=offloader,
             workspace_dir=ws_dir,
             scroll_state=existing_scroll,
             session_id=getattr(ctx, "session_id", None),
             prompt_context=ctx,
+            actor_user_id=(
+                getattr(command_request, "user_id", None)
+            ),
+            source_conversation_id=str(
+                command_request_context.get("conversation_id")
+                or command_request_context.get("chat_id")
+                or ""
+            ),
         )
 
         full_query = f"/{name} {args}".strip() if args else f"/{name}"

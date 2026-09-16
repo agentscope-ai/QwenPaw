@@ -53,9 +53,29 @@ const hoisted = vi.hoisted(() => {
     showScanErrorModalMock,
     harnessMocks,
     agentState,
+    runtimeScope: {
+      ready: true,
+      current: () => true,
+      get canEdit() {
+        return (
+          agentState.agents.find((a) => a.id === agentState.selectedAgent)
+            ?.can_edit !== false
+        );
+      },
+    },
     stableT,
   };
 });
+
+// Preserve the original unit boundaries; governance integration suites use real stores and transport.
+vi.mock("./useSkillRuntime", () => ({
+  useSkillRuntime: () => ({
+    scope: hoisted.runtimeScope,
+    api: hoisted.apiMocks,
+    message: hoisted.messageMock,
+    modal: { confirm: hoisted.modalConfirmMock },
+  }),
+}));
 
 vi.mock("@agentscope-ai/design", async () => {
   const React = await import("react");
@@ -158,11 +178,38 @@ describe("useSkills", () => {
     handleScanErrorMock.mockReturnValue(false);
     harnessMocks.listSkills.mockReset();
     agentState.selectedAgent = "agent-1";
-    agentState.agents = [{ id: "agent-1", backend: "qwenpaw" }];
+    agentState.agents = [{ id: "agent-1", backend: "qwenpaw", can_edit: true }];
 
     apiMocks.listSkills.mockResolvedValue([makeSkill()]);
     apiMocks.getBlockedHistory.mockResolvedValue([]);
     apiMocks.getSkillScanner.mockResolvedValue({});
+  });
+
+  it("keeps use-only and public agents read-only without calling skill mutations", async () => {
+    agentState.agents = [
+      {
+        id: "agent-1",
+        backend: "qwenpaw",
+        access_role: "user",
+        visibility: "public",
+        can_edit: false,
+      },
+    ];
+    const { result } = renderSkillsHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    let created: Awaited<ReturnType<typeof result.current.createSkill>>;
+    await act(async () => {
+      created = await result.current.createSkill(
+        "blocked-skill",
+        "---\nname: blocked-skill\ndescription: blocked\n---",
+      );
+    });
+
+    expect(result.current.readOnly).toBe(true);
+    expect(created!).toEqual({ success: false });
+    expect(apiMocks.createSkill).not.toHaveBeenCalled();
+    expect(messageMock.warning).toHaveBeenCalledWith("agent.readOnlyHint");
   });
 
   it("fetchSkills success: sets skills list and loading true->false", async () => {

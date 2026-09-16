@@ -3,7 +3,12 @@ import { useTranslation } from "react-i18next";
 import { Modal } from "antd";
 import { useRequest } from "ahooks";
 import { useAppMessage } from "@/hooks/useAppMessage";
-import { fetchPlugins, uninstallPlugin } from "@/api/modules/plugin";
+import {
+  fetchPlugins,
+  setPluginEnabled,
+  uninstallPlugin,
+  updatePluginAudience,
+} from "@/api/modules/plugin";
 import type { PluginInfo } from "@/api/modules/plugin";
 
 export function usePluginManager() {
@@ -49,11 +54,50 @@ export function usePluginManager() {
     [message, t, refresh],
   );
 
+  const handleEnabledChange = useCallback(
+    async (plugin: PluginInfo, enabled: boolean) => {
+      try {
+        await setPluginEnabled(plugin.id, enabled);
+        message.success(enabled ? "插件已启用" : "插件已停用");
+        refresh();
+      } catch (error) {
+        message.error(
+          error instanceof Error ? error.message : "插件状态更新失败",
+        );
+      }
+    },
+    [message, refresh],
+  );
+
+  const handleAudienceChange = useCallback(
+    async (
+      plugin: PluginInfo,
+      mode: "all_members" | "selected_users",
+      selectedUserIds: string[] = plugin.selected_user_ids ?? [],
+    ) => {
+      try {
+        await updatePluginAudience(plugin.id, {
+          mode,
+          selected_user_ids: mode === "selected_users" ? selectedUserIds : [],
+        });
+        message.success("应用授权已更新");
+        refresh();
+      } catch (error) {
+        message.error(
+          error instanceof Error ? error.message : "应用授权更新失败",
+        );
+      }
+    },
+    [message, refresh],
+  );
+
   return {
     plugins,
     loading,
     refresh,
     uninstallingId,
     handleUninstall,
+    handleEnabledChange,
+    handleAudienceChange,
   };
 }

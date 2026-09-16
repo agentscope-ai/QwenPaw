@@ -28,6 +28,7 @@ import type {
   BackupMeta,
   BackupDetail,
   RestoreBackupRequest,
+  RestoreImpact,
 } from "@/api/types/backup";
 import type { AgentSummary } from "@/api/types/agents";
 import { parseErrorDetail } from "@/utils/error";
@@ -107,6 +108,11 @@ export default function RestoreBackupModal({
   const [confirmed, setConfirmed] = useState(false);
   const [trustPrompt, setTrustPrompt] = useState<TrustPrompt | null>(null);
   const [trustLoading, setTrustLoading] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<RestoreImpact | null>(
+    null,
+  );
+  const [restoreTrustMode, setRestoreTrustMode] =
+    useState<BackupTrustMode | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -136,6 +142,8 @@ export default function RestoreBackupModal({
     );
     setConfirmed(false);
     setTrustPrompt(null);
+    setRestorePreview(null);
+    setRestoreTrustMode(null);
   }, [open, backup.id, backup.accepted_via_trust, fullBackup]);
 
   const existingAgentMap = useMemo(
@@ -207,7 +215,13 @@ export default function RestoreBackupModal({
   const finishRestore = async (request: RestoreBackupRequest) => {
     const response = await api.restoreBackup(backup.id, request);
     const preserved = response.preserved_local_keys ?? [];
-    if (preserved.length > 0) {
+    if (response.pre_restore_backup_id) {
+      message.success(
+        t("backup.restoreSuccessWithBackup", {
+          preRestoreId: response.pre_restore_backup_id,
+        }),
+      );
+    } else if (preserved.length > 0) {
       message.success(
         t("backup.restoreSuccessPreserved", {
           defaultValue:
@@ -280,16 +294,27 @@ export default function RestoreBackupModal({
   };
 
   const handleOk = async () => {
-    const request = buildRestoreRequest();
+    const request = {
+      ...buildRestoreRequest(),
+      trust_mode: restoreTrustMode,
+    };
     setLoading(true);
     try {
-      await finishRestore(request);
+      if (!restorePreview) {
+        setRestorePreview(await api.previewRestore(backup.id, request));
+        return;
+      }
+      await finishRestore({
+        ...request,
+        confirmation_token: restorePreview.confirmation_token,
+      });
     } catch (err: unknown) {
       const detail = parseErrorDetail(err);
       const trustMode = trustModeFromErrorCode(detail?.code);
       if (trustMode) {
         setTrustPrompt({ mode: trustMode, request });
       } else {
+        setRestorePreview(null);
         showRestoreFailure(detail, err);
       }
     } finally {
@@ -301,10 +326,12 @@ export default function RestoreBackupModal({
     if (!trustPrompt) return;
     setTrustLoading(true);
     try {
-      await finishRestore({
+      const trustedRequest = {
         ...trustPrompt.request,
         trust_mode: trustPrompt.mode,
-      });
+      };
+      setRestorePreview(await api.previewRestore(backup.id, trustedRequest));
+      setRestoreTrustMode(trustPrompt.mode);
       setTrustPrompt(null);
     } catch (err: unknown) {
       showRestoreFailure(parseErrorDetail(err), err);
@@ -382,6 +409,17 @@ export default function RestoreBackupModal({
             }
             className={styles.trustBanner}
           />
+          {restorePreview && (
+            <Alert
+              showIcon
+              type="warning"
+              message={t("backup.restoreImpactTitle")}
+              description={t("backup.restoreImpactDescription", {
+                components: restorePreview.components.join(", "),
+                agents: restorePreview.agents.length,
+              })}
+            />
+          )}
 
           {detailFailed && (
             <Alert

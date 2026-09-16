@@ -108,6 +108,36 @@
   }
 }
 
+.scopeFilter {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px 8px;
+  flex-shrink: 0;
+}
+
+.scopeButton,
+.scopeActive {
+  border: 1px solid var(--colorBorder, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  background: transparent;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 26px;
+  padding: 0 12px;
+}
+
+.scopeActive {
+  border-color: var(--colorPrimary, #ff9d4d);
+  background: rgba(255, 157, 77, 0.12);
+  color: var(--colorPrimary, #ff9d4d);
+}
+
+.createButtonDisabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
 /* Session list wrapper */
 .listWrapper {
   flex: 1;

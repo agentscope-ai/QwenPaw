@@ -27,6 +27,8 @@ interface SkillCardProps {
   onMouseLeave?: () => void;
   onToggleEnabled: (e: React.MouseEvent) => void;
   onDelete?: (e?: React.MouseEvent) => void;
+  readOnly?: boolean;
+  sourceActions?: React.ReactNode;
 }
 
 const useIsMobile = () => {
@@ -146,6 +148,8 @@ export const SkillCard = React.memo(function SkillCard({
   onMouseLeave,
   onToggleEnabled,
   onDelete,
+  readOnly = false,
+  sourceActions,
 }: SkillCardProps) {
   const { t } = useTranslation();
   const batchMode = selected !== undefined;
@@ -168,6 +172,7 @@ export const SkillCard = React.memo(function SkillCard({
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
+    if (readOnly) return;
     if (batchMode && onSelect) {
       onSelect(e);
     } else {
@@ -193,7 +198,7 @@ export const SkillCard = React.memo(function SkillCard({
         onMouseLeave?.();
       }}
       className={`${styles.skillCard} ${selected ? styles.selectedCard : ""}`}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: readOnly ? "default" : "pointer" }}
     >
       {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
       <div className={styles.cardTopRow}>
@@ -273,7 +278,7 @@ export const SkillCard = React.memo(function SkillCard({
       </div>
 
       {/* Footer - only show on hover or batch mode, always on mobile */}
-      {(isHover || batchMode || isMobile) && (
+      {!readOnly && (isHover || batchMode || isMobile) && (
         <div className={styles.cardFooter}>
           <Button
             type="default"
@@ -296,6 +301,7 @@ export const SkillCard = React.memo(function SkillCard({
           )}
         </div>
       )}
+      {sourceActions}
     </Card>
   );
 });

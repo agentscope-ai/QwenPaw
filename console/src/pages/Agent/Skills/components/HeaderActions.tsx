@@ -13,6 +13,8 @@ import styles from "../index.module.less";
 
 interface HeaderActionsProps {
   batchModeEnabled: boolean;
+  canSubmit?: boolean;
+  multiUser?: boolean;
   selectedSkills: Set<string>;
   loading: boolean;
   uploading: boolean;
@@ -36,6 +38,8 @@ interface HeaderActionsProps {
 
 export function HeaderActions({
   batchModeEnabled,
+  canSubmit,
+  multiUser = true,
   selectedSkills,
   loading,
   uploading,
@@ -83,21 +87,32 @@ export function HeaderActions({
             >
               {t("skills.clearSelection")}
             </Button>
-            <Tooltip title={t("skills.uploadToPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={() => {
-                  const names = Array.from(selectedSkills);
-                  if (names.length === 0) return;
-                  onClearSelection();
-                  void onUploadToPool(names);
-                }}
-                icon={<SwapOutlined />}
+            {canSubmit && (
+              <Tooltip
+                title={t(
+                  multiUser
+                    ? "skillGovernance.submitDescription"
+                    : "skills.uploadToPool",
+                )}
               >
-                {t("skills.uploadToPool")}
-              </Button>
-            </Tooltip>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  onClick={() => {
+                    const names = Array.from(selectedSkills);
+                    if (names.length === 0) return;
+                    void onUploadToPool(names);
+                  }}
+                  icon={<SwapOutlined />}
+                >
+                  {t(
+                    multiUser
+                      ? "skillGovernance.submit"
+                      : "skills.uploadToPool",
+                  )}
+                </Button>
+              </Tooltip>
+            )}
             <Button
               type="default"
               icon={<EyeOutlined />}
@@ -131,16 +146,28 @@ export function HeaderActions({
                 disabled={loading}
               />
             </Tooltip>
-            <Tooltip title={t("skills.uploadToPoolHint")}>
-              <Button
-                type="default"
-                className={styles.primaryTransferButton}
-                onClick={onOpenUploadPool}
-                icon={<SwapOutlined />}
+            {canSubmit && (
+              <Tooltip
+                title={t(
+                  multiUser
+                    ? "skillGovernance.submitDescription"
+                    : "skills.uploadToPool",
+                )}
               >
-                {t("skills.uploadToPool")}
-              </Button>
-            </Tooltip>
+                <Button
+                  type="default"
+                  className={styles.primaryTransferButton}
+                  onClick={onOpenUploadPool}
+                  icon={<SwapOutlined />}
+                >
+                  {t(
+                    multiUser
+                      ? "skillGovernance.submit"
+                      : "skills.uploadToPool",
+                  )}
+                </Button>
+              </Tooltip>
+            )}
           </div>
           <div className={styles.headerActionsRight}>
             <Button type="primary" onClick={onToggleBatchMode}>

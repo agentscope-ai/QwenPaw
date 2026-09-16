@@ -36,6 +36,8 @@ import {
 import { parseCron, serializeCron } from "./components/parseCron";
 import { PageHeader } from "@/components/PageHeader";
 import styles from "./index.module.less";
+import { useAuthStore } from "@/stores/authStore";
+import { useAgentStore } from "@/stores/agentStore";
 
 type CronJob = CronJobSpecOutput;
 type OneTimeCronJob = CronJob & {
@@ -61,6 +63,14 @@ dayjs.extend(timezone);
 
 function CronJobsPage() {
   const { t } = useTranslation();
+  const authUser = useAuthStore((state) => state.user);
+  const selectedAgent = useAgentStore((state) =>
+    state.agents.find((agent) => agent.id === state.selectedAgent),
+  );
+  const canViewAgentTasks =
+    authUser?.platform_role === "admin" ||
+    selectedAgent?.access_role === "owner";
+  const [taskScope, setTaskScope] = useState<"mine" | "agent">("mine");
   const {
     jobs,
     loading,
@@ -69,7 +79,8 @@ function CronJobsPage() {
     deleteJob,
     toggleEnabled,
     executeNow,
-  } = useCronJobs();
+    authorizeJob,
+  } = useCronJobs(taskScope);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
   const [saving, setSaving] = useState(false);
@@ -406,19 +417,41 @@ function CronJobsPage() {
       }
     }
 
-    let success = false;
+    let savedJob: CronJob | false = false;
     setSaving(true);
     try {
       if (editingJob) {
-        success = await updateJob(editingJob.id, processedValues);
+        savedJob = await updateJob(editingJob.id, processedValues);
       } else {
-        success = await createJob(processedValues);
+        savedJob = await createJob(processedValues);
       }
     } finally {
       setSaving(false);
     }
-    if (success) {
+    if (savedJob) {
       setDrawerOpen(false);
+      if (savedJob.status === "pending_authorization") {
+        const preview = await api.getCronJobAuthorization(savedJob.id);
+        Modal.confirm({
+          title: t("cronJobs.authorizationTitle"),
+          content: (
+            <div>
+              <p>{t("cronJobs.authorizationDescription")}</p>
+              <p>{`${t("cronJobs.authorizationTarget")}: ${
+                preview.target_channel
+              } / ${preview.target_session_id}`}</p>
+              <p>{`${t("cronJobs.authorizationTools")}: ${
+                preview.tool_names.length
+                  ? preview.tool_names.join(", ")
+                  : t("cronJobs.authorizationNoTools")
+              }`}</p>
+            </div>
+          ),
+          okText: t("cronJobs.authorizeAndEnable"),
+          cancelText: t("common.cancel"),
+          onOk: () => authorizeJob(savedJob.id, preview),
+        });
+      }
     }
   };
 
@@ -428,6 +461,8 @@ function CronJobsPage() {
     onViewHistory: handleViewHistory,
     onEdit: handleEdit,
     onDelete: handleDelete,
+    currentUserId: authUser?.id,
+    canPauseOthers: canViewAgentTasks,
     t,
   });
 
@@ -577,6 +612,17 @@ function CronJobsPage() {
         items={[{ title: t("nav.control") }, { title: t("cronJobs.title") }]}
         extra={
           <div className={styles.headerActions}>
+            {canViewAgentTasks && (
+              <Select
+                value={taskScope}
+                onChange={setTaskScope}
+                options={[
+                  { label: t("cronJobs.myTasks"), value: "mine" },
+                  { label: t("cronJobs.agentTasks"), value: "agent" },
+                ]}
+                style={{ width: 150 }}
+              />
+            )}
             {viewMode === "list" && (
               <Select<ScheduleTypeFilter>
                 value={scheduleTypeFilter}

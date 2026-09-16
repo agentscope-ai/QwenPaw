@@ -10,7 +10,10 @@ import logging
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from ..agent_context import get_agent_for_request
+from ..agent_context import (
+    get_running_config_workspace,
+    require_running_config_editor,
+)
 from ..utils import schedule_agent_reload
 
 logger = logging.getLogger(__name__)
@@ -38,7 +41,11 @@ async def get_coding_mode(request: Request) -> dict:
     import asyncio
     from ...config.config import load_agent_config
 
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.coding_mode.view",
+    )
+    require_running_config_editor(request)
     loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(
         None,
@@ -70,7 +77,11 @@ async def post_coding_mode_toggle(
     import asyncio
     from ...config.config import load_agent_config, save_agent_config
 
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.coding_mode.update",
+    )
+    require_running_config_editor(request)
 
     loop = asyncio.get_running_loop()
     config = await loop.run_in_executor(

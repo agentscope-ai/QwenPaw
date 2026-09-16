@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { ToolInfo } from "../../../api/modules/tools";
+import type { ToolConfigUpdate } from "../../../api/modules/tools";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useTools() {
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const readOnly =
+    agents.find((agent) => agent.id === selectedAgent)?.can_edit === false;
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
@@ -27,11 +30,16 @@ export function useTools() {
   }, [t]);
 
   useEffect(() => {
+    if (!selectedAgent) return;
     loadTools();
   }, [loadTools, selectedAgent]);
 
   const toggleEnabled = useCallback(
     async (tool: ToolInfo) => {
+      if (readOnly || tool.can_edit === false) {
+        message.info(t("agent.readOnlyHint"));
+        return;
+      }
       // Optimistic update
       setTools((prev) =>
         prev.map((t) =>
@@ -59,11 +67,15 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [message, readOnly, t],
   );
 
   const toggleAsyncExecution = useCallback(
     async (tool: ToolInfo) => {
+      if (readOnly || tool.can_edit === false) {
+        message.info(t("agent.readOnlyHint"));
+        return;
+      }
       // Optimistic update
       setTools((prev) =>
         prev.map((t) =>
@@ -99,18 +111,28 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [message, readOnly, t],
   );
 
   const enableAll = useCallback(async () => {
-    const disabledTools = tools.filter((tool) => !tool.enabled);
+    if (readOnly) {
+      message.info(t("agent.readOnlyHint"));
+      return;
+    }
+    const disabledTools = tools.filter(
+      (tool) => !tool.enabled && tool.can_edit !== false,
+    );
     if (disabledTools.length === 0) {
       message.info(t("tools.allEnabled"));
       return;
     }
 
     // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: true })));
+    setTools((prev) =>
+      prev.map((tool) =>
+        tool.can_edit === false ? tool : { ...tool, enabled: true },
+      ),
+    );
 
     setBatchLoading(true);
     try {
@@ -132,17 +154,27 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [loadTools, message, readOnly, t, tools]);
 
   const disableAll = useCallback(async () => {
-    const enabledTools = tools.filter((tool) => tool.enabled);
+    if (readOnly) {
+      message.info(t("agent.readOnlyHint"));
+      return;
+    }
+    const enabledTools = tools.filter(
+      (tool) => tool.enabled && tool.can_edit !== false,
+    );
     if (enabledTools.length === 0) {
       message.info(t("tools.allDisabled"));
       return;
     }
 
     // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: false })));
+    setTools((prev) =>
+      prev.map((tool) =>
+        tool.can_edit === false ? tool : { ...tool, enabled: false },
+      ),
+    );
 
     setBatchLoading(true);
     try {
@@ -164,12 +196,16 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [loadTools, message, readOnly, t, tools]);
 
   const saveToolConfig = useCallback(
-    async (toolName: string, config: Record<string, any>) => {
+    async (toolName: string, body: ToolConfigUpdate) => {
+      if (readOnly) {
+        message.info(t("agent.readOnlyHint"));
+        return;
+      }
       try {
-        await api.updateToolConfig(toolName, config);
+        await api.updateToolConfig(toolName, body);
         message.success(t("tools.configSaved"));
       } catch (error) {
         console.error("Failed to save tool config:", error);
@@ -177,13 +213,14 @@ export function useTools() {
         throw error;
       }
     },
-    [t],
+    [message, readOnly, t],
   );
 
   return {
     tools,
     loading,
     batchLoading,
+    readOnly,
     toggleEnabled,
     toggleAsyncExecution,
     enableAll,

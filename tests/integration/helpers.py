@@ -270,6 +270,7 @@ def make_event(
     payload: dict[str, Any] | None = None,
     read: bool = False,
     created_at: float | None = None,
+    recipient_user_id: str | None = None,
 ) -> dict[str, Any]:
     """Mirror the shape produced by ``inbox_store.append_event``."""
     return {
@@ -283,6 +284,7 @@ def make_event(
         "title": title,
         "body": body,
         "payload": payload or {},
+        "recipient_user_id": recipient_user_id or "",
         "read": read,
         "created_at": (created_at if created_at is not None else time.time()),
     }

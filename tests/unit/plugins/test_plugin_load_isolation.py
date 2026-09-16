@@ -82,6 +82,25 @@ def _write_plugin(plugin_dir: Path, plugin_py_code: str) -> Dict:
     return manifest
 
 
+@pytest.mark.asyncio
+async def test_multi_user_allowlist_prevents_disabled_plugin_loading(
+    loader, tmp_path, monkeypatch
+):
+    """数据库 active 清单之外的磁盘插件不能执行代码。"""
+    _write_plugin(tmp_path / "allowed-plugin", "plugin = object()\n")
+    _write_plugin(tmp_path / "disabled-plugin", "plugin = object()\n")
+    loaded = []
+
+    async def capture(manifest, _path, _config=None):
+        loaded.append(manifest.id)
+
+    monkeypatch.setattr(loader, "load_plugin", capture)
+
+    await loader.load_all_plugins(allowed_plugin_ids={"allowed-plugin"})
+
+    assert loaded == ["allowed-plugin"]
+
+
 # ---------------------------------------------------------------------------
 # Tests: sys.modules cleanup
 # ---------------------------------------------------------------------------

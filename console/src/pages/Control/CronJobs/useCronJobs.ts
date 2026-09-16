@@ -8,7 +8,7 @@ import { parseErrorDetail } from "../../../utils/error";
 
 type CronJob = CronJobSpecOutput;
 
-export function useCronJobs() {
+export function useCronJobs(scope: "mine" | "agent" = "mine") {
   const { selectedAgent } = useAgentStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
@@ -98,7 +98,7 @@ export function useCronJobs() {
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      const data = await api.listCronJobs();
+      const data = await api.listCronJobs(scope);
       if (data) {
         setJobs(data as CronJob[]);
       }
@@ -124,14 +124,14 @@ export function useCronJobs() {
     return () => {
       mounted = false;
     };
-  }, [selectedAgent]);
+  }, [selectedAgent, scope]);
 
   const createJob = async (values: CronJob) => {
     try {
       const created = await api.createCronJob(values);
       setJobs((prev) => [created as CronJob, ...prev]);
       message.success("Created successfully");
-      return true;
+      return created as CronJob;
     } catch (error) {
       console.error("Failed to create cron job", error);
       message.error(getDisplayErrorMessage(error, "Failed to save"));
@@ -150,7 +150,7 @@ export function useCronJobs() {
         prev.map((j) => (j.id === jobId ? (updated as CronJob) : j)),
       );
       message.success("Updated successfully");
-      return true;
+      return updated as CronJob;
     } catch (error) {
       console.error("Failed to update cron job", error);
       if (original) {
@@ -180,14 +180,20 @@ export function useCronJobs() {
   };
 
   const toggleEnabled = async (job: CronJob) => {
-    const updated = { ...job, enabled: !job.enabled };
+    const enabling = !job.enabled;
+    const updated = {
+      ...job,
+      enabled: enabling,
+      status: enabling ? ("active" as const) : ("paused" as const),
+    };
     setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
 
     try {
-      const returned = await api.replaceCronJob(job.id, updated);
-      setJobs((prev) =>
-        prev.map((j) => (j.id === job.id ? (returned as CronJob) : j)),
-      );
+      if (enabling) {
+        await api.resumeCronJob(job.id);
+      } else {
+        await api.pauseCronJob(job.id);
+      }
       message.success(`${updated.enabled ? "Enabled" : "Disabled"}`);
       return true;
     } catch (error) {
@@ -210,6 +216,34 @@ export function useCronJobs() {
     }
   };
 
+  const authorizeJob = async (
+    jobId: string,
+    confirmedPreview?: {
+      config_version: number;
+      authorization_digest: string;
+    },
+  ) => {
+    try {
+      const preview =
+        confirmedPreview ?? (await api.getCronJobAuthorization(jobId));
+      const authorized = await api.authorizeCronJob(jobId, {
+        config_version: preview.config_version,
+        authorization_digest: preview.authorization_digest,
+      });
+      setJobs((prev) =>
+        prev.map((job) => (job.id === jobId ? authorized : job)),
+      );
+      message.success(t("cronJobs.authorizationSuccess"));
+      return authorized;
+    } catch (error) {
+      console.error("Failed to authorize cron job", error);
+      message.error(
+        getDisplayErrorMessage(error, t("cronJobs.authorizationFailed")),
+      );
+      return false;
+    }
+  };
+
   return {
     jobs,
     loading,
@@ -218,5 +252,6 @@ export function useCronJobs() {
     deleteJob,
     toggleEnabled,
     executeNow,
+    authorizeJob,
   };
 }

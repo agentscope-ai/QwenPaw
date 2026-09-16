@@ -27,6 +27,7 @@ from qwenpaw.exceptions import (
 )
 
 from ...config import load_config
+from ...runtime.message_convert import AUDIO_ATTACHMENT_METADATA_KEY
 from ...constant import (
     QWENPAW_MESSAGE_TAG_KEY,
     SCROLL_MEMORY_MESSAGE_TAG,
@@ -103,6 +104,11 @@ def _is_synthetic_user_message(msg: Msg) -> bool:
         return False
     if msg.name in _VISUAL_PLACEHOLDER_NAMES:
         return True
+    # Legacy document injections predate the explicit runtime-context tag.
+    if msg.name == "system" and (msg.get_text_content() or "").startswith(
+        "# 本轮引用的文件资料\n\n以下内容已经服务端按当前登录用户和当前 Agent 授权校验。",
+    ):
+        return True
     metadata = getattr(msg, "metadata", None)
     return (
         isinstance(metadata, dict)
@@ -149,6 +155,8 @@ def build_env_context(
     default_shell: Optional[str] = None,
     project_dir: Optional[str] = None,
     active_model_name: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    task_output_dir: Optional[str] = None,
 ) -> str:
     """
     Build environment context with current request context prepended.
@@ -226,6 +234,31 @@ def build_env_context(
             )
     elif working_dir is not None:
         parts.append(f"- Working directory: {working_dir}")
+    from ...identity.runtime import is_multi_user_enabled
+
+    if is_multi_user_enabled() and user_id and agent_id:
+        from uuid import UUID
+        from ...workspaces.resolver import WorkspaceKind, WorkspaceResolver
+
+        private_workspace = WorkspaceResolver().resolve(
+            kind=WorkspaceKind.USER_RUNTIME,
+            resource_id=agent_id,
+            actor_user_id=UUID(str(user_id)),
+        )
+        parts.append(
+            f"- Current user's artifact directory: {task_output_dir or private_workspace.path / 'artifacts'}\n"
+            "  Save final reports, images and documents directly in this task "
+            "output directory; do not create another artifacts directory inside it. "
+            "Keep intermediate files in its .work subdirectory, which is not archived. "
+            "The platform automatically registers final files from this task directory. "
+            "This applies to "
+            "administrators too. Skill examples using relative output paths "
+            "must be adapted to this directory (e.g. --output-dir). Do not put "
+            "personal output in the shared Agent workspace or skill directory. "
+            "Keep skill scripts in their installed location and use absolute "
+            "paths to invoke them. send_file_to_user can explicitly deliver files; "
+            "view_image only previews images."
+        )
     parts.append(
         f"- Current date: {now.strftime('%Y-%m-%d')} "
         f"{user_tz} ({now.strftime('%A')})",
@@ -561,13 +594,21 @@ def agentscope_msg_to_message(
             "timestamp": ts_value,
         }
 
-        if isinstance(msg.content, str):
+        display_text = (msg.metadata or {}).get("qwenpaw_display_text") if isinstance(msg.metadata, dict) and role == "user" else None
+        content = msg.content
+        if isinstance(display_text, str) and len(display_text) <= 100000:
+            # Presentation only: never mutate the model's persisted context.
+            content = [{"type": "text", "text": display_text}] + [
+                block for block in content if isinstance(block, dict) and block.get("type") != "text"
+            ] if isinstance(content, list) else display_text
+
+        if isinstance(content, str):
             message = Message(type=MessageType.MESSAGE, role=role)
             message.metadata = metadata
             text_content = TextContent(
                 delta=False,
                 index=None,
-                text=clean_display_text(msg.content, role),
+                text=clean_display_text(content, role),
             )
             message.add_content(new_content=text_content)
             results.append(message)
@@ -576,7 +617,7 @@ def agentscope_msg_to_message(
         current_message = None
         current_type = None
 
-        for block in msg.content:
+        for block in content:
             # Normalize pydantic block models to dict so the rest of
             # this conversion (which uses .get) handles both shapes.
             if hasattr(block, "model_dump"):
@@ -762,7 +803,14 @@ def agentscope_msg_to_message(
                     current_type = MessageType.MESSAGE
 
                 kwargs = {}
-                if (
+                attachment_ids = (msg.metadata or {}).get(AUDIO_ATTACHMENT_METADATA_KEY, {})
+                attachment_id = attachment_ids.get(block.get("id")) if isinstance(attachment_ids, dict) else None
+                if isinstance(attachment_id, str) and re.fullmatch(
+                    r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", attachment_id,
+                ):
+                    # Inference bytes stay in context; history follows the original attachment.
+                    kwargs["data"] = f"/api/console/attachments/{attachment_id}"
+                elif (
                     isinstance(block.get("source"), dict)
                     and block.get("source", {}).get("type") == "url"
                 ):

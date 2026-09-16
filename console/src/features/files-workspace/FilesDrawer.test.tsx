@@ -23,8 +23,48 @@ vi.mock("../../api/modules/workspace", () => ({
 vi.mock("./FilesWorkspace", () => ({
   default: () => <div data-testid="files-workspace" />,
 }));
+vi.mock("./UnifiedFileCenter", () => ({
+  default: ({ initialLocator }: { initialLocator?: { stableId?: string } }) => (
+    <div data-testid="unified-file-center" data-selected-item={initialLocator?.stableId} />
+  ),
+}));
 
 describe("FilesDrawer", () => {
+  it("expands an artifact preview into the same unified file center item", async () => {
+    const dispatch = vi.fn();
+    const locator = {
+      category: "artifact" as const,
+      agentId: "agent-a",
+      stableId: "bd20d801-5fa2-4dd0-8d5e-691806601b5b",
+      relativePath: "report.md",
+    };
+    const { rerender } = renderWithProviders(
+      <FilesDrawer
+        state={{ kind: "preview", locator, trigger: null }}
+        dispatch={dispatch}
+        scope={{ kind: "session", agentId: "agent-a", sessionId: "session-a" }}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /在文件中心打开|Open in File Center|files\.fileCenter\.open/i }),
+    );
+    expect(dispatch).toHaveBeenCalledWith({ type: "EXPAND_WORKSPACE" });
+
+    rerender(
+      <FilesDrawer
+        state={{ kind: "workspace", locator, trigger: null }}
+        dispatch={dispatch}
+        scope={{ kind: "session", agentId: "agent-a", sessionId: "session-a" }}
+      />,
+    );
+    expect(await screen.findByTestId("unified-file-center")).toHaveAttribute(
+      "data-selected-item",
+      locator.stableId,
+    );
+    expect(screen.queryByTestId("files-workspace")).not.toBeInTheDocument();
+  });
+
   it("does not repeat the Workspace label in the expanded header", async () => {
     renderWithProviders(
       <FilesDrawer

@@ -6,15 +6,43 @@ import logging
 import time
 import uuid
 from typing import Any
+from uuid import UUID
 
 from ..constant import WORKING_DIR
+from ..identity.runtime import get_identity_schema
+from ..persistence.mode import StorageMode
+from ..persistence.settings import load_database_settings
+from ..persistence.repository_provider import (
+    CutoverDomain,
+    assert_legacy_write_allowed,
+)
 from ..utils.io_utils import read_json, run_sync_io, write_json_atomic
+from .inbox_repository import PostgresInboxRepository
 
 logger = logging.getLogger(__name__)
 
 _INBOX_PATH = WORKING_DIR / "inbox_events.json"
 _LOCK = asyncio.Lock()
 _MAX_EVENTS = 5000
+
+
+def _postgres_repository() -> PostgresInboxRepository | None:
+    settings = load_database_settings()
+    if (
+        not settings.multi_user_enabled
+        or settings.storage_mode is not StorageMode.POSTGRES
+    ):
+        return None
+    return PostgresInboxRepository(schema=get_identity_schema())
+
+
+def _recipient_uuid(recipient_user_id: str | None) -> UUID:
+    if not recipient_user_id:
+        raise ValueError("recipient_user_id_required")
+    try:
+        return UUID(recipient_user_id)
+    except ValueError as exc:
+        raise ValueError("invalid_recipient_user_id") from exc
 
 
 def _load_events() -> list[dict[str, Any]]:
@@ -39,6 +67,7 @@ def _load_events() -> list[dict[str, Any]]:
 
 
 def _save_events(events: list[dict[str, Any]]) -> None:
+    assert_legacy_write_allowed(CutoverDomain.INBOX)
     write_json_atomic(
         _INBOX_PATH,
         events,
@@ -57,7 +86,22 @@ async def append_event(
     body: str,
     severity: str = "info",
     payload: dict[str, Any] | None = None,
+    recipient_user_id: str | None = None,
 ) -> dict[str, Any]:
+    repository = _postgres_repository()
+    if repository is not None:
+        return await repository.append_event(
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+            agent_id=agent_id,
+            source_type=source_type,
+            source_id=source_id,
+            event_type=event_type,
+            status=status,
+            severity=severity,
+            title=title,
+            body=body,
+            payload=payload,
+        )
     event = {
         "id": str(uuid.uuid4()),
         "agent_id": agent_id or "default",
@@ -69,6 +113,7 @@ async def append_event(
         "title": title,
         "body": body,
         "payload": payload or {},
+        "recipient_user_id": recipient_user_id or "",
         "read": False,
         "created_at": time.time(),
     }
@@ -88,23 +133,36 @@ async def list_events(
     status: str | None = None,
     agent_id: str | None = None,
     unread_only: bool = False,
+    recipient_user_id: str | None = None,
 ) -> list[dict[str, Any]]:
+    repository = _postgres_repository()
+    if repository is not None:
+        events, _, _ = await repository.query_events(
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+            limit=limit,
+            offset=offset,
+            source_types={source_type} if source_type else None,
+            status=status,
+            agent_id=agent_id,
+            unread_only=unread_only,
+        )
+        return events
     async with _LOCK:
         events = await run_sync_io(_load_events)
     if source_type:
-        events = [
-            event
-            for event in events
-            if event.get("source_type") == source_type
-        ]
+        events = [event for event in events if event.get("source_type") == source_type]
     if status:
         events = [event for event in events if event.get("status") == status]
     if agent_id:
-        events = [
-            event for event in events if event.get("agent_id") == agent_id
-        ]
+        events = [event for event in events if event.get("agent_id") == agent_id]
     if unread_only:
         events = [event for event in events if not bool(event.get("read"))]
+    if recipient_user_id is not None:
+        events = [
+            event
+            for event in events
+            if event.get("recipient_user_id") == recipient_user_id
+        ]
     return events[offset : offset + max(limit, 0)]
 
 
@@ -116,21 +174,33 @@ async def query_events(
     status: str | None = None,
     agent_id: str | None = None,
     unread_only: bool = False,
+    recipient_user_id: str | None = None,
 ) -> tuple[list[dict[str, Any]], int, int]:
     """Return a filtered page with exact total and unread counts."""
+    repository = _postgres_repository()
+    if repository is not None:
+        return await repository.query_events(
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+            limit=limit,
+            offset=offset,
+            source_types=source_types,
+            status=status,
+            agent_id=agent_id,
+            unread_only=unread_only,
+        )
     async with _LOCK:
         events = await run_sync_io(_load_events)
     if source_types:
-        events = [
-            event
-            for event in events
-            if event.get("source_type") in source_types
-        ]
+        events = [event for event in events if event.get("source_type") in source_types]
     if status:
         events = [event for event in events if event.get("status") == status]
     if agent_id:
+        events = [event for event in events if event.get("agent_id") == agent_id]
+    if recipient_user_id is not None:
         events = [
-            event for event in events if event.get("agent_id") == agent_id
+            event
+            for event in events
+            if event.get("recipient_user_id") == recipient_user_id
         ]
     unread_count = sum(not bool(event.get("read")) for event in events)
     if unread_only:
@@ -140,7 +210,17 @@ async def query_events(
     return page, total, unread_count
 
 
-async def mark_read(event_ids: list[str]) -> int:
+async def mark_read(
+    event_ids: list[str],
+    *,
+    recipient_user_id: str | None = None,
+) -> int:
+    repository = _postgres_repository()
+    if repository is not None:
+        return await repository.mark_read(
+            event_ids,
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+        )
     if not event_ids:
         return 0
     event_id_set = set(event_ids)
@@ -148,26 +228,54 @@ async def mark_read(event_ids: list[str]) -> int:
     async with _LOCK:
         events = await run_sync_io(_load_events)
         for event in events:
-            if event.get("id") in event_id_set and not bool(event.get("read")):
+            recipient_matches = (
+                recipient_user_id is None
+                or event.get("recipient_user_id") == recipient_user_id
+            )
+            if (
+                recipient_matches
+                and event.get("id") in event_id_set
+                and not bool(event.get("read"))
+            ):
                 event["read"] = True
                 updated += 1
         await run_sync_io(_save_events, events)
     return updated
 
 
-async def mark_all_read() -> int:
+async def mark_all_read(*, recipient_user_id: str | None = None) -> int:
+    repository = _postgres_repository()
+    if repository is not None:
+        return await repository.mark_all_read(
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+        )
     updated = 0
     async with _LOCK:
         events = await run_sync_io(_load_events)
         for event in events:
-            if not bool(event.get("read")):
+            recipient_matches = (
+                recipient_user_id is None
+                or event.get("recipient_user_id") == recipient_user_id
+            )
+            if recipient_matches and not bool(event.get("read")):
                 event["read"] = True
                 updated += 1
         await run_sync_io(_save_events, events)
     return updated
 
 
-async def delete_event(event_id: str) -> tuple[bool, str | None, bool]:
+async def delete_event(
+    event_id: str,
+    *,
+    recipient_user_id: str | None = None,
+) -> tuple[bool, str | None, bool]:
+    repository = _postgres_repository()
+    if repository is not None:
+        deleted = await repository.delete_events(
+            [event_id],
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+        )
+        return deleted == 1, None, False
     if not event_id:
         return False, None, False
     deleted = False
@@ -177,7 +285,11 @@ async def delete_event(event_id: str) -> tuple[bool, str | None, bool]:
         events = await run_sync_io(_load_events)
         kept_events = []
         for event in events:
-            if not deleted and event.get("id") == event_id:
+            recipient_matches = (
+                recipient_user_id is None
+                or event.get("recipient_user_id") == recipient_user_id
+            )
+            if not deleted and recipient_matches and event.get("id") == event_id:
                 payload = event.get("payload") or {}
                 if isinstance(payload, dict) and isinstance(
                     payload.get("run_id"),
@@ -199,3 +311,48 @@ async def delete_event(event_id: str) -> tuple[bool, str | None, bool]:
         if deleted:
             await run_sync_io(_save_events, kept_events)
     return deleted, deleted_run_id, run_id_still_referenced
+
+
+async def delete_events(
+    event_ids: list[str],
+    *,
+    recipient_user_id: str | None = None,
+) -> int:
+    """删除当前用户的通知；多用户模式只软删除回执。"""
+    repository = _postgres_repository()
+    if repository is not None:
+        return await repository.delete_events(
+            event_ids,
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+        )
+    deleted_count = 0
+    for event_id in dict.fromkeys(event_ids):
+        deleted, _, _ = await delete_event(
+            event_id,
+            recipient_user_id=recipient_user_id,
+        )
+        deleted_count += int(deleted)
+    return deleted_count
+
+
+async def has_run_reference(
+    run_id: str,
+    *,
+    recipient_user_id: str | None = None,
+) -> bool:
+    """返回当前收件人是否仍有可见通知引用指定 Trace。"""
+    repository = _postgres_repository()
+    if repository is not None:
+        return await repository.has_run_reference(
+            run_id,
+            recipient_user_id=_recipient_uuid(recipient_user_id),
+        )
+    events = await list_events(
+        limit=_MAX_EVENTS,
+        recipient_user_id=recipient_user_id,
+    )
+    return any(
+        isinstance(event.get("payload"), dict)
+        and event["payload"].get("run_id") == run_id
+        for event in events
+    )

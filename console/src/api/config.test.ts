@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { getApiUrl, getApiToken, setAuthToken, clearAuthToken } from "./config";
+import {
+  clearAuthToken,
+  getApiAuthMode,
+  getApiToken,
+  getApiUrl,
+  setApiAuthMode,
+  setAuthToken,
+} from "./config";
 
 // VITE_API_BASE_URL / TOKEN are declared globals in config.ts — set via globalThis
 const setViteBase = (v: string) => {
@@ -54,7 +61,15 @@ describe("getApiToken", () => {
 });
 
 describe("setAuthToken / clearAuthToken", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    setApiAuthMode("legacy");
+  });
+
+  it("exposes the current authentication mode", () => {
+    setApiAuthMode("multi_user");
+    expect(getApiAuthMode()).toBe("multi_user");
+  });
 
   it("setAuthToken writes to localStorage", () => {
     setAuthToken("my-token");

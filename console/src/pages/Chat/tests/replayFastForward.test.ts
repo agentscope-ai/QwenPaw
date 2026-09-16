@@ -88,6 +88,22 @@ describe("wrapReplayFastForward", () => {
     expect(chunks.join("")).not.toContain("replay_end");
   });
 
+  it("splits CRLF-delimited replay and live events", async () => {
+    const { response, push, close } = makeSseResponse();
+    const wrapped = wrapReplayFastForward(response, 5000);
+
+    push("data: one\r\n\r\n");
+    push("data: two\r\n\r\n");
+    push('data: {"type": "replay_end"}\r\n\r\n');
+    push("data: live\r\n\r\n");
+    close();
+
+    const chunks = await readAllChunks(wrapped);
+    expect(chunks[0]).toBe("data: one\n\ndata: two\n\n");
+    expect(chunks.slice(1)).toEqual(["data: live\n\n"]);
+    expect(chunks.join("")).not.toContain("replay_end");
+  });
+
   it("falls back to an idle-timeout flush when no marker is sent", async () => {
     const { response, push, close } = makeSseResponse();
     const wrapped = wrapReplayFastForward(response, 20);

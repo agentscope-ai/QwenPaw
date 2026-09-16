@@ -4,6 +4,7 @@
 static files.  Also provides runtime install / uninstall endpoints."""
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
@@ -14,22 +15,92 @@ import tempfile
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
+from ...access.dependencies import get_actor, require_plugins_manage
+from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+from ...plugins.governance import (
+    AppAudience,
+    PluginGovernanceService,
+    PluginInstallation,
+    PostgresPluginGovernanceRepository,
+)
+from ..agent_context import get_agent_for_request
 from ..utils import schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/plugins", tags=["plugins"])
+router = APIRouter(
+    prefix="/plugins",
+    tags=["plugins"],
+    dependencies=[Depends(require_plugins_manage)],
+)
+agent_settings_router = APIRouter(prefix="/plugins", tags=["agent-plugins"])
 
 
 def _log_safe(value: object) -> str:
     """Strip CR/LF so request-derived values cannot forge log entries."""
     return str(value).replace("\r", "").replace("\n", "")
+
+
+def get_plugin_governance_service() -> PluginGovernanceService:
+    return PluginGovernanceService(
+        PostgresPluginGovernanceRepository(schema=get_identity_schema())
+    )
+
+
+def _plugin_content_hash(source_path: Path) -> str:
+    digest = hashlib.sha256()
+    paths = (
+        [source_path]
+        if source_path.is_file()
+        else sorted(path for path in source_path.rglob("*") if path.is_file())
+    )
+    for path in paths:
+        relative = (
+            path.name
+            if source_path.is_file()
+            else path.relative_to(source_path).as_posix()
+        )
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    return digest.hexdigest()
+
+
+async def _persist_plugin_installation(
+    request: Request,
+    record,
+    *,
+    source_type: str,
+    source_ref: str,
+    audience: AppAudience,
+) -> None:
+    if not is_multi_user_enabled():
+        return
+    await get_plugin_governance_service().register_installation(
+        get_actor(request),
+        PluginInstallation(
+            id=uuid4(),
+            plugin_id=record.manifest.id,
+            version=record.manifest.version,
+            plugin_type=record.manifest.plugin_type,
+            status="active",
+        ),
+        source_type=source_type,
+        source_ref=source_ref,
+        content_hash=await asyncio.to_thread(
+            _plugin_content_hash, Path(record.source_path)
+        ),
+        audience=audience,
+    )
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -185,8 +256,8 @@ async def _post_load_setup(  # pylint: disable=too-many-branches
 
     # Register any control commands the plugin registered
     try:
-        from ...runtime.commands.control import register_command
         from ...app.channels.command_registry import CommandRegistry
+        from ...runtime.commands.control import register_command
 
         command_registry = CommandRegistry()
         for cmd_reg in registry.get_control_commands():
@@ -272,12 +343,12 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
         return
 
     try:
-        from ...config.utils import load_config
         from ...config.config import (
             BuiltinToolConfig,
             load_agent_config,
             save_agent_config,
         )
+        from ...config.utils import load_config
 
         config = load_config()
         if not config.agents or not config.agents.profiles:
@@ -290,9 +361,7 @@ def _sync_plugin_tools_to_agents(loader, plugin_id: str) -> None:
                 for tool_name in tool_names:
                     if tool_name in agent_cfg.tools.builtin_tools:
                         continue
-                    agent_cfg.tools.builtin_tools[
-                        tool_name
-                    ] = BuiltinToolConfig(
+                    agent_cfg.tools.builtin_tools[tool_name] = BuiltinToolConfig(
                         name=tool_name,
                         enabled=False,
                         config={},
@@ -317,8 +386,8 @@ def _remove_named_tools_from_agents(
         return
 
     try:
-        from ...config.utils import load_config
         from ...config.config import load_agent_config, save_agent_config
+        from ...config.utils import load_config
 
         config = load_config()
         if not config.agents or not config.agents.profiles:
@@ -413,10 +482,10 @@ def _post_unload_cleanup(
     # ── Control commands ─────────────────────────────────────────────────
     if command_names:
         try:
+            from ...app.channels.command_registry import CommandRegistry
             from ...runtime.commands.control import (
                 unregister_command as unregister_handler,
             )
-            from ...app.channels.command_registry import CommandRegistry
 
             command_registry = CommandRegistry()
             for cmd_name in command_names:
@@ -430,13 +499,11 @@ def _post_unload_cleanup(
                     command_registry.unregister_command(f"/{cmd_name}")
                 except Exception as exc:
                     logger.warning(
-                        f"Could not unregister priority for"
-                        f" '/{cmd_name}': {exc}",
+                        f"Could not unregister priority for '/{cmd_name}': {exc}",
                     )
         except Exception as exc:
             logger.warning(
-                f"Command cleanup skipped for plugin "
-                f"'{_log_safe(plugin_id)}': {exc}",
+                f"Command cleanup skipped for plugin '{_log_safe(plugin_id)}': {exc}",
             )
 
 
@@ -610,26 +677,69 @@ async def list_plugins(request: Request):
         logger.debug(
             "[plugins] plugin_loader not ready, falling back to disk scan",
         )
-        return _list_plugins_from_disk()
+        runtime_rows = _list_plugins_from_disk()
+    else:
+        runtime_rows = []
+        for _plugin_id, record in loader.get_all_loaded_plugins().items():
+            manifest = record.manifest
+            runtime_rows.append(
+                {
+                    "id": manifest.id,
+                    "name": manifest.name,
+                    "version": manifest.version,
+                    "description": manifest.description,
+                    "author": manifest.author,
+                    "enabled": record.enabled,
+                    "loaded": True,
+                    "plugin_type": manifest.plugin_type,
+                    "frontend_entry": manifest.entry.frontend,
+                },
+            )
 
+    if not is_multi_user_enabled():
+        return runtime_rows
+    installations = {
+        row.plugin_id: row
+        for row in await get_plugin_governance_service().list_manageable(
+            get_actor(request)
+        )
+    }
     result = []
-    for _plugin_id, record in loader.get_all_loaded_plugins().items():
-        manifest = record.manifest
+    for runtime in runtime_rows:
+        installation = installations.pop(runtime["id"], None)
+        if installation is None:
+            continue
         result.append(
             {
-                "id": manifest.id,
-                "name": manifest.name,
-                "version": manifest.version,
-                "description": manifest.description,
-                "author": manifest.author,
-                "enabled": record.enabled,
-                "loaded": True,
-                "plugin_type": manifest.plugin_type,
-                "frontend_entry": manifest.entry.frontend,
-            },
+                **runtime,
+                "enabled": installation.status == "active",
+                "status": installation.status,
+                "audience_mode": installation.audience_mode,
+                "selected_user_ids": [
+                    str(value) for value in installation.selected_user_ids
+                ],
+            }
         )
-
-    return result
+    for installation in installations.values():
+        result.append(
+            {
+                "id": installation.plugin_id,
+                "name": installation.plugin_id,
+                "version": installation.version,
+                "description": "",
+                "author": "",
+                "enabled": installation.status == "active",
+                "loaded": False,
+                "plugin_type": installation.plugin_type,
+                "frontend_entry": None,
+                "status": installation.status,
+                "audience_mode": installation.audience_mode,
+                "selected_user_ids": [
+                    str(value) for value in installation.selected_user_ids
+                ],
+            }
+        )
+    return sorted(result, key=lambda row: row["id"])
 
 
 @router.get(
@@ -652,6 +762,172 @@ class InstallPluginRequest(BaseModel):
 
     source: str
     force: bool = False
+    audience_mode: Literal["all_members", "selected_users"] = "selected_users"
+    selected_user_ids: list[UUID] = Field(default_factory=list)
+
+
+class PluginAudienceRequest(BaseModel):
+    """管理员替换应用授权范围。"""
+
+    mode: Literal["all_members", "selected_users"]
+    selected_user_ids: list[UUID] = Field(default_factory=list)
+
+
+class AgentPluginSettingRequest(BaseModel):
+    """Agent 级非敏感插件设置；Agent 身份来自可信请求上下文。"""
+
+    enabled: bool
+    config: dict = Field(default_factory=dict)
+
+
+def _validate_agent_plugin_config(
+    request: Request, plugin_id: str, config: dict
+) -> None:
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        return
+    record = loader.get_loaded_plugin(plugin_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="plugin_not_found")
+    meta = record.manifest.meta or {}
+    declarations = list(meta.get("settings") or [])
+    for tool in meta.get("tools") or []:
+        if isinstance(tool, dict):
+            declarations.extend(tool.get("config_fields") or [])
+    allowed = {
+        field.get("name")
+        for field in declarations
+        if isinstance(field, dict) and isinstance(field.get("name"), str)
+    }
+    unknown = sorted(set(config) - allowed)
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "plugin_config_field_undeclared", "fields": unknown},
+        )
+
+
+@agent_settings_router.put("/{plugin_id}/agent-setting")
+async def save_agent_plugin_setting(
+    plugin_id: str,
+    body: AgentPluginSettingRequest,
+    request: Request,
+):
+    _validate_agent_plugin_config(request, plugin_id, body.config)
+    await get_agent_for_request(request)
+    access = getattr(request.state, "agent_access", None)
+    if access is None:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return await get_plugin_governance_service().save_agent_setting(
+        get_actor(request),
+        access,
+        plugin_id,
+        enabled=body.enabled,
+        config=body.config,
+    )
+
+
+async def _persist_or_compensate_plugin_installation(
+    request: Request,
+    loader,
+    record,
+    *,
+    source_type: str,
+    source_ref: str,
+    audience: AppAudience,
+) -> None:
+    """治理写入失败时撤销刚装载的代码，避免产生未登记运行态。"""
+    try:
+        await _persist_plugin_installation(
+            request,
+            record,
+            source_type=source_type,
+            source_ref=source_ref,
+            audience=audience,
+        )
+    except Exception:
+        try:
+            await loader.unload_plugin(record.manifest.id, delete_files=True)
+        except Exception:
+            logger.exception(
+                "Failed to compensate plugin installation for %s",
+                _log_safe(record.manifest.id),
+            )
+        raise
+
+
+@agent_settings_router.get("/{plugin_id}/agent-setting")
+async def get_agent_plugin_setting(plugin_id: str, request: Request):
+    await get_agent_for_request(request)
+    access = getattr(request.state, "agent_access", None)
+    if access is None:
+        raise HTTPException(status_code=403, detail="forbidden")
+    return await get_plugin_governance_service().get_agent_setting(
+        get_actor(request), access, plugin_id
+    )
+
+
+@router.put("/{plugin_id}/audience", summary="Replace plugin audience")
+async def replace_plugin_audience(
+    plugin_id: str,
+    body: PluginAudienceRequest,
+    request: Request,
+):
+    await get_plugin_governance_service().replace_audience(
+        get_actor(request),
+        plugin_id,
+        AppAudience(
+            mode=body.mode,
+            selected_user_ids=tuple(body.selected_user_ids),
+        ),
+    )
+    return {"id": plugin_id, "audience_mode": body.mode}
+
+
+async def _set_plugin_enabled(plugin_id: str, request: Request, enabled: bool):
+    loader = getattr(request.app.state, "plugin_loader", None)
+    governance = get_plugin_governance_service()
+    installation = await governance.set_status(
+        get_actor(request), plugin_id, enabled=enabled
+    )
+    if not enabled and loader is not None:
+        record = loader.get_loaded_plugin(plugin_id)
+        if record is not None and hasattr(loader, "unload_plugin"):
+            provider_ids, command_names = _collect_plugin_runtime_ids(
+                loader.registry, plugin_id
+            )
+            await loader.unload_plugin(plugin_id, delete_files=False)
+            _post_unload_cleanup(request, plugin_id, provider_ids, command_names)
+            await _schedule_all_agents_reload(request)
+    elif enabled and loader is not None and loader.get_loaded_plugin(plugin_id) is None:
+        from ...config.utils import get_plugins_dir
+
+        plugin_dir = get_plugins_dir() / plugin_id
+        try:
+            _manifest_path, manifest = await asyncio.to_thread(
+                loader._read_source_manifest, plugin_dir
+            )
+            await loader.load_plugin(manifest, plugin_dir)
+            await _post_load_setup(request, plugin_id)
+            await _schedule_all_agents_reload(request)
+        except Exception:
+            await governance.fail_uninstall(get_actor(request), plugin_id)
+            raise
+    return {
+        "id": plugin_id,
+        "status": installation.status,
+        "enabled": installation.status == "active",
+    }
+
+
+@router.post("/{plugin_id}/disable", summary="Globally disable a plugin")
+async def disable_plugin(plugin_id: str, request: Request):
+    return await _set_plugin_enabled(plugin_id, request, False)
+
+
+@router.post("/{plugin_id}/enable", summary="Globally enable a plugin")
+async def enable_plugin(plugin_id: str, request: Request):
+    return await _set_plugin_enabled(plugin_id, request, True)
 
 
 @router.post(
@@ -727,6 +1003,18 @@ async def install_plugin(
         if temp_dir is not None and await asyncio.to_thread(temp_dir.exists):
             await asyncio.to_thread(shutil.rmtree, temp_dir, True)
 
+    await _persist_or_compensate_plugin_installation(
+        request,
+        loader,
+        record,
+        source_type="url" if is_url else "path",
+        source_ref=source,
+        audience=AppAudience(
+            mode=body.audience_mode,
+            selected_user_ids=tuple(body.selected_user_ids),
+        ),
+    )
+
     return {
         "id": record.manifest.id,
         "name": record.manifest.name,
@@ -734,9 +1022,7 @@ async def install_plugin(
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": True,
-        "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
-        ),
+        "message": (f"Plugin '{record.manifest.name}' installed successfully."),
     }
 
 
@@ -801,6 +1087,15 @@ async def upload_plugin(
         if await asyncio.to_thread(temp_dir.exists):
             await asyncio.to_thread(shutil.rmtree, temp_dir, True)
 
+    await _persist_or_compensate_plugin_installation(
+        request,
+        loader,
+        record,
+        source_type="upload",
+        source_ref=file.filename,
+        audience=AppAudience(mode="selected_users"),
+    )
+
     return {
         "id": record.manifest.id,
         "name": record.manifest.name,
@@ -808,9 +1103,7 @@ async def upload_plugin(
         "description": record.manifest.description,
         "author": record.manifest.author,
         "loaded": True,
-        "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
-        ),
+        "message": (f"Plugin '{record.manifest.name}' installed successfully."),
     }
 
 
@@ -831,6 +1124,10 @@ async def uninstall_plugin(plugin_id: str, request: Request):
             status_code=503,
             detail="Plugin loader is not ready yet.",
         )
+    governance = None
+    if is_multi_user_enabled():
+        governance = get_plugin_governance_service()
+        await governance.begin_uninstall(get_actor(request), plugin_id)
 
     # Full uninstall transaction under one lifecycle lock so record/meta
     # capture, unload, and agent-config cleanup cannot race a concurrent
@@ -860,8 +1157,12 @@ async def uninstall_plugin(plugin_id: str, request: Request):
             )
             await _schedule_all_agents_reload(request)
     except KeyError as exc:
+        if governance is not None:
+            await governance.fail_uninstall(get_actor(request), plugin_id)
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except Exception as exc:
+        if governance is not None:
+            await governance.fail_uninstall(get_actor(request), plugin_id)
         logger.error(
             f"Plugin uninstall failed for '{_log_safe(plugin_id)}': {exc}",
             exc_info=True,
@@ -870,6 +1171,9 @@ async def uninstall_plugin(plugin_id: str, request: Request):
             status_code=500,
             detail=f"Plugin uninstallation failed: {exc}",
         ) from exc
+
+    if governance is not None:
+        await governance.complete_uninstall(get_actor(request), plugin_id)
 
     return {
         "id": plugin_id,

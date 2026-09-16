@@ -1,31 +1,16 @@
-import React, {
-  useCallback,
-  useRef,
-  useState,
-  forwardRef,
-  useImperativeHandle,
-} from "react";
+import React, { forwardRef, useImperativeHandle, useRef } from "react";
 import { IconButton } from "@agentscope-ai/design";
 import { SparkMicLine } from "@agentscope-ai/icons";
-import { Tooltip, message } from "antd";
+import { Tooltip, Button } from "antd";
 import { LoadingOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import { agentApi, TranscriptionError } from "@/api/modules/agent";
-import { useUploadLimitStore } from "@/stores/uploadLimitStore";
-
-const MAX_RECORDING_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+import { useVoiceInput, type VoiceInputProps } from "./useVoiceInput";
 
 export interface WhisperSpeechButtonRef {
   toggleRecording: () => void;
   isRecording: () => boolean;
   isLoading: () => boolean;
 }
-
-interface WhisperSpeechButtonProps {
-  disabled?: boolean;
-  onTranscription: (text: string) => void;
-}
-
 // Original recording icon animation from @agentscope-ai/chat
 const SIZE = 1000;
 const COUNT = 4;
@@ -87,171 +72,88 @@ const RecordingIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
-const WhisperSpeechButton = forwardRef<
-  WhisperSpeechButtonRef,
-  WhisperSpeechButtonProps
->(({ disabled, onTranscription }, ref) => {
-  const { t } = useTranslation();
-  const [recording, setRecording] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const internalRecordingRef = useRef(false);
-  const recordingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const stopRecording = useCallback(() => {
-    if (mediaRecorderRef.current && internalRecordingRef.current) {
-      mediaRecorderRef.current.stop();
-      internalRecordingRef.current = false;
-      setRecording(false);
-    }
-  }, []);
-
-  const startRecording = useCallback(async () => {
-    if (internalRecordingRef.current || loading) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : "audio/mp4";
-      const recorder = new MediaRecorder(stream, { mimeType });
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
-      };
-
-      recorder.onstop = async () => {
-        stream.getTracks().forEach((track) => track.stop());
-        if (recordingTimerRef.current) {
-          clearTimeout(recordingTimerRef.current);
-          recordingTimerRef.current = null;
-        }
-        const blob = new Blob(chunksRef.current, { type: mimeType });
-
-        // File size validation
-        const sizeMb = blob.size / 1024 / 1024;
-        const uploadLimit = useUploadLimitStore.getState().uploadMaxSizeMb;
-        if (uploadLimit !== null && sizeMb > uploadLimit) {
-          message.error(
-            t("chat.speech.fileTooLarge", {
-              size: sizeMb.toFixed(1),
-              limit: uploadLimit,
-            }),
-          );
-          return;
-        }
-
-        setLoading(true);
-        try {
-          const result = await agentApi.transcribeAudio(blob);
-          if (result.text) {
-            onTranscription(result.text);
-          }
-        } catch (err) {
-          if (err instanceof TranscriptionError) {
-            switch (err.code) {
-              case "TRANSCRIPTION_DISABLED":
-                message.warning(t("chat.speech.transcriptionDisabled"));
-                break;
-              case "FILE_TOO_LARGE":
-                message.error(
-                  t("chat.speech.fileTooLarge", {
-                    size: sizeMb.toFixed(1),
-                    limit: uploadLimit ?? "?",
-                  }),
-                );
-                break;
-              default:
-                message.error(t("chat.speech.transcriptionFailed"));
-            }
-          } else {
-            message.error(t("chat.speech.transcriptionFailed"));
-          }
-          console.error("Transcription error:", err);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      internalRecordingRef.current = true;
-      setRecording(true);
-
-      // Auto-stop after max duration
-      recordingTimerRef.current = setTimeout(() => {
-        if (internalRecordingRef.current) {
-          message.warning(
-            t("chat.speech.recordingTooLong", {
-              limit: MAX_RECORDING_DURATION_MS / 1000,
-            }),
-          );
-          stopRecording();
-        }
-      }, MAX_RECORDING_DURATION_MS);
-    } catch (err) {
-      console.error("Microphone access error:", err);
-      message.error(t("chat.speech.microphoneError"));
-    }
-  }, [onTranscription, t, loading, stopRecording]);
-
-  const toggleRecording = useCallback(() => {
-    if (loading) return;
-    if (internalRecordingRef.current) {
-      stopRecording();
-    } else {
-      startRecording();
-    }
-  }, [loading, startRecording, stopRecording]);
-
-  // Expose methods via ref
-  useImperativeHandle(
-    ref,
-    () => ({
-      toggleRecording,
-      isRecording: () => internalRecordingRef.current,
+const WhisperSpeechButton = forwardRef<WhisperSpeechButtonRef, VoiceInputProps>(
+  (props, ref) => {
+    const { t } = useTranslation();
+    const root = useRef<HTMLSpanElement>(null);
+    const voice = useVoiceInput({
+      ...props,
+      getSender: props.getSender
+        ? () => props.getSender!(root.current)
+        : undefined,
+    });
+    const file = useRef<HTMLInputElement>(null);
+    const recording = voice.phase === "recording";
+    const busy = voice.phase !== "idle";
+    const loading = busy && !recording;
+    useImperativeHandle(ref, () => ({
+      toggleRecording: () => {
+        void voice.toggleRecording();
+      },
+      isRecording: () => recording,
       isLoading: () => loading,
-    }),
-    [toggleRecording, loading],
-  );
-
-  const isDisabled = disabled || loading;
-
-  return (
-    <Tooltip
-      title={
-        loading
-          ? t("chat.speech.transcribing")
-          : recording
-          ? t("chat.speech.stopRecording")
-          : t("chat.speech.startRecording")
-      }
-      mouseEnterDelay={0.5}
-    >
-      <IconButton
-        bordered={false}
-        icon={
-          loading ? (
-            <LoadingOutlined style={{ fontSize: "1.2em" }} />
-          ) : recording ? (
-            <RecordingIcon />
-          ) : (
-            <SparkMicLine />
-          )
-        }
-        onClick={toggleRecording}
-        disabled={isDisabled}
-        style={{
-          color: recording || loading ? "#1890ff" : undefined,
-        }}
-      />
-    </Tooltip>
-  );
-});
-
+    }));
+    const label = t(
+      recording ? "chat.speech.stopRecording" : "chat.speech.startRecording",
+    );
+    return (
+      <span ref={root}>
+        <Tooltip title={label}>
+          <IconButton
+            bordered={false}
+            aria-label={label}
+            data-testid="voice-record"
+            icon={
+              loading ? (
+                <LoadingOutlined />
+              ) : recording ? (
+                <RecordingIcon />
+              ) : (
+                <SparkMicLine />
+              )
+            }
+            disabled={voice.disabled || loading}
+            onClick={() => {
+              void voice.toggleRecording();
+            }}
+          />
+        </Tooltip>
+        <Button
+          type="text"
+          aria-label={t("chat.speech.uploadAudio")}
+          data-testid="voice-upload-button"
+          disabled={voice.disabled || busy}
+          onClick={() => file.current?.click()}
+        >
+          {t("chat.speech.uploadAudio")}
+        </Button>
+        <input
+          ref={file}
+          hidden
+          type="file"
+          accept="audio/*"
+          aria-label={t("chat.speech.uploadAudio")}
+          data-testid="voice-upload-input"
+          disabled={voice.disabled || busy}
+          onChange={(e) => {
+            const selected = e.target.files?.[0];
+            e.target.value = "";
+            if (selected) voice.upload(selected);
+          }}
+        />
+        {busy && (
+          <Button
+            type="text"
+            aria-label={t("chat.speech.cancel")}
+            data-testid="voice-cancel"
+            onClick={voice.cancel}
+          >
+            {t("chat.speech.cancel")}
+          </Button>
+        )}
+      </span>
+    );
+  },
+);
 WhisperSpeechButton.displayName = "WhisperSpeechButton";
-
 export default WhisperSpeechButton;

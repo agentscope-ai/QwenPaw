@@ -52,6 +52,7 @@ from ...config.config import load_agent_config
 from ...constant import WORKING_DIR
 from ...plan.intent_router import PlanIntentRouter
 from ...runtime_status.broadcast import broadcast_runtime_status
+from ...runtime_status.stream_events import stream_with_runtime_status
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
@@ -188,6 +189,7 @@ class AgentRunner(Runner):
         status: str = "running",
         message: str = "",
         detail: dict[str, Any] | None = None,
+        user_id: str | None = None,
     ) -> None:
         broadcast_runtime_status(
             self.agent_id,
@@ -198,6 +200,7 @@ class AgentRunner(Runner):
             status=status,
             message=message,
             detail=detail,
+            user_id=user_id,
         )
 
     @staticmethod
@@ -383,6 +386,7 @@ class AgentRunner(Runner):
         root_session_id: str,
         user_id: str,
         channel: str,
+        recipient_user_id: str | None = None,
     ) -> tuple[SkillRoute | None, Msg | None]:
         """Ask the user to choose a skill when routing is ambiguous."""
         if route is None or route.kind != "clarify":
@@ -419,6 +423,7 @@ class AgentRunner(Runner):
             channel=channel,
             agent_id=self.agent_id,
             title="选择要使用的技能",
+            recipient_user_id=recipient_user_id,
             questions=[
                 UserInputQuestion(
                     id="skill",
@@ -610,6 +615,13 @@ class AgentRunner(Runner):
             f"AgentRunner.query_handler called: agent_id={self.agent_id}, "
             f"msgs={msgs}, request={request}",
         )
+        from functools import partial
+        from ...runtime_status.scope import execution_user_id
+
+        recipient_user_id = execution_user_id(
+            getattr(request, "request_context", None),
+        )
+        emit_status = partial(self._emit_runtime_status, user_id=recipient_user_id)
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
@@ -732,6 +744,7 @@ class AgentRunner(Runner):
                     )
 
             env_context = build_env_context(
+                agent_id=self.agent_id,
                 session_id=session_id,
                 user_id=user_id,
                 user_name=user_name,
@@ -790,7 +803,7 @@ class AgentRunner(Runner):
                     session_preview,
                 )
 
-            self._emit_runtime_status(
+            emit_status(
                 session_id=session_id,
                 root_session_id=base_request_context["root_session_id"],
                 stage="agent_starting",
@@ -927,6 +940,7 @@ class AgentRunner(Runner):
                                 skill_response,
                             ) = await self._maybe_resolve_skill_clarification(
                                 route=skill_route,
+                                recipient_user_id=recipient_user_id,
                                 query=query,
                                 session_id=session_id,
                                 root_session_id=base_request_context[
@@ -1240,7 +1254,7 @@ class AgentRunner(Runner):
             # in the session state.
             agent.rebuild_sys_prompt()
 
-            self._emit_runtime_status(
+            emit_status(
                 session_id=session_id,
                 root_session_id=base_request_context["root_session_id"],
                 chat_id=(chat.id if chat is not None else None),
@@ -1249,7 +1263,6 @@ class AgentRunner(Runner):
             )
 
             # --- Execution: Mission Mode (phased) or standard -----
-            seen_first_event = False
             from ...observability.langfuse import agent_trace_scope
 
             root_session_id = base_request_context.get(
@@ -1288,71 +1301,50 @@ class AgentRunner(Runner):
                     )
 
                     if phase == 1:
-                        async for msg, last in run_mission_phase1(
+                        phase_stream = run_mission_phase1(
                             agent=agent,
                             msgs=msgs,
                             loop_dir=loop_dir,
                             max_iterations=max_iters,
                             agent_id=self.agent_id,
+                        )
+                        async for msg, last in stream_with_runtime_status(
+                            phase_stream,
+                            emit_status,
+                            session_id=session_id,
+                            root_session_id=root_session_id,
+                            chat_id=(chat.id if chat is not None else None),
                         ):
-                            if not seen_first_event:
-                                seen_first_event = True
-                                self._emit_runtime_status(
-                                    session_id=session_id,
-                                    root_session_id=root_session_id,
-                                    chat_id=(
-                                        chat.id if chat is not None else None
-                                    ),
-                                    stage="model_streaming",
-                                    message="模型已开始响应。",
-                                )
                             yield msg, last
                     else:
-                        async for msg, last in run_mission_phase2(
+                        phase_stream = run_mission_phase2(
                             agent=agent,
                             msgs=msgs,
                             loop_dir=loop_dir,
                             max_iterations=max_iters,
                             agent_id=self.agent_id,
+                        )
+                        async for msg, last in stream_with_runtime_status(
+                            phase_stream,
+                            emit_status,
+                            session_id=session_id,
+                            root_session_id=root_session_id,
+                            chat_id=(chat.id if chat is not None else None),
                         ):
-                            if not seen_first_event:
-                                seen_first_event = True
-                                self._emit_runtime_status(
-                                    session_id=session_id,
-                                    root_session_id=root_session_id,
-                                    chat_id=(
-                                        chat.id if chat is not None else None
-                                    ),
-                                    stage="model_streaming",
-                                    message="模型已开始响应。",
-                                )
                             yield msg, last
                 else:
-                    async for (
-                        msg,
-                        last,
-                    ) in _stream_printing_messages_interruptible(
+                    response_stream = _stream_printing_messages_interruptible(
                         agents=[agent],
                         coroutine_task=agent(msgs),
+                    )
+                    async for msg, last in stream_with_runtime_status(
+                        response_stream,
+                        emit_status,
+                        session_id=session_id,
+                        root_session_id=root_session_id,
+                        chat_id=(chat.id if chat is not None else None),
                     ):
-                        if not seen_first_event:
-                            seen_first_event = True
-                            self._emit_runtime_status(
-                                session_id=session_id,
-                                root_session_id=root_session_id,
-                                chat_id=(chat.id if chat is not None else None),
-                                stage="model_streaming",
-                                message="模型已开始响应。",
-                            )
                         yield msg, last
-            self._emit_runtime_status(
-                session_id=session_id,
-                root_session_id=root_session_id,
-                chat_id=(chat.id if chat is not None else None),
-                stage="completed",
-                status="completed",
-                message="任务已完成。",
-            )
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
@@ -1384,7 +1376,7 @@ class AgentRunner(Runner):
 
             if agent is not None:
                 await agent.interrupt()
-            self._emit_runtime_status(
+            emit_status(
                 session_id=session_id,
                 root_session_id=base_request_context.get(
                     "root_session_id",
@@ -1415,7 +1407,7 @@ class AgentRunner(Runner):
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
             logger.exception(f"Error in query handler: {converted}{path_hint}")
-            self._emit_runtime_status(
+            emit_status(
                 session_id=session_id,
                 root_session_id=base_request_context.get(
                     "root_session_id",
@@ -1428,20 +1420,6 @@ class AgentRunner(Runner):
             )
             if debug_dump_path:
                 setattr(converted, "debug_dump_path", debug_dump_path)
-                if hasattr(converted, "add_note"):
-                    converted.add_note(
-                        f"(Details:  {debug_dump_path})",
-                    )
-                suffix = f"\n(Details:  {debug_dump_path})"
-                if hasattr(converted, "message") and isinstance(
-                    converted.message,
-                    str,
-                ):
-                    converted.message += suffix
-                elif converted.args:
-                    converted.args = (
-                        f"{converted.args[0]}{suffix}",
-                    ) + converted.args[1:]
             raise converted from e
         finally:
             if agent is not None and session_state_loaded:

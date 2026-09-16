@@ -76,6 +76,16 @@
   padding: 80px 24px;
 }
 
+.scopeNotice {
+  margin: 0 24px 12px;
+  padding: 10px 12px;
+  border: 1px solid #ffe7ba;
+  border-radius: 8px;
+  color: #8c5a13;
+  background: #fffbe6;
+  font-size: 13px;
+}
+
 .stateText {
   font-size: 14px;
   color: #999;
@@ -269,25 +279,6 @@
   }
 }
 
-/* Password toggle button */
-.passwordToggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  color: #999;
-  border-radius: 4px;
-
-  &:hover {
-    color: #ff7f16;
-    background: #f0f0ff;
-  }
-}
-
 /* ---- Row action buttons ---- */
 
 .rowActions {
@@ -419,6 +410,12 @@
     color: rgba(255, 255, 255, 0.35);
   }
 
+  .scopeNotice {
+    border-color: rgba(250, 173, 20, 0.28);
+    color: rgba(255, 214, 102, 0.85);
+    background: rgba(250, 173, 20, 0.08);
+  }
+
   /* Main card */
   .tableCard {
     background: #1f1f1f;
@@ -502,16 +499,6 @@
       &::placeholder {
         color: rgba(255, 255, 255, 0.2) !important;
       }
-    }
-  }
-
-  /* Password toggle */
-  .passwordToggle {
-    color: rgba(255, 255, 255, 0.3);
-
-    &:hover {
-      color: #ff7f16;
-      background: rgba(97, 92, 237, 0.12);
     }
   }
 

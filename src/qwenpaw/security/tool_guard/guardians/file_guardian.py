@@ -3,6 +3,7 @@
 
 Blocks tool calls that target files explicitly listed in a sensitive-file set.
 """
+
 from __future__ import annotations
 
 import ntpath
@@ -79,9 +80,7 @@ _REDIRECT_OPS_BY_LEN = tuple(
 def _workspace_root() -> Path:
     """Return the effective project root for resolving relative paths."""
     return Path(
-        get_current_project_dir()
-        or get_current_workspace_dir()
-        or WORKING_DIR,
+        get_current_project_dir() or get_current_workspace_dir() or WORKING_DIR,
     )
 
 
@@ -154,9 +153,11 @@ def _normalize_path(raw_path: str) -> str:
 def _is_file_guard_enabled() -> bool:
     """Check ``security.file_guard.enabled`` from config."""
     try:
-        from qwenpaw.config import load_config
+        from qwenpaw.platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
-        return bool(load_config().security.file_guard.enabled)
+        return bool(load_effective_security_policy().file_guard.enabled)
     except Exception:
         return True
 
@@ -169,10 +170,12 @@ def _load_sensitive_files_from_config() -> list[str]:
     default.
     """
     try:
-        from qwenpaw.config import load_config
+        from qwenpaw.platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
         configured = list(
-            load_config().security.file_guard.sensitive_files or [],
+            load_effective_security_policy().file_guard.sensitive_files or [],
         )
         return ensure_file_guard_paths(configured)
     except Exception:

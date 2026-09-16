@@ -20,7 +20,7 @@ describe("cronJobApi", () => {
     const jobs = [{ id: "job-1", name: "backup" }];
     vi.mocked(request).mockResolvedValue(jobs);
     const result = await cronJobApi.listCronJobs();
-    expect(request).toHaveBeenCalledWith("/cron/jobs");
+    expect(request).toHaveBeenCalledWith("/cron/jobs?scope=mine");
     expect(result).toEqual(jobs);
   });
 
@@ -90,5 +90,31 @@ describe("cronJobApi", () => {
       `/cron/jobs/${encodeURIComponent("job-1")}/run`,
       { method: "POST" },
     );
+  });
+
+  it("gets and confirms the current authorization preview", async () => {
+    const preview = {
+      config_version: 2,
+      authorization_digest: "digest",
+    } as any;
+    vi.mocked(request).mockResolvedValue(preview);
+
+    await cronJobApi.getCronJobAuthorization("job/1");
+    expect(request).toHaveBeenCalledWith(
+      `/cron/jobs/${encodeURIComponent("job/1")}/authorization`,
+    );
+
+    await cronJobApi.authorizeCronJob("job/1", preview);
+    expect(request).toHaveBeenLastCalledWith(
+      `/cron/jobs/${encodeURIComponent("job/1")}/authorize`,
+      { method: "POST", body: JSON.stringify(preview) },
+    );
+  });
+
+  it("revokes a job authorization", async () => {
+    await cronJobApi.revokeCronJobAuthorization("job-1");
+    expect(request).toHaveBeenCalledWith("/cron/jobs/job-1/revoke", {
+      method: "POST",
+    });
   });
 });

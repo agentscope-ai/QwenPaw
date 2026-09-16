@@ -1,6 +1,7 @@
 import { useEffect, useState, useDeferredValue } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, Form, Modal, Table, Button, Tabs } from "@agentscope-ai/design";
+import { Descriptions, Segmented } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import {
@@ -15,6 +16,8 @@ import api from "../../../api";
 import { PageHeader } from "@/components/PageHeader";
 import { ChannelIcon } from "../Channels/components";
 import styles from "./index.module.less";
+import { inspectSessionForView } from "./viewSession";
+import ConversationShareDialog from "../../Chat/components/ConversationShareDialog";
 
 function SessionsPage() {
   const { t } = useTranslation();
@@ -33,11 +36,14 @@ function SessionsPage() {
     setActiveTab,
     activeCount,
     archivedCount,
+    accessScope,
+    setAccessScope,
   } = useSessions();
   const [filteredSessions, setFilteredSessions] = useState<Session[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingSession, setEditingSession] = useState<Session | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sharingSession, setSharingSession] = useState<Session | null>(null);
   const [form] = Form.useForm<Session>();
 
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -124,8 +130,47 @@ function SessionsPage() {
     });
   };
 
-  const handleView = (session: Session) => {
-    navigate(`/chat/${encodeURIComponent(session.id)}`);
+  const handleView = async (session: Session) => {
+    try {
+      const inspection = await inspectSessionForView(session.id);
+      if (inspection.kind === "chat") {
+        navigate(`/chat/${encodeURIComponent(session.id)}`);
+        return;
+      }
+
+      Modal.info({
+        title: t("sessions.emptySessionTitle", "会话尚无消息"),
+        content: (
+          <>
+            <p>
+              {t(
+                "sessions.emptySessionDescription",
+                "该会话已创建，但尚未产生用户或智能体消息。以下为现有会话信息。",
+              )}
+            </p>
+            <Descriptions column={1} size="small">
+              <Descriptions.Item label="ID">{session.id}</Descriptions.Item>
+              <Descriptions.Item label="SessionID">
+                {session.session_id}
+              </Descriptions.Item>
+              <Descriptions.Item label="UserID">
+                {session.user_id || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="Channel">
+                {session.channel || "-"}
+              </Descriptions.Item>
+              <Descriptions.Item label="CreatedAt">
+                {formatTime(session.created_at)}
+              </Descriptions.Item>
+            </Descriptions>
+          </>
+        ),
+        okText: t("common.confirm", "确定"),
+      });
+    } catch (error) {
+      console.error("Failed to inspect session:", error);
+      message.error(t("sessions.viewFailed", "读取会话内容失败"));
+    }
   };
 
   const handleArchiveToggle = async (session: Session) => {
@@ -135,6 +180,8 @@ function SessionsPage() {
       await archiveSession(session.id);
     }
   };
+
+  const handleShare = (session: Session) => setSharingSession(session);
 
   const handleBatchDelete = () => {
     if (selectedRowKeys.length === 0) {
@@ -204,6 +251,7 @@ function SessionsPage() {
     onDelete: handleDelete,
     onView: handleView,
     onArchiveToggle: handleArchiveToggle,
+    onShare: handleShare,
     isArchivedTab,
   });
 
@@ -214,6 +262,9 @@ function SessionsPage() {
     onChange: (newSelectedRowKeys: React.Key[]) => {
       setSelectedRowKeys(newSelectedRowKeys);
     },
+    getCheckboxProps: (record: Session) => ({
+      disabled: record.access_role === "viewer",
+    }),
   };
 
   return (
@@ -273,6 +324,20 @@ function SessionsPage() {
         style={{ padding: "0 16px" }}
       />
 
+      <div style={{ padding: "0 16px 12px" }}>
+        <Segmented
+          value={accessScope}
+          onChange={(value) =>
+            setAccessScope(value as "all" | "owned" | "shared")
+          }
+          options={[
+            { label: t("sessions.scopeAll"), value: "all" },
+            { label: t("sessions.scopeOwned"), value: "owned" },
+            { label: t("sessions.scopeShared"), value: "shared" },
+          ]}
+        />
+      </div>
+
       {isMobile ? (
         <div className={styles.mobileCardList}>
           {filteredSessions.map((session) => (
@@ -291,12 +356,26 @@ function SessionsPage() {
                 </span>
               </div>
               <div className={styles.mobileSessionMeta}>
+                {session.access_role === "viewer" && (
+                  <span>
+                    {t("chat.sharedReadOnlyBadge")}
+                    {session.shared_by ? ` · ${session.shared_by}` : ""}
+                  </span>
+                )}
                 <span>ID: {session.id}</span>
                 {session.user_id && <span>User: {session.user_id}</span>}
                 <span>Created: {formatTime(session.created_at)}</span>
               </div>
               <div className={styles.mobileSessionActions}>
-                {isArchivedTab ? (
+                {session.access_role === "viewer" ? (
+                  <Button
+                    size="small"
+                    className={styles.mobileActionBtn}
+                    onClick={() => handleView(session)}
+                  >
+                    {t("common.view")}
+                  </Button>
+                ) : isArchivedTab ? (
                   <>
                     <Button
                       size="small"
@@ -329,6 +408,13 @@ function SessionsPage() {
                       onClick={() => handleView(session)}
                     >
                       {t("common.view")}
+                    </Button>
+                    <Button
+                      size="small"
+                      className={styles.mobileActionBtn}
+                      onClick={() => handleShare(session)}
+                    >
+                      分享
                     </Button>
                     <Button
                       size="small"
@@ -378,6 +464,11 @@ function SessionsPage() {
         saving={saving}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+      />
+      <ConversationShareDialog
+        open={sharingSession !== null}
+        chatId={sharingSession?.id ?? null}
+        onClose={() => setSharingSession(null)}
       />
     </div>
   );

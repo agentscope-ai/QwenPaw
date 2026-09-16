@@ -68,7 +68,10 @@ describe("toolsApi", () => {
   });
 
   it("getToolConfig returns the tool's current config values", async () => {
-    const cfg = { api_key: "k", timeout: 30 };
+    const cfg = {
+      config: { timeout: 30 },
+      credential_status: { api_key: "configured" as const },
+    };
     vi.mocked(request).mockResolvedValue(cfg);
     const r = await toolsApi.getToolConfig("web_search");
     expect(r).toBe(cfg);
@@ -80,7 +83,12 @@ describe("toolsApi", () => {
       message: "saved",
     });
     await expect(
-      toolsApi.updateToolConfig("web_search", { api_key: "k" }),
+      toolsApi.updateToolConfig("web_search", {
+        config: {},
+        credential_updates: {
+          api_key: { action: "replace", value: "k" },
+        },
+      }),
     ).resolves.toEqual({ status: "ok", message: "saved" });
   });
 

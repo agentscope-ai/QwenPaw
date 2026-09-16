@@ -1,0 +1,3634 @@
+{
+  "schema_version": 2,
+  "baseline": {
+    "project_version": "2.1.0",
+    "git_head": "4726195905e0f96a6529b77dfbf0210d01f127ee",
+    "captured_on": "2026-09-09",
+    "policy": "explicit-review-required-post-multi-user-acceptance"
+  },
+  "frontend": {
+    "routes": [
+      {
+        "id": "core.root",
+        "path": "/"
+      },
+      {
+        "id": "core.chat",
+        "path": "/chat/*"
+      },
+      {
+        "id": "core.files",
+        "path": "/files"
+      },
+      {
+        "id": "core.channels",
+        "path": "/channels"
+      },
+      {
+        "id": "core.sessions",
+        "path": "/sessions"
+      },
+      {
+        "id": "core.inbox",
+        "path": "/inbox"
+      },
+      {
+        "id": "core.cron-jobs",
+        "path": "/cron-jobs"
+      },
+      {
+        "id": "core.heartbeat",
+        "path": "/heartbeat"
+      },
+      {
+        "id": "core.skills",
+        "path": "/skills"
+      },
+      {
+        "id": "core.skill-pool",
+        "path": "/skill-pool"
+      },
+      {
+        "id": "core.tools",
+        "path": "/tools"
+      },
+      {
+        "id": "core.mcp",
+        "path": "/mcp"
+      },
+      {
+        "id": "core.acp",
+        "path": "/acp"
+      },
+      {
+        "id": "core.acp-alias",
+        "path": "/ACP"
+      },
+      {
+        "id": "core.checkpoints",
+        "path": "/checkpoints"
+      },
+      {
+        "id": "core.agents",
+        "path": "/agents"
+      },
+      {
+        "id": "core.models",
+        "path": "/models"
+      },
+      {
+        "id": "core.admin-users",
+        "path": "/admin/users"
+      },
+      {
+        "id": "core.admin-publications",
+        "path": "/admin/publications"
+      },
+      {
+        "id": "core.environments",
+        "path": "/environments"
+      },
+      {
+        "id": "core.offload-policy",
+        "path": "/offload-policy"
+      },
+      {
+        "id": "core.agent-config",
+        "path": "/agent-config"
+      },
+      {
+        "id": "core.security",
+        "path": "/security"
+      },
+      {
+        "id": "core.system-status",
+        "path": "/system-status"
+      },
+      {
+        "id": "core.token-usage",
+        "path": "/token-usage"
+      },
+      {
+        "id": "core.agent-stats",
+        "path": "/agent-stats"
+      },
+      {
+        "id": "core.voice-transcription",
+        "path": "/voice-transcription"
+      },
+      {
+        "id": "core.debug",
+        "path": "/debug"
+      },
+      {
+        "id": "core.backups",
+        "path": "/backups"
+      },
+      {
+        "id": "core.plugin-manager",
+        "path": "/plugin-manager"
+      },
+      {
+        "id": "core.app-center",
+        "path": "/apps"
+      },
+      {
+        "id": "core.app-center.embed",
+        "path": "/apps/:appId"
+      }
+    ],
+    "menu": [
+      {
+        "id": "core.inbox",
+        "location": "primary.agentScoped",
+        "route": "core.inbox"
+      },
+      {
+        "id": "core.app-center",
+        "location": "primary.agentScoped",
+        "route": "core.app-center"
+      },
+      {
+        "id": "core.control-group",
+        "location": "primary.agentScoped",
+        "isGroup": true
+      },
+      {
+        "id": "core.channels",
+        "location": "primary.agentScoped",
+        "parentId": "core.control-group",
+        "route": "core.channels"
+      },
+      {
+        "id": "core.sessions",
+        "location": "primary.agentScoped",
+        "parentId": "core.control-group",
+        "route": "core.sessions"
+      },
+      {
+        "id": "core.cron-jobs",
+        "location": "primary.agentScoped",
+        "parentId": "core.control-group",
+        "route": "core.cron-jobs"
+      },
+      {
+        "id": "core.heartbeat",
+        "location": "primary.agentScoped",
+        "parentId": "core.control-group",
+        "route": "core.heartbeat"
+      },
+      {
+        "id": "core.workspace-group",
+        "location": "primary.agentScoped",
+        "isGroup": true
+      },
+      {
+        "id": "core.files",
+        "location": "primary.agentScoped",
+        "parentId": "core.workspace-group",
+        "route": "core.files"
+      },
+      {
+        "id": "core.skills",
+        "location": "primary.agentScoped",
+        "parentId": "core.workspace-group",
+        "route": "core.skills"
+      },
+      {
+        "id": "core.tools",
+        "location": "primary.agentScoped",
+        "parentId": "core.workspace-group",
+        "route": "core.tools"
+      },
+      {
+        "id": "core.mcp",
+        "location": "primary.agentScoped",
+        "parentId": "core.workspace-group",
+        "route": "core.mcp"
+      },
+      {
+        "id": "core.acp",
+        "location": "primary.agentScoped",
+        "parentId": "core.workspace-group",
+        "route": "core.acp"
+      },
+      {
+        "id": "core.agent-config",
+        "location": "primary.agentScoped",
+        "parentId": "core.workspace-group",
+        "route": "core.agent-config"
+      },
+      {
+        "id": "core.agent-stats",
+        "location": "primary.agentScoped",
+        "parentId": "core.workspace-group",
+        "route": "core.agent-stats"
+      },
+      {
+        "id": "core.checkpoints",
+        "location": "primary.agentScoped",
+        "parentId": "core.agent-group",
+        "route": "core.checkpoints"
+      },
+      {
+        "id": "core.settings-group",
+        "location": "primary.settings",
+        "isGroup": true
+      },
+      {
+        "id": "core.agents",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.agents"
+      },
+      {
+        "id": "core.models",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.models"
+      },
+      {
+        "id": "core.admin-users",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.admin-users"
+      },
+      {
+        "id": "core.admin-publications",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.admin-publications"
+      },
+      {
+        "id": "core.skill-pool",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.skill-pool"
+      },
+      {
+        "id": "core.environments",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.environments"
+      },
+      {
+        "id": "core.offload-policy",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.offload-policy"
+      },
+      {
+        "id": "core.security",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.security"
+      },
+      {
+        "id": "core.system-status",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.system-status"
+      },
+      {
+        "id": "core.token-usage",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.token-usage"
+      },
+      {
+        "id": "core.backups",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.backups"
+      },
+      {
+        "id": "core.voice-transcription",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.voice-transcription"
+      },
+      {
+        "id": "core.debug",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.debug"
+      },
+      {
+        "id": "core.plugin-manager",
+        "location": "primary.settings",
+        "parentId": "core.settings-group",
+        "route": "core.plugin-manager"
+      }
+    ],
+    "sticky_entries": [
+      {
+        "id": "core.chat",
+        "path": "/chat",
+        "location": "sidebar.agentHeader"
+      }
+    ],
+    "pages": [
+      {
+        "route_id": "core.root",
+        "browser_path": "/",
+        "page_label": "Ĭ�����",
+        "critical_actions": [
+          "�ض��򵽶Ի�������"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.chat",
+        "browser_path": "/chat",
+        "page_label": "�Ի�",
+        "critical_actions": [
+          "�½��Ի�",
+          "�л�ģ��",
+          "������Ϣ",
+          "�鿴����ִ�й���"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.files",
+        "browser_path": "/files",
+        "page_label": "�ļ�",
+        "critical_actions": [
+          "���������",
+          "���ļ�",
+          "�༭�ļ�"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.channels",
+        "browser_path": "/channels",
+        "page_label": "Ƶ��",
+        "critical_actions": [
+          "����Ƶ��",
+          "�༭Ƶ��",
+          "ɾ��Ƶ��"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.sessions",
+        "browser_path": "/sessions",
+        "page_label": "�Ự",
+        "critical_actions": [
+          "�鿴�Ự",
+          "ɸѡ�Ự",
+          "ɾ���Ự"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.inbox",
+        "browser_path": "/inbox",
+        "page_label": "�ռ���",
+        "critical_actions": [
+          "�鿴�¼�",
+          "ɸѡ�¼�",
+          "��������"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.cron-jobs",
+        "browser_path": "/cron-jobs",
+        "page_label": "��ʱ����",
+        "critical_actions": [
+          "�½�����",
+          "��ͣ����",
+          "�༭����",
+          "ɾ������"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.heartbeat",
+        "browser_path": "/heartbeat",
+        "page_label": "����",
+        "critical_actions": [
+          "��������",
+          "��ͣ����",
+          "�鿴ִ��״̬"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.skills",
+        "browser_path": "/skills",
+        "page_label": "�û�����",
+        "critical_actions": [
+          "�鿴����",
+          "���뼼��",
+          "�༭����",
+          "ɾ������"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.skill-pool",
+        "browser_path": "/skill-pool",
+        "page_label": "���ܳ�",
+        "critical_actions": [
+          "������ܳ�",
+          "��װ����",
+          "����������Դ"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.tools",
+        "browser_path": "/tools",
+        "page_label": "����",
+        "critical_actions": [
+          "�鿴����",
+          "��ͣ����",
+          "����ʵ�鹦��"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.mcp",
+        "browser_path": "/mcp",
+        "page_label": "MCP",
+        "critical_actions": [
+          "��������",
+          "�༭����",
+          "������Ȩ",
+          "ɾ������"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.acp",
+        "browser_path": "/acp",
+        "page_label": "ACP",
+        "critical_actions": [
+          "�鿴 ACP ����",
+          "���� ACP ����"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.acp-alias",
+        "browser_path": "/ACP",
+        "page_label": "ACP �������",
+        "critical_actions": [
+          "�ض��� ACP"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.checkpoints",
+        "browser_path": "/checkpoints",
+        "page_label": "����",
+        "critical_actions": [
+          "�鿴����",
+          "��������",
+          "�ָ�����"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.agents",
+        "browser_path": "/agents",
+        "page_label": "���������",
+        "critical_actions": [
+          "����������",
+          "�༭������",
+          "ɾ��������",
+          "�л�������"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.models",
+        "browser_path": "/models",
+        "page_label": "ģ������",
+        "critical_actions": [
+          "������Ӧ��",
+          "����ģ��",
+          "��������",
+          "ɾ������"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.environments",
+        "browser_path": "/environments",
+        "page_label": "��������",
+        "critical_actions": [
+          "��������",
+          "�༭����",
+          "ɾ������"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.offload-policy",
+        "browser_path": "/offload-policy",
+        "page_label": "����ж�ز���",
+        "critical_actions": [
+          "�鿴����",
+          "�޸�Ĭ�ϲ���"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.agent-config",
+        "browser_path": "/agent-config",
+        "page_label": "����������",
+        "critical_actions": [
+          "�༭��ʾ��",
+          "����������",
+          "��������"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.security",
+        "browser_path": "/security",
+        "page_label": "��ȫ����",
+        "critical_actions": [
+          "�鿴��ȫ����",
+          "�޸Ĺ��߷���"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.system-status",
+        "browser_path": "/system-status",
+        "page_label": "系统状态",
+        "critical_actions": [
+          "查看数据库连通性",
+          "查看 Schema 版本",
+          "刷新只读状态"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.token-usage",
+        "browser_path": "/token-usage",
+        "page_label": "Token ����",
+        "critical_actions": [
+          "�鿴����",
+          "�л�ͳ�Ʒ�Χ",
+          "ɸѡʱ��"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.agent-stats",
+        "browser_path": "/agent-stats",
+        "page_label": "������ͳ��",
+        "critical_actions": [
+          "�鿴ͳ��",
+          "�л�ָ��",
+          "ɸѡʱ��"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.voice-transcription",
+        "browser_path": "/voice-transcription",
+        "page_label": "����תд",
+        "critical_actions": [
+          "����תд",
+          "����ģ��",
+          "��������"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.debug",
+        "browser_path": "/debug",
+        "page_label": "����",
+        "critical_actions": [
+          "�鿴��־",
+          "ɸѡ��־",
+          "���������Ϣ"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.backups",
+        "browser_path": "/backups",
+        "page_label": "����",
+        "critical_actions": [
+          "��������",
+          "���뱸��",
+          "�ָ�����"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.plugin-manager",
+        "browser_path": "/plugin-manager",
+        "page_label": "�������",
+        "critical_actions": [
+          "��װ���",
+          "��ͣ���",
+          "���²��",
+          "ж�ز��"
+        ],
+        "agent_scoped": false
+      },
+      {
+        "route_id": "core.app-center",
+        "browser_path": "/apps",
+        "page_label": "Ӧ������",
+        "critical_actions": [
+          "���Ӧ��",
+          "��Ӧ��",
+          "����Ӧ��"
+        ],
+        "agent_scoped": true
+      },
+      {
+        "route_id": "core.app-center.embed",
+        "browser_path": "/apps/__baseline_missing_app__",
+        "page_label": "Ӧ������������",
+        "critical_actions": [
+          "����Ӧ������",
+          "��ʾӦ�ü��ػ򲻴���״̬"
+        ],
+        "agent_scoped": false
+      }
+    ]
+  },
+  "backend": {
+    "global_router_modules": [
+      "agents_router",
+      "config_router",
+      "console_router",
+      "fork_router",
+      "cron_router",
+      "local_models_router",
+      "mcp_oauth_router",
+      "mcp_router",
+      "messages_router",
+      "providers_router",
+      "model_governance_router",
+      "skill_governance_router",
+      "runner_router",
+      "market_router",
+      "skills_router",
+      "skills_stream_router",
+      "tools_router",
+      "workspace_router",
+      "envs_router",
+      "token_usage_router",
+      "agent_stats_router",
+      "auth_router",
+      "me_router",
+      "admin_users_router",
+      "agent_members_router",
+      "channel_bindings_router",
+      "files_router",
+      "settings_router",
+      "plugins_router",
+      "frontend_plugin_router",
+      "backup_router",
+      "plan_router",
+      "user_input_router",
+      "runtime_status_router",
+      "slash_router",
+      "git_router",
+      "project_directory_router",
+      "access_control_router",
+      "provider_oauth_router",
+      "pawapps_router",
+      "harnesses_router",
+      "checkpoints_router",
+      "attachments_router",
+      "personal_library_router",
+      "artifacts_router",
+      "shared_apps_router",
+      "agent_portability_router",
+      "migration_router"
+    ],
+    "agent_scoped_prefix": "/api/agents/{agentId}",
+    "agent_scoped_router_modules": [
+      "agent_status_router",
+      "chats_router",
+      "config_router",
+      "cron_router",
+      "mcp_oauth_router",
+      "mcp_router",
+      "skills_router",
+      "tools_router",
+      "workspace_router",
+      "console_router",
+      "agent_settings_router",
+      "plan_router",
+      "user_input_router",
+      "runtime_status_router",
+      "slash_router",
+      "checkpoints_router",
+      "attachments_router"
+    ],
+    "api_methods": [
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "GET",
+        "path": "/"
+      },
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "GET",
+        "path": "/api/doctor/runtime"
+      },
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "GET",
+        "path": "/api/version"
+      },
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "GET",
+        "path": "/console"
+      },
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "GET",
+        "path": "/console/"
+      },
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "GET",
+        "path": "/console/{full_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "GET",
+        "path": "/{full_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/_app.py",
+        "router": "app",
+        "method": "POST",
+        "path": "/api/desktop/shutdown"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{chat_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{chat_id}/members/{user_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{chat_id}/project-dir"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{chat_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{chat_id}/members"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{chat_id}/project-dir"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{chat_id}/share-candidates"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/actions/batch-archive"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/actions/batch-unarchive"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/batch-delete"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{chat_id}/archive"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{chat_id}/members"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{chat_id}/unarchive"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{chat_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/chats/api.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{chat_id}/project-dir"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/jobs/{job_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/dispatch-targets"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/jobs"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/jobs/{job_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/jobs/{job_id}/authorization"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/jobs/{job_id}/history"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/jobs/{job_id}/state"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/jobs"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/jobs/{job_id}/authorize"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/jobs/{job_id}/pause"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/jobs/{job_id}/resume"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/jobs/{job_id}/revoke"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/jobs/{job_id}/run"
+      },
+      {
+        "source": "src/qwenpaw/app/crons/api.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/jobs/{job_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/pending/all"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{channel}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/blacklist/add"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/blacklist/remove"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pending/approve"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pending/deny"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pending/dismiss"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pending/remark"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/remark"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/username"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/whitelist/add"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/access_control.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/whitelist/remove"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/admin_users.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/admin_users.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{user_id}/profile"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/admin_users.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{user_id}/role"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/admin_users.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{user_id}/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/admin_users.py",
+        "router": "router",
+        "method": "POST",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/admin_users.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{user_id}/reset-password"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/admin_users.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{user_id}/revoke-sessions"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/agents/{agentId}/members/{user_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/admin/agents"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/admin/agents/{agentId}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/agent-sharing/users"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/agents/{agentId}/members"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/admin/agents/{agentId}/publication"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/agents/{agentId}/transfer-owner"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/admin/agents/{agentId}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_members.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/agents/{agentId}/members/{user_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_portability.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{agent_id}/portable-package"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_portability.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/portable-package/import"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_stats.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agent_status.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{agentId}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{agentId}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{agentId}/memory/graph"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{agentId}/memory/runtime-status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{agentId}/memory/scopes"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{agentId}/memory/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{agentId}/backend-settings"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{agentId}/pin"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{agentId}/toggle"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "POST",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{agentId}/copy"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{agentId}/memory/reindex"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/order"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/agents.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{agentId}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/approval.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/list"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/approval.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/approve"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/approval.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/deny"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/artifacts.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{artifact_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/artifacts.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/artifacts.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{artifact_id}/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/artifacts.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/collect"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/attachments.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{attachment_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/attachments.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/attachments.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{attachment_id}/move"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/attachments.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{attachment_id}/save"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/sessions"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/verify"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/login"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/logout"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/refresh"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/register"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/revoke-all-tokens"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/revoke-token"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/auth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/update-profile"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{backup_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{backup_id}/export"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/delete"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/import"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/stream"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{backup_id}/restore"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/backup.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{backup_id}/restore/preview"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/channel_bindings.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/agents/{agentId}/channel-bindings/{channel_type}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/channel_bindings.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/agents/{agentId}/channel-bindings"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/channel_bindings.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/agents/{agentId}/channel-bindings/{channel_type}/conflict-check"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/channel_bindings.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/agents/{agentId}/channel-bindings/{channel_type}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/gc/settings"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/graph"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/auto"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/gc/settings"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/gc"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/gc/preview"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/restore"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/restore/preview"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/checkpoints.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/snapshot"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/coding_mode.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/coding_mode.py",
+        "router": "router",
+        "method": "POST",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/security/skill-scanner/blocked-history"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/security/skill-scanner/blocked-history/{index}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/security/skill-scanner/whitelist/{skill_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/acp"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/acp/node-runtime"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/acp/{agent_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/agents/llm-routing"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/channels"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/channels/schemas"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/channels/types"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/channels/{channel_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/channels/{channel_name}/health"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/channels/{channel}/qrcode"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/channels/{channel}/qrcode/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/heartbeat"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/allow-no-auth-hosts"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/file-guard"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/policy"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/sandbox"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/skill-scanner"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/skill-scanner/blocked-history"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/tool-guard"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/security/tool-guard/builtin-rules"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/user-timezone"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/channels/{channel_name}/conflict-check"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/channels/{channel_name}/restart"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/heartbeat/run"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/security/skill-scanner/whitelist"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/acp"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/acp/node-runtime"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/acp/{agent_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/agents/llm-routing"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/channels"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/channels/{channel_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/heartbeat"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/security/allow-no-auth-hosts"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/security/file-guard"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/security/sandbox"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/security/skill-scanner"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/security/tool-guard"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/config.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/user-timezone"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/inbox/events/{event_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/chat/task/{task_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/debug/backend-logs"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/file-references"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/inbox/events"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/inbox/traces/{run_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/push-messages"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/chat"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/chat/stop"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/chat/task"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/inbox/events/delete"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/inbox/read"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/console.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/upload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/envs.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{key}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/envs.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/envs.py",
+        "router": "router",
+        "method": "PUT",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/fork.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/agent"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/frontend_plugin.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/frontend_plugin.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{plugin_id}/files/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/branches"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/commit-diff"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/diff"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/log"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/checkout"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/commit"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/discard"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/revert"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/stage"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/git.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/unstage"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/harnesses.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/harnesses.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{provider_id}/mcp"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/harnesses.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{provider_id}/models"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/harnesses.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{provider_id}/skills"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/harnesses.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/login"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/harnesses.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/logout"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/harnesses.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/healthz.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/healthz"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/models/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/models/{model_id:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/server"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/server/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/models"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/models/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/server"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/server/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/server/update"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/models/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/server"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/server/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/local_models.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/custom/{mode_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/custom"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/gates/catalog"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/custom"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/custom/{mode_id}/duplicate"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/loops.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/custom/{mode_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/market.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/categories"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/market.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/providers"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/market.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/search"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/access-principals"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/policy/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/tools/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/toggle/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "POST",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/policy/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/tools/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp_oauth.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/oauth/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp_oauth.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/oauth/callback"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp_oauth.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/oauth/status/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/mcp_oauth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/oauth/start/{client_key:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/me.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/me.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/preferences"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/me.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/profile"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/me.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/change-password"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/messages.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/send"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/migration.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/preview"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/chats/{chat_id}/model"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/model-catalog"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/model-catalog/default"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/model-governance/enforcement/preview"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/model-governance/models"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/model-governance/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/model-governance/models/{model_id}/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/model-governance/import"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/model-governance/import/preview"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/chats/{chat_id}/model"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/model-governance/enforcement"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/model_governance.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/model-governance/models/{model_id}/users/{user_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/pawapps.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{app_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/pawapps.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/pawapps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{app_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/pawapps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{app_id}/settings"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/pawapps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{app_id}/static/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/personal_library.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/documents"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/personal_library.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/documents/{document_id}/text"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/personal_library.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/documents/text"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/personal_library.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/documents/upload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/personal_library.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/imports/artifact"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/personal_library.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/imports/attachment"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/personal_library.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/imports/runtime-file"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plan.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plan.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/current"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plan.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/stream"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plan.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "agent_settings_router",
+        "method": "GET",
+        "path": "/{plugin_id}/agent-setting"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "agent_settings_router",
+        "method": "PUT",
+        "path": "/{plugin_id}/agent-setting"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{plugin_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/catalog"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/market/search"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{plugin_id}/files/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{plugin_id}/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/install"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/upload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{plugin_id}/disable"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{plugin_id}/enable"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/plugins.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{plugin_id}/audience"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/browse-dirs"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/list"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/clone"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/create"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/import-local"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/upload-zip"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/project_directory.py",
+        "router": "router",
+        "method": "PUT",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/provider_oauth.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{provider_id}/oauth/callback"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/provider_oauth.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{provider_id}/oauth/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/provider_oauth.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/oauth/start"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/custom-providers/{provider_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{provider_id}/models/{model_id:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/active"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/openrouter/series"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/custom-providers"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/openrouter/discover-extended"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/openrouter/models/filter"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/discover"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/models"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/models/test"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/models/{model_id:path}/probe-multimodal"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{provider_id}/test"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/active"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{provider_id}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/providers.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{provider_id}/models/{model_id:path}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/runtime_status.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/current"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/runtime_status.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/stream"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/settings.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/language"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/settings.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/offload-policy"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/settings.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/upload-limit"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/settings.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/language"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/settings.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/offload-policy"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/admin/shared-app-publications"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/admin/shared-app-publications/{publication_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/shared-app-catalog"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/shared-app-catalog/{app_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/shared-apps/mine"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/shared-apps/{app_id}/drafts"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/shared-apps/{app_id}/publications"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/admin/shared-app-publications/{publication_id}/approve"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/admin/shared-app-publications/{publication_id}/publish"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/admin/shared-app-publications/{publication_id}/reject"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/admin/shared-app-publications/{publication_id}/review"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/admin/shared-apps/{app_id}/retire"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/admin/shared-apps/{app_id}/rollback"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/shared-app-catalog/{app_id}/conversations"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/shared-apps"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/shared-apps/{app_id}/drafts"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/shared_apps.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/shared-apps/{app_id}/submissions"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/agent-skills"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/skill-catalog"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/skill-governance/items"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/skill-governance/items/{skill_id}/agent-grants"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/skill-governance/requests"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/skill-governance/requests/{request_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/skill-governance/requests/{request_id}/files/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/skill-governance/items/{skill_id}/status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/agent-skills/load"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/agent-skills/{skill_name}/restore"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/agent-skills/{skill_name}/update"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/skill-governance/initialization/import"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/skill-governance/initialization/preview"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/skill-governance/items/{skill_id}/broadcast"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/skill-governance/requests"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/skill-governance/requests/{request_id}/review"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skill_governance.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/skill-governance/items/{skill_id}/agent-grants/{agent_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/pool/{skill_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/pool/{skill_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{skill_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "DELETE",
+        "path": "/{skill_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/hub/install/status/{task_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/hub/search"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/pool"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/pool/builtin-notice"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/pool/builtin-sources"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/pool/{skill_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/pool/{skill_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/workspaces"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{skill_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{skill_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{skill_name}/files/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/batch-delete"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/batch-disable"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/batch-enable"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/hub/install/cancel/{task_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/hub/install/start"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/batch-delete"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/create"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/import"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/import-builtin"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/refresh"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/upload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/upload-zip"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/pool/{skill_name}/update-builtin"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/refresh"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/upload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{skill_name}/disable"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{skill_name}/enable"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/pool/save"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/pool/{skill_name}/auto-update"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/pool/{skill_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/pool/{skill_name}/tags"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/save"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{skill_name}/channels"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{skill_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/{skill_name}/tags"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/skills_stream.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/skills/ai/optimize/stream"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/slash.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/catalog"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/system_status.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/system/storage-status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/token_usage.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/token_usage.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/details"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tool_calls.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{session_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tool_calls.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{session_id}/{tool_call_id}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tool_calls.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{session_id}/{tool_call_id}/output"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tool_calls.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{session_id}/{tool_call_id}/stream"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tool_calls.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{session_id}/{tool_call_id}/cancel"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tool_calls.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{session_id}/{tool_call_id}/extend-deadline"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tool_calls.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{session_id}/{tool_call_id}/offload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tools.py",
+        "router": "router",
+        "method": "GET",
+        "path": ""
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tools.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/{tool_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tools.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{tool_name}/async-execution"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tools.py",
+        "router": "router",
+        "method": "PATCH",
+        "path": "/{tool_name}/toggle"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/tools.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{tool_name}/config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/user_input.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/pending"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/user_input.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/stream"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/user_input.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/{request_id}/answer"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/voice.py",
+        "router": "voice_router",
+        "method": "POST",
+        "path": "/voice/incoming"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/voice.py",
+        "router": "voice_router",
+        "method": "POST",
+        "path": "/voice/status-callback"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/voice.py",
+        "router": "voice_router",
+        "method": "WS",
+        "path": "/voice/ws"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/access"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/audio-mode"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/binary-files/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/code-files"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/code-files/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/commands/available"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/file-content"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/file-download"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/file-metadata"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/files"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/files/{md_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/html-file-uri"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/language"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/local-whisper-status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/memory"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/memory/{md_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/running-config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/running-config/runtime-status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/running-config/summary"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/running-config/version"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/system-prompt-files"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/transcription-provider-type"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/transcription-providers"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/transcription-status"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/tree"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/voice-transcription"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "GET",
+        "path": "/watch"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/embedding/test"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/file-upload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/memory/{md_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/running-config/reload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/transcribe"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/transcription-test"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "POST",
+        "path": "/upload"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/audio-mode"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/code-files/{file_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/file-content"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/files/{md_name}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/language"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/memory/{md_path:path}"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/running-config"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/system-prompt-files"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/transcription-provider"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/transcription-provider-type"
+      },
+      {
+        "source": "src/qwenpaw/app/routers/workspace.py",
+        "router": "router",
+        "method": "PUT",
+        "path": "/voice-transcription"
+      },
+      {
+        "source": "src/qwenpaw/browser/control_link/chrome/observe.py",
+        "router": "status_router",
+        "method": "GET",
+        "path": "/status"
+      },
+      {
+        "source": "src/qwenpaw/browser/control_link/chrome/observe.py",
+        "router": "status_router",
+        "method": "GET",
+        "path": "/traces"
+      },
+      {
+        "source": "src/qwenpaw/browser/control_link/chrome/observe.py",
+        "router": "status_router",
+        "method": "POST",
+        "path": "/self-test"
+      },
+      {
+        "source": "src/qwenpaw/browser/control_link/chrome/ws_handler.py",
+        "router": "ws_router",
+        "method": "WS",
+        "path": "/chrome"
+      }
+    ]
+  }
+}

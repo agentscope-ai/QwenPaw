@@ -16,6 +16,8 @@ same ``(ValueError, AppBaseException)`` factory failures.
 """
 from __future__ import annotations
 
+from ...platform_ops.maintenance_lifecycle import admitted
+
 import asyncio
 import logging
 from typing import TYPE_CHECKING
@@ -53,6 +55,7 @@ def _clean_title(raw: str) -> str:
     return title
 
 
+@admitted
 async def generate_and_update_title(
     workspace: "Workspace",
     chat_id: str,

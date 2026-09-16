@@ -12,18 +12,21 @@ export function filesDrawerReducer(
         return {
           kind: "workspace",
           target: event.target,
+          locator: event.locator,
           trigger: event.trigger,
         };
       }
       return {
         kind: "preview",
         target: event.target,
+        locator: event.locator,
         trigger: event.trigger,
       };
     case "OPEN_WORKSPACE":
       return {
         kind: "workspace",
         target: event.target,
+        locator: event.locator,
         trigger: event.trigger,
       };
     case "EXPAND_WORKSPACE":
@@ -31,14 +34,16 @@ export function filesDrawerReducer(
         ? {
             kind: "workspace",
             target: state.target,
+            locator: state.locator,
             trigger: state.trigger,
           }
         : state;
     case "COLLAPSE_TO_PREVIEW":
-      return state.kind === "workspace" && state.target
+      return state.kind === "workspace" && (state.target || state.locator)
         ? {
             kind: "preview",
             target: state.target,
+            locator: state.locator,
             trigger: state.trigger,
           }
         : state;

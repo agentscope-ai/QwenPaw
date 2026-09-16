@@ -506,7 +506,13 @@ class RestoreService:
         touched: set[str] = set()
         current_tree: str | None = None
         if include_files:
-            current_tree = self.repository.write_workspace_tree()
+            current_tree = self.repository.write_workspace_tree(
+                self.service._conversation_snapshot_blob(
+                    session_id=session_id,
+                    user_id=user_id,
+                    channel=channel,
+                ),
+            )
             assert current_tree is not None
             touched = self._file_restore_candidates(
                 target_commit=entry.commit,

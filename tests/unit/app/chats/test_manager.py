@@ -4,12 +4,14 @@
 Uses the real :class:`JsonChatRepository` backed by ``tmp_path`` so the
 tests cover the integrated CRUD path without mocking the repo away.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
 import asyncio
 from pathlib import Path
 from unittest.mock import patch
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -75,6 +77,32 @@ async def test_create_and_get_chat_round_trip(manager: ChatManager):
     assert fetched is not None
     assert fetched.name == "Hello"
     assert fetched.session_id == "console:u1"
+
+
+@pytest.mark.asyncio
+async def test_persisted_chat_creation_notifies_history_recorder(repo_path: Path):
+    recorded: list[ChatSpec] = []
+
+    async def on_chat_created(spec: ChatSpec) -> None:
+        recorded.append(spec)
+
+    manager = ChatManager(
+        repo=JsonChatRepository(repo_path),
+        on_chat_created=on_chat_created,
+    )
+    explicit = _make_spec(session_id="console:explicit")
+
+    await manager.create_chat(explicit)
+    generated = await manager.get_or_create_chat(
+        session_id="console:generated",
+        user_id="u1",
+    )
+    await manager.get_or_create_chat(
+        session_id="console:generated",
+        user_id="u1",
+    )
+
+    assert [item.id for item in recorded] == [explicit.id, generated.id]
 
 
 @pytest.mark.asyncio
@@ -161,14 +189,10 @@ async def test_set_project_dir_persists_and_clears_controlled_meta(
     updated = await manager.set_project_dir(spec.id, "/project/session")
 
     assert updated is not None
-    assert updated.meta["runtime_context"]["project_dir"] == (
-        "/project/session"
-    )
+    assert updated.meta["runtime_context"]["project_dir"] == ("/project/session")
     persisted = await manager.get_chat(spec.id)
     assert persisted is not None
-    assert persisted.meta["runtime_context"]["project_dir"] == (
-        "/project/session"
-    )
+    assert persisted.meta["runtime_context"]["project_dir"] == ("/project/session")
 
     cleared = await manager.set_project_dir(spec.id, None)
 
@@ -286,6 +310,49 @@ async def test_delete_chats_returns_false_when_missing(manager: ChatManager):
     assert await manager.delete_chats(["nope"]) is False
 
 
+@pytest.mark.asyncio
+async def test_delete_chats_syncs_authority_before_removing_legacy_spec(
+    repo_path: Path,
+):
+    repository = JsonChatRepository(repo_path)
+    synchronized: list[list[str]] = []
+
+    async def on_chats_deleted(chats: list[ChatSpec]) -> None:
+        synchronized.append([chat.id for chat in chats])
+        assert await repository.get_chat(chats[0].id) is not None
+
+    manager = ChatManager(
+        repo=repository,
+        on_chats_deleted=on_chats_deleted,
+    )
+    spec = await manager.create_chat(_make_spec(session_id="delete-synced"))
+
+    assert await manager.delete_chats([spec.id]) is True
+    assert synchronized == [[spec.id]]
+    assert await repository.get_chat(spec.id) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_chats_keeps_legacy_spec_when_authority_sync_fails(
+    repo_path: Path,
+):
+    repository = JsonChatRepository(repo_path)
+
+    async def on_chats_deleted(_chats: list[ChatSpec]) -> None:
+        raise RuntimeError("postgres_unavailable")
+
+    manager = ChatManager(
+        repo=repository,
+        on_chats_deleted=on_chats_deleted,
+    )
+    spec = await manager.create_chat(_make_spec(session_id="delete-rollback"))
+
+    with pytest.raises(RuntimeError, match="postgres_unavailable"):
+        await manager.delete_chats([spec.id])
+
+    assert await repository.get_chat(spec.id) == spec
+
+
 # ---------------------------------------------------------------------------
 # get_chat_id_by_session
 # ---------------------------------------------------------------------------
@@ -295,10 +362,7 @@ async def test_delete_chats_returns_false_when_missing(manager: ChatManager):
 async def test_get_chat_id_by_session_returns_none_when_no_match(
     manager: ChatManager,
 ):
-    assert (
-        await manager.get_chat_id_by_session("missing", DEFAULT_CHANNEL)
-        is None
-    )
+    assert await manager.get_chat_id_by_session("missing", DEFAULT_CHANNEL) is None
 
 
 @pytest.mark.asyncio
@@ -416,3 +480,30 @@ async def test_concurrent_writes_are_serialized(manager: ChatManager):
 
     all_ids = {c.id for c in await manager.list_chats()}
     assert all_ids == {s.id for s in specs}
+
+
+@pytest.mark.asyncio
+async def test_stream_source_uses_optional_run_persistence(repo_path: Path):
+    calls = []
+
+    class Persistence:
+        def wrap_stream(self, *, chat, initiated_by, stream_fn):
+            calls.append((chat, initiated_by, stream_fn))
+            return stream_fn
+
+    manager = ChatManager(
+        repo=JsonChatRepository(repo_path),
+        run_persistence=Persistence(),
+    )
+    chat = _make_spec(
+        chat_id=str(uuid4()),
+        user_id=str(uuid4()),
+    )
+
+    async def source(_payload):
+        yield "event"
+
+    wrapped = manager.persisting_stream_source(chat, source)
+
+    assert wrapped is source
+    assert calls == [(chat, UUID(chat.user_id), source)]

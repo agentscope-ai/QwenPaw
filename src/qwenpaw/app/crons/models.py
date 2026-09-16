@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Dict, Literal, Optional
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -169,13 +170,10 @@ class JobRuntimeSpec(BaseModel):
         ),
     )
     tool_safety: bool = Field(
-        default=False,
+        default=True,
         description=(
-            "Tool execution safety for this cron job. "
-            "When enabled (True), uses AUTO mode — risky tools require "
-            "approval (may block unattended execution). "
-            "When disabled (False), uses OFF mode — all tools execute "
-            "without approval checks, suitable for trusted automated tasks."
+            "Compatibility field. Automation execution always enforces "
+            "the stored authorization snapshot and governance policy."
         ),
     )
 
@@ -194,6 +192,13 @@ class CronJobRequest(BaseModel):
 
 
 TaskType = Literal["text", "agent"]
+AutomationStatus = Literal[
+    "pending_authorization",
+    "active",
+    "paused",
+    "authorization_revoked",
+    "failed",
+]
 
 
 class CronJobSpec(BaseModel):
@@ -207,6 +212,11 @@ class CronJobSpec(BaseModel):
     request: Optional[CronJobRequest] = None
     dispatch: DispatchSpec
     save_result_to_inbox: Optional[bool] = None
+
+    created_by_user_id: UUID | None = None
+    automation_owner_user_id: UUID | None = None
+    status: AutomationStatus = "active"
+    config_version: int = Field(default=1, ge=1)
 
     runtime: JobRuntimeSpec = Field(default_factory=JobRuntimeSpec)
     meta: Dict[str, Any] = Field(default_factory=dict)
@@ -261,6 +271,20 @@ class CronExecutionRecord(BaseModel):
     status: Literal["success", "error", "running", "skipped", "cancelled"]
     error: Optional[str] = None
     trigger: Literal["scheduled", "manual"] = "scheduled"
+
+
+class AutomationGrant(BaseModel):
+    capability: str
+    resource_scope: Dict[str, Any] = Field(default_factory=dict)
+    target_scope: Dict[str, Any] = Field(default_factory=dict)
+
+
+class AutomationAuthorization(BaseModel):
+    schedule_id: UUID
+    authorized_by_user_id: UUID
+    config_version: int = Field(ge=1)
+    authorization_digest: str = Field(min_length=64, max_length=64)
+    grants: list[AutomationGrant] = Field(default_factory=list)
 
 
 class CronJobView(BaseModel):

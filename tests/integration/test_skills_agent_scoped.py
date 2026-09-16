@@ -11,6 +11,8 @@ import zipfile
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("skills_model_ready")
+
 
 def _skill_md(name: str, description: str) -> str:
     return (

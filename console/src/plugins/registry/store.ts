@@ -114,6 +114,16 @@ class MenuRegistryImpl {
     notify();
   }
 
+  disposeSource(source: string): void {
+    for (const [id, stack] of this.stacks) {
+      const retained = stack.filter((entry) => entry.source !== source);
+      if (retained.length > 0) this.stacks.set(id, retained);
+      else this.stacks.delete(id);
+    }
+    this.invalidate();
+    notify();
+  }
+
   snapshot(location?: MenuLocation): MenuItem[] {
     if (!location) {
       return this.allSnapshot;
@@ -335,6 +345,7 @@ interface ResolvedRoute {
   id: string;
   path: string;
   source: string;
+  capability?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   Component: React.ComponentType<any>;
 }
@@ -462,6 +473,24 @@ class RouteRegistryImpl {
     return this.resolvedSnapshot;
   }
 
+  disposeSource(source: string): void {
+    for (const [id, entry] of this.bases) {
+      if (entry.source === source) this.bases.delete(id);
+    }
+    for (const [id, entries] of this.overrides) {
+      const retained = entries.filter((entry) => entry.source !== source);
+      if (retained.length > 0) this.overrides.set(id, retained);
+      else this.overrides.delete(id);
+    }
+    for (const [id, entries] of this.wraps) {
+      const retained = entries.filter((entry) => entry.source !== source);
+      if (retained.length > 0) this.wraps.set(id, retained);
+      else this.wraps.delete(id);
+    }
+    this.invalidate();
+    notify();
+  }
+
   /** Test-only. */
   __resetForTests(): void {
     this.bases.clear();
@@ -556,6 +585,7 @@ class RouteRegistryImpl {
         id: entry.route.id,
         path: entry.route.path,
         source: overrideTop?.source ?? entry.source,
+        capability: entry.route.capability,
         Component,
       });
     }
@@ -623,6 +653,16 @@ class SlotRegistryImpl {
       }
     }
     return out;
+  }
+
+  disposeSource(source: string): void {
+    for (const [name, entries] of this.slots) {
+      const retained = entries.filter((entry) => entry.source !== source);
+      if (retained.length > 0) this.slots.set(name, retained);
+      else this.slots.delete(name);
+    }
+    this.snapshots.clear();
+    notify();
   }
 
   /** Test-only. */

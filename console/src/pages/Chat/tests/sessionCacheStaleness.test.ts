@@ -62,6 +62,34 @@ afterEach(() => {
 });
 
 describe("SessionApi converted-cache staleness on updated_at change (#6131)", () => {
+  it("preserves shared read-only access metadata on the loaded session", async () => {
+    const id = "33333333-3333-4333-8333-333333333334";
+    vi.spyOn(api, "listChats").mockResolvedValue([
+      {
+        ...makeChatSpec(id, T0),
+        access_role: "viewer",
+        read_only: true,
+        shared_by: "owner-user",
+      },
+    ]);
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      ...makeHistory([{ role: "assistant", text: "shared output" }]),
+      access_role: "viewer",
+      read_only: true,
+      shared_by: "owner-user",
+    });
+
+    await sessionApi.getSessionList("shared");
+    const session = await sessionApi.getSession(id);
+
+    expect(session).toMatchObject({
+      accessRole: "viewer",
+      readOnly: true,
+      sharedBy: "owner-user",
+    });
+    expect(session.messages).toHaveLength(1);
+  });
+
   it("re-fetches messages when the backend updated_at advances", async () => {
     const id = "11111111-1111-4111-8111-111111111111";
     const listSpy = vi

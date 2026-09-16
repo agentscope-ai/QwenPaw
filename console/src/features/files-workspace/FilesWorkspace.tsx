@@ -7,6 +7,8 @@ import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import { getPendingProjectDirectory } from "../project-directory/pendingProjectDirectory";
 import { listenForProjectDirectoryChanges } from "../project-directory/projectDirectoryChangeEvent";
 import { workspaceApi } from "../../api/modules/workspace";
+import { agentApi } from "../../api/modules/agent";
+import type { AgentRequestContext } from "../../api/modules/agentRequestContext";
 import GitPanel from "../../pages/Coding/GitPanel";
 import TabbedEditor from "../../pages/Coding/TabbedEditor";
 import {
@@ -21,6 +23,9 @@ import MemoryGraphView from "./MemoryGraphView";
 import { directoriesMatch } from "./directorySources";
 import {
   filesWorkspaceScopeKey,
+  resolveMemoryScopeSelection,
+  type MemoryScope,
+  type MemoryScopeSummary,
   type FilesWorkspaceScope,
 } from "./filesWorkspaceScope";
 import { toProjectRelativePath } from "./internalFileLinks";
@@ -34,7 +39,10 @@ import styles from "./FilesWorkspace.module.less";
 
 interface FilesWorkspaceProps {
   initialTarget?: FileTarget;
+  profileOnly?: boolean;
+  rootDirectory?: string;
   scope: FilesWorkspaceScope;
+  requestContext?: AgentRequestContext;
 }
 
 function inferPreviewKind(
@@ -58,11 +66,23 @@ function inferPreviewKind(
 
 export default function FilesWorkspace({
   initialTarget,
+  profileOnly = false,
+  rootDirectory,
   scope,
+  requestContext,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
   const { codingMode } = useCodingMode();
-  const scopeKey = filesWorkspaceScopeKey(scope);
+  const [memoryScope, setMemoryScope] = useState<MemoryScope>("public");
+  const baseScopeKey = filesWorkspaceScopeKey(scope);
+  const nestedScope = profileOnly ? "agent-profile" : rootDirectory;
+  const workspaceScopeKey = nestedScope
+    ? `${baseScopeKey}:${nestedScope}`
+    : baseScopeKey;
+  // Memory files with the same path belong to distinct public/private spaces.
+  const scopeKey = scope.kind === "agent"
+    ? `${workspaceScopeKey}:memory:${memoryScope}`
+    : workspaceScopeKey;
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
   const projectDirOverride =
     scope.kind === "session" && !scope.chatId
@@ -89,6 +109,10 @@ export default function FilesWorkspace({
   const targetsByTab = useRef(new Map<string, FileTarget>());
   const navigationSequence = useRef(0);
   const [loadError, setLoadError] = useState("");
+  const [memoryScopes, setMemoryScopes] = useState<MemoryScopeSummary[]>([]);
+  const [canEditProjectFiles, setCanEditProjectFiles] = useState(false);
+  const [canEditAgentFiles, setCanEditAgentFiles] = useState(false);
+  const [workspaceAccessLoaded, setWorkspaceAccessLoaded] = useState(false);
   const [memoryGraphRoot, setMemoryGraphRoot] =
     useState<MemoryGraphRoot | null>(null);
   const [activity, setActivity] = useState<"files" | "git">("files");
@@ -101,15 +125,65 @@ export default function FilesWorkspace({
     sequence: number;
   } | null>(null);
 
+  const loadMemoryScopes = useCallback(async () => {
+    if (scope.kind !== "agent") return;
+    try {
+      const response = await agentApi.getMemoryScopes(
+        scope.agentId,
+        requestContext,
+      );
+      setMemoryScopes(response.scopes);
+      setMemoryScope((current) =>
+        resolveMemoryScopeSelection(response.scopes, current),
+      );
+    } catch {
+      setMemoryScopes([]);
+      clearProjectTabs(scopeKey);
+      setLoadError(t("files.memoryScopeLoadFailed"));
+    }
+  }, [clearProjectTabs, requestContext, scope, scopeKey, t]);
+
+  const loadWorkspaceAccess = useCallback(async () => {
+    setWorkspaceAccessLoaded(false);
+    if (scope.kind !== "agent") {
+      setCanEditProjectFiles(true);
+      setCanEditAgentFiles(true);
+      setWorkspaceAccessLoaded(true);
+      return;
+    }
+    try {
+      const access = await agentApi.getAgentRunningConfigAccess(requestContext);
+      setCanEditProjectFiles(access.can_edit_project_files);
+      setCanEditAgentFiles(access.can_edit_workspace_files);
+    } catch {
+      setCanEditProjectFiles(false);
+      setCanEditAgentFiles(false);
+    } finally {
+      setWorkspaceAccessLoaded(true);
+    }
+  }, [requestContext, scope.kind]);
+
+  useEffect(() => {
+    void loadMemoryScopes();
+    void loadWorkspaceAccess();
+  }, [loadMemoryScopes, loadWorkspaceAccess]);
+
+  useEffect(() => {
+    if (!workspaceAccessLoaded || canEditAgentFiles) return;
+    targetsByTab.current.clear();
+    hydratedTabs.current.clear();
+    clearProjectTabs(scopeKey);
+  }, [canEditAgentFiles, clearProjectTabs, scopeKey, workspaceAccessLoaded]);
+
   useEffect(
     () =>
       listenForProjectDirectoryChanges((changedScopeKey) => {
-        if (changedScopeKey === scopeKey) {
+        if (changedScopeKey === scopeKey || changedScopeKey === baseScopeKey) {
           clearProjectTabs(scopeKey);
           setDirectoryRevision((current) => current + 1);
         }
       }),
-    [clearProjectTabs, scopeKey],
+    [baseScopeKey, clearProjectTabs, scopeKey],
   );
 
   const resolveEditableTarget = useCallback(
@@ -118,10 +192,13 @@ export default function FilesWorkspace({
         return target;
       }
       try {
-        const agentInfo = await projectDirectoryApi.get();
-        const projectDirectory = chatId
-          ? (await chatProjectDirectoryApi.get(chatId)).project_dir
-          : agentInfo.path;
+        const agentInfo = await projectDirectoryApi.get(requestContext);
+        const projectDirectory =
+          agentInfo.project_kind === "user_runtime"
+            ? agentInfo.path
+            : chatId
+            ? (await chatProjectDirectoryApi.get(chatId)).project_dir
+            : agentInfo.path;
         const workspaceDirectory = agentInfo.workspace_dir ?? agentInfo.path;
         const directPath = toProjectRelativePath(target.path);
         const sameDirectory = directoriesMatch(
@@ -166,6 +243,7 @@ export default function FilesWorkspace({
               chatId,
               candidate.root,
               projectDirOverride,
+              requestContext,
             );
             return {
               ...target,
@@ -182,16 +260,17 @@ export default function FilesWorkspace({
       }
       return target;
     },
-    [chatId, projectDirOverride],
+    [chatId, projectDirOverride, requestContext],
   );
 
   const loadTarget = useCallback(
     async (target: FileTarget) => {
       if (target.source === "profile") {
         return {
-          content: (await workspaceApi.loadFile(target.path)).content,
+          content: (await workspaceApi.loadFile(target.path, requestContext))
+            .content,
           previewKind: "text" as const,
-          readOnly: false,
+          readOnly: !canEditAgentFiles,
           etag: "",
         };
       }
@@ -207,11 +286,22 @@ export default function FilesWorkspace({
         return {
           content: (
             await (section
-              ? workspaceApi.loadMemoryFile(target.path, section)
+              ? workspaceApi.loadMemoryFile(
+                  target.path,
+                  section,
+                  memoryScope,
+                  requestContext,
+                )
               : workspaceApi.loadDailyMemory(target.path))
           ).content,
           previewKind: "text" as const,
-          readOnly: false,
+          readOnly:
+            scope.kind === "agent" && section !== undefined
+              ? !(
+                  memoryScopes.find((item) => item.scope === memoryScope)
+                    ?.can_edit ?? false
+                )
+              : false,
           etag: "",
         };
       }
@@ -221,6 +311,7 @@ export default function FilesWorkspace({
           chatId,
           target.root,
           projectDirOverride,
+          requestContext,
         );
         const isText =
           metadata.preview_kind === "text" || metadata.preview_kind === "csv";
@@ -230,12 +321,17 @@ export default function FilesWorkspace({
               chatId,
               target.root,
               projectDirOverride,
+              requestContext,
             )
           : null;
         return {
           content: loaded?.content ?? "",
           previewKind: metadata.preview_kind,
-          readOnly: !isText,
+          readOnly:
+            !isText ||
+            (target.root === "workspace"
+              ? !canEditAgentFiles
+              : !canEditProjectFiles),
           etag: loaded?.etag ?? metadata.etag,
         };
       }
@@ -260,7 +356,16 @@ export default function FilesWorkspace({
         etag: response.headers.get("ETag") ?? "",
       };
     },
-    [chatId, projectDirOverride],
+    [
+      chatId,
+      memoryScope,
+      memoryScopes,
+      projectDirOverride,
+      requestContext,
+      scope.kind,
+      canEditAgentFiles,
+      canEditProjectFiles,
+    ],
   );
 
   const loadTabContent = useCallback(
@@ -414,6 +519,9 @@ export default function FilesWorkspace({
         <FilesNavigator
           key={`${scopeKey}:${projectDirOverride ?? ""}:${directoryRevision}`}
           scope={effectiveScope}
+          scopeKeyOverride={scopeKey}
+          profileOnly={profileOnly}
+          rootDirectory={rootDirectory}
           selectedPath={
             tabs.find((tab) => tab.path === activeTabPath)?.displayPath ??
             activeTabPath
@@ -425,6 +533,29 @@ export default function FilesWorkspace({
           activeMemoryGraphRoot={memoryGraphRoot}
           onShowMemoryGraph={(root) => setMemoryGraphRoot(root)}
           onShowFiles={() => setMemoryGraphRoot(null)}
+          memoryScope={memoryScope}
+          memoryScopes={memoryScopes}
+          onMemoryScopeChange={(nextScope) => {
+            if (nextScope === memoryScope) return;
+            setMemoryScope(nextScope);
+            setMemoryGraphRoot(null);
+            setLoadError("");
+          }}
+          onRebuildMemoryIndex={async () => {
+            if (requestContext) {
+              await agentApi.rebuildMemoryIndex(
+                scope.agentId,
+                memoryScope,
+                requestContext,
+              );
+            } else {
+              await agentApi.rebuildMemoryIndex(scope.agentId, memoryScope);
+            }
+            await loadMemoryScopes();
+          }}
+          requestContext={requestContext}
+          canEditProjectFiles={canEditProjectFiles}
+          canEditAgentFiles={canEditAgentFiles}
         />
       ) : (
         <aside className={styles.sourcePanel}>
@@ -445,6 +576,8 @@ export default function FilesWorkspace({
         {memoryGraphRoot ? (
           <MemoryGraphView
             agentId={scope.agentId}
+            memoryScope={memoryScope}
+            requestContext={requestContext}
             root={memoryGraphRoot}
             onOpenFile={(source, path) => {
               setMemoryGraphRoot(null);
@@ -527,6 +660,7 @@ export default function FilesWorkspace({
                   chatId,
                   tab?.workspaceRoot,
                   projectDirOverride,
+                  requestContext,
                 );
                 setTabEtag(scopeKey, path, saved.etag);
                 return;
@@ -534,9 +668,19 @@ export default function FilesWorkspace({
               const source = path.slice(0, separator);
               const sourcePath = path.slice(separator + 2);
               if (source === "profile") {
-                await workspaceApi.saveFile(sourcePath, content);
+                await workspaceApi.saveFile(
+                  sourcePath,
+                  content,
+                  requestContext,
+                );
               } else if (source === "daily" || source === "digest") {
-                await workspaceApi.saveMemoryFile(sourcePath, content, source);
+                await workspaceApi.saveMemoryFile(
+                  sourcePath,
+                  content,
+                  source,
+                  memoryScope,
+                  requestContext,
+                );
               } else if (source === "memory") {
                 await workspaceApi.saveDailyMemory(sourcePath, content);
               }

@@ -15,6 +15,8 @@ from .._utils.constants import (
     PREFIX_SECRETS,
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
+    PREFIX_PLATFORM_CONTENT,
+    PLATFORM_CONTENT_DIRECTORIES,
     find_zip_path,
 )
 from .._utils.meta import read_meta_from_zip
@@ -32,6 +34,7 @@ from ..models import BackupMeta, BackupValidationError, RestoreBackupRequest
 from ...config.config import AgentProfileRef
 from ...config.utils import load_config, save_config
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+from ...identity.runtime import is_multi_user_enabled
 from ...security.secret_store import reload_master_key_from_disk
 from .restore_helpers import (
     collect_workspace_agents_from_zip,
@@ -315,6 +318,12 @@ def _restore_directory_targets(
     helper ignores missing paths.
     """
     targets: list[Path] = []
+    if req.include_global_config and is_multi_user_enabled():
+        targets.extend(
+            WORKING_DIR / name
+            for name in PLATFORM_CONTENT_DIRECTORIES
+            if _has_platform_content(zf, name)
+        )
     if req.include_secrets and _zip_has_prefix(zf, PREFIX_SECRETS):
         targets.append(SECRET_DIR)
     if req.include_skill_pool and _zip_has_prefix(zf, PREFIX_SKILL_POOL):
@@ -329,6 +338,12 @@ def _restore_directory_targets(
             if _zip_has_prefix(zf, prefix):
                 targets.append(planned_dst_map[aid][0])
     return _dedupe_restore_targets(targets)
+
+
+def _has_platform_content(zf: zipfile.ZipFile, name: str) -> bool:
+    """An empty root marker is an authoritative empty content snapshot."""
+    prefix = f"{PREFIX_PLATFORM_CONTENT}{name}/"
+    return any(item.startswith(prefix) for item in zf.namelist())
 
 
 def _dedupe_restore_targets(targets: list[Path]) -> list[Path]:
@@ -403,6 +418,16 @@ def _stage_all(
 
     try:
         staged_config_tmp = _stage_global_config(zf, req, meta, restore_aids)
+        if req.include_global_config and is_multi_user_enabled():
+            for name in PLATFORM_CONTENT_DIRECTORIES:
+                prefix = f"{PREFIX_PLATFORM_CONTENT}{name}/"
+                if _has_platform_content(zf, name):
+                    destination = WORKING_DIR / name
+                    cleanup_stale_restore_artifacts(destination)
+                    extract_to_tmp(
+                        zf, prefix, destination, zip_slip_base=destination,
+                    )
+                    staged_dirs.append(destination)
         if req.include_secrets:
             _stage_secrets(zf, staged_dirs)
         if req.include_skill_pool:

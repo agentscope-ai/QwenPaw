@@ -17,6 +17,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
+from functools import wraps
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -393,7 +395,7 @@ _IGNORED_SKILL_ARTIFACTS = {
 }
 
 
-def copy_skill_dir(source: Path, target: Path) -> None:
+def copy_skill_dir(source: Path, target: Path, *, exact: bool = False) -> None:
     """Replace *target* with a copy of *source*.
 
     We intentionally filter only well-known OS/cache artifacts so skill
@@ -409,7 +411,7 @@ def copy_skill_dir(source: Path, target: Path) -> None:
     shutil.copytree(
         source,
         target,
-        ignore=_ignore,
+        ignore=None if exact else _ignore,
     )
 
 
@@ -420,6 +422,49 @@ def copy_skill_dir(source: Path, target: Path) -> None:
 
 def _lock_path_for(json_path: Path) -> Path:
     return json_path.with_name(f".{json_path.name}.lock")
+
+
+_held_skill_locks = ContextVar("held_skill_locks", default=frozenset())
+
+
+@contextmanager
+def workspace_skill_write_lock(workspace_dir: Path) -> Iterator[None]:
+    """Fail fast on concurrent writers; never block the HTTP event loop on a DB waiter."""
+    key = str(Path(workspace_dir).resolve())
+    held = _held_skill_locks.get()
+    if key in held:
+        yield
+        return
+    lock_path = Path(workspace_dir) / ".skill-lifecycle.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        try:
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            else:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            raise ValueError("skill_busy") from exc
+        token = _held_skill_locks.set(held | {key})
+        try:
+            yield
+        finally:
+            _held_skill_locks.reset(token)
+            if fcntl is not None:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            else:
+                handle.seek(0)
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
+def workspace_skill_writer(method):
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with workspace_skill_write_lock(self.workspace_dir):
+            return method(self, *args, **kwargs)
+
+    return guarded
 
 
 @contextmanager
@@ -487,7 +532,11 @@ def mutate_json(
     default: dict[str, Any],
     mutator: Callable[[dict[str, Any]], _RegistryResult],
 ) -> _RegistryResult:
-    with _file_write_lock(_lock_path_for(path)):
+    from contextlib import nullcontext
+
+    # Runtime config writes participate in the same lock order as content writes.
+    outer = workspace_skill_write_lock(path.parent) if path.name == "skill.json" else nullcontext()
+    with outer, _file_write_lock(_lock_path_for(path)):
         payload = _read_json_unlocked(path, default)
         result = mutator(payload)
         if result is not False:

@@ -21,9 +21,16 @@ from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from ..agent_context import get_agent_for_request, get_agent_project_dir
+from ..agent_context import (
+    get_agent_access_state,
+    get_agent_project_dir,
+    get_files_workspace_access,
+    get_running_config_workspace,
+    require_running_config_editor,
+)
 from ..utils import safe_project_dest
 from ...constant import CODING_PROJECT_SUBDIR
+from ...platform_ops.log_redaction import redact_log_text
 from ...utils.command_runner import run_command_async, start_command_async
 
 logger = logging.getLogger(__name__)
@@ -65,6 +72,22 @@ def _list_windows_drives_response() -> dict:
 def _projects_base(workspace_dir: Path) -> Path:
     """Return the base directory for all project directorys of this agent."""
     return workspace_dir / CODING_PROJECT_SUBDIR
+
+
+def _workspace_resolution_metadata(workspace) -> dict[str, object]:
+    """返回 Files 页面可展示的工作区解析结果。"""
+    workspace_dir = Path(getattr(workspace, "workspace_dir", "."))
+    return {
+        "workspace_kind": getattr(workspace, "workspace_kind", "legacy"),
+        "workspace_key": getattr(
+            workspace,
+            "workspace_key",
+            str(workspace_dir),
+        ),
+        "workspace_read_only": bool(
+            getattr(workspace, "workspace_read_only", False),
+        ),
+    }
 
 
 def _save_project_dir(agent_id: str, project_dir: str | None) -> None:
@@ -112,11 +135,25 @@ async def get_project(request: Request) -> dict:
     The ``workspace_dir`` field always contains the agent's default workspace
     directory so callers can display it without a separate request.
     """
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.view",
+    )
+    role, _historical = get_agent_access_state(request)
+    agent_project = (
+        workspace.workspace_dir
+        if role.value == "user"
+        else get_agent_project_dir(workspace)
+    )
+    access = await get_files_workspace_access(
+        request,
+        workspace,
+        agent_project=agent_project,
+    )
 
     def _snapshot() -> dict:
-        coding_dir = get_agent_project_dir(workspace)
-        workspace_dir = workspace.workspace_dir
+        coding_dir = access.project.path
+        workspace_dir = access.workspace.path
         is_workspace = coding_dir.resolve() == workspace_dir.resolve()
         return {
             "path": str(coding_dir),
@@ -124,6 +161,12 @@ async def get_project(request: Request) -> dict:
             "is_workspace_default": is_workspace,
             "workspace_dir": str(workspace_dir),
             "exists": coding_dir.exists(),
+            "project_kind": access.project.kind,
+            "project_key": access.project.workspace_key,
+            "project_read_only": access.project.read_only,
+            "workspace_kind": access.workspace.kind,
+            "workspace_key": access.workspace.workspace_key,
+            "workspace_read_only": access.workspace.read_only,
         }
 
     return await asyncio.to_thread(_snapshot)
@@ -139,7 +182,11 @@ async def set_project(body: SetProjectRequest, request: Request) -> dict:
     Pass ``{"path": null}`` to reset to the default workspace directory.
     Pass ``{"path": "/absolute/path"}`` to use that directory.
     """
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.update",
+    )
+    require_running_config_editor(request)
 
     def _resolve_target() -> str | None:
         if body.path is None:
@@ -184,7 +231,11 @@ async def create_project(body: CreateProjectRequest, request: Request) -> dict:
             detail="Project name cannot be empty",
         )
 
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.create",
+    )
+    require_running_config_editor(request)
     base = _projects_base(workspace.workspace_dir)
     target = safe_project_dest(base, name)
 
@@ -233,7 +284,11 @@ async def clone_project(
         data: {"type": "done", "path": "/absolute/path", "name": "repo"}
         data: {"type": "error", "detail": "...error message..."}
     """
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.clone",
+    )
+    require_running_config_editor(request)
     url = body.url.strip()
     if not url:
         raise HTTPException(status_code=400, detail="URL cannot be empty")
@@ -287,14 +342,17 @@ async def clone_project(
                     buf = buf[idx + sep_len :]
                     if line:
                         payload = json.dumps(
-                            {"type": "log", "line": line},
+                            {"type": "log", "line": redact_log_text(line)},
                         )
                         yield f"data: {payload}\n\n"
             # Flush remaining buffer
             remaining = buf.strip()
             if remaining:
                 payload = json.dumps(
-                    {"type": "log", "line": remaining},
+                    {
+                        "type": "log",
+                        "line": redact_log_text(remaining),
+                    },
                 )
                 yield f"data: {payload}\n\n"
 
@@ -320,7 +378,13 @@ async def clone_project(
         except (asyncio.CancelledError, GeneratorExit):
             pass
         except Exception as exc:
-            payload = json.dumps({"type": "error", "detail": str(exc)})
+            logger.error(
+                "Project clone failed (error_type=%s)",
+                type(exc).__name__,
+            )
+            payload = json.dumps(
+                {"type": "error", "detail": "project_clone_failed"}
+            )
             yield f"data: {payload}\n\n"
 
     return StreamingResponse(
@@ -471,7 +535,11 @@ async def import_local(body: ImportLocalRequest, request: Request) -> dict:
     to avoid copying large generated directories.  ``.git`` is preserved so
     the existing history is available in the copy.
     """
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.import_local",
+    )
+    require_running_config_editor(request)
     source = await asyncio.to_thread(
         lambda: Path(body.path).expanduser().resolve(),
     )
@@ -635,7 +703,11 @@ async def upload_zip(
     The endpoint guards against zip-slip by validating each member path before
     extraction.
     """
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.upload_zip",
+    )
+    require_running_config_editor(request)
     base = _projects_base(workspace.workspace_dir)
     dest = safe_project_dest(base, name)
 
@@ -688,6 +760,7 @@ async def upload_zip(
     summary="Browse directories on the server for project selection",
 )
 async def browse_dirs(
+    request: Request,
     path: str = Query(
         default="~",
         description="Directory to list (default: home)",
@@ -702,6 +775,12 @@ async def browse_dirs(
     On Windows, ``"/"`` is treated as a virtual root that
     lists all available drive letters (C:, D:, ...).
     """
+    await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.browse",
+    )
+    require_running_config_editor(request)
+
     # Windows virtual root: list all drive letters
     if sys.platform == "win32" and path in ("/", "\\"):
         return await asyncio.to_thread(
@@ -773,7 +852,11 @@ async def browse_dirs(
 @router.get("/list", summary="List all project directorys for this agent")
 async def list_projects(request: Request) -> list[dict]:
     """Return all subdirectories in the agent's coding_projects folder."""
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.project_directory.view",
+    )
+    require_running_config_editor(request)
     base = _projects_base(workspace.workspace_dir)
 
     def _scan() -> list[dict]:

@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import {
   Modal,
+  Alert,
   Form,
   Input,
   Button,
@@ -13,11 +14,14 @@ import {
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { AgentSummary } from "@/api/types/agents";
-import type { ProviderInfo } from "@/api/types/provider";
+import type { ModelSlotConfig } from "@/api/types/provider";
 import { getAgentDisplayName } from "@/utils/agentDisplayName";
-import type { PoolSkillSpec } from "@/api/types/skill";
-import { skillApi } from "@/api/modules/skill";
-import { providerApi } from "@/api/modules/provider";
+import type { SkillCatalogItem } from "@/api/types/skillGovernance";
+import { createSkillGovernanceApi } from "@/api/modules/skillGovernance";
+import { useSkillScope } from "@/api/skillScope";
+import { skillErrorMessage } from "@/pages/Agent/Skills/useSkillRuntime";
+import { createSkillApi } from "@/api/modules/skill";
+import { modelCatalogApi } from "@/api/modules/modelCatalog";
 import { providerIcon } from "../../Models/components/providerIcon";
 import styles from "../index.module.less";
 import { AgentBackendFields } from "./AgentBackendFields";
@@ -39,9 +43,37 @@ interface AgentModalProps {
   onInstalledSkillsLoaded: (skills: string[]) => void;
   onSave: () => Promise<void>;
   onCancel: () => void;
+  governanceMode?: boolean;
 }
 
-export function AgentModal({
+interface AgentModelFormValues {
+  backend?: string;
+  active_model_provider?: string;
+  active_model_model?: string;
+}
+
+export function toAgentActiveModel(
+  values: AgentModelFormValues,
+): ModelSlotConfig | null {
+  if (
+    values.backend === "qwenpaw" &&
+    values.active_model_provider &&
+    values.active_model_model
+  ) {
+    return {
+      provider_id: values.active_model_provider,
+      model: values.active_model_model,
+    };
+  }
+  return null;
+}
+
+export function AgentModal(props: AgentModalProps) {
+  const scope = useSkillScope(props.editingAgent?.id);
+  return <AgentModalBody key={`${scope.key}:${props.open}`} {...props} />;
+}
+
+function AgentModalBody({
   open,
   editingAgent,
   form,
@@ -50,34 +82,30 @@ export function AgentModal({
   onInstalledSkillsLoaded,
   onSave,
   onCancel,
+  governanceMode = false,
 }: AgentModalProps) {
   const { t } = useTranslation();
-  const [poolSkills, setPoolSkills] = useState<PoolSkillSpec[]>([]);
+  const scope = useSkillScope(editingAgent?.id);
+  const governance = useMemo(() => createSkillGovernanceApi(scope), [scope]);
+  const skillApi = useMemo(() => createSkillApi(scope), [scope]);
+  const [skillError, setSkillError] = useState("");
+  const [poolSkills, setPoolSkills] = useState<Array<Pick<SkillCatalogItem, "name">>>([]);
   const [installedSkills, setInstalledSkills] = useState<string[]>([]);
   const [loadingSkills, setLoadingSkills] = useState(false);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providers, setProviders] = useState<EligibleProvider[]>([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
+  const [globalActiveModel, setGlobalActiveModel] =
+    useState<ModelSlotConfig | null>(null);
 
   const selectedProviderId = Form.useWatch("active_model_provider", form);
   const selectedModelId = Form.useWatch("active_model_model", form);
   const selectedBackend = Form.useWatch("backend", form) ?? "qwenpaw";
+  const modelReadOnly = Boolean(
+    editingAgent && editingAgent.can_edit === false && !governanceMode,
+  );
 
   const eligibleProviders: EligibleProvider[] = useMemo(() => {
-    return providers
-      .filter((p) => {
-        const hasModels =
-          (p.models?.length ?? 0) + (p.extra_models?.length ?? 0) > 0;
-        if (!hasModels) return false;
-        if (p.require_api_key === false) return !!p.base_url;
-        if (p.is_custom) return !!p.base_url;
-        if (p.require_api_key ?? true) return !!p.api_key;
-        return true;
-      })
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        models: [...(p.models ?? []), ...(p.extra_models ?? [])],
-      }));
+    return providers;
   }, [providers]);
 
   const availableModels = useMemo(() => {
@@ -88,46 +116,84 @@ export function AgentModal({
 
   useEffect(() => {
     if (!open || selectedBackend !== "qwenpaw") return;
+    let active = true;
 
     setLoadingProviders(true);
-    providerApi
-      .listProviders()
-      .then((data) => {
-        if (Array.isArray(data)) setProviders(data);
+    Promise.allSettled([
+      modelCatalogApi.list(editingAgent?.id),
+      modelCatalogApi.default(),
+    ])
+      .then(([data, activeModel]) => {
+        if (!active || !scope.current()) return;
+        const grouped = new Map<string, EligibleProvider>();
+        const models = data.status === "fulfilled" ? data.value.models : [];
+        models.forEach((model) => {
+          const provider = grouped.get(model.provider_id) ?? {
+            id: model.provider_id,
+            name: model.provider_name,
+            models: [],
+          };
+          provider.models.push({ id: model.model, name: model.name });
+          grouped.set(provider.id, provider);
+        });
+        setProviders([...grouped.values()]);
+        setGlobalActiveModel(
+          activeModel.status === "fulfilled"
+            ? activeModel.value.active_llm ?? null
+            : null,
+        );
       })
       .catch((err) => console.error("Failed to load providers:", err))
-      .finally(() => setLoadingProviders(false));
+      .finally(() => {
+        if (active && scope.current()) setLoadingProviders(false);
+      });
 
-    setLoadingSkills(true);
-
-    const fetchPool = skillApi.listSkillPoolSkills();
-    const fetchInstalled = editingAgent
-      ? skillApi.listSkills(editingAgent.id)
-      : Promise.resolve([]);
-
-    Promise.all([fetchPool, fetchInstalled])
-      .then(([pool, workspaceSkills]) => {
-        const poolSkillNames = new Set(pool.map((skill) => skill.name));
-        const installedSkills = workspaceSkills
-          .filter((skill) => poolSkillNames.has(skill.name))
-          .map((skill) => skill.name);
-
-        setPoolSkills(pool);
-        setInstalledSkills(installedSkills);
-        onInstalledSkillsLoaded(installedSkills);
-        if (editingAgent) {
-          onSelectedSkillsChange(installedSkills);
-        } else {
-          onSelectedSkillsChange([]);
-        }
-      })
-      .finally(() => setLoadingSkills(false));
+    setPoolSkills([]);
+    setInstalledSkills([]);
+    setSkillError("");
+    onSelectedSkillsChange([]);
+    onInstalledSkillsLoaded([]);
+    if (!governanceMode && (scope.multiUser ? editingAgent && scope.canEdit : scope.ready && (!editingAgent || scope.canEdit))) {
+      setLoadingSkills(true);
+      void Promise.all([
+        scope.multiUser ? governance.catalog() : skillApi.listSkillPoolSkills().then(items => ({ items })),
+        editingAgent ? skillApi.listSkills(editingAgent.id) : Promise.resolve([]),
+      ])
+        .then(([catalog, workspaceSkills]) => {
+          if (!active || !scope.current()) return;
+          const names = new Set(catalog.items.map((skill) => skill.name));
+          const installed = workspaceSkills
+            .filter((skill) => names.has(skill.name))
+            .map((skill) => skill.name);
+          setPoolSkills(catalog.items);
+          setInstalledSkills(installed);
+          onInstalledSkillsLoaded(installed);
+          onSelectedSkillsChange(installed);
+        })
+        .catch((error) => {
+          if (active && scope.current())
+            setSkillError(skillErrorMessage(error, t));
+        })
+        .finally(() => {
+          if (active && scope.current()) setLoadingSkills(false);
+        });
+    } else {
+      setLoadingSkills(false);
+    }
+    return () => {
+      active = false;
+    };
   }, [
     editingAgent,
     onInstalledSkillsLoaded,
     onSelectedSkillsChange,
     open,
     selectedBackend,
+    governanceMode,
+    scope,
+    governance,
+    skillApi,
+    t,
   ]);
 
   const handleProviderChange = (providerId: string) => {
@@ -145,6 +211,7 @@ export function AgentModal({
   };
 
   const toggleSkill = (name: string) => {
+    if (!scope.current() || (scope.multiUser || editingAgent ? !scope.canEdit : !scope.ready)) return;
     const isInstalled = editingAgent && installedSkills.includes(name);
     if (isInstalled) return;
 
@@ -158,15 +225,6 @@ export function AgentModal({
   const handleSelectAll = () => {
     const allNames = poolSkills.map((s) => s.name);
     onSelectedSkillsChange(allNames);
-  };
-
-  const handleSelectBuiltin = () => {
-    const builtinNames = poolSkills
-      .filter((s) => s.source === "builtin")
-      .map((s) => s.name);
-    onSelectedSkillsChange(
-      Array.from(new Set([...installedSkills, ...builtinNames])),
-    );
   };
 
   const handleSelectNone = () => {
@@ -236,7 +294,15 @@ export function AgentModal({
         <Form.Item
           hidden={selectedBackend !== "qwenpaw"}
           label={t("agent.model")}
-          help={t("agent.modelHelp")}
+          help={
+            selectedProviderId && selectedModelId
+              ? t("agent.modelExplicit")
+              : globalActiveModel
+              ? t("agent.modelInheritCurrent", {
+                  model: `${globalActiveModel.provider_id}/${globalActiveModel.model}`,
+                })
+              : t("agent.modelInheritUnavailable")
+          }
         >
           <Space.Compact style={{ width: "100%" }}>
             <Select
@@ -245,6 +311,7 @@ export function AgentModal({
               placeholder={t("agent.modelPlaceholder")}
               allowClear
               onClear={handleClearModel}
+              disabled={modelReadOnly}
               loading={loadingProviders}
               style={{ width: "45%", gap: "8px" }}
               showSearch
@@ -285,7 +352,7 @@ export function AgentModal({
                   ? t("models.model")
                   : t("agent.modelPlaceholder")
               }
-              disabled={!selectedProviderId}
+              disabled={!selectedProviderId || modelReadOnly}
               style={{ width: "55%" }}
               showSearch
               optionFilterProp="label"
@@ -311,7 +378,10 @@ export function AgentModal({
       <div
         style={{
           marginTop: 4,
-          display: selectedBackend === "qwenpaw" ? undefined : "none",
+          display:
+            selectedBackend === "qwenpaw" && !governanceMode
+              ? undefined
+              : "none",
         }}
       >
         <div
@@ -331,15 +401,13 @@ export function AgentModal({
             <Button size="small" type="primary" onClick={handleSelectAll}>
               {t("agent.selectAll")}
             </Button>
-            <Button size="small" type="default" onClick={handleSelectBuiltin}>
-              {t("agent.selectBuiltin")}
-            </Button>
             <Button size="small" type="default" onClick={handleSelectNone}>
               {t("agent.selectNone")}
             </Button>
           </Space>
         </div>
 
+        {skillError && <Alert type="error" message={skillError} />}
         {loadingSkills ? (
           <div style={{ textAlign: "center", padding: "16px 0" }}>
             <Spin size="small" />
@@ -347,7 +415,11 @@ export function AgentModal({
         ) : poolSkills.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={t("agent.noPoolSkills")}
+            description={
+              editingAgent
+                ? t("skillGovernance.emptyCatalog")
+                : t("skillGovernance.createFirst")
+            }
           />
         ) : (
           <div className={styles.pickerGrid}>

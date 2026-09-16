@@ -15,7 +15,8 @@
  * a message-renderer seam. If their paths change, update the imports below.
  */
 import React, { useMemo } from "react";
-import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
+import RequestActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Actions";
+import { TranscriptText } from "./TranscriptText";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
 import ResponseError from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error";
@@ -26,6 +27,7 @@ import {
   AgentScopeRuntimeMessageType,
   AgentScopeRuntimeRunStatus,
   type IAgentScopeRuntimeMessage,
+  type IAgentScopeRuntimeRequest,
   type IAgentScopeRuntimeResponse,
 } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
@@ -36,9 +38,6 @@ import Audios from "@agentscope-ai/chat/lib/DefaultCards/Audios";
 import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
-// Vendor `.d.ts` doesn't yet describe the request content slots.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const VendorRequestCard = VendorRequestCardOriginal as React.ComponentType<any>;
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -170,23 +169,24 @@ function DefaultHostResponseCard({
         </Flex>
       ) : null}
       {contentPrepend}
-      {messages.map((item) => {
+      {messages.map((item, index) => {
+        const itemKey = `${item.type}:${item.id}:${index}`;
         switch (item.type) {
           case AgentScopeRuntimeMessageType.MESSAGE:
-            return <HostMessage key={item.id} data={item} />;
+            return <HostMessage key={itemKey} data={item} />;
           case AgentScopeRuntimeMessageType.PLUGIN_CALL:
           case AgentScopeRuntimeMessageType.PLUGIN_CALL_OUTPUT:
           case AgentScopeRuntimeMessageType.TOOL_CALL:
           case AgentScopeRuntimeMessageType.TOOL_CALL_OUTPUT:
           case AgentScopeRuntimeMessageType.MCP_CALL:
           case AgentScopeRuntimeMessageType.MCP_CALL_OUTPUT:
-            return <ResponseTool key={item.id} data={item} />;
+            return <ResponseTool key={itemKey} data={item} />;
           case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
-            return <ResponseTool key={item.id} data={item} isApproval />;
+            return <ResponseTool key={itemKey} data={item} isApproval />;
           case AgentScopeRuntimeMessageType.REASONING:
-            return <ResponseReasoning key={item.id} data={item} />;
+            return <ResponseReasoning key={itemKey} data={item} />;
           case AgentScopeRuntimeMessageType.ERROR:
-            return <ResponseError key={item.id} data={item} />;
+            return <ResponseError key={itemKey} data={item} />;
           case AgentScopeRuntimeMessageType.HEARTBEAT:
             return null;
           default:
@@ -199,6 +199,12 @@ function DefaultHostResponseCard({
       <ResponseActions data={data} isLast={isLast} />
     </>
   );
+}
+
+function RequestContent({ data }: { data: IAgentScopeRuntimeRequest }) {
+  return <>{data.input[0].content.map((item, index) => item.type === "text"
+    ? <TranscriptText key={index} text={item.text || ""} />
+    : <HostMessage key={index} data={{role: "user", content: [item]} as IAgentScopeRuntimeMessage} />)}</>;
 }
 
 export function HostRequestCard(props: { data: ChatRequestData }) {
@@ -242,11 +248,12 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
     );
 
   const fallback = () => (
-    <VendorRequestCard
-      data={props.data as AnyCardProps}
-      contentPrepend={contentPrepend as AnyCardProps}
-      contentAppend={contentAppend as AnyCardProps}
-    />
+    <>
+      {contentPrepend}
+      <Bubble role="user" cards={[{code: "Text", component: RequestContent, data: props.data}]} />
+      {contentAppend}
+      <RequestActions data={props.data as AnyCardProps} />
+    </>
   );
 
   if (renderFn) {

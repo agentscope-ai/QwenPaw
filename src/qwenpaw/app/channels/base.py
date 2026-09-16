@@ -6,6 +6,8 @@ Base Channel: bound to AgentRequest/AgentResponse, unified by process.
 """
 from __future__ import annotations
 
+from ...platform_ops.maintenance_lifecycle import admitted
+
 import asyncio
 import json
 import logging
@@ -1461,6 +1463,7 @@ class BaseChannel(ABC):
                 first.content = merged
         return True
 
+    @admitted
     async def _consume_one_request(self, payload: Any) -> None:
         """
         Convert payload to request, apply no-text debounce, run _process,

@@ -27,7 +27,9 @@ import {
 } from "@agentscope-ai/icons";
 import SidebarSessionList from "./SidebarSessionList";
 import SidebarSettingsPanel from "./SidebarSettingsPanel";
-import { clearAuthToken } from "../api/config";
+import SidebarAccountSummary from "./SidebarAccountSummary";
+import AccountProfileModal from "./AccountProfileModal";
+import { clearAccessSession } from "../api/authSession";
 import { authApi } from "../api/modules/auth";
 import api from "../api";
 import {
@@ -35,6 +37,7 @@ import {
   type ExtendedSession,
 } from "../stores/sessionListStore";
 import { useSidebarModeStore } from "../stores/sidebarModeStore";
+import { useAuthStore } from "../stores/authStore";
 import { buildChatPath, getSessionIdFromPath } from "../utils/sessionRoute";
 import { useAgentStore } from "../stores/agentStore";
 import sessionApi from "../pages/Chat/sessionApi";
@@ -53,6 +56,7 @@ import {
 } from "./registry/adapter";
 import type { FlatMenuEntry } from "./registry/adapter";
 import { filterMenuForAgentCapabilities } from "./registry/capabilities";
+import { filterMenuByCapabilities } from "../access/filterMenu";
 import type { MenuItem } from "../plugins/registry/types";
 import type { ReactNode } from "react";
 import {
@@ -124,8 +128,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const currentSessionId = getSessionIdFromPath(location.pathname);
-  const chatPath = buildChatPath(currentSessionId);
-  const [authEnabled, setAuthEnabled] = useState(false);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountLoading, setAccountLoading] = useState(false);
   const [accountForm] = Form.useForm();
@@ -146,6 +148,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   // Sidebar mode: "simple" (only core items) or "full" (everything)
   const { mode: sidebarMode } = useSidebarModeStore();
   const { selectedAgent, agents } = useAgentStore();
+  const lastChatId = useAgentStore((state) =>
+    selectedAgent ? state.lastChatIdByAgent[selectedAgent] : undefined,
+  );
+  const chatPath = buildChatPath(currentSessionId || lastChatId);
+  const authEnabled = useAuthStore((state) => state.authEnabled);
+  const authMode = useAuthStore((state) => state.mode);
+  const authUser = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
   const currentAgent = agents.find((agent) => agent.id === selectedAgent);
   const backendCapabilities = useMemo(
     () =>
@@ -176,13 +186,16 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       ? flattenMenuForSimpleMode(visibleMenu)
       : visibleMenu;
   }, [backendCapabilities, rawAgentMenu, sidebarMode]);
-  const settingsMenu = useMemo(
-    () =>
-      sidebarMode === "simple"
-        ? flattenMenuForSimpleMode(rawSettingsMenu)
-        : rawSettingsMenu,
-    [rawSettingsMenu, sidebarMode],
-  );
+  const settingsMenu = useMemo(() => {
+    const authorized = filterMenuByCapabilities(
+      rawSettingsMenu,
+      authMode,
+      authUser?.platform_role ?? null,
+    );
+    return sidebarMode === "simple"
+      ? flattenMenuForSimpleMode(authorized)
+      : authorized;
+  }, [authMode, authUser?.platform_role, rawSettingsMenu, sidebarMode]);
 
   // Flat nav entries for simple mode (icon + label + path)
   const simpleFlatNav = useMemo(() => {
@@ -194,13 +207,6 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
   }, [agentMenu, settingsMenu, routes, sidebarMode]);
 
   // ── Effects ──────────────────────────────────────────────────────────────
-
-  useEffect(() => {
-    authApi
-      .getStatus()
-      .then((res) => setAuthEnabled(res.enabled))
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     if (!isMobile && shouldShowDesktopModeHint(window.localStorage)) {
@@ -499,7 +505,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
 
     setAccountLoading(true);
     try {
-      await authApi.updateProfile(
+      await authApi.updateLegacyProfile(
         values.currentPassword,
         trimmedUsername,
         trimmedPassword,
@@ -507,7 +513,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       message.success(t("account.updateSuccess"));
       setAccountModalOpen(false);
       accountForm.resetFields();
-      clearAuthToken();
+      clearAccessSession();
       window.location.href = "/login";
     } catch (err: unknown) {
       const raw = err instanceof Error ? err.message : "";
@@ -525,6 +531,31 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
     } finally {
       setAccountLoading(false);
     }
+  };
+
+  const openMultiUserAccount = () => {
+    setAccountModalOpen(true);
+  };
+
+  const handleMultiUserLogout = () => {
+    Modal.confirm({
+      centered: true,
+      title: t("account.logoutConfirmTitle", "确认退出登录？"),
+      content: t(
+        "account.logoutConfirmContent",
+        "退出后需要重新登录才能继续使用。",
+      ),
+      okText: t("login.logout", "退出登录"),
+      cancelText: t("common.cancel", "取消"),
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await logout();
+        } finally {
+          window.location.href = "/login";
+        }
+      },
+    });
   };
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -662,11 +693,14 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
         </>
       ) : (
         <>
-          {/* Agent-scoped section: selector + Chat + Control + Workspace */}
-          <div className={styles.agentScopedSection}>
-            <div className={styles.agentSelectorContainer}>
-              <AgentSelector collapsed={collapsed} />
-              {/* Chat entry — sticky together with agent selector */}
+          <div className={styles.agentSelectorContainer}>
+            <AgentSelector collapsed={collapsed} />
+          </div>
+
+          {/* All navigation groups share one continuous scroll area. */}
+          <div className={styles.menuScrollArea}>
+            {/* Agent-scoped section: Chat + Control + Workspace */}
+            <div className={styles.agentScopedSection}>
               <button
                 className={`${styles.stickyChatButton}${
                   isChatActive ? ` ${styles.stickyChatButtonActive}` : ""
@@ -676,34 +710,45 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
                 <SparkChatTabFill size={16} />
                 <span>{t("nav.chat")}</span>
               </button>
+              <Slot name="sider.top" kind="fill" />
+              <Menu
+                mode="inline"
+                selectedKeys={[selectedKey]}
+                openKeys={openKeys}
+                onClick={({ key }) => handleMenuClick(String(key), agentMenu)}
+                items={agentMenuItems}
+                theme={isDark ? "dark" : "light"}
+                className={styles.sideMenu}
+              />
             </div>
-            <Slot name="sider.top" kind="fill" />
+
+            {/* Global settings section */}
             <Menu
               mode="inline"
               selectedKeys={[selectedKey]}
               openKeys={openKeys}
-              onClick={({ key }) => handleMenuClick(String(key), agentMenu)}
-              items={agentMenuItems}
+              onClick={({ key }) => handleMenuClick(String(key), settingsMenu)}
+              items={settingsMenuItems}
               theme={isDark ? "dark" : "light"}
-              className={styles.sideMenu}
+              className={`${styles.sideMenu} ${styles.settingsMenu}`}
             />
+            <Slot name="sider.bottom" kind="fill" />
           </div>
-
-          {/* Global settings section */}
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedKey]}
-            openKeys={openKeys}
-            onClick={({ key }) => handleMenuClick(String(key), settingsMenu)}
-            items={settingsMenuItems}
-            theme={isDark ? "dark" : "light"}
-            className={styles.sideMenu}
-          />
-          <Slot name="sider.bottom" kind="fill" />
         </>
       )}
 
-      {authEnabled && !collapsed && (
+      {authEnabled && authMode === "multi_user" && authUser && (
+        <SidebarAccountSummary
+          username={authUser.username}
+          displayName={authUser.display_name}
+          role={authUser.platform_role}
+          collapsed={collapsed}
+          onOpen={openMultiUserAccount}
+          onLogout={handleMultiUserLogout}
+        />
+      )}
+
+      {authEnabled && authMode === "legacy" && !collapsed && (
         <div className={styles.authActions}>
           <Button
             type="text"
@@ -723,7 +768,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
             type="text"
             icon={<SparkExitFullscreenLine size={16} />}
             onClick={() => {
-              clearAuthToken();
+              clearAccessSession();
               window.location.href = "/login";
             }}
             block
@@ -779,7 +824,7 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
       />
 
       <Modal
-        open={accountModalOpen}
+        open={accountModalOpen && authMode === "legacy"}
         onCancel={() => setAccountModalOpen(false)}
         title={t("account.title")}
         footer={null}
@@ -842,6 +887,17 @@ export default function Sidebar({ selectedKey }: SidebarProps) {
           </Form.Item>
         </Form>
       </Modal>
+
+      {authMode === "multi_user" && (
+        <AccountProfileModal
+          open={accountModalOpen}
+          onClose={() => setAccountModalOpen(false)}
+          onPasswordChanged={() => {
+            setAccountModalOpen(false);
+            window.location.href = "/login";
+          }}
+        />
+      )}
     </Sider>
   );
 }

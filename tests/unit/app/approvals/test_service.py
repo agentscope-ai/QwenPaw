@@ -97,6 +97,24 @@ def _make_result(
     return ToolGuardResult(tool_name=tool_name, params={}, findings=findings)
 
 
+@pytest.mark.asyncio
+async def test_create_pending_binds_approval_user_id_to_request_user() -> None:
+    svc = ApprovalService()
+
+    pending = await svc.create_pending(
+        session_id="session-a",
+        root_session_id="session-a",
+        owner_agent_id="agent-a",
+        user_id="platform-user-a",
+        channel="console",
+        agent_id="agent-a",
+        tool_name="Bash",
+        result=_make_result(),
+    )
+
+    assert pending.approval_user_id == "platform-user-a"
+
+
 def _seed_pending(
     svc: ApprovalService,
     pending: PendingApproval,

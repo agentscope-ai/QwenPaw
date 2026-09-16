@@ -156,6 +156,7 @@ DEVELOPMENT_ARTIFACT_PATTERNS = (
 
 EXCLUDE_PATTERNS = (
     ".git/",
+    "/sessions/",
     *DEVELOPMENT_ARTIFACT_PATTERNS,
     *(f"/{name}" for name in sorted(QWENPAW_RUNTIME_STATE_FILES)),
     *(f"/{name}" for name in QWENPAW_RUNTIME_STATE_DIRS),
@@ -443,18 +444,14 @@ def session_key(*, channel: str, user_id: str, session_id: str) -> str:
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
-    digest = hashlib.sha256(encoded).hexdigest()
+    return hashlib.sha256(encoded).hexdigest()[:32]
 
-    readable = "-".join(part for part in identity if part)
-    readable = (
-        unicodedata.normalize("NFKD", readable)
-        .encode("ascii", errors="ignore")
-        .decode("ascii")
-        .lower()
-    )
-    readable = re.sub(r"[^a-z0-9]+", "-", readable).strip("-")
-    prefix = readable[:24].rstrip("-") or "session"
-    return f"{prefix}-{digest}"
+
+def canonical_session_key(key: str) -> str:
+    """Read legacy readable-prefix/SHA256 keys using the compact identity."""
+    if re.fullmatch(r"[a-z0-9-]+-[0-9a-f]{64}", key):
+        return key.rsplit("-", 1)[1][:32]
+    return key
 
 
 def sanitize_ref_component(value: str, *, fallback: str = "snapshot") -> str:
@@ -485,10 +482,10 @@ def ref_kind(ref: str) -> str:
 def ref_session_key(ref: str) -> str:
     if ref.startswith(("refs/auto/", "refs/snap/")):
         parts = ref.split("/")
-        return parts[2] if len(parts) > 2 else ""
+        return canonical_session_key(parts[2]) if len(parts) > 2 else ""
     if ref.startswith("refs/pre-restore/"):
         tail = ref.removeprefix("refs/pre-restore/")
-        return tail.split("-", 1)[1] if "-" in tail else ""
+        return canonical_session_key(tail.split("-", 1)[1]) if "-" in tail else ""
     return ""
 
 
@@ -558,19 +555,23 @@ def latest_user_query(
 def encode_metadata(
     query: str | None,
     *,
+    agent_id: str | None = None,
     channel: str | None = None,
     user_id: str | None = None,
     session_id: str | None = None,
     parent_commit: str | None = None,
+    snapshot_name: str | None = None,
 ) -> str:
     """Encode metadata as a single UTF-8-safe commit-message line."""
     payload = json.dumps(
         {
             "query": query,
+            "agent_id": agent_id,
             "channel": channel,
             "user_id": user_id,
             "session_id": session_id,
             "parent": parent_commit,
+            "snapshot_name": snapshot_name,
         },
         ensure_ascii=False,
         separators=(",", ":"),

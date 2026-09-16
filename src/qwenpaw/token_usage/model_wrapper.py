@@ -49,6 +49,24 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if pt <= 0 and ct <= 0:
             return
 
+        from ..app.agent_context import (
+            get_current_agent_id,
+            get_current_channel,
+            get_current_user_id,
+        )
+        from ..config.context import get_current_request_context
+
+        request_context = get_current_request_context() or {}
+        authorization = request_context.get("automation_authorization")
+        schedule_id = (
+            authorization.get("schedule_id")
+            if isinstance(authorization, dict)
+            else None
+        )
+        channel = get_current_channel()
+        actor_type = request_context.get("actor_type")
+        if not actor_type:
+            actor_type = "external" if channel and channel != "console" else "user"
         event = _UsageEvent(
             provider_id=self._provider_id,
             model_name=self.model,
@@ -58,6 +76,15 @@ class TokenRecordingModelWrapper(ChatModelBase):
             now_iso=datetime.now(tz=timezone.utc).isoformat(
                 timespec="seconds",
             ),
+            user_id=get_current_user_id(),
+            actor_type=str(actor_type),
+            agent_key=get_current_agent_id(),
+            conversation_id=(
+                request_context.get("conversation_id")
+                or request_context.get("chat_id")
+            ),
+            run_id=request_context.get("run_id"),
+            automation_schedule_id=schedule_id,
         )
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)

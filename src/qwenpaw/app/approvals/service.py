@@ -62,6 +62,9 @@ class PendingApproval:
     # treated as EXACT by the governance consumer. Only meaningful when the
     # decision is APPROVED.
     scope: ApprovalScope | None = None
+    # Platform user who is allowed to view and decide this approval. Kept
+    # separate from channel delivery identity for multi-user isolation.
+    approval_user_id: str | None = None
 
 
 def _is_spawn_child_approval(pending: PendingApproval) -> bool:
@@ -158,6 +161,7 @@ class ApprovalService:
         result: "ToolGuardResult",
         timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         extra: dict[str, Any] | None = None,
+        approval_user_id: str | None = None,
     ) -> PendingApproval:
         """Create a pending approval record and return it."""
         from ...security.tool_guard.approval import (
@@ -179,6 +183,7 @@ class ApprovalService:
             tool_name=tool_name,
             created_at=time.time(),
             future=loop.create_future(),
+            approval_user_id=approval_user_id or user_id,
             timeout_seconds=timeout_seconds,
             result_summary=format_findings_summary(result),
             findings_count=result.findings_count,
@@ -229,6 +234,7 @@ class ApprovalService:
         summary: ApprovalRequestSummary,
         timeout_seconds: float = TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS,
         extra: dict[str, Any] | None = None,
+        approval_user_id: str | None = None,
     ) -> PendingApproval:
         """Create a pending approval from a generic summary."""
         request_id = str(uuid.uuid4())
@@ -249,6 +255,7 @@ class ApprovalService:
             tool_name=summary.name,
             created_at=time.time(),
             future=loop.create_future(),
+            approval_user_id=approval_user_id or user_id,
             timeout_seconds=timeout_seconds,
             result_summary=summary.result_summary,
             findings_count=summary.findings_count,
@@ -329,6 +336,30 @@ class ApprovalService:
         """Get a pending request by id."""
         async with self._lock:
             return self._pending.get(request_id)
+
+    async def list_pending_for_user(
+        self,
+        approval_user_id: str | None,
+        *,
+        root_session_id: str | None = None,
+    ) -> list[PendingApproval]:
+        """按指定审批用户及可选根会话返回待审批请求。"""
+        async with self._lock:
+            result = [
+                pending
+                for pending in self._pending.values()
+                if pending.status == "pending"
+                and (
+                    approval_user_id is None
+                    or (pending.approval_user_id or pending.user_id)
+                    == approval_user_id
+                )
+                and (
+                    root_session_id is None
+                    or pending.root_session_id == root_session_id
+                )
+            ]
+        return sorted(result, key=lambda pending: pending.created_at)
 
     async def get_pending_by_session(
         self,

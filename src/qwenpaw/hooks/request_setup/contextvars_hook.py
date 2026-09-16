@@ -18,6 +18,41 @@ from ...runtime.phases import Phase
 logger = logging.getLogger(__name__)
 
 
+def _trusted_automation_context(request_context: object) -> dict:
+    """Project a complete server-created automation snapshot to tools."""
+    if not isinstance(request_context, dict):
+        return {}
+    if (
+        request_context.get("actor_type") == "automation"
+        and request_context.get("automation_kind") == "agent_automation"
+        and request_context.get("authorized_by_user_id")
+    ):
+        return {
+            "actor_type": "automation",
+            "automation_kind": "agent_automation",
+            "authorized_by_user_id": str(
+                request_context["authorized_by_user_id"]
+            ),
+        }
+    authorization = request_context.get("automation_authorization")
+    if request_context.get("actor_type") != "automation" or not isinstance(
+        authorization, dict
+    ):
+        return {}
+    required = {
+        "schedule_id",
+        "config_version",
+        "authorization_digest",
+        "grants",
+    }
+    if not required.issubset(authorization):
+        return {}
+    return {
+        "actor_type": "automation",
+        "automation_authorization": authorization,
+    }
+
+
 class ContextVarsSetupHook(LifecycleHook):
     """Inject per-request ContextVars before agent execution."""
 
@@ -62,15 +97,28 @@ class ContextVarsSetupHook(LifecycleHook):
         set_current_channel(getattr(ctx.request, "channel", None))
         channel = getattr(ctx.request, "channel", None) or "console"
         set_current_channel_name(channel)
-        set_current_request_context(
-            {
-                "agent_id": ctx.agent_id or "default",
-                "session_id": _session_id,
-                "root_session_id": ctx.root_session_id or _session_id,
-                "channel": channel,
-            },
-        )
         request_context = getattr(ctx.request, "request_context", None)
+        tool_request_context = {
+            "agent_id": ctx.agent_id or "default",
+            "session_id": _session_id,
+            "root_session_id": ctx.root_session_id or _session_id,
+            "channel": channel,
+        }
+        # 工具层必须携带真实执行主体；个人资料库、附件与产物均据此隔离。
+        if ctx.request.user_id:
+            tool_request_context["user_id"] = str(ctx.request.user_id)
+        if isinstance(request_context, dict):
+            actor = request_context.get("actor_context")
+            if isinstance(actor, dict):
+                tool_request_context["actor_context"] = dict(actor)
+            for key in ("chat_id", "conversation_id", "run_id"):
+                value = request_context.get(key)
+                if value:
+                    tool_request_context[key] = str(value)
+            tool_request_context.update(
+                _trusted_automation_context(request_context)
+            )
+        set_current_request_context(tool_request_context)
         if isinstance(request_context, dict) and request_context.get(
             "_spawn_subagent",
         ):

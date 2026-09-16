@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """Tests for embedded ReMe configuration mapping."""
 
+from reme.components.component_registry import R
+from reme.enumeration import ComponentEnum
+
 from qwenpaw.agents.memory.reme_config import get_reme_app_config
 from qwenpaw.config.config import (
     AgentProfileConfig,
@@ -33,6 +36,48 @@ def test_memory_search_indexes_only_memory_markdown() -> None:
         job = cfg["jobs"][job_name]
         assert job["watch_dirs"] == ["daily_dir", "digest_dir"]
         assert job["watch_suffixes"] == ["md"]
+
+
+def test_root_memory_sync_is_wired_without_watching_other_root_markdown():
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    assert cfg["jobs"]["index_update_loop"]["watch_dirs"] == [
+        "daily_dir",
+        "digest_dir",
+    ]
+    assert cfg["jobs"]["root_memory_update_loop"]["steps"][0] == {
+        "backend": "qwenpaw_root_memory_sync_step",
+        "dispatch_steps": ["update_index_step"],
+    }
+    assert all(
+        step["backend"] != "qwenpaw_root_memory_sync_step"
+        for step in cfg["jobs"]["index_update_loop"]["steps"]
+    )
+    assert cfg["jobs"]["reindex"]["steps"][-1] == {
+        "backend": "qwenpaw_root_memory_sync_step",
+        "dispatch_steps": ["update_index_step"],
+    }
+
+
+def test_root_memory_watch_runs_as_an_independent_background_job():
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    assert cfg["jobs"]["root_memory_update_loop"] == {
+        "backend": "background",
+        "max_file_bytes": 10 * 1024 * 1024,
+        "steps": [
+            {
+                "backend": "qwenpaw_root_memory_sync_step",
+                "dispatch_steps": ["update_index_step"],
+            },
+            {
+                "backend": "qwenpaw_root_memory_watch_step",
+                "dispatch_steps": [
+                    {"backend": "update_index_step", "persist": True},
+                ],
+            },
+        ],
+    }
 
 
 def test_reme_file_processing_is_limited_to_10_mb() -> None:
@@ -85,6 +130,20 @@ def test_graph_snapshot_job_exposes_complete_wikilink_graph() -> None:
         "parameters": {"type": "object", "properties": {}},
         "steps": [{"backend": "graph_snapshot_step"}],
     }
+
+
+def test_all_configured_reme_steps_are_registered() -> None:
+    """QwenPaw 配置不能引用 ReMe 启动时无法解析的 Step。"""
+    cfg = _config_for_embedding(EmbeddingModelConfig())
+
+    missing = {
+        step["backend"]
+        for job in cfg["jobs"].values()
+        for step in job.get("steps", [])
+        if R.get(ComponentEnum.STEP, step["backend"]) is None
+    }
+
+    assert missing == set()
 
 
 def test_openai_compatible_embedding_requires_api_key() -> None:

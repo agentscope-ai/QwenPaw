@@ -23,6 +23,10 @@ from ...plan.schemas import (
     PlanStateResponse,
     plan_to_response,
 )
+from ..agent_context import (
+    get_running_config_workspace,
+    require_running_config_editor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +121,11 @@ async def get_current_plan(
     summary="Get plan config",
 )
 async def get_plan_config(request: Request) -> PlanConfigResponse:
-    workspace = await _get_workspace(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.plan.view",
+    )
+    require_running_config_editor(request)
     plan_cfg = workspace.config.plan
     if plan_cfg is None:
         plan_cfg = PlanConfig()
@@ -138,7 +146,11 @@ async def put_plan_config(
     request: Request,
     body: PlanConfigResponse = Body(...),
 ) -> PlanConfigResponse:
-    workspace = await _get_workspace(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.plan.update",
+    )
+    require_running_config_editor(request)
     if workspace.config.plan is None:
         workspace.config.plan = PlanConfig()
     workspace.config.plan.enabled = body.enabled

@@ -14,6 +14,7 @@ import type {
   CreateBackupRequest,
   RestoreBackupRequest,
   RestoreBackupResponse,
+  RestoreImpact,
   DeleteBackupsResponse,
 } from "../types/backup";
 
@@ -75,6 +76,12 @@ export const backupApi = {
       method: "POST",
       body: JSON.stringify(data),
       timeout: RESTORE_BACKUP_TIMEOUT_MS,
+    }),
+
+  previewRestore: (id: string, data: RestoreBackupRequest) =>
+    request<RestoreImpact>(`/backups/${id}/restore/preview`, {
+      method: "POST",
+      body: JSON.stringify(data),
     }),
 
   deleteBackups: (ids: string[]) =>

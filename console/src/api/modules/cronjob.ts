@@ -5,10 +5,12 @@ import type {
   CronJobSpecInput,
   CronJobSpecOutput,
   CronJobView,
+  AutomationAuthorizationPreview,
 } from "../types";
 
 export const cronJobApi = {
-  listCronJobs: () => request<CronJobSpecOutput[]>("/cron/jobs"),
+  listCronJobs: (scope: "mine" | "agent" = "mine") =>
+    request<CronJobSpecOutput[]>(`/cron/jobs?scope=${scope}`),
 
   createCronJob: (spec: CronJobSpecInput) =>
     request<CronJobSpecOutput>("/cron/jobs", {
@@ -56,6 +58,32 @@ export const cronJobApi = {
   getCronJobHistory: (jobId: string) =>
     request<CronJobExecutionRecord[]>(
       `/cron/jobs/${encodeURIComponent(jobId)}/history`,
+    ),
+
+  getCronJobAuthorization: (jobId: string) =>
+    request<AutomationAuthorizationPreview>(
+      `/cron/jobs/${encodeURIComponent(jobId)}/authorization`,
+    ),
+
+  authorizeCronJob: (
+    jobId: string,
+    preview: Pick<
+      AutomationAuthorizationPreview,
+      "config_version" | "authorization_digest"
+    >,
+  ) =>
+    request<CronJobSpecOutput>(
+      `/cron/jobs/${encodeURIComponent(jobId)}/authorize`,
+      {
+        method: "POST",
+        body: JSON.stringify(preview),
+      },
+    ),
+
+  revokeCronJobAuthorization: (jobId: string) =>
+    request<CronJobSpecOutput>(
+      `/cron/jobs/${encodeURIComponent(jobId)}/revoke`,
+      { method: "POST" },
     ),
 
   listCronDispatchTargets: (params?: {

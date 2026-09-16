@@ -11,6 +11,7 @@ import {
 } from "./useMarketInstall";
 import type { MarketResult } from "../../../api/modules/market";
 import { ResultCard, DetailDrawer, QueueItem, EmptyState } from "./components";
+import { useSkillScope } from "@/api/skillScope";
 import styles from "./index.module.less";
 
 function getCardKey(item: MarketResult) {
@@ -185,8 +186,11 @@ export function MarketPanel({
 }) {
   const { t } = useTranslation();
   const selectedAgent = useAgentStore((s) => s.selectedAgent);
+  const scope = useSkillScope();
+  const canInstall = installTarget === "pool" ? scope.isAdmin : scope.canEdit;
   const market = useMarketSearch();
   const [detailItem, setDetailItem] = useState<MarketResult | null>(null);
+  useEffect(() => setDetailItem(null), [scope.key]);
   const onInstalledRef = useRef(onInstalled);
   onInstalledRef.current = onInstalled;
 
@@ -312,6 +316,7 @@ export function MarketPanel({
                 <ResultCard
                   key={getCardKey(item)}
                   item={item}
+                  canInstall={canInstall}
                   onInstall={() => onInstall(item)}
                   onOpenDetail={() => setDetailItem(item)}
                 />
@@ -348,6 +353,7 @@ export function MarketPanel({
 
       <DetailDrawer
         item={detailItem}
+        canInstall={canInstall}
         onInstall={handleDetailInstall}
         onClose={handleDetailClose}
       />

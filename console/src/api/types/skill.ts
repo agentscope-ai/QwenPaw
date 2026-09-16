@@ -6,6 +6,11 @@ export type SkillSyncStatus =
   | "conflict";
 
 export interface SkillSpec {
+  source_pool_version_id?: string | null;
+  source_pool_version?: string | null;
+  detached?: boolean;
+  update_available?: boolean;
+  content_hash?: string;
   name: string;
   description?: string;
   source: string;

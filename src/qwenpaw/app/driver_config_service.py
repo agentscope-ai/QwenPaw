@@ -16,16 +16,18 @@ from ..drivers.credentials.store import (
     AsyncCredentialStore,
 )
 from ..drivers.credentials.types import CredentialRecord
-from ..drivers.errors import CredentialNotFoundError, DriverCardError
+from ..drivers.errors import (
+    CredentialNotFoundError,
+    DriverCardError,
+    DriverNotFoundError,
+)
 from ..drivers.storage import (
     AsyncDriverCardStore,
     card_path,
 )
 
 logger = logging.getLogger(__name__)
-_MANAGER_NOT_READY_DETAIL = (
-    "Driver manager is not ready yet, please try again later"
-)
+_MANAGER_NOT_READY_DETAIL = "Driver manager is not ready yet, please try again later"
 
 
 class DriverConfigService:
@@ -63,12 +65,14 @@ class DriverConfigService:
 
     async def load_card(self, name: str, *, protocol: str) -> DriverCard:
         path = self.card_path(name, protocol=protocol)
-        if not await asyncio.to_thread(path.is_file):
-            raise HTTPException(
-                404,
-                detail=f"{protocol.upper()} client '{name}' not found",
-            )
-        card = await self.card_store.load_path(path)
+        try:
+            card = await self.card_store.load(name, protocol=protocol)
+        except (FileNotFoundError, DriverNotFoundError):
+            raise HTTPException(404, detail="Driver not found") from None
+        except DriverCardError:
+            if not await asyncio.to_thread(path.is_file):
+                raise HTTPException(404, detail="Driver not found") from None
+            raise
         if card.protocol != protocol:
             raise HTTPException(
                 404,
@@ -110,7 +114,13 @@ class DriverConfigService:
         *,
         reload_driver: bool = True,
     ) -> Path:
-        path = await self.card_store.save(card)
+        try:
+            path = await self.card_store.save(card)
+        except Exception:
+            if not getattr(self.card_store, "authoritative", False):
+                raise
+            logger.warning("MCP configuration committed; materialization unavailable")
+            path = self.card_path(card.name, protocol=card.protocol)
         if reload_driver:
             await self.reload_driver_best_effort(card.name)
         return path
@@ -118,7 +128,9 @@ class DriverConfigService:
     async def save_policy(self, card: DriverCard) -> Path:
         """Persist policy changes and update the active Driver immediately."""
         manager = getattr(self._workspace, "driver_manager", None)
-        if manager is not None:
+        if manager is not None and getattr(self.card_store, "authoritative", False):
+            await self.reload_driver_best_effort(card.name)
+        elif manager is not None:
             await manager.sync_driver_policy(card)
         else:
             await self.card_store.save(card)
@@ -133,12 +145,8 @@ class DriverConfigService:
             try:
                 await manager.reload_driver(name)
                 logger.info("Driver '%s' reloaded and active", name)
-            except Exception as exc:
-                logger.info(
-                    "Driver '%s' saved but not active yet: %s",
-                    name,
-                    exc,
-                )
+            except Exception:
+                logger.info("Driver configuration saved; runtime activation failed")
 
         task = asyncio.create_task(
             reload_background(),

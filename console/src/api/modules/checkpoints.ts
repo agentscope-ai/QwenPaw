@@ -7,6 +7,7 @@ import type {
   GcResult,
   RestoreRequest,
   RestoreResult,
+  SnapshotRequest,
 } from "../types/checkpoints";
 
 const base = "/workspace/checkpoints";
@@ -26,12 +27,7 @@ export const checkpointsApi = {
       body: JSON.stringify({ enabled }),
     }),
 
-  snapshot: (body: {
-    session_id: string;
-    user_id: string;
-    channel: string;
-    name: string;
-  }) =>
+  snapshot: (body: SnapshotRequest) =>
     request<{ ref: string; commit: string }>(`${base}/snapshot`, {
       method: "POST",
       body: JSON.stringify(body),

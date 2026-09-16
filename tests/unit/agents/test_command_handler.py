@@ -234,17 +234,19 @@ async def test_system_prompt_command_returns_current_prompt() -> None:
 async def test_dream_command_runs_auto_dream_with_hint() -> None:
     agent = _make_agent()
     memory_manager = MagicMock()
-    memory_manager.dream = AsyncMock()
+    memory_manager.scoped_dream = AsyncMock()
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
+        actor_user_id="user-1",
     )
 
     msg = await handler.handle_command("/dream consolidate recent topics")
 
     assert handler.is_command("/dream")
-    memory_manager.dream.assert_awaited_once_with(
+    memory_manager.scoped_dream.assert_awaited_once_with(
+        actor_user_id="user-1",
         hint="consolidate recent topics",
     )
     assert "Auto-dream Complete" in msg.get_text_content()
@@ -339,24 +341,29 @@ async def test_memorize_defaults_to_latest_reply_group() -> None:
         _msg("assistant", "a2", msg_id="r2"),
     ]
     memory_manager = MagicMock()
-    memory_manager.auto_memory = AsyncMock()
+    memory_manager.scoped_auto_memory = AsyncMock()
     handler = CommandHandler(
         agent_name="QwenPaw",
         agent=agent,
         memory_manager=memory_manager,
+        actor_user_id="user-1",
+        source_conversation_id="de307e1e-a799-4323-8fbb-4699dea2990c",
     )
 
     msg = await handler.handle_command("/memorize")
 
-    memory_manager.auto_memory.assert_awaited_once()
-    await_args = memory_manager.auto_memory.await_args
+    memory_manager.scoped_auto_memory.assert_awaited_once()
+    await_args = memory_manager.scoped_auto_memory.await_args
     assert await_args is not None
-    args, kwargs = await_args
-    assert [m.get_text_content() for m in args[0]] == ["u2", "a2"]
+    _args, kwargs = await_args
+    assert [m.get_text_content() for m in kwargs["messages"]] == ["u2", "a2"]
+    del kwargs["messages"]
     assert kwargs == {
         "session_id": "session-1",
         "reply_id": "r2",
         "reply_ids": ["r2"],
+        "actor_user_id": "user-1",
+        "_source_conversation_id": "de307e1e-a799-4323-8fbb-4699dea2990c",
     }
     assert "Reply groups: 1" in msg.get_text_content()
 

@@ -1,265 +1,265 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { renderWithProviders } from "@/test/common_setup";
+import { beforeEach, expect, it, vi } from "vitest";
+import {
+  render,
+  screen,
+  waitFor,
+  fireEvent,
+  act,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import ModelSelector from "./index";
+import { request } from "@/api/request";
+import { useCreateNewSession } from "../hooks/useCreateNewSession";
+import { draftModel } from "../conversationModel";
+import sessionApi from "../sessionApi";
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
-vi.mock("@/api/modules/provider", () => ({
-  providerApi: {
-    listProviders: vi.fn(),
-    getActiveModels: vi.fn(),
-    setActiveLlm: vi.fn(),
+const state = vi.hoisted(() => ({
+  user: { id: "alice" },
+  selectedAgent: "agent-a",
+  agents: [],
+  createSession: vi.fn(),
+}));
+vi.mock("@/api/request", () => ({ request: vi.fn() }));
+vi.mock("@/stores/agentStore", () => ({
+  useAgentStore: Object.assign(
+    (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+    { getState: () => state },
+  ),
+  isAgentHistoricalReadOnly: () => false,
+}));
+vi.mock("@agentscope-ai/chat", () => ({
+  useChatAnywhereSessions: () => ({ createSession: state.createSession }),
+}));
+vi.mock("@/hooks/useAppMessage", () => ({
+  useAppMessage: () => ({ message: { warning: vi.fn() } }),
+}));
+vi.mock("@/stores/authStore", () => ({
+  useAuthStore: Object.assign(
+    (selector?: (s: typeof state) => unknown) =>
+      selector ? selector(state) : state,
+    { getState: () => state },
+  ),
+}));
+vi.mock("../sessionApi", () => ({
+  default: {
+    getRealIdForSession: (id: string) => id,
+    preferredChatId: "old-chat",
+    lastNavigatedChatId: "old-chat",
   },
 }));
-
-vi.mock("@/stores/agentStore", () => ({
-  useAgentStore: vi.fn(() => ({ selectedAgent: "default" })),
+vi.mock("../turnUsageStore", () => ({
+  useTurnUsageStore: { getState: () => ({ setActiveMaxInputLength: vi.fn() }) },
 }));
-
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (k: string) => k }),
+  useTranslation: () => ({
+    t: (key: string) =>
+      ({
+        "modelSelector.resetConversation": "恢复默认",
+        "modelSelector.conversationModel": "会话模型",
+      })[key] ?? key,
+  }),
 }));
 
-vi.mock("lucide-react", () => ({
-  Loader2: () => "Loader2",
-  ExternalLink: () => "ExternalLink",
-  ChevronDown: () => "ChevronDown",
-  ChevronRight: () => "ChevronRight",
-  Search: () => "Search",
-  X: () => "X",
-  Check: () => "Check",
-  AlertCircle: () => "AlertCircle",
-  Eye: () => "Eye",
-  Zap: () => "Zap",
-}));
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-import { providerApi } from "@/api/modules/provider";
-
-const mockProvider = {
-  id: "openai",
-  name: "OpenAI",
-  api_key: "sk-xxx",
-  api_key_prefix: "",
-  chat_model: "OpenAIChatModel",
-  require_api_key: true,
-  base_url: "",
-  is_custom: false,
-  is_local: false,
-  support_model_discovery: false,
-  support_connection_check: false,
-  freeze_url: false,
-  generate_kwargs: {},
+const catalog = {
+  enforced: true,
   models: [
     {
-      id: "gpt-4",
-      name: "GPT-4",
-      supports_multimodal: false,
-      supports_image: false,
-      supports_video: false,
-      generate_kwargs: {},
-      max_tokens: 8192,
-      max_input_length: 32768,
-      relay_reasoning: true,
-      thinking_enabled: null,
-      thinking_budget: null,
-      reasoning_effort: null,
+      id: "one",
+      provider_id: "p",
+      provider_name: "Provider",
+      model: "one",
+      name: "One",
+      max_input_length: 32000,
     },
     {
-      id: "gpt-3.5-turbo",
-      name: "GPT-3.5 Turbo",
-      supports_multimodal: false,
-      supports_image: false,
-      supports_video: false,
-      generate_kwargs: {},
-      max_tokens: 4096,
-      max_input_length: 16384,
-      relay_reasoning: true,
-      thinking_enabled: null,
-      thinking_budget: null,
-      reasoning_effort: null,
+      id: "two",
+      provider_id: "p",
+      provider_name: "Provider",
+      model: "two",
+      name: "Two",
+      max_input_length: 64000,
     },
   ],
-  extra_models: [],
 };
+beforeEach(() => {
+  state.user = { id: "alice" };
+  state.createSession.mockReset();
+  sessionApi.preferredChatId = "old-chat";
+  sessionApi.lastNavigatedChatId = "old-chat";
+  window.history.replaceState({}, "", "/chat/chat-a");
+  vi.mocked(request)
+    .mockReset()
+    .mockImplementation(async (path, options) => {
+      if (path.startsWith("/model-catalog/default"))
+        return {
+          active_llm: { provider_id: "p", model: "one" },
+          locked: false,
+        };
+      if (path.startsWith("/model-catalog")) return catalog;
+      const selected = options?.body
+        ? JSON.parse(String(options.body))
+        : { provider_id: "p", model: "one" };
+      return {
+        active_llm: selected ?? { provider_id: "p", model: "one" },
+        locked: false,
+        effective_max_input_length: 32000,
+      };
+    });
+});
 
-const mockActiveModels = {
-  active_llm: { provider_id: "openai", model: "gpt-4" },
-};
+it("creates the blank SDK session before broadcasting the model reset", async () => {
+  const order: string[] = [];
+  state.createSession.mockImplementation(async () => {
+    order.push("create-session");
+  });
+  const onNewChatReset = () => order.push("new-chat-reset");
+  const onModelSwitched = () => order.push("model-reset");
+  window.addEventListener("qwenpaw:new-chat-reset", onNewChatReset);
+  window.addEventListener("model-switched", onModelSwitched);
 
-function setupDefaultMocks() {
-  vi.mocked(providerApi.listProviders).mockResolvedValue([mockProvider]);
-  vi.mocked(providerApi.getActiveModels).mockResolvedValue(mockActiveModels);
-  vi.mocked(providerApi.setActiveLlm).mockResolvedValue({});
+  render(
+    <MemoryRouter initialEntries={["/chat"]}>
+      <DraftView />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByText("New draft"));
+
+  await waitFor(() =>
+    expect(order).toEqual([
+      "new-chat-reset",
+      "create-session",
+      "new-chat-reset",
+      "model-reset",
+    ]),
+  );
+  expect(sessionApi.preferredChatId).toBeNull();
+  expect(sessionApi.lastNavigatedChatId).toBeNull();
+  window.removeEventListener("qwenpaw:new-chat-reset", onNewChatReset);
+  window.removeEventListener("model-switched", onModelSwitched);
+});
+function DraftView() {
+  const create = useCreateNewSession();
+  return (
+    <>
+      <button onClick={create}>New draft</button>
+      <ModelSelector />
+    </>
+  );
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-describe("ModelSelector", () => {
-  beforeEach(() => {
-    setupDefaultMocks();
-  });
-
-  afterEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("displays current active model name on trigger button after loading", async () => {
-    renderWithProviders(<ModelSelector />);
-    expect((await screen.findAllByText("GPT-4"))[0]).toBeInTheDocument();
-  });
-
-  it("displays i18n key when there is no active model", async () => {
-    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
-      active_llm: undefined,
-    });
-    renderWithProviders(<ModelSelector />);
+it("clears a draft through the real new-session hook and on leaving", async () => {
+  window.history.replaceState({}, "", "/chat");
+  const rendered = render(
+    <MemoryRouter initialEntries={["/chat"]}>
+      <DraftView />
+    </MemoryRouter>,
+  );
+  await screen.findByText("Provider / One");
+  fireEvent.mouseDown(screen.getByRole("combobox"));
+  fireEvent.click(await screen.findByTitle("64000 tokens"));
+  await waitFor(() => expect(draftModel()?.model).toBe("two"));
+  fireEvent.click(screen.getByText("New draft"));
+  await waitFor(() => expect(draftModel()).toBeUndefined());
+  await waitFor(() =>
     expect(
-      (await screen.findAllByText("modelSelector.selectModel"))[0],
-    ).toBeInTheDocument();
+      document.querySelector(".ant-select-selection-item")?.textContent,
+    ).toBe("Provider / One"),
+  );
+  fireEvent.mouseDown(screen.getByRole("combobox"));
+  fireEvent.click(await screen.findByTitle("64000 tokens"));
+  await waitFor(() => expect(draftModel()?.model).toBe("two"));
+  rendered.unmount();
+  expect(draftModel()).toBeUndefined();
+  render(
+    <MemoryRouter initialEntries={["/chat"]}>
+      <ModelSelector />
+    </MemoryRouter>,
+  );
+  await screen.findByText("Provider / One");
+});
+function view() {
+  return (
+    <MemoryRouter initialEntries={["/chat/chat-a"]}>
+      <ModelSelector />
+    </MemoryRouter>
+  );
+}
+
+it("sends actual selected model and clear only to the current conversation", async () => {
+  render(view());
+  await screen.findByText("Provider / One");
+  fireEvent.mouseDown(screen.getByRole("combobox"));
+  fireEvent.click(await screen.findByTitle("64000 tokens"));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith("/chats/chat-a/model", {
+      method: "PUT",
+      body: '{"provider_id":"p","model":"two"}',
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByText("恢复默认").closest("button")).not.toBeDisabled(),
+  );
+  fireEvent.click(screen.getByText("恢复默认"));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith("/chats/chat-a/model", {
+      method: "PUT",
+      body: "null",
+    }),
+  );
+  expect(
+    vi.mocked(request).mock.calls.some(([path]) => path === "/models/active"),
+  ).toBe(false);
+});
+it("ignores an old account catalog response after switching accounts", async () => {
+  let finish!: (value: unknown) => void;
+  vi.mocked(request).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const rendered = render(view());
+  state.user = { id: "bob" };
+  rendered.rerender(view());
+  await screen.findByText("Provider / One");
+  await act(async () =>
+    finish({
+      enforced: true,
+      models: [{ ...catalog.models[0], name: "Alice private" }],
+    }),
+  );
+  expect(screen.queryByText(/Alice private/)).toBeNull();
+});
+it("shows catalog failures without offering an unauthorized model", async () => {
+  vi.mocked(request).mockRejectedValue(new Error("catalog_unavailable"));
+  render(view());
+  await screen.findByText("catalog_unavailable");
+  expect(screen.queryByText("Provider / One")).toBeNull();
+});
+
+it("uses the new agent default while the URL still points to the previous agent chat", async () => {
+  vi.mocked(request).mockImplementation(async (path) => {
+    if (path.startsWith("/model-catalog/default")) {
+      return {
+        active_llm: { provider_id: "p", model: "one" },
+        source: "platform",
+        model_override: null,
+        locked: false,
+        effective_max_input_length: 32000,
+      };
+    }
+    if (path.startsWith("/model-catalog")) return catalog;
+    if (path === "/chats/chat-a/model") {
+      throw new Error('Chat not found - {"detail":"Chat not found"}');
+    }
+    throw new Error(`unexpected request: ${path}`);
   });
 
-  it("displays bare model id when active model is outside the eligible list", async () => {
-    // provider has no api_key configured, so it is excluded from eligible list
-    vi.mocked(providerApi.listProviders).mockResolvedValue([
-      { ...mockProvider, api_key: "" },
-    ]);
-    renderWithProviders(<ModelSelector />);
-    expect((await screen.findAllByText("gpt-4"))[0]).toBeInTheDocument();
-  });
+  render(view());
 
-  it("calls listProviders and getActiveModels on mount", async () => {
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("GPT-4");
-    expect(providerApi.listProviders).toHaveBeenCalledOnce();
-    expect(providerApi.getActiveModels).toHaveBeenCalledWith({
-      scope: "effective",
-      agent_id: "default",
-    });
-  });
-
-  it("clicking trigger button opens dropdown and shows provider list", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("GPT-4");
-
-    await user.click(screen.getAllByText("GPT-4")[0]);
-
-    expect(await screen.findByText("OpenAI")).toBeInTheDocument();
-  });
-
-  it("clicking a model calls setActiveLlm with correct parameters", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("GPT-4");
-
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    const gpt35 = await screen.findByText("GPT-3.5 Turbo");
-    await user.click(gpt35);
-
-    expect(providerApi.setActiveLlm).toHaveBeenCalledWith({
-      provider_id: "openai",
-      model: "gpt-3.5-turbo",
-      scope: "agent",
-      agent_id: "default",
-    });
-  });
-
-  it("publishes the backend-resolved context window after a model switch", async () => {
-    vi.mocked(providerApi.setActiveLlm).mockResolvedValue({
-      active_llm: {
-        provider_id: "openai",
-        model: "gpt-3.5-turbo",
-      },
-      effective_max_input_length: 65536,
-    });
-    const switched = vi.fn();
-    window.addEventListener("model-switched", switched);
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("GPT-4");
-
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(await screen.findByText("GPT-3.5 Turbo"));
-
-    await waitFor(() => expect(switched).toHaveBeenCalledOnce());
-    const event = switched.mock.calls[0][0] as CustomEvent;
-    expect(event.detail).toEqual({
-      maxInputLength: 65536,
-    });
-    window.removeEventListener("model-switched", switched);
-  });
-
-  it("publishes the backend-resolved context window after loading active models", async () => {
-    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
-      ...mockActiveModels,
-      effective_max_input_length: 262144,
-    });
-    const switched = vi.fn();
-    window.addEventListener("model-switched", switched);
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("GPT-4");
-
-    await waitFor(() => expect(switched).toHaveBeenCalledOnce());
-    const event = switched.mock.calls[0][0] as CustomEvent;
-    expect(event.detail).toEqual({
-      maxInputLength: 262144,
-    });
-    window.removeEventListener("model-switched", switched);
-  });
-
-  it("clicking the already active model does not call setActiveLlm", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("GPT-4");
-
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    const gpt4Items = await screen.findAllByText("GPT-4");
-    await user.click(gpt4Items[gpt4Items.length - 1]);
-
-    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
-  });
-
-  it("dropdown shows empty state when no providers are available", async () => {
-    vi.mocked(providerApi.listProviders).mockResolvedValue([]);
-    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
-      active_llm: undefined,
-    });
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("modelSelector.selectModel");
-
-    await user.click(screen.getAllByText("modelSelector.selectModel")[0]);
-
-    expect(
-      await screen.findByText("modelSelector.noConfiguredModels"),
-    ).toBeInTheDocument();
-  });
-
-  it("still displays original active model after setActiveLlm failure", async () => {
-    vi.mocked(providerApi.setActiveLlm).mockRejectedValue(
-      new Error("API error"),
-    );
-    const user = userEvent.setup();
-    renderWithProviders(<ModelSelector />);
-    await screen.findAllByText("GPT-4");
-
-    await user.click(screen.getAllByText("GPT-4")[0]);
-    const gpt35 = await screen.findByText("GPT-3.5 Turbo");
-    await user.click(gpt35);
-
-    // GPT-4 may appear in two places when dropdown is still open (trigger + dropdown item)
-    await waitFor(() => {
-      expect(screen.getAllByText("GPT-4").length).toBeGreaterThanOrEqual(1);
-    });
-  });
+  expect(await screen.findByText("Provider / One")).toBeInTheDocument();
+  expect(request).toHaveBeenCalledWith(
+    "/model-catalog/default?agent_id=agent-a",
+  );
 });

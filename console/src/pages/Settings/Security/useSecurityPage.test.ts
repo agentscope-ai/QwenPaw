@@ -18,6 +18,7 @@ const hoisted = vi.hoisted(() => {
     error: vi.fn(),
   };
   const apiMocks = {
+    getSecurityPolicy: vi.fn(),
     getToolGuard: vi.fn(),
     getBuiltinRules: vi.fn(),
     updateToolGuard: vi.fn(),
@@ -71,6 +72,11 @@ vi.mock("@agentscope-ai/design", async () => {
 vi.mock("../../../api", () => ({
   __esModule: true,
   default: hoisted.apiMocks,
+}));
+
+vi.mock("../../../stores/agentStore", () => ({
+  useAgentStore: (selector: (state: { selectedAgent: string }) => unknown) =>
+    selector({ selectedAgent: "agent-a" }),
 }));
 
 vi.mock("../../../hooks/useAppMessage", () => ({
@@ -133,11 +139,31 @@ describe("useSecurityPage", () => {
     messageMock.error.mockReset();
     apiMocks.updateToolGuard.mockReset();
     apiMocks.updateSandbox.mockReset();
+    apiMocks.getSecurityPolicy.mockReset();
+    apiMocks.getSecurityPolicy.mockResolvedValue(null);
     apiMocks.updateSandbox.mockResolvedValue({ enabled: true });
     hoisted.buildSaveBodyMock.mockClear();
     hoisted.setEnabledMock.mockClear();
     markSandboxSavedMock.mockClear();
     hoisted.savedSandboxEnabled = false;
+  });
+
+  it("loads the selected Agent effective security policy", async () => {
+    const policy = {
+      scope: "agent",
+      agent_id: "agent-a",
+      platform_locked_fields: ["security.tool_guard.enabled"],
+      platform_baseline: {},
+      agent_override: {},
+      effective_policy: {},
+    };
+    apiMocks.getSecurityPolicy.mockResolvedValue(policy);
+
+    const { result } = renderHook(() => useSecurityPage());
+
+    await act(async () => undefined);
+    expect(apiMocks.getSecurityPolicy).toHaveBeenCalledWith("agent-a");
+    expect(result.current.policy).toEqual(policy);
   });
 
   it("handleSave calls api.updateToolGuard with guarded_tools array and message.success", async () => {

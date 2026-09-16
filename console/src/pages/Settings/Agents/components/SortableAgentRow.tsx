@@ -66,7 +66,13 @@ export function SortableAgentRow({
   );
 }
 
-export function DragHandle({ disabled = false }: { disabled?: boolean }) {
+export function DragHandle({
+  disabled = false,
+  label,
+}: {
+  disabled?: boolean;
+  label?: string;
+}) {
   const context = useContext(SortableHandleContext);
   if (!context) {
     return null;
@@ -86,6 +92,8 @@ export function DragHandle({ disabled = false }: { disabled?: boolean }) {
       onClick={(event) => event.stopPropagation()}
       tabIndex={disabled ? -1 : 0}
       aria-disabled={disabled}
+      aria-label={label}
+      disabled={disabled}
       {...dragBindings}
     >
       <MenuOutlined />

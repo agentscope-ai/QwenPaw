@@ -42,6 +42,8 @@ export interface ProviderInfo {
   /** True when an API key is required for this provider. */
   require_api_key: boolean;
   api_key: string;
+  /** Whether a credential exists; the credential itself is never returned. */
+  api_key_configured?: boolean;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
   /** Custom HTTP headers sent with every request to this provider. */
@@ -80,6 +82,9 @@ export interface BaseUrlOption {
 
 export interface ProviderConfigRequest {
   api_key?: string;
+  clear_api_key?: boolean;
+  clear_custom_headers?: boolean;
+  clear_base_url?: boolean;
   base_url?: string;
   /** New display name. Only applied to custom providers. */
   name?: string;
@@ -97,6 +102,8 @@ export interface ModelSlotConfig {
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
   effective_max_input_length?: number | null;
+  applied_agent_ids?: string[];
+  pending_reload_agent_ids?: string[];
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";

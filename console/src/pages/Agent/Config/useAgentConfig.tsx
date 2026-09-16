@@ -3,6 +3,11 @@ import { Form, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import type { AgentsRunningConfig } from "../../../api/types";
+import type {
+  AgentRunningConfigAccess,
+  AgentRunningConfigSummary,
+  RunningConfigRequestContext,
+} from "../../../api/modules/agent";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useAgentStore } from "../../../stores/agentStore";
 import {
@@ -11,9 +16,11 @@ import {
   MEMORY_MANAGER_BACKEND_OPTIONS,
 } from "../../../constants/backendMappings";
 import type { ToolExecutionLevel } from "./components/ToolExecutionLevelCard";
+import { mergeRunningConfig } from "./configMerge";
 
 export function useAgentConfig(
   onConfigLoaded?: (config: AgentsRunningConfig) => void,
+  governanceAgentId?: string,
 ) {
   const { t } = useTranslation();
   const { message } = useAppMessage();
@@ -21,24 +28,51 @@ export function useAgentConfig(
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [runtimeState, setRuntimeState] = useState<
+    "applied" | "pending_reload"
+  >("applied");
+  const [retryReloading, setRetryReloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [language, setLanguage] = useState<string>("zh");
   const [savingLang, setSavingLang] = useState(false);
   const [timezone, setTimezone] = useState<string>("UTC");
   const [savingTimezone, setSavingTimezone] = useState(false);
+  const [access, setAccess] = useState<AgentRunningConfigAccess | null>(null);
+  const [readOnlySummary, setReadOnlySummary] =
+    useState<AgentRunningConfigSummary | null>(null);
   const [approvalLevel, setApprovalLevel] =
     useState<ToolExecutionLevel>("AUTO");
   const originalConfigRef = useRef<AgentsRunningConfig | null>(null);
+  const configVersionRef = useRef<number | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
+    const requestContext: RunningConfigRequestContext | undefined =
+      governanceAgentId
+        ? { agentId: governanceAgentId, governance: true }
+        : undefined;
     try {
-      const [config, langResp, tzResp] = await Promise.all([
-        api.getAgentRunningConfig(),
-        api.getAgentLanguage(),
-        api.getUserTimezone(),
-      ]);
+      const accessResp = await api.getAgentRunningConfigAccess(requestContext);
+      setAccess(accessResp);
+      if (!accessResp.can_edit) {
+        const summary = await api.getAgentRunningConfigSummary(requestContext);
+        setReadOnlySummary(summary);
+        setLanguage(summary.language);
+        setTimezone(summary.timezone || "UTC");
+        return;
+      }
+      setReadOnlySummary(null);
+      const [config, versionResp, langResp, tzResp, runtimeStatus] =
+        await Promise.all([
+          api.getAgentRunningConfig(requestContext),
+          api.getAgentRunningConfigVersion(requestContext),
+          api.getAgentLanguage(requestContext),
+          api.getUserTimezone(),
+          api.getAgentRunningConfigRuntimeStatus(requestContext),
+        ]);
+      setRuntimeState(runtimeStatus.state);
+      configVersionRef.current = versionResp.version;
       const loadedLevel = (
         config.approval_level || "AUTO"
       ).toUpperCase() as ToolExecutionLevel;
@@ -99,7 +133,7 @@ export function useAgentConfig(
     } finally {
       setLoading(false);
     }
-  }, [form, t, selectedAgent, onConfigLoaded]);
+  }, [form, t, selectedAgent, onConfigLoaded, governanceAgentId]);
 
   useEffect(() => {
     fetchConfig();
@@ -115,82 +149,108 @@ export function useAgentConfig(
       // which can omit custom loop gate identity and parameters.
       const values = form.getFieldsValue(true);
 
-      // Deep-merge nested config objects so that collapsed (unrendered)
-      // Collapse panels don't lose their saved values.  Shallow spread
-      // would overwrite the entire nested object with only the rendered
-      // fields, dropping anything inside a collapsed panel.
-      const original = originalConfigRef.current!;
+      // Independent cards (language/project/coding/plan) persist immediately.
+      // Rebase the main form on the latest server document so a form that has
+      // been open for a while cannot write stale independent settings back.
+      const requestContext = governanceAgentId
+        ? { agentId: governanceAgentId, governance: true }
+        : undefined;
+      const latestConfig = await api.getAgentRunningConfig(requestContext);
       const formValues = values as AgentsRunningConfig;
+      const configToSave = mergeRunningConfig(
+        latestConfig,
+        formValues,
+        approvalLevel,
+      );
 
-      const deepMergeConfig = <T,>(
-        base: T | undefined | null,
-        override: T | undefined | null,
-      ): T | undefined => {
-        if (!base) return override ?? undefined;
-        if (!override) return base;
-        const baseRecord = base as Record<string, unknown>;
-        const overrideRecord = override as Record<string, unknown>;
-        const result: Record<string, unknown> = { ...baseRecord };
-        for (const key of Object.keys(overrideRecord)) {
-          const overrideVal = overrideRecord[key];
-          const baseVal = baseRecord[key];
-          if (
-            overrideVal != null &&
-            typeof overrideVal === "object" &&
-            !Array.isArray(overrideVal) &&
-            baseVal != null &&
-            typeof baseVal === "object" &&
-            !Array.isArray(baseVal)
-          ) {
-            result[key] = deepMergeConfig(baseVal, overrideVal);
-          } else {
-            result[key] = overrideVal;
-          }
-        }
-        return result as T;
-      };
-
-      const configToSave: AgentsRunningConfig = {
-        ...original,
-        ...formValues,
-        // Deep-merge nested config sections to preserve collapsed fields
-        reme_light_memory_config: deepMergeConfig(
-          original.reme_light_memory_config,
-          formValues.reme_light_memory_config,
-        ) as typeof original.reme_light_memory_config,
-        light_context_config: deepMergeConfig(
-          original.light_context_config,
-          formValues.light_context_config,
-        ) as typeof original.light_context_config,
-        adbpg_memory_config: deepMergeConfig(
-          original.adbpg_memory_config,
-          formValues.adbpg_memory_config,
-        ) as typeof original.adbpg_memory_config,
-        auto_title_config: deepMergeConfig(
-          original.auto_title_config,
-          formValues.auto_title_config,
-        ) as typeof original.auto_title_config,
-        approval_level: approvalLevel,
-        // Keep legacy max_iters aligned with the UI-bound iteration limit.
-        max_iters:
-          formValues.loop?.iteration?.max_iterations ?? original.max_iters,
-      };
-
-      const savedConfig = await api.updateAgentRunningConfig(configToSave);
+      const savedConfig = governanceAgentId
+        ? await api.updateAgentRunningConfig(
+            configToSave,
+            configVersionRef.current ?? undefined,
+            { agentId: governanceAgentId, governance: true },
+          )
+        : await api.updateAgentRunningConfig(
+            configToSave,
+            configVersionRef.current ?? undefined,
+          );
+      const nextVersion = await api.getAgentRunningConfigVersion(
+        requestContext,
+      );
+      configVersionRef.current = nextVersion.version;
+      const runtimeStatus = await api.getAgentRunningConfigRuntimeStatus(
+        requestContext,
+      );
+      setRuntimeState(runtimeStatus.state);
 
       // Update original config after successful save
       originalConfigRef.current = savedConfig;
       onConfigLoaded?.(savedConfig);
-      message.success(t("agentConfig.saveSuccess"));
+      if (runtimeStatus.state === "pending_reload") {
+        message.warning(t("agentConfig.savedPendingReload"));
+      } else {
+        message.success(t("agentConfig.saveSuccess"));
+      }
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) return;
+      const errorText = err instanceof Error ? err.message : String(err);
+      if (/403|forbidden/i.test(errorText)) {
+        // Membership or an administrator governance grant can be revoked
+        // while this page is open. Re-read access instead of leaving stale
+        // editing controls active after the server rejects the write.
+        await fetchConfig();
+        return;
+      }
+      if (
+        err instanceof Error &&
+        err.message.includes("config_version_conflict")
+      ) {
+        Modal.confirm({
+          title: t("agentConfig.versionConflictTitle"),
+          content: t("agentConfig.versionConflictContent"),
+          okText: t("agentConfig.versionConflictReload"),
+          cancelText: t("common.cancel"),
+          onOk: fetchConfig,
+        });
+        return;
+      }
       const errMsg =
         err instanceof Error ? err.message : t("agentConfig.saveFailed");
       message.error(errMsg);
     } finally {
       setSaving(false);
     }
-  }, [form, t, selectedAgent, approvalLevel, onConfigLoaded]);
+  }, [
+    form,
+    t,
+    selectedAgent,
+    approvalLevel,
+    onConfigLoaded,
+    fetchConfig,
+    governanceAgentId,
+  ]);
+
+  const handleRetryReload = useCallback(async () => {
+    setRetryReloading(true);
+    try {
+      const runtimeStatus = await api.retryAgentRunningConfigReload(
+        governanceAgentId
+          ? { agentId: governanceAgentId, governance: true }
+          : undefined,
+      );
+      setRuntimeState(runtimeStatus.state);
+      if (runtimeStatus.state === "applied") {
+        message.success(t("agentConfig.reloadSuccess"));
+      } else {
+        message.warning(t("agentConfig.reloadPending"));
+      }
+    } catch (err) {
+      message.error(
+        err instanceof Error ? err.message : t("agentConfig.reloadFailed"),
+      );
+    } finally {
+      setRetryReloading(false);
+    }
+  }, [message, t, governanceAgentId]);
 
   const handleLanguageChange = useCallback(
     (value: string): void => {
@@ -207,7 +267,12 @@ export function useAgentConfig(
         onOk: async () => {
           setSavingLang(true);
           try {
-            const resp = await api.updateAgentLanguage(value);
+            const resp = await api.updateAgentLanguage(
+              value,
+              governanceAgentId
+                ? { agentId: governanceAgentId, governance: true }
+                : undefined,
+            );
             setLanguage(resp.language);
             if (resp.copied_files && resp.copied_files.length > 0) {
               message.success(
@@ -230,7 +295,7 @@ export function useAgentConfig(
         },
       });
     },
-    [language, t],
+    [language, t, governanceAgentId],
   );
 
   const handleTimezoneChange = useCallback(
@@ -258,15 +323,21 @@ export function useAgentConfig(
     form,
     loading,
     saving,
+    runtimeState,
+    retryReloading,
     error,
     language,
     savingLang,
     timezone,
     savingTimezone,
+    access,
+    readOnlySummary,
+    isReadOnly: access?.can_edit === false,
     approvalLevel,
     setApprovalLevel,
     fetchConfig,
     handleSave,
+    handleRetryReload,
     handleLanguageChange,
     handleTimezoneChange,
   };

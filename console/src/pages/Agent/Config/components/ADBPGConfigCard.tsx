@@ -7,21 +7,48 @@ import {
   Switch,
 } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
+import { useEffect } from "react";
+import type { ADBPGMemoryConfig } from "@/api/types/agent";
+
+export function createDefaultADBPGMemoryConfig(): ADBPGMemoryConfig {
+  return {
+    rest_base_url: "",
+    rest_api_key: "",
+    memory_isolation: true,
+    search_timeout: 10,
+    auto_memory_search_config: {
+      enabled: true,
+      max_results: 3,
+    },
+  };
+}
 
 export function ADBPGConfigCard() {
   const { t } = useTranslation();
+  const form = Form.useFormInstance();
+
+  useEffect(() => {
+    if (form.getFieldValue("adbpg_memory_config") == null) {
+      form.setFieldValue(
+        "adbpg_memory_config",
+        createDefaultADBPGMemoryConfig(),
+      );
+    }
+  }, [form]);
 
   return (
     <Card title={t("agentConfig.adbpgConfig.title")}>
       <Form.Item
         name={["adbpg_memory_config", "rest_base_url"]}
         label={t("agentConfig.adbpgConfig.restBaseUrl")}
+        initialValue=""
       >
         <Input placeholder="https://your-adbpg-api.example.com" />
       </Form.Item>
       <Form.Item
         name={["adbpg_memory_config", "rest_api_key"]}
         label={t("agentConfig.adbpgConfig.restApiKey")}
+        initialValue=""
       >
         <Input.Password />
       </Form.Item>

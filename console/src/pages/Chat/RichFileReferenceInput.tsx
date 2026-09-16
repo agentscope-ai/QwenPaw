@@ -249,14 +249,18 @@ function AtomicChip({
   );
 }
 
-function FileReferenceChip({ reference }: { reference: ParsedFileReference }) {
+export function FileReferenceChip({ reference }: { reference: ParsedFileReference }) {
   const openReference = useContext(OpenReferenceContext);
   return (
     <AtomicChip
       icon={FileText}
       label={compactFileReferenceLabel(reference)}
       title={reference.path}
-      onClick={(trigger) => openReference?.(reference, trigger)}
+      onClick={
+        reference.kind === "personal-library" || reference.kind === "chat-file"
+          ? undefined
+          : (trigger) => openReference?.(reference, trigger)
+      }
     />
   );
 }

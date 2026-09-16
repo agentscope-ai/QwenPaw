@@ -16,6 +16,7 @@
     "disable": "無効化",
     "enabled": "有効",
     "disabled": "無効",
+    "readOnly": "読み取り専用",
     "preview": "プレビュー",
     "raw": "ソース",
     "view": "閲覧",
@@ -1353,6 +1354,7 @@
     }
   },
   "environments": {
+    "deploymentScopeNotice": "このページではプラットフォームのデプロイ環境変数のみを管理します。保存済みの値は表示できません。Agent、ツール、MCP の認証情報は各設定で管理してください。",
     "parent": "設定",
     "environments": "環境変数",
     "title": "環境変数",
@@ -1755,6 +1757,7 @@
     "filterFreeOnly": "無料モデルのみ"
   },
   "files": {
+    "fileCenter": {"attachments":"Temporary attachments","library":"Personal library","artifacts":"Artifacts","agentConfig":"Agent configuration","memory":"Memory","myMemory":"My memory","publicMemory":"Public memory","memoryScopeLabel":"Memory scope","memoryTypeLabel":"Memory type","conversationMemory":"Memory journal","distilledMemory":"Long-term memory","open":"Open in File Center","loadFailed":"Failed to load the file.","memoryLoadFailed":"Failed to load memory files","memoryPreviewFailed":"This memory file cannot be previewed right now. Try again.","memoryScopeLoadFailed":"Failed to load memory scopes","memoryIndexState":"Memory index status: {{state}}. Existing memory files remain available.","memoryIndexNotice":{"needs_reindex":"The memory search index needs an update. File browsing and preview remain available.","reindexing":"The memory search index is updating. File browsing and preview remain available.","reindex_failed":"The memory search index update failed. File browsing and preview remain available.","unavailable":"Memory search is unavailable. File browsing and preview remain available."},"memorySectionDescription":{"daily":"Conversation journals saved by date. Files can be opened and previewed directly.","digest":"Long-term topic memories distilled by Dream. Files can be opened and previewed directly."},"noMemoryFiles":"No memory files","noMemoryAccess":"This account has no readable memory scope","selectMemory":"Select a memory file"},
     "title": "ファイル",
     "navigator": "ファイルナビゲーター",
     "source": "ソース",
@@ -2314,6 +2317,10 @@
     "asyncExecution": "非同期実行",
     "asyncExecutionEnabled": "非同期実行が有効です",
     "asyncExecutionDisabled": "非同期実行が無効です",
+    "credentialKeep": "現在の認証情報を保持",
+    "credentialReplace": "認証情報を置換",
+    "credentialDelete": "認証情報を削除",
+    "browserPolicyLocked": "プラットフォームポリシーにより無効",
     "browserUnifiedMode": "統合ブラウザー（ベータ）",
     "browserLegacyMode": "レガシー互換モード",
     "browserUnifiedModeButton": "新版（ベータ）",
@@ -3151,6 +3158,8 @@
     "detailContent": "出力",
     "detailPayload": "追加情報",
     "detailExecutionTrace": "実行トレース",
+    "memoryFiles": "Generated memory files",
+    "openSourceConversation": "Open source conversation",
     "detailTraceEmpty": "実行トレースはありません",
     "filterByAgent": "エージェントで絞り込み",
     "filterBySourceType": "ソースで絞り込み",

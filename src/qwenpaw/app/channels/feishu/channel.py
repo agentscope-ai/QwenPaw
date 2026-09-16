@@ -12,6 +12,9 @@ deduplication.
 
 from __future__ import annotations
 
+from ....platform_ops.maintenance_lifecycle import admitted_listener
+from ....utils.io_utils import run_sync_io
+
 import base64
 import asyncio
 import json
@@ -669,6 +672,7 @@ class FeishuChannel(BaseChannel):
             self._loop,
         )
 
+    @admitted_listener
     async def _on_message(self, data: "P2ImMessageReceiveV1") -> None:
         """Handle one Feishu message: dedup, parse, download media, enqueue."""
         if not data or not getattr(data, "event", None):
@@ -918,7 +922,7 @@ class FeishuChannel(BaseChannel):
             )
             self._media_dir.mkdir(parents=True, exist_ok=True)
             path = self._media_dir / f"{message_id}_{safe_key}.{ext}"
-            await asyncio.to_thread(path.write_bytes, data)
+            await run_sync_io(path.write_bytes, data)
             return str(path)
         except Exception:
             logger.exception("feishu _download_image_resource failed")
@@ -959,7 +963,7 @@ class FeishuChannel(BaseChannel):
                 filename = f"file.{ext}"
             self._media_dir.mkdir(parents=True, exist_ok=True)
             path = self._media_dir / f"{message_id}_{filename}"
-            await asyncio.to_thread(path.write_bytes, data)
+            await run_sync_io(path.write_bytes, data)
             return str(path)
         except Exception:
             logger.exception("feishu _download_file_resource failed")
@@ -1395,7 +1399,7 @@ class FeishuChannel(BaseChannel):
                     return None
                 path = self._media_dir / "upload_temp"
                 path.parent.mkdir(parents=True, exist_ok=True)
-                await asyncio.to_thread(path.write_bytes, data)
+                await run_sync_io(path.write_bytes, data)
             else:
                 return None
         size = await asyncio.to_thread(lambda: path.stat().st_size)

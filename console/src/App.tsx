@@ -41,10 +41,9 @@ const LoginPage = lazyImportWithRetry("./pages/Login/index");
 // Desktop OS shell. Uses React.lazy (not lazyImportWithRetry, which only
 // resolves the ./pages/** glob) so it can load from ./os/.
 const DesktopOSPage = lazy(() => import("./os/DesktopOS"));
-import { authApi } from "./api/modules/auth";
 import { languageApi } from "./api/modules/language";
 import { useUploadLimitStore } from "./stores/uploadLimitStore";
-import { getApiUrl, getApiToken, clearAuthToken } from "./api/config";
+import { useAuthStore } from "./stores/authStore";
 import CloseWindowPrompt from "./tauri/CloseWindowPrompt";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
@@ -82,53 +81,15 @@ function AuthGuard({
   children: React.ReactNode;
   useHardRedirect?: boolean;
 }) {
-  const [status, setStatus] = useState<"loading" | "auth-required" | "ok">(
-    "loading",
-  );
+  const phase = useAuthStore((state) => state.phase);
+  const bootstrap = useAuthStore((state) => state.bootstrap);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await authApi.getStatus();
-        if (cancelled) return;
-        if (!res.enabled) {
-          setStatus("ok");
-          return;
-        }
-        const token = getApiToken();
-        if (!token) {
-          setStatus("auth-required");
-          return;
-        }
-        try {
-          const r = await fetch(getApiUrl("/auth/verify"), {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (cancelled) return;
-          if (r.ok) {
-            setStatus("ok");
-          } else {
-            clearAuthToken();
-            setStatus("auth-required");
-          }
-        } catch {
-          if (!cancelled) {
-            clearAuthToken();
-            setStatus("auth-required");
-          }
-        }
-      } catch {
-        if (!cancelled) setStatus("ok");
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (phase === "loading") void bootstrap();
+  }, [bootstrap, phase]);
 
-  if (status === "loading") return null;
-  if (status === "auth-required") {
+  if (phase === "loading") return null;
+  if (phase === "anonymous") {
     const loginTo = getLoginPath(window.location);
     if (useHardRedirect) {
       // The OS shell renders outside a Router, so <Navigate> is unavailable.
@@ -145,6 +106,11 @@ function AppInner() {
   const { i18n } = useTranslation();
   const { isDark } = useTheme();
   const { loading: pluginsLoading } = usePlugins();
+  const authPhase = useAuthStore((state) => state.phase);
+  const authMode = useAuthStore((state) => state.mode);
+  const preferredLanguage = useAuthStore(
+    (state) => state.preferences?.language,
+  );
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
@@ -152,6 +118,20 @@ function AppInner() {
   );
 
   useEffect(() => {
+    useUploadLimitStore.getState().fetch();
+  }, []);
+
+  useEffect(() => {
+    if (authPhase === "loading") return;
+
+    if (authMode === "multi_user") {
+      if (preferredLanguage && preferredLanguage !== i18n.language) {
+        void i18n.changeLanguage(preferredLanguage);
+        localStorage.setItem("language", preferredLanguage);
+      }
+      return;
+    }
+
     if (!localStorage.getItem("language")) {
       languageApi
         .getLanguage()
@@ -165,8 +145,7 @@ function AppInner() {
           console.error("Failed to fetch language preference:", err),
         );
     }
-    useUploadLimitStore.getState().fetch();
-  }, []);
+  }, [authMode, authPhase, i18n, preferredLanguage]);
 
   useEffect(() => {
     const handleLanguageChanged = (lng: string) => {

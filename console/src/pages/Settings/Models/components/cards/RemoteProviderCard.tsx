@@ -30,7 +30,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   const [apiKeySaving, setApiKeySaving] = useState(false);
 
   const needsOAuth =
-    provider.supports_oauth && !provider.api_key && !provider.oauth_connected;
+    provider.supports_oauth &&
+    !provider.api_key_configured &&
+    !provider.api_key &&
+    !provider.oauth_connected;
 
   const handleDeleteProvider = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -90,9 +93,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 
         <div className={styles.groupCardField}>
           <span className={styles.groupCardFieldLabel}>API Key</span>
-          {provider.api_key ? (
+          {provider.api_key_configured || provider.api_key ? (
             <div className={styles.groupCardMono}>
-              <span>{provider.api_key}</span>
+              <span>••••••</span>
               <span
                 className={styles.groupCardChangeBtn}
                 onClick={() => onOpenConfig(provider)}

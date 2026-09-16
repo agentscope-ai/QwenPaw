@@ -10,6 +10,7 @@ interface ColumnHandlers {
   onDelete: (sessionId: string) => void;
   onView: (session: Session) => void;
   onArchiveToggle: (session: Session) => void;
+  onShare: (session: Session) => void;
   isArchivedTab?: boolean;
 }
 
@@ -62,6 +63,20 @@ export const createColumns = (
       ),
     },
     {
+      title: t("sessions.accessColumn", "Access"),
+      key: "access",
+      width: 160,
+      render: (_: unknown, record: Session) =>
+        record.access_role === "viewer" ? (
+          <span>
+            <Tag color="orange">{t("chat.sharedReadOnlyBadge")}</Tag>
+            {record.shared_by || ""}
+          </span>
+        ) : (
+          <Tag>{t("sessions.ownerAccess", "Owner")}</Tag>
+        ),
+    },
+    {
       title: "CreatedAt",
       dataIndex: "created_at",
       key: "created_at",
@@ -100,8 +115,23 @@ export const createColumns = (
     key: "action",
     width: isArchived ? 160 : 200,
     fixed: "right",
-    render: (_: unknown, record: Session) => (
-      <div className={styles.actionColumn}>
+    render: (_: unknown, record: Session) => {
+      if (record.access_role === "viewer") {
+        return (
+          <div className={styles.actionColumn}>
+            <Button
+              type="link"
+              size="small"
+              style={{ color: "#52c41a" }}
+              onClick={() => handlers.onView(record)}
+            >
+              {t("common.view")}
+            </Button>
+          </div>
+        );
+      }
+      return (
+        <div className={styles.actionColumn}>
         {isArchived ? (
           <>
             <Button
@@ -140,6 +170,13 @@ export const createColumns = (
             <Button
               type="link"
               size="small"
+              onClick={() => handlers.onShare(record)}
+            >
+              分享
+            </Button>
+            <Button
+              type="link"
+              size="small"
               onClick={() => handlers.onArchiveToggle(record)}
             >
               {t("sessions.archive.action", "Archive")}
@@ -154,8 +191,9 @@ export const createColumns = (
             </Button>
           </>
         )}
-      </div>
-    ),
+        </div>
+      );
+    },
   });
 
   return cols;

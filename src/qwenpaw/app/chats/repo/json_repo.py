@@ -12,8 +12,16 @@ from pathlib import Path
 from .base import BaseChatRepository
 from ..models import ChatsFile
 from ....utils.io_utils import read_json, run_sync_io, write_json_atomic
+from ....persistence.repository_provider import (
+    CutoverDomain,
+    assert_legacy_write_allowed,
+)
 
 logger = logging.getLogger(__name__)
+
+# 多用户模式下该文件只保存 Session 寻址所需的运行映射；会话归属、标题、
+# 状态、模型和消息事实以 PostgreSQL 为准。
+STORAGE_AUTHORITY = "runtime_session_index"
 
 
 class JsonChatRepository(BaseChatRepository):
@@ -111,6 +119,7 @@ def migrate_legacy_weixin_chats_file(chats_path: Path | str) -> None:
     if not mutated:
         return
 
+    assert_legacy_write_allowed(CutoverDomain.CONVERSATIONS)
     try:
         backup_path = path.with_suffix(
             path.suffix + f".{uuid.uuid4().hex[:8]}.weixin-migrate.bak",

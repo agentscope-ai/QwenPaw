@@ -76,6 +76,14 @@ class ChatSpec(BaseModel):
         return self.archived_at is not None
 
 
+class ChatListItem(ChatSpec):
+    """Request-scoped chat list projection; never persisted to chats.json."""
+
+    access_role: Literal["owner", "viewer"] = "owner"
+    read_only: bool = False
+    shared_by: str | None = None
+
+
 class ChatUpdate(BaseModel):
     """Mutable chat fields accepted from external clients.
 
@@ -101,6 +109,9 @@ class ChatHistory(BaseModel):
         default="idle",
         description="Conversation status: idle or running",
     )
+    access_role: Literal["owner", "viewer"] = "owner"
+    read_only: bool = False
+    shared_by: str | None = None
 
 
 class BatchFailure(BaseModel):

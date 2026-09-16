@@ -13,6 +13,8 @@ Sends replies via the same WebSocket channel using stream mode
 
 from __future__ import annotations
 
+from ....platform_ops.maintenance_lifecycle import admitted_listener
+
 import asyncio
 import base64
 import hashlib
@@ -432,6 +434,7 @@ class WecomChannel(BaseChannel):
             self._loop,
         )
 
+    @admitted_listener
     async def _on_message(self, frame: Any) -> None:
         """Parse and enqueue one incoming message."""
         try:

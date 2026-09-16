@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """get_ctx — FastAPI dependency that creates PawAppContext per request.
 
 Usage in Router mode:
@@ -19,11 +18,24 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import Request
+from fastapi import HTTPException, Request
 
+from ..access.dependencies import get_actor
+from ..identity.runtime import get_identity_schema, is_multi_user_enabled
+from ..plugins.governance import (
+    PluginAccessError,
+    PluginGovernanceService,
+    PostgresPluginGovernanceRepository,
+)
 from .context import PawAppContext
 
 logger = logging.getLogger(__name__)
+
+
+def _plugin_governance_service() -> PluginGovernanceService:
+    return PluginGovernanceService(
+        PostgresPluginGovernanceRepository(schema=get_identity_schema())
+    )
 
 
 def _extract_app_id_from_request(request: Request) -> str:
@@ -60,7 +72,7 @@ def _get_session(request: Request) -> Any:
         from ..constant import WORKING_DIR
 
         return SafeJSONSession(save_dir=str(WORKING_DIR))
-    except Exception:
+    except Exception:  # noqa: BLE001 - SDK 依赖不可用时保持原降级语义
         return None
 
 
@@ -81,17 +93,27 @@ async def get_ctx(request: Request) -> PawAppContext:
     # Get or create session for storage
     session = _get_session(request)
 
-    # Extract request parameters (from query params, headers, or defaults)
-    agent_id = request.query_params.get("agent_id", "default")
+    # 多用户身份只来自认证中间件和已校验的 Agent 上下文。
+    if is_multi_user_enabled():
+        actor = get_actor(request)
+        try:
+            await _plugin_governance_service().require_app_access(actor, app_id)
+        except PluginAccessError as exc:
+            raise HTTPException(status_code=404, detail="pawapp_not_found") from exc
+        user_id = str(actor.user_id)
+        agent_access = getattr(request.state, "agent_access", None)
+        agent_id = getattr(agent_access, "agent_key", None) or "default"
+    else:
+        agent_id = request.query_params.get("agent_id", "default")
+        user_id = (
+            request.query_params.get("user_id")
+            or request.headers.get("X-User-Id")
+            or "default"
+        )
     channel = (
         request.query_params.get("channel")
         or request.headers.get("X-Channel")
         or "console"
-    )
-    user_id = (
-        request.query_params.get("user_id")
-        or request.headers.get("X-User-Id")
-        or "default"
     )
 
     return PawAppContext(

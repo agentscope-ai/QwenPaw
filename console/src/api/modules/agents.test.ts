@@ -4,8 +4,13 @@ vi.mock("../request", () => ({
   request: vi.fn(),
 }));
 
+vi.mock("../../utils/downloadFileFromUrl", () => ({
+  downloadFileFromUrl: vi.fn(),
+}));
+
 import { agentsApi } from "./agents";
 import { request } from "../request";
+import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
 
 describe("agentsApi", () => {
   beforeEach(() => {
@@ -53,6 +58,40 @@ describe("agentsApi", () => {
       body: JSON.stringify(agent),
     });
     expect(result).toEqual(agent);
+  });
+
+  it("exports an owner Agent through the authenticated download helper", async () => {
+    await agentsApi.exportPortableAgent("agent / 1", "Portable Agent");
+
+    expect(downloadFileFromUrl).toHaveBeenCalledWith(
+      "/api/agents/agent%20%2F%201/portable-package",
+      "Portable Agent.qwenpaw-agent.zip",
+      expect.objectContaining({ preferResponseFilename: true }),
+    );
+  });
+
+  it("imports an Agent package as multipart form data", async () => {
+    const file = new File(["zip"], "agent.zip", { type: "application/zip" });
+    const response = {
+      agent_id: "imported",
+      name: "Imported",
+      status: "draft",
+      requires_reauthorization: true,
+      dependencies: {},
+    } as const;
+    const fetchMock = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify(response), { status: 201 }),
+      );
+
+    await expect(agentsApi.importPortableAgent(file)).resolves.toEqual(
+      response,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/agents/portable-package/import",
+      expect.objectContaining({ method: "POST", body: expect.any(FormData) }),
+    );
   });
 
   it("updates third-party model settings from Chat", async () => {
@@ -153,5 +192,76 @@ describe("agentsApi", () => {
       body: JSON.stringify({ pinned: true }),
     });
     expect(result).toEqual(resp);
+  });
+
+  it("memory maintenance carries the explicit governance target", async () => {
+    const context = {
+      agentId: "governed-agent",
+      governance: true,
+    } as const;
+
+    await agentsApi.rebuildMemoryIndex("governed-agent", context);
+    await agentsApi.getMemoryRuntimeStatus(
+      "governed-agent",
+      undefined,
+      context,
+    );
+
+    expect(request).toHaveBeenNthCalledWith(
+      1,
+      "/agents/governed-agent/memory/reindex",
+      {
+        method: "POST",
+        timeout: 10 * 60 * 1000,
+        headers: {
+          "X-Agent-Id": "governed-agent",
+          "X-Agent-Governance": "runtime-config",
+        },
+      },
+    );
+    expect(request).toHaveBeenNthCalledWith(
+      2,
+      "/agents/governed-agent/memory/runtime-status",
+      {
+        headers: {
+          "X-Agent-Id": "governed-agent",
+          "X-Agent-Governance": "runtime-config",
+        },
+      },
+    );
+  });
+
+  it("manages Agent members through owner-scoped endpoints", async () => {
+    await agentsApi.listMembers("a1");
+    expect(request).toHaveBeenLastCalledWith("/agents/a1/members");
+
+    await agentsApi.grantMember("a1", "user-1", "collaborator");
+    expect(request).toHaveBeenLastCalledWith("/agents/a1/members/user-1", {
+      method: "PUT",
+      body: JSON.stringify({ role: "collaborator" }),
+    });
+
+    await agentsApi.revokeMember("a1", "user-1");
+    expect(request).toHaveBeenLastCalledWith("/agents/a1/members/user-1", {
+      method: "DELETE",
+    });
+  });
+
+  it("uses explicit admin governance endpoints for public and config", async () => {
+    await agentsApi.listAdminAgents();
+    expect(request).toHaveBeenLastCalledWith("/admin/agents");
+
+    await agentsApi.setPublication("a1", true);
+    expect(request).toHaveBeenLastCalledWith("/admin/agents/a1/publication", {
+      method: "PATCH",
+      body: JSON.stringify({ published: true }),
+    });
+
+    const config = { id: "a1", name: "Updated" } as any;
+    await agentsApi.updateAdminAgent("a1", config);
+    expect(request).toHaveBeenLastCalledWith("/admin/agents/a1/config", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    });
   });
 });

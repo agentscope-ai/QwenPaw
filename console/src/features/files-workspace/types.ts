@@ -1,3 +1,6 @@
+import type { FileLocator } from "./fileLocator";
+export type { FileCategory, FileLocator } from "./fileLocator";
+
 export type FileSource =
   | "workspace"
   | "attachment"
@@ -21,22 +24,25 @@ export interface FileTarget {
 
 export type FilesDrawerState =
   | { kind: "closed" }
-  | { kind: "preview"; target: FileTarget; trigger: HTMLElement | null }
+  | { kind: "preview"; target?: FileTarget; locator?: FileLocator; trigger: HTMLElement | null }
   | {
       kind: "workspace";
       target?: FileTarget;
+      locator?: FileLocator;
       trigger: HTMLElement | null;
     };
 
 export type FilesDrawerEvent =
   | {
       type: "OPEN_PREVIEW";
-      target: FileTarget;
+      target?: FileTarget;
+      locator?: FileLocator;
       trigger: HTMLElement | null;
     }
   | {
       type: "OPEN_WORKSPACE";
       target?: FileTarget;
+      locator?: FileLocator;
       trigger: HTMLElement | null;
     }
   | { type: "EXPAND_WORKSPACE" }

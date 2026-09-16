@@ -7,13 +7,17 @@ from qwenpaw.app.routers.providers import (
     ProviderConfigRequest,
     configure_provider,
 )
+from qwenpaw.providers.provider import ProviderInfo
 
 
 class FakeManager:
     """Records update_provider calls for assertion."""
 
     def __init__(self, is_custom: bool) -> None:
-        self._provider = SimpleNamespace(is_custom=is_custom)
+        self._provider = SimpleNamespace(
+            is_custom=is_custom,
+            generate_kwargs={},
+        )
         self.last_config: dict | None = None
 
     def get_provider(self, _provider_id: str):
@@ -24,7 +28,7 @@ class FakeManager:
         return True
 
     async def get_provider_info(self, _provider_id: str):
-        return SimpleNamespace(id="fake")
+        return ProviderInfo(id="fake", name="Fake")
 
 
 async def test_configure_custom_provider_applies_stripped_name():

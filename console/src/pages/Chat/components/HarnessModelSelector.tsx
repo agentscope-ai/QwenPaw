@@ -25,6 +25,7 @@ export default function HarnessModelSelector({
   const { message } = useAppMessage();
   const { selectedAgent, agents, updateAgent } = useAgentStore();
   const agent = agents.find((item) => item.id === selectedAgent);
+  const modelLocked = agent?.model_locked === true;
   const [catalog, setCatalog] = useState<HarnessModelCatalog | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -70,6 +71,7 @@ export default function HarnessModelSelector({
 
   const save = useCallback(
     async (nextModel?: HarnessModel, nextEffort?: string) => {
+      if (modelLocked) return;
       setSaving(true);
       try {
         await agentsApi.updateBackendSettings(selectedAgent, {
@@ -86,17 +88,27 @@ export default function HarnessModelSelector({
         setSaving(false);
       }
     },
-    [message, selectedAgent, updateAgent],
+    [message, modelLocked, selectedAgent, updateAgent],
   );
 
   useEffect(() => {
-    if (!agent || modelId || loading || models.length === 0) return;
+    if (!agent || modelLocked || modelId || loading || models.length === 0)
+      return;
     const selectionKey = `${selectedAgent}:${providerId}`;
     if (autoSelectingRef.current === selectionKey) return;
     const defaultModel = models.find((item) => item.is_default) ?? models[0];
     autoSelectingRef.current = selectionKey;
     void save(defaultModel, defaultModel.default_reasoning_effort ?? undefined);
-  }, [agent, loading, modelId, models, providerId, save, selectedAgent]);
+  }, [
+    agent,
+    loading,
+    modelId,
+    modelLocked,
+    models,
+    providerId,
+    save,
+    selectedAgent,
+  ]);
 
   const selectedLabel =
     model?.name ??
@@ -159,12 +171,19 @@ export default function HarnessModelSelector({
     <Popover
       content={content}
       trigger="click"
-      open={open}
-      onOpenChange={setOpen}
+      open={modelLocked ? false : open}
+      onOpenChange={(nextOpen) => {
+        if (!modelLocked) setOpen(nextOpen);
+      }}
       placement="bottomRight"
       overlayClassName={styles.overlay}
     >
-      <button type="button" className={styles.trigger}>
+      <button
+        type="button"
+        className={styles.trigger}
+        disabled={modelLocked}
+        title={modelLocked ? t("agents.modelLocked") : undefined}
+      >
         <Cpu size={15} />
         <span>{loading ? t("common.loading") : selectedLabel}</span>
         <ChevronDown size={14} />

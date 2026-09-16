@@ -9,6 +9,9 @@
  */
 
 import { getApiUrl, getApiToken } from "../api/config";
+import { pluginSystem } from "./hostExternals";
+import { chatExtensions } from "./registry/chatExtensions";
+import { menuRegistry, routeRegistry, slotRegistry } from "./registry/store";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Plugin manifest type (mirrors backend PluginInfo)
@@ -18,6 +21,19 @@ interface PluginInfo {
   id: string;
   name: string;
   frontend_entry?: string;
+}
+
+const loadedPluginIds = new Set<string>();
+
+export function resetLoadedPlugins(): void {
+  for (const pluginId of loadedPluginIds) {
+    menuRegistry.disposeSource(pluginId);
+    routeRegistry.disposeSource(pluginId);
+    slotRegistry.disposeSource(pluginId);
+    chatExtensions.disposeAll(pluginId);
+    pluginSystem.remove(pluginId);
+  }
+  loadedPluginIds.clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,6 +111,7 @@ export async function loadAllPlugins(): Promise<{
   const results = await Promise.allSettled(
     frontendPlugins.map(async (p) => {
       await executePluginScript(resolveUrl(p.id, p.frontend_entry!));
+      loadedPluginIds.add(p.id);
       console.info(`[PluginLoader] ✓ ${p.id}`);
     }),
   );

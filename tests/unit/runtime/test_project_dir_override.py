@@ -7,6 +7,7 @@ from __future__ import annotations
 # pylint: disable=protected-access
 
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
@@ -14,6 +15,57 @@ from qwenpaw.agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from qwenpaw.config.config import AgentProfileConfig
 from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.runtime.prompt_contributors import CodingModeContributor
+
+
+def test_private_task_cannot_be_overridden_by_active_mode_or_fork(tmp_path, monkeypatch):
+    from qwenpaw.services.workspace_files import resolve_private_task_directory
+
+    monkeypatch.setattr("qwenpaw.services.workspace_files.WORKING_DIR", tmp_path)
+    user_id, conversation_id = uuid4(), uuid4()
+    task = resolve_private_task_directory(
+        actor_user_id=user_id, agent_id="default", conversation_id=str(conversation_id),
+    )
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    config = AgentProfileConfig(id="default", name="Default")
+    updated = AgentBuilder._apply_request_project(config, {
+        "project_dir": str(task), "project_dir_source": "user_task",
+        "task_output_dir": str(task), "user_id": str(user_id),
+        "agent_id": "default", "conversation_id": str(conversation_id),
+        "active_mode_project_dir": str(shared), "fork_project_dir": str(shared),
+    })
+    assert updated.project_dir == str(task.resolve())
+
+
+@pytest.mark.parametrize("forged", ["project", "output", "identity", "missing"])
+def test_private_task_rejects_forged_paths_without_shared_fallback(tmp_path, monkeypatch, forged):
+    from qwenpaw.services.workspace_files import resolve_private_task_directory
+
+    monkeypatch.setattr("qwenpaw.services.workspace_files.WORKING_DIR", tmp_path)
+    user_id, conversation_id = uuid4(), uuid4()
+    task = resolve_private_task_directory(
+        actor_user_id=user_id, agent_id="default", conversation_id=str(conversation_id),
+    )
+    shared = tmp_path / "shared"
+    shared.mkdir()
+    context = {
+        "project_dir_source": "user_task", "project_dir": str(task),
+        "task_output_dir": str(task), "user_id": str(user_id),
+        "agent_id": "default", "conversation_id": str(conversation_id),
+        "working_dir": str(shared), "workspace_dir": str(shared),
+    }
+    if forged == "project":
+        context["project_dir"] = str(shared)
+        context["task_output_dir"] = str(shared)
+    elif forged == "output":
+        context["task_output_dir"] = str(shared)
+    elif forged == "identity":
+        context["user_id"] = str(uuid4())
+    else:
+        context.pop("project_dir")
+    config = AgentProfileConfig(id="default", name="Default", project_dir=str(shared))
+    with pytest.raises(ValueError, match="private_task_directory"):
+        AgentBuilder._apply_request_project(config, context)
 
 
 def test_request_project_override_does_not_enable_coding_tools(tmp_path):

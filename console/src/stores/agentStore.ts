@@ -3,6 +3,7 @@ import { persist } from "zustand/middleware";
 import type { AgentSummary } from "../api/types/agents";
 import { agentsApi } from "../api/modules/agents";
 import { menuRegistry } from "../plugins/registry/store";
+import { getUserScopedStorageKey } from "./identityStorage";
 
 /**
  * Storage key used by both sessionStorage (per-tab state) and localStorage
@@ -21,6 +22,38 @@ const isLocalTimestamp = (id: string): boolean => /^\d+-[a-z0-9]+$/.test(id);
 
 let agentRefreshPromise: Promise<void> | null = null;
 
+function persistLastUsedAgent(agentId: string): void {
+  try {
+    const storageKey = getUserScopedStorageKey(LAST_USED_AGENT_KEY);
+    if (agentId) {
+      localStorage.setItem(storageKey, agentId);
+    } else {
+      localStorage.removeItem(storageKey);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function pickAccessibleAgentId(
+  agents: AgentSummary[],
+  selectedAgent: string,
+): string {
+  const current = agents.find(
+    (agent) => agent.id === selectedAgent && agent.enabled,
+  );
+  return current?.id ?? agents.find((agent) => agent.enabled)?.id ?? "";
+}
+
+export function isAgentHistoricalReadOnly(
+  agents: AgentSummary[],
+  agentId: string,
+): boolean {
+  return Boolean(
+    agents.find((agent) => agent.id === agentId)?.historical_read_only,
+  );
+}
+
 interface AgentStore {
   selectedAgent: string;
   agents: AgentSummary[];
@@ -35,6 +68,7 @@ interface AgentStore {
   setLastChatId: (agentId: string, chatId: string) => void;
   removeLastChatId: (agentId: string) => void;
   getLastChatId: (agentId: string) => string | undefined;
+  resetIdentityState: () => void;
 }
 
 /**
@@ -48,7 +82,9 @@ interface AgentStore {
 function getInitialSelectedAgent(): string {
   // 1. sessionStorage: returning to a tab that already picked an agent
   try {
-    const sessionValue = sessionStorage.getItem(STORAGE_KEY);
+    const sessionValue = sessionStorage.getItem(
+      getUserScopedStorageKey(STORAGE_KEY),
+    );
     if (sessionValue) {
       const parsed = JSON.parse(sessionValue);
       const agent = parsed?.state?.selectedAgent;
@@ -59,14 +95,16 @@ function getInitialSelectedAgent(): string {
   }
   // 2. Dedicated localStorage key (written by setSelectedAgent)
   try {
-    const lastUsed = localStorage.getItem(LAST_USED_AGENT_KEY);
+    const lastUsed = localStorage.getItem(
+      getUserScopedStorageKey(LAST_USED_AGENT_KEY),
+    );
     if (lastUsed) return lastUsed;
   } catch {
     /* ignore */
   }
   // 3. Shared localStorage state (written by persist middleware)
   try {
-    const shared = localStorage.getItem(STORAGE_KEY);
+    const shared = localStorage.getItem(getUserScopedStorageKey(STORAGE_KEY));
     if (shared) {
       const parsed = JSON.parse(shared);
       const agent = parsed?.state?.selectedAgent;
@@ -88,12 +126,7 @@ export const useAgentStore = create<AgentStore>()(
       setSelectedAgent: (agentId) => {
         set({ selectedAgent: agentId });
         menuRegistry.refresh();
-        // Persist to localStorage so new tabs inherit this choice
-        try {
-          localStorage.setItem(LAST_USED_AGENT_KEY, agentId);
-        } catch {
-          /* ignore */
-        }
+        persistLastUsedAgent(agentId);
       },
 
       setAgents: (agents) => set({ agents }),
@@ -104,7 +137,16 @@ export const useAgentStore = create<AgentStore>()(
         }
 
         agentRefreshPromise = agentsApi.listAgents().then((response) => {
-          set({ agents: response.agents });
+          const previousSelection = get().selectedAgent;
+          const selectedAgent = pickAccessibleAgentId(
+            response.agents,
+            previousSelection,
+          );
+          set({ agents: response.agents, selectedAgent });
+          if (selectedAgent !== previousSelection) {
+            persistLastUsedAgent(selectedAgent);
+            menuRegistry.refresh();
+          }
         });
         try {
           await agentRefreshPromise;
@@ -121,14 +163,17 @@ export const useAgentStore = create<AgentStore>()(
       removeAgent: (agentId) => {
         const shouldRefresh = get().selectedAgent === agentId;
         set((state) => {
+          const agents = state.agents.filter((a) => a.id !== agentId);
           const remainingChatIds = { ...state.lastChatIdByAgent };
           delete remainingChatIds[agentId];
+          const selectedAgent = shouldRefresh
+            ? pickAccessibleAgentId(agents, "")
+            : state.selectedAgent;
+          if (shouldRefresh) persistLastUsedAgent(selectedAgent);
           return {
-            agents: state.agents.filter((a) => a.id !== agentId),
+            agents,
             lastChatIdByAgent: remainingChatIds,
-            ...(state.selectedAgent === agentId
-              ? { selectedAgent: "default" }
-              : {}),
+            selectedAgent,
           };
         });
         if (shouldRefresh) menuRegistry.refresh();
@@ -166,45 +211,63 @@ export const useAgentStore = create<AgentStore>()(
         }),
 
       getLastChatId: (agentId) => get().lastChatIdByAgent[agentId],
+
+      resetIdentityState: () => {
+        set({
+          selectedAgent: "default",
+          agents: [],
+          lastChatIdByAgent: {},
+        });
+        menuRegistry.refresh();
+      },
     }),
     {
       name: STORAGE_KEY,
       storage: {
         getItem: (name) => {
+          const storageKey = getUserScopedStorageKey(name);
           try {
             // Read per-tab state from sessionStorage
-            const value = sessionStorage.getItem(name);
+            const value = sessionStorage.getItem(storageKey);
             if (value) return JSON.parse(value);
           } catch {
             /* ignore */
           }
           // Fall back to localStorage for shared data (agents list, etc.)
           try {
-            const shared = localStorage.getItem(name);
+            const shared = localStorage.getItem(storageKey);
             return shared ? JSON.parse(shared) : null;
           } catch (error) {
-            console.error(`Failed to parse agent storage "${name}":`, error);
-            localStorage.removeItem(name);
+            console.error(
+              `Failed to parse agent storage "${storageKey}":`,
+              error,
+            );
+            localStorage.removeItem(storageKey);
             return null;
           }
         },
         setItem: (name, value) => {
+          const storageKey = getUserScopedStorageKey(name);
           try {
             // Per-tab state (includes selectedAgent)
-            sessionStorage.setItem(name, JSON.stringify(value));
+            sessionStorage.setItem(storageKey, JSON.stringify(value));
           } catch {
             /* ignore */
           }
           try {
             // Shared state (agents list, lastChatIdByAgent)
-            localStorage.setItem(name, JSON.stringify(value));
+            localStorage.setItem(storageKey, JSON.stringify(value));
           } catch (error) {
-            console.error(`Failed to save agent storage "${name}":`, error);
+            console.error(
+              `Failed to save agent storage "${storageKey}":`,
+              error,
+            );
           }
         },
         removeItem: (name) => {
-          sessionStorage.removeItem(name);
-          localStorage.removeItem(name);
+          const storageKey = getUserScopedStorageKey(name);
+          sessionStorage.removeItem(storageKey);
+          localStorage.removeItem(storageKey);
         },
       },
     },

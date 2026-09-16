@@ -1,0 +1,21 @@
+{
+  "python": "/opt/qwenpaw/.venv/bin/python",
+  "project_dir": "/opt/qwenpaw",
+  "host": "127.0.0.1",
+  "port": 18089,
+  "timeout": 120,
+  "working_dir": "/var/lib/qwenpaw/working",
+  "secret_dir": "/var/lib/qwenpaw/secrets",
+  "backup_dir": "/var/lib/qwenpaw/backups",
+  "state_dir": "/var/lib/qwenpaw/run",
+  "log_dir": "/var/log/qwenpaw",
+  "environment": {
+    "QWENPAW_MULTI_USER_ENABLED": "true",
+    "QWENPAW_STORAGE_MODE": "postgres",
+    "QWENPAW_DATABASE_URL": "postgresql://qwenpaw:CHANGE_ME@127.0.0.1:5432/qwenpaw",
+    "QWENPAW_DATABASE_SCHEMA": "qwenpaw",
+    "QWENPAW_CUTOVER_VALIDATED_DOMAINS": "",
+    "QWENPAW_CUTOVER_LEGACY_FROZEN_DOMAINS": "",
+    "QWENPAW_CUTOVER_POSTGRES_WRITES_DOMAINS": ""
+  }
+}

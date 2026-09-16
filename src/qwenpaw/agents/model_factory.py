@@ -15,6 +15,7 @@ import hashlib
 import logging
 import os
 import re
+from types import SimpleNamespace
 from typing import List, Sequence, Tuple, Type, Any, Union, Optional
 from urllib.parse import unquote, urlparse
 
@@ -1461,6 +1462,7 @@ def create_model_and_formatter(
     """
     from ..app.agent_context import get_current_agent_id
     from ..config.config import load_agent_config
+    from .effective_model import resolve_effective_model
 
     # Determine agent_id (parameter > context > None)
     if agent_id is None:
@@ -1504,36 +1506,22 @@ def create_model_and_formatter(
     if slot is not None and slot.provider_id and slot.model:
         model_slot = slot
 
-    # Create chat model from agent-specific or global config
-    if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = _resolved_provider_id(provider, model_slot.provider_id)
-    else:
-        # Fallback to global active model
-        model = ProviderManager.get_active_chat_model()
-        global_model = ProviderManager.get_instance().get_active_model()
-        if not global_model:
-            raise ProviderError(
-                message=(
-                    "No active model configured. "
-                    "Please configure a model using 'qwenpaw models config' "
-                    "or set an agent-specific model."
-                ),
-            )
-        provider_id = _resolved_provider_id(
-            ProviderManager.get_instance().get_provider(
-                global_model.provider_id,
-            ),
-            global_model.provider_id,
+    # Resolve and validate the effective model before constructing a provider
+    # model.  This keeps chat, ReMe, and runtime startup on one contract.
+    manager = ProviderManager.get_instance()
+    effective_slot = resolve_effective_model(
+        SimpleNamespace(active_model=model_slot),
+        provider_manager=manager,
+    )
+    provider = manager.get_provider(effective_slot.provider_id)
+    # resolve_effective_model already validates this; keep the guard local so
+    # the factory remains robust if a custom manager violates its contract.
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{effective_slot.provider_id}' not found.",
         )
+    model = provider.get_chat_model_instance(effective_slot.model)
+    provider_id = _resolved_provider_id(provider, effective_slot.provider_id)
 
     provider_id = _bind_provider_id_to_model(model, provider_id)
 

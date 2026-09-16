@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { EmbeddingModelConfig } from "@/api/types/agent";
+import type { AgentRequestContext } from "@/api/modules/agentRequestContext";
 import { useAgentStore } from "@/stores/agentStore";
 import { getEmbeddingServiceFingerprint } from "./embeddingUtils";
 
@@ -15,9 +16,10 @@ export function useEmbeddingVerification(
   config: EmbeddingModelConfig | undefined,
   enabled: boolean,
   configRevision: number,
+  requestContext?: AgentRequestContext,
 ) {
   const { selectedAgent } = useAgentStore();
-  const agentId = selectedAgent || "default";
+  const agentId = requestContext?.agentId || selectedAgent || "default";
   const [testingEmbedding, setTestingEmbedding] = useState(false);
   const [testedEmbedding, setTestedEmbedding] =
     useState<VerifiedEmbedding | null>(null);

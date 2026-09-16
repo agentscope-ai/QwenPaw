@@ -1,9 +1,14 @@
+import { findVoiceSender } from "./voiceSender";
+import { useVoiceScope } from "@/api/voiceScope";
+import { voiceApi } from "@/api/modules/voice";
 import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeWebUIRef,
 } from "@agentscope-ai/chat";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { handleArtifactDownloadLink } from "./artifactDownloadLink";
+import { artifactLocatorFromFileCard } from "./fileCardLocator";
 import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
@@ -15,6 +20,16 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
+import { resolveStopChatId } from "./chatIdentity";
+import { modelCatalogApi } from "@/api/modules/modelCatalog";
+import { useAuthStore } from "@/stores/authStore";
+import {
+  chooseConversationModel,
+  currentModelContext,
+  isCurrentModelContext,
+  loadConversationModel,
+  draftModel,
+} from "./conversationModel";
 import {
   attachClientMessageId,
   createClientMessageId,
@@ -22,17 +37,29 @@ import {
 } from "../../utils/clientMessageId";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
-import { agentApi } from "../../api/modules/agent";
-import { skillApi } from "../../api/modules/skill";
+import { isConversationReadOnly } from "../../api/types/chat";
 import { planApi } from "../../api/modules/plan";
 import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
-import { providerApi } from "../../api/modules/provider";
 import { slashApi, type SlashCatalogItem } from "../../api/modules/slash";
-import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
+import {
+  listChatFileCandidates,
+  encodeFileMention,
+  rewriteFileMentions,
+  sourceLabels,
+  type ChatFileCandidate,
+} from "./fileMentions";
 import ModelSelector from "./ModelSelector";
+import PublicationModelLock from "./components/PublicationModelLock";
 import { useTheme } from "../../contexts/ThemeContext";
-import { useAgentStore } from "../../stores/agentStore";
+import {
+  isAgentHistoricalReadOnly,
+  useAgentStore,
+} from "../../stores/agentStore";
+import {
+  syncSessionsGlobal,
+  useSessionListStore,
+} from "../../stores/sessionListStore";
 import {
   beginLoopModeSubmission,
   fetchActiveLoopMode,
@@ -44,7 +71,10 @@ import {
 import { buildLoopSlashSuggestions } from "./loopSlashSuggestions";
 import { InlineMarkdown } from "../../components/Markdown/InlineMarkdown";
 import { LoopModeSelector } from "../../components/LoopInput";
-import { useChatAnywhereInput } from "@agentscope-ai/chat";
+import {
+  useChatAnywhereInput,
+  useChatAnywhereSessionsState,
+} from "@agentscope-ai/chat";
 import styles from "./index.module.less";
 import { IconButton } from "@agentscope-ai/design";
 import ChatActionGroup from "./components/ChatActionGroup";
@@ -59,6 +89,8 @@ import { wrapReplayFastForward } from "./replayFastForward";
 import { useTurnUsageStore } from "./turnUsageStore";
 import ChatHeaderTitle from "./components/ChatHeaderTitle";
 import ChatSessionInitializer from "./components/ChatSessionInitializer";
+import { replaceRuntimeMessageSnapshot } from "./runtimeMessageSnapshot";
+import { ChatTransportLifecycle } from "./chatTransportLifecycle";
 import { ApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import TaskInteractionPanel from "../../components/TaskInteractionPanel";
 import { commandsApi } from "../../api/modules/commands";
@@ -114,7 +146,12 @@ import {
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
+import {
+  findPersonalLibraryMentionToken,
+  rewritePersonalLibraryMentionsInInput,
+} from "./personalLibraryMentions";
 import { scrollReverseMessageList } from "./messageScroll";
+import { useSharedConversationAccessGuard } from "./hooks/useSharedConversationAccessGuard";
 
 interface ApprovalMessageData {
   requestId: string;
@@ -146,6 +183,21 @@ function resolveBackendChatId(chatId?: string | null): string | undefined {
   )
     ? chatId
     : undefined;
+}
+
+export function createReconnectRequestPayload(input: {
+  backendSessionId: string;
+  userId: string;
+  channel: string;
+  conversationId?: string;
+}) {
+  return {
+    reconnect: true,
+    session_id: input.backendSessionId,
+    user_id: input.userId,
+    channel: input.channel,
+    conversation_id: input.conversationId,
+  };
 }
 
 import WhisperSpeechButton, {
@@ -188,12 +240,16 @@ import ApprovalLevelToggle from "./components/ApprovalLevelToggle";
 import HarnessApprovalToggle from "./components/HarnessApprovalToggle";
 import HarnessModelSelector from "./components/HarnessModelSelector";
 import { useAgentRunningConfigApprovalLevel } from "../../hooks/useAgentRunningConfigApprovalLevel";
+import {
+  decideChatResumeAction,
+  shouldSyncChatAfterResume,
+} from "./chatResumeSync";
 import { type ToolExecutionLevel } from "../../utils/approval";
 import {
   useMessageQueueStore,
   type QueueItem,
   MAX_QUEUE_SIZE,
-  STORAGE_PREFIX,
+  getStoragePrefix,
   withSendLock,
   holdOwnershipLock,
 } from "../../stores/messageQueueStore";
@@ -201,6 +257,7 @@ import {
   requiresQwenPawModel,
   supportsAgentAttachments,
 } from "../../utils/agentBackend";
+import { getUserScopedStorageKey } from "../../stores/identityStorage";
 
 // ---------------------------------------------------------------------------
 // Background queue sender — keeps sending after ChatPage unmounts.
@@ -507,10 +564,11 @@ async function startBackgroundQueue(
  * and any that already have an active background sender).
  */
 function startAllBackgroundQueues(excludeSessionId?: string) {
+  const storagePrefix = getStoragePrefix();
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (!key || !key.startsWith(STORAGE_PREFIX)) continue;
-    const sessionId = key.slice(STORAGE_PREFIX.length);
+    if (!key || !key.startsWith(storagePrefix)) continue;
+    const sessionId = key.slice(storagePrefix.length);
     if (sessionId === excludeSessionId) continue;
     // Skip sessions already running a background sender
     if (_bgAborts.has(sessionId)) continue;
@@ -644,9 +702,13 @@ function renderSuggestionLabel(item: CommandSuggestion) {
       }`}
     >
       <div className={styles.suggestionMain}>
-        {item.icon && <span className={styles.suggestionIcon}>{item.icon}</span>}
+        {item.icon && (
+          <span className={styles.suggestionIcon}>{item.icon}</span>
+        )}
         <span className={styles.suggestionCommand}>{item.command}</span>
-        {item.group && <span className={styles.suggestionGroup}>{item.group}</span>}
+        {item.group && (
+          <span className={styles.suggestionGroup}>{item.group}</span>
+        )}
       </div>
       {item.description && (
         <div className={styles.suggestionDescription}>
@@ -655,6 +717,16 @@ function renderSuggestionLabel(item: CommandSuggestion) {
       )}
     </div>
   );
+}
+
+interface PersonalLibraryMentionMenuState {
+  open: boolean;
+  keyword: string;
+  mentionStart: number;
+  cursor: number;
+  left: number;
+  bottom: number;
+  activeIndex: number;
 }
 
 function suggestionValue(insertText: string): string {
@@ -690,12 +762,6 @@ const WIDE_MODE_STORAGE_KEY = "qwenpaw_chat_wide_mode";
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
 const EMPTY_QUEUE: QueueItem[] = [];
-
-function isSkillAvailableInConsole(skill: SkillSpec): boolean {
-  if (!skill.enabled) return false;
-  const channels = skill.channels?.length ? skill.channels : ["all"];
-  return channels.includes("all") || channels.includes(DEFAULT_CHANNEL);
-}
 
 function sanitizeHeadlinePayload(
   node: unknown,
@@ -823,41 +889,38 @@ function useMultimodalCapabilities(
       updateCapsIfChanged(noCaps);
       return;
     }
+    const context = currentModelContext(locationPathname);
     try {
-      const [providers, activeModels] = await Promise.all([
-        providerApi.listProviders(),
-        providerApi.getActiveModels({
-          scope: "effective",
-          agent_id: selectedAgent,
-        }),
+      const [catalog, activeModels] = await Promise.all([
+        modelCatalogApi.list(selectedAgent),
+        loadConversationModel(),
       ]);
+      if (!isCurrentModelContext(context)) return;
       const activeProviderId = activeModels?.active_llm?.provider_id;
       const activeModelId = activeModels?.active_llm?.model;
       if (!activeProviderId || !activeModelId) {
         updateCapsIfChanged(noCaps);
         return;
       }
-      const provider = (providers as ProviderInfo[]).find(
-        (p) => p.id === activeProviderId,
+      const model = catalog.models.find(
+        (m) => m.provider_id === activeProviderId && m.model === activeModelId,
       );
-      if (!provider) {
-        updateCapsIfChanged(noCaps);
-        return;
-      }
-      const allModels: ModelInfo[] = [
-        ...(provider.models ?? []),
-        ...(provider.extra_models ?? []),
-      ];
-      const model = allModels.find((m) => m.id === activeModelId);
       updateCapsIfChanged({
-        supportsMultimodal: model?.supports_multimodal ?? false,
+        supportsMultimodal: Boolean(
+          model?.supports_image || model?.supports_video,
+        ),
         supportsImage: model?.supports_image ?? false,
         supportsVideo: model?.supports_video ?? false,
       });
     } catch {
-      updateCapsIfChanged(noCaps);
+      if (isCurrentModelContext(context)) updateCapsIfChanged(noCaps);
     }
-  }, [selectedAgent, updateCapsIfChanged, usesQwenPawBackend]);
+  }, [
+    selectedAgent,
+    locationPathname,
+    updateCapsIfChanged,
+    usesQwenPawBackend,
+  ]);
 
   // Fetch caps on mount and whenever refreshKey changes
   useEffect(() => {
@@ -1040,9 +1103,10 @@ const DRAFT_STORAGE_KEY_PREFIX = "qwenpaw_chat_input_draft";
 let draftSuppressed = false;
 
 function getDraftStorageKey(agentId?: string): string {
-  return agentId
+  const baseKey = agentId
     ? `${DRAFT_STORAGE_KEY_PREFIX}_${agentId}`
     : DRAFT_STORAGE_KEY_PREFIX;
+  return getUserScopedStorageKey(baseKey);
 }
 
 interface DraftState {
@@ -1187,6 +1251,27 @@ function RuntimeLoadingBridge({
   return null;
 }
 
+function RuntimeReadOnlyBridge({ readOnly }: { readOnly: boolean }) {
+  const { setDisabled } = useChatAnywhereInput(
+    (value) =>
+      ({ setDisabled: value.setDisabled }) as {
+        setDisabled?: (disabled: boolean) => void;
+      },
+  );
+  const { currentSessionId } = useChatAnywhereSessionsState();
+
+  useEffect(() => {
+    if (!setDisabled) return;
+    const timer = window.setTimeout(() => setDisabled(readOnly), 0);
+    return () => {
+      window.clearTimeout(timer);
+      setDisabled(false);
+    };
+  }, [currentSessionId, readOnly, setDisabled]);
+
+  return null;
+}
+
 const timestampStyle: React.CSSProperties = {
   fontSize: 12,
   color: "var(--ant-color-text-quaternary)",
@@ -1204,15 +1289,40 @@ const isLocalTimestampId = (id: string | null | undefined): boolean =>
   !!id && /^\d+-[a-z0-9]+$/.test(id);
 
 export default function ChatPage() {
+  const canManageModels = useAuthStore(
+    (state) =>
+      state.mode !== "multi_user" || state.user?.platform_role === "admin",
+  );
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
+  const historicalReadOnly = isAgentHistoricalReadOnly(agents, selectedAgent);
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
   );
+  const sessions = useSessionListStore((state) => state.sessions);
+  const currentSession = useMemo(
+    () =>
+      sessions.find(
+        (session) => session.id === chatId || session.realId === chatId,
+      ),
+    [chatId, sessions],
+  );
+  const conversationReadOnly = isConversationReadOnly({
+    access_role: currentSession?.accessRole,
+    read_only: currentSession?.readOnly,
+  });
+  const chatReadOnly = historicalReadOnly || conversationReadOnly;
+  const publicationVersion = currentSession?.meta?.publication_version;
+  const lockedPublicationModel = currentSession?.meta?.locked_model as
+    | { provider_id?: string; model?: string }
+    | undefined;
+  const isPublicationConversation =
+    typeof publicationVersion === "string" &&
+    Boolean(lockedPublicationModel?.provider_id && lockedPublicationModel?.model);
   const queueSessionId = chatId ?? sessionApi.lastActiveChatId ?? "new";
   const backendChatId = resolveBackendChatId(chatId);
   const pendingProjectDir = backendChatId
@@ -1261,7 +1371,6 @@ export default function ChatPage() {
       trigger: null,
     });
   }, [currentSessionFilesScopeKey, dispatchFilesDrawer]);
-  const loopAvailableModes = useLoopStore((state) => state.availableModes);
 
   useEffect(() => {
     const openPreview = (event: Event) => {
@@ -1282,6 +1391,7 @@ export default function ChatPage() {
 
   const handleInternalFileLink = useCallback(
     (event: React.MouseEvent<HTMLDivElement>) => {
+      if (handleArtifactDownloadLink(event)) return;
       const element = event.target;
       if (!(element instanceof Element)) return;
       const anchor = element.closest<HTMLAnchorElement>("a[href]");
@@ -1336,7 +1446,7 @@ export default function ChatPage() {
   const selectedAgentBackend = selectedAgentInfo?.backend ?? "qwenpaw";
   const backendCapabilities = selectedAgentInfo?.backend_capabilities;
   const usesQwenPawBackend = requiresQwenPawModel(selectedAgentBackend);
-  const backendCommands = backendCapabilities?.commands ?? [];
+  const loopAvailableModes = useLoopStore((state) => state.availableModes);
   const approvalPresets = backendCapabilities?.approval_presets ?? [];
   const supportsAttachments = supportsAgentAttachments(
     selectedAgentBackend,
@@ -1603,11 +1713,6 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const [planEnabled, setPlanEnabled] = useState(false);
-  const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
-  const consoleSkills = useMemo(
-    () => chatSkills.filter(isSkillAvailableInConsole),
-    [chatSkills],
-  );
   const [slashCatalog, setSlashCatalog] = useState<SlashCatalogItem[]>([]);
   const [slashMenu, setSlashMenu] = useState<SlashMenuState>({
     open: false,
@@ -1621,6 +1726,20 @@ export default function ChatPage() {
   const slashTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const slashMenuRef = useRef<HTMLDivElement | null>(null);
   const slashItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const [personalLibraryDocuments, setPersonalLibraryDocuments] = useState<
+    ChatFileCandidate[]
+  >([]);
+  const [mentionMenu, setMentionMenu] =
+    useState<PersonalLibraryMentionMenuState>({
+      open: false,
+      keyword: "",
+      mentionStart: 0,
+      cursor: 0,
+      left: 0,
+      bottom: 0,
+      activeIndex: 0,
+    });
+  const mentionTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const isChatActiveRef = useRef(false);
   isChatActiveRef.current =
     location.pathname === "/" ||
@@ -1674,31 +1793,88 @@ export default function ChatPage() {
     };
   }, [selectedAgent]);
 
-  const slashSuggestions = useMemo<CommandSuggestion[]>(
-    () =>
-      slashCatalog
-        .filter(
-          (item) =>
-            item.type === "command" ||
-            item.type === "skill" ||
-            item.type.startsWith("mcp_"),
-        )
-        .map((item) => ({
-          command: item.command,
-          value: suggestionValue(item.insertText),
-          description: item.description || item.group,
-          group: item.group,
-          icon: item.icon,
-        })),
-    [slashCatalog],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    setPersonalLibraryDocuments([]);
+    listChatFileCandidates(chatId)
+      .then((documents) => {
+        if (cancelled) return;
+        setPersonalLibraryDocuments(documents);
+      })
+      .catch(() => {
+        if (!cancelled) setPersonalLibraryDocuments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAgent, chatId]);
+
+  const slashSuggestions = useMemo<CommandSuggestion[]>(() => {
+    const catalogItems = slashCatalog
+      .filter(
+        (item) =>
+          item.type === "command" ||
+          item.type === "skill" ||
+          item.type.startsWith("mcp_"),
+      )
+      .map((item) => ({
+        command: item.command,
+        value: suggestionValue(item.insertText),
+        description: item.description || item.group || "",
+        group: item.group,
+        icon: item.icon,
+      }));
+
+    // Keep legacy host/backend and loop-mode shortcuts in the same custom
+    // menu. The SDK sender must not receive these or it renders a duplicate
+    // centered popup for the same slash input.
+    const extraItems: CommandSuggestion[] = [
+      {
+        command: "/new",
+        value: "new",
+        description: "",
+        group: "Commands",
+      },
+      ...(usesQwenPawBackend
+        ? []
+        : (backendCapabilities?.commands ?? []).map((item) => ({
+            command: `/${item.name}`,
+            value: item.name,
+            description: item.description || "",
+            group: "Commands",
+          }))),
+      ...(usesQwenPawBackend
+        ? buildLoopSlashSuggestions(
+            loopAvailableModes,
+            new Set(catalogItems.map((item) => item.value)),
+            t,
+            i18n.language,
+          )
+        : []),
+    ];
+
+    const seen = new Set<string>();
+    return [...catalogItems, ...extraItems].filter((item) => {
+      if (seen.has(item.value)) return false;
+      seen.add(item.value);
+      return true;
+    });
+  }, [
+    backendCapabilities?.commands,
+    i18n.language,
+    loopAvailableModes,
+    slashCatalog,
+    t,
+    usesQwenPawBackend,
+  ]);
 
   const filteredSlashSuggestions = useMemo(() => {
     if (!slashMenu.open) return [];
     if (!slashMenu.keyword) return slashSuggestions;
     return slashSuggestions.filter((item) => {
-      const haystack = `${item.command} ${item.description} ${item.group ?? ""}`
-        .toLowerCase();
+      const haystack = `${item.command} ${item.description} ${
+        item.group ?? ""
+      }`.toLowerCase();
       return haystack.includes(slashMenu.keyword);
     });
   }, [slashMenu.open, slashMenu.keyword, slashSuggestions]);
@@ -1714,11 +1890,7 @@ export default function ChatPage() {
     if (!slashMenu.open || filteredSlashSuggestions.length === 0) return;
     const activeItem = slashItemRefs.current[slashMenu.activeIndex];
     activeItem?.scrollIntoView({ block: "nearest" });
-  }, [
-    filteredSlashSuggestions.length,
-    slashMenu.activeIndex,
-    slashMenu.open,
-  ]);
+  }, [filteredSlashSuggestions.length, slashMenu.activeIndex, slashMenu.open]);
 
   const closeSlashMenu = useCallback(() => {
     setSlashMenu((current) =>
@@ -1736,6 +1908,12 @@ export default function ChatPage() {
       }
 
       const rect = textarea.getBoundingClientRect();
+      const senderRect = textarea
+        .closest('[class*="sender"]')
+        ?.getBoundingClientRect();
+      const positioningRect = textarea
+        .closest('[class*="chat-anywhere-layout"]')
+        ?.getBoundingClientRect();
       slashTextareaRef.current = textarea;
       setSlashMenu((current) => {
         const next = {
@@ -1743,7 +1921,9 @@ export default function ChatPage() {
           keyword: token.keyword,
           slashStart: token.slashStart,
           cursor: token.cursor,
-          left: rect.left,
+          // The SDK layout can establish a transformed containing block for
+          // this fixed menu. Convert the viewport coordinate into that block.
+          left: (senderRect?.left ?? rect.left) - (positioningRect?.left ?? 0),
           bottom: Math.max(window.innerHeight - rect.top + 8, 96),
           activeIndex: 0,
         };
@@ -1812,7 +1992,9 @@ export default function ChatPage() {
 
     const handleKeyUp = (event: KeyboardEvent) => {
       if (!isChatSenderTextarea(event.target)) return;
-      if (["ArrowUp", "ArrowDown", "Enter", "Tab", "Escape"].includes(event.key)) {
+      if (
+        ["ArrowUp", "ArrowDown", "Enter", "Tab", "Escape"].includes(event.key)
+      ) {
         return;
       }
       scheduleSlashMenuUpdate(event.target);
@@ -1832,7 +2014,8 @@ export default function ChatPage() {
         claimNavigationKey();
         setSlashMenu((current) => ({
           ...current,
-          activeIndex: (current.activeIndex + 1) % filteredSlashSuggestions.length,
+          activeIndex:
+            (current.activeIndex + 1) % filteredSlashSuggestions.length,
         }));
       } else if (event.key === "ArrowUp") {
         claimNavigationKey();
@@ -1875,6 +2058,150 @@ export default function ChatPage() {
     updateSlashMenuFromTextarea,
   ]);
 
+  const filteredPersonalLibraryDocuments = useMemo(() => {
+    if (!mentionMenu.open) return [];
+    if (!mentionMenu.keyword) return personalLibraryDocuments;
+    return personalLibraryDocuments.filter((document) =>
+      `${document.name} ${document.relative_path}`
+        .toLowerCase()
+        .includes(mentionMenu.keyword),
+    );
+  }, [mentionMenu.keyword, mentionMenu.open, personalLibraryDocuments]);
+
+  const closeMentionMenu = useCallback(() => {
+    setMentionMenu((current) =>
+      current.open ? { ...current, open: false } : current,
+    );
+  }, []);
+
+  useEffect(() => {
+    if (!mentionMenu.open) return;
+    let cancelled = false;
+    void listChatFileCandidates(chatId)
+      .then((files) => {
+        if (!cancelled) setPersonalLibraryDocuments(files);
+      })
+      .catch(() => {
+        if (!cancelled) setPersonalLibraryDocuments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mentionMenu.open, selectedAgent, chatId]);
+
+  const applyPersonalLibraryMention = useCallback(
+    (document: ChatFileCandidate) => {
+      const textarea = mentionTextareaRef.current;
+      if (!textarea) return;
+      const cursor = textarea.selectionStart ?? mentionMenu.cursor;
+      const insertion = `${encodeFileMention(document)} `;
+      const nextValue =
+        textarea.value.slice(0, mentionMenu.mentionStart) +
+        insertion +
+        textarea.value.slice(cursor);
+      const nextCursor = mentionMenu.mentionStart + insertion.length;
+      setTextareaValue(textarea, nextValue, nextCursor);
+      textarea.focus();
+      closeMentionMenu();
+    },
+    [closeMentionMenu, mentionMenu.cursor, mentionMenu.mentionStart],
+  );
+
+  useEffect(() => {
+    const isSenderTextarea = (
+      target: EventTarget | null,
+    ): target is HTMLTextAreaElement =>
+      target instanceof HTMLTextAreaElement &&
+      target.closest('[class*="sender"]') !== null;
+    const update = (textarea: HTMLTextAreaElement) => {
+      const cursor = textarea.selectionStart ?? 0;
+      if (cursor !== textarea.selectionEnd) {
+        closeMentionMenu();
+        return;
+      }
+      const token = findPersonalLibraryMentionToken(textarea.value, cursor);
+      if (!token) {
+        closeMentionMenu();
+        return;
+      }
+      const rect = textarea.getBoundingClientRect();
+      const senderRect = textarea
+        .closest('[class*="sender"]')
+        ?.getBoundingClientRect();
+      const positioningRect = textarea
+        .closest('[class*="chat-anywhere-layout"]')
+        ?.getBoundingClientRect();
+      mentionTextareaRef.current = textarea;
+      setMentionMenu({
+        open: true,
+        keyword: token.keyword,
+        mentionStart: token.mentionStart,
+        cursor: token.cursor,
+        left: (senderRect?.left ?? rect.left) - (positioningRect?.left ?? 0),
+        bottom: Math.max(window.innerHeight - rect.top + 8, 96),
+        activeIndex: 0,
+      });
+    };
+    const handleInput = (event: Event) => {
+      if (isSenderTextarea(event.target)) {
+        const textarea = event.target;
+        window.requestAnimationFrame(() => update(textarea));
+      }
+    };
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!mentionMenu.open || !isSenderTextarea(event.target)) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeMentionMenu();
+        return;
+      }
+      if (filteredPersonalLibraryDocuments.length === 0) return;
+      if (["ArrowDown", "ArrowUp", "Enter", "Tab"].includes(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+      }
+      if (event.key === "ArrowDown") {
+        setMentionMenu((current) => ({
+          ...current,
+          activeIndex:
+            (current.activeIndex + 1) % filteredPersonalLibraryDocuments.length,
+        }));
+      } else if (event.key === "ArrowUp") {
+        setMentionMenu((current) => ({
+          ...current,
+          activeIndex:
+            (current.activeIndex -
+              1 +
+              filteredPersonalLibraryDocuments.length) %
+            filteredPersonalLibraryDocuments.length,
+        }));
+      } else if (event.key === "Enter" || event.key === "Tab") {
+        applyPersonalLibraryMention(
+          filteredPersonalLibraryDocuments[
+            Math.min(
+              mentionMenu.activeIndex,
+              filteredPersonalLibraryDocuments.length - 1,
+            )
+          ],
+        );
+      }
+    };
+    document.addEventListener("input", handleInput);
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      document.removeEventListener("input", handleInput);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [
+    applyPersonalLibraryMention,
+    closeMentionMenu,
+    filteredPersonalLibraryDocuments,
+    mentionMenu.activeIndex,
+    mentionMenu.open,
+    personalLibraryDocuments.length,
+  ]);
+
   useEffect(() => {
     let cancelled = false;
     slashApi
@@ -1890,65 +2217,6 @@ export default function ChatPage() {
       cancelled = true;
     };
   }, [selectedAgent]);
-
-  useEffect(() => {
-    if (!usesQwenPawBackend) {
-      setChatSkills([]);
-      return;
-    }
-    let cancelled = false;
-    skillApi
-      .listSkills(selectedAgent)
-      .then((skills) => {
-        if (cancelled) return;
-        const nextSkills = Array.isArray(skills) ? skills : [];
-        setChatSkills(nextSkills);
-      })
-      .catch((error) => {
-        console.warn("[ChatSkills] failed to load slash skills", {
-          selectedAgent,
-          error,
-        });
-        if (!cancelled) setChatSkills([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedAgent, usesQwenPawBackend]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Tab" || !isChatActive()) return;
-      const textarea = event.target;
-      if (!(textarea instanceof HTMLTextAreaElement)) return;
-      if (!textarea.closest('[class*="sender"]')) return;
-      if (
-        !textarea.value.startsWith("/") ||
-        /\s/.test(textarea.value.slice(1))
-      ) {
-        return;
-      }
-
-      const selectedItem =
-        document.querySelector(
-          '[role="menuitemcheckbox"][aria-checked="true"]',
-        ) || document.querySelector('[role="menuitem"][aria-current="true"]');
-      if (!(selectedItem instanceof HTMLElement)) return;
-
-      const selectedValue = selectedItem.getAttribute("data-path-key")?.trim();
-      if (!selectedValue) return;
-
-      event.preventDefault();
-      event.stopPropagation();
-      setTextareaValue(textarea, `/${selectedValue} `);
-      textarea.focus();
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [isChatActive]);
 
   // Consume approvals from Context and filter by current session.
   // Uses a serialized key to avoid creating a new Map (and triggering
@@ -2053,6 +2321,7 @@ export default function ChatPage() {
           rootSessionId,
           undefined,
           scope,
+          resolveBackendChatId(chatIdRef.current ?? chatId),
         );
         setApprovals((prev) =>
           prev.filter((item) => item.request_id !== requestId),
@@ -2092,7 +2361,14 @@ export default function ChatPage() {
           cardElement.classList.add("approvalCardExit");
         }
 
-        await commandsApi.sendApprovalCommand("deny", requestId, rootSessionId);
+        await commandsApi.sendApprovalCommand(
+          "deny",
+          requestId,
+          rootSessionId,
+          undefined,
+          undefined,
+          resolveBackendChatId(chatIdRef.current ?? chatId),
+        );
         setApprovals((prev) =>
           prev.filter((item) => item.request_id !== requestId),
         );
@@ -2141,7 +2417,64 @@ export default function ChatPage() {
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
   const chatRef = useRef<IAgentScopeRuntimeWebUIRef>(null);
+  const chatTransportLifecycleRef = useRef(new ChatTransportLifecycle());
   const pendingSenderClearRef = useRef<string | null>(null);
+
+  const clearConversationView = useCallback(() => {
+    chatTransportLifecycleRef.current.abortCurrent();
+    chatRef.current?.messages.removeAllMessages();
+    useTurnUsageStore.getState().setSnapshot(null);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("qwenpaw:new-chat-reset", clearConversationView);
+    return () =>
+      window.removeEventListener(
+        "qwenpaw:new-chat-reset",
+        clearConversationView,
+      );
+  }, [clearConversationView]);
+
+  useEffect(() => {
+    if (
+      chatId ||
+      !sessionApi.lastActiveChatId ||
+      !isLocalTimestampId(sessionApi.lastActiveChatId)
+    ) {
+      return;
+    }
+
+    // Route transition effects from the SDK can re-apply the previous
+    // selection after the initial reset event. Clear once after the /chat
+    // draft route has committed as the authoritative final guard.
+    clearConversationView();
+    const frame = window.requestAnimationFrame(clearConversationView);
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatId, clearConversationView]);
+
+  const handleSharedConversationRevoked = useCallback(() => {
+    const activeId = chatIdRef.current;
+    const activeBackendId = resolveBackendChatId(activeId);
+    if (!activeId || !activeBackendId || activeBackendId !== backendChatId) {
+      return;
+    }
+
+    const remainingSessions =
+      sessionApi.invalidateSessionAccess(activeBackendId);
+    syncSessionsGlobal(remainingSessions);
+    chatRef.current?.messages.removeAllMessages();
+    useTurnUsageStore.getState().setSnapshot(null);
+    lastSessionIdRef.current = null;
+    sessionApi.resetWindowIdentity();
+    message.warning(t("chat.sharedAccessRevoked"));
+    navigateRef.current(CHAT_BASE_PATH, { replace: true });
+  }, [backendChatId, message, t]);
+
+  useSharedConversationAccessGuard({
+    conversationId: backendChatId,
+    enabled: currentSession?.accessRole === "viewer",
+    onRevoked: handleSharedConversationRevoked,
+  });
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -2159,33 +2492,93 @@ export default function ChatPage() {
   const pendingClearHistoryRef = useRef(false);
   const resumeSyncInFlightRef = useRef(false);
   const lastResumeSyncAtRef = useRef(0);
+  const wasRunningWhenHiddenRef = useRef(false);
   const whisperSpeechRef = useRef<WhisperSpeechButtonRef>(null);
-  const [whisperEnabled, setWhisperEnabled] = useState(false);
-  const [whisperChecked, setWhisperChecked] = useState(false);
-
-  // Check if Whisper transcription is configured
+  const voiceScope = useVoiceScope();
+  const [voiceStatus, setVoiceStatus] = useState<{
+    key: string;
+    available: boolean;
+  } | null>(null);
+  const whisperEnabled =
+    !chatReadOnly &&
+    voiceScope.canUse &&
+    voiceStatus?.key === voiceScope.key &&
+    voiceStatus.available;
   useEffect(() => {
-    agentApi
-      .getTranscriptionProviderType()
-      .then((res) => {
-        setWhisperEnabled(res.transcription_provider_type !== "disabled");
-      })
-      .catch(() => setWhisperEnabled(false))
-      .finally(() => setWhisperChecked(true));
-  }, []);
-
-  const handleWhisperTranscription = useCallback((text: string) => {
-    const senderContainer = document.querySelector('[class*="sender"]');
-    const textarea = senderContainer?.querySelector(
-      "textarea",
-    ) as HTMLTextAreaElement | null;
-    if (textarea) {
-      const currentValue = textarea.value || "";
-      const newValue = currentValue ? `${currentValue} ${text}` : text;
-      setTextareaValue(textarea, newValue);
+    let active = true;
+    let controller: AbortController | null = null;
+    const refresh = async () => {
+      controller?.abort();
+      controller = new AbortController();
+      const requestController = controller;
+      if (!voiceScope.canUse || chatReadOnly) {
+        setVoiceStatus(null);
+        return;
+      }
+      try {
+        const status = await voiceApi.status(
+          voiceScope,
+          requestController.signal,
+        );
+        if (active && voiceScope.current() && !requestController.signal.aborted)
+          setVoiceStatus({
+            key: voiceScope.key,
+            available: status.enabled && status.available,
+          });
+      } catch {
+        if (active && voiceScope.current() && !requestController.signal.aborted)
+          setVoiceStatus(null);
+      }
+    };
+    void refresh();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("voice-transcription-changed", refresh);
+    return () => {
+      active = false;
+      controller?.abort();
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("voice-transcription-changed", refresh);
+    };
+  }, [voiceScope, chatReadOnly, queueSessionId]);
+  const getVoiceSender = useCallback(
+    (anchor?: HTMLElement | null) => {
+      if (!isChatActive()) return null;
+      const root = chatMessagesAreaRef.current;
+      if (anchor) {
+        return findVoiceSender(root, anchor);
+      }
+      const focused = document.activeElement;
+      if (
+        focused instanceof HTMLTextAreaElement &&
+        root?.contains(focused) &&
+        focused.closest('[class*="sender"]')
+      )
+        return focused;
+      return (
+        root?.querySelector<HTMLTextAreaElement>(
+          '[class*="sender"] textarea',
+        ) ?? null
+      );
+    },
+    [isChatActive],
+  );
+  const handleWhisperTranscription = useCallback(
+    (text: string, textarea?: HTMLTextAreaElement) => {
+      if (
+        !textarea ||
+        !chatMessagesAreaRef.current?.contains(textarea) ||
+        !isChatActive() ||
+        chatReadOnly
+      )
+        return;
+      setTextareaValue(
+        textarea,
+        textarea.value ? `${textarea.value} ${text}` : text,
+      );
       textarea.focus();
-    }
-  }, []);
+    },
+    [isChatActive, chatReadOnly],
+  );
 
   useMessageHistoryNavigation(chatRef, isChatActive, isComposingRef);
   useChatInputDraft(isChatActive, selectedAgent);
@@ -2446,6 +2839,19 @@ export default function ChatPage() {
   const onFileCardClick = useCallback(
     (fileInfo: { name?: string; size?: number; url?: string }) => {
       if (!fileInfo.url) return;
+      const locator = artifactLocatorFromFileCard({
+        agentId: selectedAgent,
+        conversationId: backendChatId,
+        file: fileInfo,
+      });
+      if (locator) {
+        dispatchFilesDrawer({
+          type: "OPEN_PREVIEW",
+          locator,
+          trigger: null,
+        });
+        return;
+      }
       const target: FileTarget = {
         source: "attachment",
         path:
@@ -2461,7 +2867,7 @@ export default function ChatPage() {
         trigger: null,
       });
     },
-    [dispatchFilesDrawer, t],
+    [backendChatId, dispatchFilesDrawer, selectedAgent, t],
   );
 
   const openInlineFileReference = useCallback(
@@ -2682,6 +3088,12 @@ export default function ChatPage() {
       }
 
       const resolvedTarget = sessionApi.getEffectiveSessionId(targetId, null);
+      // History reads are not navigation intents, including after completion.
+      if (
+        chatIdRef.current &&
+        sessionApi.getEffectiveSessionId(chatIdRef.current) !== resolvedTarget
+      )
+        return;
 
       // Never navigate to a temporary local timestamp id. The SDK may
       // auto-select an unresolved local session after an agent switch;
@@ -2743,6 +3155,16 @@ export default function ChatPage() {
   const syncCurrentChatAfterResume = useCallback(async () => {
     if (!isChatActiveRef.current || resumeSyncInFlightRef.current) return;
 
+    if (
+      !shouldSyncChatAfterResume({
+        wasRunningWhenHidden: wasRunningWhenHiddenRef.current,
+        frontendRunning: Boolean(chatLoadingRef.current),
+      })
+    ) {
+      return;
+    }
+    wasRunningWhenHiddenRef.current = false;
+
     const now = Date.now();
     if (now - lastResumeSyncAtRef.current < 1500) return;
     lastResumeSyncAtRef.current = now;
@@ -2764,9 +3186,33 @@ export default function ChatPage() {
       const currentMessageCount =
         chatRef.current?.messages?.getMessages?.()?.length ?? 0;
       const backendMessageCount = history.messages.length;
-      const backendIdle = history.status === "idle";
+      const resumeAction = decideChatResumeAction({
+        backendStatus: history.status,
+        backendMessageCount,
+        currentMessageCount,
+        frontendRunning: Boolean(chatLoadingRef.current),
+      });
+      if (resumeAction === "replace_history") {
+        sessionApi.invalidateConvertedCache(realId);
+        const canonicalSession = await sessionApi.getSession(realId);
+        const activeId = chatIdRef.current || window.currentSessionId || "";
+        const activeRealId =
+          sessionApi.getRealIdForSession(activeId) ?? activeId;
+        if (!isChatActiveRef.current || activeRealId !== realId) return;
 
-      if (backendIdle || backendMessageCount > currentMessageCount) {
+        // Stop the old SSE body before replacing the message list. Browsers can
+        // buffer stream chunks while a tab is suspended; without this fence,
+        // those chunks are delivered after the canonical snapshot and append
+        // the same user/assistant turn with the SDK's transient message IDs.
+        chatTransportLifecycleRef.current.abortCurrent();
+        replaceRuntimeMessageSnapshot(
+          chatRef.current?.messages,
+          canonicalSession.messages || [],
+        );
+        runtimeLoadingBridgeRef.current?.setLoading?.(false);
+        setChatLoading(false);
+      } else if (resumeAction === "reconnect") {
+        chatTransportLifecycleRef.current.abortCurrent();
         setRefreshKey((prev) => prev + 1);
       }
     } catch (error) {
@@ -2776,8 +3222,17 @@ export default function ChatPage() {
     }
   }, []);
 
+  useEffect(
+    () => () => chatTransportLifecycleRef.current.abortCurrent(),
+    [],
+  );
+
   useEffect(() => {
     const onResume = () => {
+      if (document.visibilityState === "hidden") {
+        wasRunningWhenHiddenRef.current = Boolean(chatLoadingRef.current);
+        return;
+      }
       if (document.visibilityState === "visible") {
         void syncCurrentChatAfterResume();
       }
@@ -2877,6 +3332,22 @@ export default function ChatPage() {
       biz_params?: Record<string, unknown>;
       signal?: AbortSignal;
     }): Promise<Response> => {
+      if (chatReadOnly) {
+        message.warning(
+          t(
+            conversationReadOnly
+              ? "chat.sharedReadOnlyNotice"
+              : "chat.historicalReadOnlyNotice",
+          ),
+        );
+        return new Response(
+          JSON.stringify({ detail: "historical_read_only" }),
+          {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...buildAuthHeaders(),
@@ -2884,10 +3355,7 @@ export default function ChatPage() {
 
       if (usesQwenPawBackend) {
         try {
-          const activeModels = await providerApi.getActiveModels({
-            scope: "effective",
-            agent_id: selectedAgent,
-          });
+          const activeModels = await loadConversationModel();
           if (
             !activeModels?.active_llm?.provider_id ||
             !activeModels?.active_llm?.model
@@ -2921,7 +3389,7 @@ export default function ChatPage() {
           ? attachClientMessageId(lastMsg, clientMessageId)
           : lastMsg
         : undefined;
-      const rewrittenInput: Array<Record<string, unknown>> =
+      const normalizedInput: Array<Record<string, unknown>> =
         rewrittenLastMsg?.content && Array.isArray(rewrittenLastMsg.content)
           ? [
               {
@@ -2932,6 +3400,13 @@ export default function ChatPage() {
           : rewrittenLastMsg
           ? [rewrittenLastMsg]
           : [];
+      const mentionRewrite =
+        rewritePersonalLibraryMentionsInInput(normalizedInput);
+      const fileRewrite = rewriteFileMentions(mentionRewrite.input);
+      const rewrittenInput = fileRewrite.input;
+      const personalLibraryDocumentIds = [
+        ...new Set(mentionRewrite.documentIds),
+      ];
 
       const identity = sessionApi.getSessionIdentity();
       let requestBody: Record<string, unknown> = {
@@ -2942,6 +3417,8 @@ export default function ChatPage() {
         stream: true,
         ...biz_params,
       };
+      const requestedModel = draftModel();
+      if (requestedModel) requestBody.requested_model = requestedModel;
 
       for (const entry of sortByOrder(
         extLists[ChatList.requestPayloadTransforms],
@@ -2990,6 +3467,26 @@ export default function ChatPage() {
         );
         requestBody = pendingRequest.requestBody;
         appliedProjectDir = pendingRequest.projectDir ?? null;
+        if (
+          personalLibraryDocumentIds.length > 0 ||
+          fileRewrite.references.length > 0
+        ) {
+          const currentContext =
+            requestBody.request_context &&
+            typeof requestBody.request_context === "object"
+              ? (requestBody.request_context as Record<string, unknown>)
+              : {};
+          requestBody.request_context = {
+            ...currentContext,
+            file_references: [
+              ...fileRewrite.references,
+              ...personalLibraryDocumentIds.map((id) => ({
+                source: "personal_library",
+                id,
+              })),
+            ],
+          };
+        }
       } else if (Object.keys(backendControlsRef.current).length > 0) {
         const currentContext =
           requestBody.request_context &&
@@ -3006,6 +3503,10 @@ export default function ChatPage() {
         sessionApi.getRealIdForSession(String(requestBody.session_id || "")) ??
         chatIdRef.current ??
         String(requestBody.session_id || "");
+      const existingConversationId = resolveBackendChatId(backendChatId);
+      if (existingConversationId) {
+        requestBody.conversation_id = existingConversationId;
+      }
       if (backendChatId) {
         const userText = rewrittenInput
           .filter((m) => m.role === "user")
@@ -3035,28 +3536,48 @@ export default function ChatPage() {
 
       headlineStreamFilterRef.current = createHeadlineFilterState();
 
+      const requestOwner = sessionApi.getActiveOwner();
+      const sentLocalId = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const transportSignal =
+        chatTransportLifecycleRef.current.begin(data.signal);
       const response = await fetch(getApiUrl("/console/chat"), {
         method: "POST",
         headers,
         body: JSON.stringify(requestBody),
-        signal: data.signal,
+        signal: transportSignal,
       });
 
       if (!response.ok && backendChatId) {
         sessionApi.discardLastUserMessage(backendChatId, clientMessageId);
       }
 
-      const localIdToResolve = sessionApi.lastActiveChatId ?? chatIdRef.current;
+      const localIdToResolve = sentLocalId;
       if (response.ok && localIdToResolve) {
         if (appliedProjectDir && projectSessionId) {
           setPendingProjectDirectory(selectedAgent, projectSessionId, null);
         }
-        sessionApi.triggerResolve(localIdToResolve);
+        const resolvedId = response.headers.get("X-QwenPaw-Chat-Id");
+        if (resolvedId)
+          sessionApi.acceptResolvedChat(
+            localIdToResolve,
+            resolvedId,
+            requestOwner,
+          );
+        else sessionApi.triggerResolve(localIdToResolve);
       }
 
       return wrapChatResponseUsageStream(response, chatRef);
     },
-    [extLists, selectedAgent, runningConfigApprovalLevel, usesQwenPawBackend],
+    [
+      extLists,
+      chatReadOnly,
+      conversationReadOnly,
+      message,
+      selectedAgent,
+      runningConfigApprovalLevel,
+      t,
+      usesQwenPawBackend,
+    ],
   );
 
   const handleFileUpload = useCallback(
@@ -3092,7 +3613,10 @@ export default function ChatPage() {
           return;
         }
 
-        const res = await chatApi.uploadFile(file);
+        const res = await chatApi.uploadFile(
+          file,
+          resolveBackendChatId(chatIdRef.current ?? chatId),
+        );
         onProgress?.({ percent: 100 });
         const previewUrl = chatApi.filePreviewUrl(res.url);
         onSuccess({ url: previewUrl });
@@ -3111,7 +3635,7 @@ export default function ChatPage() {
         onError?.(e instanceof Error ? e : new Error(String(e)));
       }
     },
-    [multimodalCaps, t, usesQwenPawBackend],
+    [chatId, multimodalCaps, t, usesQwenPawBackend],
   );
 
   const compactSender = filesDrawerState.kind === "workspace";
@@ -3142,70 +3666,17 @@ export default function ChatPage() {
 
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
-    const hostCommands: CommandSuggestion[] = [
-      {
-        command: "/new",
-        value: "new",
-        description: "",
-      },
-      {
-        command: "/clear",
-        value: "clear",
-        description: t("chat.commands.clear.description"),
-      },
-    ];
-    const nativeCommands: CommandSuggestion[] = usesQwenPawBackend
-      ? [
-          {
-            command: "/compact",
-            value: "compact",
-            description: t("chat.commands.compact.description"),
-          },
-          {
-            command: "/skills",
-            value: "skills",
-            description: t("chat.commands.skills.description"),
-          },
-        ]
-      : backendCommands.map((item) => ({
-          command: `/${item.name}`,
-          value: item.name,
-          description: t(
-            `chat.commands.${item.name}.description`,
-            item.description,
-          ),
-        }));
-    const commandSuggestions = [...hostCommands, ...nativeCommands];
-    const reservedCommands = new Set(
-      commandSuggestions.map((item) => item.command.slice(1).trim()),
-    );
-    const loopCommandNames = new Set(
-      loopAvailableModes.map((mode) => mode.slash_command).filter(Boolean),
-    );
-    // Loop/plugin modes (goal, mission, OMP, custom) share GET /loops with
-    // LoopModeSelector; include them in the slash menu when the QwenPaw
-    // backend is active. Empty slash_command (default mode) is skipped.
-    const loopSuggestions: CommandSuggestion[] = usesQwenPawBackend
-      ? buildLoopSlashSuggestions(
-          loopAvailableModes,
-          reservedCommands,
-          t,
-          i18n.language,
-        )
-      : [];
-    const skillSuggestions: CommandSuggestion[] = consoleSkills
-      .filter(
-        (skill) =>
-          !reservedCommands.has(skill.name) &&
-          !loopCommandNames.has(skill.name),
-      )
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((skill) => ({
-        command: `/${skill.name}`,
-        value: skill.name,
-        description: "",
-      }));
     const handleBeforeSubmit = async () => {
+      if (chatReadOnly) {
+        message.warning(
+          t(
+            conversationReadOnly
+              ? "chat.sharedReadOnlyNotice"
+              : "chat.historicalReadOnlyNotice",
+          ),
+        );
+        return false;
+      }
       if (isComposingRef.current) return false;
       // Single-tab ownership: non-owner tabs are queue-only. Re-route every
       // submit (Enter / send button / programmatic) to the shared queue and
@@ -3347,6 +3818,9 @@ export default function ChatPage() {
         </PluginSlotBoundary>
       ),
     );
+    // Plugin suggestions are not part of the server slash catalog. Preserve
+    // them in the SDK while built-in slash candidates stay exclusively in the
+    // custom positioned menu.
     const pluginSuggestions = extLists[ChatList.senderSuggestions].flatMap(
       (e) => {
         const resolved = resolveLocalized(e.item.items, locale) ?? [];
@@ -3354,7 +3828,6 @@ export default function ChatPage() {
       },
     );
     const activePluginSuggestions = usesQwenPawBackend ? pluginSuggestions : [];
-
     const wrapActionSpec = (
       pluginId: string,
       slot: string,
@@ -3426,14 +3899,6 @@ export default function ChatPage() {
       );
     }
 
-    const baseSuggestions = [
-      ...commandSuggestions,
-      ...loopSuggestions,
-      ...skillSuggestions,
-    ].map((item) => ({
-      label: renderSuggestionLabel(item),
-      value: item.value,
-    }));
     const userMessageAnchorsConfig = {
       ...defaultConfig.theme.bubbleList.userMessageAnchors,
       variant: "navigator" as const,
@@ -3469,16 +3934,22 @@ export default function ChatPage() {
         leftHeader: mergedLeftHeader,
         rightHeader: (
           <>
-            <ChatSessionInitializer />
+            <ChatSessionInitializer runtimeRef={chatRef} />
             <RuntimeLoadingBridge
               bridgeRef={runtimeLoadingBridgeRef}
               onLoadingChange={setChatLoading}
             />
             <ChatHeaderTitle />
             <span style={{ flex: 1 }} />
-            {usesQwenPawBackend ? (
+            {isPublicationConversation ? (
+              <PublicationModelLock
+                version={publicationVersion as string}
+                providerId={lockedPublicationModel?.provider_id as string}
+                model={lockedPublicationModel?.model as string}
+              />
+            ) : !chatReadOnly && usesQwenPawBackend ? (
               <ModelSelector />
-            ) : backendCapabilities?.model_selection ? (
+            ) : !chatReadOnly && backendCapabilities?.model_selection ? (
               <HarnessModelSelector providerId={selectedAgentBackend} />
             ) : null}
             <ChatActionGroup
@@ -3490,7 +3961,9 @@ export default function ChatPage() {
               historyOpen={effectiveIsFullMode ? historyPanelOpen : false}
               isWideMode={isWideMode}
               onToggleWideMode={toggleWideMode}
+              readOnly={chatReadOnly}
             />
+            <RuntimeReadOnlyBridge readOnly={chatReadOnly} />
             {pluginRightHeader}
           </>
         ),
@@ -3510,9 +3983,22 @@ export default function ChatPage() {
       sender: {
         ...(i18nConfig as any)?.sender,
         beforeSubmit: handleBeforeSubmit,
-        allowSpeech: whisperChecked && !whisperEnabled,
+        allowSpeech: false,
         beforeUI: (
           <>
+            {chatReadOnly && (
+              <Alert
+                type="info"
+                showIcon
+                banner
+                message={t(
+                  conversationReadOnly
+                    ? "chat.sharedReadOnlyNotice"
+                    : "chat.historicalReadOnlyNotice",
+                  { owner: currentSession?.sharedBy || "-" },
+                )}
+              />
+            )}
             <TaskInteractionPanel planEnabled={planEnabled} />
             {isQueueOnlyTab && (
               <Alert
@@ -3540,14 +4026,18 @@ export default function ChatPage() {
         ),
         prefix: (
           <>
-            {whisperEnabled ? (
+            {!chatReadOnly && whisperEnabled ? (
               <WhisperSpeechButton
                 ref={whisperSpeechRef}
                 onTranscription={handleWhisperTranscription}
+                getSender={getVoiceSender}
+                conversationId={backendChatId}
+                contextKey={queueSessionId}
+                disabled={chatReadOnly}
               />
             ) : null}
-            {usesQwenPawBackend && <LoopModeSelector />}
-            {pluginSenderPrefix}
+            {!chatReadOnly && usesQwenPawBackend && <LoopModeSelector />}
+            {!chatReadOnly && pluginSenderPrefix}
           </>
         ),
         actionAffix: (
@@ -3556,19 +4046,20 @@ export default function ChatPage() {
               compactSender ? styles.compactSenderAffix : ""
             }`}
           >
-            {(usesQwenPawBackend || backendCapabilities?.context_usage) && (
-              <ContextUsageIndicator
-                onCompact={handleCompactCommand}
-                onNew={handleNewCommand}
-              />
-            )}
-            {usesQwenPawBackend && (
+            {!chatReadOnly &&
+              (usesQwenPawBackend || backendCapabilities?.context_usage) && (
+                <ContextUsageIndicator
+                  onCompact={handleCompactCommand}
+                  onNew={handleNewCommand}
+                />
+              )}
+            {!chatReadOnly && usesQwenPawBackend && (
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={compactSender}
               />
             )}
-            {usesQwenPawBackend ? (
+            {!chatReadOnly && usesQwenPawBackend ? (
               <ApprovalLevelToggle
                 sessionId={queueSessionId}
                 runningConfigApprovalLevel={runningConfigApprovalLevel}
@@ -3577,7 +4068,7 @@ export default function ChatPage() {
                   sessionApprovalLevelRef.current = sessionOverride;
                 }}
               />
-            ) : approvalPresets.length > 0 ? (
+            ) : !chatReadOnly && approvalPresets.length > 0 ? (
               <HarnessApprovalToggle
                 backend={selectedAgentBackend}
                 sessionId={queueSessionId}
@@ -3589,7 +4080,7 @@ export default function ChatPage() {
             ) : null}
           </span>
         ),
-        ...(supportsAttachments
+        ...(!chatReadOnly && supportsAttachments
           ? {
               attachments: {
                 multiple: true,
@@ -3634,9 +4125,18 @@ export default function ChatPage() {
               },
             }
           : {}),
-        placeholder: extPlaceholder ?? t("chat.inputPlaceholder"),
+        placeholder: chatReadOnly
+          ? t(
+              conversationReadOnly
+                ? "chat.sharedReadOnlyPlaceholder"
+                : "chat.historicalReadOnlyPlaceholder",
+            )
+          : extPlaceholder ?? t("chat.inputPlaceholder"),
         ...(extDisclaimer !== undefined ? { disclaimer: extDisclaimer } : {}),
-        suggestions: [...baseSuggestions, ...activePluginSuggestions],
+        // Slash candidates are rendered by the positioned inline menu below.
+        // Do not pass them to the SDK sender, otherwise it renders a second
+        // centered suggestion popup for the same "/" input.
+        suggestions: activePluginSuggestions,
       },
       session: {
         multiple: true,
@@ -3690,7 +4190,25 @@ export default function ChatPage() {
           if (payload.type === "rate_limited") {
             const alts =
               (payload.alternatives as typeof rateLimitAlternatives) || [];
-            setRateLimitAlternatives(alts);
+            const modelContext = currentModelContext();
+            void modelCatalogApi
+              .list(selectedAgent)
+              .then((catalog) => {
+                if (!isCurrentModelContext(modelContext)) return;
+                setRateLimitAlternatives(
+                  alts.filter((alt) =>
+                    catalog.models.some(
+                      (model) =>
+                        model.provider_id === alt.provider_id &&
+                        model.model === alt.model_id,
+                    ),
+                  ),
+                );
+              })
+              .catch(() => {
+                if (isCurrentModelContext(modelContext))
+                  setRateLimitAlternatives([]);
+              });
             message.warning(t("chat.rateLimitHit"));
             return null;
           }
@@ -3709,8 +4227,10 @@ export default function ChatPage() {
         },
         onFileCardClick,
         cancel(data: { session_id: string }) {
-          const resolvedChatId =
-            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id;
+          const resolvedChatId = resolveStopChatId(
+            data.session_id,
+            (sessionId) => sessionApi.getRealIdForSession(sessionId),
+          );
           if (resolvedChatId) {
             chatApi.stopChat(resolvedChatId).catch((err) => {
               console.error("Failed to stop chat:", err);
@@ -3724,16 +4244,23 @@ export default function ChatPage() {
           };
 
           const reconnectIdentity = sessionApi.getSessionIdentity();
+          const reconnectConversationId = resolveBackendChatId(
+            sessionApi.getRealIdForSession(data.session_id) ?? data.session_id,
+          );
           headlineStreamFilterRef.current = createHeadlineFilterState();
           const response = await fetch(getApiUrl("/console/chat"), {
             method: "POST",
             headers,
-            body: JSON.stringify({
-              reconnect: true,
-              session_id: sessionApi.getBackendSessionId(data.session_id),
-              user_id: reconnectIdentity.userId,
-              channel: reconnectIdentity.channel,
-            }),
+            body: JSON.stringify(
+              createReconnectRequestPayload({
+                backendSessionId: sessionApi.getBackendSessionId(
+                  data.session_id,
+                ),
+                userId: reconnectIdentity.userId,
+                channel: reconnectIdentity.channel,
+                conversationId: reconnectConversationId,
+              }),
+            ),
             signal: data.signal,
           });
 
@@ -3828,21 +4355,19 @@ export default function ChatPage() {
     extLists,
     scheduleHistoryClear,
     planEnabled,
-    consoleSkills,
-    loopAvailableModes,
     selectedAgent,
     selectedAgentBackend,
     backendCapabilities,
-    backendCommands,
     approvalPresets,
     usesQwenPawBackend,
     supportsAttachments,
     runningConfigApprovalLevel,
     queueSessionId,
     onFileCardClick,
-    whisperChecked,
     whisperEnabled,
     handleWhisperTranscription,
+    getVoiceSender,
+    backendChatId,
     isWideMode,
     toggleWideMode,
     hasQueueItems,
@@ -3868,6 +4393,9 @@ export default function ChatPage() {
     bgTaskCount,
     bgBackendSessionId,
     queueSessionId,
+    chatReadOnly,
+    conversationReadOnly,
+    currentSession?.sharedBy,
   ]);
 
   const filesDrawerClass =
@@ -3966,6 +4494,55 @@ export default function ChatPage() {
           </div>
         )}
 
+        {mentionMenu.open && (
+          <div
+            className={styles.inlineSlashMenu}
+            style={{ left: mentionMenu.left, bottom: mentionMenu.bottom }}
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            <div className={styles.suggestionDescription}>
+              临时文件 · 个人资料库 · Agent资料 · 产物（可读取的文本文件）
+            </div>
+            {filteredPersonalLibraryDocuments.length === 0 && (
+              <div className={styles.suggestionDescription}>
+                未找到可引用文件，请检查文件名、资料库授权和当前会话。
+              </div>
+            )}
+            {filteredPersonalLibraryDocuments.map((document, index) => (
+              <button
+                key={`${document.source}:${document.id}`}
+                type="button"
+                className={`${styles.inlineSlashItem} ${
+                  index === mentionMenu.activeIndex
+                    ? styles.inlineSlashItemActive
+                    : ""
+                }`}
+                onMouseEnter={() =>
+                  setMentionMenu((current) => ({
+                    ...current,
+                    activeIndex: index,
+                  }))
+                }
+                onClick={() => applyPersonalLibraryMention(document)}
+              >
+                <div className={styles.suggestionLabel}>
+                  <div className={styles.suggestionMain}>
+                    <span className={styles.suggestionCommand}>
+                      @{document.name}
+                    </span>
+                    <span className={styles.suggestionGroup}>
+                      {sourceLabels[document.source]}
+                    </span>
+                  </div>
+                  <div className={styles.suggestionDescription}>
+                    {document.relative_path}
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Rate-limit guidance banner */}
         {usesQwenPawBackend && rateLimitAlternatives.length > 0 && (
           <div className={styles.rateLimitBanner}>
@@ -3980,11 +4557,9 @@ export default function ChatPage() {
                   type="default"
                   onClick={async () => {
                     try {
-                      await providerApi.setActiveLlm({
+                      await chooseConversationModel({
                         provider_id: alt.provider_id,
                         model: alt.model_id,
-                        scope: "agent",
-                        agent_id: selectedAgent,
                       });
                       window.dispatchEvent(new CustomEvent("model-switched"));
                       message.success(
@@ -4011,91 +4586,95 @@ export default function ChatPage() {
         )}
 
         {/* Render approval cards as overlays */}
-        {Array.from(approvalRequests.values()).map((request) => {
-          const renderer = approvalRenderers.get(request.sourceType);
-          const CustomApprovalCard = renderer?.item.render;
-          const defaultApprovalCard = (
-            <ApprovalCard
-              requestId={request.requestId}
-              agentId={request.agentId}
-              toolName={request.toolName}
-              toolSource={request.toolSource}
-              severity={request.severity}
-              findingsCount={request.findingsCount}
-              findingsSummary={request.findingsSummary}
-              toolParams={request.toolParams}
-              createdAt={request.createdAt}
-              timeoutSeconds={request.timeoutSeconds}
-              sessionId={request.sessionId}
-              rootSessionId={request.rootSessionId}
-              isGeneralized={request.isGeneralized}
-              exactTarget={request.exactTarget}
-              similarTarget={request.similarTarget}
-              onApprove={(reqId, scope) => handleApprove(reqId, scope)}
-              onDeny={handleDeny}
-              onCancel={() => {
-                const sessionId =
-                  request.rootSessionId || window.currentSessionId || "";
-                const resolvedChatId =
-                  sessionApi.getRealIdForSession(sessionId) ??
-                  chatIdRef.current ??
-                  sessionId;
+        {!chatReadOnly &&
+          Array.from(approvalRequests.values()).map((request) => {
+            const renderer = approvalRenderers.get(request.sourceType);
+            const CustomApprovalCard = renderer?.item.render;
+            const defaultApprovalCard = (
+              <ApprovalCard
+                requestId={request.requestId}
+                agentId={request.agentId}
+                toolName={request.toolName}
+                toolSource={request.toolSource}
+                severity={request.severity}
+                findingsCount={request.findingsCount}
+                findingsSummary={request.findingsSummary}
+                toolParams={request.toolParams}
+                createdAt={request.createdAt}
+                timeoutSeconds={request.timeoutSeconds}
+                sessionId={request.sessionId}
+                rootSessionId={request.rootSessionId}
+                isGeneralized={request.isGeneralized}
+                exactTarget={request.exactTarget}
+                similarTarget={request.similarTarget}
+                onApprove={(reqId, scope) => handleApprove(reqId, scope)}
+                onDeny={handleDeny}
+                onCancel={() => {
+                  const sessionId =
+                    request.rootSessionId || window.currentSessionId || "";
+                  const resolvedChatId =
+                    sessionApi.getRealIdForSession(sessionId) ??
+                    chatIdRef.current ??
+                    sessionId;
 
-                if (resolvedChatId) {
-                  console.log("[Chat] Calling stopChat with:", resolvedChatId);
-                  chatApi
-                    .stopChat(resolvedChatId)
-                    .then(() => {
-                      console.log("[Chat] stopChat succeeded");
-                      setApprovals((prev) =>
-                        prev.filter(
-                          (item) =>
-                            item.root_session_id !== request.rootSessionId,
-                        ),
-                      );
-                    })
-                    .catch((err) => {
-                      console.error("[Chat] stopChat failed:", err);
-                    });
-                } else {
-                  console.warn(
-                    "[Chat] No chat_id resolved, cannot cancel task",
-                  );
-                }
-              }}
-            />
-          );
+                  if (resolvedChatId) {
+                    console.log(
+                      "[Chat] Calling stopChat with:",
+                      resolvedChatId,
+                    );
+                    chatApi
+                      .stopChat(resolvedChatId)
+                      .then(() => {
+                        console.log("[Chat] stopChat succeeded");
+                        setApprovals((prev) =>
+                          prev.filter(
+                            (item) =>
+                              item.root_session_id !== request.rootSessionId,
+                          ),
+                        );
+                      })
+                      .catch((err) => {
+                        console.error("[Chat] stopChat failed:", err);
+                      });
+                  } else {
+                    console.warn(
+                      "[Chat] No chat_id resolved, cannot cancel task",
+                    );
+                  }
+                }}
+              />
+            );
 
-          return (
-            <div
-              key={request.requestId}
-              data-approval-id={request.requestId}
-              style={{
-                position: "fixed",
-                bottom: 80,
-                right: 24,
-                zIndex: 1000,
-                maxWidth: 480,
-                width: "calc(100vw - 48px)",
-              }}
-            >
-              {CustomApprovalCard ? (
-                <PluginSlotBoundary
-                  slot={`approval:${request.sourceType}`}
-                  pluginId={renderer.pluginId}
-                  fallback={defaultApprovalCard}
-                >
-                  <CustomApprovalCard
-                    approval={request}
-                    onResolved={() => dismissApproval(request.requestId)}
-                  />
-                </PluginSlotBoundary>
-              ) : (
-                defaultApprovalCard
-              )}
-            </div>
-          );
-        })}
+            return (
+              <div
+                key={request.requestId}
+                data-approval-id={request.requestId}
+                style={{
+                  position: "fixed",
+                  bottom: 80,
+                  right: 24,
+                  zIndex: 1000,
+                  maxWidth: 480,
+                  width: "calc(100vw - 48px)",
+                }}
+              >
+                {CustomApprovalCard ? (
+                  <PluginSlotBoundary
+                    slot={`approval:${request.sourceType}`}
+                    pluginId={renderer.pluginId}
+                    fallback={defaultApprovalCard}
+                  >
+                    <CustomApprovalCard
+                      approval={request}
+                      onResolved={() => dismissApproval(request.requestId)}
+                    />
+                  </PluginSlotBoundary>
+                ) : (
+                  defaultApprovalCard
+                )}
+              </div>
+            );
+          })}
 
         <Modal
           open={usesQwenPawBackend && showModelPrompt}
@@ -4131,17 +4710,19 @@ export default function ChatPage() {
               <Button key="skip" onClick={() => setShowModelPrompt(false)}>
                 {t("modelConfig.skipButton")}
               </Button>,
-              <Button
-                key="configure"
-                type="primary"
-                icon={<SettingOutlined />}
-                onClick={() => {
-                  setShowModelPrompt(false);
-                  navigate("/models");
-                }}
-              >
-                {t("modelConfig.configureButton")}
-              </Button>,
+              canManageModels && (
+                <Button
+                  key="configure"
+                  type="primary"
+                  icon={<SettingOutlined />}
+                  onClick={() => {
+                    setShowModelPrompt(false);
+                    navigate("/models");
+                  }}
+                >
+                  {t("modelConfig.configureButton")}
+                </Button>
+              ),
             ]}
           />
         </Modal>

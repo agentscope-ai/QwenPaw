@@ -155,6 +155,10 @@ class ProviderInfo(BaseModel):
     name: str = Field(..., description="Human-readable provider name")
     base_url: str = Field(default="", description="API base URL")
     api_key: str = Field(default="", description="API key for authentication")
+    api_key_configured: bool = Field(
+        default=False,
+        description="Whether a credential is configured without exposing it",
+    )
     chat_model: str = Field(
         default="OpenAIChatModel",
         description="AgentScope ChatModel name (e.g., 'OpenAIChatModel')",

@@ -7,12 +7,38 @@ window (update on /compact, reset on /clear, preserve otherwise). The prior bug
 was that *every* command silently dropped the scroll block.
 """
 
+from types import SimpleNamespace
+
 from qwenpaw.agents.command_handler import ConversationCommandHandlerMixin
 from qwenpaw.runtime.builtin_commands import (
+    _bind_command_memory_manager,
     _collect_conversation_specs,
     _CONVERSATION_COMMANDS,
     _resolve_scroll_block,
 )
+
+
+def test_conversation_command_binds_trusted_model_authority_and_user():
+    calls = []
+    bound = object()
+
+    class MemoryManager:
+        def for_model_request(self, request_context, authority):
+            calls.append((request_context, authority))
+            return bound
+
+    authority = object()
+    request = SimpleNamespace(user_id="user-a", _model_authority=authority)
+
+    assert _bind_command_memory_manager(
+        MemoryManager(),
+        request,
+        {"conversation_id": "conversation-a"},
+    ) is bound
+    assert calls == [(
+        {"conversation_id": "conversation-a", "user_id": "user-a"},
+        authority,
+    )]
 
 
 def test_runtime_registers_every_command_handler_conversation_command():

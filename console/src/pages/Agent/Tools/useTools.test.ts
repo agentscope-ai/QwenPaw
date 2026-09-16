@@ -18,7 +18,13 @@ const hoisted = vi.hoisted(() => {
     updateToolConfig: vi.fn(),
   };
   const stableT = (k: string) => k;
-  return { messageMock, apiMocks, stableT };
+  const agentState = {
+    selectedAgent: "agent-1",
+    agents: [{ id: "agent-1", access_role: "owner", can_edit: true }] as Array<
+      Record<string, unknown>
+    >,
+  };
+  return { messageMock, apiMocks, stableT, agentState };
 });
 
 vi.mock("../../../api", () => ({
@@ -27,7 +33,7 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
+  useAgentStore: () => hoisted.agentState,
 }));
 
 vi.mock("../../../hooks/useAppMessage", () => ({
@@ -40,7 +46,7 @@ vi.mock("react-i18next", () => ({
 
 import { useTools } from "./useTools";
 
-const { messageMock, apiMocks } = hoisted;
+const { messageMock, apiMocks, agentState } = hoisted;
 
 function makeTool(overrides: Partial<ToolInfo> = {}): ToolInfo {
   return {
@@ -67,8 +73,85 @@ describe("useTools", () => {
     messageMock.success.mockReset();
     messageMock.error.mockReset();
     messageMock.info.mockReset();
+    agentState.selectedAgent = "agent-1";
+    agentState.agents = [
+      { id: "agent-1", access_role: "owner", can_edit: true },
+    ];
 
     apiMocks.listTools.mockResolvedValue([]);
+  });
+
+  it("waits for an Agent selection before loading tools", async () => {
+    agentState.selectedAgent = "";
+    renderToolsHook();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(apiMocks.listTools).not.toHaveBeenCalled();
+  });
+
+  it("keeps use-only and public agents read-only without calling tool mutations", async () => {
+    agentState.agents = [
+      {
+        id: "agent-1",
+        access_role: "user",
+        visibility: "public",
+        can_edit: false,
+      },
+    ];
+    const tool = makeTool({ name: "blocked-tool", enabled: false });
+    apiMocks.listTools.mockResolvedValue([tool]);
+    const { result } = renderToolsHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.toggleEnabled(tool);
+    });
+
+    expect(result.current.readOnly).toBe(true);
+    expect(apiMocks.toggleTool).not.toHaveBeenCalled();
+    expect(messageMock.info).toHaveBeenCalledWith("agent.readOnlyHint");
+  });
+
+  it("does not mutate a tool locked by platform policy", async () => {
+    const tool = makeTool({ name: "browser", enabled: false, can_edit: false });
+    apiMocks.listTools.mockResolvedValue([tool]);
+    const { result } = renderToolsHook();
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.toggleEnabled(tool);
+      await result.current.enableAll();
+    });
+
+    expect(apiMocks.toggleTool).not.toHaveBeenCalled();
+    expect(result.current.tools[0].enabled).toBe(false);
+  });
+
+  it("batch enable preserves locked tool state", async () => {
+    const editable = makeTool({ name: "shell", enabled: false });
+    const locked = makeTool({
+      name: "browser",
+      enabled: false,
+      can_edit: false,
+    });
+    apiMocks.listTools.mockResolvedValue([editable, locked]);
+    apiMocks.toggleTool.mockResolvedValue({ ...editable, enabled: true });
+    const { result } = renderToolsHook();
+    await waitFor(() => expect(result.current.tools).toHaveLength(2));
+
+    await act(async () => {
+      await result.current.enableAll();
+    });
+
+    expect(
+      result.current.tools.find((tool) => tool.name === "shell")?.enabled,
+    ).toBe(true);
+    expect(
+      result.current.tools.find((tool) => tool.name === "browser")?.enabled,
+    ).toBe(false);
   });
 
   it("mount calls listTools; tools populated and loading true then false", async () => {
@@ -215,11 +298,15 @@ describe("useTools", () => {
     });
 
     await act(async () => {
-      await result.current.saveToolConfig("a", { key: "value" });
+      await result.current.saveToolConfig("a", {
+        config: { key: "value" },
+        credential_updates: {},
+      });
     });
 
     expect(apiMocks.updateToolConfig).toHaveBeenCalledWith("a", {
-      key: "value",
+      config: { key: "value" },
+      credential_updates: {},
     });
     expect(messageMock.success).toHaveBeenCalledWith("tools.configSaved");
   });
@@ -234,7 +321,10 @@ describe("useTools", () => {
 
     await act(async () => {
       await expect(
-        result.current.saveToolConfig("a", { key: "value" }),
+        result.current.saveToolConfig("a", {
+          config: { key: "value" },
+          credential_updates: {},
+        }),
       ).rejects.toThrow("save failed");
     });
 

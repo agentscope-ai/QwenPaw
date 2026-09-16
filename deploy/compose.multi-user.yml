@@ -1,0 +1,45 @@
+name: qwenpaw-multi-user
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qwenpaw
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: qwenpaw
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qwenpaw -d qwenpaw"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.multi-user
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:18089:18089"
+    environment:
+      QWENPAW_DATABASE_URL: ${QWENPAW_DATABASE_URL:?Set URL with percent-encoded password in deploy/.env}
+      QWENPAW_CUTOVER_VALIDATED_DOMAINS: ${QWENPAW_CUTOVER_VALIDATED_DOMAINS:-}
+      QWENPAW_CUTOVER_LEGACY_FROZEN_DOMAINS: ${QWENPAW_CUTOVER_LEGACY_FROZEN_DOMAINS:-}
+      QWENPAW_CUTOVER_POSTGRES_WRITES_DOMAINS: ${QWENPAW_CUTOVER_POSTGRES_WRITES_DOMAINS:-}
+    volumes:
+      - app-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-m", "qwenpaw", "service", "--config", "/app/deploy/service.container.json", "status"]
+      interval: 30s
+      timeout: 45s
+      start_period: 180s
+      retries: 3
+volumes:
+  postgres-data:
+  app-data:

@@ -1,3 +1,6 @@
+import { Alert } from "antd";
+import { useSkillScope } from "@/api/skillScope";
+import { SkillSourceActions } from "./components/SkillSourceActions";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { ArrowLeftOutlined, PlusOutlined } from "@ant-design/icons";
@@ -31,12 +34,19 @@ function SkillsPage() {
     hasMore,
     sentinelRef,
     poolSkills,
+    poolError,
+    publicationResult,
+    poolLoading,
+    poolBusy,
+    canSubmit,
+    multiUser,
     allTags,
     sortedSkills,
     conflictRenameModal,
     loading,
     uploading,
     importing,
+    readOnly,
     drawerOpen,
     drawerLoading,
     editingSkillName,
@@ -134,6 +144,10 @@ function SkillsPage() {
           await refreshSkills();
         }}
         onDelete={() => handleDelete(skill)}
+        readOnly={readOnly}
+        sourceActions={
+          <SkillSourceActions skill={skill} onChanged={refreshSkills} />
+        }
       />
     ),
     [
@@ -144,6 +158,7 @@ function SkillsPage() {
       toggleEnabled,
       refreshSkills,
       handleDelete,
+      readOnly,
     ],
   );
 
@@ -175,30 +190,46 @@ function SkillsPage() {
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("skills.title") }]}
         extra={
-          <HeaderActions
-            batchModeEnabled={batchModeEnabled}
-            selectedSkills={selectedSkills}
-            loading={loading}
-            uploading={uploading}
-            fileInputRef={fileInputRef}
-            onSelectAll={selectAll}
-            onClearSelection={clearSelection}
-            onUploadToPool={handleUploadToPool}
-            onBatchEnable={handleBatchEnable}
-            onBatchDisable={handleBatchDisable}
-            onBatchDelete={handleBatchDelete}
-            onToggleBatchMode={toggleBatchMode}
-            onHardRefresh={hardRefresh}
-            onOpenDownloadPool={() => setPoolModal("download")}
-            onOpenUploadPool={() => setPoolModal("upload")}
-            onUploadClick={handleUploadClick}
-            onImportHub={() => setImportModalOpen(true)}
-            onCreate={handleCreate}
-            onBrowseMarket={openMarket}
-            onFileChange={handleFileChange}
-          />
+          readOnly ? (
+            <Button onClick={openMarket}>{t("market.browseMarket")}</Button>
+          ) : (
+            <HeaderActions
+              canSubmit={canSubmit}
+              multiUser={multiUser}
+              batchModeEnabled={batchModeEnabled}
+              selectedSkills={selectedSkills}
+              loading={loading}
+              uploading={uploading}
+              fileInputRef={fileInputRef}
+              onSelectAll={selectAll}
+              onClearSelection={clearSelection}
+              onUploadToPool={handleUploadToPool}
+              onBatchEnable={handleBatchEnable}
+              onBatchDisable={handleBatchDisable}
+              onBatchDelete={handleBatchDelete}
+              onToggleBatchMode={toggleBatchMode}
+              onHardRefresh={hardRefresh}
+              onOpenDownloadPool={() => setPoolModal("download")}
+              onOpenUploadPool={() => setPoolModal("upload")}
+              onUploadClick={handleUploadClick}
+              onImportHub={() => setImportModalOpen(true)}
+              onCreate={handleCreate}
+              onBrowseMarket={openMarket}
+              onFileChange={handleFileChange}
+            />
+          )
         }
       />
+
+      {readOnly && (
+        <div className={styles.managementBanner}>
+          <LockKeyhole size={16} />
+          <div>
+            <strong>{t("common.readOnly")}</strong>
+            <span>{t("agent.readOnlyHint")}</span>
+          </div>
+        </div>
+      )}
 
       <ImportHubModal
         open={importModalOpen}
@@ -217,6 +248,32 @@ function SkillsPage() {
             <span>{t("skills.qwenpawManagedHint")}</span>
           </div>
         </div>
+      )}
+
+      {publicationResult && (
+        <Alert
+          type={publicationResult.error ? "error" : "success"}
+          showIcon
+          message={publicationResult.error || t("skillGovernance.submitted")}
+          description={
+            <>
+              {publicationResult.submitted.length > 0 && (
+                <p>
+                  {t("skillGovernance.submittedSkills", {
+                    names: publicationResult.submitted.join(", "),
+                  })}
+                </p>
+              )}
+              {publicationResult.pending.length > 0 && (
+                <p>
+                  {t("skillGovernance.unsubmittedSkills", {
+                    names: publicationResult.pending.join(", "),
+                  })}
+                </p>
+              )}
+            </>
+          }
+        />
       )}
 
       {!loading && skills.length > 0 && (
@@ -250,16 +307,18 @@ function SkillsPage() {
             {t("skills.emptyStateTitle")}
           </h2>
           <p className={styles.emptyStateText}>{t("skills.emptyStateText")}</p>
-          <div className={styles.emptyStateActions}>
-            <Button
-              type="primary"
-              className={styles.primaryActionButton}
-              onClick={handleCreate}
-              icon={<PlusOutlined />}
-            >
-              {t("skills.emptyStateCreate")}
-            </Button>
-          </div>
+          {!readOnly && (
+            <div className={styles.emptyStateActions}>
+              <Button
+                type="primary"
+                className={styles.primaryActionButton}
+                onClick={handleCreate}
+                icon={<PlusOutlined />}
+              >
+                {t("skills.emptyStateCreate")}
+              </Button>
+            </div>
+          )}
         </div>
       ) : sortedSkills.length === 0 ? (
         <div className={styles.noSearchResults}>
@@ -298,6 +357,13 @@ function SkillsPage() {
                       onMouseLeave={() => {}}
                       onToggleEnabled={(e) => handleToggleEnabled(skill, e)}
                       onDelete={(e) => handleDelete(skill, e)}
+                      readOnly={readOnly}
+                      sourceActions={
+                        <SkillSourceActions
+                          skill={skill}
+                          onChanged={refreshSkills}
+                        />
+                      }
                     />
                   ))}
                 </div>
@@ -322,7 +388,9 @@ function SkillsPage() {
                     <div
                       key={skill.name}
                       className={styles.disabledSkillGridItem}
-                      onClick={() => handleEdit(skill)}
+                      onClick={() => {
+                        if (!readOnly) handleEdit(skill);
+                      }}
                     >
                       <span className={styles.disabledSkillGridIcon}>
                         {getSkillVisual(skill.name, skill.emoji)}
@@ -330,15 +398,21 @@ function SkillsPage() {
                       <span className={styles.disabledSkillGridName}>
                         {skill.name}
                       </span>
-                      <span
-                        className={styles.disabledSkillGridAction}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleToggleEnabled(skill, e);
-                        }}
-                      >
-                        {t("common.enable")}
-                      </span>
+                      <SkillSourceActions
+                        skill={skill}
+                        onChanged={refreshSkills}
+                      />
+                      {!readOnly && (
+                        <span
+                          className={styles.disabledSkillGridAction}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggleEnabled(skill, e);
+                          }}
+                        >
+                          {t("common.enable")}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -416,30 +490,42 @@ function SkillsPage() {
         onClose={() => setSelectedProviderSkill(null)}
       />
 
-      <PoolTransferModal
-        mode={poolModal}
-        skills={skills}
-        poolSkills={poolSkills}
-        onCancel={closePoolModal}
-        onUpload={handleUploadToPool}
-        onDownload={handleDownloadFromPool}
-      />
+      {!readOnly && (
+        <PoolTransferModal
+          mode={poolModal}
+          skills={skills}
+          poolSkills={poolSkills}
+          error={poolError}
+          loading={poolLoading}
+          busy={poolBusy}
+          canSubmit={canSubmit}
+          multiUser={multiUser}
+          onCancel={closePoolModal}
+          onUpload={handleUploadToPool}
+          onDownload={handleDownloadFromPool}
+        />
+      )}
 
       {conflictRenameModal}
 
-      <SkillDrawer
-        open={drawerOpen}
-        editing={drawerLoading || editingSkill !== null}
-        editingName={editingSkillName}
-        loading={drawerLoading}
-        editingSkill={editingSkill}
-        form={form}
-        availableTags={allTags}
-        onClose={handleDrawerClose}
-        onSubmit={handleSubmit}
-      />
+      {!readOnly && (
+        <SkillDrawer
+          open={drawerOpen}
+          editing={drawerLoading || editingSkill !== null}
+          editingName={editingSkillName}
+          loading={drawerLoading}
+          editingSkill={editingSkill}
+          form={form}
+          availableTags={allTags}
+          onClose={handleDrawerClose}
+          onSubmit={handleSubmit}
+        />
+      )}
     </div>
   );
 }
 
-export default SkillsPage;
+export default function ScopedSkillsPage() {
+  const scope = useSkillScope();
+  return <SkillsPage key={scope.key} />;
+}

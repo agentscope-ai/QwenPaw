@@ -156,7 +156,8 @@ describe("BrowserExperimentalToggle", () => {
 
     await waitFor(() => {
       expect(hoisted.saveToolConfig).toHaveBeenCalledWith("browser", {
-        experimental: true,
+        config: { experimental: true },
+        credential_updates: {},
       });
     });
   });

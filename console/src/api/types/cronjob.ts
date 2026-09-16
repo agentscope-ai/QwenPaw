@@ -56,6 +56,15 @@ export interface CronJobSpecInput {
   dispatch: CronJobDispatch;
   runtime?: CronJobRuntime;
   meta?: Record<string, unknown>;
+  created_by_user_id?: string | null;
+  automation_owner_user_id?: string | null;
+  status?:
+    | "pending_authorization"
+    | "active"
+    | "paused"
+    | "authorization_revoked"
+    | "failed";
+  config_version?: number;
 }
 
 export type CronJobSpecOutput = CronJobSpecInput;
@@ -83,6 +92,17 @@ export interface CronDispatchTargetItem {
 export interface CronDispatchTargetsResponse {
   channels: string[];
   items: CronDispatchTargetItem[];
+}
+
+export interface AutomationAuthorizationPreview {
+  schedule_id: string;
+  config_version: number;
+  authorization_digest: string;
+  agent_key: string;
+  target_user_id: string;
+  target_channel: string;
+  target_session_id: string;
+  tool_names: string[];
 }
 
 export type CronJobSpecInputLegacy = Record<string, unknown>;

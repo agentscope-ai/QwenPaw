@@ -406,7 +406,7 @@ class TestScanPolicyYamlIO:
         p = ScanPolicy()
         path = tmp_path / "out.yaml"
         p.to_yaml(path)
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert "QwenPaw" in content or "Scan Policy" in content
 
 

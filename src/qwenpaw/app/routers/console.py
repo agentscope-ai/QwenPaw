@@ -1,16 +1,23 @@
 # -*- coding: utf-8 -*-
 """Console APIs: push messages, chat, and file upload for chat."""
+
 from __future__ import annotations
 
+from ...platform_ops.maintenance_lifecycle import admitted
+
 import asyncio
+import hashlib
 import json
 import logging
+import mimetypes
 import re
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional, Union
+from uuid import UUID
 
 from fastapi import (
     APIRouter,
@@ -21,18 +28,33 @@ from fastapi import (
     UploadFile,
 )
 from pydantic import BaseModel
-from starlette.responses import StreamingResponse
+from starlette.responses import FileResponse, StreamingResponse
 
 from qwenpaw.schemas import (
     AgentRequest,
     _coerce_content_item,
 )
+from ...access.dependencies import get_actor, require_platform_settings_manage
+from ...access.agent_repository import agent_database_id
+from ...envs import load_envs
+from ...identity.runtime import is_multi_user_enabled
+from ...platform_ops.log_redaction import redact_log_text
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
-from ..agent_context import get_agent_for_request
+from ...utils.io_utils import run_sync_io
+from ..agent_context import (
+    get_agent_access_state,
+    get_agent_for_request,
+    get_files_workspace_access,
+)
 from ..approvals.display import approval_display_fields
+from ..chats.access import (
+    ChatAccessDeniedError,
+    require_conversation_access,
+    resolve_chat_user_id,
+)
 from ..chats.title_generator import generate_and_update_title
+from ..chats.repo import AttachmentRecord
 from ..utils import check_upload_size
-
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +73,11 @@ class _BackgroundTask:
     finished_at: Optional[float] = None
     result: Optional[Dict[str, Any]] = None
     asyncio_task: Optional[asyncio.Task] = None
+    owner_user_id: str = ""
+    agent_id: str = ""
+    conversation_id: str = ""
+    run_id: str = ""
+    actor_context: Optional[Dict[str, Any]] = None
 
 
 _bg_tasks: Dict[str, _BackgroundTask] = {}
@@ -62,13 +89,244 @@ class MarkInboxReadRequest(BaseModel):
     all: bool = False
 
 
+class DeleteInboxEventsRequest(BaseModel):
+    event_ids: list[str] = []
+
+
 MAX_DEBUG_LOG_LINES = 1000
+MAX_PERSONAL_LIBRARY_REFERENCES = 5
+
+
+def _personal_library_service():
+    """构造当前请求使用的个人资料库服务。"""
+    from ...identity.runtime import get_identity_schema
+    from ...personal_library.repository import PostgresPersonalLibraryRepository
+    from ...personal_library.service import PersonalLibraryService
+
+    return PersonalLibraryService(
+        repository=PostgresPersonalLibraryRepository(
+            schema=get_identity_schema(),
+        ),
+    )
+
+
+def _requested_conversation_id(request_data: Union[AgentRequest, dict]) -> str:
+    """读取前端显式提交的 PostgreSQL 会话 ID。"""
+    if isinstance(request_data, dict):
+        return str(request_data.get("conversation_id") or "").strip()
+    return str(getattr(request_data, "conversation_id", "") or "").strip()
+
+
+async def _require_console_conversation_write(
+    request: Request,
+    workspace,
+    conversation_id: str,
+) -> None:
+    """现有会话的 Console 写操作必须由会话所有者发起。"""
+    if not is_multi_user_enabled() or not conversation_id:
+        return
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    try:
+        parsed_id = UUID(conversation_id)
+        await require_conversation_access(
+            repository=workspace.chat_manager.conversation_repository,
+            conversation_id=parsed_id,
+            user_id=actor.user_id,
+            expected_agent_id=agent_database_id(workspace.agent_id),
+            write=True,
+        )
+    except (ValueError, ChatAccessDeniedError) as exc:
+        raise HTTPException(status_code=404, detail="Chat not found") from exc
+
+
+async def _resolve_console_runtime_project(
+    request: Request,
+    workspace,
+    *,
+    project_dir: Path,
+    project_source: str,
+    conversation_id: str,
+    authorized_project_dir: Path | None = None,
+) -> tuple[Path, str]:
+    """普通聊天按用户和会话隔离；显式项目保留已有编辑授权。"""
+    from ...access.agent_repository import AgentResourceRole
+    from ...services.workspace_files import resolve_private_task_directory
+
+    if not is_multi_user_enabled():
+        return project_dir, project_source
+    role, historical_read_only = get_agent_access_state(request)
+    if historical_read_only:
+        raise HTTPException(status_code=403, detail="Historical workspace is read-only")
+    if role is not AgentResourceRole.USER and project_source in {"session", "fork"}:
+        allowed_root = Path(authorized_project_dir or workspace.workspace_dir).resolve()
+        selected = Path(project_dir).resolve()
+        if project_source == "fork":
+            from ...agents.fork_project import resolve_allowed_fork_project_dir
+
+            selected = resolve_allowed_fork_project_dir(
+                str(selected), workspace_dir=workspace.workspace_dir,
+                coding_project_dir=allowed_root,
+            )
+        elif not selected.is_relative_to(allowed_root):
+            selected = None
+        if selected is None:
+            raise HTTPException(status_code=403, detail="Project directory is outside authorized scope")
+        return selected, project_source
+    path = await run_sync_io(
+        resolve_private_task_directory,
+        actor_user_id=get_actor(request).user_id,
+        agent_id=workspace.agent_id,
+        conversation_id=conversation_id,
+    )
+    return path, "user_task"
+
+
+async def _bind_console_task_output(request, workspace, chat, request_context):
+    """覆盖客户端运行路径字段，产物始终落在当前主体的私有会话目录。"""
+    if not is_multi_user_enabled():
+        return
+    from ...services.workspace_files import resolve_private_task_directory
+
+    request_context["task_output_dir"] = str(await run_sync_io(
+        resolve_private_task_directory,
+        actor_user_id=get_actor(request).user_id,
+        agent_id=workspace.agent_id,
+        conversation_id=str(chat.id),
+    ))
+    request_context["agent_id"] = workspace.agent_id
+    request_context["workspace_dir"] = str(workspace.workspace_dir)
+    request_context.pop("active_mode_project_dir", None)
+    if request_context.get("project_dir_source") == "user_task":
+        request_context.pop("fork_project_dir", None)
+
+
+async def _resolve_console_upload_dir(
+    request: Request,
+    workspace,
+    *,
+    legacy_media_dir: Path,
+) -> Path:
+    """仅使用用户的聊天附件保存到个人运行空间。"""
+    from ...access.agent_repository import AgentResourceRole
+
+    role, historical_read_only = get_agent_access_state(request)
+    if role is not AgentResourceRole.USER or historical_read_only:
+        return legacy_media_dir
+    access = await get_files_workspace_access(request, workspace)
+    return access.project.path / "media"
+
+
+async def _resolve_console_chat(
+    workspace,
+    *,
+    requested_conversation_id: str,
+    session_id: str,
+    user_id: str,
+    channel_id: str,
+    name: str,
+):
+    """显式会话已鉴权时复用其 ChatSpec；仅新会话执行自动创建。"""
+    if is_multi_user_enabled() and requested_conversation_id:
+        chat = await workspace.chat_manager.get_chat(requested_conversation_id)
+        if chat is None or str(getattr(chat, "id", "")) != requested_conversation_id:
+            raise HTTPException(status_code=404, detail="Chat not found")
+        return chat.model_copy(update={"user_id": user_id})
+    return await workspace.chat_manager.get_or_create_chat(
+        session_id,
+        user_id,
+        channel_id,
+        name=name,
+    )
 
 
 def _safe_filename(name: str) -> str:
     """Safe basename, alphanumeric/./-/_, max 200 chars."""
     base = Path(name).name if name else "file"
     return re.sub(r"[^\w.\-]", "_", base)[:200] or "file"
+
+
+def _attachment_id_from_url(value: str) -> UUID | None:
+    """从受保护附件 URL 中提取不透明 ID。"""
+    match = re.search(
+        r"/api/console/attachments/([0-9a-fA-F-]{36})(?:[?#]|$)",
+        value,
+    )
+    if match is None:
+        return None
+    try:
+        return UUID(match.group(1))
+    except ValueError:
+        return None
+
+
+def _part_value(part: Any, key: str) -> Any:
+    return part.get(key) if isinstance(part, dict) else getattr(part, key, None)
+
+
+def _set_part_value(part: Any, key: str, value: Any) -> None:
+    if isinstance(part, dict):
+        part[key] = value
+    else:
+        setattr(part, key, value)
+
+
+async def _resolve_console_attachment_refs(
+    request: Request,
+    workspace,
+    native_payload: dict[str, Any],
+    *,
+    conversation_id: str,
+) -> None:
+    """验证附件所有者和 Agent，并仅向运行时暴露实际磁盘路径。"""
+    if not is_multi_user_enabled():
+        return
+    media_parts: list[tuple[Any, str, str]] = []
+    for part in native_payload.get("content_parts") or []:
+        raw_type = _part_value(part, "type")
+        content_type = str(getattr(raw_type, "value", raw_type))
+        url_key = {"image": "image_url", "file": "file_url", "audio": "data"}.get(
+            content_type
+        )
+        if url_key is not None:
+            media_parts.append((part, url_key, str(_part_value(part, url_key) or "")))
+    if not media_parts:
+        return
+    try:
+        parsed_conversation_id = UUID(conversation_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Chat not found") from exc
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    repository = workspace.chat_manager.conversation_repository
+    if repository is None:
+        raise HTTPException(status_code=503, detail="Attachment storage unavailable")
+    repository = repository.with_user(actor.user_id)
+    expected_agent_id = agent_database_id(workspace.agent_id)
+    for part, url_key, display_url in media_parts:
+        attachment_id = _attachment_id_from_url(display_url)
+        if attachment_id is None:
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        record = await repository.get_attachment(
+            attachment_id=attachment_id,
+            owner_user_id=actor.user_id,
+        )
+        if (
+            record is None
+            or record.owner_user_id != actor.user_id
+            or record.lifecycle == "deleted"
+            or record.agent_id != expected_agent_id
+            or record.conversation_id not in {None, parsed_conversation_id}
+        ):
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        target = Path(record.storage_key).resolve()
+        if not target.is_file():
+            raise HTTPException(status_code=404, detail="Attachment not found")
+        _set_part_value(part, "attachment_id", str(record.id))
+        _set_part_value(part, "attachment_url", display_url)
+        _set_part_value(part, url_key, str(target))
 
 
 def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
@@ -138,6 +396,9 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
 
     run_key must be ChatSpec.id (chat_id) so it matches list_chats/get_chat.
     """
+    from ...models.runtime import validate_candidate
+
+    validate_candidate(request_data)
     if isinstance(request_data, AgentRequest):
         channel_id = getattr(request_data, "channel", None) or "console"
         sender_id = request_data.user_id or "default"
@@ -167,8 +428,7 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
                 # Coerce raw dicts to typed Content models so downstream
                 # getattr checks (e.g. _content_has_text) see real attrs.
                 content_parts.extend(
-                    _coerce_content_item(c)
-                    for c in (content_part["content"] or [])
+                    _coerce_content_item(c) for c in (content_part["content"] or [])
                 )
                 if isinstance(content_part.get("metadata"), dict):
                     message_metadata = content_part["metadata"]
@@ -204,6 +464,186 @@ def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     return native_payload
 
 
+def _apply_trusted_chat_identity(request: Request, native_payload: dict) -> None:
+    """用认证主体覆盖客户端可伪造的 Console 会话用户标识。"""
+    if not is_multi_user_enabled():
+        return
+    actor = get_actor(request)
+    user_id = resolve_chat_user_id(
+        actor=actor,
+        requested_user_id=str(native_payload.get("sender_id") or "default"),
+        multi_user=True,
+    )
+    native_payload["sender_id"] = user_id
+    meta = native_payload.setdefault("meta", {})
+    meta["user_id"] = user_id
+    request_context = dict(meta.get("request_context") or {})
+    request_context["user_id"] = user_id
+    request_context["approval_user_id"] = user_id
+    request_context["actor_context"] = {
+        "user_id": user_id,
+        "actor_type": actor.actor_type.value,
+        "platform_role": (
+            actor.platform_role.value if actor.platform_role is not None else None
+        ),
+        "admin_mode": actor.admin_mode,
+        "request_id": actor.request_id,
+    }
+    meta["request_context"] = request_context
+
+
+def _chat_file_resolver(request, workspace, conversation_id):
+    from ..chat_file_references import ChatFileReferences
+    from ...artifacts.repository import PostgresArtifactRepository
+    from ...artifacts.service import ArtifactService
+    from ...identity.runtime import get_identity_schema
+
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(401, "not_authenticated")
+    repository = workspace.chat_manager.conversation_repository
+    return ChatFileReferences(
+        owner=actor.user_id,
+        agent_key=str(workspace.agent_id),
+        conversation_id=conversation_id,
+        profile_root=workspace.workspace_dir,
+        library=_personal_library_service(),
+        attachments=repository.with_user(actor.user_id)
+        if repository is not None
+        else None,
+        artifacts=ArtifactService(
+            repository=PostgresArtifactRepository(schema=get_identity_schema())
+        ),
+    )
+
+
+@router.get("/file-references")
+async def list_chat_file_references(
+    request: Request, conversation_id: UUID | None = None
+):
+    workspace = await get_agent_for_request(request)
+    if conversation_id:
+        await _require_console_conversation_write(
+            request, workspace, str(conversation_id)
+        )
+    return await _chat_file_resolver(
+        request, workspace, str(conversation_id) if conversation_id else ""
+    ).catalog()
+
+
+async def _resolve_personal_library_references(
+    request: Request,
+    workspace: Any,
+    native_payload: dict[str, Any],
+) -> None:
+    """按认证用户和当前 Agent 授权解析本轮显式选择的资料。"""
+    meta = native_payload.setdefault("meta", {})
+    request_context = dict(meta.get("request_context") or {})
+    raw_ids = request_context.pop("personal_library_document_ids", [])
+    request_context.pop("personal_library_references", None)
+    file_refs = request_context.pop("file_references", [])
+    if not isinstance(file_refs, list) or len(file_refs) > 5:
+        raise HTTPException(400, "invalid_file_references")
+    request_context.pop("resolved_file_references", None)
+    meta["request_context"] = request_context
+    if file_refs:
+        if raw_ids:
+            raise HTTPException(400, "mixed_file_reference_protocols")
+        conversation_id = str(native_payload.get("_reference_conversation_id") or "")
+        request_context["personal_library_references"] = await _chat_file_resolver(
+            request,
+            workspace,
+            conversation_id,
+        ).resolve(file_refs)
+        return
+    if raw_ids in (None, []):
+        actor = get_actor(request)
+        text = "\n".join(
+            str(_part_value(part, "text") or "")
+            for part in native_payload.get("content_parts") or []
+            if _part_value(part, "type") == "text"
+        )
+        if actor.user_id is None or not text.strip():
+            return
+        documents = await _personal_library_service().match_prompt_documents(
+            owner_user_id=actor.user_id,
+            agent_key=str(workspace.agent_id),
+            text=text,
+        )
+        raw_ids = [str(document.id) for document in documents]
+        if not raw_ids:
+            return
+    if (
+        not isinstance(raw_ids, list)
+        or not raw_ids
+        or len(raw_ids) > MAX_PERSONAL_LIBRARY_REFERENCES
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="invalid_personal_library_references",
+        )
+
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+
+    from ...personal_library.service import (
+        PersonalLibraryNotFound,
+    )
+
+    service = _personal_library_service()
+    resolved: list[dict[str, Any]] = []
+    seen: set[UUID] = set()
+    try:
+        for raw_id in raw_ids:
+            document_id = UUID(str(raw_id))
+            if document_id in seen:
+                continue
+            seen.add(document_id)
+            result = await service.read_text_for_agent(
+                owner_user_id=actor.user_id,
+                agent_key=str(workspace.agent_id),
+                document_id=document_id,
+                limit=65_536,
+            )
+            resolved.append(
+                {
+                    "document_id": str(result.document.id),
+                    "name": result.document.name,
+                    "relative_path": result.document.relative_path,
+                    "content": result.content,
+                    "truncated": result.truncated,
+                },
+            )
+    except (
+        ValueError,
+        PersonalLibraryNotFound,
+    ) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="personal_library_reference_unavailable",
+        ) from exc
+
+    request_context["personal_library_references"] = resolved
+    meta["request_context"] = request_context
+
+
+def _bind_run_context(
+    native_payload: dict[str, Any],
+    *,
+    conversation_id: str,
+    run_id: str,
+) -> dict[str, Any]:
+    """将实际会话与后台运行 ID 固定到不可变执行快照。"""
+    meta = native_payload.setdefault("meta", {})
+    request_context = dict(meta.get("request_context") or {})
+    request_context["conversation_id"] = conversation_id
+    request_context["run_id"] = run_id
+    meta["request_context"] = request_context
+    native_payload["_qwenpaw_run_id"] = run_id
+    return request_context
+
+
 def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
     """Return whether the chat request asks to attach to a running stream.
 
@@ -216,6 +656,31 @@ def _is_reconnect_request(request_data: Union[AgentRequest, dict]) -> bool:
     if isinstance(request_data, dict):
         return request_data.get("reconnect") is True
     return getattr(request_data, "reconnect", None) is True
+
+
+def _console_stream_access_scope(
+    request: Request,
+    chat_id: str,
+) -> str | None:
+    """将 Console 实时流绑定到可信用户与实际会话。"""
+    if not is_multi_user_enabled():
+        return None
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=404, detail="Chat not found")
+    return f"{actor.user_id}:{chat_id}"
+
+
+def _persisting_stream_source(workspace, chat, stream_fn):
+    """兼容测试/插件提供的旧 ChatManager，同时接入新持久化包装器。"""
+    wrapper = getattr(
+        type(workspace.chat_manager),
+        "persisting_stream_source",
+        None,
+    )
+    if wrapper is None:
+        return stream_fn
+    return wrapper(workspace.chat_manager, chat, stream_fn)
 
 
 def _empty_sse_response() -> StreamingResponse:
@@ -276,7 +741,20 @@ async def post_console_chat(
     """Stream agent response. Run continues in background after disconnect.
     Stop via POST /console/chat/stop. Reconnect with body.reconnect=true.
     """
+    is_reconnect = _is_reconnect_request(request_data)
+    requested_conversation_id = _requested_conversation_id(request_data)
+    if is_multi_user_enabled() and is_reconnect and not requested_conversation_id:
+        raise HTTPException(
+            status_code=400,
+            detail="conversation_id is required for reconnect",
+        )
+
     workspace = await get_agent_for_request(request)
+    await _require_console_conversation_write(
+        request,
+        workspace,
+        requested_conversation_id,
+    )
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
         raise HTTPException(
@@ -287,6 +765,14 @@ async def post_console_chat(
         native_payload = _extract_session_and_payload(request_data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    _apply_trusted_chat_identity(request, native_payload)
+    if not is_reconnect:
+        native_payload["_reference_conversation_id"] = requested_conversation_id
+        await _resolve_personal_library_references(
+            request,
+            workspace,
+            native_payload,
+        )
     session_id = console_channel.resolve_session_id(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
@@ -294,17 +780,36 @@ async def post_console_chat(
     name, first_text = _extract_placeholder_name(
         native_payload["content_parts"],
     )
-    chat = await workspace.chat_manager.get_or_create_chat(
-        session_id,
-        native_payload["sender_id"],
-        native_payload["channel_id"],
+    chat = await _resolve_console_chat(
+        workspace,
+        requested_conversation_id=requested_conversation_id,
+        session_id=session_id,
+        user_id=native_payload["sender_id"],
+        channel_id=native_payload["channel_id"],
         name=name,
     )
+    if not is_reconnect:
+        from ...models.runtime import prepare_console_model
+
+        await prepare_console_model(
+            request, workspace, chat, request_data, native_payload
+        )
+    await _resolve_console_attachment_refs(
+        request,
+        workspace,
+        native_payload,
+        conversation_id=chat.id,
+    )
+    if requested_conversation_id:
+        native_payload["meta"]["session_id"] = chat.session_id
     tracker = workspace.task_tracker
-    is_reconnect = _is_reconnect_request(request_data)
+    access_scope = _console_stream_access_scope(request, chat.id)
 
     if is_reconnect:
-        queue = await tracker.attach(chat.id)
+        queue = await tracker.attach(
+            chat.id,
+            access_scope=access_scope,
+        )
         if queue is None:
             # The run finished (or never existed): reply with an
             # immediately-terminated SSE stream so the client's reader
@@ -316,6 +821,11 @@ async def post_console_chat(
             workspace,
             chat,
             native_payload,
+        )
+        _bind_run_context(
+            native_payload,
+            conversation_id=chat.id,
+            run_id=str(uuid.uuid4()),
         )
         from ...config.config import load_agent_config
         from ...services.project_directory import (
@@ -333,11 +843,20 @@ async def post_console_chat(
             agent_config.project_dir,
             session_project_dir(chat.meta),
         )
+        project_dir, project_source = await _resolve_console_runtime_project(
+            request,
+            workspace,
+            project_dir=project_dir,
+            project_source=project_source,
+            conversation_id=str(chat.id),
+            authorized_project_dir=Path(agent_config.project_dir or workspace.workspace_dir),
+        )
         request_context = dict(
             native_payload["meta"].get("request_context") or {},
         )
         request_context["project_dir"] = str(project_dir)
         request_context["project_dir_source"] = project_source
+        await _bind_console_task_output(request, workspace, chat, request_context)
         native_payload["meta"]["request_context"] = request_context
 
         # Title generation is only needed when starting a new run.
@@ -350,12 +869,22 @@ async def post_console_chat(
                     placeholder_name=name,
                 ),
             )
-        queue, _ = await tracker.attach_or_start(
-            chat.id,
-            native_payload,
-            console_channel.stream_one,
-            owner=workspace,
+        stream_source = _persisting_stream_source(
+            workspace, chat, console_channel.stream_one
         )
+        try:
+            queue, _ = await tracker.attach_or_start(
+                chat.id,
+                native_payload,
+                stream_source,
+                owner=workspace,
+                access_scope=access_scope,
+            )
+        except PermissionError as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="Chat not found",
+            ) from exc
 
     async def event_generator() -> AsyncGenerator[str, None]:
         # Hold iterator so finally can aclose(); guarantees stream_from_queue's
@@ -377,6 +906,8 @@ async def post_console_chat(
         headers={
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
+            "X-QwenPaw-Chat-Id": chat.id,
+            "Access-Control-Expose-Headers": "X-QwenPaw-Chat-Id",
         },
     )
 
@@ -393,35 +924,40 @@ async def post_console_chat_stop(
     """Stop the running chat. Only stops when called."""
     logger.debug("[STOP API] Received stop request for chat_id=%s", chat_id)
     workspace = await get_agent_for_request(request)
-
-    # Try to stop with the provided chat_id first
-    logger.debug(
-        "[STOP API] Got workspace, calling task_tracker.request_stop...",
-    )
-    stopped = await workspace.task_tracker.request_stop(chat_id)
-
-    # If not found, the chat_id might be a session_id (timestamp)
-    # Try to resolve it to the actual chat UUID
-    if not stopped:
+    resolved_chat_id = chat_id
+    try:
+        UUID(chat_id)
+    except ValueError:
         logger.debug(
-            "[STOP API] chat_id not found in tracker, trying to resolve "
-            "from session_id...",
+            "[STOP API] Resolving session_id before ownership validation...",
         )
         chat_manager = workspace.chat_manager
         if chat_manager:
-            resolved_chat_id = await chat_manager.get_chat_id_by_session(
+            actor = get_actor(request)
+            resolved = await chat_manager.get_chat_id_by_session(
                 session_id=chat_id,
                 channel="console",
+                user_id=(
+                    str(actor.user_id)
+                    if is_multi_user_enabled() and actor.user_id is not None
+                    else None
+                ),
             )
-            if resolved_chat_id:
-                logger.debug(
-                    "[STOP API] Resolved session_id=%s to chat_id=%s",
-                    chat_id[:12] if len(chat_id) >= 12 else chat_id,
-                    resolved_chat_id,
-                )
-                stopped = await workspace.task_tracker.request_stop(
-                    resolved_chat_id,
-                )
+            if not resolved:
+                if is_multi_user_enabled():
+                    raise HTTPException(status_code=404, detail="Chat not found")
+                return {"stopped": False}
+            resolved_chat_id = resolved
+
+    await _require_console_conversation_write(
+        request,
+        workspace,
+        resolved_chat_id,
+    )
+    logger.debug(
+        "[STOP API] Got workspace, calling task_tracker.request_stop...",
+    )
+    stopped = await workspace.task_tracker.request_stop(resolved_chat_id)
 
     logger.debug(
         "[STOP API] task_tracker.request_stop returned: stopped=%s",
@@ -434,17 +970,30 @@ async def post_console_chat_stop(
 async def post_console_upload(
     request: Request,
     file: UploadFile = File(..., description="File to attach"),
+    conversation_id: str | None = Query(
+        None,
+        description="Existing conversation id receiving this attachment",
+    ),
 ) -> dict:
     """Save to console channel media_dir."""
 
     workspace = await get_agent_for_request(request)
+    await _require_console_conversation_write(
+        request,
+        workspace,
+        conversation_id if isinstance(conversation_id, str) else "",
+    )
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
         raise HTTPException(
             status_code=503,
             detail="Channel Console not found",
         )
-    media_dir = console_channel.media_dir
+    media_dir = await _resolve_console_upload_dir(
+        request,
+        workspace,
+        legacy_media_dir=console_channel.media_dir,
+    )
     media_dir.mkdir(parents=True, exist_ok=True)
     data = await file.read()
     check_upload_size(data)
@@ -453,6 +1002,53 @@ async def post_console_upload(
 
     path = (media_dir / stored_name).resolve()
     path.write_bytes(data)
+    if is_multi_user_enabled():
+        actor = get_actor(request)
+        if actor.user_id is None:
+            path.unlink(missing_ok=True)
+            raise HTTPException(status_code=401, detail="not_authenticated")
+        repository = workspace.chat_manager.conversation_repository
+        if repository is None:
+            path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=503,
+                detail="Attachment storage unavailable",
+            )
+        parsed_conversation_id: UUID | None = None
+        if conversation_id:
+            try:
+                parsed_conversation_id = UUID(conversation_id)
+            except ValueError as exc:
+                path.unlink(missing_ok=True)
+                raise HTTPException(status_code=404, detail="Chat not found") from exc
+        attachment_id = uuid.uuid4()
+        media_type = file.content_type or mimetypes.guess_type(safe_name)[0]
+        now = datetime.now(UTC)
+        record = AttachmentRecord(
+            id=attachment_id,
+            agent_id=agent_database_id(workspace.agent_id),
+            conversation_id=parsed_conversation_id,
+            message_id=None,
+            owner_user_id=actor.user_id,
+            storage_key=str(path),
+            original_name=safe_name,
+            media_type=media_type or "application/octet-stream",
+            size=len(data),
+            content_hash=f"sha256:{hashlib.sha256(data).hexdigest()}",
+            created_at=now,
+            updated_at=now,
+        )
+        try:
+            await repository.with_user(actor.user_id).add_attachment(record)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+        return {
+            "url": f"/api/console/attachments/{attachment_id}",
+            "attachment_id": str(attachment_id),
+            "file_name": safe_name,
+            "size": len(data),
+        }
     return {
         "url": path,
         "file_name": safe_name,
@@ -466,6 +1062,7 @@ async def post_console_upload(
     summary="Read backend daemon logs for debug page",
 )
 async def get_backend_debug_logs(
+    request: Request,
     lines: int = Query(
         200,
         ge=20,
@@ -474,20 +1071,25 @@ async def get_backend_debug_logs(
     ),
 ) -> dict:
     """Return the tail of the project log file for the debug UI."""
+    if is_multi_user_enabled():
+        require_platform_settings_manage(get_actor(request))
     log_path = LOG_FILE_PATH.resolve()
     try:
         st = log_path.stat()
         return {
-            "path": str(log_path),
+            "path": log_path.name,
             "exists": True,
             "lines": lines,
             "updated_at": st.st_mtime,
             "size": st.st_size,
-            "content": _tail_text_file(log_path, lines=lines),
+            "content": redact_log_text(
+                _tail_text_file(log_path, lines=lines),
+                secret_values=load_envs().values(),
+            ),
         }
     except FileNotFoundError:
         return {
-            "path": str(log_path),
+            "path": log_path.name,
             "exists": False,
             "lines": lines,
             "updated_at": None,
@@ -498,19 +1100,18 @@ async def get_backend_debug_logs(
 
 @router.get("/push-messages")
 async def get_push_messages(
+    request: Request,
     session_id: str | None = Query(None, description="Optional session id"),
 ):
     """
-    Return pending push messages and ALL approval requests.
+    Return pending push messages and approvals assigned to this user.
 
     Messages:
     - With session_id: consumed messages for that session
     - Without session_id: recent messages (all sessions, last 60s)
 
-    Approvals:
-    - Always returns ALL pending approvals across all sessions
-    - Frontend filters by current session_id for display
-    - Includes session_id in each approval for filtering
+    In multi-user mode approvals are filtered by the authenticated user before
+    serialization. Session filtering remains a frontend presentation concern.
     """
     from ..console_push_store import get_recent, take
     from ..approvals import get_approval_service
@@ -521,11 +1122,11 @@ async def get_push_messages(
     else:
         messages = await get_recent()
 
-    # Get ALL pending approvals (not filtered by session)
     approval_svc = get_approval_service()
-    # pylint: disable=protected-access
-    async with approval_svc._lock:
-        all_pending = list(approval_svc._pending.values())
+    approval_user_id = (
+        str(get_actor(request).user_id) if is_multi_user_enabled() else None
+    )
+    all_pending = await approval_svc.list_pending_for_user(approval_user_id)
 
     # Serialize approval data with root_session_id for frontend filtering
     approvals_data = [
@@ -554,6 +1155,7 @@ async def get_push_messages(
 
 @router.get("/inbox/events")
 async def get_inbox_events(
+    request: Request,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     source_type: str | None = Query(None),
@@ -565,6 +1167,9 @@ async def get_inbox_events(
     from ..inbox_store import query_events
 
     selected_sources = set(source_types or [])
+    recipient_user_id = (
+        str(get_actor(request).user_id) if is_multi_user_enabled() else None
+    )
     if source_type:
         selected_sources.add(source_type)
     events, total, unread_count = await query_events(
@@ -574,6 +1179,7 @@ async def get_inbox_events(
         status=status,
         agent_id=agent_id,
         unread_only=unread_only,
+        recipient_user_id=recipient_user_id,
     )
     return {
         "events": events,
@@ -583,26 +1189,41 @@ async def get_inbox_events(
 
 
 @router.post("/inbox/read")
-async def post_mark_inbox_read(payload: MarkInboxReadRequest):
+async def post_mark_inbox_read(
+    payload: MarkInboxReadRequest,
+    request: Request,
+):
     from ..inbox_store import mark_all_read, mark_read
 
+    recipient_user_id = (
+        str(get_actor(request).user_id) if is_multi_user_enabled() else None
+    )
     if payload.all:
-        updated = await mark_all_read()
+        updated = await mark_all_read(recipient_user_id=recipient_user_id)
     else:
-        updated = await mark_read(payload.event_ids)
+        updated = await mark_read(
+            payload.event_ids,
+            recipient_user_id=recipient_user_id,
+        )
     return {"updated": updated}
 
 
 @router.delete("/inbox/events/{event_id}")
-async def delete_inbox_event(event_id: str):
+async def delete_inbox_event(event_id: str, request: Request):
     from ..inbox_store import delete_event
     from ..inbox_trace_store import delete_trace
 
-    deleted, run_id, run_id_still_referenced = await delete_event(event_id)
+    recipient_user_id = (
+        str(get_actor(request).user_id) if is_multi_user_enabled() else None
+    )
+    deleted, run_id, run_id_still_referenced = await delete_event(
+        event_id,
+        recipient_user_id=recipient_user_id,
+    )
     if not deleted:
         raise HTTPException(status_code=404, detail="event not found")
     trace_deleted = False
-    if run_id and not run_id_still_referenced:
+    if not is_multi_user_enabled() and run_id and not run_id_still_referenced:
         trace_deleted = await delete_trace(run_id)
     return {
         "deleted": True,
@@ -611,10 +1232,36 @@ async def delete_inbox_event(event_id: str):
     }
 
 
+@router.post("/inbox/events/delete")
+async def delete_inbox_events(
+    payload: DeleteInboxEventsRequest,
+    request: Request,
+):
+    from ..inbox_store import delete_events
+
+    recipient_user_id = (
+        str(get_actor(request).user_id) if is_multi_user_enabled() else None
+    )
+    deleted = await delete_events(
+        payload.event_ids,
+        recipient_user_id=recipient_user_id,
+    )
+    return {"deleted": deleted}
+
+
 @router.get("/inbox/traces/{run_id}")
-async def get_inbox_trace(run_id: str):
+async def get_inbox_trace(run_id: str, request: Request):
+    from ..inbox_store import has_run_reference
     from ..inbox_trace_store import get_trace
 
+    recipient_user_id = (
+        str(get_actor(request).user_id) if is_multi_user_enabled() else None
+    )
+    if not await has_run_reference(
+        run_id,
+        recipient_user_id=recipient_user_id,
+    ):
+        raise HTTPException(status_code=404, detail="trace not found")
     trace = await get_trace(run_id)
     if trace is None:
         raise HTTPException(
@@ -714,6 +1361,11 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
     ``GET /console/chat/task/{task_id}``.
     """
     workspace = await get_agent_for_request(request)
+    await _require_console_conversation_write(
+        request,
+        workspace,
+        _requested_conversation_id(request_data),
+    )
     console_channel = await workspace.channel_manager.get_channel("console")
     if console_channel is None:
         raise HTTPException(
@@ -723,17 +1375,40 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
 
     task_id = f"task-{uuid.uuid4().hex[:12]}"
     native_payload = _extract_session_and_payload(request_data)
+    _apply_trusted_chat_identity(request, native_payload)
+    native_payload["_reference_conversation_id"] = _requested_conversation_id(
+        request_data
+    )
+    await _resolve_personal_library_references(
+        request,
+        workspace,
+        native_payload,
+    )
     session_id = console_channel.resolve_session_id(
         sender_id=native_payload["sender_id"],
         channel_meta=native_payload["meta"],
     )
     name, _ = _extract_placeholder_name(native_payload["content_parts"])
-    chat = await workspace.chat_manager.get_or_create_chat(
-        session_id,
-        native_payload["sender_id"],
-        native_payload["channel_id"],
+    requested_conversation_id = _requested_conversation_id(request_data)
+    chat = await _resolve_console_chat(
+        workspace,
+        requested_conversation_id=requested_conversation_id,
+        session_id=session_id,
+        user_id=native_payload["sender_id"],
+        channel_id=native_payload["channel_id"],
         name=name,
     )
+    from ...models.runtime import prepare_console_model
+
+    await prepare_console_model(request, workspace, chat, request_data, native_payload)
+    await _resolve_console_attachment_refs(
+        request,
+        workspace,
+        native_payload,
+        conversation_id=chat.id,
+    )
+    if requested_conversation_id:
+        native_payload["meta"]["session_id"] = chat.session_id
     chat = await _apply_session_project_dir(
         workspace,
         chat,
@@ -763,6 +1438,15 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
             )
             fork_scope_id = str(rc.get("fork_scope_id") or "")
 
+    if is_multi_user_enabled():
+        from ...access.agent_repository import AgentResourceRole
+
+        role, _ = get_agent_access_state(request)
+        if role is AgentResourceRole.USER:
+            fork_project_dir = ""
+            fork_worktree_branch = ""
+            fork_scope_id = ""
+
     from ...config.config import load_agent_config
     from ...services.project_directory import (
         resolve_effective_project_dir,
@@ -782,24 +1466,42 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         None,
         fork_project_dir or None,
     )
-    request_context = dict(
-        native_payload["meta"].get("request_context") or {},
+    project_dir, project_source = await _resolve_console_runtime_project(
+        request,
+        workspace,
+        project_dir=project_dir,
+        project_source=project_source,
+        conversation_id=str(chat.id),
+        authorized_project_dir=Path(agent_config.project_dir or workspace.workspace_dir),
+    )
+    run_id = str(uuid.uuid4())
+    request_context = _bind_run_context(
+        native_payload,
+        conversation_id=chat.id,
+        run_id=run_id,
     )
     request_context["project_dir"] = str(project_dir)
     request_context["project_dir_source"] = project_source
+    await _bind_console_task_output(request, workspace, chat, request_context)
     native_payload["meta"]["request_context"] = request_context
 
     bg = _BackgroundTask(
         status="running",
         started_at=time.time(),
+        owner_user_id=str(native_payload["sender_id"]),
+        agent_id=str(workspace.agent_id),
+        conversation_id=str(chat.id),
+        run_id=run_id,
+        actor_context=dict(request_context.get("actor_context") or {}),
     )
 
     async def _run() -> None:
         last_response: Optional[Dict[str, Any]] = None
         try:
-            async for sse_line in console_channel.stream_one(
-                native_payload,
-            ):
+            stream_source = _persisting_stream_source(
+                workspace, chat, console_channel.stream_one
+            )
+            async for sse_line in stream_source(native_payload):
                 parsed = _parse_sse_payload(sse_line)
                 if parsed and parsed.get("type") != "turn_usage":
                     last_response = parsed
@@ -854,17 +1556,21 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
             )
             return
         except Exception as exc:
+            logger.error(
+                "Background task failed (error_type=%s)",
+                type(exc).__name__,
+            )
             bg.status = "finished"
             bg.finished_at = time.time()
             bg.result = {
                 "status": "failed",
-                "error": {"message": str(exc)},
+                "error": {"message": "task_execution_failed"},
             }
             await _mark_background_fork_failed(
                 fork_project_dir,
                 fork_worktree_branch,
                 scope_id=fork_scope_id,
-                reason=str(exc),
+                reason="Task execution failed",
                 context="task error",
             )
             return
@@ -884,7 +1590,27 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
                 "output": [],
             }
 
-    atask = asyncio.create_task(_run())
+    async def _admitted_run() -> None:
+        try:
+            await admitted(_run)()
+        except asyncio.CancelledError:
+            bg.status = "finished"
+            bg.finished_at = time.time()
+            bg.result = {
+                "status": "failed",
+                "error": {"message": "Task cancelled before admission"},
+            }
+            raise
+        except Exception:
+            logger.exception("Background task admission failed")
+            bg.status = "finished"
+            bg.finished_at = time.time()
+            bg.result = {
+                "status": "failed",
+                "error": {"message": "task_admission_failed"},
+            }
+
+    atask = asyncio.create_task(_admitted_run())
     bg.asyncio_task = atask
 
     if task_timeout is not None and task_timeout > 0:
@@ -907,7 +1633,10 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
     status_code=200,
     summary="Check background chat task status",
 )
-async def get_console_chat_task(task_id: str) -> dict:
+async def get_console_chat_task(
+    task_id: str,
+    request: Request = None,
+) -> dict:
     """Return the current status of a background chat task."""
     async with _bg_lock:
         bg = _bg_tasks.get(task_id)
@@ -916,9 +1645,54 @@ async def get_console_chat_task(task_id: str) -> dict:
             status_code=404,
             detail=f"Task not found: {task_id}",
         )
-    response: Dict[str, Any] = {"status": bg.status}
+    if is_multi_user_enabled() and request is not None:
+        actor = get_actor(request)
+        if actor.user_id is None or str(actor.user_id) != bg.owner_user_id:
+            raise HTTPException(status_code=404, detail=f"Task not found: {task_id}")
+    response: Dict[str, Any] = {
+        "status": bg.status,
+        "conversation_id": bg.conversation_id,
+        "run_id": bg.run_id,
+    }
     if bg.started_at is not None:
         response["started_at"] = bg.started_at
     if bg.status == "finished" and bg.result is not None:
         response["result"] = bg.result
     return response
+
+
+@router.api_route(
+    "/attachments/{attachment_id}",
+    methods=["GET", "HEAD"],
+    summary="Download one owned chat attachment",
+)
+async def get_console_attachment(
+    attachment_id: UUID,
+    request: Request,
+):
+    """只允许上传者读取附件，避免绝对路径成为访问凭证。"""
+    if not is_multi_user_enabled():
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    from ...identity.runtime import get_identity_schema
+    from ..chats.repo import PostgresConversationRepository
+
+    repository = PostgresConversationRepository(
+        schema=get_identity_schema(),
+    ).with_user(actor.user_id)
+    record = await repository.get_attachment(
+        attachment_id=attachment_id,
+        owner_user_id=actor.user_id,
+    )
+    if record is None or record.lifecycle == "deleted":
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    target = Path(record.storage_key).resolve()
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="Attachment not found")
+    return FileResponse(
+        target,
+        filename=record.original_name,
+        media_type=record.media_type,
+    )

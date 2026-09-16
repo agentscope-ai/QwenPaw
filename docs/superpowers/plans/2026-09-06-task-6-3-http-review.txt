@@ -1,0 +1,1269 @@
+Browser-found integration fix. Review only exact checkpoint method/path gate and unscoped reset role resolution; other working diff predates this fix. New HTTP tests below.
+warning: in the working copy of 'src/qwenpaw/app/agent_context.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/app/routers/checkpoints.py', LF will be replaced by CRLF the next time Git touches it
+diff --git a/src/qwenpaw/app/agent_context.py b/src/qwenpaw/app/agent_context.py
+index 5a664105..e7115f45 100644
+--- a/src/qwenpaw/app/agent_context.py
++++ b/src/qwenpaw/app/agent_context.py
+@@ -1,22 +1,53 @@
+ # -*- coding: utf-8 -*-
+ """Agent context utilities for multi-agent support.
+ 
+ Provides utilities to get the correct agent instance for each request.
+ """
+ import asyncio
+-from contextvars import ContextVar
++from contextvars import ContextVar, Token
+ from contextlib import contextmanager
+ from pathlib import Path
+ from typing import Iterator
+ from typing import Optional, TYPE_CHECKING
+-from fastapi import Request
++from fastapi import HTTPException, Request
++from ..access.dependencies import get_actor
+ from .multi_agent_manager import MultiAgentManager
+ from ..config.utils import load_config
++from ..identity.runtime import is_multi_user_enabled
++
++_RUNTIME_CONFIG_GOVERNANCE_MARKER = "runtime-config"
++_RUNTIME_CONFIG_GOVERNANCE_PATHS = frozenset(
++    {
++        "/workspace/access",
++        "/workspace/language",
++        "/workspace/running-config",
++        "/workspace/running-config/reload",
++        "/workspace/running-config/runtime-status",
++        "/workspace/running-config/summary",
++        "/workspace/running-config/version",
++        "/coding-mode",
++        "/plan/config",
++        "/workspace/project-directory",
++        "/workspace/project-directory/list",
++        "/workspace/project-directory/create",
++        "/workspace/project-directory/clone",
++        "/workspace/project-directory/import-local",
++        "/workspace/project-directory/upload-zip",
++        "/workspace/project-directory/browse-dirs",
++        "/workspace/embedding/test",
++        "/memory/reindex",
++        "/memory/scopes",
++        "/memory/graph",
++        "/memory/runtime-status",
++        "/memory/status",
++        "/workspace/memory",
++    },
++)
+ 
+ if TYPE_CHECKING:
+     from .workspace import Workspace
+ 
+ # Context variable to store current agent ID across async calls
+ _current_agent_id: ContextVar[Optional[str]] = ContextVar(
+     "current_agent_id",
+     default=None,
+@@ -44,16 +75,183 @@ _current_channel: ContextVar[Optional[str]] = ContextVar(
+     default=None,
+ )
+ 
+ _current_approval_route: ContextVar[Optional[dict]] = ContextVar(
+     "current_approval_route",
+     default=None,
+ )
+ 
++_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
++_CONFIGURATION_PREFIXES = (
++    "/config",
++    "/mcp",
++    "/skills",
++    "/tools",
++    "/cron",
++    "/workspace",
++    "/plugins",
++    "/checkpoints",
++)
++_USER_RUNTIME_FILE_WRITE_PATHS = frozenset(
++    {
++        "/workspace/file-content",
++        "/workspace/file-upload",
++        "/workspace/upload",
++    },
++)
++_CHECKPOINT_RUNTIME_WRITE_ROUTES = frozenset(
++    {
++        ("POST", "/workspace/checkpoints/snapshot"),
++        ("POST", "/workspace/checkpoints/restore/preview"),
++        ("POST", "/workspace/checkpoints/restore"),
++        ("POST", "/workspace/checkpoints/gc/preview"),
++        ("POST", "/workspace/checkpoints/gc"),
++        ("PATCH", "/workspace/checkpoints/auto"),
++        ("PATCH", "/workspace/checkpoints/gc/settings"),
++        ("DELETE", "/workspace/checkpoints"),
++    },
++)
++
++
++def _get_agent_membership_service():
++    from ..access.agent_membership import AgentMembershipService
++    from ..access.agent_repository import PostgresAgentRepository
++    from ..identity.runtime import get_identity_schema
++
++    return AgentMembershipService(PostgresAgentRepository(schema=get_identity_schema()))
++
++
++def _get_agent_governance_service():
++    from ..access.agent_governance import AgentGovernanceService
++    from ..access.agent_repository import PostgresAgentRepository
++    from ..identity.runtime import get_identity_schema
++
++    return AgentGovernanceService(
++        PostgresAgentRepository(schema=get_identity_schema()),
++    )
++
++
++def _normalized_api_path(request: Request) -> str:
++    path = request.url.path
++    api_path = path[4:] if path.startswith("/api/") else path
++    if api_path.startswith("/agents/"):
++        parts = api_path.split("/", 3)
++        if len(parts) == 4:
++            return "/" + parts[3]
++    return api_path
++
++
++def _validate_runtime_config_governance_path(request: Request) -> None:
++    marker = getattr(request, "headers", {}).get("X-Agent-Governance")
++    if not isinstance(marker, str):
++        marker = None
++    if marker is None:
++        return
++    api_path = _normalized_api_path(request)
++    allowed = api_path in _RUNTIME_CONFIG_GOVERNANCE_PATHS or api_path.startswith(
++        "/workspace/memory/",
++    )
++    if marker != _RUNTIME_CONFIG_GOVERNANCE_MARKER or not allowed:
++        raise HTTPException(status_code=403, detail="forbidden")
++
++
++def allowed_agent_roles_for_request(request: Request, agent_id: str):
++    """按请求路径区分运行权限与 Agent 配置写权限。"""
++    from ..access.agent_repository import AgentResourceRole
++
++    if request.method.upper() in _SAFE_METHODS:
++        return set(AgentResourceRole)
++
++    path = request.url.path
++    api_path = path[4:] if path.startswith("/api/") else path
++    if api_path == "/workspace/memory" or api_path.startswith(
++        "/workspace/memory/",
++    ):
++        # 公共/私有作用域的最终写权限由记忆服务按 scope 判定；这里必须
++        # 允许仅使用成员进入该策略层，否则其私有记忆会被通用配置权限误拦截。
++        return set(AgentResourceRole)
++    marker = f"/agents/{agent_id}"
++    marker_index = api_path.find(marker)
++    resource_path = (
++        api_path[marker_index + len(marker) :]
++        if marker_index >= 0
++        else api_path
++    )
++    if (request.method.upper(), resource_path) in _CHECKPOINT_RUNTIME_WRITE_ROUTES:
++        # 检查点路由按可信角色选择私人运行空间，并独立检查创建者和恢复权限。
++        # 仅放行已注册的方法/路径；其他工作区配置写入仍须 owner/collaborator。
++        return set(AgentResourceRole)
++    if resource_path in _USER_RUNTIME_FILE_WRITE_PATHS or resource_path.startswith(
++        "/workspace/code-files/",
++    ):
++        # These endpoints can target either the user's private runtime root or
++        # the Agent configuration root. Let every usable role reach the router;
++        # the resolved root's read_only flag is the authoritative write gate.
++        return set(AgentResourceRole)
++    if resource_path.startswith(_CONFIGURATION_PREFIXES):
++        return {
++            AgentResourceRole.OWNER,
++            AgentResourceRole.COLLABORATOR,
++        }
++    return set(AgentResourceRole)
++
++
++def allows_historical_chat_read(request: Request, agent_id: str) -> bool:
++    """兼容 Agent-scoped 与旧版 X-Agent-Id 会话只读入口。"""
++    if request.method.upper() not in _SAFE_METHODS:
++        return False
++    path = request.url.path
++    return path.startswith("/api/chats") or (
++        f"/agents/{agent_id}/chats" in path
++    )
++
++
++async def authorize_agent_request(
++    request: Request,
++    *,
++    agent_id: str,
++    agent_ref,
++    membership_service=None,
++    allowed_roles=None,
++    allow_historical_read_only: bool = False,
++):
++    """在多用户模式下统一校验当前请求对目标 Agent 的访问权。"""
++    from ..access.agent_membership import AgentAccessDeniedError
++    from ..access.agent_repository import LegacyAgentRecord
++    from ..access.capabilities import Capability
++    from ..access.dependencies import get_actor
++    from ..access.service import AuthorizationDeniedError, AuthorizationService
++
++    actor = get_actor(request)
++    try:
++        AuthorizationService().require(actor, Capability.AGENT_USE)
++        service = membership_service or _get_agent_membership_service()
++        effective_roles = allowed_roles or allowed_agent_roles_for_request(
++            request,
++            agent_id,
++        )
++        access = await service.require_role(
++            actor=actor,
++            agent=LegacyAgentRecord(
++                key=agent_id,
++                name=agent_id,
++                description="",
++                workspace_key=getattr(agent_ref, "workspace_dir", ""),
++                status="active",
++            ),
++            allowed_roles=effective_roles,
++            allow_historical_read_only=allow_historical_read_only,
++        )
++    except (AuthorizationDeniedError, AgentAccessDeniedError) as exc:
++        raise HTTPException(status_code=403, detail="forbidden") from exc
++
++    request.state.agent_access = access
++    return access
++
+ 
+ async def get_agent_for_request(
+     request: Request,
+     agent_id: Optional[str] = None,
+ ) -> "Workspace":
+     """Get agent workspace for current request.
+ 
+     Priority:
+@@ -67,17 +265,17 @@ async def get_agent_for_request(
+         agent_id: Agent ID override (highest priority)
+ 
+     Returns:
+         Workspace for the specified or active agent
+ 
+     Raises:
+         HTTPException: If agent not found
+     """
+-    from fastapi import HTTPException
++    _validate_runtime_config_governance_path(request)
+ 
+     # Determine which agent to use
+     target_agent_id = agent_id
+ 
+     # Check request.state.agent_id (set by agent-scoped router)
+     if not target_agent_id and hasattr(request.state, "agent_id"):
+         target_agent_id = request.state.agent_id
+ 
+@@ -103,16 +301,27 @@ async def get_agent_for_request(
+ 
+     agent_ref = config.agents.profiles[target_agent_id]
+     if not getattr(agent_ref, "enabled", True):
+         raise HTTPException(
+             status_code=403,
+             detail=f"Agent '{target_agent_id}' is disabled",
+         )
+ 
++    if is_multi_user_enabled() and not hasattr(request.state, "agent_access"):
++        await authorize_agent_request(
++            request,
++            agent_id=target_agent_id,
++            agent_ref=agent_ref,
++            allow_historical_read_only=allows_historical_chat_read(
++                request,
++                target_agent_id,
++            ),
++        )
++
+     # Get MultiAgentManager
+     if not hasattr(request.app.state, "multi_agent_manager"):
+         raise HTTPException(
+             status_code=500,
+             detail="MultiAgentManager not initialized",
+         )
+ 
+     manager: MultiAgentManager = request.app.state.multi_agent_manager
+@@ -132,16 +341,87 @@ async def get_agent_for_request(
+         ) from e
+     except Exception as e:
+         raise HTTPException(
+             status_code=500,
+             detail=f"Failed to get agent: {str(e)}",
+         ) from e
+ 
+ 
++async def get_running_config_workspace(
++    request: Request,
++    *,
++    action: str,
++) -> "Workspace":
++    """解析普通成员访问或管理员显式代管的运行配置目标。"""
++    _validate_runtime_config_governance_path(request)
++    marker = getattr(request, "headers", {}).get("X-Agent-Governance")
++    if not isinstance(marker, str):
++        marker = None
++    if marker is None:
++        return await get_agent_for_request(request)
++
++    target_agent_id = (request.headers.get("X-Agent-Id") or "").strip()
++    if not target_agent_id or not is_multi_user_enabled():
++        raise HTTPException(status_code=403, detail="forbidden")
++
++    from ..access.agent_governance import AgentGovernanceDeniedError
++    agent_ref = load_config().agents.profiles.get(target_agent_id)
++    if agent_ref is None or not getattr(agent_ref, "enabled", True):
++        raise HTTPException(status_code=403, detail="forbidden")
++
++    try:
++        governance = await _get_agent_governance_service().require_admin_agent(
++            actor=get_actor(request),
++            agent_key=target_agent_id,
++            action=action,
++        )
++    except (AgentGovernanceDeniedError, ValueError) as exc:
++        raise HTTPException(status_code=403, detail="forbidden") from exc
++
++    manager = getattr(request.app.state, "multi_agent_manager", None)
++    if manager is None:
++        raise HTTPException(
++            status_code=500,
++            detail="MultiAgentManager not initialized",
++        )
++    try:
++        workspace = await manager.get_agent(target_agent_id)
++    except Exception as exc:
++        raise HTTPException(status_code=404, detail="agent_not_found") from exc
++    if workspace is None:
++        raise HTTPException(status_code=404, detail="agent_not_found")
++
++    request.state.agent_governance = governance
++    request.state.agent_id = target_agent_id
++    return workspace
++
++
++def require_running_config_editor(request: Request) -> None:
++    """要求当前请求具备完整运行配置的查看和编辑权限。"""
++    state = getattr(request, "state", None)
++    if state is None:
++        return
++    values = vars(state)
++    nested = values.get("_state")
++    if isinstance(nested, dict):
++        values = nested
++    if values.get("agent_governance") is not None:
++        return
++    access = values.get("agent_access")
++    if access is None:
++        return
++    role = getattr(access, "role", None)
++    role_value = getattr(role, "value", role)
++    if role_value not in {"owner", "collaborator"} or bool(
++        getattr(access, "historical_read_only", False),
++    ):
++        raise HTTPException(status_code=403, detail="forbidden")
++
++
+ def get_agent_project_dir(workspace: "Workspace") -> Path:
+     """Return the agent's default project directory.
+ 
+     The Coding tools switch does not participate in directory resolution.
+     """
+     from ..config.config import load_agent_config
+     from ..services.project_directory import resolve_effective_project_dir
+ 
+@@ -205,36 +485,94 @@ async def get_project_dir_for_request(
+         from fastapi import HTTPException
+ 
+         raise HTTPException(
+             status_code=400,
+             detail=f"Project directory is unavailable: {exc}",
+         ) from exc
+ 
+ 
++def get_agent_access_state(request: Request):
++    """返回当前请求已授权的 Agent 资源角色与历史只读状态。"""
++    from ..access.agent_repository import AgentResourceRole
++
++    access = getattr(getattr(request, "state", None), "agent_access", None)
++    role = getattr(access, "role", AgentResourceRole.OWNER)
++    if not isinstance(role, AgentResourceRole):
++        role = AgentResourceRole(getattr(role, "value", role))
++    return role, bool(getattr(access, "historical_read_only", False))
++
++
++async def get_files_workspace_access(
++    request: Request,
++    workspace: "Workspace",
++    *,
++    agent_project: Path | None = None,
++):
++    """解析 Files 页面项目运行目录与 Agent 配置目录的独立权限。"""
++    from ..access.agent_repository import AgentResourceRole
++    from ..identity.runtime import get_identity_schema
++    from ..persistence.agent_user_workspaces import (
++        AgentUserWorkspaceRepository,
++    )
++    from ..services.workspace_files import resolve_files_workspace_access
++
++    actor = get_actor(request)
++    role, historical_read_only = get_agent_access_state(request)
++    access = resolve_files_workspace_access(
++        agent_id=workspace.agent_id,
++        agent_workspace=workspace.workspace_dir,
++        agent_project=(
++            agent_project
++            if agent_project is not None
++            else await get_project_dir_for_request(request, workspace)
++        ),
++        actor_user_id=actor.user_id,
++        access_role=role,
++        historical_read_only=historical_read_only,
++        agent_workspace_kind=getattr(workspace, "workspace_kind", "legacy"),
++    )
++    if access.project.kind == "user_runtime":
++        if actor.user_id is None or role is not AgentResourceRole.USER:
++            raise HTTPException(status_code=403, detail="forbidden")
++        await AgentUserWorkspaceRepository(
++            schema=get_identity_schema(),
++        ).ensure_private(
++            user_id=actor.user_id,
++            agent_key=workspace.agent_id,
++            workspace_key=access.project.workspace_key or "",
++        )
++    return access
++
++
+ def get_active_agent_id() -> str:
+     """Get current active agent ID from config.
+ 
+     Returns:
+         Active agent ID, defaults to "default"
+     """
+     try:
+         config = load_config()
+         return config.agents.active_agent or "default"
+     except Exception:
+         return "default"
+ 
+ 
+-def set_current_agent_id(agent_id: str) -> None:
++def set_current_agent_id(agent_id: Optional[str]) -> Token[Optional[str]]:
+     """Set current agent ID in context.
+ 
+     Args:
+         agent_id: Agent ID to set
+     """
+-    _current_agent_id.set(agent_id)
++    return _current_agent_id.set(agent_id)
++
++
++def reset_current_agent_id(token: Token[Optional[str]]) -> None:
++    """Restore the Agent context that existed before the current scope."""
++    _current_agent_id.reset(token)
+ 
+ 
+ def get_current_agent_id() -> str:
+     """Get current agent ID from context or config fallback.
+ 
+     Returns:
+         Current agent ID, defaults to active agent or "default"
+     """
+diff --git a/src/qwenpaw/app/routers/checkpoints.py b/src/qwenpaw/app/routers/checkpoints.py
+index f520db0e..5f95da92 100644
+--- a/src/qwenpaw/app/routers/checkpoints.py
++++ b/src/qwenpaw/app/routers/checkpoints.py
+@@ -1,27 +1,32 @@
+ # -*- coding: utf-8 -*-
+ """Agent workspace checkpoint endpoints for the Console graph page."""
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import asdict
++from dataclasses import asdict, replace
+ import logging
++from uuid import uuid4
+ 
+ from fastapi import APIRouter, HTTPException, Query, Request
+ from pydantic import BaseModel, Field
+ 
+ from ...checkpoints.models import (
+     CheckpointEntry,
+     CheckpointError,
+     RestoreResult,
+ )
+-from ...checkpoints.policy import session_key
++from ...checkpoints.policy import session_file_path, session_key
+ from ...checkpoints.runtime import RUNTIME
+-from ..agent_context import get_agent_for_request
++from ...identity.runtime import is_multi_user_enabled
++from ...access.dependencies import get_actor
++from ...access.agent_repository import AgentResourceRole
++from ..agent_context import get_agent_access_state, get_agent_for_request
++from ..chats.models import ChatSpec
+ 
+ router = APIRouter(prefix="/workspace/checkpoints", tags=["checkpoints"])
+ logger = logging.getLogger(__name__)
+ 
+ 
+ class AutoRequest(BaseModel):
+     enabled: bool
+ 
+@@ -71,26 +76,56 @@ def _entry_payload(
+ 
+ def _restore_payload(result: RestoreResult) -> dict:
+     return asdict(result)
+ 
+ 
+ async def _service(request: Request):
+     workspace = await get_agent_for_request(request)
+     try:
++        if _uses_personal_runtime(request):
++            from ..agent_context import get_files_workspace_access
++
++            files_access = await get_files_workspace_access(request, workspace)
++            service = await RUNTIME.get_for_workspace_dir_async(
++                files_access.project.path,
++            )
++            service.workspace = workspace
++            service.agent_id = workspace.agent_id
++            service.checkpoint_scope = files_access.project.kind
++            service.conversation_workspace_dir = workspace.workspace_dir
++            return service
+         return await RUNTIME.get_for_workspace_async(workspace)
+     except CheckpointError as exc:
+         raise HTTPException(status_code=400, detail=str(exc)) from exc
+ 
+ 
++def _trusted_user_id(request: Request, supplied_user_id: str) -> str:
++    """多用户模式只接受认证中间件签发的用户身份。"""
++    if not is_multi_user_enabled():
++        return supplied_user_id
++    actor = get_actor(request)
++    if actor.user_id is None:
++        raise HTTPException(status_code=401, detail="not_authenticated")
++    return str(actor.user_id)
++
++
++def _uses_personal_runtime(request: Request) -> bool:
++    """仅使用成员的检查点必须绑定其独立运行空间。"""
++    if not is_multi_user_enabled():
++        return False
++    role, historical_read_only = get_agent_access_state(request)
++    return role is AgentResourceRole.USER and not historical_read_only
++
++
+ def _checkpoint_error(exc: CheckpointError) -> HTTPException:
+     return HTTPException(status_code=400, detail=str(exc))
+ 
+ 
+-async def _workspace_sessions(service) -> list[dict]:
++async def _workspace_sessions(service, *, user_id: str | None = None) -> list[dict]:
+     """Return the complete lightweight chat catalog for this workspace."""
+     workspace = service.workspace
+     if workspace is None or not hasattr(workspace, "chat_manager"):
+         return []
+     try:
+         chats = await workspace.chat_manager.list_chats(archived=None)
+     except Exception:
+         logger.warning(
+@@ -107,32 +142,74 @@ async def _workspace_sessions(service) -> list[dict]:
+             ),
+             "session_id": chat.session_id,
+             "user_id": chat.user_id,
+             "channel": chat.channel,
+             "title": chat.name or "",
+             "archived": chat.archived,
+         }
+         for chat in chats
+-        if chat.session_id
++        if chat.session_id and (user_id is None or chat.user_id == user_id)
+     ]
+ 
+ 
++async def _visible_entries(service, request: Request, *, limit: int):
++    """多用户模式只返回认证主体自身创建的检查点。"""
++    if not is_multi_user_enabled():
++        return await service.graph_entries(limit=limit)
++    user_id = _trusted_user_id(request, "")
++    return await service.graph_entries(limit=limit, user_id=user_id)
++
++
++async def _require_restore_access(
++    service,
++    request: Request,
++    *,
++    commit: str,
++    user_id: str,
++    session_id: str,
++    channel: str,
++) -> CheckpointEntry | None:
++    """恢复目标必须与可信 Agent、创建者和原始会话完全匹配。"""
++    if not is_multi_user_enabled():
++        return None
++    agent_id = str(getattr(service, "agent_id", "") or "")
++    try:
++        entry = await service.resolve_target_entry(
++            commit,
++            session_id,
++            user_id,
++            channel,
++        )
++    except CheckpointError as exc:
++        raise HTTPException(status_code=403, detail="forbidden") from exc
++    if not (
++        entry.commit == commit
++        and entry.agent_id == agent_id
++        and entry.session_id == session_id
++        and entry.channel == channel
++        and entry.user_id == user_id
++    ):
++        raise HTTPException(status_code=403, detail="forbidden")
++    return entry
++
++
+ @router.get("/status")
+ async def checkpoint_status(request: Request) -> dict:
+     service = await _service(request)
+     try:
+-        entries = await service.graph_entries(limit=1)
++        entries = await _visible_entries(service, request, limit=1)
+         auto_enabled, _debounce_seconds = await service.auto_settings()
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return {
+         "auto_enabled": auto_enabled,
+         "has_checkpoints": bool(entries),
+-        "workspace_dir": str(service.workspace_dir),
++        "scope": getattr(service, "checkpoint_scope", "agent_workspace"),
++        "restore_mode": "new_chat" if is_multi_user_enabled() else "in_place",
+     }
+ 
+ 
+ @router.patch("/auto")
+ async def set_checkpoint_auto(body: AutoRequest, request: Request) -> dict:
+     service = await _service(request)
+     try:
+         auto_enabled, _debounce_seconds = await service.set_auto_enabled(
+@@ -145,20 +222,21 @@ async def set_checkpoint_auto(body: AutoRequest, request: Request) -> dict:
+ 
+ @router.get("/graph")
+ async def checkpoint_graph(
+     request: Request,
+     limit: int = Query(default=500, ge=1, le=1000),
+ ) -> dict:
+     service = await _service(request)
+     try:
+-        entries = await service.graph_entries(limit=limit)
++        entries = await _visible_entries(service, request, limit=limit)
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+-    sessions = await _workspace_sessions(service)
++    user_id = _trusted_user_id(request, "") if is_multi_user_enabled() else None
++    sessions = await _workspace_sessions(service, user_id=user_id)
+     titles = {
+         (item["channel"], item["user_id"], item["session_id"]): item["title"]
+         for item in sessions
+     }
+     nodes = [_entry_payload(entry, titles) for entry in entries]
+     return {
+         "nodes": nodes,
+         "sessions": sessions,
+@@ -175,32 +253,52 @@ async def checkpoint_graph(
+ 
+ @router.post("/snapshot")
+ async def create_checkpoint(body: SnapshotRequest, request: Request) -> dict:
+     service = await _service(request)
+     try:
+         result = await service.make_snapshot_result(
+             kind="snap",
+             session_id=body.session_id,
+-            user_id=body.user_id,
++            user_id=_trusted_user_id(request, body.user_id),
+             channel=body.channel,
+             name=body.name or None,
+             message=body.name,
+         )
+     except (CheckpointError, ValueError) as exc:
+         raise _checkpoint_error(CheckpointError(str(exc))) from exc
+     return asdict(result)
+ 
+ 
+ async def _restore(body: RestoreRequest, request: Request, *, dry_run: bool):
+     service = await _service(request)
++    user_id = _trusted_user_id(request, body.user_id)
++    entry = await _require_restore_access(
++        service,
++        request,
++        commit=body.commit,
++        user_id=user_id,
++        session_id=body.session_id,
++        channel=body.channel,
++    )
++    restore_user_id = entry.user_id if entry is not None else user_id
++    if is_multi_user_enabled():
++        try:
++            return await _restore_as_new_chat(
++                service,
++                body,
++                user_id=restore_user_id,
++                dry_run=dry_run,
++            )
++        except CheckpointError as exc:
++            raise _checkpoint_error(exc) from exc
+     kwargs = {
+         "target": body.commit,
+         "session_id": body.session_id,
+-        "user_id": body.user_id,
++        "user_id": restore_user_id,
+         "channel": body.channel,
+         "dry_run": dry_run,
+     }
+     try:
+         if body.include_files:
+             result = await service.restore_with_files(
+                 **kwargs,
+                 include_memory=body.include_memory,
+@@ -210,16 +308,155 @@ async def _restore(body: RestoreRequest, request: Request, *, dry_run: bool):
+             result = await service.restore_with_memory(**kwargs)
+         else:
+             result = await service.restore(**kwargs)
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return _restore_payload(result)
+ 
+ 
++async def _restore_as_new_chat(
++    service,
++    body: RestoreRequest,
++    *,
++    user_id: str,
++    dry_run: bool,
++) -> dict:
++    async with service.restore_copy_transaction(dry_run=dry_run):
++        return await _restore_as_new_chat_unlocked(
++            service,
++            body,
++            user_id=user_id,
++            dry_run=dry_run,
++        )
++
++
++async def _restore_as_new_chat_unlocked(
++    service,
++    body: RestoreRequest,
++    *,
++    user_id: str,
++    dry_run: bool,
++) -> dict:
++    """多用户恢复复制为新会话；源会话和历史记录保持不变。"""
++    workspace = service.workspace
++    chat_manager = getattr(workspace, "chat_manager", None)
++    if chat_manager is None:
++        raise HTTPException(status_code=409, detail="source_chat_unavailable")
++    source_chat_id = await chat_manager.get_chat_id_by_session(
++        body.session_id,
++        body.channel,
++        user_id=user_id,
++    )
++    if not source_chat_id:
++        raise HTTPException(status_code=403, detail="forbidden")
++    source_chat = await chat_manager.get_chat(source_chat_id)
++    if source_chat is None or source_chat.user_id != user_id:
++        raise HTTPException(status_code=403, detail="forbidden")
++
++    preview_session_id = f"preview-{body.commit[:12]}"
++    if dry_run:
++        session_preview = await service.restore_session_copy(
++            target=body.commit,
++            source_session_id=body.session_id,
++            source_user_id=user_id,
++            source_channel=body.channel,
++            new_session_id=preview_session_id,
++            new_user_id=user_id,
++            new_channel=body.channel,
++            dry_run=True,
++        )
++        if body.include_files or body.include_memory:
++            file_preview = await service.restore_selected_files_copy(
++                target=body.commit,
++                source_session_id=body.session_id,
++                source_user_id=user_id,
++                source_channel=body.channel,
++                selected_files=None,
++                include_files=body.include_files,
++                include_memory=body.include_memory,
++                dry_run=True,
++            )
++            session_preview = replace(
++                session_preview,
++                include_memory=body.include_memory,
++                include_files=True,
++                deleted_paths=file_preview.deleted_paths,
++                file_paths=file_preview.file_paths,
++            )
++        return _restore_payload(session_preview)
++
++    new_session_id = str(uuid4())
++    new_chat_id = str(uuid4())
++    new_session_path = session_file_path(
++        service.conversation_workspace_dir,
++        session_id=new_session_id,
++        user_id=user_id,
++        channel=body.channel,
++    )
++    chat_created = False
++    scope_result = None
++    try:
++        copied = await service.restore_session_copy(
++            target=body.commit,
++            source_session_id=body.session_id,
++            source_user_id=user_id,
++            source_channel=body.channel,
++            new_session_id=new_session_id,
++            new_user_id=user_id,
++            new_channel=body.channel,
++        )
++        if body.include_files or body.include_memory:
++            file_result = await service.restore_selected_files_copy(
++                target=body.commit,
++                source_session_id=body.session_id,
++                source_user_id=user_id,
++                source_channel=body.channel,
++                selected_files=tuple(body.files or ()),
++                include_files=body.include_files,
++                include_memory=body.include_memory,
++            )
++            scope_result = file_result
++            copied = replace(
++                copied,
++                include_memory=body.include_memory,
++                include_files=True,
++                deleted_paths=file_result.deleted_paths,
++                file_paths=file_result.file_paths,
++            )
++        await chat_manager.create_chat(
++            ChatSpec(
++                id=new_chat_id,
++                session_id=new_session_id,
++                user_id=user_id,
++                channel=body.channel,
++                name=f"{source_chat.name} (restored)",
++                meta={
++                    "restored_from_chat_id": source_chat.id,
++                    "restored_from_checkpoint": body.commit,
++                },
++            ),
++        )
++        chat_created = True
++    except BaseException:
++        if chat_created or await chat_manager.get_chat(new_chat_id) is not None:
++            await chat_manager.delete_chats([new_chat_id])
++        new_session_path.unlink(missing_ok=True)
++        if scope_result is not None:
++            await service.rollback_selected_scopes(scope_result)
++        raise
++    return _restore_payload(
++        replace(
++            copied,
++            new_session_id=new_session_id,
++            new_chat_id=new_chat_id,
++        ),
++    )
++
++
+ @router.post("/restore/preview")
+ async def preview_checkpoint_restore(
+     body: RestoreRequest,
+     request: Request,
+ ) -> dict:
+     return await _restore(body, request, dry_run=True)
+ 
+ 
+@@ -233,27 +470,29 @@ async def apply_checkpoint_restore(
+             status_code=400,
+             detail="Select at least one file before restoring files.",
+         )
+     return await _restore(body, request, dry_run=False)
+ 
+ 
+ async def _run_gc(body: GcRequest, request: Request, *, dry_run: bool) -> dict:
+     service = await _service(request)
++    user_id = _trusted_user_id(request, "console")
+     try:
+         result = await service.gc(
+             session_id="console",
+             user_id="console",
+             channel="console",
+             compact=body.compact,
+             all_sessions=True,
+             dry_run=dry_run,
+             keep_count=body.keep_count,
+             keep_days=body.keep_days,
+             pre_restore_days=body.pre_restore_days,
++            creator_user_id=(user_id if is_multi_user_enabled() else None),
+         )
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return asdict(result)
+ 
+ 
+ @router.post("/gc/preview")
+ async def preview_checkpoint_gc(body: GcRequest, request: Request) -> dict:
+@@ -287,15 +526,22 @@ async def update_checkpoint_gc_settings(
+             pre_restore_retention_days=body.pre_restore_retention_days,
+         )
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+ 
+ 
+ @router.delete("")
+ async def reset_checkpoints(request: Request) -> dict:
++    if is_multi_user_enabled() and getattr(request.state, "agent_access", None) is None:
++        # 旧 /api 别名没有 scoped dependency，必须先解析可信角色再判断 reset。
++        await get_agent_for_request(request)
++    if is_multi_user_enabled() and not _uses_personal_runtime(request):
++        role, historical_read_only = get_agent_access_state(request)
++        if role is not AgentResourceRole.OWNER or historical_read_only:
++            raise HTTPException(status_code=403, detail="forbidden")
+     service = await _service(request)
+     try:
+         await service.reset()
+         auto_enabled, _debounce_seconds = await service.auto_settings()
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return {"reset": True, "auto_enabled": auto_enabled}
+# -*- coding: utf-8 -*-
+"""检查点 HTTP 别名必须经过真实 Agent 门控和归属策略。"""
+from __future__ import annotations
+
+import json
+from types import SimpleNamespace
+from uuid import uuid4
+
+import httpx
+import pytest
+from fastapi import FastAPI
+
+from qwenpaw.access.actor import ActorContext, ActorType
+from qwenpaw.access.agent_membership import AgentMembershipService
+from qwenpaw.access.agent_repository import AgentAccessRecord, AgentResourceRole
+from qwenpaw.app import agent_context
+from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.app.chats.repo import JsonChatRepository
+from qwenpaw.app.routers import agent_scoped, checkpoints
+from qwenpaw.checkpoints.policy import session_file_path
+from qwenpaw.checkpoints.runtime import CheckpointRuntime
+from qwenpaw.identity.models import PlatformRole
+from qwenpaw.persistence import agent_user_workspaces
+from qwenpaw.services import workspace_files
+
+
+@pytest.fixture
+async def checkpoint_http(tmp_path_factory, monkeypatch):
+    """仅替换身份/配置/数据库边界，保留所有授权、作用域、Git 和路由代码。"""
+    # 缩短 pytest 目录和 Agent ID，避免 Git ref 在 Windows 超过路径长度限制。
+    tmp_path = tmp_path_factory.mktemp("h")
+    actors = {
+        name: ActorContext(
+            user_id=uuid4(),
+            actor_type=ActorType.USER,
+            platform_role=PlatformRole.MEMBER,
+            admin_mode=False,
+            request_id=f"http-{name}",
+        )
+        for name in ("owner", "member", "collaborator")
+    }
+    roles = {
+        actors[name].user_id: role
+        for name, role in (
+            ("owner", AgentResourceRole.OWNER),
+            ("member", AgentResourceRole.USER),
+            ("collaborator", AgentResourceRole.COLLABORATOR),
+        )
+    }
+    historical = set()
+
+    class MembershipRepository:
+        async def list_accessible(self, *, agent_keys, user_id):
+            if user_id not in roles:
+                return {}
+            return {
+                key: AgentAccessRecord(
+                    key, actors["owner"].user_id, roles[user_id], "active"
+                )
+                for key in agent_keys
+            }
+
+        async def list_historical_accessible(self, *, agent_keys, user_id):
+            return (
+                {
+                    key: AgentAccessRecord(
+                        key,
+                        actors["owner"].user_id,
+                        AgentResourceRole.USER,
+                        "active",
+                        historical_read_only=True,
+                    )
+                    for key in agent_keys
+                }
+                if user_id in historical
+                else {}
+            )
+
+        async def list_registered_keys(self, keys):
+            return set(keys)
+
+        async def get_first_admin_id(self):
+            return actors["owner"].user_id
+
+    membership = AgentMembershipService(MembershipRepository())
+    agent_root = tmp_path / "agent"
+    agent_root.mkdir()
+    chat_manager = ChatManager(repo=JsonChatRepository(agent_root / "chats.json"))
+    workspace = SimpleNamespace(
+        agent_id="a", workspace_dir=agent_root, chat_manager=chat_manager
+    )
+    source_paths = {}
+    for name, actor in actors.items():
+        path = session_file_path(
+            agent_root, session_id=name, user_id=str(actor.user_id), channel="console"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {"agent": {"state": {"context": [], "summary": f"{name}-before"}}}
+            ),
+            encoding="utf-8",
+        )
+        source_paths[name] = path
+        await chat_manager.create_chat(
+            ChatSpec(
+                session_id=name,
+                user_id=str(actor.user_id),
+                channel="console",
+                name=name,
+            )
+        )
+
+    class WorkspaceManager:
+        async def get_agent(self, agent_id):
+            assert agent_id == "a"
+            return workspace
+
+    class PrivateWorkspaceRepository:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def ensure_private(self, **kwargs):
+            assert kwargs["user_id"] == actors["member"].user_id
+            assert kwargs["agent_key"] == "a"
+
+    config = SimpleNamespace(
+        agents=SimpleNamespace(
+            profiles={"a": SimpleNamespace(enabled=True, workspace_dir=str(agent_root))}
+        )
+    )
+    for module in (agent_context, agent_scoped, checkpoints):
+        monkeypatch.setattr(module, "is_multi_user_enabled", lambda: True)
+    for module in (agent_context, agent_scoped):
+        monkeypatch.setattr(module, "load_config", lambda: config)
+        monkeypatch.setattr(module, "_get_agent_membership_service", lambda: membership)
+    monkeypatch.setattr(workspace_files, "WORKING_DIR", tmp_path)
+    monkeypatch.setattr(
+        agent_user_workspaces,
+        "AgentUserWorkspaceRepository",
+        PrivateWorkspaceRepository,
+    )
+    runtime = CheckpointRuntime()
+    monkeypatch.setattr(checkpoints, "RUNTIME", runtime)
+
+    app = FastAPI()
+    app.state.multi_agent_manager = WorkspaceManager()
+    app.add_middleware(agent_scoped.AgentContextMiddleware)
+
+    @app.middleware("http")
+    async def authenticate(request, call_next):
+        request.state.actor = actors[request.headers.get("x-test-actor", "member")]
+        response = await call_next(request)
+        access = getattr(request.state, "agent_access", None)
+        response.headers["x-a-role"] = access.role.value if access else "none"
+        return response
+
+    app.include_router(checkpoints.router, prefix="/api")
+    app.include_router(agent_scoped.create_agent_scoped_router(), prefix="/api")
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+        headers={"X-Agent-Id": "a"},
+    ) as client:
+        yield SimpleNamespace(
+            client=client,
+            actors=actors,
+            roles=roles,
+            historical=historical,
+            paths=source_paths,
+            manager=chat_manager,
+        )
+    await runtime.flush_and_close_all()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/api", "/api/agents/a"])
+async def test_member_checkpoint_http_uses_personal_scope_and_rejects_foreign_restore(
+    checkpoint_http, prefix
+):
+    env = checkpoint_http
+    client = env.client
+    base = prefix + "/workspace/checkpoints"
+    owner = await client.post(
+        base + "/snapshot",
+        headers={"x-test-actor": "owner"},
+        json={"session_id": "owner", "name": "owner"},
+    )
+    assert owner.status_code == 200, owner.text
+    own = await client.post(
+        base + "/snapshot",
+        json={
+            "session_id": "member",
+            "user_id": str(env.actors["owner"].user_id),
+            "name": "member",
+        },
+    )
+    assert own.status_code == 200, own.text
+    status = await client.get(base + "/status")
+    assert status.json()["scope"] == "user_runtime"
+    graph = await client.get(base + "/graph")
+    assert [node["commit"] for node in graph.json()["nodes"]] == [own.json()["commit"]]
+    assert graph.json()["nodes"][0]["user_id"] == str(env.actors["member"].user_id)
+    foreign = await client.post(
+        base + "/restore/preview",
+        json={
+            "session_id": "owner",
+            "user_id": str(env.actors["owner"].user_id),
+            "commit": owner.json()["commit"],
+        },
+    )
+    assert foreign.status_code == 403
+    assert foreign.headers["x-a-role"] == "user", "前置门控已放行，拒绝必须来自检查点归属策略"
+    body = {"session_id": "member", "commit": own.json()["commit"]}
+    preview = await client.post(base + "/restore/preview", json=body)
+    assert preview.status_code == 200, preview.text
+    env.paths["member"].write_text(
+        '{"agent":{"state":{"context":[],"summary":"member-after"}}}', encoding="utf-8"
+    )
+    restored = await client.post(base + "/restore", json=body)
+    assert restored.status_code == 200, restored.text
+    assert (
+        json.loads(env.paths["member"].read_text(encoding="utf-8"))["agent"]["state"][
+            "summary"
+        ]
+        == "member-after"
+    )
+    chat = await env.manager.get_chat(restored.json()["new_chat_id"])
+    assert chat.user_id == str(env.actors["member"].user_id)
+    restored_path = session_file_path(
+        env.paths["member"].parents[2],
+        session_id=chat.session_id,
+        user_id=chat.user_id,
+        channel=chat.channel,
+    )
+    assert json.loads(restored_path.read_text(encoding="utf-8"))["agent"]["state"][
+        "summary"
+    ] == "member-before"
+    for method, suffix, payload in [
+        ("PATCH", "/auto", {"enabled": False}),
+        ("POST", "/gc/preview", {}),
+        ("POST", "/gc", {}),
+        (
+            "PATCH",
+            "/gc/settings",
+            {"gc_keep_count": 5, "gc_keep_days": 7, "pre_restore_retention_days": 1},
+        ),
+    ]:
+        response = await client.request(method, base + suffix, json=payload)
+        assert response.status_code == 200, response.text
+    reset = await client.delete(base)
+    assert reset.status_code == 200, reset.text
+    owner_graph = await client.get(base + "/graph", headers={"x-test-actor": "owner"})
+    assert [node["commit"] for node in owner_graph.json()["nodes"]] == [
+        owner.json()["commit"]
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/api", "/api/agents/a"])
+async def test_collaborator_checkpoint_http_cannot_reset_shared_repository(
+    checkpoint_http, prefix
+):
+    base = prefix + "/workspace/checkpoints"
+    owner = await checkpoint_http.client.post(
+        base + "/snapshot",
+        headers={"x-test-actor": "owner"},
+        json={"session_id": "owner", "name": "protected"},
+    )
+    assert owner.status_code == 200, owner.text
+    response = await checkpoint_http.client.delete(
+        base, headers={"x-test-actor": "collaborator"}
+    )
+    assert response.status_code == 403
+    graph = await checkpoint_http.client.get(
+        base + "/graph", headers={"x-test-actor": "owner"}
+    )
+    assert [node["commit"] for node in graph.json()["nodes"]] == [
+        owner.json()["commit"]
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/api", "/api/agents/a"])
+@pytest.mark.parametrize("historical", [False, True])
+async def test_revoked_member_cannot_enter_checkpoint_routes(
+    checkpoint_http, prefix, historical
+):
+    env = checkpoint_http
+    del env.roles[env.actors["member"].user_id]
+    if historical:
+        env.historical.add(env.actors["member"].user_id)
+    for method, suffix in [
+        ("GET", "/status"),
+        ("POST", "/snapshot"),
+        ("POST", "/restore/preview"),
+        ("DELETE", ""),
+    ]:
+        response = await env.client.request(
+            method,
+            prefix + "/workspace/checkpoints" + suffix,
+            json={"session_id": "member", "commit": "a" * 40},
+        )
+        assert response.status_code == 403, response.text
+
+
+@pytest.mark.parametrize("prefix", ["/api", "/api/agents/a"])
+@pytest.mark.parametrize(
+    "method,path",
+    [
+        ("POST", "/workspace/checkpoints/unknown"),
+        ("PUT", "/workspace/checkpoints/snapshot"),
+        ("POST", "/workspace/running-config"),
+        ("DELETE", "/workspace/checkpoints/gc"),
+    ],
+)
+def test_checkpoint_exception_does_not_allow_other_workspace_writes(
+    prefix, method, path
+):
+    request = SimpleNamespace(method=method, url=SimpleNamespace(path=prefix + path))
+    assert AgentResourceRole.USER not in agent_context.allowed_agent_roles_for_request(
+        request, "a"
+    )
+
+

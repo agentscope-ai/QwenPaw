@@ -1114,6 +1114,48 @@ class TestExecuteShellCommand:
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
     @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
     @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
+    async def test_success_broadcasts_a_terminal_tool_status(
+        self,
+        mock_shell_exe,
+        mock_workspace,
+        mock_timeout,
+    ):
+        mock_shell_exe.return_value = None
+        mock_workspace.return_value = None
+        mock_timeout.return_value = None
+        context = {
+            "session_id": "session-1",
+            "agent_id": "default",
+            "actor_context": {
+                "user_id": "b9bc4468-0626-4363-98d1-2fad14291469"
+            },
+        }
+
+        with (
+            patch("qwenpaw.agents.tools.shell.sys.platform", "linux"),
+            patch(
+                "qwenpaw.agents.tools.shell._execute_posix_host",
+                AsyncMock(return_value=(0, "done", "")),
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.get_current_request_context",
+                return_value=context,
+            ),
+            patch(
+                "qwenpaw.agents.tools.shell.broadcast_runtime_status"
+            ) as broadcast,
+        ):
+            from qwenpaw.agents.tools.shell import execute_shell_command
+
+            await execute_shell_command("echo done")
+
+        assert broadcast.call_args_list[-1].kwargs["stage"] == "tool_completed"
+        assert broadcast.call_args_list[-1].kwargs["status"] == "completed"
+
+    @pytest.mark.asyncio
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_timeout")
+    @patch("qwenpaw.agents.tools.shell.get_current_workspace_dir")
+    @patch("qwenpaw.agents.tools.shell.get_current_shell_command_executable")
     async def test_unix_multiline_command_reaches_shell_unchanged(
         self,
         mock_shell_exe,

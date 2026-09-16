@@ -159,6 +159,37 @@ class TestOnModelCallAutomationSkip:
         assert mm.auto_memory_search.await_args.args[0].id == "turn-1"
 
     @pytest.mark.asyncio
+    async def test_user_search_receives_trusted_scope_identity(self):
+        mm = _make_memory_manager()
+        mw = MemoryMiddleware(memory_manager=mm)
+        agent = _make_agent(source="user")
+        agent._request_context.update(
+            {
+                "user_id": "11111111-1111-4111-8111-111111111111",
+                "agent_id": "test-agent",
+                "run_id": "run-1",
+                "conversation_id": "11111111-2222-4333-8444-555555555555",
+            }
+        )
+        agent.state.context = [_user_msg()]
+
+        await mw.on_model_call(
+            agent,
+            {"messages": []},
+            AsyncMock(return_value="model_result"),
+        )
+
+        kwargs = mm.auto_memory_search.await_args.kwargs
+        assert kwargs["actor_user_id"] == (
+            "11111111-1111-4111-8111-111111111111"
+        )
+        assert kwargs["agent_id"] == "test-agent"
+        assert kwargs["run_id"] == "run-1"
+        assert kwargs["_source_conversation_id"] == (
+            "11111111-2222-4333-8444-555555555555"
+        )
+
+    @pytest.mark.asyncio
     async def test_search_result_only_updates_current_model_input(self):
         mm = _make_memory_manager()
         mw = MemoryMiddleware(memory_manager=mm)

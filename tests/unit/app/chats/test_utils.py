@@ -239,6 +239,18 @@ def test_msg_to_message_omits_synthetic_user_stubs():
         assert not agentscope_msg_to_message(stub), tag
 
 
+def test_history_restores_display_text_without_runtime_expansion():
+    msg = Msg(name="user", role="user", content=[{"type": "text", "text": "expanded path and instructions"}], metadata={"qwenpaw_display_text": "/writing 分析 @[需求.md](chat-file:personal_library:doc1)"})
+    result = agentscope_msg_to_message(msg)
+    assert result[0].content[0].text == msg.metadata["qwenpaw_display_text"]
+
+
+def test_history_hides_runtime_document_context_but_not_user_text():
+    text = "# 本轮引用的文件资料\n\n以下内容已经服务端按当前登录用户和当前 Agent 授权校验。\nprivate body"
+    assert not agentscope_msg_to_message(Msg(name="system", role="user", content=[{"type":"text", "text":text}]))
+    assert agentscope_msg_to_message(Msg(name="user", role="user", content=[{"type":"text", "text":text}]))
+
+
 def test_msg_to_message_omits_visual_compression_placeholders():
     """Visual-compression collapse rewrites history into user-role
     ``visual_history`` / ``visual_context`` messages. They are model-only

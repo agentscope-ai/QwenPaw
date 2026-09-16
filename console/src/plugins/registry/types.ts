@@ -104,6 +104,8 @@ export interface MenuItem {
   href?: string;
   /** Hide this entry when callback returns false. Defaults to always visible. */
   visible?: () => boolean;
+  /** Platform capability required to display or enter this item. */
+  capability?: string;
   /** Render as group header (children appear nested under it). */
   isGroup?: boolean;
   /** Render as horizontal divider. id is still required for de-dup. */
@@ -123,6 +125,8 @@ export interface Route {
   /** Lazy or eager component. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   component: React.ComponentType<any>;
+  /** Platform capability required to render this route. */
+  capability?: string;
 }
 
 /**

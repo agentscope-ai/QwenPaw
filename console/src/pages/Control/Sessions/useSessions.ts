@@ -12,13 +12,16 @@ export function useSessions() {
   const [allSessions, setAllSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"active" | "archived">("active");
+  const [accessScope, setAccessScope] = useState<
+    "all" | "owned" | "shared"
+  >("all");
   const { selectedAgent } = useAgentStore();
   const { message } = useAppMessage();
 
   const fetchSessions = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await chatApi.listChats();
+      const data = await chatApi.listChats({ scope: accessScope });
       if (data) {
         setAllSessions(data as Session[]);
       }
@@ -27,7 +30,7 @@ export function useSessions() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [accessScope]);
 
   useEffect(() => {
     fetchSessions();
@@ -181,5 +184,7 @@ export function useSessions() {
     setActiveTab,
     activeCount,
     archivedCount,
+    accessScope,
+    setAccessScope,
   };
 }

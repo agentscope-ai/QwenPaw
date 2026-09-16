@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Backup data models."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -81,6 +82,10 @@ class CreateBackupRequest(BaseModel):
 
 
 class RestoreBackupRequest(BaseModel):
+    confirmation_token: Optional[str] = Field(
+        default=None,
+        description="One-time token returned by the restore preview API.",
+    )
     include_agents: bool = Field(
         default=True,
         description="Restore agent workspaces",

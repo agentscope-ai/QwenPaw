@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -14,9 +15,13 @@ from ...checkpoints.models import (
     CheckpointError,
     RestoreResult,
 )
-from ...checkpoints.policy import session_key
+from ...checkpoints.policy import session_file_path, session_key
 from ...checkpoints.runtime import RUNTIME
-from ..agent_context import get_agent_for_request
+from ...identity.runtime import is_multi_user_enabled
+from ...access.dependencies import get_actor
+from ...access.agent_repository import AgentResourceRole
+from ..agent_context import get_agent_access_state, get_agent_for_request
+from ..chats.models import ChatSpec
 
 router = APIRouter(prefix="/workspace/checkpoints", tags=["checkpoints"])
 logger = logging.getLogger(__name__)
@@ -76,16 +81,46 @@ def _restore_payload(result: RestoreResult) -> dict:
 async def _service(request: Request):
     workspace = await get_agent_for_request(request)
     try:
+        if _uses_personal_runtime(request):
+            from ..agent_context import get_files_workspace_access
+
+            files_access = await get_files_workspace_access(request, workspace)
+            service = await RUNTIME.get_for_workspace_dir_async(
+                files_access.project.path,
+            )
+            service.workspace = workspace
+            service.agent_id = workspace.agent_id
+            service.checkpoint_scope = files_access.project.kind
+            service.conversation_workspace_dir = workspace.workspace_dir
+            return service
         return await RUNTIME.get_for_workspace_async(workspace)
     except CheckpointError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _trusted_user_id(request: Request, supplied_user_id: str) -> str:
+    """多用户模式只接受认证中间件签发的用户身份。"""
+    if not is_multi_user_enabled():
+        return supplied_user_id
+    actor = get_actor(request)
+    if actor.user_id is None:
+        raise HTTPException(status_code=401, detail="not_authenticated")
+    return str(actor.user_id)
+
+
+def _uses_personal_runtime(request: Request) -> bool:
+    """仅使用成员的检查点必须绑定其独立运行空间。"""
+    if not is_multi_user_enabled():
+        return False
+    role, historical_read_only = get_agent_access_state(request)
+    return role is AgentResourceRole.USER and not historical_read_only
 
 
 def _checkpoint_error(exc: CheckpointError) -> HTTPException:
     return HTTPException(status_code=400, detail=str(exc))
 
 
-async def _workspace_sessions(service) -> list[dict]:
+async def _workspace_sessions(service, *, user_id: str | None = None) -> list[dict]:
     """Return the complete lightweight chat catalog for this workspace."""
     workspace = service.workspace
     if workspace is None or not hasattr(workspace, "chat_manager"):
@@ -112,22 +147,64 @@ async def _workspace_sessions(service) -> list[dict]:
             "archived": chat.archived,
         }
         for chat in chats
-        if chat.session_id
+        if chat.session_id and (user_id is None or chat.user_id == user_id)
     ]
+
+
+async def _visible_entries(service, request: Request, *, limit: int):
+    """多用户模式只返回认证主体自身创建的检查点。"""
+    if not is_multi_user_enabled():
+        return await service.graph_entries(limit=limit)
+    user_id = _trusted_user_id(request, "")
+    return await service.graph_entries(limit=limit, user_id=user_id)
+
+
+async def _require_restore_access(
+    service,
+    request: Request,
+    *,
+    commit: str,
+    user_id: str,
+    session_id: str,
+    channel: str,
+) -> CheckpointEntry | None:
+    """恢复目标必须与可信 Agent、创建者和原始会话完全匹配。"""
+    if not is_multi_user_enabled():
+        return None
+    agent_id = str(getattr(service, "agent_id", "") or "")
+    try:
+        entry = await service.resolve_target_entry(
+            commit,
+            session_id,
+            user_id,
+            channel,
+        )
+    except CheckpointError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+    if not (
+        entry.commit == commit
+        and entry.agent_id == agent_id
+        and entry.session_id == session_id
+        and entry.channel == channel
+        and entry.user_id == user_id
+    ):
+        raise HTTPException(status_code=403, detail="forbidden")
+    return entry
 
 
 @router.get("/status")
 async def checkpoint_status(request: Request) -> dict:
     service = await _service(request)
     try:
-        entries = await service.graph_entries(limit=1)
+        entries = await _visible_entries(service, request, limit=1)
         auto_enabled, _debounce_seconds = await service.auto_settings()
     except CheckpointError as exc:
         raise _checkpoint_error(exc) from exc
     return {
         "auto_enabled": auto_enabled,
         "has_checkpoints": bool(entries),
-        "workspace_dir": str(service.workspace_dir),
+        "scope": getattr(service, "checkpoint_scope", "agent_workspace"),
+        "restore_mode": "new_chat" if is_multi_user_enabled() else "in_place",
     }
 
 
@@ -150,10 +227,11 @@ async def checkpoint_graph(
 ) -> dict:
     service = await _service(request)
     try:
-        entries = await service.graph_entries(limit=limit)
+        entries = await _visible_entries(service, request, limit=limit)
     except CheckpointError as exc:
         raise _checkpoint_error(exc) from exc
-    sessions = await _workspace_sessions(service)
+    user_id = _trusted_user_id(request, "") if is_multi_user_enabled() else None
+    sessions = await _workspace_sessions(service, user_id=user_id)
     titles = {
         (item["channel"], item["user_id"], item["session_id"]): item["title"]
         for item in sessions
@@ -180,7 +258,7 @@ async def create_checkpoint(body: SnapshotRequest, request: Request) -> dict:
         result = await service.make_snapshot_result(
             kind="snap",
             session_id=body.session_id,
-            user_id=body.user_id,
+            user_id=_trusted_user_id(request, body.user_id),
             channel=body.channel,
             name=body.name or None,
             message=body.name,
@@ -192,10 +270,30 @@ async def create_checkpoint(body: SnapshotRequest, request: Request) -> dict:
 
 async def _restore(body: RestoreRequest, request: Request, *, dry_run: bool):
     service = await _service(request)
+    user_id = _trusted_user_id(request, body.user_id)
+    entry = await _require_restore_access(
+        service,
+        request,
+        commit=body.commit,
+        user_id=user_id,
+        session_id=body.session_id,
+        channel=body.channel,
+    )
+    restore_user_id = entry.user_id if entry is not None else user_id
+    if is_multi_user_enabled():
+        try:
+            return await _restore_as_new_chat(
+                service,
+                body,
+                user_id=restore_user_id,
+                dry_run=dry_run,
+            )
+        except CheckpointError as exc:
+            raise _checkpoint_error(exc) from exc
     kwargs = {
         "target": body.commit,
         "session_id": body.session_id,
-        "user_id": body.user_id,
+        "user_id": restore_user_id,
         "channel": body.channel,
         "dry_run": dry_run,
     }
@@ -213,6 +311,145 @@ async def _restore(body: RestoreRequest, request: Request, *, dry_run: bool):
     except CheckpointError as exc:
         raise _checkpoint_error(exc) from exc
     return _restore_payload(result)
+
+
+async def _restore_as_new_chat(
+    service,
+    body: RestoreRequest,
+    *,
+    user_id: str,
+    dry_run: bool,
+) -> dict:
+    async with service.restore_copy_transaction(dry_run=dry_run):
+        return await _restore_as_new_chat_unlocked(
+            service,
+            body,
+            user_id=user_id,
+            dry_run=dry_run,
+        )
+
+
+async def _restore_as_new_chat_unlocked(
+    service,
+    body: RestoreRequest,
+    *,
+    user_id: str,
+    dry_run: bool,
+) -> dict:
+    """多用户恢复复制为新会话；源会话和历史记录保持不变。"""
+    workspace = service.workspace
+    chat_manager = getattr(workspace, "chat_manager", None)
+    if chat_manager is None:
+        raise HTTPException(status_code=409, detail="source_chat_unavailable")
+    source_chat_id = await chat_manager.get_chat_id_by_session(
+        body.session_id,
+        body.channel,
+        user_id=user_id,
+    )
+    if not source_chat_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    source_chat = await chat_manager.get_chat(source_chat_id)
+    if source_chat is None or source_chat.user_id != user_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+    preview_session_id = f"preview-{body.commit[:12]}"
+    if dry_run:
+        session_preview = await service.restore_session_copy(
+            target=body.commit,
+            source_session_id=body.session_id,
+            source_user_id=user_id,
+            source_channel=body.channel,
+            new_session_id=preview_session_id,
+            new_user_id=user_id,
+            new_channel=body.channel,
+            dry_run=True,
+        )
+        if body.include_files or body.include_memory:
+            file_preview = await service.restore_selected_files_copy(
+                target=body.commit,
+                source_session_id=body.session_id,
+                source_user_id=user_id,
+                source_channel=body.channel,
+                selected_files=None,
+                include_files=body.include_files,
+                include_memory=body.include_memory,
+                dry_run=True,
+            )
+            session_preview = replace(
+                session_preview,
+                include_memory=body.include_memory,
+                include_files=True,
+                deleted_paths=file_preview.deleted_paths,
+                file_paths=file_preview.file_paths,
+            )
+        return _restore_payload(session_preview)
+
+    new_session_id = str(uuid4())
+    new_chat_id = str(uuid4())
+    new_session_path = session_file_path(
+        service.conversation_workspace_dir,
+        session_id=new_session_id,
+        user_id=user_id,
+        channel=body.channel,
+    )
+    chat_created = False
+    scope_result = None
+    try:
+        copied = await service.restore_session_copy(
+            target=body.commit,
+            source_session_id=body.session_id,
+            source_user_id=user_id,
+            source_channel=body.channel,
+            new_session_id=new_session_id,
+            new_user_id=user_id,
+            new_channel=body.channel,
+        )
+        if body.include_files or body.include_memory:
+            file_result = await service.restore_selected_files_copy(
+                target=body.commit,
+                source_session_id=body.session_id,
+                source_user_id=user_id,
+                source_channel=body.channel,
+                selected_files=tuple(body.files or ()),
+                include_files=body.include_files,
+                include_memory=body.include_memory,
+            )
+            scope_result = file_result
+            copied = replace(
+                copied,
+                include_memory=body.include_memory,
+                include_files=True,
+                deleted_paths=file_result.deleted_paths,
+                file_paths=file_result.file_paths,
+            )
+        await chat_manager.create_chat(
+            ChatSpec(
+                id=new_chat_id,
+                session_id=new_session_id,
+                user_id=user_id,
+                channel=body.channel,
+                name=f"{source_chat.name} (restored)",
+                meta={
+                    "restored_from_chat_id": source_chat.id,
+                    "restored_from_checkpoint": body.commit,
+                },
+            ),
+        )
+        chat_created = True
+    except BaseException:
+        if chat_created or await chat_manager.get_chat(new_chat_id) is not None:
+            await chat_manager.delete_chats([new_chat_id])
+        new_session_path.unlink(missing_ok=True)
+        if scope_result is not None:
+            await service.rollback_selected_scopes(scope_result)
+        raise
+    return _restore_payload(
+        replace(
+            copied,
+            new_session_id=new_session_id,
+            new_chat_id=new_chat_id,
+        ),
+    )
 
 
 @router.post("/restore/preview")
@@ -238,6 +475,7 @@ async def apply_checkpoint_restore(
 
 async def _run_gc(body: GcRequest, request: Request, *, dry_run: bool) -> dict:
     service = await _service(request)
+    user_id = _trusted_user_id(request, "console")
     try:
         result = await service.gc(
             session_id="console",
@@ -249,6 +487,7 @@ async def _run_gc(body: GcRequest, request: Request, *, dry_run: bool) -> dict:
             keep_count=body.keep_count,
             keep_days=body.keep_days,
             pre_restore_days=body.pre_restore_days,
+            creator_user_id=(user_id if is_multi_user_enabled() else None),
         )
     except CheckpointError as exc:
         raise _checkpoint_error(exc) from exc
@@ -292,6 +531,13 @@ async def update_checkpoint_gc_settings(
 
 @router.delete("")
 async def reset_checkpoints(request: Request) -> dict:
+    if is_multi_user_enabled() and getattr(request.state, "agent_access", None) is None:
+        # 旧 /api 别名没有 scoped dependency，必须先解析可信角色再判断 reset。
+        await get_agent_for_request(request)
+    if is_multi_user_enabled() and not _uses_personal_runtime(request):
+        role, historical_read_only = get_agent_access_state(request)
+        if role is not AgentResourceRole.OWNER or historical_read_only:
+            raise HTTPException(status_code=403, detail="forbidden")
     service = await _service(request)
     try:
         await service.reset()

@@ -22,7 +22,9 @@ import { useTools } from "./useTools";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { ToolInfo } from "../../../api/modules/tools";
+import type { ToolConfigUpdate } from "../../../api/modules/tools";
 import { PageHeader } from "@/components/PageHeader";
+import { buildToolConfigUpdate } from "./credentials";
 import styles from "./index.module.less";
 
 /** Stable background colours for the initial-letter fallback icon. */
@@ -129,7 +131,7 @@ function ToolConfigModal({
   tool: ToolInfo;
   visible: boolean;
   onClose: () => void;
-  onSave: (values: Record<string, unknown>) => Promise<void>;
+  onSave: (body: ToolConfigUpdate) => Promise<void>;
 }) {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -145,8 +147,16 @@ function ToolConfigModal({
     let cancelled = false;
     api
       .getToolConfig(tool.name)
-      .then((config) => {
-        if (!cancelled) form.setFieldsValue(config || {});
+      .then((view) => {
+        if (!cancelled) {
+          const initial: Record<string, unknown> = { ...(view.config || {}) };
+          for (const field of tool.config_fields || []) {
+            if (field.type === "password") {
+              initial[`credential_action:${field.name}`] = "keep";
+            }
+          }
+          form.setFieldsValue(initial);
+        }
       })
       .catch(() => {
         // Leave form empty on error
@@ -162,8 +172,23 @@ function ToolConfigModal({
   const handleSave = async () => {
     try {
       const values = await form.validateFields();
+      const actions: Record<string, "keep" | "replace" | "delete"> = {};
+      const replacements: Record<string, string> = {};
+      for (const field of tool.config_fields || []) {
+        if (field.type !== "password") continue;
+        actions[field.name] =
+          values[`credential_action:${field.name}`] || "keep";
+        replacements[field.name] =
+          values[`credential_value:${field.name}`] || "";
+      }
+      const body = buildToolConfigUpdate(
+        tool.config_fields || [],
+        values,
+        actions,
+        replacements,
+      );
       setSaving(true);
-      await onSave(values);
+      await onSave(body);
       // Success message is shown in useTools.saveToolConfig
       onClose();
     } catch (error) {
@@ -193,10 +218,53 @@ function ToolConfigModal({
               switch (field.type) {
                 case "password":
                   return (
-                    <Input.Password
-                      placeholder={field.placeholder}
-                      autoComplete="off"
-                    />
+                    <div>
+                      <Form.Item
+                        name={`credential_action:${field.name}`}
+                        initialValue="keep"
+                        noStyle
+                      >
+                        <Select style={{ width: "100%", marginBottom: 8 }}>
+                          <Select.Option value="keep">
+                            {t("tools.credentialKeep")}
+                          </Select.Option>
+                          <Select.Option value="replace">
+                            {t("tools.credentialReplace")}
+                          </Select.Option>
+                          <Select.Option value="delete">
+                            {t("tools.credentialDelete")}
+                          </Select.Option>
+                        </Select>
+                      </Form.Item>
+                      <Form.Item
+                        noStyle
+                        shouldUpdate={(previous, current) =>
+                          previous[`credential_action:${field.name}`] !==
+                          current[`credential_action:${field.name}`]
+                        }
+                      >
+                        {({ getFieldValue }) =>
+                          getFieldValue(`credential_action:${field.name}`) ===
+                          "replace" ? (
+                            <Form.Item
+                              name={`credential_value:${field.name}`}
+                              rules={[
+                                {
+                                  required: true,
+                                  message: `${field.label} is required`,
+                                },
+                              ]}
+                              noStyle
+                            >
+                              <Input.Password
+                                placeholder={field.placeholder}
+                                autoComplete="new-password"
+                              />
+                            </Form.Item>
+                          ) : null
+                        }
+                      </Form.Item>
+                    </div>
                   );
 
                 case "number":
@@ -241,11 +309,11 @@ function ToolConfigModal({
             return (
               <Form.Item
                 key={field.name}
-                name={field.name}
+                name={field.type === "password" ? undefined : field.name}
                 label={field.label}
                 rules={[
                   {
-                    required: field.required,
+                    required: field.required && field.type !== "password",
                     message: `${field.label} is required`,
                   },
                 ]}
@@ -268,6 +336,7 @@ export default function ToolsPage() {
     tools,
     loading,
     batchLoading,
+    readOnly,
     toggleEnabled,
     toggleAsyncExecution,
     enableAll,
@@ -283,16 +352,19 @@ export default function ToolsPage() {
     setConfigModalVisible(true);
   };
 
-  const handleSaveConfig = async (values: Record<string, unknown>) => {
+  const handleSaveConfig = async (body: ToolConfigUpdate) => {
     if (!currentTool) return;
-    await saveToolConfig(currentTool.name, values);
+    await saveToolConfig(currentTool.name, body);
     await loadTools();
   };
 
   const handleExperimentalChange = async (experimental: boolean) => {
     // Keep the switch on the Browser card even when the currently registered
     // implementation is the deprecated stable browser track.
-    await saveToolConfig("browser", { experimental });
+    await saveToolConfig("browser", {
+      config: { experimental },
+      credential_updates: {},
+    });
     await loadTools();
   };
 
@@ -302,11 +374,22 @@ export default function ToolsPage() {
     return { enabledTools: enabled, disabledTools: disabled };
   }, [tools]);
 
+  const editableTools = useMemo(
+    () => tools.filter((tool) => tool.can_edit !== false),
+    [tools],
+  );
+  const allEditableToolsEnabled =
+    editableTools.length > 0 && editableTools.every((tool) => tool.enabled);
+
   const isToolConfigured = (tool: ToolInfo) =>
     !tool.requires_config ||
-    (tool.config_values && Object.keys(tool.config_values).length > 0);
+    Object.values(tool.credential_status || {}).some(
+      (status) => status === "configured",
+    ) ||
+    Boolean(tool.config_values && Object.keys(tool.config_values).length > 0);
 
   const handleAvailableItemClick = (tool: ToolInfo) => {
+    if (tool.policy_locked || tool.can_edit === false) return;
     if (tool.requires_config && !isToolConfigured(tool)) {
       handleConfigure(tool);
     } else {
@@ -319,19 +402,27 @@ export default function ToolsPage() {
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("tools.title") }]}
         extra={
-          <div className={styles.headerAction}>
-            <Switch
-              checked={enabledTools.length > 0 && disabledTools.length === 0}
-              onChange={() =>
-                disabledTools.length > 0 ? enableAll() : disableAll()
-              }
-              disabled={batchLoading || loading}
-              checkedChildren={t("tools.enableAll")}
-              unCheckedChildren={t("tools.disableAll")}
-            />
-          </div>
+          readOnly ? null : (
+            <div className={styles.headerAction}>
+              <Switch
+                checked={allEditableToolsEnabled}
+                onChange={() =>
+                  allEditableToolsEnabled ? disableAll() : enableAll()
+                }
+                disabled={batchLoading || loading}
+                checkedChildren={t("tools.enableAll")}
+                unCheckedChildren={t("tools.disableAll")}
+              />
+            </div>
+          )
         }
       />
+      {readOnly && (
+        <div className={styles.panelSectionDashed}>
+          <div className={styles.panelTitle}>{t("common.readOnly")}</div>
+          <p>{t("agent.readOnlyHint")}</p>
+        </div>
+      )}
       <div className={styles.toolsContainer}>
         {loading ? (
           <div className={styles.loading}>
@@ -396,8 +487,7 @@ export default function ToolsPage() {
                       {/* Show config status */}
                       {tool.requires_config && (
                         <div className={styles.configStatus}>
-                          {tool.config_values &&
-                          Object.keys(tool.config_values).length > 0 ? (
+                          {isToolConfigured(tool) ? (
                             <span className={styles.configured}>
                               ✓ {t("tools.configured")}
                             </span>
@@ -409,71 +499,76 @@ export default function ToolsPage() {
                         </div>
                       )}
 
-                      <div className={styles.cardFooter}>
-                        {BROWSER_TOOL_NAMES.has(tool.name) && (
-                          <BrowserExperimentalToggle
-                            toolName={tool.name}
-                            experimental={
-                              tool.config_values?.experimental !== false
-                            }
-                            onChange={handleExperimentalChange}
-                          />
-                        )}
-                        {[
-                          "execute_shell_command",
-                          "delegate_external_agent",
-                        ].includes(tool.name) && (
+                      {!readOnly && tool.can_edit !== false && (
+                        <div className={styles.cardFooter}>
+                          {BROWSER_TOOL_NAMES.has(tool.name) &&
+                            !tool.policy_locked && (
+                              <BrowserExperimentalToggle
+                                toolName={tool.name}
+                                experimental={
+                                  tool.config_values?.experimental !== false
+                                }
+                                onChange={handleExperimentalChange}
+                              />
+                            )}
+                          {[
+                            "execute_shell_command",
+                            "delegate_external_agent",
+                          ].includes(tool.name) && (
+                            <Button
+                              className={styles.toggleButton}
+                              onClick={() => toggleAsyncExecution(tool)}
+                              disabled={!tool.enabled}
+                              icon={
+                                tool.async_execution ? (
+                                  <ThunderboltOutlined />
+                                ) : (
+                                  <ClockCircleOutlined />
+                                )
+                              }
+                            >
+                              {tool.async_execution
+                                ? t("tools.asyncExecutionEnabled")
+                                : t("tools.asyncExecutionDisabled")}
+                            </Button>
+                          )}
+                          {/* Add configure button */}
+                          {tool.requires_config && (
+                            <Button
+                              className={styles.toggleButton}
+                              onClick={() => handleConfigure(tool)}
+                              icon={<SettingOutlined />}
+                            >
+                              {t("tools.configure")}
+                            </Button>
+                          )}
                           <Button
                             className={styles.toggleButton}
-                            onClick={() => toggleAsyncExecution(tool)}
-                            disabled={!tool.enabled}
-                            icon={
-                              tool.async_execution ? (
-                                <ThunderboltOutlined />
-                              ) : (
-                                <ClockCircleOutlined />
-                              )
-                            }
+                            onClick={() => toggleEnabled(tool)}
+                            icon={<EyeInvisibleOutlined />}
                           >
-                            {tool.async_execution
-                              ? t("tools.asyncExecutionEnabled")
-                              : t("tools.asyncExecutionDisabled")}
+                            {t("common.disable")}
                           </Button>
-                        )}
-                        {/* Add configure button */}
-                        {tool.requires_config && (
-                          <Button
-                            className={styles.toggleButton}
-                            onClick={() => handleConfigure(tool)}
-                            icon={<SettingOutlined />}
-                          >
-                            {t("tools.configure")}
-                          </Button>
-                        )}
-                        <Button
-                          className={styles.toggleButton}
-                          onClick={() => toggleEnabled(tool)}
-                          icon={<EyeInvisibleOutlined />}
-                        >
-                          {t("common.disable")}
-                        </Button>
-                      </div>
+                        </div>
+                      )}
                     </Card>
                   ))}
                 </div>
               ) : (
                 <div className={styles.emptyEnabled}>
                   <p>{t("tools.noEnabled")}</p>
-                  <Button
-                    type="primary"
-                    onClick={() => {
-                      document
-                        .getElementById("available-tools")
-                        ?.scrollIntoView({ behavior: "smooth" });
-                    }}
-                  >
-                    {t("tools.goEnableBtn")}
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      type="primary"
+                      onClick={() => {
+                        document
+                          .getElementById("available-tools")
+                          ?.scrollIntoView({ behavior: "smooth" });
+                      }}
+                    >
+                      {t("tools.goEnableBtn")}
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -490,7 +585,16 @@ export default function ToolsPage() {
                     <div
                       key={tool.name}
                       className={styles.availableItem}
-                      onClick={() => handleAvailableItemClick(tool)}
+                      onClick={() => {
+                        if (!readOnly && !tool.policy_locked)
+                          handleAvailableItemClick(tool);
+                      }}
+                      style={{
+                        cursor:
+                          readOnly || tool.policy_locked
+                            ? "default"
+                            : undefined,
+                      }}
                     >
                       <ToolIcon icon={tool.icon} name={tool.name} />
                       <span
@@ -499,11 +603,15 @@ export default function ToolsPage() {
                       >
                         {tool.name}
                       </span>
-                      <span className={styles.availableItemAction}>
-                        {tool.requires_config && !isToolConfigured(tool)
-                          ? t("tools.configureAction")
-                          : t("tools.enableAction")}
-                      </span>
+                      {!readOnly && (
+                        <span className={styles.availableItemAction}>
+                          {tool.policy_locked
+                            ? t("tools.browserPolicyLocked")
+                            : tool.requires_config && !isToolConfigured(tool)
+                            ? t("tools.configureAction")
+                            : t("tools.enableAction")}
+                        </span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -514,7 +622,7 @@ export default function ToolsPage() {
       </div>
 
       {/* Config modal — key forces remount when switching tools */}
-      {currentTool && (
+      {!readOnly && currentTool && (
         <ToolConfigModal
           key={currentTool.name}
           tool={currentTool}

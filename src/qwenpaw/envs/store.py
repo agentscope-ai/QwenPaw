@@ -27,6 +27,7 @@ _BOOTSTRAP_WORKING_DIR = WORKING_DIR
 _BOOTSTRAP_SECRET_DIR = SECRET_DIR
 
 _ENVS_JSON = _BOOTSTRAP_SECRET_DIR / "envs.json"
+STORAGE_AUTHORITY = "encrypted_deployment_file"
 _LEGACY_ENVS_JSON_CANDIDATES = (
     Path(__file__).resolve().parent / "envs.json",
     _BOOTSTRAP_WORKING_DIR / "envs.json",

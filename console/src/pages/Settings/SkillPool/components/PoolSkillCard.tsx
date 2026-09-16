@@ -20,6 +20,8 @@ interface PoolSkillCardProps {
   onEdit: (skill: PoolSkillSpec) => void;
   onBroadcast: (skill: PoolSkillSpec) => void;
   onDelete: (skill: PoolSkillSpec) => void;
+  publicationState: "unpublished" | "outdated" | "current";
+  onPublish: (skill: PoolSkillSpec) => void | Promise<void>;
   onToggleAutoUpdate: (
     skill: PoolSkillSpec,
     enabled: boolean,
@@ -35,6 +37,8 @@ export function PoolSkillCard({
   onEdit,
   onBroadcast,
   onDelete,
+  publicationState,
+  onPublish,
   onToggleAutoUpdate,
 }: PoolSkillCardProps) {
   const { t } = useTranslation();
@@ -152,6 +156,28 @@ export function PoolSkillCard({
       {/* Description */}
       <div className={styles.descriptionSection}>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
+      </div>
+
+      <div
+        style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}
+      >
+        <Button
+          size="small"
+          type={publicationState === "current" ? "default" : "primary"}
+          disabled={batchModeEnabled || publicationState === "current"}
+          onClick={(e) => {
+            e.stopPropagation();
+            void onPublish(skill);
+          }}
+        >
+          {t(
+            publicationState === "current"
+              ? "skillGovernance.publishCurrent"
+              : publicationState === "outdated"
+              ? "skillGovernance.publishNewVersion"
+              : "skillGovernance.publish",
+          )}
+        </Button>
       </div>
 
       {/* Footer - show on hover, batch mode, or mobile (no hover) */}

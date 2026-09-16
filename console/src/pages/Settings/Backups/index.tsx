@@ -22,7 +22,6 @@ import ImportConflictModal from "./import/ImportConflictModal";
 import { useImportFlow } from "./import/useImportFlow";
 import BackupTrustDialog from "./trust/BackupTrustDialog";
 import CreateBackupModal from "./create/CreateBackupModal";
-import SilentBackupModal from "./create/SilentBackupModal";
 import PreRestoreConfirmModal from "./restore/PreRestoreConfirmModal";
 import RestoreBackupModal from "./restore/RestoreBackupModal";
 import { useRestoreFlow } from "./restore/useRestoreFlow";
@@ -132,14 +131,6 @@ export default function BackupsPage() {
         target={restoreFlow.preRestoreConfirmTarget}
         onCancel={restoreFlow.cancelPreRestore}
         onNoBackup={restoreFlow.confirmRestoreWithoutBackup}
-        onYesBackup={restoreFlow.confirmRestoreWithBackup}
-      />
-
-      <SilentBackupModal
-        target={restoreFlow.preRestoreBackupTarget}
-        agentIds={agents.map((a) => a.id)}
-        onClose={restoreFlow.onPreRestoreBackupClose}
-        onSuccess={restoreFlow.onPreRestoreBackupSuccess}
       />
 
       {restoreFlow.restoreTarget && (

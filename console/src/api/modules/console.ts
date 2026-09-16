@@ -112,6 +112,12 @@ export const consoleApi = {
       method: "DELETE",
     }),
 
+  deleteInboxEvents: (eventIds: string[]) =>
+    request<{ deleted: number }>("/console/inbox/events/delete", {
+      method: "POST",
+      body: JSON.stringify({ event_ids: eventIds }),
+    }),
+
   getInboxTrace: (runId: string) =>
     request<InboxTrace>(`/console/inbox/traces/${encodeURIComponent(runId)}`),
 };

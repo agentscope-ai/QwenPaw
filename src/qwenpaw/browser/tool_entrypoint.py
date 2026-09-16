@@ -30,9 +30,38 @@ from .control_link.chrome.observe import (
 )
 from .handoff_signal import set_pending
 from .execution.kernel import get_default_kernel_manager
+from .execution.limits import BrowserSessionLimiter
 from .execution.wire import ExecRequest
+from .policy import effective_browser_policy
 
 logger = logging.getLogger(__name__)
+_LIMITER: BrowserSessionLimiter | None = None
+_LIMITER_SETTINGS: tuple[int, int, float] | None = None
+
+
+def _multi_user_limiter(config: Any) -> BrowserSessionLimiter:
+    global _LIMITER, _LIMITER_SETTINGS
+    settings = (
+        config.multi_user_global_limit,
+        config.multi_user_per_user_limit,
+        config.session_idle_ttl_seconds,
+    )
+    if _LIMITER is None or _LIMITER_SETTINGS != settings:
+        _LIMITER = BrowserSessionLimiter(
+            global_limit=settings[0],
+            per_user_limit=settings[1],
+            idle_ttl=settings[2],
+        )
+        _LIMITER_SETTINGS = settings
+    return _LIMITER
+
+
+def _error_chunk(reason: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.ERROR,
+        content=[TextBlock(type="text", text=reason)],
+    )
 
 
 async def relocate_overflow_output_async(error: dict) -> dict:
@@ -120,6 +149,15 @@ _BROWSER_TOOL_DESCRIPTION = (
 
 async def run_browser_tool(code: str = "", **legacy: Any) -> ToolChunk:
     """Send one browser program to its workspace subprocess worker."""
+    from ..app.agent_context import get_current_user_id
+    from ..config.utils import load_config
+    from ..identity.runtime import is_multi_user_enabled
+
+    multi_user = is_multi_user_enabled()
+    browser_config = load_config().browser
+    policy = effective_browser_policy(browser_config, multi_user=multi_user)
+    if not policy.allowed:
+        return _error_chunk("Browser is disabled by platform policy.")
     if "action" in legacy or (not code and legacy):
         return ToolChunk(
             is_last=True,
@@ -136,10 +174,25 @@ async def run_browser_tool(code: str = "", **legacy: Any) -> ToolChunk:
             ],
         )
     session_id = get_current_session_id() or "default"
+    workspace_id = derive_workspace_id(get_current_workspace_dir())
+    if multi_user:
+        user_id = get_current_user_id()
+        if not user_id:
+            return _error_chunk("Browser requires an authenticated user.")
+        limiter = _multi_user_limiter(browser_config)
+        acquired = await limiter.acquire(
+            f"{workspace_id}/{session_id}",
+            user_id,
+            timeout=browser_config.multi_user_queue_timeout_seconds,
+        )
+        if not acquired:
+            return _error_chunk(
+                "Browser capacity is busy; retry after another session closes.",
+            )
     request = ExecRequest(
         request_id=uuid.uuid4().hex,
         code=code,
-        owner_workspace_id=derive_workspace_id(get_current_workspace_dir()),
+        owner_workspace_id=workspace_id,
         owner_session_id=session_id,
     )
     outcome = await get_default_kernel_manager().execute(request)

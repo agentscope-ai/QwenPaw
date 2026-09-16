@@ -46,6 +46,9 @@ import {
   withOsPawAppHistoryState,
 } from "../../utils/navigationMode";
 import styles from "./index.module.less";
+import { SharedApps } from "./SharedApps";
+import { MyPublications } from "./MyPublications";
+import { useAuthStore } from "@/stores/authStore";
 
 // Code-split market views so their bundle + network fetch never block the
 // installed-apps section from rendering or being used.
@@ -56,7 +59,7 @@ const AppMarket = lazy(() =>
 const { Option } = Select;
 
 /** URL-persisted App Center views; unknown values fall back to installed. */
-type AppCenterView = "installed" | "official" | "market";
+type AppCenterView = "shared" | "mine" | "installed" | "official" | "market";
 
 // Featured installed apps (e.g. Creator) are pinned to the top of the grid.
 // Lower index = higher placement.
@@ -72,6 +75,9 @@ export default function AppCenterPage() {
   const { appId } = useParams();
   const { message } = useAppMessage();
   const routes = useRoutes();
+  const authMode = useAuthStore((state) => state.mode);
+  const platformRole = useAuthStore((state) => state.user?.platform_role);
+  const canManagePlugins = authMode === "legacy" || platformRole === "admin";
   const [searchParams, setSearchParams] = useSearchParams();
   const [apps, setApps] = useState<AppCardData[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +90,9 @@ export default function AppCenterPage() {
   // Unknown `view` values safely fall back to the installed-apps view.
   const viewParam = searchParams.get("view");
   const view: AppCenterView =
-    viewParam === "official" || viewParam === "market"
+    viewParam === "shared" ||
+    viewParam === "mine" ||
+    (canManagePlugins && (viewParam === "official" || viewParam === "market"))
       ? viewParam
       : "installed";
 
@@ -465,21 +473,23 @@ export default function AppCenterPage() {
           description={t("appCenter.noApps", "No apps installed yet")}
           className={styles.stateBlock}
         >
-          <div className={styles.emptyActions}>
-            <Button
-              type="primary"
-              icon={<BadgeCheck size={14} />}
-              onClick={() => switchView("official")}
-            >
-              {t("appCenter.browseOfficialApps", "浏览官方应用")}
-            </Button>
-            <Button
-              icon={<Store size={14} />}
-              onClick={() => switchView("market")}
-            >
-              {t("appCenter.browseMarket", "浏览应用市场")}
-            </Button>
-          </div>
+          {canManagePlugins && (
+            <div className={styles.emptyActions}>
+              <Button
+                type="primary"
+                icon={<BadgeCheck size={14} />}
+                onClick={() => switchView("official")}
+              >
+                {t("appCenter.browseOfficialApps", "浏览官方应用")}
+              </Button>
+              <Button
+                icon={<Store size={14} />}
+                onClick={() => switchView("market")}
+              >
+                {t("appCenter.browseMarket", "浏览应用市场")}
+              </Button>
+            </div>
+          )}
         </Empty>
       ) : filteredApps.length === 0 ? (
         <Empty
@@ -500,7 +510,7 @@ export default function AppCenterPage() {
               key={app.id}
               app={app}
               onClick={handleAppClick}
-              onUninstall={handleUninstall}
+              onUninstall={canManagePlugins ? handleUninstall : undefined}
             />
           ))}
         </div>
@@ -529,6 +539,8 @@ export default function AppCenterPage() {
             onChange={(key) => switchView(key as AppCenterView)}
             className={styles.viewTabs}
             items={[
+              { key: "shared", label: "共享应用" },
+              { key: "mine", label: "我的发布" },
               {
                 key: "installed",
                 label: (
@@ -549,30 +561,38 @@ export default function AppCenterPage() {
                   </span>
                 ),
               },
-              {
-                key: "official",
-                label: (
-                  <span className={styles.tabLabel}>
-                    <BadgeCheck size={15} />
-                    {t("appCenter.officialApps", "官方应用")}
-                  </span>
-                ),
-              },
-              {
-                key: "market",
-                label: (
-                  <span className={styles.tabLabel}>
-                    <Store size={15} />
-                    {t("appCenter.appMarket", "应用市场")}
-                  </span>
-                ),
-              },
+              ...(canManagePlugins
+                ? [
+                    {
+                      key: "official",
+                      label: (
+                        <span className={styles.tabLabel}>
+                          <BadgeCheck size={15} />
+                          {t("appCenter.officialApps", "官方应用")}
+                        </span>
+                      ),
+                    },
+                    {
+                      key: "market",
+                      label: (
+                        <span className={styles.tabLabel}>
+                          <Store size={15} />
+                          {t("appCenter.appMarket", "应用市场")}
+                        </span>
+                      ),
+                    },
+                  ]
+                : []),
             ]}
           />
 
           {/* External-data views are mounted (chunk + request) only while
               the user is actually on the corresponding tab. */}
-          {view === "official" ? (
+          {view === "shared" ? (
+            <SharedApps />
+          ) : view === "mine" ? (
+            <MyPublications />
+          ) : view === "official" ? (
             <Suspense
               fallback={
                 <div className={styles.stateBlock}>

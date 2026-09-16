@@ -26,6 +26,7 @@ class CheckpointEntry:
     restore_index: int | None = None
     parent_commit: str | None = None
     is_head: bool = False
+    agent_id: str = ""
     user_id: str = ""
     session_id: str = ""
 
@@ -68,6 +69,8 @@ class RestoreResult:
     include_files: bool = False
     deleted_paths: tuple[str, ...] = ()
     file_paths: tuple[str, ...] = ()
+    new_session_id: str | None = None
+    new_chat_id: str | None = None
 
 
 @dataclass(frozen=True)

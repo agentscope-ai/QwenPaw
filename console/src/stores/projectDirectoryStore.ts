@@ -19,19 +19,20 @@ export const useProjectDirectoryStore = create<ProjectDirectoryState>(
   }),
 );
 
-export function useProjectDir(): {
+export function useProjectDir(agentIdOverride?: string): {
   projectDir: string | null | undefined;
   setProjectDir: (path: string | null) => void;
 } {
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const targetAgent = agentIdOverride || selectedAgent;
   const projectDir = useProjectDirectoryStore(
-    (state) => state.projectDirByAgent[selectedAgent],
+    (state) => state.projectDirByAgent[targetAgent],
   );
   const setProjectDir = useProjectDirectoryStore(
     (state) => state.setProjectDir,
   );
   return {
     projectDir,
-    setProjectDir: (path) => setProjectDir(selectedAgent, path),
+    setProjectDir: (path) => setProjectDir(targetAgent, path),
   };
 }

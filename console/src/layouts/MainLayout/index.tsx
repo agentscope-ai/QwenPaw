@@ -11,6 +11,7 @@ import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { Slot } from "../../plugins/registry/Slot";
+import CapabilityBoundary from "../../access/CapabilityBoundary";
 
 const { Content } = Layout;
 
@@ -77,7 +78,15 @@ export default function MainLayout() {
               >
                 <Routes>
                   {renderableRoutes.map((r) => (
-                    <Route key={r.id} path={r.path} element={<r.Component />} />
+                    <Route
+                      key={r.id}
+                      path={r.path}
+                      element={
+                        <CapabilityBoundary capability={r.capability}>
+                          <r.Component />
+                        </CapabilityBoundary>
+                      }
+                    />
                   ))}
                 </Routes>
               </Suspense>

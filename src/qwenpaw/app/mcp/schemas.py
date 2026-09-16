@@ -25,6 +25,29 @@ class MCPAccessSummary(BaseModel):
     overrides_count: int = 0
 
 
+class SecretAction(BaseModel):
+    """Explicit update operation for one secret field."""
+
+    action: Literal["keep", "replace", "delete"]
+    value: Optional[str] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if self.action == "replace" and not self.value:
+            raise ValueError("replacement_secret_required")
+        if self.action != "replace" and self.value is not None:
+            raise ValueError("secret_value_only_allowed_for_replace")
+
+
+class CredentialUpdates(BaseModel):
+    headers: Dict[str, SecretAction] = Field(default_factory=dict)
+    env: Dict[str, SecretAction] = Field(default_factory=dict)
+
+
+class CredentialFields(BaseModel):
+    headers: List[str] = Field(default_factory=list)
+    env: List[str] = Field(default_factory=list)
+
+
 class MCPClientInfo(BaseModel):
     """MCP client information for API responses."""
 
@@ -73,6 +96,16 @@ class MCPClientInfo(BaseModel):
         default_factory=MCPAccessSummary,
         description="Summarised MCP access policy",
     )
+    credential_fields: CredentialFields = Field(default_factory=CredentialFields)
+    revision: Optional[int] = None
+    runtime_status: str = "unknown"
+    runtime_error: Optional[str] = None
+    can_edit: bool = False
+
+    def model_post_init(self, __context: Any) -> None:
+        # Public DTOs never carry credential values, even if a caller passes them.
+        self.headers = {}
+        self.env = {}
 
 
 class MCPClientCreateRequest(BaseModel):
@@ -161,6 +194,8 @@ class MCPClientUpdateRequest(BaseModel):
         description="Tool whitelist (omit to leave unchanged). "
         "Set to null to remove the whitelist.",
     )
+    credential_updates: CredentialUpdates = Field(default_factory=CredentialUpdates)
+    expected_revision: Optional[int] = None
 
 
 class MCPAccessRule(BaseModel):
@@ -255,6 +290,11 @@ class MCPAccessPolicy(BaseModel):
     unmanaged_rules_count: int = Field(
         default=0,
         description="Rules preserved but not editable by the console",
+    )
+    expected_revision: Optional[int] = Field(
+        default=None,
+        exclude=True,
+        description="Optimistic concurrency revision for updates",
     )
 
 

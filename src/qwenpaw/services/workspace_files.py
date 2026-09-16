@@ -9,9 +9,19 @@ import os
 import secrets
 import stat
 import threading
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
+from uuid import UUID
+
+from ..access.agent_repository import AgentResourceRole
+from ..constant import WORKING_DIR
+from ..workspaces.resolver import WorkspaceKind, WorkspaceResolver
+from ..workspaces.layout import (
+    ARTIFACTS_DIRECTORY,
+    LEGACY_ARTIFACTS_DIRECTORY,
+)
 
 
 DEFAULT_PAGE_SIZE = 200
@@ -107,6 +117,103 @@ class FileVersionConflict(RuntimeError):
     """Raised when optimistic concurrency detects a changed file."""
 
 
+@dataclass(frozen=True, slots=True)
+class FilesRootAccess:
+    """Files 页面一个明确目录来源的授权结果。"""
+
+    path: Path
+    kind: str
+    read_only: bool
+    workspace_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FilesWorkspaceAccess:
+    """项目运行目录与 Agent 配置目录的独立权限。"""
+
+    project: FilesRootAccess
+    workspace: FilesRootAccess
+
+
+def resolve_private_task_directory(
+    *,
+    actor_user_id: UUID,
+    agent_id: str,
+    conversation_id: str,
+    working_dir: Path | None = None,
+) -> Path:
+    """从服务端身份和会话标识派生私有产物目录，拒绝路径片段注入。"""
+    user_id = UUID(str(actor_user_id))
+    chat_id = UUID(str(conversation_id))
+    resolver = WorkspaceResolver(working_dir=working_dir or WORKING_DIR)
+    runtime = resolver.resolve(
+        kind=WorkspaceKind.USER_RUNTIME,
+        resource_id=agent_id,
+        actor_user_id=user_id,
+    )
+    resolver.ensure_standard_directories(runtime)
+    if (runtime.path / ARTIFACTS_DIRECTORY / str(chat_id)).is_symlink():
+        raise InvalidWorkspacePath("Task directory cannot be a symlink")
+    task = resolve_workspace_path(runtime.path, f"{ARTIFACTS_DIRECTORY}/{chat_id}")
+    task.mkdir(parents=True, exist_ok=True)
+    return task
+
+
+def resolve_files_workspace_access(
+    *,
+    agent_id: str,
+    agent_workspace: Path,
+    agent_project: Path,
+    actor_user_id: UUID | None,
+    access_role: AgentResourceRole,
+    historical_read_only: bool = False,
+    working_dir: Path | None = None,
+    agent_workspace_kind: str = "draft",
+) -> FilesWorkspaceAccess:
+    """从可信身份和 Agent 角色解析 Files 页的两个目录根。"""
+    if access_role is AgentResourceRole.USER and not historical_read_only:
+        if actor_user_id is None:
+            raise ValueError("authenticated_user_required")
+        resolver = WorkspaceResolver(working_dir=working_dir or WORKING_DIR)
+        runtime = resolver.resolve(
+            kind=WorkspaceKind.USER_RUNTIME,
+            resource_id=agent_id,
+            actor_user_id=actor_user_id,
+        )
+        resolver.ensure_standard_directories(runtime)
+        return FilesWorkspaceAccess(
+            project=FilesRootAccess(
+                path=runtime.path,
+                kind=runtime.kind.value,
+                read_only=False,
+                workspace_key=runtime.workspace_key,
+            ),
+            workspace=FilesRootAccess(
+                path=Path(agent_workspace),
+                kind=agent_workspace_kind,
+                read_only=True,
+                workspace_key=str(agent_workspace),
+            ),
+        )
+
+    read_only = historical_read_only
+    project_path = Path(agent_project)
+    return FilesWorkspaceAccess(
+        project=FilesRootAccess(
+            path=project_path,
+            kind="legacy",
+            read_only=read_only,
+            workspace_key=str(agent_project),
+        ),
+        workspace=FilesRootAccess(
+            path=Path(agent_workspace),
+            kind=agent_workspace_kind,
+            read_only=read_only,
+            workspace_key=str(agent_workspace),
+        ),
+    )
+
+
 def _validate_segment(segment: str, *, portable: bool) -> None:
     """Validate one POSIX API path segment."""
     if not segment or segment in {".", ".."}:
@@ -151,6 +258,12 @@ def resolve_workspace_path(
         segments = api_path.split("/")
         for segment in segments:
             _validate_segment(segment, portable=portable)
+        if (
+            segments[0] == ARTIFACTS_DIRECTORY
+            and not (root / ARTIFACTS_DIRECTORY).exists()
+            and (root / LEGACY_ARTIFACTS_DIRECTORY).is_dir()
+        ):
+            segments[0] = LEGACY_ARTIFACTS_DIRECTORY
         relative = PurePosixPath(*segments)
 
     resolved_root = root.resolve()

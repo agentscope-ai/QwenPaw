@@ -2,6 +2,7 @@
 """Headline extraction and display-cleanup regressions."""
 
 import pytest
+from agentscope.message import Msg
 
 from qwenpaw.agents.context.scroll.prompt import build_scroll_system_prompt
 from qwenpaw.agents.context.scroll.serialize import (
@@ -10,7 +11,14 @@ from qwenpaw.agents.context.scroll.serialize import (
     flush_headline_delta,
     strip_headline,
     strip_headline_delta,
+    msg_to_entries,
 )
+
+
+def test_transcript_presentation_survives_durable_serialization():
+    message = Msg(name="user", role="user", content=[{"type": "text", "text": "model input"}], metadata={"qwenpaw_display_text": "@report.md /writing"})
+    entries = msg_to_entries(message)
+    assert entries[0].metadata["qwenpaw_display_text"] == "@report.md /writing"
 
 
 @pytest.mark.parametrize(

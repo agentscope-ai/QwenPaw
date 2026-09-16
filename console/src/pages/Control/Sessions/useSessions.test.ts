@@ -67,8 +67,30 @@ describe("useSessions", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(chatApi.listChats).toHaveBeenCalledTimes(1);
+    expect(chatApi.listChats).toHaveBeenCalledWith({ scope: "all" });
     expect(result.current.sessions).toEqual(mockSessions);
+  });
+
+  it("切换到我的会话后按 owned scope 重新加载", async () => {
+    const { result } = renderHook(() => useSessions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setAccessScope("owned"));
+
+    await waitFor(() =>
+      expect(chatApi.listChats).toHaveBeenLastCalledWith({ scope: "owned" }),
+    );
+  });
+
+  it("切换到分享给我的后按 shared scope 重新加载", async () => {
+    const { result } = renderHook(() => useSessions());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    act(() => result.current.setAccessScope("shared"));
+
+    await waitFor(() =>
+      expect(chatApi.listChats).toHaveBeenLastCalledWith({ scope: "shared" }),
+    );
   });
 
   // 3. updateSession 成功时更新 sessions 列表并调用 message.success

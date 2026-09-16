@@ -402,14 +402,16 @@ describe("workspaceApi sectioned memory files", () => {
   it("lists files from the selected memory section", async () => {
     vi.mocked(request).mockResolvedValue([]);
     await workspaceApi.listMemoryFiles("digest");
-    expect(request).toHaveBeenCalledWith("/workspace/memory?section=digest");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory?section=digest&scope=public",
+    );
   });
 
   it("loads a nested file from the selected memory section", async () => {
     vi.mocked(request).mockResolvedValue({ content: "knowledge" });
     await workspaceApi.loadMemoryFile("wiki/topic.md", "digest");
     expect(request).toHaveBeenCalledWith(
-      "/workspace/memory/wiki/topic.md?section=digest",
+      "/workspace/memory/wiki/topic.md?section=digest&scope=public",
     );
   });
 
@@ -417,11 +419,50 @@ describe("workspaceApi sectioned memory files", () => {
     vi.mocked(request).mockResolvedValue({});
     await workspaceApi.saveMemoryFile("2026/08/05.md", "today", "daily");
     expect(request).toHaveBeenCalledWith(
-      "/workspace/memory/2026/08/05.md?section=daily",
+      "/workspace/memory/2026/08/05.md?section=daily&scope=public",
       {
         method: "PUT",
         body: JSON.stringify({ content: "today" }),
       },
+    );
+  });
+
+  it("creates a memory file without using the update method", async () => {
+    vi.mocked(request).mockResolvedValue({});
+    await workspaceApi.createMemoryFile("new-note.md", "", "digest");
+    expect(request).toHaveBeenCalledWith(
+      "/workspace/memory/new-note.md?section=digest&scope=public",
+      {
+        method: "POST",
+        body: JSON.stringify({ content: "" }),
+      },
+    );
+  });
+
+  it("sends the selected Agent context with workspace saves", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ path: "notes.md", size: 5, etag: "v2" }),
+      } as unknown as Response),
+    );
+
+    await workspaceApi.saveFileContent(
+      "notes.md",
+      "after",
+      "v1",
+      undefined,
+      "workspace",
+      undefined,
+      { agentId: "public-agent" },
+    );
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/workspace/file-content?path=notes.md&root=workspace",
+      expect.objectContaining({
+        headers: expect.objectContaining({ "X-Agent-Id": "public-agent" }),
+      }),
     );
   });
 });

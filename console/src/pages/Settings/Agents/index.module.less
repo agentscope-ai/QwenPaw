@@ -135,6 +135,36 @@
   }
 }
 
+.accessTabs {
+  flex: 1;
+  min-height: 0;
+
+  :global {
+    .ant-tabs-content-holder,
+    .ant-tabs-content,
+    .ant-tabs-tabpane-active {
+      height: 100%;
+      min-height: 0;
+    }
+
+    .ant-tabs-content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ant-tabs-tabpane-active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ant-tabs-nav,
+    .qwenpaw-tabs-nav {
+      margin: 0;
+      padding: 0 24px;
+    }
+  }
+}
+
 .backendTag {
   display: inline-flex;
   max-width: 100%;

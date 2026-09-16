@@ -19,6 +19,7 @@ from ..config.config import (
     AgentsConfig,
     AgentsLLMRoutingConfig,
     AgentsRunningConfig,
+    load_agent_config,
     save_agent_config,
 )
 from ..constant import (
@@ -76,6 +77,35 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
             "verify that all SKILL.md files have valid YAML frontmatter.",
             exc_info=True,
         )
+        return False
+
+
+def migrate_legacy_memory_to_public_scopes() -> bool:
+    """登记旧 Agent 记忆为公共作用域，失败时不阻断应用启动。"""
+    try:
+        from ..migrations.memory_scope_migration import (
+            migrate_legacy_memory_scopes,
+        )
+
+        config = load_config()
+        result = migrate_legacy_memory_scopes(
+            working_dir=Path(WORKING_DIR).expanduser(),
+            agent_workspaces={
+                agent_id: Path(reference.workspace_dir).expanduser()
+                for agent_id, reference in config.agents.profiles.items()
+            },
+            load_agent=load_agent_config,
+            save_agent=save_agent_config,
+        )
+        if result.changed:
+            logger.info(
+                "Registered legacy public memory for %d agents (%d files)",
+                result.registered_agents,
+                result.registered_files,
+            )
+        return result.changed
+    except Exception:
+        logger.exception("Legacy public memory registration failed")
         return False
 
 

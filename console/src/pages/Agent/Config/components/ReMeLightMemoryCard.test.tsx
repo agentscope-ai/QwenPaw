@@ -17,6 +17,7 @@ import {
   getEmbeddingServiceFingerprint,
   isEmbeddingEnabled,
 } from "./embeddingUtils";
+import type { AgentRequestContext } from "@/api/modules/agentRequestContext";
 
 vi.mock("@agentscope-ai/design", async () =>
   vi.importActual<typeof import("antd")>("antd"),
@@ -126,6 +127,24 @@ function MemoryForm({
   );
 }
 
+function AutoSearchForm({ enabled }: { enabled: boolean }) {
+  const [form] = Form.useForm();
+  return (
+    <StaticMemoryProvider>
+      <Form
+        form={form}
+        initialValues={{
+          reme_light_memory_config: {
+            auto_memory_search_config: { enabled, max_results: 2 },
+          },
+        }}
+      >
+        <ReMeLightMemoryCard />
+      </Form>
+    </StaticMemoryProvider>
+  );
+}
+
 function EmbeddingForm() {
   const [form] = Form.useForm();
   return (
@@ -140,7 +159,11 @@ function EmbeddingForm() {
   );
 }
 
-function ConfiguredEmbeddingForm() {
+function ConfiguredEmbeddingForm({
+  requestContext,
+}: {
+  requestContext?: AgentRequestContext;
+} = {}) {
   const [form] = Form.useForm();
   return (
     <Form
@@ -157,7 +180,7 @@ function ConfiguredEmbeddingForm() {
         },
       }}
     >
-      <EmbeddingModelCard />
+      <EmbeddingModelCard requestContext={requestContext} />
     </Form>
   );
 }
@@ -460,6 +483,23 @@ describe("long-term memory defaults", () => {
       switchInRow(screen.getByText("agentConfig.memoryAutoRecallTitle")),
     ).toHaveAttribute("aria-checked", "false");
   });
+
+  it.each([
+    [true, "true"],
+    [false, "false"],
+  ])(
+    "preserves backend auto memory search value (%s)",
+    (enabled, expected) => {
+      renderWithProviders(<AutoSearchForm enabled={enabled} />);
+
+      const label = screen.getByText("agentConfig.memoryAutoRecallTitle");
+      const toggle = label.parentElement?.parentElement?.querySelector(
+        '[role="switch"]',
+      );
+
+      expect(toggle).toHaveAttribute("aria-checked", expected);
+    },
+  );
 });
 
 describe("embedding card separation", () => {
@@ -508,6 +548,36 @@ describe("embedding card separation", () => {
     expect(
       screen.getByText("agentConfig.embeddingVerificationMetrics"),
     ).toBeInTheDocument();
+  });
+
+  it("tests embedding against the governed agent", async () => {
+    const testEmbedding = vi.spyOn(api, "testEmbedding").mockResolvedValue({
+      success: true,
+      configured_dimensions: 1024,
+      actual_dimensions: 1024,
+      latency_ms: 86,
+      message: "ok",
+    });
+    const requestContext = {
+      agentId: "governed-agent",
+      governance: true,
+    } as const;
+
+    renderWithProviders(
+      <ConfiguredEmbeddingForm requestContext={requestContext} />,
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "agentConfig.embeddingTestConnection",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(testEmbedding).toHaveBeenCalledWith(
+        expect.objectContaining({ model_name: "text-embedding-v4" }),
+        requestContext,
+      ),
+    );
   });
 
   it("clears verification when the selected agent changes", async () => {

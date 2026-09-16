@@ -141,6 +141,12 @@ async def _submit_forked_task(
         return _Workspace(Path(worktree))
 
     monkeypatch.setattr(console, "get_agent_for_request", _get_workspace)
+
+    async def _no_op(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(console, "_resolve_personal_library_references", _no_op)
+    monkeypatch.setattr("qwenpaw.models.runtime.prepare_console_model", _no_op)
     monkeypatch.setattr(
         "qwenpaw.config.config.load_agent_config",
         lambda _agent_id: SimpleNamespace(project_dir=None),

@@ -2,6 +2,12 @@
 
 Run from **repo root**.
 
+## Multi-user deployment and service management
+
+See [部署与运行手册](../docs/deployment.md). Use `qwenpaw service start`,
+`stop`, `restart`, `status`, and `logs` with `deploy/service.local.json`.
+The historical `tmp/start-18089.ps1` is not the deployment entry point.
+
 ## Build wheel (with latest console)
 
 ```bash

@@ -15,6 +15,19 @@ from qwenpaw.security.skill_scanner.scan_policy import ScanPolicy
 
 
 @pytest.fixture
+def create_symlink():
+    """Only skip real-link integration checks when Windows denies privilege."""
+    def create(link, target):
+        try:
+            link.symlink_to(target, target_is_directory=target.is_dir())
+        except OSError as exc:
+            if getattr(exc, "winerror", None) == 1314:
+                pytest.skip("Windows symlink creation privilege is unavailable")
+            raise
+    return create
+
+
+@pytest.fixture
 def default_policy():
     """Return a default ScanPolicy (no file I/O if default YAML missing)."""
     return ScanPolicy()

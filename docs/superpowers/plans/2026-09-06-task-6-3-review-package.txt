@@ -1,0 +1,2183 @@
+Task 6.3 review package. Working tree vs HEAD includes pre-existing changes; implementation report distinguishes ownership. No commits.
+
+warning: in the working copy of 'console/src/api/types/checkpoints.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'console/src/pages/Agent/Checkpoints/RestoreModal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/app/routers/checkpoints.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/hooks.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/models.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/repository.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/runtime.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/app/routers/test_checkpoints_router.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/checkpoints/test_checkpoint_hooks.py', LF will be replaced by CRLF the next time Git touches it
+diff --git a/console/src/api/types/checkpoints.ts b/console/src/api/types/checkpoints.ts
+index 3d23979e..b1eab614 100644
+--- a/console/src/api/types/checkpoints.ts
++++ b/console/src/api/types/checkpoints.ts
+@@ -7,20 +7,21 @@ export interface CheckpointNode {
+   name: string;
+   commit: string;
+   sha: string;
+   timestamp_ms: number;
+   subject: string;
+   query: string | null;
+   channel: string;
+   restore_index: number | null;
+   parent_commit: string | null;
+   is_head: boolean;
++  agent_id: string;
+   user_id: string;
+   session_id: string;
+   session_title: string;
+ }
+ 
+ export interface CheckpointSession {
+   session_key: string;
+   session_id: string;
+   user_id: string;
+   channel: string;
+@@ -37,43 +38,50 @@ export interface CheckpointGraphResponse {
+     snapshots: number;
+     safety: number;
+     heads: number;
+   };
+   truncated: boolean;
+ }
+ 
+ export interface CheckpointStatus {
+   auto_enabled: boolean;
+   has_checkpoints: boolean;
+-  workspace_dir: string;
++  scope: "user_runtime" | "legacy" | "agent_workspace";
+ }
+ 
+ export interface RestoreRequest {
+   commit: string;
+   session_id: string;
+-  user_id: string;
+   channel: string;
+   include_memory: boolean;
+   include_files: boolean;
+   files?: string[];
+ }
+ 
++export interface SnapshotRequest {
++  session_id: string;
++  channel: string;
++  name: string;
++}
++
+ export interface RestoreResult {
+   target: string;
+   commit: string;
+   restored_paths: string[];
+   deleted_paths: string[];
+   file_paths: string[];
+   pre_restore_ref: string | null;
+   dry_run: boolean;
+   include_memory: boolean;
+   include_files: boolean;
++  new_session_id: string | null;
++  new_chat_id: string | null;
+ }
+ 
+ export interface GcResult {
+   deleted_refs: string[];
+   kept_refs: string[];
+   dry_run: boolean;
+ }
+ 
+ export interface GcRequest {
+   compact?: boolean;
+diff --git a/console/src/pages/Agent/Checkpoints/RestoreModal.tsx b/console/src/pages/Agent/Checkpoints/RestoreModal.tsx
+index 38076f94..96ff19da 100644
+--- a/console/src/pages/Agent/Checkpoints/RestoreModal.tsx
++++ b/console/src/pages/Agent/Checkpoints/RestoreModal.tsx
+@@ -1,56 +1,60 @@
+ import { useEffect, useMemo, useState } from "react";
+ import { Alert, Button, Checkbox, Divider, Modal, Spin } from "antd";
+ import { useTranslation } from "react-i18next";
++import { useNavigate } from "react-router-dom";
+ import { checkpointsApi } from "@/api/modules/checkpoints";
+ import type {
+   CheckpointNode,
+   RestoreRequest,
+   RestoreResult,
+ } from "@/api/types/checkpoints";
+ import { useAppMessage } from "@/hooks/useAppMessage";
+ import styles from "./index.module.less";
+ 
+ interface RestoreModalProps {
+   open: boolean;
+   node: CheckpointNode | null;
+   onClose: () => void;
+   onRestored: () => void;
+ }
+ 
++export const restoredChatPath = (chatId: string): string =>
++  `/chat/${encodeURIComponent(chatId)}`;
++
+ export function RestoreModal({
+   open,
+   node,
+   onClose,
+   onRestored,
+ }: RestoreModalProps) {
+   const { t } = useTranslation();
++  const navigate = useNavigate();
+   const { message } = useAppMessage();
+   const [includeMemory, setIncludeMemory] = useState(false);
+   const [includeFiles, setIncludeFiles] = useState(false);
+   const [preview, setPreview] = useState<RestoreResult | null>(null);
+   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+   const [previewing, setPreviewing] = useState(false);
+   const [restoring, setRestoring] = useState(false);
+ 
+   useEffect(() => {
+     if (!open) return;
+     setIncludeMemory(false);
+     setIncludeFiles(false);
+     setPreview(null);
+     setSelectedFiles([]);
+   }, [open, node?.commit]);
+ 
+   const baseRequest = (): RestoreRequest => ({
+     commit: node?.commit ?? "",
+     session_id: node?.session_id ?? "",
+-    user_id: node?.user_id ?? "",
+     channel: node?.channel ?? "console",
+     include_memory: includeMemory,
+     include_files: includeFiles,
+   });
+ 
+   const previewRestore = async () => {
+     if (!node) return;
+     setPreviewing(true);
+     try {
+       const result = await checkpointsApi.previewRestore(baseRequest());
+@@ -60,29 +64,32 @@ export function RestoreModal({
+       message.error((error as Error).message);
+     } finally {
+       setPreviewing(false);
+     }
+   };
+ 
+   const applyRestore = async () => {
+     if (!node || !preview) return;
+     setRestoring(true);
+     try {
+-      await checkpointsApi.restore({
++      const result = await checkpointsApi.restore({
+         ...baseRequest(),
+         // Pin confirmation to the exact commit resolved by the preview.
+         commit: preview.commit,
+         files: includeFiles ? selectedFiles : undefined,
+       });
+       message.success(t("checkpoints.restore.success"));
+       onClose();
+       onRestored();
++      if (result.new_chat_id) {
++        navigate(restoredChatPath(result.new_chat_id));
++      }
+     } catch (error) {
+       message.error((error as Error).message);
+     } finally {
+       setRestoring(false);
+     }
+   };
+ 
+   const fileStatus = useMemo(() => {
+     const deleted = new Set(preview?.deleted_paths ?? []);
+     return (preview?.file_paths ?? []).map((path) => ({
+diff --git a/src/qwenpaw/app/routers/checkpoints.py b/src/qwenpaw/app/routers/checkpoints.py
+index f520db0e..183e2323 100644
+--- a/src/qwenpaw/app/routers/checkpoints.py
++++ b/src/qwenpaw/app/routers/checkpoints.py
+@@ -1,29 +1,34 @@
+ # -*- coding: utf-8 -*-
+ """Agent workspace checkpoint endpoints for the Console graph page."""
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import asdict
++from dataclasses import asdict, replace
+ import logging
++from uuid import uuid4
+ 
+ from fastapi import APIRouter, HTTPException, Query, Request
+ from pydantic import BaseModel, Field
+ 
+ from ...checkpoints.models import (
+     CheckpointEntry,
+     CheckpointError,
+     RestoreResult,
+ )
+-from ...checkpoints.policy import session_key
++from ...checkpoints.policy import session_file_path, session_key
+ from ...checkpoints.runtime import RUNTIME
+-from ..agent_context import get_agent_for_request
++from ...identity.runtime import is_multi_user_enabled
++from ...access.dependencies import get_actor
++from ...access.agent_repository import AgentResourceRole
++from ..agent_context import get_agent_access_state, get_agent_for_request
++from ..chats.models import ChatSpec
+ 
+ router = APIRouter(prefix="/workspace/checkpoints", tags=["checkpoints"])
+ logger = logging.getLogger(__name__)
+ 
+ 
+ class AutoRequest(BaseModel):
+     enabled: bool
+ 
+ 
+ class SnapshotRequest(BaseModel):
+@@ -69,30 +74,60 @@ def _entry_payload(
+     return payload
+ 
+ 
+ def _restore_payload(result: RestoreResult) -> dict:
+     return asdict(result)
+ 
+ 
+ async def _service(request: Request):
+     workspace = await get_agent_for_request(request)
+     try:
++        if _uses_personal_runtime(request):
++            from ..agent_context import get_files_workspace_access
++
++            files_access = await get_files_workspace_access(request, workspace)
++            service = await RUNTIME.get_for_workspace_dir_async(
++                files_access.project.path,
++            )
++            service.workspace = workspace
++            service.agent_id = workspace.agent_id
++            service.checkpoint_scope = files_access.project.kind
++            service.conversation_workspace_dir = workspace.workspace_dir
++            return service
+         return await RUNTIME.get_for_workspace_async(workspace)
+     except CheckpointError as exc:
+         raise HTTPException(status_code=400, detail=str(exc)) from exc
+ 
+ 
++def _trusted_user_id(request: Request, supplied_user_id: str) -> str:
++    """多用户模式只接受认证中间件签发的用户身份。"""
++    if not is_multi_user_enabled():
++        return supplied_user_id
++    actor = get_actor(request)
++    if actor.user_id is None:
++        raise HTTPException(status_code=401, detail="not_authenticated")
++    return str(actor.user_id)
++
++
++def _uses_personal_runtime(request: Request) -> bool:
++    """仅使用成员的检查点必须绑定其独立运行空间。"""
++    if not is_multi_user_enabled():
++        return False
++    role, historical_read_only = get_agent_access_state(request)
++    return role is AgentResourceRole.USER and not historical_read_only
++
++
+ def _checkpoint_error(exc: CheckpointError) -> HTTPException:
+     return HTTPException(status_code=400, detail=str(exc))
+ 
+ 
+-async def _workspace_sessions(service) -> list[dict]:
++async def _workspace_sessions(service, *, user_id: str | None = None) -> list[dict]:
+     """Return the complete lightweight chat catalog for this workspace."""
+     workspace = service.workspace
+     if workspace is None or not hasattr(workspace, "chat_manager"):
+         return []
+     try:
+         chats = await workspace.chat_manager.list_chats(archived=None)
+     except Exception:
+         logger.warning(
+             "Failed to load chat titles for checkpoint graph",
+             exc_info=True,
+@@ -105,36 +140,74 @@ async def _workspace_sessions(service) -> list[dict]:
+                 user_id=chat.user_id,
+                 session_id=chat.session_id,
+             ),
+             "session_id": chat.session_id,
+             "user_id": chat.user_id,
+             "channel": chat.channel,
+             "title": chat.name or "",
+             "archived": chat.archived,
+         }
+         for chat in chats
+-        if chat.session_id
++        if chat.session_id and (user_id is None or chat.user_id == user_id)
+     ]
+ 
+ 
++async def _visible_entries(service, request: Request, *, limit: int):
++    """多用户模式只返回认证主体自身创建的检查点。"""
++    entries = await service.graph_entries(limit=limit)
++    if not is_multi_user_enabled():
++        return entries
++    user_id = _trusted_user_id(request, "")
++    return [entry for entry in entries if entry.user_id == user_id]
++
++
++async def _require_restore_access(
++    service,
++    request: Request,
++    *,
++    commit: str,
++    user_id: str,
++    session_id: str,
++    channel: str,
++) -> CheckpointEntry | None:
++    """恢复目标必须与可信 Agent、创建者和原始会话完全匹配。"""
++    if not is_multi_user_enabled():
++        return None
++    entries = await _visible_entries(service, request, limit=1000)
++    agent_id = str(getattr(service, "agent_id", "") or "")
++    role, historical_read_only = get_agent_access_state(request)
++    for entry in entries:
++        if not (
++            entry.commit == commit
++            and entry.agent_id == agent_id
++            and entry.session_id == session_id
++            and entry.channel == channel
++        ):
++            continue
++        if entry.user_id != user_id:
++            continue
++        return entry
++    raise HTTPException(status_code=403, detail="forbidden")
++
++
+ @router.get("/status")
+ async def checkpoint_status(request: Request) -> dict:
+     service = await _service(request)
+     try:
+-        entries = await service.graph_entries(limit=1)
++        entries = await _visible_entries(service, request, limit=1)
+         auto_enabled, _debounce_seconds = await service.auto_settings()
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return {
+         "auto_enabled": auto_enabled,
+         "has_checkpoints": bool(entries),
+-        "workspace_dir": str(service.workspace_dir),
++        "scope": getattr(service, "checkpoint_scope", "agent_workspace"),
+     }
+ 
+ 
+ @router.patch("/auto")
+ async def set_checkpoint_auto(body: AutoRequest, request: Request) -> dict:
+     service = await _service(request)
+     try:
+         auto_enabled, _debounce_seconds = await service.set_auto_enabled(
+             body.enabled,
+         )
+@@ -143,24 +216,25 @@ async def set_checkpoint_auto(body: AutoRequest, request: Request) -> dict:
+     return {"auto_enabled": auto_enabled}
+ 
+ 
+ @router.get("/graph")
+ async def checkpoint_graph(
+     request: Request,
+     limit: int = Query(default=500, ge=1, le=1000),
+ ) -> dict:
+     service = await _service(request)
+     try:
+-        entries = await service.graph_entries(limit=limit)
++        entries = await _visible_entries(service, request, limit=limit)
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+-    sessions = await _workspace_sessions(service)
++    user_id = _trusted_user_id(request, "") if is_multi_user_enabled() else None
++    sessions = await _workspace_sessions(service, user_id=user_id)
+     titles = {
+         (item["channel"], item["user_id"], item["session_id"]): item["title"]
+         for item in sessions
+     }
+     nodes = [_entry_payload(entry, titles) for entry in entries]
+     return {
+         "nodes": nodes,
+         "sessions": sessions,
+         "summary": {
+             "total": len(nodes),
+@@ -173,55 +247,195 @@ async def checkpoint_graph(
+     }
+ 
+ 
+ @router.post("/snapshot")
+ async def create_checkpoint(body: SnapshotRequest, request: Request) -> dict:
+     service = await _service(request)
+     try:
+         result = await service.make_snapshot_result(
+             kind="snap",
+             session_id=body.session_id,
+-            user_id=body.user_id,
++            user_id=_trusted_user_id(request, body.user_id),
+             channel=body.channel,
+             name=body.name or None,
+             message=body.name,
+         )
+     except (CheckpointError, ValueError) as exc:
+         raise _checkpoint_error(CheckpointError(str(exc))) from exc
+     return asdict(result)
+ 
+ 
+ async def _restore(body: RestoreRequest, request: Request, *, dry_run: bool):
+     service = await _service(request)
++    user_id = _trusted_user_id(request, body.user_id)
++    entry = await _require_restore_access(
++        service,
++        request,
++        commit=body.commit,
++        user_id=user_id,
++        session_id=body.session_id,
++        channel=body.channel,
++    )
++    restore_user_id = entry.user_id if entry is not None else user_id
++    if is_multi_user_enabled():
++        return await _restore_as_new_chat(
++            service,
++            body,
++            user_id=restore_user_id,
++            dry_run=dry_run,
++        )
+     kwargs = {
+         "target": body.commit,
+         "session_id": body.session_id,
+-        "user_id": body.user_id,
++        "user_id": restore_user_id,
+         "channel": body.channel,
+         "dry_run": dry_run,
+     }
+     try:
+         if body.include_files:
+             result = await service.restore_with_files(
+                 **kwargs,
+                 include_memory=body.include_memory,
+                 selected_files=(None if dry_run else tuple(body.files or ())),
+             )
+         elif body.include_memory:
+             result = await service.restore_with_memory(**kwargs)
+         else:
+             result = await service.restore(**kwargs)
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return _restore_payload(result)
+ 
+ 
++async def _restore_as_new_chat(
++    service,
++    body: RestoreRequest,
++    *,
++    user_id: str,
++    dry_run: bool,
++) -> dict:
++    """多用户恢复复制为新会话；源会话和历史记录保持不变。"""
++    workspace = service.workspace
++    chat_manager = getattr(workspace, "chat_manager", None)
++    if chat_manager is None:
++        raise HTTPException(status_code=409, detail="source_chat_unavailable")
++    source_chat_id = await chat_manager.get_chat_id_by_session(
++        body.session_id,
++        body.channel,
++        user_id=user_id,
++    )
++    if not source_chat_id:
++        raise HTTPException(status_code=403, detail="forbidden")
++    source_chat = await chat_manager.get_chat(source_chat_id)
++    if source_chat is None or source_chat.user_id != user_id:
++        raise HTTPException(status_code=403, detail="forbidden")
++
++    preview_session_id = f"preview-{body.commit[:12]}"
++    if dry_run:
++        session_preview = await service.restore_session_copy(
++            target=body.commit,
++            source_session_id=body.session_id,
++            source_user_id=user_id,
++            source_channel=body.channel,
++            new_session_id=preview_session_id,
++            new_user_id=user_id,
++            new_channel=body.channel,
++            dry_run=True,
++        )
++        if body.include_files or body.include_memory:
++            file_preview = await service.restore_selected_files_copy(
++                target=body.commit,
++                source_session_id=body.session_id,
++                source_user_id=user_id,
++                source_channel=body.channel,
++                selected_files=None,
++                include_files=body.include_files,
++                include_memory=body.include_memory,
++                dry_run=True,
++            )
++            session_preview = replace(
++                session_preview,
++                include_memory=body.include_memory,
++                include_files=True,
++                deleted_paths=file_preview.deleted_paths,
++                file_paths=file_preview.file_paths,
++            )
++        return _restore_payload(session_preview)
++
++    new_session_id = str(uuid4())
++    new_chat_id = str(uuid4())
++    new_session_path = session_file_path(
++        service.conversation_workspace_dir,
++        session_id=new_session_id,
++        user_id=user_id,
++        channel=body.channel,
++    )
++    chat_created = False
++    scope_result = None
++    try:
++        copied = await service.restore_session_copy(
++            target=body.commit,
++            source_session_id=body.session_id,
++            source_user_id=user_id,
++            source_channel=body.channel,
++            new_session_id=new_session_id,
++            new_user_id=user_id,
++            new_channel=body.channel,
++        )
++        if body.include_files or body.include_memory:
++            file_result = await service.restore_selected_files_copy(
++                target=body.commit,
++                source_session_id=body.session_id,
++                source_user_id=user_id,
++                source_channel=body.channel,
++                selected_files=tuple(body.files or ()),
++                include_files=body.include_files,
++                include_memory=body.include_memory,
++            )
++            scope_result = file_result
++            copied = replace(
++                copied,
++                include_memory=body.include_memory,
++                include_files=True,
++                deleted_paths=file_result.deleted_paths,
++                file_paths=file_result.file_paths,
++            )
++        await chat_manager.create_chat(
++            ChatSpec(
++                id=new_chat_id,
++                session_id=new_session_id,
++                user_id=user_id,
++                channel=body.channel,
++                name=f"{source_chat.name} (restored)",
++                meta={
++                    "restored_from_chat_id": source_chat.id,
++                    "restored_from_checkpoint": body.commit,
++                },
++            ),
++        )
++        chat_created = True
++    except Exception:
++        if chat_created or await chat_manager.get_chat(new_chat_id) is not None:
++            await chat_manager.delete_chats([new_chat_id])
++        new_session_path.unlink(missing_ok=True)
++        if scope_result is not None:
++            await service.rollback_selected_scopes(scope_result)
++        raise
++    return _restore_payload(
++        replace(
++            copied,
++            new_session_id=new_session_id,
++            new_chat_id=new_chat_id,
++        ),
++    )
++
++
+ @router.post("/restore/preview")
+ async def preview_checkpoint_restore(
+     body: RestoreRequest,
+     request: Request,
+ ) -> dict:
+     return await _restore(body, request, dry_run=True)
+ 
+ 
+ @router.post("/restore")
+ async def apply_checkpoint_restore(
+diff --git a/src/qwenpaw/checkpoints/hooks.py b/src/qwenpaw/checkpoints/hooks.py
+index 914965bf..9f0d143b 100644
+--- a/src/qwenpaw/checkpoints/hooks.py
++++ b/src/qwenpaw/checkpoints/hooks.py
+@@ -1,16 +1,17 @@
+ # -*- coding: utf-8 -*-
+ """Runtime hooks for built-in conversation checkpoints."""
+ 
+ from __future__ import annotations
+ 
+ import logging
++from pathlib import Path
+ 
+ from ..hooks.base import LifecycleHook
+ from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+ from ..runtime.hooks import HookContext, HookResult
+ from ..runtime.phases import Phase
+ 
+ from .policy import context_channel
+ from .runtime import RUNTIME
+ 
+ logger = logging.getLogger("qwenpaw.checkpoints")
+@@ -23,36 +24,57 @@ def _request_user_id(ctx: HookContext) -> str:
+ 
+ def _last_user_text(ctx: HookContext) -> str:
+     if not ctx.input_msgs:
+         return ""
+     last = ctx.input_msgs[-1]
+     if hasattr(last, "get_text_content"):
+         return last.get_text_content() or ""
+     return ""
+ 
+ 
++def _checkpoint_workspace_dir(ctx: HookContext) -> str | None:
++    """仅使用服务端标记的个人运行目录作为快照根目录。"""
++    request_context = getattr(ctx.request, "request_context", None)
++    if not isinstance(request_context, dict):
++        return None
++    if request_context.get("project_dir_source") != "user_runtime":
++        return None
++    value = request_context.get("project_dir")
++    if not isinstance(value, str) or not value:
++        return None
++    path = Path(value)
++    return str(path) if path.is_absolute() else None
++
++
++async def _checkpoint_service(ctx: HookContext):
++    workspace_dir = _checkpoint_workspace_dir(ctx)
++    if workspace_dir is not None:
++        return await RUNTIME.get_for_workspace_dir_async(workspace_dir)
++    return await RUNTIME.get_for_workspace_async(ctx.workspace)
++
++
+ def is_slash_like_input(text: str) -> bool:
+     """Return whether *text* should be treated as slash-command input."""
+     return (text or "").lstrip().startswith("/")
+ 
+ 
+ class CheckpointQueryGateHook(LifecycleHook):
+     """Block new requests while checkpoint maintenance holds the gate."""
+ 
+     phase = Phase.PRE_DISPATCH
+     name = "checkpoint_query_gate"
+     priority = 20
+ 
+     async def run(self, ctx: HookContext) -> HookResult:
+         try:
+             if ctx.workspace is not None:
+-                engine = await RUNTIME.get_for_workspace_async(ctx.workspace)
++                engine = await _checkpoint_service(ctx)
+                 await engine.query_gate.wait()
+         except Exception:
+             logger.exception("Checkpoint query gate failed")
+         return HookResult()
+ 
+ 
+ class CheckpointAutoSnapshotHook(LifecycleHook):
+     """Schedule debounced auto checkpoints after session persistence."""
+ 
+     phase = Phase.POST_RESPONSE
+@@ -62,27 +84,30 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
+ 
+     async def run(self, ctx: HookContext) -> HookResult:
+         try:
+             if ctx.workspace is None:
+                 return HookResult()
+             if ctx.extras.get(SESSION_SAVE_SUCCEEDED_KEY) is not True:
+                 return HookResult()
+             text = _last_user_text(ctx)
+             if is_slash_like_input(text):
+                 return HookResult()
+-            await RUNTIME.schedule_auto_snapshot(
+-                ctx.workspace,
+-                session_id=ctx.session_id,
+-                user_id=_request_user_id(ctx),
+-                channel=context_channel(ctx),
+-                query_text=text or None,
+-            )
++            kwargs = {
++                "session_id": ctx.session_id,
++                "user_id": _request_user_id(ctx),
++                "channel": context_channel(ctx),
++                "query_text": text or None,
++            }
++            workspace_dir = _checkpoint_workspace_dir(ctx)
++            if workspace_dir is not None:
++                kwargs["workspace_dir"] = workspace_dir
++            await RUNTIME.schedule_auto_snapshot(ctx.workspace, **kwargs)
+         except Exception:
+             logger.exception("Checkpoint POST_RESPONSE auto snapshot failed")
+         return HookResult()
+ 
+ 
+ __all__ = [
+     "CheckpointAutoSnapshotHook",
+     "CheckpointQueryGateHook",
+     "is_slash_like_input",
+ ]
+diff --git a/src/qwenpaw/checkpoints/models.py b/src/qwenpaw/checkpoints/models.py
+index badc009e..25062124 100644
+--- a/src/qwenpaw/checkpoints/models.py
++++ b/src/qwenpaw/checkpoints/models.py
+@@ -19,20 +19,21 @@ class CheckpointEntry:
+     session_key: str
+     name: str
+     commit: str
+     timestamp_ms: int
+     subject: str
+     query: str | None
+     channel: str = "unknown"
+     restore_index: int | None = None
+     parent_commit: str | None = None
+     is_head: bool = False
++    agent_id: str = ""
+     user_id: str = ""
+     session_id: str = ""
+ 
+ 
+ @dataclass(frozen=True)
+ class SnapshotResult:
+     """Internal result of creating one checkpoint snapshot."""
+ 
+     ref: str
+     commit: str
+@@ -61,19 +62,21 @@ class RestoreResult:
+ 
+     target: str
+     commit: str
+     restored_paths: tuple[str, ...]
+     pre_restore_ref: str | None
+     dry_run: bool
+     include_memory: bool = False
+     include_files: bool = False
+     deleted_paths: tuple[str, ...] = ()
+     file_paths: tuple[str, ...] = ()
++    new_session_id: str | None = None
++    new_chat_id: str | None = None
+ 
+ 
+ @dataclass(frozen=True)
+ class GcResult:
+     """Result of a checkpoint GC pass."""
+ 
+     deleted_refs: tuple[str, ...]
+     kept_refs: tuple[str, ...]
+     dry_run: bool
+diff --git a/src/qwenpaw/checkpoints/repository.py b/src/qwenpaw/checkpoints/repository.py
+index 9388e0e8..31e50332 100644
+--- a/src/qwenpaw/checkpoints/repository.py
++++ b/src/qwenpaw/checkpoints/repository.py
+@@ -87,30 +87,37 @@ class CheckpointRepository:
+         """Return the immutable process environment shared by Git calls."""
+         return self._git_process_env
+ 
+     def _git_init_env(self) -> dict[str, str]:
+         """Return isolated config without binding init to an existing repo."""
+         env = self._git_env().copy()
+         for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+             env.pop(name, None)
+         return env
+ 
+-    def run_git(self, *args: str, input_text: str | None = None) -> str:
++    def run_git(
++        self,
++        *args: str,
++        input_text: str | None = None,
++        input_bytes: bytes | None = None,
++    ) -> str:
++        if input_text is not None and input_bytes is not None:
++            raise ValueError("Git input must be text or bytes, not both")
+         try:
+             proc = subprocess.run(
+                 self._git_command(*args),
+                 cwd=str(self.workspace_dir),
+                 env=self._git_env(),
+                 input=(
+                     input_text.encode("utf-8")
+                     if input_text is not None
+-                    else None
++                    else input_bytes
+                 ),
+                 capture_output=True,
+                 check=False,
+                 timeout=_GIT_TIMEOUT_SECONDS,
+             )
+         except FileNotFoundError as exc:
+             raise CheckpointError(GIT_REQUIRED_MESSAGE) from exc
+         except subprocess.TimeoutExpired as exc:
+             raise CheckpointError(
+                 "git "
+@@ -252,26 +259,49 @@ class CheckpointRepository:
+                 self.index_policy_file,
+                 digest + "\n",
+                 encoding="ascii",
+             )
+         except OSError as exc:
+             raise CheckpointError(
+                 f"Failed to persist checkpoint index policy: {exc}",
+             ) from exc
+         self._pending_index_policy = None
+ 
+-    def write_workspace_tree(self) -> str:
++    def write_workspace_tree(
++        self,
++        extra_blobs: dict[str, bytes] | None = None,
++    ) -> str:
+         """Stage the snapshot boundary and return its Git tree object."""
+         pathspecs = tuple(SNAPSHOT_EXCLUDE_PATHSPECS)
+         if not self._index_policy_matches(pathspecs):
+             self.run_git("read-tree", "--empty")
+         self.run_git("add", "-f", "-A", "--", ".", *pathspecs)
++        for rel, content in sorted((extra_blobs or {}).items()):
++            normalized = Path(rel).as_posix().removeprefix("./")
++            if not normalized or Path(normalized).is_absolute() or ".." in Path(
++                normalized,
++            ).parts:
++                raise CheckpointError(f"Unsafe checkpoint blob path: {rel}")
++            object_id = self.run_git(
++                "hash-object",
++                "-w",
++                "--stdin",
++                input_bytes=content,
++            )
++            self.run_git(
++                "update-index",
++                "--add",
++                "--cacheinfo",
++                "100644",
++                object_id,
++                normalized,
++            )
+         tree = self.run_git("write-tree")
+         self._commit_index_policy()
+         return tree
+ 
+     def reset(self) -> None:
+         """Delete and recreate all checkpoint-owned persistence."""
+         if self.state_dir.exists():
+             # Keep Python 3.11 compatibility; shutil.rmtree(onexc=...) is
+             # unavailable there.
+             # pylint: disable-next=deprecated-argument
+diff --git a/src/qwenpaw/checkpoints/runtime.py b/src/qwenpaw/checkpoints/runtime.py
+index e321a1a2..9b278f22 100644
+--- a/src/qwenpaw/checkpoints/runtime.py
++++ b/src/qwenpaw/checkpoints/runtime.py
+@@ -90,31 +90,35 @@ class CheckpointRuntime:
+             asyncio.Task[CheckpointService],
+         ] = {}
+         self._lock = threading.Lock()
+         self._generation = 0
+         self._last_auto_gc: dict[str, float] = {}
+         self.debouncer = Debouncer()
+ 
+     def get_for_workspace(self, workspace: Any) -> CheckpointService:
+         service = self.get_for_workspace_dir(workspace.workspace_dir)
+         service.workspace = workspace
++        service.agent_id = str(getattr(workspace, "agent_id", "") or "")
++        service.checkpoint_scope = "agent_workspace"
+         return service
+ 
+     async def get_for_workspace_async(
+         self,
+         workspace: Any,
+     ) -> CheckpointService:
+         """Return a service without blocking the event loop on first use."""
+         service = await self.get_for_workspace_dir_async(
+             workspace.workspace_dir,
+         )
+         service.workspace = workspace
++        service.agent_id = str(getattr(workspace, "agent_id", "") or "")
++        service.checkpoint_scope = "agent_workspace"
+         return service
+ 
+     async def get_for_workspace_dir_async(
+         self,
+         workspace_dir: str | Path,
+     ) -> CheckpointService:
+         """Initialize one workspace service in a worker, single-flight."""
+         key = await run_sync_io(self._workspace_key, workspace_dir)
+         with self._lock:
+             service = self._services.get(key)
+@@ -194,24 +198,34 @@ class CheckpointRuntime:
+             return service
+ 
+     async def schedule_auto_snapshot(
+         self,
+         workspace: Any,
+         *,
+         session_id: str,
+         user_id: str,
+         channel: str,
+         query_text: str | None = None,
++        workspace_dir: str | Path | None = None,
+     ) -> None:
+         if not session_id:
+             return
+-        service = await self.get_for_workspace_async(workspace)
++        if workspace_dir is None:
++            service = await self.get_for_workspace_async(workspace)
++        else:
++            service = await self.get_for_workspace_dir_async(workspace_dir)
++            service.workspace = workspace
++            service.agent_id = str(
++                getattr(workspace, "agent_id", "") or "",
++            )
++            service.checkpoint_scope = "user_runtime"
++            service.conversation_workspace_dir = Path(workspace.workspace_dir)
+         auto_enabled, debounce_seconds = await service.auto_settings()
+         if not auto_enabled:
+             return
+         key = session_key(
+             channel=channel,
+             user_id=user_id,
+             session_id=session_id,
+         )
+         debounce_key = f"{service.workspace_dir}:{key}"
+         workspace_key = str(service.workspace_dir)
+diff --git a/src/qwenpaw/checkpoints/service.py b/src/qwenpaw/checkpoints/service.py
+index 521d1723..caf81139 100644
+--- a/src/qwenpaw/checkpoints/service.py
++++ b/src/qwenpaw/checkpoints/service.py
+@@ -1,27 +1,28 @@
+ # -*- coding: utf-8 -*-
+ """Checkpoint application service: snapshot, timeline, GC, and reset."""
+ 
+ # Synchronous Git helpers run through run_sync_io.
+ # pylint: disable=too-many-arguments
+ # pylint: disable=too-many-public-methods
+ 
+ from __future__ import annotations
+ 
+ import asyncio
++import json
+ import logging
+ import time
+ import weakref
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+-from ..utils.io_utils import run_sync_io
++from ..utils.io_utils import run_sync_io, write_text_atomic
+ 
+ from .policy import (
+     DEFAULT_AUTO_DEBOUNCE_SECONDS,
+     DEFAULT_GC_KEEP_COUNT,
+     DEFAULT_GC_KEEP_DAYS,
+     DEFAULT_MEMORY_QUIESCE_TIMEOUT,
+     DEFAULT_PRE_RESTORE_RETENTION_DAYS,
+     DEFAULT_QUERY_PREVIEW_CHARS,
+     DEFAULT_TIMELINE_LIMIT,
+     DEFAULT_TIMELINE_MAX_LIMIT,
+@@ -29,20 +30,21 @@ from .policy import (
+ )
+ from .policy import (
+     encode_metadata,
+     latest_user_query,
+     metadata_from_commit_message,
+     query_from_commit_message,
+     ref_kind,
+     ref_session_key,
+     sanitize_ref_component,
+     session_key,
++    session_file_path,
+ )
+ from .models import (
+     CheckpointEntry,
+     CheckpointError,
+     GcResult,
+     RestoreResult,
+     SnapshotResult,
+ )
+ from .restore import RestoreService
+ from .repository import CheckpointRepository
+@@ -70,20 +72,23 @@ class CheckpointService:
+         *,
+         repository: CheckpointRepository | None = None,
+         policy: CheckpointPolicy | None = None,
+     ):
+         self.repository = repository or CheckpointRepository(workspace_dir)
+         self.policy = policy or CheckpointPolicy(self.repository.config_file)
+         # Set by the registry when a live request is available; mutating
+         # restores need it to quiesce tasks and pause cron.
+         self._workspace_ref = None
+         self._workspace_fallback = None
++        self.agent_id = ""
++        self.checkpoint_scope = "agent_workspace"
++        self.conversation_workspace_dir = self.repository.workspace_dir
+         self.query_gate = asyncio.Event()
+         self.query_gate.set()
+         self.lock = asyncio.Lock()
+         self.maintenance_lock = asyncio.Lock()
+         self._restores = RestoreService(self)
+ 
+     @property
+     def workspace_dir(self) -> Path:
+         """Workspace root managed by this service."""
+         return self.repository.workspace_dir
+@@ -374,52 +379,279 @@ class CheckpointService:
+                 suffix += 1
+                 ref = f"{base_ref}-{suffix}"
+             subject = f"snapshot {key} {label}"
+         else:
+             ref = f"refs/pre-restore/{now_ms}-{key}"
+             while self.repository.ref_exists(ref):
+                 now_ms += 1
+                 ref = f"refs/pre-restore/{now_ms}-{key}"
+             subject = f"pre-restore {key} {now_ms}"
+ 
+-        tree = tree_override or self.repository.write_workspace_tree()
++        tree = tree_override or self.repository.write_workspace_tree(
++            self._conversation_snapshot_blob(
++                session_id=session_id,
++                user_id=user_id,
++                channel=channel,
++            ),
++        )
+         body = message.strip() if message else subject
+         query = query_override
+         if query is None:
+             query = latest_user_query(
+-                self.repository.workspace_dir,
++                Path(self.conversation_workspace_dir),
+                 session_id=session_id,
+                 user_id=user_id,
+                 channel=channel,
+             )
+         metadata = encode_metadata(
+             query,
++            agent_id=self.agent_id or None,
+             channel=channel,
+             user_id=user_id,
+             session_id=session_id,
+             parent_commit=parent_commit,
+         )
+         commit = self.repository.run_git(
+             "commit-tree",
+             tree,
+             input_text=f"{subject}\n\n{body}\n\n{metadata}\n",
+         )
+         self.repository.run_git("update-ref", ref, commit)
+         self.repository.set_session_head(key, commit)
+         return SnapshotResult(
+             ref=ref,
+             commit=commit,
+             tree=tree,
+             parent_commit=parent_commit,
+             timestamp_ms=now_ms,
+         )
+ 
++    def _conversation_snapshot_blob(
++        self,
++        *,
++        session_id: str,
++        user_id: str,
++        channel: str,
++    ) -> dict[str, bytes] | None:
++        """跨空间快照只注入当前会话，不扫描其他用户 session。"""
++        source = session_file_path(
++            Path(self.conversation_workspace_dir),
++            session_id=session_id,
++            user_id=user_id,
++            channel=channel,
++        )
++        if Path(self.conversation_workspace_dir) == self.workspace_dir:
++            return None
++        try:
++            content = source.read_bytes()
++        except OSError as exc:
++            raise CheckpointError(
++                "The source session state is unavailable for this checkpoint.",
++            ) from exc
++        rel = session_file_path(
++            Path("."),
++            session_id=session_id,
++            user_id=user_id,
++            channel=channel,
++        ).as_posix()
++        return {rel: content}
++
++    async def restore_session_copy(
++        self,
++        *,
++        target: str,
++        source_session_id: str,
++        source_user_id: str,
++        source_channel: str,
++        new_session_id: str,
++        new_user_id: str,
++        new_channel: str,
++        dry_run: bool = False,
++    ) -> RestoreResult:
++        """把检查点中的会话状态复制为新会话，绝不覆盖源会话。"""
++        async with self.maintenance_lock:
++            async with self.lock:
++                return await run_sync_io(
++                    self._restore_session_copy_sync,
++                    target=target,
++                    source_session_id=source_session_id,
++                    source_user_id=source_user_id,
++                    source_channel=source_channel,
++                    new_session_id=new_session_id,
++                    new_user_id=new_user_id,
++                    new_channel=new_channel,
++                    dry_run=dry_run,
++                )
++
++    def _restore_session_copy_sync(self, **kwargs) -> RestoreResult:
++        entry = self.resolve_target(
++            kwargs["target"],
++            kwargs["source_session_id"],
++            kwargs["source_user_id"],
++            kwargs["source_channel"],
++        )
++        source_rel = session_file_path(
++            Path("."),
++            session_id=kwargs["source_session_id"],
++            user_id=kwargs["source_user_id"],
++            channel=kwargs["source_channel"],
++        ).as_posix()
++        content = self.repository.read_blob(entry.commit, source_rel)
++        try:
++            state = json.loads(content.decode("utf-8"))
++        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++            raise CheckpointError(
++                "Checkpoint session state is missing or invalid.",
++            ) from exc
++        if not isinstance(state, dict):
++            raise CheckpointError("Checkpoint session state is missing or invalid.")
++        target_path = session_file_path(
++            Path(self.conversation_workspace_dir),
++            session_id=kwargs["new_session_id"],
++            user_id=kwargs["new_user_id"],
++            channel=kwargs["new_channel"],
++        )
++        target_rel = target_path.relative_to(
++            Path(self.conversation_workspace_dir),
++        ).as_posix()
++        if target_path.exists():
++            raise CheckpointError("Restored session already exists.")
++        if not kwargs["dry_run"]:
++            write_text_atomic(
++                target_path,
++                json.dumps(state, ensure_ascii=False, separators=(",", ":")),
++                encoding="utf-8",
++            )
++        return RestoreResult(
++            target=kwargs["target"],
++            commit=entry.commit,
++            restored_paths=(target_rel,),
++            pre_restore_ref=None,
++            dry_run=kwargs["dry_run"],
++        )
++
++    async def restore_selected_files_copy(
++        self,
++        *,
++        target: str,
++        source_session_id: str,
++        source_user_id: str,
++        source_channel: str,
++        selected_files: tuple[str, ...] | None,
++        include_files: bool = True,
++        include_memory: bool = False,
++        dry_run: bool = False,
++    ) -> RestoreResult:
++        """预览或恢复勾选文件，不触碰源会话状态。"""
++        async with self.maintenance_lock:
++            if not dry_run:
++                self.query_gate.clear()
++            try:
++                async with self.lock:
++                    return await run_sync_io(
++                        self._restore_selected_files_copy_sync,
++                        target=target,
++                        source_session_id=source_session_id,
++                        source_user_id=source_user_id,
++                        source_channel=source_channel,
++                        selected_files=selected_files,
++                        include_files=include_files,
++                        include_memory=include_memory,
++                        dry_run=dry_run,
++                    )
++            finally:
++                if not dry_run:
++                    self.query_gate.set()
++
++    def _restore_selected_files_copy_sync(self, **kwargs) -> RestoreResult:
++        entry = self.resolve_target(
++            kwargs["target"],
++            kwargs["source_session_id"],
++            kwargs["source_user_id"],
++            kwargs["source_channel"],
++        )
++        source_rel = session_file_path(
++            Path("."),
++            session_id=kwargs["source_session_id"],
++            user_id=kwargs["source_user_id"],
++            channel=kwargs["source_channel"],
++        ).as_posix()
++        current_tree = self.repository.write_workspace_tree()
++        touched = (
++            self._restores._file_restore_candidates(
++                target_commit=entry.commit,
++                current_tree=current_tree,
++                conv_rel=source_rel,
++                selected_files=kwargs["selected_files"],
++            )
++            if kwargs["include_files"]
++            else set()
++        )
++        restored, deleted = self.repository.plan_tree_restore(
++            entry.commit,
++            touched,
++        )
++        memory = self._restores._memory_restorer() if kwargs["include_memory"] else None
++        if memory is not None:
++            memory_restored, memory_deleted = memory.plan(entry.commit)
++            restored.extend(memory_restored)
++            deleted.extend(memory_deleted)
++        pre_ref = None
++        if not kwargs["dry_run"]:
++            pre_ref = self.create_snapshot_unlocked(
++                "pre-restore",
++                kwargs["source_session_id"],
++                kwargs["source_user_id"],
++                kwargs["source_channel"],
++                None,
++                f"Before selected file restore to {kwargs['target']}",
++                None,
++                tree_override=current_tree,
++            ).ref
++            try:
++                self.repository.restore_tree_paths(entry.commit, touched)
++                if memory is not None:
++                    memory.restore_sync(entry.commit)
++            except Exception:
++                self.repository.restore_tree_paths(current_tree, touched)
++                if memory is not None:
++                    memory.restore_sync(current_tree)
++                raise
++        return RestoreResult(
++            target=kwargs["target"],
++            commit=entry.commit,
++            restored_paths=tuple(restored),
++            deleted_paths=tuple(deleted),
++            file_paths=tuple(sorted(touched)),
++            pre_restore_ref=pre_ref,
++            dry_run=kwargs["dry_run"],
++            include_files=kwargs["include_files"],
++            include_memory=kwargs["include_memory"],
++        )
++
++    async def rollback_selected_scopes(self, result: RestoreResult) -> None:
++        """回滚本次新会话创建失败前已应用的文件/记忆范围。"""
++        if not result.pre_restore_ref:
++            return
++        async with self.maintenance_lock:
++            async with self.lock:
++                await run_sync_io(self._rollback_selected_scopes_sync, result)
++
++    def _rollback_selected_scopes_sync(self, result: RestoreResult) -> None:
++        if result.file_paths:
++            self.repository.restore_tree_paths(
++                result.pre_restore_ref,
++                set(result.file_paths),
++            )
++        if result.include_memory:
++            self._restores._memory_restorer().restore_sync(result.pre_restore_ref)
++
+     # -- reset ------------------------------------------------------------
+ 
+     async def reset(self) -> None:
+         """Delete and recreate this workspace's checkpoint state."""
+         async with self.maintenance_lock:
+             self.query_gate.clear()
+             try:
+                 async with self.lock:
+                     await run_sync_io(self._reset_unlocked)
+             finally:
+@@ -671,33 +903,37 @@ class CheckpointService:
+             parent = None
+         chan = metadata.get("channel")
+         if not isinstance(chan, str) or not chan:
+             chan = key.split("-", 1)[0] if key else "unknown"
+         user_id = metadata.get("user_id")
+         if not isinstance(user_id, str):
+             user_id = ""
+         session_id = metadata.get("session_id")
+         if not isinstance(session_id, str):
+             session_id = ""
++        agent_id = metadata.get("agent_id")
++        if not isinstance(agent_id, str):
++            agent_id = ""
+         return CheckpointEntry(
+             ref=ref,
+             kind=kind,
+             session_key=key,
+             name=name,
+             commit=record.commit,
+             timestamp_ms=record.timestamp_ms,
+             subject=subject,
+             query=query_from_commit_message(commit_message),
+             channel=chan,
+             restore_index=restore_index,
+             parent_commit=parent,
+             is_head=is_head,
++            agent_id=agent_id,
+             user_id=user_id,
+             session_id=session_id,
+         )
+ 
+     def _entry_timestamp(self, ref: str, commit: str) -> int:
+         return self._timestamp_from_ref(
+             ref,
+             self._commit_timestamp(commit),
+         )
+ 
+diff --git a/tests/unit/app/routers/test_checkpoints_router.py b/tests/unit/app/routers/test_checkpoints_router.py
+index 7bd6e981..9cbce68b 100644
+--- a/tests/unit/app/routers/test_checkpoints_router.py
++++ b/tests/unit/app/routers/test_checkpoints_router.py
+@@ -1,22 +1,137 @@
+ # -*- coding: utf-8 -*-
+ from __future__ import annotations
+ 
+ from pathlib import Path
+ from types import SimpleNamespace
++from uuid import uuid4
+ 
+ import pytest
+ from fastapi import HTTPException
+ 
+ from qwenpaw.app.routers import checkpoints as router
+ from qwenpaw.checkpoints.models import CheckpointEntry, GcResult, RestoreResult
+ from qwenpaw.checkpoints.policy import session_key
++from qwenpaw.access.actor import ActorContext, ActorType
++from qwenpaw.identity.models import PlatformRole
++from qwenpaw.access.agent_repository import AgentResourceRole
++
++
++def test_checkpoint_entry_exposes_trusted_agent_identity() -> None:
++    entry = CheckpointEntry(
++        ref="refs/snap/example/one",
++        kind="snap",
++        session_key="example",
++        name="one",
++        commit="a" * 40,
++        timestamp_ms=1,
++        subject="snapshot",
++        query=None,
++        agent_id="public-agent",
++    )
++
++    assert router._entry_payload(entry)["agent_id"] == "public-agent"
++
++
++def test_checkpoint_user_id_comes_from_authenticated_actor(monkeypatch) -> None:
++    authenticated_user_id = uuid4()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
++            actor=ActorContext(
++                user_id=authenticated_user_id,
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    assert router._trusted_user_id(request, "attacker-controlled-user") == str(
++        authenticated_user_id,
++    )
++
++
++@pytest.mark.asyncio
++async def test_member_cannot_restore_another_users_checkpoint(monkeypatch) -> None:
++    service = FakeService()
++    authenticated_user_id = uuid4()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
++            actor=ActorContext(
++                user_id=authenticated_user_id,
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    with pytest.raises(HTTPException) as caught:
++        await router._require_restore_access(
++            service,
++            request,
++            commit="a" * 40,
++            user_id="another-user",
++            session_id="session",
++            channel="console",
++        )
++
++    assert caught.value.status_code == 403
++
++
++@pytest.mark.asyncio
++async def test_member_checkpoint_graph_only_includes_own_entries(monkeypatch) -> None:
++    service = FakeService()
++    authenticated_user_id = uuid4()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
++            actor=ActorContext(
++                user_id=authenticated_user_id,
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    assert await router._visible_entries(service, request, limit=20) == []
++
++
++@pytest.mark.asyncio
++async def test_owner_checkpoint_graph_does_not_expose_other_private_creator(
++    monkeypatch,
++) -> None:
++    service = FakeService()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.OWNER),
++            actor=ActorContext(
++                user_id=uuid4(),
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    assert await router._visible_entries(service, request, limit=20) == []
+ 
+ 
+ def _entry() -> CheckpointEntry:
+     key = session_key(channel="console", user_id="user", session_id="session")
+     return CheckpointEntry(
+         ref=f"refs/auto/{key}/1",
+         kind="auto",
+         session_key=key,
+         name="1",
+         commit="a" * 40,
+@@ -30,20 +145,21 @@ def _entry() -> CheckpointEntry:
+         session_id="session",
+     )
+ 
+ 
+ class FakeService:
+     auto_enabled = True
+     workspace_dir = Path("/workspace")
+     gc_keep_count = 20
+     gc_keep_days = 7
+     pre_restore_retention_days = 7
++    checkpoint_scope = "user_runtime"
+ 
+     def __init__(self) -> None:
+         self.calls: list[tuple[str, dict]] = []
+         chat = SimpleNamespace(
+             channel="console",
+             user_id="user",
+             session_id="session",
+             name="Readable session title",
+             archived=False,
+         )
+@@ -159,20 +275,30 @@ async def test_graph_returns_topology_and_exact_session_identity():
+     ]
+     assert result["summary"] == {
+         "total": 1,
+         "auto": 1,
+         "snapshots": 0,
+         "safety": 0,
+         "heads": 1,
+     }
+ 
+ 
++@pytest.mark.asyncio
++async def test_status_exposes_scope_not_server_workspace_path(
++    checkpoint_service,
++) -> None:
++    result = await router.checkpoint_status(SimpleNamespace())
++
++    assert result["scope"] == "user_runtime"
++    assert "workspace_dir" not in result
++
++
+ @pytest.mark.asyncio
+ async def test_gc_uses_retention_unless_compact_is_explicit(
+     checkpoint_service,
+ ):
+     await router.preview_checkpoint_gc(
+         router.GcRequest(),
+         SimpleNamespace(),
+     )
+     assert checkpoint_service.calls[-1] == (
+         "gc",
+diff --git a/tests/unit/checkpoints/test_checkpoint_hooks.py b/tests/unit/checkpoints/test_checkpoint_hooks.py
+index 6e0dad50..f39e0aee 100644
+--- a/tests/unit/checkpoints/test_checkpoint_hooks.py
++++ b/tests/unit/checkpoints/test_checkpoint_hooks.py
+@@ -1,21 +1,25 @@
+ # -*- coding: utf-8 -*-
+ """Checkpoint hook scheduling behavior."""
+ 
+ from __future__ import annotations
+ 
+ from types import SimpleNamespace
++from pathlib import Path
+ 
+ import pytest
+ 
+ from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
+-from qwenpaw.checkpoints.hooks import CheckpointAutoSnapshotHook
++from qwenpaw.checkpoints.hooks import (
++    CheckpointAutoSnapshotHook,
++    CheckpointQueryGateHook,
++)
+ from qwenpaw.checkpoints.runtime import RUNTIME
+ from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+ 
+ pytestmark = [pytest.mark.unit, pytest.mark.p1]
+ 
+ 
+ def _ctx(*, persisted: bool | None, ephemeral: bool = False):
+     extras = {}
+     if persisted is not None:
+         extras[SESSION_SAVE_SUCCEEDED_KEY] = persisted
+@@ -49,20 +53,72 @@ async def test_auto_snapshot_requires_successfully_persisted_session(
+     assert scheduled == [
+         {
+             "session_id": "session",
+             "user_id": "user",
+             "channel": "console",
+             "query_text": "hello",
+         },
+     ]
+ 
+ 
++async def test_auto_snapshot_uses_trusted_personal_runtime_root(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    scheduled: list[tuple[object, dict]] = []
++
++    async def schedule(workspace, **kwargs) -> None:
++        scheduled.append((workspace, kwargs))
++
++    monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
++    ctx = _ctx(persisted=True)
++    ctx.request.request_context.update(
++        {
++            "project_dir": "C:/managed/user_workspaces/user/agent",
++            "project_dir_source": "user_runtime",
++        },
++    )
++
++    await CheckpointAutoSnapshotHook().run(ctx)
++
++    assert scheduled[0][1]["workspace_dir"] == str(
++        Path("C:/managed/user_workspaces/user/agent"),
++    )
++
++
++async def test_query_gate_uses_same_personal_runtime_as_auto_snapshot(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    requested: list[str] = []
++    gate = SimpleNamespace(wait=lambda: _completed_wait())
++
++    async def get_service(path):
++        requested.append(str(path))
++        return SimpleNamespace(query_gate=gate)
++
++    monkeypatch.setattr(RUNTIME, "get_for_workspace_dir_async", get_service)
++    ctx = _ctx(persisted=True)
++    ctx.request.request_context.update(
++        {
++            "project_dir": "C:/managed/user_workspaces/user/agent",
++            "project_dir_source": "user_runtime",
++        },
++    )
++
++    await CheckpointQueryGateHook().run(ctx)
++
++    assert requested == [str(Path("C:/managed/user_workspaces/user/agent"))]
++
++
++async def _completed_wait() -> None:
++    return None
++
++
+ async def test_auto_snapshot_skips_slash_like_input(
+     monkeypatch: pytest.MonkeyPatch,
+ ) -> None:
+     scheduled = False
+ 
+     async def schedule(*_args, **_kwargs) -> None:
+         nonlocal scheduled
+         scheduled = True
+ 
+     monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
+
+
+UNTRACKED tests/isolation/test_checkpoint_permissions.py
+# -*- coding: utf-8 -*-
+"""检查点身份边界的真实 Git 隔离测试。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+from fastapi import HTTPException
+
+from qwenpaw.access.actor import ActorContext, ActorType
+from qwenpaw.access.agent_repository import AgentResourceRole
+from qwenpaw.app.routers import checkpoints as router
+from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.app.chats.repo import JsonChatRepository
+from qwenpaw.checkpoints.runtime import CheckpointRuntime
+from qwenpaw.checkpoints.models import CheckpointError
+from qwenpaw.identity.models import PlatformRole
+from qwenpaw.checkpoints.policy import session_file_path
+
+
+def _request(user_id, role: AgentResourceRole = AgentResourceRole.USER):
+    return SimpleNamespace(
+        state=SimpleNamespace(
+            agent_access=SimpleNamespace(
+                role=role,
+                historical_read_only=False,
+            ),
+            actor=ActorContext(
+                user_id=user_id,
+                actor_type=ActorType.USER,
+                platform_role=PlatformRole.MEMBER,
+                admin_mode=False,
+                request_id="checkpoint-permissions",
+            ),
+        ),
+    )
+
+
+async def _service(
+    root: Path,
+    *,
+    agent_id: str = "shared-agent",
+    conversation_root: Path | None = None,
+):
+    runtime = CheckpointRuntime()
+    service = await runtime.get_for_workspace_dir_async(root)
+    service.agent_id = agent_id
+    service.checkpoint_scope = "user_runtime"
+    if conversation_root is not None:
+        service.conversation_workspace_dir = conversation_root
+    return service
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_commit_from_a_different_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止移除会话匹配校验后，commit 被用于覆盖另一会话。"""
+    user_id = uuid4()
+    service = await _service(tmp_path / "runtime")
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=str(user_id),
+        channel="console",
+        name="source",
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+    monkeypatch.setattr(router, "_service", lambda _request: _async_value(service))
+
+    with pytest.raises(HTTPException) as caught:
+        await router._require_restore_access(
+            service,
+            _request(user_id),
+            commit=snapshot.commit,
+            user_id=str(user_id),
+            session_id="target-session",
+            channel="console",
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_unowned_legacy_checkpoint_is_not_private_user_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止旧无 user_id 元数据的记录自动变成当前成员的私人记录。"""
+    user_id = uuid4()
+    service = await _service(tmp_path / "runtime")
+    legacy = await service.make_snapshot_result(
+        kind="snap",
+        session_id="legacy-session",
+        user_id="",
+        channel="console",
+        name="legacy",
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    with pytest.raises(HTTPException) as caught:
+        await router._require_restore_access(
+            service,
+            _request(user_id),
+            commit=legacy.commit,
+            user_id=str(user_id),
+            session_id="legacy-session",
+            channel="console",
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_authenticated_user_can_restore_own_checkpoint_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止可信身份校验只验证元数据、却没有执行真实文件恢复。"""
+    user_id = uuid4()
+    root = tmp_path / "runtime"
+    root.mkdir()
+    session_file = session_file_path(
+        root,
+        session_id="own-session",
+        user_id=str(user_id),
+        channel="console",
+    )
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text('{"value":"before"}', encoding="utf-8")
+    service = await _service(root)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="own-session",
+        user_id=str(user_id),
+        channel="console",
+        name="own",
+    )
+    session_file.write_text('{"value":"after"}', encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    await router._require_restore_access(
+        service,
+        _request(user_id),
+        commit=snapshot.commit,
+        user_id=str(user_id),
+        session_id="own-session",
+        channel="console",
+    )
+    result = await service.restore(
+        target=snapshot.commit,
+        session_id="own-session",
+        user_id=str(user_id),
+        channel="console",
+    )
+
+    assert result.commit == snapshot.commit
+    assert session_file.read_text(encoding="utf-8") == '{"value":"before"}'
+
+
+@pytest.mark.asyncio
+async def test_owner_cannot_restore_collaborator_private_conversation_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止把 Agent 草稿管理权扩大为其他用户私人会话读取权。"""
+    owner_id = uuid4()
+    collaborator_id = uuid4()
+    service = await _service(tmp_path / "agent-workspace")
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="draft-session",
+        user_id=str(collaborator_id),
+        channel="console",
+        name="collaborator-draft",
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+    monkeypatch.setattr(router, "_service", lambda _request: _async_value(service))
+
+    with pytest.raises(HTTPException) as caught:
+        await router._require_restore_access(
+            service,
+            _request(owner_id, AgentResourceRole.OWNER),
+            commit=snapshot.commit,
+            user_id=str(owner_id),
+            session_id="draft-session",
+            channel="console",
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_personal_checkpoint_restores_new_session_without_changing_source(
+    tmp_path: Path,
+) -> None:
+    """防止个人仓库漏存 Agent session，或恢复时覆盖原会话。"""
+    user_id = str(uuid4())
+    agent_root = tmp_path / "agent"
+    personal_root = tmp_path / "personal"
+    source = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source.parent.mkdir(parents=True)
+    checkpoint_state = {
+        "agent": {
+            "state": {
+                "context": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "checkpoint query"}],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "name": "execute_shell_command",
+                                "output": "rich-output",
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    }
+    import json
+
+    source.write_text(json.dumps(checkpoint_state), encoding="utf-8")
+    service = await _service(
+        personal_root,
+        conversation_root=agent_root,
+    )
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="before-new-turn",
+    )
+    entries = await service.graph_entries()
+    assert entries[0].query == "checkpoint query"
+    source.write_text('{"agent":{"state":{"context":[]}}}', encoding="utf-8")
+
+    result = await service.restore_session_copy(
+        target=snapshot.commit,
+        source_session_id="source-session",
+        source_user_id=user_id,
+        source_channel="console",
+        new_session_id="restored-session",
+        new_user_id=user_id,
+        new_channel="console",
+    )
+
+    restored = session_file_path(
+        agent_root,
+        session_id="restored-session",
+        user_id=user_id,
+        channel="console",
+    )
+    assert json.loads(source.read_text(encoding="utf-8"))["agent"]["state"][
+        "context"
+    ] == []
+    assert json.loads(restored.read_text(encoding="utf-8")) == checkpoint_state
+    assert result.restored_paths == (
+        f"sessions/console/{user_id}_restored-session.json",
+    )
+
+
+@pytest.mark.asyncio
+async def test_corrupt_checkpoint_session_is_rejected_without_new_file(
+    tmp_path: Path,
+) -> None:
+    """防止损坏的旧 session blob 被当成成功恢复。"""
+    user_id = str(uuid4())
+    agent_root = tmp_path / "agent"
+    source = session_file_path(
+        agent_root,
+        session_id="source",
+        user_id=user_id,
+        channel="console",
+    )
+    source.parent.mkdir(parents=True)
+    source.write_text("not-json", encoding="utf-8")
+    service = await _service(tmp_path / "personal", conversation_root=agent_root)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source",
+        user_id=user_id,
+        channel="console",
+        name="corrupt",
+    )
+
+    with pytest.raises(CheckpointError, match="missing or invalid"):
+        await service.restore_session_copy(
+            target=snapshot.commit,
+            source_session_id="source",
+            source_user_id=user_id,
+            source_channel="console",
+            new_session_id="new",
+            new_user_id=user_id,
+            new_channel="console",
+        )
+
+    assert not session_file_path(
+        agent_root,
+        session_id="new",
+        user_id=user_id,
+        channel="console",
+    ).exists()
+
+
+@pytest.mark.asyncio
+async def test_restore_preview_does_not_create_session_or_chat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止预览通过生成新 UUID、目录或 ChatSpec 产生业务写入。"""
+    user_uuid = uuid4()
+    user_id = str(user_uuid)
+    agent_root = tmp_path / "agent"
+    source_path = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text('{"agent":{"state":{"context":[]}}}', encoding="utf-8")
+    personal_root = tmp_path / "personal"
+    personal_root.mkdir()
+    selected = personal_root / "selected.txt"
+    selected.write_text("checkpoint", encoding="utf-8")
+    service = await _service(
+        personal_root,
+        conversation_root=agent_root,
+    )
+    manager = ChatManager(repo=JsonChatRepository(agent_root / "chats.json"))
+    source_chat = ChatSpec(
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    await manager.create_chat(source_chat)
+    service.workspace = SimpleNamespace(chat_manager=manager)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    selected.write_text("current", encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+    async def get_service(_request):
+        return service
+
+    monkeypatch.setattr(router, "_service", get_service)
+
+    result = await router._restore(
+        router.RestoreRequest(
+            commit=snapshot.commit,
+            session_id="source-session",
+            channel="console",
+        ),
+        _request(user_uuid),
+        dry_run=True,
+    )
+
+    assert result["new_session_id"] is None
+    assert result["new_chat_id"] is None
+    assert [chat.id for chat in await manager.list_chats()] == [source_chat.id]
+    assert list((agent_root / "sessions" / "console").glob("*.json")) == [
+        source_path,
+    ]
+
+
+async def _async_value(value):
+    return value
+
+
+@pytest.mark.asyncio
+async def test_restore_callback_failure_removes_new_session_and_chat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止 PG 元数据 callback 失败后暴露可继续的新会话半成品。"""
+    user_uuid = uuid4()
+    user_id = str(user_uuid)
+    agent_root = tmp_path / "agent"
+    source_path = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text('{"agent":{"state":{"context":[]}}}', encoding="utf-8")
+    personal_root = tmp_path / "failed-personal"
+    personal_root.mkdir()
+    selected = personal_root / "selected.txt"
+    selected.write_text("checkpoint", encoding="utf-8")
+    manager = ChatManager(repo=JsonChatRepository(agent_root / "chats.json"))
+    source_chat = ChatSpec(
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    await manager.create_chat(source_chat)
+
+    async def fail_metadata(_chat) -> None:
+        raise RuntimeError("metadata failed")
+
+    manager.set_on_chat_created(fail_metadata)
+    service = await _service(
+        personal_root,
+        conversation_root=agent_root,
+    )
+    service.workspace = SimpleNamespace(chat_manager=manager)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    selected.write_text("current", encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+    async def get_service(_request):
+        return service
+
+    monkeypatch.setattr(router, "_service", get_service)
+
+    with pytest.raises(RuntimeError, match="metadata failed"):
+        await router._restore(
+            router.RestoreRequest(
+                commit=snapshot.commit,
+                session_id="source-session",
+                channel="console",
+                include_files=True,
+                files=["selected.txt"],
+            ),
+            _request(user_uuid),
+            dry_run=False,
+        )
+
+    assert [chat.id for chat in await manager.list_chats()] == [source_chat.id]
+    assert list((agent_root / "sessions" / "console").glob("*.json")) == [
+        source_path,
+    ]
+    assert selected.read_text(encoding="utf-8") == "current"
+
+
+@pytest.mark.asyncio
+async def test_new_session_restore_keeps_source_and_restores_only_selected_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止新会话恢复覆盖源 session，或恢复未勾选的个人文件。"""
+    user_uuid = uuid4()
+    user_id = str(user_uuid)
+    agent_root = tmp_path / "agent"
+    personal_root = tmp_path / "personal"
+    source_path = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text('{"agent":{"state":{"context":["before"]}}}', encoding="utf-8")
+    personal_root.mkdir()
+    selected = personal_root / "selected.txt"
+    untouched = personal_root / "untouched.txt"
+    memory = personal_root / "MEMORY.md"
+    selected.write_text("before", encoding="utf-8")
+    untouched.write_text("before", encoding="utf-8")
+    memory.write_text("before-memory", encoding="utf-8")
+    manager = ChatManager(repo=JsonChatRepository(agent_root / "chats.json"))
+    source_chat = ChatSpec(
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    await manager.create_chat(source_chat)
+    service = await _service(personal_root, conversation_root=agent_root)
+    service.workspace = SimpleNamespace(chat_manager=manager)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    source_path.write_text('{"agent":{"state":{"context":["after"]}}}', encoding="utf-8")
+    selected.write_text("after", encoding="utf-8")
+    untouched.write_text("after", encoding="utf-8")
+    memory.write_text("after-memory", encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    async def get_service(_request):
+        return service
+
+    monkeypatch.setattr(router, "_service", get_service)
+
+    result = await router._restore(
+        router.RestoreRequest(
+            commit=snapshot.commit,
+            session_id="source-session",
+            channel="console",
+            include_files=True,
+            include_memory=True,
+            files=["selected.txt"],
+        ),
+        _request(user_uuid),
+        dry_run=False,
+    )
+
+    assert result["new_chat_id"]
+    assert source_path.read_text(encoding="utf-8") == (
+        '{"agent":{"state":{"context":["after"]}}}'
+    )
+    assert selected.read_text(encoding="utf-8") == "before"
+    assert untouched.read_text(encoding="utf-8") == "after"
+    assert memory.read_text(encoding="utf-8") == "before-memory"
+    assert not session_file_path(
+        personal_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    ).exists()
+
+

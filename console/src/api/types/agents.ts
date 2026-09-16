@@ -23,6 +23,40 @@ export interface AgentSummary {
   backend_model?: string | null;
   backend_reasoning_effort?: string | null;
   active_model?: ModelSlotConfig | null;
+  access_role?: "owner" | "collaborator" | "user";
+  registration_state?: "registered" | "legacy_preview";
+  can_edit?: boolean;
+  can_delete?: boolean;
+  can_copy?: boolean;
+  can_export?: boolean;
+  can_toggle?: boolean;
+  can_reorder?: boolean;
+  visibility?: "private" | "shared" | "public_candidate" | "public";
+  can_manage_members?: boolean;
+  model_locked?: boolean;
+  historical_read_only?: boolean;
+}
+
+export interface AgentMember {
+  user_id: string;
+  username: string;
+  role: "collaborator" | "user";
+}
+
+export interface ShareableUser {
+  id: string;
+  username: string;
+  platform_role: "admin" | "member";
+}
+
+export interface AdminAgentSummary {
+  id: string;
+  name: string;
+  description: string;
+  owner_user_id: string;
+  visibility: "private" | "shared" | "public_candidate" | "public";
+  status: "draft" | "active" | "disabled" | "deleted";
+  governed_by_admin: true;
 }
 
 export type AgentBackend = string;

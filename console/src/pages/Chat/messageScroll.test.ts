@@ -59,6 +59,12 @@ function createReverseScroller(): {
 }
 
 describe("scrollReverseMessageList", () => {
+  it("consumes downward input at the bottom instead of handing it to ancestors", () => {
+    const { content, root, scroller } = createReverseScroller();
+    scroller.scrollTop = 0;
+    expect(scrollReverseMessageList(root, content, 100, 0)).toBe(true);
+    expect(scroller.scrollTop).toBe(0);
+  });
   it("applies wheel movement to the SDK reverse scroller", () => {
     const { content, root, scroller } = createReverseScroller();
     scroller.scrollTop = -420;

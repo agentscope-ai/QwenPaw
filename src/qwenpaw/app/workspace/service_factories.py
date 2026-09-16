@@ -32,13 +32,39 @@ async def create_driver_service(ws: "Workspace", _service):
     from ...drivers.manager import DriverManager
     from ..approvals.driver_gate import QwenPawDriverApprovalGate
 
-    credential_store = AsyncCredentialStore(
-        ws.workspace_dir / "credentials.yaml",
+    credential_store = AsyncCredentialStore(ws.workspace_dir / "credentials.yaml")
+    postgres_repository = None
+    from ...identity.runtime import get_identity_schema
+    from ..mcp.postgres_repository import (
+        PostgresMCPRepository,
+        is_postgres_mcp_enabled,
+        workspace_uses_postgres,
     )
+    from ..mcp.scoped_credentials import ScopedPostgresMCPCredentialStore
+
+    if is_postgres_mcp_enabled():
+        repository = PostgresMCPRepository(schema=get_identity_schema())
+        if await workspace_uses_postgres(ws, repository=repository):
+            postgres_repository = repository
+            credential_store = ScopedPostgresMCPCredentialStore(
+                agent_key=ws.agent_id,
+                repository=repository,
+            )
+    from ..mcp.postgres_card_store import PostgresMCPCardStore
+
     driver_manager = DriverManager(
         ws.workspace_dir / "drivers",
         credential_store,
         approval_gate=QwenPawDriverApprovalGate(),
+        card_store=(
+            PostgresMCPCardStore(
+                ws.workspace_dir / "drivers",
+                agent_key=ws.agent_id,
+                repository=postgres_repository,
+            )
+            if postgres_repository is not None
+            else None
+        ),
     )
     driver_manager.register_handler_type(
         "mcp",
@@ -48,7 +74,8 @@ async def create_driver_service(ws: "Workspace", _service):
     # Future Driver protocols should be registered here together with their
     # endpoint validator and tests.  This PR intentionally keeps the concrete
     # runtime surface to MCP while leaving DriverManager protocol-neutral.
-    await migrate_legacy_mcp_if_needed(ws, driver_manager)
+    if postgres_repository is None:
+        await migrate_legacy_mcp_if_needed(ws, driver_manager)
     await driver_manager.start()
     ws._service_manager.services["driver_manager"] = driver_manager
     logger.debug(
@@ -69,6 +96,10 @@ async def create_driver_config_watcher(ws: "Workspace", _service):
     # pylint: disable=protected-access
     driver_manager = ws._service_manager.services.get("driver_manager")
     if driver_manager is None:
+        return None
+    from ..mcp.scoped_credentials import ScopedPostgresMCPCredentialStore
+
+    if isinstance(driver_manager.credential_store, ScopedPostgresMCPCredentialStore):
         return None
 
     from ..driver_config_watcher import DriverConfigWatcher
@@ -95,11 +126,91 @@ async def create_chat_service(ws: "Workspace", service):
     from ...browser.runtime.links import link_for
     from ...browser.execution.kernel import get_default_kernel_manager
     from ...browser.tool_entrypoint import derive_workspace_id
+    from uuid import UUID
+    from ...access.agent_repository import (
+        PostgresAgentRepository,
+        agent_database_id,
+    )
+    from ..chats.repo import PostgresConversationRepository
+    from ..chats.run_persistence import PostgresChatRunPersistence
+    from ..chats.backfill import backfill_agent_chats, register_chat_metadata
+    from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+    from datetime import datetime, timezone
 
     async def close_browser_session(session_id: str) -> None:
         await get_default_kernel_manager().close_session(
             derive_workspace_id(ws.workspace_dir),
             session_id,
+        )
+
+    agent_repository = None
+    conversation_repository = None
+    agent_owner_user_id = None
+    if is_multi_user_enabled():
+        agent_repository = PostgresAgentRepository(
+            schema=get_identity_schema(),
+        )
+        conversation_repository = PostgresConversationRepository(
+            schema=get_identity_schema(),
+        )
+        governance = await agent_repository.get_governance(agent_key=ws.agent_id)
+        agent_owner_user_id = (
+            governance.owner_user_id if governance is not None else None
+        )
+
+    async def record_chat_created(chat) -> None:
+        if not is_multi_user_enabled():
+            return
+        try:
+            user_id = UUID(chat.user_id)
+        except (TypeError, ValueError):
+            return
+        if conversation_repository is None or agent_repository is None:
+            raise RuntimeError("conversation_repository_unavailable")
+        await register_chat_metadata(
+            chat=chat,
+            agent_id=agent_database_id(ws.agent_id),
+            repository=conversation_repository,
+        )
+        await agent_repository.record_chat_created(
+            agent_key=ws.agent_id,
+            user_id=user_id,
+            created_at=chat.created_at,
+        )
+
+    async def record_chats_deleted(chats) -> None:
+        if not is_multi_user_enabled():
+            return
+        if conversation_repository is None:
+            raise RuntimeError("conversation_repository_unavailable")
+        deleted_at = datetime.now(timezone.utc)
+        for chat in chats:
+            try:
+                conversation_id = UUID(chat.id)
+            except (TypeError, ValueError):
+                continue
+            try:
+                owner_user_id = UUID(chat.user_id)
+            except (TypeError, ValueError):
+                if agent_owner_user_id is None:
+                    raise RuntimeError("conversation_owner_unavailable")
+                owner_user_id = agent_owner_user_id
+            updated = await conversation_repository.with_user(
+                owner_user_id,
+            ).update_conversation(
+                conversation_id,
+                status="deleted",
+                updated_at=deleted_at,
+            )
+            if updated is None:
+                raise RuntimeError("conversation_delete_sync_failed")
+
+    run_persistence = None
+    if is_multi_user_enabled():
+        run_persistence = PostgresChatRunPersistence(
+            repository=conversation_repository,
+            agent_id=agent_database_id(ws.agent_id),
+            payload_storage_dir=(ws.workspace_dir / ".qwenpaw" / "chat-event-payloads"),
         )
 
     if service is not None:
@@ -111,10 +222,37 @@ async def create_chat_service(ws: "Workspace", service):
         cm = ChatManager(
             repo=chat_repo,
             on_session_closed=close_browser_session,
+            on_chat_created=record_chat_created,
+            on_chats_deleted=record_chats_deleted,
+            run_persistence=run_persistence,
+            conversation_repository=conversation_repository,
         )
         ws._service_manager.services["chat_manager"] = cm
         logger.info(f"ChatManager created: {chats_path}")
     cm.set_on_session_closed(close_browser_session)
+    cm.set_on_chat_created(record_chat_created)
+    cm.set_on_chats_deleted(record_chats_deleted)
+    cm.set_run_persistence(run_persistence)
+    cm.set_conversation_repository(conversation_repository)
+
+    if is_multi_user_enabled() and conversation_repository is not None:
+        existing_chats = await cm.list_chats()
+        report = await backfill_agent_chats(
+            chats=existing_chats,
+            agent_id=agent_database_id(ws.agent_id),
+            agent_owner_user_id=agent_owner_user_id,
+            repository=conversation_repository,
+        )
+        logger.info(
+            "Conversation metadata backfill for %s: scanned=%s inserted=%s "
+            "updated=%s skipped=%s ambiguous=%s",
+            ws.agent_id,
+            report.scanned,
+            report.inserted,
+            report.updated,
+            report.skipped,
+            report.ambiguous,
+        )
 
     async def live_session_ids() -> set[str]:
         chats = await cm.list_chats(archived=False)
@@ -161,11 +299,20 @@ async def create_channel_service(ws: "Workspace", _):
     )
 
     def on_last_dispatch(channel, user_id, session_id):
+        platform_user_id = None
+        if channel == "console":
+            try:
+                from uuid import UUID
+
+                platform_user_id = str(UUID(str(user_id)))
+            except ValueError:
+                platform_user_id = None
         update_last_dispatch(
             channel=channel,
             user_id=user_id,
             session_id=session_id,
             agent_id=ws.agent_id,
+            platform_user_id=platform_user_id,
         )
 
     cm = ChannelManager.from_config(

@@ -17,6 +17,8 @@ interface ColumnHandlers {
   onViewHistory: (job: CronJob) => void;
   onEdit: (job: CronJob) => void;
   onDelete: (jobId: string) => void;
+  currentUserId?: string;
+  canPauseOthers?: boolean;
   t: TFunction;
 }
 
@@ -300,22 +302,35 @@ export const createColumns = (
       width: 240,
     },
     {
+      title: handlers.t("cronJobs.authorizationStatus"),
+      dataIndex: "status",
+      key: "status",
+      width: 180,
+      render: (status?: string) => status || "active",
+    },
+    {
       title: handlers.t("cronJobs.action"),
       key: "action",
       width: 320,
       fixed: "right",
       render: (_: unknown, record: CronJob) => {
+        const isOwner =
+          !record.automation_owner_user_id ||
+          record.automation_owner_user_id === handlers.currentUserId;
+        const mayPause = isOwner || Boolean(handlers.canPauseOthers);
         const menuItems: MenuProps["items"] = [
           {
             key: "edit",
             label: handlers.t("cronJobs.edit"),
             onClick: () => handlers.onEdit(record),
+            disabled: !isOwner,
           },
           {
             key: "delete",
             label: handlers.t("cronJobs.delete"),
             danger: true,
             onClick: () => handlers.onDelete(record.id),
+            disabled: !isOwner,
           },
         ];
 
@@ -325,6 +340,7 @@ export const createColumns = (
               type="link"
               size="small"
               onClick={() => handlers.onToggleEnabled(record)}
+              disabled={!mayPause || (!isOwner && !record.enabled)}
             >
               {record.enabled
                 ? handlers.t("cronJobs.disable")
@@ -334,6 +350,7 @@ export const createColumns = (
               type="link"
               size="small"
               onClick={() => handlers.onExecuteNow(record)}
+              disabled={!isOwner || record.status !== "active"}
             >
               {handlers.t("cronJobs.executeNow")}
             </Button>

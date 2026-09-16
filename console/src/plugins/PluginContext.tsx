@@ -10,12 +10,13 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { pluginSystem } from "./hostExternals";
-import { loadAllPlugins } from "./usePluginLoader";
+import { loadAllPlugins, resetLoadedPlugins } from "./usePluginLoader";
 import type { PluginRouteDeclaration } from "./hostExternals";
 import {
   routeRegistry,
   subscribe as registrySubscribe,
 } from "./registry/store";
+import { useAuthStore } from "@/stores/authStore";
 
 /** Derive the legacy PluginRouteDeclaration[] shape from routeRegistry. */
 function derivePluginRoutes(): PluginRouteDeclaration[] {
@@ -64,6 +65,9 @@ const PluginContext = createContext<PluginContextValue>({
  * routes and tool renderers.
  */
 export function PluginProvider({ children }: { children: React.ReactNode }) {
+  const authMode = useAuthStore((state) => state.mode);
+  const authPhase = useAuthStore((state) => state.phase);
+  const authenticatedUserId = useAuthStore((state) => state.user?.id);
   const [toolRenderConfig, setToolRenderConfig] = useState<
     Record<string, React.FC<any>>
   >(pluginSystem.getToolRenderConfig());
@@ -84,20 +88,29 @@ export function PluginProvider({ children }: { children: React.ReactNode }) {
       setPluginRoutes(derivePluginRoutes());
     });
 
-    // Load all installed plugins and PawApps (non-fatal: one bad module
-    // won’t block others). PawApps are 'app'-type plugins: the loader
-    // executes their ui bundle, which self-registers the /apps/{id} route
-    // so the App Center can render them inline.
-    loadAllPlugins().then(({ failed }) => {
-      if (failed.length > 0) setError(failed.join("; "));
-      setLoading(false);
-    });
-
     return () => {
       unsubA();
       unsubB();
     };
   }, []);
+
+  useEffect(() => {
+    resetLoadedPlugins();
+    const mayLoad =
+      authMode === "legacy" ||
+      authPhase === "disabled" ||
+      (authPhase === "authenticated" && Boolean(authenticatedUserId));
+    if (!mayLoad) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    loadAllPlugins().then(({ failed }) => {
+      if (failed.length > 0) setError(failed.join("; "));
+      setLoading(false);
+    });
+  }, [authMode, authPhase, authenticatedUserId]);
 
   return (
     <PluginContext.Provider

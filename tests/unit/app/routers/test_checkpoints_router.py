@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from fastapi import HTTPException
@@ -10,6 +11,120 @@ from fastapi import HTTPException
 from qwenpaw.app.routers import checkpoints as router
 from qwenpaw.checkpoints.models import CheckpointEntry, GcResult, RestoreResult
 from qwenpaw.checkpoints.policy import session_key
+from qwenpaw.access.actor import ActorContext, ActorType
+from qwenpaw.identity.models import PlatformRole
+from qwenpaw.access.agent_repository import AgentResourceRole
+
+
+def test_checkpoint_entry_exposes_trusted_agent_identity() -> None:
+    entry = CheckpointEntry(
+        ref="refs/snap/example/one",
+        kind="snap",
+        session_key="example",
+        name="one",
+        commit="a" * 40,
+        timestamp_ms=1,
+        subject="snapshot",
+        query=None,
+        agent_id="public-agent",
+    )
+
+    assert router._entry_payload(entry)["agent_id"] == "public-agent"
+
+
+def test_checkpoint_user_id_comes_from_authenticated_actor(monkeypatch) -> None:
+    authenticated_user_id = uuid4()
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
+            actor=ActorContext(
+                user_id=authenticated_user_id,
+                actor_type=ActorType.USER,
+                platform_role=PlatformRole.MEMBER,
+                admin_mode=False,
+                request_id="request",
+            ),
+        ),
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    assert router._trusted_user_id(request, "attacker-controlled-user") == str(
+        authenticated_user_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_member_cannot_restore_another_users_checkpoint(monkeypatch) -> None:
+    service = FakeService()
+    authenticated_user_id = uuid4()
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
+            actor=ActorContext(
+                user_id=authenticated_user_id,
+                actor_type=ActorType.USER,
+                platform_role=PlatformRole.MEMBER,
+                admin_mode=False,
+                request_id="request",
+            ),
+        ),
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    with pytest.raises(HTTPException) as caught:
+        await router._require_restore_access(
+            service,
+            request,
+            commit="a" * 40,
+            user_id="another-user",
+            session_id="session",
+            channel="console",
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_member_checkpoint_graph_only_includes_own_entries(monkeypatch) -> None:
+    service = FakeService()
+    authenticated_user_id = uuid4()
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
+            actor=ActorContext(
+                user_id=authenticated_user_id,
+                actor_type=ActorType.USER,
+                platform_role=PlatformRole.MEMBER,
+                admin_mode=False,
+                request_id="request",
+            ),
+        ),
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    assert await router._visible_entries(service, request, limit=20) == []
+
+
+@pytest.mark.asyncio
+async def test_owner_checkpoint_graph_does_not_expose_other_private_creator(
+    monkeypatch,
+) -> None:
+    service = FakeService()
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            agent_access=SimpleNamespace(role=AgentResourceRole.OWNER),
+            actor=ActorContext(
+                user_id=uuid4(),
+                actor_type=ActorType.USER,
+                platform_role=PlatformRole.MEMBER,
+                admin_mode=False,
+                request_id="request",
+            ),
+        ),
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    assert await router._visible_entries(service, request, limit=20) == []
 
 
 def _entry() -> CheckpointEntry:
@@ -37,6 +152,7 @@ class FakeService:
     gc_keep_count = 20
     gc_keep_days = 7
     pre_restore_retention_days = 7
+    checkpoint_scope = "user_runtime"
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
@@ -62,9 +178,25 @@ class FakeService:
 
         self.workspace = SimpleNamespace(chat_manager=ChatManager())
 
-    async def graph_entries(self, *, limit: int):
-        self.calls.append(("graph", {"limit": limit}))
-        return [_entry()]
+    async def graph_entries(self, *, limit: int, user_id: str | None = None):
+        self.calls.append(("graph", {"limit": limit, "user_id": user_id}))
+        entries = [_entry()]
+        if user_id is not None:
+            entries = [entry for entry in entries if entry.user_id == user_id]
+        return entries
+
+    async def resolve_target_entry(
+        self,
+        target: str,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ):
+        del session_id, user_id, channel
+        entry = _entry()
+        if target != entry.commit:
+            raise CheckpointError("unknown")
+        return entry
 
     async def auto_settings(self):
         self.calls.append(("auto_settings", {}))
@@ -167,6 +299,42 @@ async def test_graph_returns_topology_and_exact_session_identity():
 
 
 @pytest.mark.asyncio
+async def test_status_exposes_scope_not_server_workspace_path(
+    checkpoint_service,
+) -> None:
+    result = await router.checkpoint_status(SimpleNamespace())
+
+    assert result["scope"] == "user_runtime"
+    assert result["restore_mode"] == "in_place"
+    assert "workspace_dir" not in result
+
+
+@pytest.mark.asyncio
+async def test_multi_user_status_explicitly_exposes_new_chat_restore_mode(
+    checkpoint_service,
+    monkeypatch,
+) -> None:
+    user_id = uuid4()
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    result = await router.checkpoint_status(
+        SimpleNamespace(
+            state=SimpleNamespace(
+                actor=ActorContext(
+                    user_id=user_id,
+                    actor_type=ActorType.USER,
+                    platform_role=PlatformRole.MEMBER,
+                    admin_mode=False,
+                    request_id="status-mode",
+                ),
+            ),
+        ),
+    )
+
+    assert result["restore_mode"] == "new_chat"
+
+
+@pytest.mark.asyncio
 async def test_gc_uses_retention_unless_compact_is_explicit(
     checkpoint_service,
 ):
@@ -185,8 +353,9 @@ async def test_gc_uses_retention_unless_compact_is_explicit(
             "dry_run": True,
             "keep_count": None,
             "keep_days": None,
-            "pre_restore_days": None,
-        },
+                "pre_restore_days": None,
+                "creator_user_id": None,
+            },
     )
 
     await router.apply_checkpoint_gc(

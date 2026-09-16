@@ -16,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from qwenpaw.exceptions import (
@@ -68,7 +68,25 @@ from ..utils import check_upload_size, schedule_agent_reload
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/skills", tags=["skills"])
+from ...access.dependencies import get_actor
+
+
+async def require_pool_management(request: Request, actor=Depends(get_actor)):
+    from ...skills.service import SkillGovernanceService
+    from ...access.service import AuthorizationDeniedError
+    from ..agent_context import _normalized_api_path
+
+    suffix = _normalized_api_path(request).removeprefix("/skills")
+    if suffix == "/workspaces" or suffix == "/pool" or suffix.startswith("/pool/"):
+        try:
+            SkillGovernanceService.require_manage(actor)
+        except AuthorizationDeniedError as exc:
+            raise HTTPException(status_code=403, detail="forbidden") from exc
+
+
+router = APIRouter(
+    prefix="/skills", tags=["skills"], dependencies=[Depends(require_pool_management)]
+)
 
 MAX_TAGS = 8
 MAX_TAG_LENGTH = 16
@@ -88,9 +106,15 @@ async def post_auto_update_inbox(
     """
     if not result:
         return
-    synced = [
-        item for item in (result.get("synced") or []) if item.get("agents")
-    ]
+    from ...identity.runtime import is_multi_user_enabled
+
+    if is_multi_user_enabled():
+        logger.info(
+            "skill auto-update result is available in governance logs; "
+            "personal inbox delivery requires an explicit recipient"
+        )
+        return
+    synced = [item for item in (result.get("synced") or []) if item.get("agents")]
     failed = result.get("failed") or []
     if not synced and not failed:
         return
@@ -108,10 +132,7 @@ async def post_auto_update_inbox(
         lines.append(f"{item['skill']} (failed) → {agents}")
 
     if has_failure:
-        title = (
-            f"Auto-update: {len(synced_names)} updated, "
-            f"{len(failed_names)} failed"
-        )
+        title = f"Auto-update: {len(synced_names)} updated, {len(failed_names)} failed"
     else:
         title = f"Auto-update: {len(synced_names)} skill(s) updated"
 
@@ -128,7 +149,9 @@ async def post_auto_update_inbox(
     )
 
 
-async def _follow_auto_update(skill_name: str | None = None) -> None:
+async def _follow_auto_update(
+    skill_name: str | None = None, *, request: Request | None = None
+) -> None:
     """Propagate + notify after any pool-content change.
 
     Called by the content-mutating endpoints (edit / rename / builtin update /
@@ -137,10 +160,22 @@ async def _follow_auto_update(skill_name: str | None = None) -> None:
     only skills that actually changed are propagated.
     """
     try:
-        result = await asyncio.to_thread(
-            run_pool_auto_update_sync,
-            skill_name=skill_name,
+        from ...identity.runtime import is_multi_user_enabled
+        from ...agents.skill_system.pool_service import (
+            run_authorized_pool_auto_update_sync,
         )
+
+        if is_multi_user_enabled():
+            result = await run_authorized_pool_auto_update_sync(skill_name)
+        else:
+            result = await asyncio.to_thread(
+                run_pool_auto_update_sync, skill_name=skill_name
+            )
+        if request is not None:
+            for batch in result.get("results", []):
+                for row in batch.get("results", []):
+                    if row["status"] == "updated":
+                        schedule_agent_reload(request, row["agent_id"])
         await post_auto_update_inbox(result)
     except Exception:
         logger.warning("auto-update follow-up failed", exc_info=True)
@@ -200,6 +235,11 @@ class SkillSpec(BaseModel):
     channels: list[str] = Field(default_factory=lambda: ["all"])
     tags: list[str] = Field(default_factory=list)
     last_updated: str = ""
+    source_pool_version_id: str | None = None
+    source_pool_version: str | None = None
+    detached: bool = False
+    update_available: bool = False
+    content_hash: str | None = None
 
 
 class SkillDetail(SkillSpec):
@@ -325,6 +365,7 @@ class DownloadFromPoolRequest(BaseModel):
     all_workspaces: bool = False
     overwrite: bool = False
     preview_only: bool = False
+    confirmations: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
 class SkillConfigRequest(BaseModel):
@@ -350,6 +391,7 @@ class SaveSkillRequest(BaseModel):
     source_name: str | None = None
     config: dict[str, Any] | None = None
     overwrite: bool = False
+    expected_content_hash: str | None = None
 
 
 class HubInstallRequest(BaseModel):
@@ -536,10 +578,7 @@ async def _read_validated_zip_upload(file: UploadFile) -> bytes:
     if file.content_type and file.content_type not in _ALLOWED_ZIP_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Expected a zip file, "
-                f"got content-type: {file.content_type}"
-            ),
+            detail=(f"Expected a zip file, got content-type: {file.content_type}"),
         )
 
     data = await file.read()
@@ -678,7 +717,7 @@ def _build_workspace_skill_specs(workspace_dir: Path) -> list[SkillSpec]:
                     source=source,
                     emoji=str(metadata.get("emoji", "") or ""),
                     enabled=entry.get("enabled", False),
-                    channels=entry.get("channels") or ["all"],
+                    channels=entry.get("channels", ["all"]),
                     tags=entry.get("tags") or [],
                     last_updated=str(metadata.get("updated_at", "") or ""),
                 ),
@@ -852,8 +891,38 @@ def _list_workspace_skill_names(workspace_dir: Path) -> list[str]:
 
 @router.get("")
 async def list_skills(request: Request) -> list[SkillSpec]:
-    workspace_dir = await _request_workspace_dir(request)
-    return _build_workspace_skill_specs(workspace_dir)
+    from ...identity.runtime import is_multi_user_enabled
+    from ..agent_context import get_agent_for_request, get_agent_access_state
+    from ...access.agent_repository import AgentResourceRole
+    from ...skills.runtime import get_skill_lifecycle_service
+
+    workspace = await get_agent_for_request(request)
+    specs = _build_workspace_skill_specs(Path(workspace.workspace_dir))
+    if not is_multi_user_enabled():
+        return specs
+    role, _ = get_agent_access_state(request)
+    if role == AgentResourceRole.USER:
+        return [spec for spec in specs if spec.enabled]
+    rows = await get_skill_lifecycle_service().list_installed(
+        get_actor(request), workspace.agent_id
+    )
+    states = {row["name"]: row for row in rows["items"]}
+    result = [spec.model_copy(update=states.get(spec.name, {})) for spec in specs]
+    visible = {spec.name for spec in specs}
+    entries = read_skill_manifest(Path(workspace.workspace_dir)).get("skills", {})
+    for name, state in states.items():
+        if name not in visible and state["source_pool_version_id"]:
+            entry = normalize_skill_manifest_entry(entries.get(name))
+            result.append(
+                SkillSpec(
+                    **state,
+                    source=entry.get("source", "customized"),
+                    enabled=entry.get("enabled", False),
+                    channels=entry.get("channels", ["all"]),
+                    tags=entry.get("tags") or [],
+                )
+            )
+    return sorted(result, key=lambda spec: spec.name)
 
 
 @router.post("/refresh")
@@ -861,7 +930,7 @@ async def refresh_skills(request: Request) -> list[SkillSpec]:
     """Force reconcile and return updated workspace skill list."""
     workspace_dir = await _request_workspace_dir(request)
     reconcile_workspace_manifest(workspace_dir)
-    return _build_workspace_skill_specs(workspace_dir)
+    return await list_skills(request)
 
 
 @router.get("/hub/search")
@@ -962,18 +1031,16 @@ async def list_pool_skills() -> list[PoolSkillSpec]:
 
 
 @router.post("/pool/refresh")
-async def refresh_pool_skills() -> list[PoolSkillSpec]:
+async def refresh_pool_skills(request: Request) -> list[PoolSkillSpec]:
     """Force reconcile and return updated pool skill list."""
     reconcile_pool_manifest()
-    await _follow_auto_update()
+    await _follow_auto_update(request=request)
     return _build_pool_skill_specs()
 
 
 @router.get("/pool/builtin-sources")
 async def list_pool_builtin_sources() -> list[BuiltinImportSpec]:
-    return [
-        BuiltinImportSpec(**item) for item in list_builtin_import_candidates()
-    ]
+    return [BuiltinImportSpec(**item) for item in list_builtin_import_candidates()]
 
 
 @router.get("/pool/builtin-notice")
@@ -984,20 +1051,12 @@ async def get_pool_builtin_notice() -> BuiltinUpdateNotice:
         has_updates=bool(notice.get("has_updates", False)),
         total_changes=int(notice.get("total_changes", 0) or 0),
         actionable_skill_names=[
-            str(name)
-            for name in notice.get("actionable_skill_names", [])
-            if str(name)
+            str(name) for name in notice.get("actionable_skill_names", []) if str(name)
         ],
         added=[BuiltinImportSpec(**item) for item in notice.get("added", [])],
-        missing=[
-            BuiltinImportSpec(**item) for item in notice.get("missing", [])
-        ],
-        updated=[
-            BuiltinImportSpec(**item) for item in notice.get("updated", [])
-        ],
-        removed=[
-            BuiltinRemovedSpec(**item) for item in notice.get("removed", [])
-        ],
+        missing=[BuiltinImportSpec(**item) for item in notice.get("missing", [])],
+        updated=[BuiltinImportSpec(**item) for item in notice.get("updated", [])],
+        removed=[BuiltinRemovedSpec(**item) for item in notice.get("removed", [])],
     )
 
 
@@ -1108,7 +1167,9 @@ async def create_pool_skill(body: CreateSkillRequest) -> dict[str, Any]:
 
 
 @router.put("/pool/save")
-async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
+async def save_pool_skill(
+    request: Request, body: SavePoolSkillRequest
+) -> dict[str, Any]:
     """Save one pool skill.
 
     ``overwrite`` only matters when the save would replace an existing target
@@ -1131,12 +1192,13 @@ async def save_pool_skill(body: SavePoolSkillRequest) -> dict[str, Any]:
         reason = result.get("reason")
         status = 404 if reason == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
-    await _follow_auto_update(result.get("name"))
+    await _follow_auto_update(result.get("name"), request=request)
     return result
 
 
 @router.post("/pool/upload-zip")
 async def upload_skill_pool_zip(
+    request: Request,
     file: UploadFile = File(...),
     target_name: str = "",
     rename_map: str = "",
@@ -1169,12 +1231,13 @@ async def upload_skill_pool_zip(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result.get("conflicts"):
         raise HTTPException(status_code=409, detail=result)
-    await _follow_auto_update()
+    await _follow_auto_update(request=request)
     return result
 
 
 @router.post("/pool/import")
 async def import_skill_pool_from_hub(
+    request: Request,
     body: HubInstallRequest,
 ) -> dict[str, Any]:
     try:
@@ -1191,7 +1254,7 @@ async def import_skill_pool_from_hub(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
-    await _follow_auto_update(result.name)
+    await _follow_auto_update(result.name, request=request)
     return {
         "installed": True,
         "name": result.name,
@@ -1203,6 +1266,7 @@ async def import_skill_pool_from_hub(
 
 @router.post("/pool/upload")
 async def upload_workspace_skill_to_pool(
+    request: Request,
     body: UploadToPoolRequest,
 ) -> dict[str, Any]:
     workspace_dir = _workspace_dir_for_agent(body.workspace_id)
@@ -1221,7 +1285,7 @@ async def upload_workspace_skill_to_pool(
         status = 404 if result.get("reason") == "not_found" else 409
         raise HTTPException(status_code=status, detail=result)
     if not body.preview_only:
-        await _follow_auto_update(result.get("name"))
+        await _follow_auto_update(result.get("name"), request=request)
     return result
 
 
@@ -1344,12 +1408,62 @@ def _download_one_or_raise(
 
 @router.post("/pool/download")
 async def download_pool_skill_to_workspaces(
+    request: Request,
     body: DownloadFromPoolRequest,
+    actor=Depends(get_actor),
 ) -> dict[str, Any]:
     """Download one pool skill into one or more workspaces.
 
     All-or-nothing: if any target conflicts, reject everything.
     """
+    from ...identity.runtime import is_multi_user_enabled
+
+    if is_multi_user_enabled():
+        from ...skills.runtime import get_skill_lifecycle_service
+
+        lifecycle = get_skill_lifecycle_service()
+        lifecycle.governance.require_manage(actor)
+        item = next(
+            (
+                row
+                for row in await lifecycle.repository.list_items()
+                if row["name"] == body.skill_name
+            ),
+            None,
+        )
+        if item is None:
+            raise HTTPException(409, "immutable_version_required")
+        keys = (
+            [ws["agent_id"] for ws in list_workspaces()]
+            if body.all_workspaces
+            else [target.workspace_id for target in body.targets]
+        )
+        try:
+            outcome = await lifecycle.broadcast(
+                actor,
+                item["id"],
+                keys,
+                overwrite=body.overwrite,
+                preview_only=body.preview_only,
+                confirmations=body.confirmations,
+            )
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        for row in outcome["results"]:
+            if row["status"] == "updated":
+                schedule_agent_reload(request, row["agent_id"])
+        return {
+            "downloaded": [
+                {
+                    "workspace_id": row["agent_id"],
+                    "workspace_name": row["agent_id"],
+                    "name": body.skill_name,
+                }
+                for row in outcome["results"]
+                if row["status"] == "updated"
+            ],
+            **outcome,
+        }
     targets, hub_service = _resolve_and_preflight(body)
     if body.preview_only:
         return {"downloaded": []}
@@ -1389,6 +1503,7 @@ async def download_pool_skill_to_workspaces(
 
 @router.post("/pool/import-builtin")
 async def import_pool_builtins(
+    request: Request,
     body: ImportBuiltinRequest,
 ) -> dict[str, Any]:
     imports: list[dict[str, Any]] = (
@@ -1402,12 +1517,13 @@ async def import_pool_builtins(
     )
     if result.get("conflicts") and not body.overwrite_conflicts:
         raise HTTPException(status_code=409, detail=result)
-    await _follow_auto_update()
+    await _follow_auto_update(request=request)
     return result
 
 
 @router.post("/pool/{skill_name}/update-builtin")
 async def update_pool_builtin(
+    request: Request,
     skill_name: str,
     body: UpdateBuiltinRequest | None = Body(default=None),
 ) -> dict[str, Any]:
@@ -1422,7 +1538,7 @@ async def update_pool_builtin(
         result = update_single_builtin(skill_name, language=language or None)
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await _follow_auto_update()
+    await _follow_auto_update(request=request)
     return result
 
 
@@ -1522,6 +1638,7 @@ async def update_pool_skill_tags(
 
 @router.put("/pool/{skill_name}/auto-update")
 async def update_pool_skill_auto_update(
+    request: Request,
     skill_name: str,
     body: AutoUpdateRequest,
 ) -> dict[str, Any]:
@@ -1539,11 +1656,24 @@ async def update_pool_skill_auto_update(
             status_code=404,
             detail="Pool skill not found",
         )
+    from ...identity.runtime import is_multi_user_enabled
+
+    if body.enabled and is_multi_user_enabled():
+        from ...agents.skill_system.pool_service import (
+            run_authorized_pool_auto_update_sync,
+        )
+
+        result = await run_authorized_pool_auto_update_sync(skill_name)
+        for batch in result.get("results", []):
+            for row in batch.get("results", []):
+                if row["status"] == "updated":
+                    schedule_agent_reload(request, row["agent_id"])
     await post_auto_update_inbox(result)
     return {
         "updated": True,
         "enabled": body.enabled,
         "targets": body.targets,
+        "sync": result,
     }
 
 
@@ -1558,8 +1688,7 @@ async def batch_delete_skills(
     results: dict[str, Any] = {}
     for skill_name in skills:
         try:
-            service.disable_skill(skill_name)
-            deleted = service.delete_skill(skill_name)
+            deleted = await _delete_workspace_skill(request, skill_name, service)
             results[skill_name] = {
                 "success": deleted,
                 "reason": None if deleted else "delete_failed",
@@ -1700,14 +1829,32 @@ async def delete_skill(
 ) -> dict[str, Any]:
     workspace_dir = await _request_workspace_dir(request)
     service = SkillService(workspace_dir)
-    service.disable_skill(skill_name)
-    deleted = service.delete_skill(skill_name)
+    deleted = await _delete_workspace_skill(request, skill_name, service)
     if not deleted:
         raise HTTPException(
             status_code=409,
             detail="Only disabled workspace skills can be deleted",
         )
     return {"deleted": True}
+
+
+async def _delete_workspace_skill(request, skill_name, service):
+    from ...identity.runtime import is_multi_user_enabled
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    if is_multi_user_enabled():
+        from ...skills.runtime import get_skill_lifecycle_service
+
+        deleted = await get_skill_lifecycle_service().delete(
+            get_actor(request), workspace.agent_id, skill_name
+        )
+    else:
+        service.disable_skill(skill_name)
+        deleted = service.delete_skill(skill_name)
+    if deleted:
+        schedule_agent_reload(request, workspace.agent_id)
+    return deleted
 
 
 @router.get("/{skill_name}/files/{file_path:path}")
@@ -1736,16 +1883,29 @@ async def save_workspace_skill(
     workspace = await get_agent_for_request(request)
     workspace_dir = Path(workspace.workspace_dir)
     try:
-        result = SkillService(workspace_dir).save_skill(
+        values = dict(
             skill_name=body.source_name or body.name,
             content=body.content,
             target_name=body.name if body.source_name else None,
             config=body.config,
             overwrite=body.overwrite,
+            expected_content_hash=body.expected_content_hash,
         )
+        from ...identity.runtime import is_multi_user_enabled
+
+        if is_multi_user_enabled():
+            from ...skills.runtime import get_skill_lifecycle_service
+
+            result = await get_skill_lifecycle_service().save(
+                get_actor(request), workspace.agent_id, **values
+            )
+        else:
+            result = SkillService(workspace_dir).save_skill(**values)
     except SkillScanError as exc:
         return _scan_error_response(exc)
     except (ValueError, AppBaseException) as exc:
+        if str(exc) in {"content_conflict", "skill_busy"}:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not result.get("success"):
         if result.get("reason") == "conflict":

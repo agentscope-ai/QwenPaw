@@ -33,11 +33,13 @@ import {
 } from "../../api/modules/projectDirectory";
 import { useProjectDir } from "../../stores/projectDirectoryStore";
 import styles from "./index.module.less";
+import type { AgentRequestContext } from "../../api/modules/agentRequestContext";
 
 interface ProjectSelectModalProps {
   open: boolean;
   onClose: () => void;
   onConfirm: (path: string | null) => void;
+  requestContext?: AgentRequestContext;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,7 +97,13 @@ function WorkspaceTab({
 // Tab: Clone
 // ---------------------------------------------------------------------------
 
-function CloneTab({ onDone }: { onDone: (path: string) => void }) {
+function CloneTab({
+  onDone,
+  requestContext,
+}: {
+  onDone: (path: string) => void;
+  requestContext?: AgentRequestContext;
+}) {
   const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const [name, setName] = useState("");
@@ -113,6 +121,7 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
       const res = await projectDirectoryApi.cloneStream(
         url.trim(),
         name.trim() || undefined,
+        requestContext,
       );
       const reader = res.body?.getReader();
       if (!reader) throw new Error("No response body");
@@ -259,7 +268,13 @@ type FolderSelection = {
 // Tab: Open Local Path
 // ---------------------------------------------------------------------------
 
-function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
+function LocalPathTab({
+  onSelect,
+  requestContext,
+}: {
+  onSelect: (path: string) => void;
+  requestContext?: AgentRequestContext;
+}) {
   const { t } = useTranslation();
   const [localSel, setLocalSel] = useState<FolderSelection | null>(null);
   const [dragOver, setDragOver] = useState(false);
@@ -338,7 +353,11 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
       const zipFile = new File([blob], `${localSel.name}.zip`, {
         type: "application/zip",
       });
-      const res = await projectDirectoryApi.uploadZip(zipFile, localSel.name);
+      const res = await projectDirectoryApi.uploadZip(
+        zipFile,
+        localSel.name,
+        requestContext,
+      );
       onSelect(res.path);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Import failed");
@@ -433,7 +452,13 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
 // Tab: Open Existing Directory (server-side file browser, no copy)
 // ---------------------------------------------------------------------------
 
-function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
+function OpenDirTab({
+  onSelect,
+  requestContext,
+}: {
+  onSelect: (path: string) => void;
+  requestContext?: AgentRequestContext;
+}) {
   const { t } = useTranslation();
   const [browsePath, setBrowsePath] = useState<string>("~");
   const [data, setData] = useState<BrowseDirsResponse | null>(null);
@@ -449,7 +474,7 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
     setLoading(true);
     setError(null);
     projectDirectoryApi
-      .browseDirs(path, showHidden)
+      .browseDirs(path, showHidden, requestContext)
       .then((res) => {
         if (seq !== navSeq.current) return;
         setData(res);
@@ -640,7 +665,13 @@ function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
 // Tab: New Project
 // ---------------------------------------------------------------------------
 
-function NewProjectTab({ onDone }: { onDone: (path: string) => void }) {
+function NewProjectTab({
+  onDone,
+  requestContext,
+}: {
+  onDone: (path: string) => void;
+  requestContext?: AgentRequestContext;
+}) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
@@ -651,7 +682,10 @@ function NewProjectTab({ onDone }: { onDone: (path: string) => void }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await projectDirectoryApi.create(name.trim());
+      const res = await projectDirectoryApi.create(
+        name.trim(),
+        requestContext,
+      );
       onDone(res.path);
     } catch (err: unknown) {
       const detail =
@@ -730,22 +764,25 @@ export default function ProjectSelectModal({
   open,
   onClose,
   onConfirm,
+  requestContext,
 }: ProjectSelectModalProps) {
   const { t } = useTranslation();
-  const { setProjectDir } = useProjectDir();
+  const { setProjectDir } = useProjectDir(requestContext?.agentId);
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
   const [activeTab, setActiveTab] = useState("workspace");
+  const [saveError, setSaveError] = useState<string | null>(null);
   // The agent's default workspace directory (fetched from backend)
   const [workspaceDir, setWorkspaceDir] = useState<string | null>(null);
 
   const handleOpen = () => {
+    setSaveError(null);
     projectDirectoryApi
-      .list()
+      .list(requestContext)
       .then(setProjects)
       .catch(() => undefined);
     // GET returns workspace_dir field alongside the active project
     projectDirectoryApi
-      .get()
+      .get(requestContext)
       .then((info) => {
         if (info.workspace_dir) setWorkspaceDir(info.workspace_dir);
       })
@@ -757,11 +794,13 @@ export default function ProjectSelectModal({
       // For workspace default (path === null), explicitly reset on backend too
       if (path === null) {
         try {
-          await projectDirectoryApi.set(null);
-        } catch {
-          // ignore – best effort
+          await projectDirectoryApi.set(null, requestContext);
+        } catch (err) {
+          setSaveError(err instanceof Error ? err.message : String(err));
+          return;
         }
       }
+      setSaveError(null);
       setProjectDir(path);
       onConfirm(path);
     }
@@ -769,10 +808,12 @@ export default function ProjectSelectModal({
 
   const handlePathSelected = async (path: string) => {
     try {
-      await projectDirectoryApi.set(path);
-    } catch {
-      // best effort
+      await projectDirectoryApi.set(path, requestContext);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+      return;
     }
+    setSaveError(null);
     setProjectDir(path);
     onConfirm(path);
   };
@@ -817,7 +858,12 @@ export default function ProjectSelectModal({
           {t("codingMode.tabClone")}
         </span>
       ),
-      children: <CloneTab onDone={(p) => void handleCloneDone(p)} />,
+      children: (
+        <CloneTab
+          onDone={(p) => void handleCloneDone(p)}
+          requestContext={requestContext}
+        />
+      ),
     },
     {
       key: "opendir",
@@ -827,7 +873,12 @@ export default function ProjectSelectModal({
           {t("codingMode.tabOpenDir")}
         </span>
       ),
-      children: <OpenDirTab onSelect={(p) => void handlePathSelected(p)} />,
+      children: (
+        <OpenDirTab
+          onSelect={(p) => void handlePathSelected(p)}
+          requestContext={requestContext}
+        />
+      ),
     },
     {
       key: "local",
@@ -837,7 +888,12 @@ export default function ProjectSelectModal({
           {t("codingMode.tabLocal")}
         </span>
       ),
-      children: <LocalPathTab onSelect={handleLocalDone} />,
+      children: (
+        <LocalPathTab
+          onSelect={handleLocalDone}
+          requestContext={requestContext}
+        />
+      ),
     },
     {
       key: "new",
@@ -847,7 +903,12 @@ export default function ProjectSelectModal({
           {t("codingMode.tabNew")}
         </span>
       ),
-      children: <NewProjectTab onDone={handleNewDone} />,
+      children: (
+        <NewProjectTab
+          onDone={handleNewDone}
+          requestContext={requestContext}
+        />
+      ),
     },
   ];
 
@@ -862,6 +923,9 @@ export default function ProjectSelectModal({
       className={styles.modal}
     >
       <p className={styles.desc}>{t("codingMode.selectProjectDesc")}</p>
+      {saveError && (
+        <Alert type="error" message={saveError} className={styles.alert} showIcon />
+      )}
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}

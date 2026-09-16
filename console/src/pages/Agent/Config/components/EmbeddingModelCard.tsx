@@ -17,6 +17,7 @@ import { isEmbeddingEnabled } from "./embeddingUtils";
 import styles from "../index.module.less";
 import { useMemoryMaintenance } from "../memoryMaintenanceContext";
 import { useEmbeddingVerification } from "./useEmbeddingVerification";
+import type { AgentRequestContext } from "@/api/modules/agentRequestContext";
 
 const EMBEDDING_BACKEND_OPTIONS = [
   { value: "openai", label: "OpenAI" },
@@ -26,7 +27,11 @@ const EMBEDDING_BACKEND_OPTIONS = [
   { value: "ollama", label: "Ollama" },
 ];
 
-export function EmbeddingModelCard() {
+export function EmbeddingModelCard({
+  requestContext,
+}: {
+  requestContext?: AgentRequestContext;
+}) {
   const { t } = useTranslation();
   const { modal } = useAppMessage();
   const form = Form.useFormInstance();
@@ -60,6 +65,7 @@ export function EmbeddingModelCard() {
     embeddingConfig,
     embeddingEnabled,
     configRevision,
+    requestContext,
   );
   const embeddingCacheEnabled = embeddingConfig?.enable_cache ?? true;
 
@@ -83,7 +89,7 @@ export function EmbeddingModelCard() {
 
     setTestingEmbedding(true);
     try {
-      const result = await api.testEmbedding(config);
+      const result = await api.testEmbedding(config, requestContext);
       if (result.success) {
         markVerified(
           result.actual_dimensions ?? config.dimensions,

@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..channels.schema import DEFAULT_CHANNEL
+from ...platform_ops.log_redaction import redact_diagnostic_value
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ def write_query_error_dump(
                 "%Y-%m-%dT%H:%M:%SZ",
             ),
         }
+        payload = redact_diagnostic_value(payload)
         fd, path = tempfile.mkstemp(
             prefix="qwenpaw_query_error_",
             suffix=".json",
@@ -91,6 +93,10 @@ def write_query_error_dump(
             text=True,
         )
         try:
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
             with open(fd, "w", encoding="utf-8") as f:
                 json.dump(payload, f, ensure_ascii=False, indent=2)
             return path

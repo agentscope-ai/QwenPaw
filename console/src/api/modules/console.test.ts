@@ -89,6 +89,17 @@ describe("consoleApi", () => {
     expect(result).toEqual(resp);
   });
 
+  it("deleteInboxEvents sends one batch request", async () => {
+    const resp = { deleted: 2 };
+    vi.mocked(request).mockResolvedValue(resp);
+    const result = await consoleApi.deleteInboxEvents(["e1", "e2"]);
+    expect(request).toHaveBeenCalledWith("/console/inbox/events/delete", {
+      method: "POST",
+      body: JSON.stringify({ event_ids: ["e1", "e2"] }),
+    });
+    expect(result).toEqual(resp);
+  });
+
   it("getInboxTrace URL-encodes runId", async () => {
     const trace = {
       run_id: "r/1",

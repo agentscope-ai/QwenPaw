@@ -4,13 +4,128 @@
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+from pydantic import BaseModel
 
 from fastapi import HTTPException
+
+from ..config.config import load_agent_config
 
 if TYPE_CHECKING:
     from fastapi import Request
     from .multi_agent_manager import MultiAgentManager
+
+
+class RunningConfigRuntimeStatus(BaseModel):
+    """运行配置相对当前 Agent 进程的应用状态。"""
+
+    state: Literal["applied", "pending_reload"]
+
+
+class AgentReloadSummary(BaseModel):
+    """全局模型变更后继承型 Agent 的运行态应用摘要。"""
+
+    applied_agent_ids: list[str]
+    pending_reload_agent_ids: list[str]
+
+
+async def reload_inherited_agents(request: "Request") -> AgentReloadSummary:
+    """只重载当前已加载且跟随全局模型的 Agent。"""
+    manager: "MultiAgentManager" | None = getattr(
+        request.app.state,
+        "multi_agent_manager",
+        None,
+    )
+    if manager is None:
+        return AgentReloadSummary(
+            applied_agent_ids=[],
+            pending_reload_agent_ids=[],
+        )
+
+    applied: list[str] = []
+    pending: list[str] = []
+    for agent_id in sorted(manager.agents):
+        try:
+            agent_config = load_agent_config(agent_id)
+        except Exception as exc:  # noqa: BLE001 - 全局模型已经持久化
+            logger.warning(
+                "Cannot inspect loaded agent '%s' for model reload: %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+            pending.append(agent_id)
+            continue
+        if agent_config.active_model is not None:
+            continue
+        try:
+            if await manager.reload_agent(agent_id):
+                applied.append(agent_id)
+            else:
+                pending.append(agent_id)
+        except Exception as exc:  # noqa: BLE001 - 全局模型已经持久化
+            logger.warning(
+                "Inherited agent reload failed for '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+            pending.append(agent_id)
+    return AgentReloadSummary(
+        applied_agent_ids=applied,
+        pending_reload_agent_ids=pending,
+    )
+
+
+def get_agent_reload_status(
+    request: "Request",
+    agent_id: str,
+) -> RunningConfigRuntimeStatus:
+    """读取当前进程内的运行配置重载状态。"""
+    statuses = getattr(
+        request.app.state,
+        "running_config_reload_statuses",
+        {},
+    )
+    raw = statuses.get(agent_id, {"state": "applied"})
+    return RunningConfigRuntimeStatus.model_validate(raw)
+
+
+async def reload_agent_and_track(
+    request: "Request",
+    agent_id: str,
+) -> RunningConfigRuntimeStatus:
+    """同步重载 Agent，并记录配置是否仍待应用。"""
+    statuses = getattr(
+        request.app.state,
+        "running_config_reload_statuses",
+        None,
+    )
+    if statuses is None:
+        statuses = {}
+        request.app.state.running_config_reload_statuses = statuses
+
+    manager: "MultiAgentManager" = getattr(
+        request.app.state,
+        "multi_agent_manager",
+        None,
+    )
+    state: Literal["applied", "pending_reload"] = "pending_reload"
+    if manager is not None:
+        try:
+            if await manager.reload_agent(agent_id):
+                state = "applied"
+        except Exception as exc:  # noqa: BLE001 - persistence already succeeded
+            logger.warning(
+                "Runtime reload failed for saved agent config '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    status = RunningConfigRuntimeStatus(state=state)
+    statuses[agent_id] = status.model_dump()
+    return status
 
 logger = logging.getLogger(__name__)
 

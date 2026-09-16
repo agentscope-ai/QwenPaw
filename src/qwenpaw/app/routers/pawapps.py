@@ -7,19 +7,55 @@ Falls back to scanning the plugins directory for ``plugin.json`` files
 with ``meta.pawapp`` when the PluginRegistry is not yet ready.
 """
 
+import asyncio
 import json
 import logging
-import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import asyncio
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 
 logger = logging.getLogger(__name__)
 
+from ...access.dependencies import get_actor, require_plugins_manage
+from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+from ...plugins.governance import (
+    PluginAccessError,
+    PluginGovernanceService,
+    PostgresPluginGovernanceRepository,
+)
+
 router = APIRouter(prefix="/pawapps", tags=["pawapps"])
+
+
+def get_plugin_governance_service() -> PluginGovernanceService:
+    return PluginGovernanceService(
+        PostgresPluginGovernanceRepository(schema=get_identity_schema())
+    )
+
+
+async def _authorized_apps(request: Request, apps: List[Dict[str, Any]]):
+    if not is_multi_user_enabled():
+        return apps
+    allowed = {
+        row.plugin_id
+        for row in await get_plugin_governance_service().list_authorized(
+            get_actor(request)
+        )
+    }
+    return [app for app in apps if app["id"] in allowed]
+
+
+async def _require_app(request: Request, app_id: str) -> None:
+    if not is_multi_user_enabled():
+        return
+    try:
+        await get_plugin_governance_service().require_app_access(
+            get_actor(request), app_id
+        )
+    except PluginAccessError as exc:
+        raise HTTPException(404, "pawapp_not_found") from exc
 
 
 def _get_apps_dir() -> Path:
@@ -150,12 +186,14 @@ async def list_pawapps(request: Request) -> Dict[str, Any]:
     if not apps:
         # Run blocking directory scan in thread pool
         apps = await asyncio.to_thread(_scan_installed_apps_fallback)
+    apps = await _authorized_apps(request, apps)
     return {"apps": apps, "total": len(apps)}
 
 
 @router.get("/{app_id}")
 async def get_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
     """Get details of a specific PawApp."""
+    await _require_app(request, app_id)
     apps = _get_pawapps_from_registry(request)
     if not apps:
         # Run blocking directory scan in thread pool
@@ -167,61 +205,21 @@ async def get_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
 
 
 @router.delete("/{app_id}")
-async def uninstall_pawapp(app_id: str, request: Request) -> Dict[str, Any]:
-    """Uninstall a PawApp by deleting its directory under ~/.copaw/apps.
+async def uninstall_pawapp(
+    app_id: str,
+    request: Request,
+    _actor=Depends(require_plugins_manage),
+) -> Dict[str, Any]:
+    """通过唯一插件治理状态机卸载 PawApp。"""
+    from .plugins import uninstall_plugin
 
-    Falls back to unloading a plugin-based PawApp via the plugin loader
-    when no matching directory exists. A backend restart may be needed to
-    fully unmount any already-mounted backend routers.
-    """
-    # Security: app_id must be a single, non-traversal path segment.
-    if not app_id or "/" in app_id or "\\" in app_id or app_id in (".", ".."):
-        raise HTTPException(status_code=400, detail="Invalid app id")
-
-    apps_dir = _get_apps_dir()
-    app_dir = apps_dir / app_id
-    try:
-        if app_dir.resolve().parent != apps_dir.resolve():
-            raise HTTPException(status_code=400, detail="Invalid app path")
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid app path",
-        ) from exc
-
-    # If the plugin is loaded, unload it first (which also deletes files).
-    loader = getattr(request.app.state, "plugin_loader", None)
-    if loader is not None and loader.get_loaded_plugin(app_id) is not None:
-        try:
-            await loader.unload_plugin(app_id, delete_files=True)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(
-                status_code=500,
-                detail=f"Uninstall failed: {exc}",
-            ) from exc
-        return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
-
-    # If not loaded but directory exists, delete it directly.
-    if app_dir.exists() and app_dir.is_dir():
-        try:
-            # Run blocking directory deletion in thread pool
-            await asyncio.to_thread(shutil.rmtree, app_dir)
-        except Exception as exc:  # noqa: BLE001
-            logger.error("Failed to remove PawApp '%s': %s", app_id, exc)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Uninstall failed: {exc}",
-            ) from exc
-        return {"id": app_id, "message": f"PawApp '{app_id}' uninstalled."}
-
-    raise HTTPException(status_code=404, detail=f"PawApp '{app_id}' not found")
+    return await uninstall_plugin(app_id, request)
 
 
 @router.get("/{app_id}/settings")
 async def get_pawapp_settings(app_id: str, request: Request) -> Dict[str, Any]:
     """Get settings schema for a PawApp."""
+    await _require_app(request, app_id)
     apps = _get_pawapps_from_registry(request)
     if not apps:
         # Run blocking directory scan in thread pool
@@ -233,8 +231,9 @@ async def get_pawapp_settings(app_id: str, request: Request) -> Dict[str, Any]:
 
 
 @router.get("/{app_id}/static/{file_path:path}")
-async def serve_pawapp_static(app_id: str, file_path: str):
+async def serve_pawapp_static(app_id: str, file_path: str, request: Request):
     """Serve static files for a PawApp (frontend assets)."""
+    await _require_app(request, app_id)
     # Security: app_id must be a single, non-traversal path segment.
     if not app_id or "/" in app_id or "\\" in app_id or app_id in (".", ".."):
         raise HTTPException(status_code=400, detail="Invalid app id")

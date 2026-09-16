@@ -365,8 +365,9 @@ def test_isolated_workspace_creates_overlay(tmp_path):
         assert overlay is not None
         assert overlay != base_ws
 
-        assert (overlay / "skills").is_symlink()
-        assert (overlay / "skills").resolve() == skills_dir.resolve()
+        assert (overlay / "skills" / "alpha" / "SKILL.md").read_text() == "# alpha\n"
+        if (overlay / "skills").is_symlink():
+            assert (overlay / "skills").resolve() == skills_dir.resolve()
 
         manifest_path = overlay / "skill.json"
         assert manifest_path.exists()
@@ -376,7 +377,6 @@ def test_isolated_workspace_creates_overlay(tmp_path):
         assert "not-a-skill" not in manifest["skills"]
         assert manifest["skills"]["alpha"]["enabled"] is True
 
-        assert (overlay / "AGENTS.md").is_symlink()
         assert (overlay / "AGENTS.md").read_text() == "agent prompt"
 
         resolved = resolve_effective_skills(overlay, "console")
@@ -394,6 +394,29 @@ def test_isolated_workspace_none_without_skills_dir(tmp_path):
 
     with _isolated_skills_workspace(None, base_ws) as result:
         assert result == base_ws
+
+
+def test_isolated_workspace_copies_when_windows_denies_links(tmp_path, monkeypatch):
+    from pathlib import Path
+    from qwenpaw.cli.task_cmd import _isolated_skills_workspace
+
+    def denied(*args, **kwargs):
+        error = OSError("symlink privilege unavailable")
+        error.winerror = 1314
+        raise error
+
+    monkeypatch.setattr(Path, "symlink_to", denied)
+    skills = tmp_path / "skills"
+    (skills / "one").mkdir(parents=True)
+    (skills / "one" / "SKILL.md").write_text("original", encoding="utf-8")
+    base = tmp_path / "base"
+    base.mkdir()
+    (base / "AGENTS.md").write_text("prompt", encoding="utf-8")
+    with _isolated_skills_workspace(str(skills), base) as overlay:
+        assert (overlay / "AGENTS.md").read_text() == "prompt"
+        (overlay / "skills" / "one" / "SKILL.md").write_text("changed", encoding="utf-8")
+    assert (skills / "one" / "SKILL.md").read_text() == "original"
+    assert not overlay.exists()
 
 
 def test_isolated_workspace_does_not_pollute_real_workspace(tmp_path):

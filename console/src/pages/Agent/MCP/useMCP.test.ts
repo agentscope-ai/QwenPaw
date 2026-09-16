@@ -13,11 +13,30 @@ const hoisted = vi.hoisted(() => {
     updateMCPClient: vi.fn(),
     toggleMCPClient: vi.fn(),
     deleteMCPClient: vi.fn(),
+    updateMCPPolicy: vi.fn(),
   };
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite loadClients loop via useEffect.
   const stableT = (k: string) => k;
-  return { messageMock, apiMocks, stableT };
+  const agentState = { selectedAgent: "agent-1", agents: [] as any[] };
+  const scopeState = { current: true };
+  const scope = {
+    get agentId() {
+      return agentState.selectedAgent;
+    },
+    ready: true,
+    get canEdit() {
+      return (
+        agentState.agents.find(
+          (agent: any) => agent.id === agentState.selectedAgent,
+        )?.can_edit !== false
+      );
+    },
+    signal: new AbortController().signal,
+    current: () => scopeState.current,
+  };
+  const harnessMocks = { listMCP: vi.fn() };
+  return { messageMock, apiMocks, harnessMocks, stableT, agentState, scopeState, scope };
 });
 
 vi.mock("../../../api", () => ({
@@ -26,7 +45,14 @@ vi.mock("../../../api", () => ({
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1", agents: [] }),
+  useAgentStore: () => hoisted.agentState,
+}));
+
+vi.mock("../../../api/skillScope", () => ({
+  useSkillScope: () => hoisted.scope,
+}));
+vi.mock("../../../api/modules/harness", () => ({
+  harnessApi: hoisted.harnessMocks,
 }));
 
 vi.mock("../../../hooks/useAppMessage", () => ({
@@ -39,7 +65,7 @@ vi.mock("react-i18next", () => ({
 
 import { useMCP } from "./useMCP";
 
-const { messageMock, apiMocks } = hoisted;
+const { messageMock, apiMocks, harnessMocks, agentState, scopeState } = hoisted;
 
 function makeClient(overrides: Partial<MCPClientInfo> = {}): MCPClientInfo {
   return {
@@ -61,10 +87,15 @@ describe("useMCP", () => {
     apiMocks.updateMCPClient.mockReset();
     apiMocks.toggleMCPClient.mockReset();
     apiMocks.deleteMCPClient.mockReset();
+    apiMocks.updateMCPPolicy.mockReset();
+    harnessMocks.listMCP.mockReset();
     messageMock.success.mockReset();
     messageMock.error.mockReset();
 
     apiMocks.listMCPClients.mockResolvedValue([]);
+    agentState.selectedAgent = "agent-1";
+    agentState.agents = [{ id: "agent-1", can_edit: true }];
+    scopeState.current = true;
   });
 
   it("mounts and calls listMCPClients, sets clients, loading true->false", async () => {
@@ -106,10 +137,13 @@ describe("useMCP", () => {
       });
     });
 
-    expect(apiMocks.createMCPClient).toHaveBeenCalledWith({
-      client_key: "my-key",
-      client: { name: "My", command: "run" },
-    });
+    expect(apiMocks.createMCPClient).toHaveBeenCalledWith(
+      {
+        client_key: "my-key",
+        client: { name: "My", command: "run" },
+      },
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
     expect(messageMock.success).toHaveBeenCalledWith("mcp.createSuccess");
     expect(ret).toBe(true);
   });
@@ -164,9 +198,11 @@ describe("useMCP", () => {
       ret = await result.current.updateClient("client-1", { name: "Renamed" });
     });
 
-    expect(apiMocks.updateMCPClient).toHaveBeenCalledWith("client-1", {
-      name: "Renamed",
-    });
+    expect(apiMocks.updateMCPClient).toHaveBeenCalledWith(
+      "client-1",
+      { name: "Renamed", expected_revision: undefined },
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
     expect(messageMock.success).toHaveBeenCalledWith("mcp.updateSuccess");
     expect(ret).toBe(true);
   });
@@ -182,7 +218,11 @@ describe("useMCP", () => {
       await result.current.toggleEnabled(makeClient({ enabled: true }));
     });
 
-    expect(apiMocks.toggleMCPClient).toHaveBeenCalledWith("client-1");
+    expect(apiMocks.toggleMCPClient).toHaveBeenCalledWith(
+      "client-1",
+      undefined,
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
     expect(messageMock.success).toHaveBeenCalledWith("mcp.disableSuccess");
   });
 
@@ -197,7 +237,91 @@ describe("useMCP", () => {
       await result.current.deleteClient(makeClient());
     });
 
-    expect(apiMocks.deleteMCPClient).toHaveBeenCalledWith("client-1");
+    expect(apiMocks.deleteMCPClient).toHaveBeenCalledWith(
+      "client-1",
+      undefined,
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
     expect(messageMock.success).toHaveBeenCalledWith("mcp.deleteSuccess");
+  });
+
+  it("includes the loaded revision and explicit keep actions when updating", async () => {
+    const client = makeClient({
+      revision: 12,
+      credential_fields: { headers: ["Authorization"], env: ["API_KEY"] },
+    });
+    apiMocks.listMCPClients.mockResolvedValue([client]);
+    apiMocks.updateMCPClient.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => expect(result.current.clients).toEqual([client]));
+
+    await act(() =>
+      result.current.updateClient("client-1", {
+        name: "Renamed",
+        credential_updates: {
+          headers: { Authorization: { action: "keep" } },
+          env: { API_KEY: { action: "keep" } },
+        },
+      }, 12),
+    );
+
+    expect(apiMocks.updateMCPClient).toHaveBeenCalledWith(
+      "client-1",
+      expect.objectContaining({ expected_revision: 12 }),
+      expect.objectContaining({ agentId: "agent-1" }),
+    );
+  });
+
+  it("does not mutate configuration when the current actor is read-only", async () => {
+    agentState.agents = [{ id: "agent-1", can_edit: false }];
+    const { result } = renderHook(() => useMCP());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    const updated = await result.current.updateClient("client-1", {
+      name: "blocked",
+    });
+
+    expect(updated).toBe(false);
+    expect(apiMocks.updateMCPClient).not.toHaveBeenCalled();
+  });
+
+  it("discards a list response after the captured actor or Agent changes", async () => {
+    let resolveList!: (clients: MCPClientInfo[]) => void;
+    apiMocks.listMCPClients.mockReturnValue(
+      new Promise((resolve) => {
+        resolveList = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useMCP());
+
+    scopeState.current = false;
+    resolveList([makeClient({ key: "stale-client" })]);
+
+    await act(async () => Promise.resolve());
+    expect(result.current.clients).toEqual([]);
+  });
+
+  it("silently discards a stale Provider discovery failure", async () => {
+    let rejectProvider!: (error: Error) => void;
+    harnessMocks.listMCP.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectProvider = reject;
+      }),
+    );
+    agentState.agents = [{
+      id: "agent-1",
+      can_edit: true,
+      backend: "provider",
+      backend_capabilities: { provider_mcp_discovery: true },
+    }];
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    renderHook(() => useMCP());
+    await waitFor(() => expect(harnessMocks.listMCP).toHaveBeenCalled());
+
+    scopeState.current = false;
+    rejectProvider(new Error("old request"));
+    await act(async () => Promise.resolve());
+
+    expect(warn).not.toHaveBeenCalled();
   });
 });

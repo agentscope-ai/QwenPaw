@@ -14,6 +14,7 @@ export interface CheckpointNode {
   restore_index: number | null;
   parent_commit: string | null;
   is_head: boolean;
+  agent_id: string;
   user_id: string;
   session_id: string;
   session_title: string;
@@ -44,17 +45,25 @@ export interface CheckpointGraphResponse {
 export interface CheckpointStatus {
   auto_enabled: boolean;
   has_checkpoints: boolean;
-  workspace_dir: string;
+  scope: "user_runtime" | "legacy" | "agent_workspace";
+  restore_mode?: "new_chat" | "in_place";
 }
 
 export interface RestoreRequest {
   commit: string;
   session_id: string;
-  user_id: string;
+  user_id?: string;
   channel: string;
   include_memory: boolean;
   include_files: boolean;
   files?: string[];
+}
+
+export interface SnapshotRequest {
+  session_id: string;
+  user_id?: string;
+  channel: string;
+  name: string;
 }
 
 export interface RestoreResult {
@@ -67,6 +76,8 @@ export interface RestoreResult {
   dry_run: boolean;
   include_memory: boolean;
   include_files: boolean;
+  new_session_id: string | null;
+  new_chat_id: string | null;
 }
 
 export interface GcResult {

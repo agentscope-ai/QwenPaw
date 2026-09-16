@@ -979,6 +979,10 @@ def test_copy_agent_defaults_reset_channels_and_schedules_startup(
             "qwenpaw.app.routers.agents._generate_unique_id",
             return_value="copied1",
         ),
+        patch(
+            "qwenpaw.app.routers.agents.resolve_effective_model",
+            return_value=source_cfg.active_model,
+        ),
     ):
         response = client.post("/api/agents/bot/copy", json={})
 

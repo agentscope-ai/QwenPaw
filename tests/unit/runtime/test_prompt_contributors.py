@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.runtime.prompt_contributors import (
+    PersonalLibraryContributor,
     WorkspacePromptFilesContributor,
     build_default_prompt_manager,
 )
@@ -108,3 +109,15 @@ def test_workspace_prompt_files_skips_symlink_escape(tmp_path):
     )
 
     assert fragment is None
+
+
+def test_personal_library_prompt_requires_current_users_library_tools(tmp_path):
+    ctx = _ctx(tmp_path, [])
+    ctx.extras["personal_library_enabled"] = True
+
+    fragment = PersonalLibraryContributor().contribute_sync(ctx)
+
+    assert fragment is not None
+    assert "personal_library_search" in fragment
+    assert "当前登录用户" in fragment
+    assert "不要使用工作区文件搜索来替代" in fragment

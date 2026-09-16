@@ -27,6 +27,7 @@ Quick start::
     if not result.is_safe:
         print(f"Blocked: {result.max_severity.value} findings detected")
 """
+
 from __future__ import annotations
 
 from concurrent import futures
@@ -87,9 +88,11 @@ _VALID_MODES = {"block", "warn", "off"}
 def _load_scanner_config() -> Any:
     """Load SkillScannerConfig from the app config (lazy import)."""
     try:
-        from ...config import load_config
+        from ...platform_ops.security_policy import (
+            load_effective_security_policy,
+        )
 
-        return load_config().security.skill_scanner
+        return load_effective_security_policy().skill_scanner
     except Exception:
         return None
 

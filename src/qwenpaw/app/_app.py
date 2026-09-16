@@ -12,11 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..__version__ import __version__
+from ..access.agent_repository import PostgresAgentRepository
+from ..access.agent_history_backfill import backfill_agent_history_access
+from ..access.legacy_agent_registration import (
+    synchronize_legacy_agent_governance,
+)
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
@@ -28,7 +34,17 @@ from ..constant import (
     WORKING_DIR,
 )
 from ..envs import load_envs_into_environ
+from ..identity.bootstrap import migrate_legacy_admin_if_needed
+from ..identity.runtime import (
+    get_identity_runtime,
+    get_identity_schema,
+    is_multi_user_enabled,
+)
 from ..local_models.manager import LocalModelManager
+from ..migrations.agent_model_mode_migration import (
+    synchronize_agent_model_modes,
+)
+from ..persistence.settings import load_database_settings
 from ..providers.provider_manager import ProviderManager
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
@@ -40,6 +56,7 @@ from ..utils.startup_display import AgentStartupDisplay
 from ..utils.system_info import summarize_python_environment
 from .auth import (
     AuthMiddleware,
+    _load_auth_data,
     auto_register_from_env,
     check_proxy_config_sanity,
 )
@@ -48,7 +65,9 @@ from .migration import (
     ensure_qa_agent_exists,
     migrate_legacy_skills_to_skill_pool,
     migrate_legacy_workspace_to_default_agent,
+    migrate_legacy_memory_to_public_scopes,
 )
+from .routers.agents import ensure_all_agent_workspace_md_files
 from .routers import create_agent_scoped_router
 from .routers import router as api_router
 from .routers.agent_scoped import AgentContextMiddleware
@@ -56,8 +75,44 @@ from .routers.approval import router as approval_router
 from .routers.coding_mode import router as coding_mode_router
 from .routers.healthz import router as healthz_router
 from .routers.loops import router as loops_router
+from .routers.system_status import router as system_status_router
 from .routers.tool_calls import router as tool_calls_router
 from .routers.voice import voice_router
+
+
+_RETIRED_ACP_PRODUCT_TOOL_NAMES = frozenset({"delegate_external_agent"})
+_RETIRED_ACP_WRITE_PATHS = frozenset(
+    {
+        "/config/acp",
+        "/config/acp/node-runtime",
+        "/config/acp/{agent_name}",
+    },
+)
+
+
+def _without_retired_acp_product_tools(tools: Any) -> list[Any]:
+    """从新工作区运行时移除 ACP 产品调用工具。"""
+    return [
+        tool
+        for tool in tools
+        if getattr(tool, "__name__", "")
+        not in _RETIRED_ACP_PRODUCT_TOOL_NAMES
+    ]
+
+
+def _retire_acp_config_write_routes() -> None:
+    """保留 ACP 历史配置读取，同时停止发布新增和修改接口。"""
+    from .routers.config import router as config_router
+
+    def keep_route(route: Any) -> bool:
+        return not (
+            isinstance(route, APIRoute)
+            and route.path in _RETIRED_ACP_WRITE_PATHS
+            and bool((route.methods or set()) - {"GET", "HEAD", "OPTIONS"})
+        )
+
+    config_router.routes[:] = list(filter(keep_route, config_router.routes))
+    api_router.routes[:] = list(filter(keep_route, api_router.routes))
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
@@ -84,6 +139,22 @@ async def _sync_scroll_history_on_startup() -> None:
         await run_sync_io(sync_all_scroll_agents)
     except Exception:  # noqa: BLE001 - session sync must never block startup
         logger.warning("session-sync: import/launch failed", exc_info=True)
+
+
+async def _synchronize_legacy_agent_governance_on_startup() -> int:
+    """使用当前身份 Schema 将旧文件智能体登记到治理元数据。"""
+    return await synchronize_legacy_agent_governance(
+        config=load_config(),
+        repository=PostgresAgentRepository(schema=get_identity_schema()),
+    )
+
+
+async def _synchronize_agent_model_modes_on_startup() -> int:
+    """以 Agent 文件为事实源校准数据库模型模式摘要。"""
+    return await synchronize_agent_model_modes(
+        config=load_config(),
+        repository=PostgresAgentRepository(schema=get_identity_schema()),
+    )
 
 
 async def _browser_idle_watchdog(kernel: Any, interval: float) -> None:
@@ -139,6 +210,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # Everything here must be lightweight so the server starts quickly.
     # ================================================================
 
+    # Multi-user mode must never fall back to legacy files when PostgreSQL is
+    # missing or misconfigured. Validation is local-only and opens no socket.
+    database_settings = load_database_settings()
+    if database_settings.multi_user_enabled:
+        from ..persistence.repository_provider import validate_runtime_cutover
+
+        await validate_runtime_cutover()
+
     try:
         cleanup_startup_restore_artifacts()
     except Exception as exc:
@@ -151,7 +230,13 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         logger.error(message, exc_info=True)
         raise RuntimeError(f"{message} Original error: {exc}") from exc
 
-    auto_register_from_env()
+    if is_multi_user_enabled():
+        await migrate_legacy_admin_if_needed(
+            _load_auth_data,
+            get_identity_runtime(),
+        )
+    else:
+        auto_register_from_env()
     check_proxy_config_sanity()
 
     try:
@@ -174,8 +259,23 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     logger.debug("Checking for legacy config migration...")
     migrate_legacy_workspace_to_default_agent()
     ensure_default_agent_exists()
+    ensure_all_agent_workspace_md_files()
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
+    migrate_legacy_memory_to_public_scopes()
+    if is_multi_user_enabled():
+        synchronized_agents = await _synchronize_legacy_agent_governance_on_startup()
+        if synchronized_agents:
+            logger.info(
+                "Registered %d legacy agents for multi-user governance",
+                synchronized_agents,
+            )
+        synchronized_modes = await _synchronize_agent_model_modes_on_startup()
+        if synchronized_modes:
+            logger.info(
+                "Synchronized model mode for %d agents",
+                synchronized_modes,
+            )
 
     # Migrate old conversations from sessions/*.json into each scroll agent's
     # history.db, so chats from before scroll existed stay recallable. This is
@@ -273,6 +373,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             if _api_action_command_specs
             else None,
         )
+        if "builtin_tool_funcs" in factory_kwargs:
+            factory_kwargs["builtin_tool_funcs"] = (
+                _without_retired_acp_product_tools(
+                    factory_kwargs["builtin_tool_funcs"],
+                )
+            )
         # Merge factory output into workspace_registry._bootstrap_kwargs
         for key, value in factory_kwargs.items():
             # pylint: disable-next=protected-access
@@ -318,6 +424,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.local_model_manager = local_model_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
+    app.state.user_channel_binding_runtime = None
+    user_channel_binding_repository = None
+    if is_multi_user_enabled() and workspace_registry is not None:
+        from ..access.channel_bindings import (
+            PostgresChannelBindingRepository,
+        )
+        from ..identity.runtime import get_identity_schema
+        from .channels.user_bindings import (
+            UserChannelBindingRuntimeRegistry,
+        )
+
+        user_channel_binding_repository = PostgresChannelBindingRepository(
+            schema=get_identity_schema(),
+        )
+        app.state.user_channel_binding_runtime = UserChannelBindingRuntimeRegistry(
+            workspace_manager=workspace_registry,
+            binding_repository=user_channel_binding_repository,
+        )
 
     async def _get_agent_by_id(agent_id: str = None):
         """Get agent instance by ID, or active agent if not specified."""
@@ -386,12 +510,54 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             plugin_loader = PluginLoader(plugin_dirs)
 
+            active_plugin_ids = None
+            if is_multi_user_enabled():
+                import hashlib
+                from uuid import uuid4
+
+                from ..plugins.governance import (
+                    PluginInstallation,
+                    PostgresPluginGovernanceRepository,
+                )
+
+                governance_repository = PostgresPluginGovernanceRepository(
+                    schema=get_identity_schema()
+                )
+                discovered = []
+                for manifest, plugin_path in plugin_loader.discover_plugins():
+                    manifest_path = plugin_path / "plugin.json"
+                    discovered.append(
+                        (
+                            PluginInstallation(
+                                id=uuid4(),
+                                plugin_id=manifest.id,
+                                version=manifest.version,
+                                plugin_type=manifest.plugin_type.value,
+                                status="active",
+                            ),
+                            str(plugin_path.resolve()),
+                            hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+                        )
+                    )
+                reconciled = (
+                    await governance_repository.reconcile_discovered_installations(
+                        discovered
+                    )
+                )
+                if reconciled:
+                    logger.info(
+                        "Registered %d existing plugins for multi-user governance",
+                        reconciled,
+                    )
+                governed = await governance_repository.list_installations()
+                active_plugin_ids = {
+                    row.plugin_id for row in governed if row.status == "active"
+                }
+
             plugin_loader.registry.set_plugin_http_app(app)
 
             config = load_config(get_config_path())
-            plugin_configs = (
-                config.plugins if hasattr(config, "plugins") else {}
-            )
+            plugin_configs = config.plugins if hasattr(config, "plugins") else {}
             logger.debug(
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
@@ -400,6 +566,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
                 types=["channel"],
+                allowed_plugin_ids=active_plugin_ids,
             )
             logger.debug("Phase 1: channel plugins loaded")
 
@@ -409,12 +576,33 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_core_ready(core_elapsed)
                 app.state.startup_ready.set()
 
-            startup_results = (
-                await workspace_registry.start_all_configured_agents(
-                    on_core_ready=_mark_core_agents_ready,
-                    startup_display=startup_display,
-                )
+            startup_results = await workspace_registry.start_all_configured_agents(
+                on_core_ready=_mark_core_agents_ready,
+                startup_display=startup_display,
             )
+            if is_multi_user_enabled():
+                try:
+                    backfilled = await backfill_agent_history_access(
+                        workspace_manager=workspace_registry,
+                        agent_keys=[
+                            key
+                            for key, started in startup_results.items()
+                            if started is not False
+                        ],
+                        repository=PostgresAgentRepository(
+                            schema=get_identity_schema()
+                        ),
+                    )
+                    if backfilled:
+                        logger.info(
+                            "Backfilled %d Agent history access records",
+                            backfilled,
+                        )
+                except Exception:  # noqa: BLE001 - 回填失败不能阻塞启动
+                    logger.warning(
+                        "Agent history access backfill failed",
+                        exc_info=True,
+                    )
             if startup_results.get("default") is False:
                 startup_display.mark_failed(
                     "Default agent failed to start",
@@ -428,8 +616,35 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             # loaded — load_plugin skips them automatically)
             loaded_plugins = await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
+                allowed_plugin_ids=active_plugin_ids,
             )
             logger.debug(f"Loaded {len(loaded_plugins)} plugin(s)")
+
+            # Personal channel bindings are started only after channel
+            # plugins and Agent workspaces are available. They own separate
+            # ChannelManager instances and never replace Agent managers.
+            user_channel_runtime = getattr(
+                app.state,
+                "user_channel_binding_runtime",
+                None,
+            )
+            if (
+                user_channel_runtime is not None
+                and user_channel_binding_repository is not None
+            ):
+                agent_keys = list(load_config().agents.profiles)
+                binding_records = await user_channel_binding_repository.list_enabled(
+                    agent_keys=agent_keys,
+                )
+                for binding_record in binding_records:
+                    try:
+                        await user_channel_runtime.reconcile(binding_record)
+                    except Exception:
+                        logger.warning(
+                            "Personal channel binding startup failed: %s",
+                            binding_record.id,
+                            exc_info=True,
+                        )
 
             runtime_helpers = RuntimeHelpers(
                 provider_manager=provider_manager,
@@ -537,7 +752,21 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 from ..agents.skill_system import run_pool_auto_update_sync
                 from .routers.skills import post_auto_update_inbox
 
-                au_result = await asyncio.to_thread(run_pool_auto_update_sync)
+                if is_multi_user_enabled():
+                    from ..agents.skill_system.pool_service import (
+                        run_authorized_pool_auto_update_sync,
+                    )
+
+                    au_result = await run_authorized_pool_auto_update_sync()
+                    for batch in au_result.get("results", []):
+                        for row in batch.get("results", []):
+                            if (
+                                row["status"] == "updated"
+                                and workspace_registry is not None
+                            ):
+                                await workspace_registry.reload_agent(row["agent_id"])
+                else:
+                    au_result = await asyncio.to_thread(run_pool_auto_update_sync)
                 await post_auto_update_inbox(au_result)
             except Exception:
                 logger.warning(
@@ -547,8 +776,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
             startup_elapsed = time.time() - startup_start_time
             logger.info(
-                "Background startup completed in "
-                f"{startup_elapsed:.3f} seconds",
+                f"Background startup completed in {startup_elapsed:.3f} seconds",
             )
             if app.state.startup_ready.is_set():
                 startup_display.complete(startup_elapsed)
@@ -574,6 +802,20 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         from ..agents.tools import shutdown_browser_runtime
 
         await shutdown_browser_runtime()
+
+        user_channel_runtime = getattr(
+            app.state,
+            "user_channel_binding_runtime",
+            None,
+        )
+        if user_channel_runtime is not None:
+            try:
+                await user_channel_runtime.stop_all()
+            except Exception:
+                logger.error(
+                    "Error stopping personal channel bindings",
+                    exc_info=True,
+                )
 
         # ==================== Execute Shutdown Hooks ====================
         plugin_registry = getattr(app.state, "plugin_registry", None)
@@ -689,6 +931,10 @@ app = FastAPI(
 app.add_middleware(AgentContextMiddleware)
 
 app.add_middleware(AuthMiddleware)
+
+from ..platform_ops.maintenance_http import MaintenanceMiddleware
+
+app.add_middleware(MaintenanceMiddleware)
 
 # Apply CORS middleware if CORS_ORIGINS is set
 if CORS_ORIGINS:
@@ -825,6 +1071,7 @@ async def post_desktop_shutdown(
     return {"ok": True}
 
 
+_retire_acp_config_write_routes()
 app.include_router(api_router, prefix="/api")
 
 # These registrations require the fully constructed application instance.
@@ -848,6 +1095,7 @@ app.include_router(browser_chrome_status_router, prefix="/api")
 register_builtin_control_links()
 
 app.include_router(healthz_router, prefix="/api")
+app.include_router(system_status_router, prefix="/api")
 
 app.include_router(tool_calls_router, prefix="/api")
 

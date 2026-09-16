@@ -565,6 +565,7 @@
     "pinFailed": "Gagal memperbarui status sematan",
     "status": {
       "disabled": "Dinonaktifkan",
+      "readOnly": "Hanya baca",
       "pending": "Menunggu dimulai",
       "starting": "Memulai",
       "running": "Berjalan",
@@ -803,6 +804,10 @@
     "asyncExecution": "Eksekusi Asinkron",
     "asyncExecutionEnabled": "Eksekusi asinkron aktif",
     "asyncExecutionDisabled": "Eksekusi asinkron nonaktif",
+    "credentialKeep": "Pertahankan kredensial saat ini",
+    "credentialReplace": "Ganti kredensial",
+    "credentialDelete": "Hapus kredensial",
+    "browserPolicyLocked": "Dinonaktifkan oleh kebijakan platform",
     "browserUnifiedMode": "Browser terpadu (Beta)",
     "browserLegacyMode": "Mode kompatibilitas lama",
     "browserUnifiedModeButton": "Baru (Beta)",
@@ -1122,6 +1127,16 @@
     "deleteSuccess": "Klien MCP berhasil dihapus",
     "deleteError": "Gagal menghapus klien MCP",
     "maskedFieldHint": "Field sensitif disamarkan dengan ***. Edit langsung pada nilai tersamarkan tidak didukung — ganti dengan nilai lengkap yang baru untuk mengubahnya.",
+    "credentialFieldHint": "Nilai kredensial tidak pernah ditampilkan. Pilih keep, replace (dengan nilai baru), atau delete untuk setiap field di credential_updates.",
+    "credentialConfigured": "Kredensial terkonfigurasi: {{fields}} (nilai tidak pernah ditampilkan)",
+    "runtimeInactive": "Konfigurasi tersimpan belum aktif: {{status}} {{error}}",
+    "credentialReplacement": "Masukkan nilai kredensial baru",
+    "rawCredentialRejected": "Jangan isi headers atau env langsung dalam JSON. Gunakan tindakan kredensial.",
+    "credentialAction": {
+      "keep": "Pertahankan",
+      "replace": "Ganti",
+      "delete": "Hapus"
+    },
     "tools": "Tool & Izin",
     "noTools": "Tidak ada tool tersedia dari server MCP ini",
     "toolsLoadError": "Gagal memuat tool dari server MCP",
@@ -1217,6 +1232,7 @@
       "revoke": "Cabut Akses",
       "startFailed": "Gagal memulai alur OAuth",
       "authFailed": "Otorisasi OAuth gagal",
+      "sessionExpired": "Sesi otorisasi OAuth kedaluwarsa. Silakan coba lagi.",
       "popupBlocked": "Popup diblokir oleh browser. Izinkan popup dan coba lagi.",
       "windowClosed": "Jendela otorisasi ditutup. Silakan coba lagi.",
       "noUrl": "Masukkan URL server terlebih dahulu",
@@ -1496,6 +1512,8 @@
     "detailContent": "Output",
     "detailPayload": "Payload",
     "detailExecutionTrace": "Jejak Eksekusi",
+    "memoryFiles": "Generated memory files",
+    "openSourceConversation": "Open source conversation",
     "detailTraceEmpty": "Tidak ada jejak eksekusi",
     "filterByAgent": "Filter berdasarkan agen",
     "filterBySourceType": "Filter berdasarkan sumber",
@@ -1608,6 +1626,7 @@
     }
   },
   "environments": {
+    "deploymentScopeNotice": "Halaman ini hanya mengelola variabel deployment platform. Nilai tersimpan tidak dapat dilihat. Kelola kredensial agen, alat, dan MCP di pengaturan masing-masing.",
     "parent": "Pengaturan",
     "environments": "Variabel Lingkungan",
     "title": "Variabel Lingkungan",
@@ -2207,6 +2226,7 @@
     "perMillionOut": "/1 juta keluar"
   },
   "files": {
+    "fileCenter": {"attachments":"Temporary attachments","library":"Personal library","artifacts":"Artifacts","agentConfig":"Agent configuration","memory":"Memory","myMemory":"My memory","publicMemory":"Public memory","memoryScopeLabel":"Memory scope","memoryTypeLabel":"Memory type","conversationMemory":"Memory journal","distilledMemory":"Long-term memory","open":"Open in File Center","loadFailed":"Failed to load the file.","memoryLoadFailed":"Failed to load memory files","memoryPreviewFailed":"This memory file cannot be previewed right now. Try again.","memoryScopeLoadFailed":"Failed to load memory scopes","memoryIndexState":"Memory index status: {{state}}. Existing memory files remain available.","memoryIndexNotice":{"needs_reindex":"The memory search index needs an update. File browsing and preview remain available.","reindexing":"The memory search index is updating. File browsing and preview remain available.","reindex_failed":"The memory search index update failed. File browsing and preview remain available.","unavailable":"Memory search is unavailable. File browsing and preview remain available."},"memorySectionDescription":{"daily":"Conversation journals saved by date. Files can be opened and previewed directly.","digest":"Long-term topic memories distilled by Dream. Files can be opened and previewed directly."},"noMemoryFiles":"No memory files","noMemoryAccess":"This account has no readable memory scope","selectMemory":"Select a memory file"},
     "title": "File",
     "navigator": "Navigator file",
     "source": "Sumber",

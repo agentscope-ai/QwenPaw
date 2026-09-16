@@ -295,6 +295,9 @@ def msg_to_entries(msg: Msg) -> list[LogEntry]:
         persisted_metadata: dict[str, Any] = {}
         msg_meta = getattr(msg, "metadata", None)
         if isinstance(msg_meta, dict):
+            display_text = msg_meta.get("qwenpaw_display_text")
+            if msg.role == "user" and isinstance(display_text, str) and len(display_text) <= 100000:
+                persisted_metadata["qwenpaw_display_text"] = display_text
             tag = msg_meta.get(QWENPAW_MESSAGE_TAG_KEY)
             if tag:
                 persisted_metadata[QWENPAW_MESSAGE_TAG_KEY] = str(tag)

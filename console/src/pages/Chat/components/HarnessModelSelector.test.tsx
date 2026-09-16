@@ -46,7 +46,7 @@ const models = [
   },
 ];
 
-function setupAgent(backendModel: string | null) {
+function setupAgent(backendModel: string | null, modelLocked = false) {
   mockUseAgentStore.mockReturnValue({
     selectedAgent: "codex-agent",
     agents: [
@@ -54,6 +54,7 @@ function setupAgent(backendModel: string | null) {
         id: "codex-agent",
         backend: "codex",
         backend_model: backendModel,
+        model_locked: modelLocked,
       },
     ],
     updateAgent: mockUpdateAgent,
@@ -113,6 +114,19 @@ describe("HarnessModelSelector", () => {
     renderWithProviders(<HarnessModelSelector providerId="codex" />);
 
     await waitFor(() => expect(harnessApi.listModels).toHaveBeenCalledOnce());
+    expect(agentsApi.updateBackendSettings).not.toHaveBeenCalled();
+  });
+
+  it("does not open or persist model changes for a public model-locked agent", async () => {
+    setupAgent("gpt-codex", true);
+
+    const { getByRole } = renderWithProviders(
+      <HarnessModelSelector providerId="codex" />,
+    );
+
+    await waitFor(() => expect(harnessApi.listModels).toHaveBeenCalledOnce());
+    const trigger = getByRole("button");
+    expect(trigger).toBeDisabled();
     expect(agentsApi.updateBackendSettings).not.toHaveBeenCalled();
   });
 

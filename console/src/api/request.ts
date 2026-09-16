@@ -1,5 +1,10 @@
-import { getApiUrl, clearAuthToken } from "./config";
+import { getApiAuthMode, getApiUrl } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
+import {
+  clearAccessSession,
+  getAccessSessionGeneration,
+  refreshAccessSession,
+} from "./authSession";
 import { getLoginHref, isLoginPath } from "../utils/navigationMode";
 
 function getErrorMessageFromBody(
@@ -37,12 +42,20 @@ function getErrorMessageFromBody(
   return text;
 }
 
-function buildHeaders(method?: string, extra?: HeadersInit): Headers {
+function buildHeaders(
+  method?: string,
+  extra?: HeadersInit,
+  body?: BodyInit | null,
+): Headers {
   // Normalize extra to a Headers instance for consistent handling
-  const headers = extra instanceof Headers ? extra : new Headers(extra);
+  const headers = new Headers(extra);
 
   // Only add Content-Type for methods that typically have a body
-  if (method && ["POST", "PUT", "PATCH"].includes(method.toUpperCase())) {
+  if (
+    method &&
+    ["POST", "PUT", "PATCH"].includes(method.toUpperCase()) &&
+    !(body instanceof FormData)
+  ) {
     // Don't override if caller explicitly set Content-Type
     if (!headers.has("Content-Type")) {
       headers.set("Content-Type", "application/json");
@@ -77,7 +90,6 @@ export async function request<T = unknown>(
 ): Promise<T> {
   const url = getApiUrl(path);
   const method = options.method || "GET";
-  const headers = buildHeaders(method, options.headers);
   const {
     timeout = DEFAULT_TIMEOUT_MS,
     retries = DEFAULT_RETRIES,
@@ -91,7 +103,20 @@ export async function request<T = unknown>(
     throw new DOMException("The operation was aborted", "AbortError");
   }
 
+  const sessionGeneration = getAccessSessionGeneration();
+  const authMode = getApiAuthMode();
+  const assertAuthenticationCurrent = () => {
+    if (
+      sessionGeneration !== getAccessSessionGeneration() ||
+      authMode !== getApiAuthMode() ||
+      callerSignal?.aborted
+    ) {
+      throw new DOMException("Authentication context changed", "AbortError");
+    }
+  };
+
   let lastError: Error | null = null;
+  let authRetried = false;
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     // Create AbortController for timeout handling
@@ -114,15 +139,40 @@ export async function request<T = unknown>(
     }
 
     try {
-      const response = await fetch(url, {
-        ...fetchOptions,
-        headers,
-        signal: controller.signal,
-      });
+      let response: Response;
+      while (true) {
+        assertAuthenticationCurrent();
+        if (controller.signal.aborted) {
+          throw new DOMException("The operation was aborted", "AbortError");
+        }
+        response = await fetch(url, {
+          ...fetchOptions,
+          headers: buildHeaders(method, options.headers, fetchOptions.body),
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) {
+          throw new DOMException("The operation was aborted", "AbortError");
+        }
+        assertAuthenticationCurrent();
+        if (
+          response.status !== 401 ||
+          authRetried ||
+          getApiAuthMode() !== "multi_user"
+        ) {
+          break;
+        }
+        authRetried = true;
+        const refreshed = await refreshAccessSession();
+        assertAuthenticationCurrent();
+        if (controller.signal.aborted)
+          throw new DOMException("The operation was aborted", "AbortError");
+        if (!refreshed) break;
+      }
 
       if (!response.ok) {
         if (response.status === 401) {
-          clearAuthToken();
+          assertAuthenticationCurrent();
+          clearAccessSession();
           if (!isLoginPath(window.location.pathname)) {
             window.location.href = getLoginHref(window.location);
           }

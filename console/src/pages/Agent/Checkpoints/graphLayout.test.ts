@@ -19,6 +19,7 @@ const node = (
   restore_index: null,
   parent_commit,
   is_head: false,
+  agent_id: "agent",
   user_id: "u",
   session_id: "s",
   session_title: "Session title",

@@ -14,6 +14,7 @@ Run command: pytest tests/test_voice_p0.py -v
 from __future__ import annotations
 
 import logging
+import re
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
 
@@ -22,7 +23,159 @@ from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
 
-VOICE_URL = f"{config.base_url}/settings/voice"
+VOICE_URL = f"{config.base_url}/voice-transcription"
+
+
+def run_task73_voice_acceptance(*, accounts, origin, sample, output, server, passed):
+    """Exercise the deployed UI with disposable accounts and an HTTP ASR fixture."""
+    from playwright.sync_api import expect
+
+    admin = accounts["task73-admin"]
+    user = accounts["task73-user"]
+    outsider = accounts["task73-outsider"]
+    settings_path = "/workspace/voice-transcription"
+    page = admin.page
+    page.goto(origin + "/voice-transcription")
+    expect(page.get_by_test_id("voice-save")).to_be_visible()
+    page.locator('input[type="radio"][value="whisper_api"]').check()
+    page.locator('[class*="voiceTranscriptionPage"] .qwenpaw-select-selector:visible').click()
+    page.locator('.qwenpaw-select-dropdown:visible').get_by_text("TASK73 Loopback", exact=True).click()
+    page.get_by_test_id("voice-remote-model").fill("task73-whisper")
+    with page.expect_response(lambda r: r.url.endswith(settings_path) and r.request.method == "PUT") as saved:
+        page.get_by_test_id("voice-save").click()
+    assert saved.value.status == 200
+    settings = admin.api("GET", settings_path)["settings"]
+    assert settings["transcription_provider_type"] == "whisper_api"
+    assert settings["transcription_provider_id"] == "task73-loopback"
+    assert settings["transcription_model"] == "task73-whisper"
+    page.reload()
+    expect(page.get_by_test_id("voice-remote-model")).to_have_value("task73-whisper")
+    passed("admin_joint_save_and_reload")
+    page.get_by_test_id("voice-test-upload").set_input_files(sample)
+    expect(page.get_by_test_id("voice-test-result")).to_contain_text("TASK73 转写结果", timeout=30000)
+    assert server.audio_requests[-1]["model"] == "task73-whisper"
+    assert server.audio_requests[-1]["bytes"] == sample.stat().st_size
+    passed("admin_saved_configuration_real_http_test")
+    page.screenshot(path=str(output / "admin-voice.png"), full_page=True)
+
+    upload = {"file": {"name": sample.name, "mimeType": "audio/wav", "buffer": sample.read_bytes()}}
+    user.api("GET", settings_path, status=403)
+    user.api("PUT", settings_path, settings, status=403)
+    user.api("POST", "/workspace/transcription-test", multipart=upload, status=403)
+    status = user.api("GET", "/workspace/transcription-status", agent="task73-agent")
+    assert set(status) == {"enabled", "available", "reason"}
+    assert status["enabled"] and status["available"]
+    count = len(server.audio_requests)
+    outsider.api("POST", "/workspace/transcribe", agent="task73-agent", multipart=upload, status=403)
+    assert len(server.audio_requests) == count
+    passed("management_permissions_safe_status_and_agent_isolation")
+    bad_upload = {"file": {"name": "audio.txt", "mimeType": "text/plain", "buffer": b"not audio"}}
+    rejected = user.api("POST", "/workspace/transcribe", agent="task73-agent", multipart=bad_upload, status=400)
+    assert rejected["detail"]["code"] == "UNSUPPORTED_FILE_TYPE"
+    assert len(server.audio_requests) == count
+    passed("unsupported_upload_rejected_before_upstream")
+
+    page = user.page
+    page.goto(origin + "/chat")
+    selector = page.locator('[class*="agentSelectorWrapper"] [class*="select-selector"]')
+    selector.click()
+    page.locator('.qwenpaw-select-dropdown:visible').get_by_text("TASK73 语音验收", exact=True).click()
+    expect(page.get_by_test_id("voice-upload-button")).to_be_enabled(timeout=30000)
+    draft = page.locator('[class*="sender"] textarea:visible').last
+    draft.fill("已有草稿")
+    submitted_chats = []
+    def track_chat_submission(request):
+        path = request.url.split("?", 1)[0]
+        if request.method == "POST" and path.endswith(("/console/chat", "/console/chat/task")):
+            submitted_chats.append(path)
+    page.on("request", track_chat_submission)
+    chat_calls = server.request_count
+    page.get_by_test_id("voice-upload-input").set_input_files(sample)
+    expect(draft).to_have_value(re.compile("已有草稿.*TASK73 转写结果", re.S), timeout=30000)
+    assert server.request_count == chat_calls
+    assert not submitted_chats, "Upload unexpectedly submitted a chat request"
+    passed("agent_user_upload_appends_without_sending")
+
+    count = len(server.audio_requests)
+    page.get_by_test_id("voice-record").click()
+    expect(page.get_by_test_id("voice-record")).to_have_attribute("aria-label", re.compile("停止"))
+    page.wait_for_timeout(1100)
+    page.get_by_test_id("voice-record").click()
+    expect(draft).to_have_value(re.compile(f".*TASK73 转写结果 {count + 1}", re.S), timeout=30000)
+    assert server.audio_requests[-1]["bytes"] > 0
+    assert server.audio_requests[-1]["filename"].endswith((".webm", ".mp4", ".ogg"))
+    assert not submitted_chats, "Recording unexpectedly submitted a chat request"
+    passed("real_media_recorder_transcribes_and_appends")
+
+    for mode, code in (("error", "UPSTREAM_FAILED"), ("empty", "EMPTY_TRANSCRIPT")):
+        before = draft.input_value()
+        server.audio_mode = mode
+        with page.expect_response(lambda r: r.url.endswith("/workspace/transcribe"), timeout=30000) as failed:
+            page.get_by_test_id("voice-upload-input").set_input_files(sample)
+        body = failed.value.json()
+        assert failed.value.status >= 400
+        assert body["detail"]["code"] == code
+        assert "SYNTHETIC_UPSTREAM_PRIVATE_DETAIL" not in str(body)
+        expect(page.get_by_test_id("voice-upload-button")).to_be_enabled()
+        assert draft.input_value() == before
+        assert "SYNTHETIC_UPSTREAM_PRIVATE_DETAIL" not in page.locator("body").inner_text()
+        passed("safe_" + mode + "_leaves_draft_unchanged")
+    server.audio_mode = "success"
+    page.screenshot(path=str(output / "user-voice.png"), full_page=True)
+
+    owner = accounts["task73-owner"]
+    page = owner.page
+    page.goto(origin + "/chat")
+    selector = page.locator('[class*="agentSelectorWrapper"] [class*="select-selector"]')
+    selector.click()
+    page.locator('.qwenpaw-select-dropdown:visible').get_by_text("TASK73 语音验收", exact=True).click()
+    expect(page.get_by_test_id("voice-upload-button")).to_be_enabled(timeout=30000)
+    server.audio_mode = "delay"
+    count = len(server.audio_requests)
+    page.get_by_test_id("voice-upload-input").set_input_files(sample)
+    # Poll through Playwright so network and UI callbacks continue to run.
+    for _ in range(100):
+        if len(server.audio_requests) > count:
+            break
+        page.wait_for_timeout(50)
+    assert len(server.audio_requests) > count
+    selector.click()
+    page.locator('.qwenpaw-select-dropdown:visible').get_by_text("TASK73 另一智能体", exact=True).click()
+    page.wait_for_timeout(3500)
+    draft = page.locator('[class*="sender"] textarea:visible').last
+    assert f"TASK73 转写结果 {count + 1}" not in draft.input_value()
+    server.audio_mode = "success"
+    passed("agent_switch_discards_delayed_transcription")
+
+    settings["transcription_provider_type"] = "disabled"
+    admin.api("PUT", settings_path, settings)
+    disabled = user.api("GET", "/workspace/transcription-status", agent="task73-agent")
+    assert not disabled["enabled"] and not disabled["available"]
+    result = user.api("POST", "/workspace/transcribe", agent="task73-agent", multipart=upload, status=400)
+    assert result["detail"]["code"] == "TRANSCRIPTION_DISABLED"
+    passed("disabled_configuration_blocks_transcription")
+
+    page = admin.page
+    page.goto(origin + "/voice-transcription")
+    expect(page.get_by_test_id("voice-save")).to_be_visible()
+    page.locator('input[type="radio"][value="local_whisper"]').check()
+    expect(page.get_by_test_id("voice-local-model")).to_be_visible()
+    with page.expect_response(lambda r: r.url.endswith(settings_path) and r.request.method == "PUT") as saved:
+        page.get_by_test_id("voice-save").click()
+    assert saved.value.status == 200
+    local = admin.api("GET", settings_path)
+    assert local["settings"]["transcription_provider_type"] == "local_whisper"
+    if not local["local_status"]["available"]:
+        count = len(server.audio_requests)
+        with page.expect_response(lambda r: r.url.endswith("/workspace/transcription-test")) as failed:
+            page.get_by_test_id("voice-test-upload").set_input_files(sample)
+        assert failed.value.status >= 400
+        assert failed.value.json()["detail"]["code"] == "TRANSCRIPTION_NOT_READY"
+        assert len(server.audio_requests) == count
+        passed("local_dependencies_missing_explained_without_download")
+    else:
+        raise AssertionError("Local runtime differs from audited fixture; inspect readiness before inference")
+    admin.api("PUT", settings_path, settings)
 
 
 def navigate_to_voice(page: Page):
@@ -407,7 +560,7 @@ class TestVoiceModeSwitch:
         test_name = request.node.name
 
         log_test_step("Navigate to voice config page")
-        page.goto(f"{config.base_url}/voice")
+        page.goto(VOICE_URL)
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 

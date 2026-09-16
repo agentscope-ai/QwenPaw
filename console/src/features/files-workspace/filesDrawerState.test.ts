@@ -4,6 +4,25 @@ import { CLOSED_FILES_DRAWER, filesDrawerReducer } from "./filesDrawerState";
 const target = { source: "workspace" as const, path: "src/app.py" };
 
 describe("filesDrawerReducer", () => {
+  it("keeps a business locator while preview expands and collapses", () => {
+    const locator = {
+      category: "artifact" as const,
+      agentId: "agent-a",
+      stableId: "bd20d801-5fa2-4dd0-8d5e-691806601b5b",
+      relativePath: "report.pdf",
+    };
+    const preview = filesDrawerReducer(CLOSED_FILES_DRAWER, {
+      type: "OPEN_PREVIEW",
+      locator,
+      trigger: null,
+    });
+    const workspace = filesDrawerReducer(preview, { type: "EXPAND_WORKSPACE" });
+    expect(workspace).toMatchObject({ kind: "workspace", locator });
+    expect(
+      filesDrawerReducer(workspace, { type: "COLLAPSE_TO_PREVIEW" }),
+    ).toMatchObject({ kind: "preview", locator });
+  });
+
   it("opens Preview before a Chat-origin workspace", () => {
     const preview = filesDrawerReducer(CLOSED_FILES_DRAWER, {
       type: "OPEN_PREVIEW",

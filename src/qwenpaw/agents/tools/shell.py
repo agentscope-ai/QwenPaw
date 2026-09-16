@@ -106,9 +106,12 @@ def _broadcast_shell_status(
     agent_id = ctx.get("agent_id") or "default"
     if not session_id:
         return
+    from ...runtime_status.scope import execution_user_id
+
     broadcast_runtime_status(
         agent_id,
         session_id=session_id,
+        user_id=execution_user_id(ctx),
         root_session_id=ctx.get("root_session_id") or session_id,
         chat_id=ctx.get("chat_id"),
         stage=stage,
@@ -1223,8 +1226,8 @@ async def execute_shell_command(
         if returncode == 0:
             _broadcast_shell_status(
                 stage="tool_completed",
-                status="running",
-                message="Shell 命令已完成，等待模型继续处理。",
+                status="completed",
+                message="Shell 命令已完成。",
                 cmd=cmd,
                 timeout=timeout,
                 working_dir=Path(working_dir),

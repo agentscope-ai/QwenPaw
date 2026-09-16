@@ -6,10 +6,15 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Modal, Form } from "@agentscope-ai/design";
-import { useAppMessage } from "../../../hooks/useAppMessage";
+import { Form } from "@agentscope-ai/design";
+import { useSkillRuntime } from "../../Agent/Skills/useSkillRuntime";
+import { createSkillGovernanceApi } from "@/api/modules/skillGovernance";
+import type {
+  GovernedSkill,
+  SkillPreview,
+  SkillTargetResult,
+} from "@/api/types/skillGovernance";
 import { useTranslation } from "react-i18next";
-import api from "../../../api";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type {
   BuiltinImportSpec,
@@ -82,7 +87,13 @@ function writeBuiltinNoticeAcknowledgement(fingerprint: string): void {
 
 export function useSkillPool() {
   const { t, i18n } = useTranslation();
+  const { scope, api, message, modal: Modal } = useSkillRuntime();
+  const [broadcastResults, setBroadcastResults] = useState<SkillTargetResult[]>(
+    [],
+  );
   const [skills, setSkills] = useState<PoolSkillSpec[]>([]);
+  const [publishedSkills, setPublishedSkills] = useState<GovernedSkill[]>([]);
+  const [poolPreview, setPoolPreview] = useState<SkillPreview[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceSkillSummary[]>([]);
   const [builtinNotice, setBuiltinNotice] =
     useState<BuiltinUpdateNotice | null>(null);
@@ -111,7 +122,7 @@ export function useSkillPool() {
   const [importing, setImporting] = useState(false);
   const { showConflictRenameModal, conflictRenameModal } =
     useConflictRenameModal();
-  const { message } = useAppMessage();
+
   const [selectedPoolSkills, setSelectedPoolSkills] = useState<Set<string>>(
     new Set(),
   );
@@ -158,7 +169,7 @@ export function useSkillPool() {
           onCancel: () => resolve(false),
         });
       }),
-    [t],
+    [Modal, t],
   );
 
   const togglePoolSelect = (name: string) => {
@@ -212,16 +223,27 @@ export function useSkillPool() {
 
       setLoading(true);
       try {
-        const [poolSkills, workspaceSummaries, notice] = await Promise.all([
-          api.listSkillPoolSkills(),
-          api.listSkillWorkspaces(),
-          api.getPoolBuiltinNotice(),
-        ]);
+        const governance = createSkillGovernanceApi(scope);
+        const [poolSkills, workspaceSummaries, notice, preview, published] =
+          await Promise.all([
+            api.listSkillPoolSkills(),
+            api.listSkillWorkspaces(),
+            api.getPoolBuiltinNotice(),
+            scope.multiUser && scope.isAdmin
+              ? governance.preview()
+              : { items: [] },
+            scope.multiUser && scope.isAdmin
+              ? governance.items()
+              : { items: [] },
+          ]);
         setSkills(poolSkills);
         setWorkspaces(workspaceSummaries);
         setBuiltinNotice(notice);
+        setPoolPreview(preview.items);
+        setPublishedSkills(published.items);
         dataLoadedRef.current = true;
       } catch (error) {
+        if (!scope.current()) return;
         message.error(
           error instanceof Error ? error.message : "Failed to load skill pool",
         );
@@ -229,30 +251,98 @@ export function useSkillPool() {
         setLoading(false);
       }
     },
-    [message],
+    [api, message, scope],
   );
 
   const handleRefresh = useCallback(async () => {
     setLoading(true);
     try {
       invalidateSkillCache({ pool: true, workspaces: true });
-      const [poolSkills, workspaceSummaries, notice] = await Promise.all([
-        api.refreshSkillPool(),
-        api.listSkillWorkspaces(),
-        api.getPoolBuiltinNotice(),
-      ]);
+      const governance = createSkillGovernanceApi(scope);
+      const [poolSkills, workspaceSummaries, notice, preview, published] =
+        await Promise.all([
+          api.refreshSkillPool(),
+          api.listSkillWorkspaces(),
+          api.getPoolBuiltinNotice(),
+          scope.multiUser && scope.isAdmin
+            ? governance.preview()
+            : { items: [] },
+          scope.multiUser && scope.isAdmin ? governance.items() : { items: [] },
+        ]);
       setSkills(poolSkills);
       setWorkspaces(workspaceSummaries);
       setBuiltinNotice(notice);
+      setPoolPreview(preview.items);
+      setPublishedSkills(published.items);
       dataLoadedRef.current = true;
     } catch (error) {
+      if (!scope.current()) return;
       message.error(
         error instanceof Error ? error.message : "Failed to refresh",
       );
     } finally {
       setLoading(false);
     }
-  }, [message]);
+  }, [api, message, scope]);
+
+  const publicationState = useCallback(
+    (name: string): "unpublished" | "outdated" | "current" => {
+      const preview = poolPreview.find((item) => item.name === name);
+      const published = publishedSkills.find((item) => item.name === name);
+      if (!published) return "unpublished";
+      return preview?.content_hash === published.content_hash
+        ? "current"
+        : "outdated";
+    },
+    [poolPreview, publishedSkills],
+  );
+
+  const handlePublish = useCallback(
+    async (skill: PoolSkillSpec) => {
+      if (!scope.current() || !scope.isAdmin) return;
+      try {
+        const governance = createSkillGovernanceApi(scope);
+        const preview = (await governance.preview()).items.find(
+          (item) => item.name === skill.name,
+        );
+        if (!preview) {
+          message.error(t("skillGovernance.publishMissing"));
+          return;
+        }
+        const published = (await governance.items()).items.find(
+          (item) => item.name === skill.name,
+        );
+        if (published?.content_hash === preview.content_hash) {
+          message.info(t("skillGovernance.publishCurrent"));
+          return;
+        }
+        const confirmed = await confirmOverwrite(
+          t(
+            published
+              ? "skillGovernance.publishNewVersion"
+              : "skillGovernance.publish",
+          ),
+          <div>
+            <p>{skill.name}</p>
+            <code>{preview.content_hash}</code>
+          </div>,
+        );
+        if (!confirmed || !scope.current()) return;
+        await governance.register([preview]);
+        if (!scope.current()) return;
+        message.success(
+          t("skillGovernance.publishSuccess", { name: skill.name }),
+        );
+        await loadData(true);
+      } catch (error) {
+        if (!scope.current()) return;
+        message.error(
+          error instanceof Error ? error.message : t("skillGovernance.failed"),
+        );
+      }
+    },
+    [confirmOverwrite, loadData, message, scope, t],
+  );
 
   useEffect(() => {
     void loadData();
@@ -305,6 +395,7 @@ export function useSkillPool() {
         markBuiltinNoticeSeen(notice.fingerprint);
       }
     } catch (error) {
+      if (!scope.current()) return;
       message.error(
         error instanceof Error
           ? error.message
@@ -366,6 +457,7 @@ export function useSkillPool() {
         tags: detail.tags || [],
       });
     } catch (error) {
+      if (!scope.current()) return;
       if (detailRequestIdRef.current !== requestId) return;
       message.error(
         error instanceof Error ? error.message : t("skills.loadFailed"),
@@ -415,10 +507,133 @@ export function useSkillPool() {
     [drawerContent, t],
   );
 
+  const describeBroadcastResult = (row: SkillTargetResult) => {
+    const agentName = getAgentDisplayName({
+      id: row.agent_id,
+      name: workspaces.find((workspace) => workspace.agent_id === row.agent_id)?.agent_name ?? "",
+    }, t);
+    return `${row.name ? `${row.name} → ` : ""}${agentName}：${t(`skillGovernance.broadcastStatus.${row.status}`)}`;
+  };
+
   const handleBroadcast = async (
     broadcastSkillNames: string[],
     targetWorkspaceIds: string[],
   ) => {
+    if (!scope.current() || !scope.isAdmin) return;
+    if (scope.multiUser) {
+      setBroadcastResults([]);
+      try {
+        const governance = createSkillGovernanceApi(scope);
+        let registered = (await governance.items()).items;
+        const registeredNames = new Set(registered.map((item) => item.name));
+        const missingNames = broadcastSkillNames.filter(
+          (name) => !registeredNames.has(name),
+        );
+        if (missingNames.length) {
+          const drafts = (await governance.preview()).items.filter((item) =>
+            missingNames.includes(item.name),
+          );
+          if (drafts.length !== missingNames.length) {
+            message.warning(t("skillGovernance.draft"));
+            return;
+          }
+          await governance.register(drafts);
+          scope.assert();
+          registered = (await governance.items()).items;
+        }
+        const selected = registered.filter((item) =>
+          broadcastSkillNames.includes(item.name),
+        );
+        if (selected.length !== broadcastSkillNames.length) {
+          message.warning(t("skillGovernance.draft"));
+          return;
+        }
+        const preview: SkillTargetResult[] = [];
+        const confirmations = new Map<
+          string,
+          Record<
+            string,
+            {
+              expected_content_hash: string | null;
+              expected_version_id: string;
+            }
+          >
+        >();
+        for (const item of selected) {
+          scope.assert();
+          for (const agentId of targetWorkspaceIds) {
+            await governance.grant(item.id, agentId, true);
+            scope.assert();
+          }
+          const rows = (
+            await governance.broadcast(item.id, targetWorkspaceIds, true)
+          ).results;
+          preview.push(...rows);
+          confirmations.set(
+            item.id,
+            Object.fromEntries(
+              rows
+                .filter(
+                  (row) =>
+                    (row.status === "ready" || row.status === "unchanged") &&
+                    row.expected_content_hash !== undefined &&
+                    row.expected_version_id,
+                )
+                .map((row) => [
+                  row.agent_id,
+                  {
+                    expected_content_hash: row.expected_content_hash!,
+                    expected_version_id: row.expected_version_id!,
+                  },
+                ]),
+            ),
+          );
+        }
+        if (!scope.current()) return;
+        setBroadcastResults(preview);
+        const confirmed = await confirmOverwrite(
+          t("skillPool.broadcast"),
+          <div>
+            <p>{t("skillGovernance.broadcastConfirmHelp")}</p>
+            {preview.map((row, index) => (
+              <p key={index}>
+                {describeBroadcastResult(row)}
+              </p>
+            ))}
+          </div>,
+        );
+        if (!confirmed || !scope.current()) return;
+        const results: SkillTargetResult[] = [];
+        for (const item of selected) {
+          scope.assert();
+          results.push(
+            ...(
+              await governance.broadcast(
+                item.id,
+                targetWorkspaceIds,
+                false,
+                true,
+                confirmations.get(item.id),
+              )
+            ).results,
+          );
+        }
+        if (!scope.current()) return;
+        setBroadcastResults(results);
+        if (
+          results.some(
+            (row) => row.status === "skipped" || row.status === "failed",
+          )
+        )
+          message.warning(t("skillGovernance.partial"));
+        else message.success(t("skillGovernance.completed"));
+        invalidateSkillCache({ pool: true, workspaces: true });
+        await loadData(true);
+      } catch {
+        if (scope.current()) message.error(t("skillGovernance.failed"));
+      }
+      return;
+    }
     try {
       const conflicts: BroadcastConflict[] = [];
       for (const skillName of broadcastSkillNames) {
@@ -431,7 +646,8 @@ export function useSkillPool() {
             preview_only: true,
           });
         } catch (error) {
-          if (handleScanError(error, t)) return;
+          if (!scope.current()) return;
+          if (handleScanError(error, t, scope)) return;
           const detail = parseErrorDetail(error);
           const returnedConflicts = Array.isArray(detail?.conflicts)
             ? detail.conflicts
@@ -533,7 +749,7 @@ export function useSkillPool() {
             ))}
           </div>,
         );
-        if (!confirmed) return;
+        if (!confirmed || !scope.current()) return;
       }
       for (const skillName of broadcastSkillNames) {
         const overwriteTargetIds = new Set(
@@ -577,10 +793,12 @@ export function useSkillPool() {
           api.getBlockedHistory,
           api.getSkillScanner,
           t,
+          scope,
         );
       }
     } catch (error) {
-      if (!handleScanError(error, t)) {
+      if (!scope.current()) return;
+      if (!handleScanError(error, t, scope)) {
         message.error(
           error instanceof Error
             ? error.message
@@ -622,6 +840,7 @@ export function useSkillPool() {
       invalidateSkillCache({ pool: true });
       await loadData(true);
     } catch (error) {
+      if (!scope.current()) return;
       const detail = parseErrorDetail(error);
       const conflicts = Array.isArray(detail?.conflicts)
         ? detail.conflicts
@@ -681,7 +900,7 @@ export function useSkillPool() {
             normalized === "zh" ? t("skillPool.langZh") : t("skillPool.langEn"),
         }),
       );
-      if (!confirmed) return;
+      if (!confirmed || !scope.current()) return;
       try {
         await api.updatePoolBuiltin(skill.name, normalized);
         message.success(
@@ -697,6 +916,7 @@ export function useSkillPool() {
         invalidateSkillCache({ pool: true });
         await loadData(true);
       } catch (error) {
+        if (!scope.current()) return;
         message.error(
           error instanceof Error
             ? error.message
@@ -704,7 +924,7 @@ export function useSkillPool() {
         );
       }
     },
-    [closeDrawer, confirmOverwrite, loadData, message, t],
+    [api, closeDrawer, confirmOverwrite, loadData, message, scope, t],
   );
 
   const handleToggleAutoUpdate = useCallback(
@@ -714,15 +934,29 @@ export function useSkillPool() {
       targets: string[] | null = null,
     ) => {
       try {
-        await api.updatePoolSkillAutoUpdate(skill.name, { enabled, targets });
-        message.success(
-          enabled
-            ? t("skillPool.autoUpdateEnabled", { name: skill.name })
-            : t("skillPool.autoUpdateDisabled", { name: skill.name }),
-        );
+        const result = await api.updatePoolSkillAutoUpdate(skill.name, {
+          enabled,
+          targets,
+        });
+        const rows =
+          result.sync?.results?.flatMap((batch) => batch.results) ?? [];
+        setBroadcastResults(rows);
+        if (
+          rows.some(
+            (row) => row.status === "skipped" || row.status === "failed",
+          )
+        )
+          message.warning(t("skillGovernance.partial"));
+        else
+          message.success(
+            enabled
+              ? t("skillPool.autoUpdateEnabled", { name: skill.name })
+              : t("skillPool.autoUpdateDisabled", { name: skill.name }),
+          );
         invalidateSkillCache({ pool: true, workspaces: true });
         await loadData(true);
       } catch (error) {
+        if (!scope.current()) return;
         message.error(
           error instanceof Error
             ? error.message
@@ -730,12 +964,12 @@ export function useSkillPool() {
         );
       }
     },
-    [loadData, message, t],
+    [api, loadData, message, scope, t],
   );
 
   const handleSavePoolSkill = async () => {
     const values = await form.validateFields().catch(() => null);
-    if (!values) return;
+    if (!values || !scope.current()) return;
 
     const trimmedConfig = configText.trim();
     let parsedConfig: Record<string, unknown> = {};
@@ -757,6 +991,7 @@ export function useSkillPool() {
     // agent that has it.
     // Non-auto-update skills leave agent copies untouched, so no confirm.
     if (
+      !scope.multiUser &&
       mode === "edit" &&
       activeSkill &&
       skillName !== activeSkill.name &&
@@ -796,7 +1031,7 @@ export function useSkillPool() {
             </ul>
           </div>,
         );
-        if (!confirmed) return;
+        if (!confirmed || !scope.current()) return;
       }
     }
 
@@ -821,6 +1056,15 @@ export function useSkillPool() {
                 mode: "edit" as const,
                 name: created.name,
               }));
+      if ("results" in result && result.results?.length) {
+        setBroadcastResults(result.results);
+        if (
+          result.results.some(
+            (row) => row.status === "skipped" || row.status === "failed",
+          )
+        )
+          message.warning(t("skillGovernance.partial"));
+      }
       const newTags = values.tags || [];
       const oldTags = (mode === "edit" ? activeSkill?.tags : []) || [];
       const tagsChanged = JSON.stringify(newTags) !== JSON.stringify(oldTags);
@@ -836,13 +1080,22 @@ export function useSkillPool() {
         autoUpdateEnabled !== prevAutoEnabled ||
         JSON.stringify(autoUpdateTargets) !== JSON.stringify(prevAutoTargets);
       if (autoUpdateChanged) {
-        await api.updatePoolSkillAutoUpdate(finalName, {
+        const update = await api.updatePoolSkillAutoUpdate(finalName, {
           enabled: autoUpdateEnabled,
           targets:
             autoUpdateEnabled && autoUpdateTargets.length
               ? autoUpdateTargets
               : null,
         });
+        const rows =
+          update.sync?.results?.flatMap((batch) => batch.results) ?? [];
+        setBroadcastResults(rows);
+        if (
+          rows.some(
+            (row) => row.status === "skipped" || row.status === "failed",
+          )
+        )
+          message.warning(t("skillGovernance.partial"));
       }
       if (result.mode === "noop" && !tagsChanged && !autoUpdateChanged) {
         closeDrawer();
@@ -865,13 +1118,15 @@ export function useSkillPool() {
         api.getBlockedHistory,
         api.getSkillScanner,
         t,
+        scope,
       );
     };
 
     try {
       await persistPoolSkill();
     } catch (error) {
-      if (handleScanError(error, t)) return;
+      if (!scope.current()) return;
+      if (handleScanError(error, t, scope)) return;
       const detail = parseErrorDetail(error);
       if (mode === "edit" && detail?.reason === "conflict") {
         const confirmed = await confirmOverwrite(
@@ -883,7 +1138,7 @@ export function useSkillPool() {
             </ul>
           </div>,
         );
-        if (!confirmed) return;
+        if (!confirmed || !scope.current()) return;
         try {
           await persistPoolSkill(true);
         } catch (retryError) {
@@ -923,7 +1178,7 @@ export function useSkillPool() {
       title: t("skillPool.deleteTitle", { name: skill.name }),
       content: skill.external
         ? t("skillPool.deleteExternalConfirm", {
-            path: skill.external_path || skill.name,
+            path: skill.name,
           })
         : skill.source === "builtin"
         ? t("skillPool.deleteBuiltinConfirm")
@@ -983,17 +1238,19 @@ export function useSkillPool() {
               api.getBlockedHistory,
               api.getSkillScanner,
               t,
+              scope,
             );
           }
         }
         break;
       } catch (error) {
+        if (!scope.current()) return;
         const detail = parseErrorDetail(error);
         const conflicts = Array.isArray(detail?.conflicts)
           ? detail.conflicts
           : [];
         if (conflicts.length === 0) {
-          if (handleScanError(error, t)) break;
+          if (handleScanError(error, t, scope)) break;
           message.error(
             error instanceof Error
               ? error.message
@@ -1032,9 +1289,11 @@ export function useSkillPool() {
         api.getBlockedHistory,
         api.getSkillScanner,
         t,
+        scope,
       );
     } catch (error) {
-      if (handleScanError(error, t)) return;
+      if (!scope.current()) return;
+      if (handleScanError(error, t, scope)) return;
       const detail = parseErrorDetail(error);
       if (detail?.suggested_name) {
         const skillName = detail?.skill_name || "";
@@ -1091,7 +1350,7 @@ export function useSkillPool() {
         onCancel: () => resolve(false),
       });
     });
-    if (!confirmed) return;
+    if (!confirmed || !scope.current()) return;
     try {
       const { results } = await api.batchDeletePoolSkills(names);
       const failed = Object.entries(results).filter(([, r]) => !r.success);
@@ -1111,6 +1370,7 @@ export function useSkillPool() {
       invalidateSkillCache({ pool: true });
       await loadData(true);
     } catch (error) {
+      if (!scope.current()) return;
       message.error(
         error instanceof Error
           ? error.message
@@ -1120,9 +1380,13 @@ export function useSkillPool() {
   };
 
   return {
+    broadcastResults,
+    describeBroadcastResult,
     loading,
     skills,
     sortedSkills,
+    publicationState,
+    handlePublish,
     workspaces,
     mode,
     activeSkill,

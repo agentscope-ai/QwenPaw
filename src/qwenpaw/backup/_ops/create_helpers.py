@@ -12,8 +12,11 @@ from .._utils.constants import (
     PREFIX_SECRETS,
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
+    PREFIX_PLATFORM_CONTENT,
+    PLATFORM_CONTENT_DIRECTORIES,
 )
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+from ...identity.runtime import is_multi_user_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +159,28 @@ def add_skill_pool(zf: zipfile.ZipFile, stop_event=None) -> bool:
     return True
 
 
+def add_platform_content(zf: zipfile.ZipFile, stop_event=None) -> bool:
+    """Include managed content referenced by the platform database snapshot."""
+    for name in PLATFORM_CONTENT_DIRECTORIES:
+        root = WORKING_DIR / name
+        if root.is_symlink() or not root.resolve().is_relative_to(WORKING_DIR.resolve()):
+            raise ValueError("platform_content_symlink_denied")
+        prefix = f"{PREFIX_PLATFORM_CONTENT}{name}/"
+        # Preserve empty roots so a restore can remove post-backup content.
+        zf.writestr(prefix, b"")
+        if not root.is_dir():
+            continue
+        for entry in sorted(root.rglob("*")):
+            if stop_event and stop_event.is_set():
+                return False
+            if entry.is_symlink() or not entry.resolve().is_relative_to(root.resolve()):
+                raise ValueError("platform_content_symlink_denied")
+            if entry.is_file():
+                # Missing or unreadable authoritative content must fail the backup.
+                zf.write(entry, prefix + entry.relative_to(root).as_posix())
+    return True
+
+
 def add_files_to_zip(
     zf: zipfile.ZipFile,
     meta,
@@ -189,6 +214,8 @@ def add_files_to_zip(
 
     if meta.scope.include_global_config:
         add_global_config(zf)
+        if is_multi_user_enabled() and not add_platform_content(zf, stop_event):
+            return []
     if meta.scope.include_secrets:
         if not add_secrets(zf, stop_event):
             return []

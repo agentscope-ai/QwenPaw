@@ -6,12 +6,16 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+from uuid import uuid4
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers.tool_calls import router as tool_calls_router
+from qwenpaw.app.routers import tool_calls as tool_calls_module
+from qwenpaw.access.actor import ActorContext, ActorType
+from qwenpaw.identity.models import PlatformRole
 from qwenpaw.tool_calls._context import ToolCallContext
 from qwenpaw.tool_calls._entry import ToolCallEntry, ToolCallStatus
 from qwenpaw.tool_calls._stream import ToolStream
@@ -84,3 +88,32 @@ def test_get_call_allows_matching_session(
     body = resp.json()
     assert body["tool_call_id"] == "tc-1"
     assert body["session_id"] == "session-a"
+
+
+def test_get_call_rejects_other_background_task_owner(
+    client: TestClient,
+    coordinator: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner_id = uuid4()
+    other_id = uuid4()
+    entry = _running_entry(session_id="session-a")
+    entry.ctx.extra["execution_context"] = {"user_id": str(owner_id)}
+    coordinator.get.return_value = entry
+    monkeypatch.setattr(tool_calls_module, "is_multi_user_enabled", lambda: True)
+    monkeypatch.setattr(
+        tool_calls_module,
+        "get_actor",
+        lambda _request: ActorContext(
+            user_id=other_id,
+            actor_type=ActorType.USER,
+            platform_role=PlatformRole.MEMBER,
+            admin_mode=False,
+            request_id="tool-call-owner-test",
+        ),
+    )
+
+    resp = client.get("/api/tool-calls/session-a/tc-1")
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Tool call not found"

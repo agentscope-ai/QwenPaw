@@ -24,6 +24,7 @@ interface ChatActionGroupProps {
   workspaceOpen?: boolean;
   isWideMode?: boolean;
   onToggleWideMode?: () => void;
+  readOnly?: boolean;
 }
 
 const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
@@ -33,6 +34,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   workspaceOpen = false,
   isWideMode = false,
   onToggleWideMode,
+  readOnly = false,
 }) => {
   const { t } = useTranslation();
 
@@ -76,6 +78,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
         <IconButton
           bordered={false}
           icon={<SparkNewChatFill />}
+          disabled={readOnly}
           onClick={createNewSession}
         />
       </Tooltip>

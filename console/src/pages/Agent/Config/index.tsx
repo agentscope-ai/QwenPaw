@@ -1,8 +1,10 @@
 import { useState, useMemo, useEffect, useCallback } from "react";
 import { Button, Form, Tabs } from "@agentscope-ai/design";
+import { Alert } from "antd";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { useAgentConfig } from "./useAgentConfig.tsx";
+import { modelCatalogApi } from "@/api/modules/modelCatalog";
 import {
   ReactAgentCard,
   LlmRetryCard,
@@ -16,15 +18,28 @@ import {
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
   MEMORY_MANAGER_BACKEND_MAPPINGS,
 } from "@/constants/backendMappings";
-import api from "@/api";
 import { useAgentStore } from "@/stores/agentStore";
 import styles from "./index.module.less";
 import { MemoryMaintenanceContext } from "./memoryMaintenanceContext";
 import { useReMeRuntimeStatus } from "./useReMeRuntimeStatus";
+import { ReadOnlyConfigSummary } from "./ReadOnlyConfigSummary";
+import { GovernanceConfigAlert } from "./GovernanceConfigAlert";
+import type { AgentRequestContext } from "@/api/modules/agentRequestContext";
 
 function AgentConfigPage() {
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
+  const governanceAgentId =
+    searchParams.get("governance") === "runtime-config"
+      ? searchParams.get("agentId") || undefined
+      : undefined;
+  const requestContext: AgentRequestContext | undefined = useMemo(
+    () =>
+      governanceAgentId
+        ? { agentId: governanceAgentId, governance: true }
+        : undefined,
+    [governanceAgentId],
+  );
   const [activeTab, setActiveTab] = useState(
     searchParams.get("tab") || "reactAgent",
   );
@@ -47,13 +62,19 @@ function AgentConfigPage() {
     savingLang,
     timezone,
     savingTimezone,
+    access,
+    readOnlySummary,
+    isReadOnly,
     approvalLevel,
     setApprovalLevel,
     fetchConfig,
     handleSave,
+    runtimeState,
+    retryReloading,
+    handleRetryReload,
     handleLanguageChange,
     handleTimezoneChange,
-  } = useAgentConfig(syncReindexRequirement);
+  } = useAgentConfig(syncReindexRequirement, governanceAgentId);
 
   const llmRetryEnabled = Form.useWatch("llm_retry_enabled", form) ?? true;
   const contextBackend =
@@ -61,8 +82,10 @@ function AgentConfigPage() {
   const memoryBackend =
     Form.useWatch("memory_manager_backend", form) || "remelight";
   const { selectedAgent } = useAgentStore();
+  const canEdit = access?.can_edit === true;
   const { runtimeStatus, checkMemoryStatus } = useReMeRuntimeStatus(
-    memoryBackend === "remelight",
+    canEdit && memoryBackend === "remelight",
+    requestContext,
   );
   const remoteReindexing =
     runtimeStatus.type === "healthy" && runtimeStatus.data.runtime.reindexing;
@@ -70,27 +93,18 @@ function AgentConfigPage() {
 
   const [maxInputLength, setMaxInputLength] = useState(131072);
   const refreshEffectiveContextWindow = useCallback(() => {
-    return api
-      .getActiveModels({
-        scope: "effective",
-        agent_id: selectedAgent || undefined,
-      })
+    if (!canEdit) return Promise.resolve();
+    return modelCatalogApi
+      .default(selectedAgent || undefined)
       .then((info) => {
         if (info.effective_max_input_length != null) {
           setMaxInputLength(info.effective_max_input_length);
           return;
         }
         if (info.active_llm) {
-          return api.listProviders().then((providers) => {
-            const provider = providers.find(
-              (p) => p.id === info.active_llm?.provider_id,
-            );
-            const all = [
-              ...(provider?.models ?? []),
-              ...(provider?.extra_models ?? []),
-            ];
-            const model = all.find(
-              (item) => item.id === info.active_llm?.model,
+          return modelCatalogApi.list(selectedAgent).then((catalog) => {
+            const model = catalog.models.find(
+              (item) => item.provider_id === info.active_llm?.provider_id && item.model === info.active_llm?.model,
             );
             if (model?.max_input_length != null) {
               setMaxInputLength(model.max_input_length);
@@ -99,7 +113,7 @@ function AgentConfigPage() {
         }
       })
       .catch(() => {});
-  }, [selectedAgent]);
+  }, [selectedAgent, canEdit]);
 
   useEffect(() => {
     refreshEffectiveContextWindow();
@@ -135,6 +149,7 @@ function AgentConfigPage() {
               timezone={timezone}
               savingTimezone={savingTimezone}
               onTimezoneChange={handleTimezoneChange}
+              requestContext={requestContext}
             />
           </div>
         ),
@@ -210,7 +225,7 @@ function AgentConfigPage() {
         ),
         children: (
           <div className={styles.tabContent}>
-            <MemoryComponent />
+            <MemoryComponent requestContext={requestContext} />
           </div>
         ),
       });
@@ -226,7 +241,7 @@ function AgentConfigPage() {
         ),
         children: (
           <div className={styles.tabContent}>
-            <EmbeddingModelCard />
+            <EmbeddingModelCard requestContext={requestContext} />
           </div>
         ),
       });
@@ -267,6 +282,7 @@ function AgentConfigPage() {
     approvalLevel,
     setApprovalLevel,
     saving,
+    requestContext,
   ]);
 
   useEffect(() => {
@@ -299,11 +315,47 @@ function AgentConfigPage() {
     );
   }
 
+  if (isReadOnly && readOnlySummary) {
+    return (
+      <div className={styles.configPage}>
+        <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
+        <div className={styles.content}>
+          <ReadOnlyConfigSummary summary={readOnlySummary} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={styles.configPage}>
       <PageHeader parent={t("nav.agent")} current={t("agentConfig.title")} />
 
       <div className={styles.content}>
+        {access?.is_governance && governanceAgentId && (
+          <GovernanceConfigAlert
+            agentName={searchParams.get("agentName") || governanceAgentId}
+            agentId={governanceAgentId}
+            ownerUserId={access.owner_user_id}
+          />
+        )}
+        {runtimeState === "pending_reload" && (
+          <Alert
+            className={styles.reloadAlert}
+            type="warning"
+            showIcon
+            message={t("agentConfig.pendingReloadTitle")}
+            description={t("agentConfig.pendingReloadDescription")}
+            action={
+              <Button
+                size="small"
+                loading={retryReloading}
+                onClick={handleRetryReload}
+              >
+                {t("agentConfig.retryReload")}
+              </Button>
+            }
+          />
+        )}
         <MemoryMaintenanceContext.Provider
           value={{
             needsReindex,

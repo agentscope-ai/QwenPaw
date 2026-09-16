@@ -14,9 +14,36 @@ from pathlib import Path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 
+repository_root = project_root.parent
+test_fixtures_dir = repository_root / "tests" / "fixtures"
+sys.path.insert(0, str(test_fixtures_dir))
+
+from postgres import postgres_test_schema  # noqa: E402,F401
+from runtime_dirs import (  # noqa: E402,F401
+    bootstrap_test_runtime,
+    isolated_runtime_dirs,
+    shutdown_test_runtime,
+)
+
+_TEST_SESSION_RUNTIME = bootstrap_test_runtime(repository_root)
+
 import pytest
 from pages.chat_page import ChatPage
 from config.settings import config as app_config
+
+
+def _configured_browser_executable() -> str | None:
+    """Return a validated system browser path when explicitly configured."""
+    executable = os.getenv("QWENPAW_E2E_BROWSER_EXECUTABLE", "").strip()
+    if not executable:
+        return None
+    executable_path = Path(executable).expanduser().resolve()
+    if not executable_path.is_file():
+        raise RuntimeError(
+            f"QWENPAW_E2E_BROWSER_EXECUTABLE does not exist: "
+            f"{executable_path}",
+        )
+    return str(executable_path)
 
 # Disable pytest-playwright's auto-injected fixtures and use our custom ones.
 # This ensures QWENPAW_HEADLESS correctly controls the browser display mode.
@@ -29,7 +56,6 @@ _logger = logging.getLogger(__name__)
 # Includes browser, page, browser_context, etc. — fully under our control.
 from fixtures import (  # noqa: F401,E402
     playwright_context,
-    browser,
     browser_context,
     page,
     api_context,
@@ -44,6 +70,29 @@ from fixtures import (  # noqa: F401,E402
     retry_on_failure,
     base_url,
 )
+
+
+@pytest.fixture(scope="session", name="browser")
+def browser_fixture(playwright_context):
+    """Launch Playwright with an explicitly isolated system browser."""
+    cfg = app_config.browser
+    browser_kwargs = {
+        "headless": cfg.headless,
+        "slow_mo": cfg.slow_mo,
+        "args": cfg.args,
+    }
+    executable = _configured_browser_executable()
+    if executable:
+        browser_kwargs["executable_path"] = executable
+
+    browser_type = getattr(playwright_context, cfg.browser_type, None)
+    if browser_type is None:
+        raise ValueError(f"Unsupported browser type: {cfg.browser_type}")
+    launched_browser = browser_type.launch(**browser_kwargs)
+    try:
+        yield launched_browser
+    finally:
+        launched_browser.close()
 
 
 
@@ -223,7 +272,11 @@ def warmup_server():
 
         # ---------- 2. Frontend warmup ----------
         try:
-            browser = pw.chromium.launch(headless=True)
+            warmup_kwargs = {"headless": True}
+            executable = _configured_browser_executable()
+            if executable:
+                warmup_kwargs["executable_path"] = executable
+            browser = pw.chromium.launch(**warmup_kwargs)
             context = browser.new_context()
             page = context.new_page()
 
@@ -345,6 +398,7 @@ def pytest_configure(config):
                     pass
 
 
+@pytest.hookimpl(optionalhook=True)
 def pytest_html_report_title(report):
     """Set the HTML report title (pytest-html 4.x hook)"""
     try:
@@ -430,3 +484,8 @@ def pytest_sessionfinish(session, exitstatus):
 
     if cleaned_count > 0:
         _logger.info(f"Cleaned up {cleaned_count} report files older than {REPORT_RETENTION_DAYS} days")
+
+
+def pytest_unconfigure(config):
+    """Remove only the marked session-level test runtime."""
+    shutdown_test_runtime()

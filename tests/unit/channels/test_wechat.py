@@ -76,7 +76,7 @@ def temp_token_dir(tmp_path) -> Path:
 
 
 @pytest.fixture
-def wechat_channel(
+async def wechat_channel(
     mock_process_handler,
     temp_media_dir,
 ) -> Generator:
@@ -89,6 +89,7 @@ def wechat_channel(
         bot_token="test_token_123",
         bot_prefix="[TestBot] ",
         media_dir=str(temp_media_dir),
+        bot_token_file=str(temp_media_dir.parent / "wechat_bot_token"),
         display_config=ChannelDisplayConfig(
             show_tool_calls=False,
             show_tool_results=False,
@@ -96,7 +97,10 @@ def wechat_channel(
         dm_policy="open",
         group_policy="open",
     )
-    yield channel
+    try:
+        yield channel
+    finally:
+        await channel.stop()
 
 
 @pytest.fixture
@@ -106,7 +110,7 @@ def mock_http_session() -> MockAiohttpSession:
 
 
 @pytest.fixture
-def mock_ilink_client() -> MagicMock:
+def mock_ilink_client(monkeypatch) -> MagicMock:
     """Create a mock ILinkClient."""
     client = MagicMock()
     client.start = AsyncMock()
@@ -132,6 +136,10 @@ def mock_ilink_client() -> MagicMock:
     client.download_media = AsyncMock(return_value=b"mock_media_data")
     client.bot_token = "test_token"
     client.base_url = "https://ilinkai.weixin.qq.com"
+    monkeypatch.setattr(
+        "qwenpaw.app.channels.wechat.channel.ILinkClient",
+        lambda *args, **kwargs: client,
+    )
     return client
 
 
@@ -1434,12 +1442,48 @@ class TestWeChatLifecycle:
         wechat_channel.enabled = True
         wechat_channel._client = mock_ilink_client
         wechat_channel._poll_thread = MagicMock()
+        wechat_channel._poll_thread.is_alive.return_value = False
 
         await wechat_channel.stop()
 
         mock_ilink_client.stop.assert_called_once()
         assert wechat_channel._poll_thread is None
         assert wechat_channel._client is None
+
+    async def test_stopped_channel_does_not_persist_late_message(
+        self, wechat_channel, mock_ilink_client
+    ):
+        await wechat_channel.stop()
+        await wechat_channel._on_message(
+            {"from_user_id": "u", "context_token": "late", "message_type": 1,
+             "item_list": [{"type": 1, "text_item": {"text": "late"}}]},
+            mock_ilink_client,
+        )
+        assert not wechat_channel._context_tokens_file.exists()
+
+    async def test_stop_disabled_channel_still_joins_existing_thread(self, wechat_channel):
+        wechat_channel.enabled = False
+        thread = MagicMock()
+        thread.is_alive.return_value = False
+        wechat_channel._poll_thread = thread
+        await wechat_channel.stop()
+        thread.join.assert_called_once()
+        assert wechat_channel._poll_thread is None
+
+    async def test_stop_does_not_discard_thread_that_remains_alive(
+        self, wechat_channel
+    ):
+        from qwenpaw.exceptions import ChannelError
+
+        thread = MagicMock()
+        thread.is_alive.return_value = True
+        wechat_channel._poll_thread = thread
+        try:
+            with pytest.raises(ChannelError, match="did not stop"):
+                await wechat_channel.stop()
+            assert wechat_channel._poll_thread is thread
+        finally:
+            thread.is_alive.return_value = False
 
     async def test_stop_without_prior_start(self, wechat_channel):
         """Stopping without prior start should succeed."""

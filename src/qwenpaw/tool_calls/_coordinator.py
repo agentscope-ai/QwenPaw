@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+from ..platform_ops.maintenance_lifecycle import admitted
+
 import asyncio
+import copy
 import logging
 import time
 from collections import OrderedDict
@@ -103,6 +106,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None = None,
+        execution_context: dict[str, Any] | None = None,
         background_result_processor: BackgroundResultProcessor | None = None,
     ) -> AsyncGenerator[Any, None]:
         entry = self._create_entry(
@@ -111,6 +115,7 @@ class ToolCoordinator:
             agent_id,
             root_session_id,
             deadline_override,
+            execution_context,
         )
         ctx = entry.ctx
 
@@ -195,6 +200,7 @@ class ToolCoordinator:
         agent_id: str,
         root_session_id: str,
         deadline_override: float | None,
+        execution_context: dict[str, Any] | None = None,
     ) -> ToolCallEntry:
         loop = asyncio.get_running_loop()
         now = loop.time()
@@ -218,6 +224,9 @@ class ToolCoordinator:
             started_at=now,
             offload_deadline=offload_deadline,
             cancel_event=asyncio.Event(),
+            extra={
+                "execution_context": copy.deepcopy(execution_context or {}),
+            },
         )
         return ToolCallEntry(
             ctx=ctx,
@@ -697,6 +706,26 @@ class ToolCoordinator:
         tool_call: Any,
         entry: ToolCallEntry,
     ) -> None:
+        from ..platform_ops.maintenance import MaintenanceBusy
+
+        try:
+            await self._run_admitted_tool_with_hooks(next_handler, tool_call, entry)
+        except MaintenanceBusy:
+            entry.end_state = "error"
+            entry.final_response = ToolResponse(
+                content=[TextBlock(type="text", text="Platform maintenance is busy; tool was not executed.")],
+                id=entry.ctx.tool_call_id,
+                state=ToolResultState.ERROR,
+            )
+            await entry.stream.close()
+
+    @admitted
+    async def _run_admitted_tool_with_hooks(
+        self,
+        next_handler: Callable[..., AsyncGenerator[Any, None]],
+        tool_call: Any,
+        entry: ToolCallEntry,
+    ) -> None:
         hooks = self.hooks.get(entry.ctx.tool_name)
         token = set_call_context(entry.ctx)
         try:
@@ -746,7 +775,7 @@ class ToolCoordinator:
             if hooks.after:
                 try:
                     resp = await asyncio.shield(
-                        hooks.after(entry.final_response, entry.ctx),
+                        admitted(hooks.after)(entry.final_response, entry.ctx),
                     )
                     if resp is not None:
                         entry.final_response = resp
@@ -761,6 +790,7 @@ class ToolCoordinator:
         finally:
             reset_call_context(token)
 
+    @admitted
     async def _supervise(
         self,
         entry: ToolCallEntry,

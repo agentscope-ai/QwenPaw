@@ -66,15 +66,13 @@ def test_mcp_oauth_callback_with_error_param_returns_html_400(
     app_server,
 ) -> None:
     """Test purpose:
-    - Verify GET /api/mcp/oauth/callback returns an HTML error page with
-      400 status when the IdP redirected back with ``error=...``. The
-      popup uses localStorage + postMessage to notify the opener; the
-      body should expose the error description for visibility.
+    - Verify GET /api/mcp/oauth/callback returns a fixed HTML error page with
+      400 status when the IdP redirects back with ``error=...``. Upstream
+      descriptions must not be reflected or saved in browser storage.
 
     Test flow:
     1. GET /api/mcp/oauth/callback?error=access_denied&error_description=...
-    2. Assert 400 status, HTML content type, and the error description
-       is rendered in the body.
+    2. Assert 400 status, HTML content type, and safe fixed output.
 
     API endpoints:
     - GET /api/mcp/oauth/callback
@@ -84,11 +82,13 @@ def test_mcp_oauth_callback_with_error_param_returns_html_400(
         "/api/mcp/oauth/callback",
         params={
             "error": "access_denied",
-            "error_description": "Test denied by user",
+            "error_description": "synthetic-secret-Test denied by user",
         },
         timeout=_MCP_OAUTH_HTTP_TIMEOUT,
     )
     assert resp.status_code == 400, app_server.logs_tail()
     content_type = resp.headers.get("content-type", "")
     assert "html" in content_type.lower(), content_type
-    assert "Test denied by user" in resp.text
+    assert "synthetic-secret" not in resp.text
+    assert "localStorage" not in resp.text
+    assert "mcp-oauth-error" in resp.text

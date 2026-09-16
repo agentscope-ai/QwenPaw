@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { chatApi } from "./chat";
+import { isConversationReadOnly } from "../types/chat";
 
 // chat.ts uses both fetch (uploadFile) and the request wrapper (others) — mock both
 vi.mock("../request", () => ({ request: vi.fn() }));
@@ -65,6 +66,17 @@ describe("chatApi.filePreviewUrl", () => {
   });
 });
 
+describe("isConversationReadOnly", () => {
+  it("derives viewer history as read-only from the backend access contract", () => {
+    expect(
+      isConversationReadOnly({ access_role: "viewer", read_only: true }),
+    ).toBe(true);
+    expect(
+      isConversationReadOnly({ access_role: "owner", read_only: false }),
+    ).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // uploadFile — raw fetch, includes error handling logic
 // ---------------------------------------------------------------------------
@@ -97,6 +109,19 @@ describe("chatApi.uploadFile", () => {
     );
   });
 
+  it("binds uploads to an existing conversation", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ url: "", file_name: "" }),
+    } as unknown as Response);
+
+    await chatApi.uploadFile(new File([""], "f.txt"), "chat-1");
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/console/upload?conversation_id=chat-1",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
   it("throws error with status code on upload failure", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -125,6 +150,32 @@ describe("chatApi.uploadFile", () => {
   });
 });
 
+describe("chatApi.filePreviewUrl", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("keeps protected attachment endpoints instead of wrapping them as file paths", () => {
+    expect(
+      chatApi.filePreviewUrl(
+        "/api/console/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      ),
+    ).toBe(
+      "/api/console/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    );
+  });
+
+  it("appends the session token to protected attachment endpoints", () => {
+    vi.mocked(getApiToken).mockReturnValue("attachment token");
+
+    expect(
+      chatApi.filePreviewUrl(
+        "/api/console/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      ),
+    ).toBe(
+      "/api/console/attachments/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa?token=attachment%20token",
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // listChats — query string construction
 // ---------------------------------------------------------------------------
@@ -145,6 +196,11 @@ describe("chatApi.listChats", () => {
   it("builds query string with channel", async () => {
     await chatApi.listChats({ channel: "console" });
     expect(request).toHaveBeenCalledWith("/chats?channel=console");
+  });
+
+  it("builds query string with conversation scope", async () => {
+    await chatApi.listChats({ scope: "owned" });
+    expect(request).toHaveBeenCalledWith("/chats?scope=owned");
   });
 
   it("both params appear in query when both are provided", async () => {
@@ -203,6 +259,39 @@ describe("chatApi CRUD", () => {
         method: "POST",
         body: JSON.stringify(["id1", "id2"]),
       }),
+    );
+  });
+
+  it("manages viewer sharing through owner-only member routes", async () => {
+    await chatApi.listConversationMembers("chat/1");
+    expect(request).toHaveBeenCalledWith("/chats/chat%2F1/members");
+
+    await chatApi.addConversationViewer("chat/1", "user/1");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/members",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ user_id: "user/1" }),
+      }),
+    );
+
+    await chatApi.removeConversationViewer("chat/1", "user/1");
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/members/user%2F1",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+  });
+});
+
+describe("chatApi.listAttachments", () => {
+  beforeEach(() => vi.mocked(request).mockResolvedValue([]));
+  afterEach(() => vi.clearAllMocks());
+
+  it("lists temporary attachments for the selected Agent", async () => {
+    await chatApi.listAttachments({ lifecycle: "temporary" });
+
+    expect(request).toHaveBeenCalledWith(
+      "/console/attachments?lifecycle=temporary",
     );
   });
 });

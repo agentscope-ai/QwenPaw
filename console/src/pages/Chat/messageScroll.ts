@@ -77,8 +77,8 @@ export function scrollReverseMessageList(
     deltaY,
     deltaMode,
   );
-  if (nextScrollTop === scroller.scrollTop) return false;
-
+  // Consume boundary input too: handing it back to native scrolling can
+  // scroll an ancestor while the reverse message list is already at its edge.
   scroller.scrollTop = nextScrollTop;
   return true;
 }

@@ -4,6 +4,7 @@ import { Badge, Button, Space } from "antd";
 import { SafetyOutlined, AuditOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
+import { useAgentStore } from "../../../stores/agentStore";
 import {
   ChannelCard,
   ChannelDrawer,
@@ -14,6 +15,7 @@ import {
   ChannelAvailableItem,
   type ChannelKey,
 } from "./components";
+import type { ChannelViewMode } from "./useChannels";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import styles from "./index.module.less";
@@ -23,6 +25,16 @@ type FilterType = "all" | "builtin" | "custom";
 function ChannelsPage() {
   const { t } = useTranslation();
   const { message, modal } = useAppMessage();
+  const { selectedAgent, agents } = useAgentStore();
+  const currentAgent = agents.find((agent) => agent.id === selectedAgent);
+  const canEditAgentChannels = Boolean(
+    currentAgent?.can_edit ||
+      currentAgent?.access_role === "owner" ||
+      currentAgent?.access_role === "collaborator",
+  );
+  const [viewMode, setViewMode] = useState<ChannelViewMode>(() =>
+    canEditAgentChannels ? "agent" : "user",
+  );
   const {
     channels,
     orderedKeys,
@@ -30,7 +42,7 @@ function ChannelsPage() {
     isBuiltin,
     loading,
     fetchChannels,
-  } = useChannels();
+  } = useChannels(viewMode);
   const [filter, setFilter] = useState<FilterType>("all");
   const [saving, setSaving] = useState(false);
   const [activeKey, setActiveKey] = useState<ChannelKey | null>(null);
@@ -40,6 +52,10 @@ function ChannelsPage() {
   const [pendingCount, setPendingCount] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [form] = Form.useForm<any>();
+
+  useEffect(() => {
+    if (!canEditAgentChannels) setViewMode("user");
+  }, [canEditAgentChannels, selectedAgent]);
 
   const fetchPendingCount = useCallback(async () => {
     try {
@@ -113,7 +129,13 @@ function ChannelsPage() {
     if (!activeKey) return;
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { isBuiltin: _isBuiltin, ...savedConfig } = channels[activeKey] || {};
+    const {
+      isBuiltin: _isBuiltin,
+      bindingId: _bindingId,
+      configuredSecretFields: _configuredSecretFields,
+      display_name: bindingDisplayName,
+      ...savedConfig
+    } = channels[activeKey] || {};
     const updatedChannel: Record<string, unknown> = {
       ...savedConfig,
       ...values,
@@ -124,6 +146,49 @@ function ChannelsPage() {
 
     setSaving(true);
     try {
+      if (viewMode === "user") {
+        if (updatedChannel.enabled === true) {
+          const result = await api.checkUserChannelBindingConflict(
+            selectedAgent,
+            activeKey,
+            updatedChannel,
+          );
+          if (result.conflict) {
+            const shouldSave = await new Promise<boolean>((resolve) => {
+              let settled = false;
+              const settle = (value: boolean) => {
+                if (settled) return;
+                settled = true;
+                resolve(value);
+              };
+              modal.confirm({
+                centered: true,
+                title: t("channels.botConflictTitle"),
+                content: t("channels.personalBotConflictDescription"),
+                okText: t("channels.botConflictConfirm"),
+                okButtonProps: { danger: true },
+                cancelText: t("common.cancel"),
+                onOk: () => settle(true),
+                onCancel: () => settle(false),
+                afterClose: () => settle(false),
+              });
+            });
+            if (!shouldSave) return;
+          }
+        }
+        await api.updateUserChannelBinding(selectedAgent, activeKey, {
+          display_name:
+            typeof bindingDisplayName === "string" && bindingDisplayName
+              ? bindingDisplayName
+              : activeLabel,
+          enabled: updatedChannel.enabled === true,
+          config: updatedChannel,
+        });
+        await fetchChannels();
+        setDrawerOpen(false);
+        message.success(t("channels.bindingSaved"));
+        return;
+      }
       if (updatedChannel.enabled === true) {
         try {
           const result = await api.checkChannelConflict(
@@ -180,6 +245,22 @@ function ChannelsPage() {
     }
   };
 
+  const handleDeleteBinding = async () => {
+    if (!activeKey || viewMode !== "user") return;
+    setSaving(true);
+    try {
+      await api.deleteUserChannelBinding(selectedAgent, activeKey);
+      await fetchChannels();
+      handleDrawerClose();
+      message.success(t("channels.bindingDeleted"));
+    } catch (error) {
+      console.error("Failed to delete user channel binding:", error);
+      message.error(t("channels.bindingDeleteFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const activeLabel = activeKey ? getChannelLabel(activeKey, t) : "";
 
   const FILTER_TABS: { key: FilterType; label: string }[] = [
@@ -194,22 +275,44 @@ function ChannelsPage() {
         className={styles.pageHeader}
         items={[{ title: t("nav.control") }, { title: t("channels.title") }]}
         center={
-          <div className={styles.filterTabs}>
-            {FILTER_TABS.map(({ key, label }) => (
+          <div className={styles.headerControls}>
+            <div className={styles.viewTabs}>
+              {canEditAgentChannels && (
+                <button
+                  className={`${styles.filterTab} ${
+                    viewMode === "agent" ? styles.filterTabActive : ""
+                  }`}
+                  onClick={() => setViewMode("agent")}
+                >
+                  {t("channels.agentChannels")}
+                </button>
+              )}
               <button
-                key={key}
                 className={`${styles.filterTab} ${
-                  filter === key ? styles.filterTabActive : ""
+                  viewMode === "user" ? styles.filterTabActive : ""
                 }`}
-                onClick={() => setFilter(key)}
+                onClick={() => setViewMode("user")}
               >
-                {label}
+                {t("channels.myBindings")}
               </button>
-            ))}
+            </div>
+            <div className={styles.filterTabs}>
+              {FILTER_TABS.map(({ key, label }) => (
+                <button
+                  key={key}
+                  className={`${styles.filterTab} ${
+                    filter === key ? styles.filterTabActive : ""
+                  }`}
+                  onClick={() => setFilter(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         }
         extra={
-          <Space size={8}>
+          viewMode === "agent" ? <Space size={8}>
             <Badge dot={pendingCount > 0} offset={[-4, 4]}>
               <Button
                 icon={<AuditOutlined />}
@@ -224,7 +327,7 @@ function ChannelsPage() {
             >
               {t("channels.manageAccessControl")}
             </Button>
-          </Space>
+          </Space> : undefined
         }
       />
       <div className={styles.channelsContainer}>
@@ -311,6 +414,10 @@ function ChannelsPage() {
         channelSchema={activeKey ? channelSchemas[activeKey] : undefined}
         onClose={handleDrawerClose}
         onSubmit={handleSubmit}
+        canDelete={
+          viewMode === "user" && Boolean(channels[activeKey || ""]?.bindingId)
+        }
+        onDelete={handleDeleteBinding}
       />
       <AccessControlDrawer
         open={aclDrawerOpen}

@@ -12,7 +12,7 @@ import {
   PowerOff,
 } from "lucide-react";
 import { SparkDownLine, SparkUpLine } from "@agentscope-ai/icons";
-import { useAgentStore } from "../../stores/agentStore";
+import { pickAccessibleAgentId, useAgentStore } from "../../stores/agentStore";
 import { agentsApi } from "../../api/modules/agents";
 import type { AgentSummary } from "../../api/types/agents";
 import { useTranslation } from "react-i18next";
@@ -101,14 +101,19 @@ export default function AgentSelector({
   };
 
   useEffect(() => {
-    if (!agents.length || selectedAgent === "default") return;
+    if (!agents.length) return;
 
     const currentAgent = agents.find((agent) => agent.id === selectedAgent);
     if (!currentAgent) {
-      setSelectedAgent("default");
+      setSelectedAgent(pickAccessibleAgentId(agents, ""));
       message.warning(t("agent.currentAgentDeleted"));
     } else if (!currentAgent.enabled) {
-      setSelectedAgent("default");
+      setSelectedAgent(
+        pickAccessibleAgentId(
+          agents.filter((agent) => agent.id !== selectedAgent),
+          "",
+        ),
+      );
       message.warning(t("agent.currentAgentDisabled"));
     }
   }, [agents, message, selectedAgent, setSelectedAgent, t]);
@@ -144,7 +149,12 @@ export default function AgentSelector({
     try {
       await agentsApi.toggleAgentEnabled(agent.id, nextEnabled);
       if (!nextEnabled && selectedAgent === agent.id) {
-        setSelectedAgent("default");
+        setSelectedAgent(
+          pickAccessibleAgentId(
+            agents.filter((item) => item.id !== agent.id),
+            "",
+          ),
+        );
         message.info(t("agent.switchedToDefault"));
       }
       message.success(
@@ -276,13 +286,15 @@ export default function AgentSelector({
         .filter(Boolean)
         .join(" ")}
       title={
-        agent.id === "default"
+        agent.historical_read_only
+          ? t("agent.historicalReadOnly")
+          : agent.id === "default"
           ? t("agent.defaultPinned")
           : agent.pinned
           ? t("agent.longPressToUnpin")
           : t("agent.longPressToPin")
       }
-      {...getLongPressProps(agent)}
+      {...(agent.can_reorder === false ? {} : getLongPressProps(agent))}
     >
       <div className={styles.agentOptionHeader}>
         <div className={styles.agentStatusColumn}>
@@ -314,6 +326,9 @@ export default function AgentSelector({
                 className={styles.activeIndicator}
               />
             )}
+            {agent.historical_read_only && (
+              <span>{t("agent.historicalReadOnly")}</span>
+            )}
           </div>
           {agent.description && (
             <div className={styles.agentOptionDescription}>
@@ -321,7 +336,9 @@ export default function AgentSelector({
             </div>
           )}
         </div>
-        {agent.id !== "default" && renderToggleButton(agent, !agent.enabled)}
+        {agent.id !== "default" &&
+          agent.can_toggle !== false &&
+          renderToggleButton(agent, !agent.enabled)}
       </div>
       <div className={styles.agentOptionId}>{`ID: ${agent.id}`}</div>
     </div>

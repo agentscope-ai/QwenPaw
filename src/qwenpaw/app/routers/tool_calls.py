@@ -11,6 +11,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from ...access.dependencies import get_actor
+from ...identity.runtime import is_multi_user_enabled
+
 router = APIRouter(prefix="/tool-calls", tags=["tool-calls"])
 
 
@@ -75,6 +78,7 @@ def _get_entry(
     coordinator: Any,
     tool_call_id: str,
     session_id: str = "",
+    request: Request | None = None,
 ) -> Any:
     """Look up by tool_call_id and enforce session scoping.
 
@@ -95,6 +99,16 @@ def _get_entry(
             _safe_log_token(tool_call_id),
         )
         raise HTTPException(404, "Tool call not found")
+    if request is not None and is_multi_user_enabled():
+        actor = get_actor(request)
+        execution_context = entry.ctx.extra.get("execution_context", {})
+        owner_user_id = str(
+            execution_context.get("user_id")
+            or execution_context.get("approval_user_id")
+            or ""
+        )
+        if actor.user_id is None or owner_user_id != str(actor.user_id):
+            raise HTTPException(404, "Tool call not found")
     return entry
 
 
@@ -169,6 +183,20 @@ async def list_calls(
 ) -> ListResponse:
     coordinator = _get_coordinator(request)
     entries = coordinator.list_entries(session_id=session_id)
+    if is_multi_user_enabled():
+        actor_user_id = str(get_actor(request).user_id or "")
+        entries = [
+            entry
+            for entry in entries
+            if str(
+                entry.ctx.extra.get("execution_context", {}).get("user_id")
+                or entry.ctx.extra.get("execution_context", {}).get(
+                    "approval_user_id"
+                )
+                or ""
+            )
+            == actor_user_id
+        ]
     items = [_entry_to_info(e, coordinator) for e in entries]
     return ListResponse(items=items, total=len(items))
 
@@ -180,7 +208,7 @@ async def get_call(
     request: Request,
 ) -> ToolCallInfo:
     coordinator = _get_coordinator(request)
-    entry = _get_entry(coordinator, tool_call_id, session_id)
+    entry = _get_entry(coordinator, tool_call_id, session_id, request)
     return _entry_to_info(entry, coordinator)
 
 
@@ -191,7 +219,7 @@ async def offload_call(
     request: Request,
 ) -> dict[str, Any]:
     coordinator = _get_coordinator(request)
-    _get_entry(coordinator, tool_call_id, session_id)
+    _get_entry(coordinator, tool_call_id, session_id, request)
     ok = await coordinator.request_offload(tool_call_id)
     if not ok:
         raise HTTPException(
@@ -210,7 +238,7 @@ async def cancel_call(
     body: CancelRequest | None = None,
 ) -> dict[str, Any]:
     coordinator = _get_coordinator(request)
-    _get_entry(coordinator, tool_call_id, session_id)
+    _get_entry(coordinator, tool_call_id, session_id, request)
     force = body.force if body else False
     ok = await coordinator.cancel(tool_call_id, force=force)
     if not ok:
@@ -229,7 +257,7 @@ async def extend_deadline(
     body: ExtendRequest,
 ) -> dict[str, Any]:
     coordinator = _get_coordinator(request)
-    entry = _get_entry(coordinator, tool_call_id, session_id)
+    entry = _get_entry(coordinator, tool_call_id, session_id, request)
 
     if body.target == "kill":
         ok = await coordinator.extend_kill_deadline(
@@ -264,7 +292,7 @@ async def get_output(
     request: Request,
 ) -> dict[str, Any]:
     coordinator = _get_coordinator(request)
-    entry = _get_entry(coordinator, tool_call_id, session_id)
+    entry = _get_entry(coordinator, tool_call_id, session_id, request)
     content_blocks = []
     if entry.final_response and entry.final_response.content:
         for block in entry.final_response.content:
@@ -284,7 +312,7 @@ async def stream_output(
     request: Request,
 ) -> StreamingResponse:
     coordinator = _get_coordinator(request)
-    entry = _get_entry(coordinator, tool_call_id, session_id)
+    entry = _get_entry(coordinator, tool_call_id, session_id, request)
 
     async def _generate():
         async for chunk in entry.stream.subscribe():

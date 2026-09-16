@@ -39,7 +39,14 @@ from fastapi.responses import ORJSONResponse, Response, StreamingResponse
 from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
-from ..utils import check_upload_size, safe_join, schedule_agent_reload
+from ..utils import (
+    RunningConfigRuntimeStatus,
+    check_upload_size,
+    get_agent_reload_status,
+    reload_agent_and_track,
+    safe_join,
+    schedule_agent_reload,
+)
 from ...config import (
     load_config,
     save_config,
@@ -51,6 +58,19 @@ from ...config.config import (
     update_agent_config_async,
 )
 from ...config.config import EmbeddingModelConfig
+from ...agents.config_repository import (
+    AgentConfigVersionConflict,
+    PostgresAgentConfigRepository,
+)
+from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+from ...memory_scope.models import MemoryScope, MemoryScopeDenied
+from ...memory_scope.resolver import MemoryScopeResolver
+from ...persistence.agent_user_workspaces import AgentUserWorkspaceRepository
+from ...access.dependencies import get_actor
+from ...access.agent_repository import (
+    AgentResourceRole,
+    AgentVisibility,
+)
 from ...agents.memory.embedding_model import (
     embedding_vector_space_fingerprint,
     test_embedding_model,
@@ -72,15 +92,21 @@ from ...services.workspace_files import (
     read_file_chunk,
     resolve_workspace_path,
     save_text_file,
+    FilesWorkspaceAccess,
 )
 from ...utils.io_utils import get_path_lock, run_sync_io
 from ..agent_context import (
+    get_agent_access_state,
     get_agent_for_request,
-    get_agent_project_dir,
+    get_files_workspace_access,
     get_project_dir_for_request,
+    get_running_config_workspace as get_governed_running_config_workspace,
+    require_running_config_editor,
 )
 
-router = APIRouter(prefix="/workspace", tags=["workspace"])
+from ..voice_service import VoiceUploadRoute
+
+router = APIRouter(prefix="/workspace", tags=["workspace"], route_class=VoiceUploadRoute)
 logger = logging.getLogger(__name__)
 _FILESYSTEM_SEMAPHORE = asyncio.Semaphore(8)
 _WATCH_HEARTBEAT_SECONDS = 30.0
@@ -111,6 +137,195 @@ class EmbeddingTestResponse(BaseModel):
     actual_dimensions: int | None = None
     latency_ms: int
     message: str
+
+
+class RunningConfigAccess(BaseModel):
+    """当前用户对 Agent 运行配置的访问能力。"""
+
+    agent_id: str
+    access_role: Literal["owner", "collaborator", "user", "admin_governance"]
+    can_view: bool
+    can_edit: bool
+    can_edit_project_files: bool = True
+    can_edit_workspace_files: bool = True
+    is_governance: bool = False
+    visibility: AgentVisibility = AgentVisibility.PRIVATE
+    owner_user_id: str | None = None
+
+
+class RunningConfigSummary(BaseModel):
+    """仅使用用户可见的运行配置摘要，不包含完整草稿或敏感字段。"""
+
+    agent_id: str
+    name: str
+    language: str
+    timezone: str
+    active_model: dict[str, str | None] | None = None
+    model_switchable: bool
+    access_role: Literal["owner", "collaborator", "user", "admin_governance"]
+    can_edit: bool
+    read_only_reason: str | None = None
+
+
+def _runtime_config_access(request: Request, agent_id: str) -> RunningConfigAccess:
+    request_state = getattr(request, "state", None)
+    if request_state is None:
+        return RunningConfigAccess(
+            agent_id=agent_id,
+            access_role="owner",
+            can_view=True,
+            can_edit=True,
+        )
+    state_values = vars(request_state)
+    nested_state = state_values.get("_state")
+    if isinstance(nested_state, dict):
+        state_values = nested_state
+    governance = state_values.get("agent_governance")
+    if governance is not None:
+        return RunningConfigAccess(
+            agent_id=agent_id or getattr(governance, "agent_key", ""),
+            access_role="admin_governance",
+            can_view=True,
+            can_edit=True,
+            is_governance=True,
+            visibility=getattr(
+                governance,
+                "visibility",
+                AgentVisibility.PRIVATE,
+            ),
+            owner_user_id=(
+                str(getattr(governance, "owner_user_id", "")) or None
+            ),
+        )
+    access = state_values.get("agent_access")
+    role = getattr(access, "role", None)
+    role_value = getattr(role, "value", role)
+    if role_value not in {"owner", "collaborator", "user"}:
+        role_value = "owner"
+    can_edit = (
+        role_value in {"owner", "collaborator"}
+        and not bool(getattr(access, "historical_read_only", False))
+    )
+    return RunningConfigAccess(
+        agent_id=agent_id,
+        access_role=role_value,
+        can_view=True,
+        can_edit=can_edit,
+        can_edit_project_files=not bool(
+            getattr(access, "historical_read_only", False),
+        ),
+        can_edit_workspace_files=can_edit,
+        visibility=getattr(access, "visibility", AgentVisibility.PRIVATE),
+        owner_user_id=(
+            str(getattr(access, "owner_user_id", ""))
+            if getattr(access, "owner_user_id", None) is not None
+            else None
+        ),
+    )
+
+
+def _require_running_config_view(access: RunningConfigAccess) -> None:
+    if not access.can_view:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def _require_complete_running_config_view(access: RunningConfigAccess) -> None:
+    if not access.can_edit:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def _require_workspace_write_access(request: Request, workspace: Any) -> None:
+    """要求 Agent 草稿所有者、协作者或显式管理员代管权限。"""
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+
+
+async def _resolve_files_access(
+    request: Request,
+    workspace: Any,
+) -> FilesWorkspaceAccess:
+    role, _historical = get_agent_access_state(request)
+    agent_project = (
+        workspace.workspace_dir
+        if role is AgentResourceRole.USER
+        else await get_project_dir_for_request(request, workspace)
+    )
+    return await get_files_workspace_access(
+        request,
+        workspace,
+        agent_project=agent_project,
+    )
+
+
+def _require_files_root_write(root_access: Any) -> None:
+    if root_access.read_only:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+async def get_running_config_workspace(
+    request: Request,
+    *,
+    action: str,
+) -> Any:
+    """仅在显式标记存在时进入管理员治理解析。"""
+    marker = getattr(request, "headers", {}).get("X-Agent-Governance")
+    if not isinstance(marker, str):
+        marker = None
+    if marker is None:
+        return await get_agent_for_request(request)
+    return await get_governed_running_config_workspace(
+        request,
+        action=action,
+    )
+
+
+async def _resolve_memory_workspace(
+    request: Request,
+    scope: MemoryScope,
+    *,
+    write: bool,
+) -> tuple[Path, bool]:
+    """Resolve a safe public/private memory root from the authenticated actor."""
+    workspace = await get_running_config_workspace(
+        request,
+        action=(
+            "agent.admin.memory.edit" if write else "agent.admin.memory.view"
+        ),
+    )
+    access = _runtime_config_access(request, workspace.agent_id)
+    actor = get_actor(request)
+    governance = access.is_governance
+    resolver = MemoryScopeResolver()
+    try:
+        if scope is MemoryScope.PRIVATE:
+            if governance:
+                raise HTTPException(status_code=403, detail="forbidden")
+            context = resolver.resolve_private(
+                actor=actor,
+                agent_id=workspace.agent_id,
+            )
+            root = resolver.ensure_workspace(context)
+            if is_multi_user_enabled():
+                await AgentUserWorkspaceRepository(
+                    schema=get_identity_schema(),
+                ).ensure_private(
+                    user_id=actor.user_id,
+                    agent_key=workspace.agent_id,
+                    workspace_key=resolver.workspace_key(context),
+                )
+            return root, True
+        context = resolver.resolve_public(
+            actor=actor,
+            agent_id=workspace.agent_id,
+            governance=governance,
+        )
+        can_edit = access.can_edit
+        if write and not can_edit:
+            raise HTTPException(status_code=403, detail="forbidden")
+        return resolver.ensure_workspace(context), can_edit
+    except MemoryScopeDenied as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -212,12 +427,15 @@ async def write_working_file(
     """Write a working directory markdown file."""
     try:
         workspace = await get_agent_for_request(request)
+        _require_workspace_write_access(request, workspace)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
         workspace_manager.write_working_md(md_name, body.content)
         return {"written": True}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -302,10 +520,11 @@ async def _resolve_files_root(
     root: str,
 ) -> Path:
     """Resolve the selected project or agent configuration directory."""
+    access = await _resolve_files_access(request, workspace)
     if root == "workspace":
-        return workspace.workspace_dir
+        return access.workspace.path
     if root == "project":
-        return await get_project_dir_for_request(request, workspace)
+        return access.project.path
     raise HTTPException(
         status_code=400,
         detail="root must be project or workspace",
@@ -426,7 +645,15 @@ async def write_workspace_file_content(
     if not isinstance(content, str):
         raise HTTPException(status_code=422, detail="content must be a string")
     workspace = await get_agent_for_request(request)
-    files_root = await _resolve_files_root(request, workspace, root)
+    access = await _resolve_files_access(request, workspace)
+    root_access = access.workspace if root == "workspace" else access.project
+    if root not in {"workspace", "project"}:
+        raise HTTPException(
+            status_code=400,
+            detail="root must be project or workspace",
+        )
+    _require_files_root_write(root_access)
+    files_root = root_access.path
     try:
         async with _FILESYSTEM_SEMAPHORE:
             return await asyncio.to_thread(
@@ -724,7 +951,15 @@ async def upload_workspace_files(
             detail="conflict must be overwrite, skip, or rename",
         )
     workspace = await get_agent_for_request(request)
-    files_root = await _resolve_files_root(request, workspace, root)
+    access = await _resolve_files_access(request, workspace)
+    root_access = access.workspace if root == "workspace" else access.project
+    if root not in {"workspace", "project"}:
+        raise HTTPException(
+            status_code=400,
+            detail="root must be project or workspace",
+        )
+    _require_files_root_write(root_access)
+    files_root = root_access.path
 
     def _resolve_directory() -> Path:
         directory = resolve_workspace_path(
@@ -821,8 +1056,9 @@ async def upload_workspace_files(
 async def list_code_files(request: Request) -> list[dict]:
     """List every non-hidden file in the active coding project directory."""
     workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
     return await asyncio.to_thread(
-        lambda: _list_all_files(get_agent_project_dir(workspace)),
+        lambda: _list_all_files(access.project.path),
     )
 
 
@@ -860,8 +1096,9 @@ async def read_binary_file(
     Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
     """
     workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
     target = await asyncio.to_thread(
-        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+        lambda: safe_join(access.project.path, file_path),
     )
 
     ext = target.suffix.lstrip(".").lower()
@@ -921,8 +1158,9 @@ async def read_code_file(file_path: str, request: Request):
     avoid flooding the browser with huge binary or log files.
     """
     workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
     target = await asyncio.to_thread(
-        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+        lambda: safe_join(access.project.path, file_path),
     )
 
     def _stat() -> os.stat_result:
@@ -980,8 +1218,10 @@ async def write_code_file(
         {"content": "<new file content>"}
     """
     workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
+    _require_files_root_write(access.project)
     target = await asyncio.to_thread(
-        lambda: safe_join(get_agent_project_dir(workspace), file_path),
+        lambda: safe_join(access.project.path, file_path),
     )
     content = body.get("content", "")
     if not isinstance(content, str):
@@ -1102,13 +1342,18 @@ async def workspace_watch_events(
 async def list_memory_files(
     request: Request,
     section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
 ) -> list[MdFileInfo]:
     """List memory directory markdown files."""
     try:
-        workspace = await get_agent_for_request(request)
+        memory_root, _can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=False,
+        )
         workspace_manager = AgentMdManager(
-            str(workspace.workspace_dir),
-            agent_id=workspace.agent_id,
+            str(memory_root),
+            agent_id=memory_root.name,
         )
         raw_files = await asyncio.to_thread(
             workspace_manager.list_memory_mds,
@@ -1116,6 +1361,8 @@ async def list_memory_files(
         )
         files = [MdFileInfo.model_validate(file) for file in raw_files]
         return files
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1130,13 +1377,18 @@ async def read_memory_file(
     md_path: str,
     request: Request,
     section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
 ) -> MdFileContent:
     """Read a memory directory markdown file."""
     try:
-        workspace = await get_agent_for_request(request)
+        memory_root, _can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=False,
+        )
         workspace_manager = AgentMdManager(
-            str(workspace.workspace_dir),
-            agent_id=workspace.agent_id,
+            str(memory_root),
+            agent_id=memory_root.name,
         )
         content = await asyncio.to_thread(
             workspace_manager.read_memory_md,
@@ -1146,6 +1398,8 @@ async def read_memory_file(
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1161,13 +1415,20 @@ async def write_memory_file(
     body: MdFileContent,
     request: Request,
     section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
 ) -> dict:
     """Write a memory directory markdown file."""
     try:
-        workspace = await get_agent_for_request(request)
+        memory_root, can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=True,
+        )
+        if not can_edit:
+            raise HTTPException(status_code=403, detail="forbidden")
         workspace_manager = AgentMdManager(
-            str(workspace.workspace_dir),
-            agent_id=workspace.agent_id,
+            str(memory_root),
+            agent_id=memory_root.name,
         )
         await asyncio.to_thread(
             workspace_manager.write_memory_md,
@@ -1176,6 +1437,53 @@ async def write_memory_file(
             section,
         )
         return {"written": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/memory/{md_path:path}",
+    response_model=dict,
+    status_code=201,
+    summary="Create a memory file",
+    description="Create a new memory file without overwriting an existing file",
+)
+async def create_memory_file(
+    md_path: str,
+    body: MdFileContent,
+    request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
+) -> dict:
+    """Create a memory file using the server-resolved scope."""
+    try:
+        memory_root, can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=True,
+        )
+        if not can_edit:
+            raise HTTPException(status_code=403, detail="forbidden")
+        workspace_manager = AgentMdManager(
+            str(memory_root),
+            agent_id=memory_root.name,
+        )
+        await asyncio.to_thread(
+            workspace_manager.create_memory_md,
+            md_path,
+            body.content,
+            section,
+        )
+        return {"created": True}
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Memory file already exists: {md_path}",
+        ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -1187,7 +1495,13 @@ async def write_memory_file(
 )
 async def get_agent_language(request: Request) -> dict:
     """Get agent language setting for current agent."""
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
     agent_config = load_agent_config(workspace.agent_id)
     return {
         "language": agent_config.language,
@@ -1213,6 +1527,9 @@ async def put_agent_language(
     """
     Update agent language and optionally re-copy MD files to agent workspace.
     """
+    _require_complete_running_config_view(
+        _runtime_config_access(request, ""),
+    )
     language = (body.get("language") or "").strip().lower()
     valid = SUPPORTED_AGENT_LANGUAGES
     if language not in valid:
@@ -1224,7 +1541,13 @@ async def put_agent_language(
             ),
         )
 
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.update",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
     agent_id = workspace.agent_id
 
     agent_config = load_agent_config(agent_id)
@@ -1252,248 +1575,101 @@ async def put_agent_language(
     }
 
 
-@router.get(
-    "/audio-mode",
-    summary="Get audio mode",
-    description=(
-        "Get the audio handling mode for incoming voice messages. "
-        'Values: "auto", "native".'
-    ),
-)
-async def get_audio_mode() -> dict:
-    """Get audio mode setting."""
-    config = load_config()
-    return {"audio_mode": config.agents.audio_mode}
+def _require_voice_manage(request):
+    from .providers import _require_global_model_manage
+    _require_global_model_manage(request)
 
 
-@router.put(
-    "/audio-mode",
-    summary="Update audio mode",
-    description=(
-        "Update how incoming audio/voice messages are handled. "
-        '"auto": transcribe if provider available, else file placeholder; '
-        '"native": send audio directly to model (may need ffmpeg).'
-    ),
-)
-async def put_audio_mode(
-    body: dict = Body(
-        ...,
-        description='Audio mode, e.g. {"audio_mode": "auto"}',
-    ),
-) -> dict:
-    """Update audio mode setting."""
-    raw = body.get("audio_mode")
-    audio_mode = (str(raw) if raw is not None else "").strip().lower()
-    valid = {"auto", "native"}
-    if audio_mode not in valid:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid audio_mode '{audio_mode}'. "
-                f"Must be one of: {', '.join(sorted(valid))}"
-            ),
-        )
-    config = load_config()
-    config.agents.audio_mode = audio_mode
-    save_config(config)
-    return {"audio_mode": audio_mode}
+@router.get("/voice-transcription")
+async def get_voice_transcription(request: Request) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import management_view
+    return await management_view(load_config())
 
 
-@router.get(
-    "/transcription-provider-type",
-    summary="Get transcription provider type",
-    description=(
-        "Get the transcription provider type. "
-        'Values: "disabled", "whisper_api", "local_whisper".'
-    ),
-)
-async def get_transcription_provider_type() -> dict:
-    """Get transcription provider type setting."""
-    config = load_config()
-    return {
-        "transcription_provider_type": (
-            config.agents.transcription_provider_type
-        ),
-    }
+@router.put("/voice-transcription")
+async def put_voice_transcription(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings
+    return await save_settings(body, load=load_config, save=save_config)
 
 
-@router.put(
-    "/transcription-provider-type",
-    summary="Set transcription provider type",
-    description=(
-        "Set the transcription provider type. "
-        '"disabled": no transcription; '
-        '"whisper_api": remote Whisper endpoint; '
-        '"local_whisper": locally installed openai-whisper.'
-    ),
-)
-async def put_transcription_provider_type(
-    body: dict = Body(
-        ...,
-        description=(
-            "Provider type, e.g. "
-            '{"transcription_provider_type": "whisper_api"}'
-        ),
-    ),
-) -> dict:
-    """Set the transcription provider type."""
-    raw = body.get("transcription_provider_type")
-    provider_type = (str(raw) if raw is not None else "").strip().lower()
-    valid = {"disabled", "whisper_api", "local_whisper"}
-    if provider_type not in valid:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid transcription_provider_type '{provider_type}'. "
-                f"Must be one of: {', '.join(sorted(valid))}"
-            ),
-        )
-    config = load_config()
-    config.agents.transcription_provider_type = provider_type
-    save_config(config)
-    return {"transcription_provider_type": provider_type}
+@router.get("/audio-mode")
+async def get_audio_mode(request: Request) -> dict:
+    _require_voice_manage(request)
+    return {"audio_mode": load_config().agents.audio_mode}
 
 
-@router.get(
-    "/local-whisper-status",
-    summary="Check local whisper availability",
-    description=(
-        "Check whether the local whisper provider can be used. "
-        "Returns availability of ffmpeg and openai-whisper."
-    ),
-)
-async def get_local_whisper_status() -> dict:
-    """Check local whisper dependencies."""
-    from ...agents.utils.audio_transcription import (
-        check_local_whisper_available,
-    )
-
-    return check_local_whisper_available()
+@router.put("/audio-mode")
+async def put_audio_mode(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings, http_error
+    if set(body) != {"audio_mode"}:
+        raise http_error("INVALID_VOICE_SETTINGS")
+    result = await save_settings(body, load=load_config, save=save_config, partial=True)
+    return {"audio_mode": result["settings"]["audio_mode"]}
 
 
-@router.get(
-    "/transcription-providers",
-    summary="List transcription providers",
-    description=(
-        "List providers capable of audio transcription (Whisper API). "
-        "Returns available providers and the configured selection."
-    ),
-)
-async def get_transcription_providers() -> dict:
-    """List transcription-capable providers and configured selection."""
-    from ...agents.utils.audio_transcription import (
-        get_configured_transcription_provider_id,
-        list_transcription_providers,
-    )
-
-    return {
-        "providers": list_transcription_providers(),
-        "configured_provider_id": (get_configured_transcription_provider_id()),
-    }
+@router.get("/transcription-provider-type")
+async def get_transcription_provider_type(request: Request) -> dict:
+    _require_voice_manage(request)
+    return {"transcription_provider_type": load_config().agents.transcription_provider_type}
 
 
-@router.put(
-    "/transcription-provider",
-    summary="Set transcription provider",
-    description=(
-        "Set the provider to use for audio transcription. "
-        'Use empty string "" to unset.'
-    ),
-)
-async def put_transcription_provider(
-    body: dict = Body(
-        ...,
-        description=(
-            'Provider ID, e.g. {"provider_id": "openai"} '
-            'or {"provider_id": ""} to unset'
-        ),
-    ),
-) -> dict:
-    """Set the transcription provider."""
-    provider_id = (body.get("provider_id") or "").strip()
-    config = load_config()
-    config.agents.transcription_provider_id = provider_id
-    save_config(config)
-    return {"provider_id": provider_id}
+@router.put("/transcription-provider-type")
+async def put_transcription_provider_type(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings, http_error
+    if set(body) != {"transcription_provider_type"}:
+        raise http_error("INVALID_VOICE_SETTINGS")
+    result = await save_settings(body, load=load_config, save=save_config, partial=True)
+    return {"transcription_provider_type": result["settings"]["transcription_provider_type"]}
 
 
-@router.post(
-    "/transcribe",
-    summary="Transcribe audio to text",
-    description=(
-        "Transcribe an uploaded audio file "
-        "using the configured Whisper provider. "
-        "Returns the transcribed text."
-    ),
-)
-async def post_transcribe_audio(
-    file: UploadFile = File(..., description="Audio file to transcribe"),
-) -> dict:
-    """Transcribe uploaded audio file using configured Whisper provider."""
-    from ...agents.utils.audio_transcription import transcribe_audio
+@router.get("/local-whisper-status")
+async def get_local_whisper_status(request: Request) -> dict:
+    _require_voice_manage(request)
+    from ...agents.utils.audio_transcription import check_local_whisper_available
+    return check_local_whisper_available(load_config().agents.transcription_local_model)
 
-    # Check transcription is enabled
-    config = load_config()
-    provider_type = config.agents.transcription_provider_type
-    if provider_type == "disabled":
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "TRANSCRIPTION_DISABLED",
-                "message": (
-                    "Transcription is disabled. "
-                    "Configure a transcription provider in Settings."
-                ),
-            },
-        )
 
-    # Validate file type
-    allowed_extensions = {
-        ".webm",
-        ".mp4",
-        ".m4a",
-        ".wav",
-        ".mp3",
-        ".ogg",
-        ".flac",
-    }
-    suffix = (
-        os.path.splitext(file.filename or "audio.webm")[1].lower() or ".webm"
-    )
-    if suffix not in allowed_extensions:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "UNSUPPORTED_FILE_TYPE",
-                "message": (
-                    f"Unsupported file type: {suffix}. "
-                    f"Allowed: {', '.join(sorted(allowed_extensions))}"
-                ),
-            },
-        )
+@router.get("/transcription-providers")
+async def get_transcription_providers(request: Request) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import management_view
+    result = await management_view(load_config())
+    return {"providers": result["providers"],
+            "configured_provider_id": result["settings"]["transcription_provider_id"]}
 
-    data = await file.read()
-    check_upload_size(data)
 
-    # Save uploaded file to temp directory
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(data)
-        tmp_path = tmp.name
+@router.put("/transcription-provider")
+async def put_transcription_provider(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings, http_error
+    if set(body) != {"provider_id"}:
+        raise http_error("INVALID_VOICE_SETTINGS")
+    result = await save_settings({"transcription_provider_id": body["provider_id"]},
+                                 load=load_config, save=save_config, partial=True)
+    return {"provider_id": result["settings"]["transcription_provider_id"]}
 
-    try:
-        text = await transcribe_audio(tmp_path)
-        if text is None:
-            raise HTTPException(
-                status_code=500,
-                detail="Transcription failed. Check provider configuration.",
-            )
-        return {"text": text}
-    finally:
-        # Clean up temp file
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+
+@router.get("/transcription-status")
+async def get_transcription_status(request: Request) -> dict:
+    from ..voice_service import transcription_status
+    return await transcription_status(request)
+
+
+@router.post("/transcribe")
+async def post_transcribe_audio(request: Request, file: UploadFile = File(...)) -> dict:
+    from ..voice_service import transcribe_upload
+    return await transcribe_upload(request, file)
+
+
+@router.post("/transcription-test")
+async def post_transcription_test(request: Request, file: UploadFile = File(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import transcribe_upload
+    return await transcribe_upload(request, file, admin_test=True)
 
 
 @router.post(
@@ -1510,7 +1686,11 @@ async def test_embedding_configuration(
     request: Request = None,
 ) -> EmbeddingTestResponse:
     """Test unsaved embedding settings and stage the model for hot apply."""
-    workspace = await get_agent_for_request(request)
+    workspace = await get_governed_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.embedding.test",
+    )
+    require_running_config_editor(request)
     memory_manager = workspace.memory_manager
     if memory_manager is not None and hasattr(
         memory_manager,
@@ -1535,6 +1715,55 @@ async def test_embedding_configuration(
 
 
 @router.get(
+    "/access",
+    response_model=RunningConfigAccess,
+    summary="Get current Agent configuration access",
+)
+async def get_running_config_access(request: Request) -> RunningConfigAccess:
+    """Return the caller's access capability without exposing configuration."""
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    return _runtime_config_access(request, workspace.agent_id)
+
+
+@router.get(
+    "/running-config/summary",
+    response_model=RunningConfigSummary,
+    summary="Get safe Agent running config summary",
+)
+async def get_running_config_summary(request: Request) -> RunningConfigSummary:
+    """Return non-sensitive effective fields for read-only Agent users."""
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    access = _runtime_config_access(request, workspace.agent_id)
+    _require_running_config_view(access)
+    agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
+    active_model = agent_config.active_model
+    return RunningConfigSummary(
+        agent_id=workspace.agent_id,
+        name=agent_config.name,
+        language=agent_config.language,
+        timezone=load_config().user_timezone,
+        active_model=(
+            {
+                "provider_id": active_model.provider_id,
+                "model": active_model.model,
+            }
+            if active_model is not None
+            else None
+        ),
+        model_switchable=True,
+        access_role=access.access_role,
+        can_edit=access.can_edit,
+        read_only_reason=("仅使用权限" if not access.can_edit else None),
+    )
+
+
+@router.get(
     "/running-config",
     response_model=AgentsRunningConfig,
     summary="Get agent running config",
@@ -1542,13 +1771,94 @@ async def test_embedding_configuration(
 )
 async def get_agents_running_config(
     request: Request,
+    response: Response = None,
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
     agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
     running = agent_config.running or AgentsRunningConfig()
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
+    if is_multi_user_enabled():
+        try:
+            revision = await PostgresAgentConfigRepository(
+                schema=get_identity_schema(),
+            ).get_current(workspace.agent_id)
+            version = revision.version
+        except KeyError:
+            version = 1
+        if response is not None:
+            response.headers["ETag"] = f'"{version}"'
+            response.headers["X-Config-Version"] = str(version)
     return running
+
+
+@router.get(
+    "/running-config/version",
+    summary="Get running config version",
+)
+async def get_agents_running_config_version(request: Request) -> dict[str, int]:
+    """Return the optimistic-concurrency version for the active Agent."""
+    if not is_multi_user_enabled():
+        return {"version": 1}
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    try:
+        revision = await PostgresAgentConfigRepository(
+            schema=get_identity_schema(),
+        ).get_current(workspace.agent_id)
+        return {"version": revision.version}
+    except KeyError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+
+
+@router.get(
+    "/running-config/runtime-status",
+    response_model=RunningConfigRuntimeStatus,
+    summary="Get running config runtime status",
+)
+async def get_running_config_runtime_status(
+    request: Request,
+) -> RunningConfigRuntimeStatus:
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    return get_agent_reload_status(request, workspace.agent_id)
+
+
+@router.post(
+    "/running-config/reload",
+    response_model=RunningConfigRuntimeStatus,
+    summary="Retry applying the saved running config",
+)
+async def retry_running_config_reload(
+    request: Request,
+) -> RunningConfigRuntimeStatus:
+    _require_complete_running_config_view(
+        _runtime_config_access(request, ""),
+    )
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.reload",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    return await reload_agent_and_track(request, workspace.agent_id)
 
 
 class _ConfigRollbackConflict(RuntimeError):
@@ -1696,13 +2006,56 @@ async def put_agents_running_config(
         description="Updated agent running configuration",
     ),
     request: Request = None,
+    response: Response = None,
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
-    workspace = await get_agent_for_request(request)
+    if getattr(request, "headers", {}).get("X-Agent-Governance") is None:
+        _require_complete_running_config_view(
+            _runtime_config_access(request, ""),
+        )
+    expected_version: int | None = None
+    actor = None
+    if is_multi_user_enabled():
+        raw_if_match = request.headers.get("if-match", "").strip().strip('"')
+        if not raw_if_match.isdigit():
+            raise HTTPException(
+                status_code=428,
+                detail="If-Match configuration version is required",
+            )
+        expected_version = int(raw_if_match)
+        actor = get_actor(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.update",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
     memory_manager = workspace.memory_manager
     workspace_dir = getattr(workspace, "workspace_dir", ".")
     config_path = Path(workspace_dir) / "agent.json"
     async with get_path_lock(config_path):
+        revision_repository = None
+        if is_multi_user_enabled():
+            revision_repository = PostgresAgentConfigRepository(
+                schema=get_identity_schema(),
+            )
+            try:
+                current_revision = await revision_repository.get_current(
+                    workspace.agent_id
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=403, detail="forbidden") from exc
+            if current_revision.version != expected_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "config_version_conflict",
+                        "message": "Configuration changed by another editor",
+                        "expected_version": expected_version,
+                        "current_version": current_revision.version,
+                    },
+                )
         old_agent_config = None
         embedding_changed = False
         memory_manager_backend_changed = False
@@ -1773,7 +2126,32 @@ async def put_agents_running_config(
                     agent_config,
                 )
 
-    schedule_agent_reload(request, workspace.agent_id)
+        if revision_repository is not None:
+            assert actor is not None and actor.user_id is not None
+            try:
+                saved_revision = await revision_repository.save_revision(
+                    agent_key=workspace.agent_id,
+                    expected_version=expected_version or 1,
+                    structured_config=running_config.model_dump(mode="json"),
+                    changed_by=actor.user_id,
+                )
+            except AgentConfigVersionConflict as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "config_version_conflict",
+                        "message": "Configuration changed by another editor",
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                ) from exc
+            if response is not None:
+                response.headers["ETag"] = f'"{saved_revision.version}"'
+                response.headers["X-Config-Version"] = str(
+                    saved_revision.version
+                )
+
+    await reload_agent_and_track(request, workspace.agent_id)
 
     running_config.approval_level = agent_config.approval_level
     return running_config
@@ -1809,6 +2187,7 @@ async def put_system_prompt_files(
 ) -> list[str]:
     """Update list of enabled system prompt files."""
     workspace = await get_agent_for_request(request)
+    _require_workspace_write_access(request, workspace)
     agent_config = load_agent_config(workspace.agent_id)
     agent_config.system_prompt_files = files
     save_agent_config(workspace.agent_id, agent_config)
@@ -1833,7 +2212,7 @@ def _validate_zip_data(data: bytes, workspace_dir: Path) -> None:
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for name in zf.namelist():
             resolved = (workspace_dir / name).resolve()
-            if not str(resolved).startswith(str(workspace_dir)):
+            if not resolved.is_relative_to(workspace_dir.resolve()):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Zip contains unsafe path: {name}",
@@ -1897,7 +2276,13 @@ async def download_workspace(request: Request):
     """Stream agent workspace as a zip file."""
 
     agent = await get_agent_for_request(request)
-    workspace_dir = agent.workspace_dir
+    access = await _resolve_files_access(request, agent)
+    role, _historical = get_agent_access_state(request)
+    workspace_dir = (
+        access.project.path
+        if role is AgentResourceRole.USER
+        else access.workspace.path
+    )
 
     if not workspace_dir.is_dir():
         raise HTTPException(
@@ -1955,7 +2340,15 @@ async def upload_workspace(
         )
 
     agent = await get_agent_for_request(request)
-    workspace_dir = agent.workspace_dir
+    access = await _resolve_files_access(request, agent)
+    role, _historical = get_agent_access_state(request)
+    root_access = (
+        access.project
+        if role is AgentResourceRole.USER
+        else access.workspace
+    )
+    _require_files_root_write(root_access)
+    workspace_dir = root_access.path
     data = await file.read()
 
     try:

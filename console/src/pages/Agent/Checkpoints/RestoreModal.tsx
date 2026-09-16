@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Button, Checkbox, Divider, Modal, Spin } from "antd";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { checkpointsApi } from "@/api/modules/checkpoints";
 import type {
   CheckpointNode,
@@ -15,15 +16,21 @@ interface RestoreModalProps {
   node: CheckpointNode | null;
   onClose: () => void;
   onRestored: () => void;
+  createsNewChat?: boolean;
 }
+
+export const restoredChatPath = (chatId: string): string =>
+  `/chat/${encodeURIComponent(chatId)}`;
 
 export function RestoreModal({
   open,
   node,
   onClose,
   onRestored,
+  createsNewChat = false,
 }: RestoreModalProps) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { message } = useAppMessage();
   const [includeMemory, setIncludeMemory] = useState(false);
   const [includeFiles, setIncludeFiles] = useState(false);
@@ -67,7 +74,7 @@ export function RestoreModal({
     if (!node || !preview) return;
     setRestoring(true);
     try {
-      await checkpointsApi.restore({
+      const result = await checkpointsApi.restore({
         ...baseRequest(),
         // Pin confirmation to the exact commit resolved by the preview.
         commit: preview.commit,
@@ -76,6 +83,9 @@ export function RestoreModal({
       message.success(t("checkpoints.restore.success"));
       onClose();
       onRestored();
+      if (result.new_chat_id) {
+        navigate(restoredChatPath(result.new_chat_id));
+      }
     } catch (error) {
       message.error((error as Error).message);
     } finally {
@@ -173,7 +183,11 @@ export function RestoreModal({
             <Alert
               type="warning"
               showIcon
-              message={t("checkpoints.restore.refreshWarning")}
+              message={t(
+                createsNewChat
+                  ? "checkpoints.restore.newChatWarning"
+                  : "checkpoints.restore.refreshWarning",
+              )}
             />
             <div className={styles.previewSummary}>
               <span>{t("checkpoints.restore.conversation")}</span>

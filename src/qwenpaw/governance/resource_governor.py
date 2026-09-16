@@ -79,9 +79,7 @@ class ResourceGovernor:
         ws_hash = hashlib.sha256(
             ws_resolved.encode("utf-8"),
         ).hexdigest()[:12]
-        self._policy_dir = (
-            self._governance_dir / f"{self.workspace_dir.name}_{ws_hash}"
-        )
+        self._policy_dir = self._governance_dir / f"{self.workspace_dir.name}_{ws_hash}"
         self._policy_path = self._policy_dir / "policy.yaml"
         self._policy: Optional[GovernancePolicy] = None
         self._sandbox_available: bool = False
@@ -120,10 +118,11 @@ class ResourceGovernor:
         elevated (admin) backend.
         """
         try:
-            from ..config import load_config
+            from ..platform_ops.security_policy import (
+                load_effective_security_policy,
+            )
 
-            config = load_config()
-            return bool(config.security.sandbox_enabled)
+            return bool(load_effective_security_policy().sandbox_enabled)
         except Exception:
             logger.debug(
                 "ResourceGovernor: failed to read sandbox_enabled; "

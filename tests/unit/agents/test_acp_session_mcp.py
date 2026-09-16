@@ -291,7 +291,8 @@ async def test_acp_session_cleanup_cancellation_preserves_committed_state(
                 await allow_close.wait()
                 close_finished.set()
 
-    async def build_handler(card):
+    async def build_handler(card, *, persistent):
+        assert persistent is False
         return _BlockingHandler(card)
 
     monkeypatch.setattr(manager, "_build_and_init_handler", build_handler)

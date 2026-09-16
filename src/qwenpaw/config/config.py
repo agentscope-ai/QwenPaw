@@ -7,6 +7,7 @@ import logging
 import re
 import threading
 from pathlib import Path
+from uuid import UUID
 from typing import (
     Any,
     Callable,
@@ -614,6 +615,18 @@ class HeartbeatConfig(BaseModel):
         default=None,
         alias="activeHours",
     )
+    authorized_by_user_id: str | None = Field(
+        default=None,
+        alias="authorizedByUserId",
+        description="Trusted platform user that authorized heartbeat execution",
+    )
+
+    @field_validator("authorized_by_user_id", mode="before")
+    @classmethod
+    def _normalize_authorized_user_id(cls, value: str | UUID | None) -> str | None:
+        if value is None:
+            return None
+        return str(UUID(str(value)))
 
 
 class AgentsDefaultsConfig(BaseModel):
@@ -626,7 +639,7 @@ class AutoMemorySearchConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     enabled: bool = Field(
-        default=False,
+        default=True,
         description="Whether to auto search memory on every turn",
     )
 
@@ -748,7 +761,7 @@ class ADBPGMemoryConfig(BaseModel):
         default=True,
         description="Per-agent memory isolation (True) or shared (False)",
     )
-    search_timeout: float = 10.0
+    search_timeout: float = Field(default=10.0, ge=1.0)
     auto_memory_search_config: AutoMemorySearchConfig = Field(
         default_factory=lambda: AutoMemorySearchConfig(
             enabled=True,
@@ -1207,7 +1220,7 @@ class DoomLoopStageConfig(BaseModel):
         ge=1,
         description=("Trigger after N consecutive repetitions"),
     )
-    action: str = Field(
+    action: Literal["modify_prompt", "stop"] = Field(
         default="modify_prompt",
         description=("Action when triggered: " "'modify_prompt' or 'stop'"),
     )
@@ -1748,7 +1761,9 @@ class AgentsRunningConfig(BaseModel):
         description="Dir name to daily summary file",
     )
 
-    approval_level: Optional[str] = Field(
+    approval_level: Optional[
+        Literal["STRICT", "SMART", "AUTO", "OFF", "CONFIRM"]
+    ] = Field(
         default=None,
         description=(
             "Tool execution security level (proxied from agent profile): "
@@ -1887,6 +1902,10 @@ class AgentProfileConfig(BaseModel):
         default=None,
         description="Last dispatch target for this agent",
     )
+    last_dispatch_by_user: Dict[str, "LastDispatchConfig"] = Field(
+        default_factory=dict,
+        description="Last dispatch target keyed by trusted platform user ID",
+    )
     running: AgentsRunningConfig = Field(
         default_factory=AgentsRunningConfig,
         description="Runtime configuration",
@@ -2013,6 +2032,9 @@ class AgentsConfig(BaseModel):
             'e.g. "whisper-1", "whisper-large-v3".'
         ),
     )
+    transcription_local_model: Literal[
+        "tiny", "base", "small", "medium", "large-v3", "turbo",
+    ] = Field(default="base", description="Prepared server-side Whisper model")
 
 
 class LastDispatchConfig(BaseModel):
@@ -2021,6 +2043,7 @@ class LastDispatchConfig(BaseModel):
     channel: str = ""
     user_id: str = ""
     session_id: str = ""
+    binding_id: str = ""
 
 
 class MCPOAuthConfig(BaseModel):
@@ -2537,11 +2560,10 @@ class SecurityConfig(BaseModel):
         ),
     )
     allow_no_auth_hosts: List[str] = Field(
-        default_factory=lambda: ["127.0.0.1", "::1"],
+        default_factory=list,
         description=(
             "List of client IP addresses that can access API endpoints "
-            "without authentication. By default, localhost addresses "
-            "(127.0.0.1 for IPv4, ::1 for IPv6) are allowed. "
+            "without authentication. Disabled by default. "
             "WARNING: Only add trusted IP addresses to this list."
         ),
     )
@@ -2616,6 +2638,17 @@ class BrowserConfig(BaseModel):
     idle_ttl_seconds: float = 600.0
     session_idle_ttl_seconds: float = 900.0
     exec_timeout_seconds: float = 120.0
+    multi_user_enabled: bool = Field(
+        default=False,
+        description="Allow isolated Browser sessions in multi-user mode.",
+    )
+    multi_user_global_limit: int = Field(default=2, ge=1, le=128)
+    multi_user_per_user_limit: int = Field(default=1, ge=1, le=16)
+    multi_user_queue_timeout_seconds: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=300.0,
+    )
 
     @field_validator(
         "idle_ttl_seconds",

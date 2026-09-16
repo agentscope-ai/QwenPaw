@@ -16,10 +16,10 @@ import { codingModeApi } from "../../../../api/modules/codingMode";
 import { projectDirectoryApi } from "../../../../api/modules/projectDirectory";
 import ProjectSelectModal from "../../../../components/ProjectSelectModal";
 import { useTimezoneOptions } from "../../../../hooks/useTimezoneOptions";
+import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { MEMORY_MANAGER_BACKEND_OPTIONS } from "../../../../constants/backendMappings";
 import { useAgentStore } from "../../../../stores/agentStore";
 import {
-  useCodingMode,
   useCodingModeStore,
 } from "../../../../stores/codingModeStore";
 import {
@@ -27,6 +27,7 @@ import {
   useProjectDir,
 } from "../../../../stores/projectDirectoryStore";
 import styles from "../index.module.less";
+import type { AgentRequestContext } from "../../../../api/modules/agentRequestContext";
 
 const LANGUAGE_OPTIONS = [
   { value: "zh", label: "中文" },
@@ -42,12 +43,18 @@ interface ReactAgentCardProps {
   timezone: string;
   savingTimezone: boolean;
   onTimezoneChange: (value: string) => void;
+  requestContext?: AgentRequestContext;
 }
 
-function ProjectDirectorySetting() {
+function ProjectDirectorySetting({
+  requestContext,
+}: {
+  requestContext?: AgentRequestContext;
+}) {
   const { t } = useTranslation();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
-  const { projectDir } = useProjectDir();
+  const targetAgent = requestContext?.agentId || selectedAgent;
+  const { projectDir } = useProjectDir(targetAgent);
   const setProjectDir = useProjectDirectoryStore(
     (state) => state.setProjectDir,
   );
@@ -58,16 +65,16 @@ function ProjectDirectorySetting() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const project = await projectDirectoryApi.get();
+      const project = await projectDirectoryApi.get(requestContext);
       setProjectDir(
-        selectedAgent,
+        targetAgent,
         project.is_workspace_default ? null : project.path,
       );
       setProjectName(project.name);
     } finally {
       setLoading(false);
     }
-  }, [selectedAgent, setProjectDir]);
+  }, [requestContext, setProjectDir, targetAgent]);
 
   useEffect(() => {
     void refresh();
@@ -104,15 +111,24 @@ function ProjectDirectorySetting() {
           setModalOpen(false);
           void refresh();
         }}
+        requestContext={requestContext}
       />
     </>
   );
 }
 
-function EnhancedCodeCapabilitySetting() {
+function EnhancedCodeCapabilitySetting({
+  requestContext,
+}: {
+  requestContext?: AgentRequestContext;
+}) {
   const { t } = useTranslation();
-  const { codingMode } = useCodingMode();
+  const { message } = useAppMessage();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const targetAgent = requestContext?.agentId || selectedAgent;
+  const codingMode = useCodingModeStore(
+    (state) => state.codingModeByAgent[targetAgent] ?? false,
+  );
   const setCodingMode = useCodingModeStore((state) => state.setCodingMode);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -120,12 +136,12 @@ function EnhancedCodeCapabilitySetting() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const mode = await codingModeApi.get();
-      setCodingMode(selectedAgent, mode.enabled);
+      const mode = await codingModeApi.get(requestContext);
+      setCodingMode(targetAgent, mode.enabled);
     } finally {
       setLoading(false);
     }
-  }, [selectedAgent, setCodingMode]);
+  }, [requestContext, targetAgent, setCodingMode]);
 
   useEffect(() => {
     void refresh();
@@ -134,8 +150,10 @@ function EnhancedCodeCapabilitySetting() {
   const toggle = async (enabled: boolean) => {
     setSaving(true);
     try {
-      const result = await codingModeApi.toggle(enabled);
-      setCodingMode(selectedAgent, result.enabled);
+      const result = await codingModeApi.toggle(enabled, requestContext);
+      setCodingMode(targetAgent, result.enabled);
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -171,8 +189,10 @@ export function ReactAgentCard({
   timezone,
   savingTimezone,
   onTimezoneChange,
+  requestContext,
 }: ReactAgentCardProps) {
   const { t } = useTranslation();
+  const { message } = useAppMessage();
   const { selectedAgent } = useAgentStore();
   const [planConfig, setPlanConfig] = useState({
     enabled: false,
@@ -185,7 +205,7 @@ export function ReactAgentCard({
   useEffect(() => {
     let cancelled = false;
     planApi
-      .getPlanConfig()
+      .getPlanConfig(requestContext)
       .then((cfg) => {
         if (!cancelled) setPlanConfig(cfg);
       })
@@ -193,7 +213,7 @@ export function ReactAgentCard({
     return () => {
       cancelled = true;
     };
-  }, [selectedAgent]);
+  }, [requestContext, selectedAgent]);
 
   const updatePlanConfig = useCallback(
     async (patch: Partial<typeof planConfig>) => {
@@ -202,15 +222,16 @@ export function ReactAgentCard({
       const next = { ...planConfig, ...patch };
       setPlanConfig(next);
       try {
-        const res = await planApi.updatePlanConfig(next);
+        const res = await planApi.updatePlanConfig(next, requestContext);
         setPlanConfig(res);
-      } catch {
+      } catch (err) {
         setPlanConfig(prev);
+        message.error(err instanceof Error ? err.message : String(err));
       } finally {
         setPlanLoading(false);
       }
     },
-    [planConfig],
+    [message, planConfig, requestContext],
   );
 
   return (
@@ -293,8 +314,8 @@ export function ReactAgentCard({
       </div>
 
       <div className={styles.reactAgentSettings}>
-        <ProjectDirectorySetting />
-        <EnhancedCodeCapabilitySetting />
+        <ProjectDirectorySetting requestContext={requestContext} />
+        <EnhancedCodeCapabilitySetting requestContext={requestContext} />
       </div>
 
       <Form.Item

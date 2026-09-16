@@ -10,6 +10,7 @@ const hoisted = vi.hoisted(() => ({
   stableT: (k: string) => k,
   fetchPluginsMock: vi.fn(),
   uninstallPluginMock: vi.fn(),
+  updatePluginAudienceMock: vi.fn(),
   // Captured Modal.confirm options; initialized per-test in beforeEach.
   modalConfirmMock: vi.fn(),
   refreshMock: vi.fn(),
@@ -27,6 +28,8 @@ vi.mock("react-i18next", () => ({
 vi.mock("@/api/modules/plugin", () => ({
   fetchPlugins: hoisted.fetchPluginsMock,
   uninstallPlugin: hoisted.uninstallPluginMock,
+  updatePluginAudience: hoisted.updatePluginAudienceMock,
+  setPluginEnabled: vi.fn(),
 }));
 
 vi.mock("ahooks", () => ({
@@ -53,6 +56,7 @@ const {
   modalConfirmMock,
   refreshMock,
   uninstallPluginMock,
+  updatePluginAudienceMock,
   pluginsData,
 } = hoisted;
 
@@ -70,6 +74,7 @@ describe("usePluginManager", () => {
     modalConfirmMock.mockReset();
     refreshMock.mockReset();
     uninstallPluginMock.mockReset();
+    updatePluginAudienceMock.mockReset();
     pluginsData.length = 0;
     pluginsData.push(makePlugin());
   });
@@ -117,6 +122,25 @@ describe("usePluginManager", () => {
     expect(messageMock.success).toHaveBeenCalledWith(
       "pluginManager.uninstallSuccess",
     );
+    expect(refreshMock).toHaveBeenCalled();
+  });
+
+  it("指定用户授权提交页面当前选择的用户 ID", async () => {
+    updatePluginAudienceMock.mockResolvedValue(undefined);
+    const { result } = renderHook(() => usePluginManager());
+
+    await act(async () => {
+      await result.current.handleAudienceChange(
+        makePlugin(),
+        "selected_users",
+        ["user-a", "user-b"],
+      );
+    });
+
+    expect(updatePluginAudienceMock).toHaveBeenCalledWith("p1", {
+      mode: "selected_users",
+      selected_user_ids: ["user-a", "user-b"],
+    });
     expect(refreshMock).toHaveBeenCalled();
   });
 });

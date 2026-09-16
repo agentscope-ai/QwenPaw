@@ -24,6 +24,27 @@ class _Workspace:
             yield event
 
 
+@pytest.mark.asyncio
+async def test_runtime_identity_comes_from_validated_authorization(monkeypatch):
+    from uuid import uuid4
+    from qwenpaw.runtime_status.scope import execution_user_id
+
+    observed = []
+    class Workspace(_Workspace):
+        async def stream_query(self, request):
+            observed.append(request)
+            if False:
+                yield None
+
+    user = str(uuid4())
+    _patch_trace_storage(monkeypatch)
+    job = make_cron_job_spec(job_id="identity-job")
+    await CronExecutor(workspace=Workspace(), channel_manager=AsyncMock()).execute(
+        job, authorization={"authorized_by_user_id": user},
+    )
+    assert execution_user_id(observed[0]["request_context"]) == user
+
+
 def _patch_trace_storage(monkeypatch):
     monkeypatch.setattr(
         "qwenpaw.app.crons.executor.read_session_messages",
@@ -84,6 +105,40 @@ async def test_agent_job_still_delivers_by_default(monkeypatch):
     assert workspace.events_consumed == 2
     assert channel_manager.send_event.await_count == 2
     assert result["delivery_status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_agent_job_never_sets_tool_guard_off(monkeypatch):
+    workspace = _Workspace()
+    channel_manager = AsyncMock()
+    job = make_cron_job_spec(job_id="governed-job")
+    job.runtime.tool_safety = False
+    captured = {}
+
+    async def stream_query(request):
+        captured.update(request["request_context"])
+        if False:
+            yield None
+
+    workspace.stream_query = stream_query
+    _patch_trace_storage(monkeypatch)
+
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=channel_manager,
+    ).execute(
+        job,
+        authorization={
+            "schedule_id": "governed-job",
+            "config_version": 1,
+            "authorization_digest": "a" * 64,
+            "grants": [{"capability": "tool:Read"}],
+        },
+    )
+
+    assert captured["approval_level"] == "auto"
+    assert captured["actor_type"] == "automation"
+    assert captured["automation_authorization"]["schedule_id"] == "governed-job"
 
 
 @pytest.mark.asyncio

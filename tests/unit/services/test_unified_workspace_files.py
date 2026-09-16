@@ -31,6 +31,16 @@ def test_resolve_workspace_path_accepts_portable_relative_path(
     assert resolve_workspace_path(tmp_path, "", allow_root=True) == tmp_path
 
 
+def test_resolve_workspace_path_reads_legacy_artifacts_through_alias(
+    tmp_path: Path,
+) -> None:
+    legacy_file = tmp_path / "产物" / "历史.md"
+    legacy_file.parent.mkdir()
+    legacy_file.write_text("legacy", encoding="utf-8")
+
+    assert resolve_workspace_path(tmp_path, "artifacts/历史.md") == legacy_file
+
+
 @pytest.mark.parametrize(
     "api_path",
     [

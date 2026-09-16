@@ -21,6 +21,8 @@ interface PoolSkillListItemProps {
   onEdit: (skill: PoolSkillSpec) => void;
   onBroadcast: (skill: PoolSkillSpec) => void;
   onDelete: (skill: PoolSkillSpec) => void;
+  publicationState: "unpublished" | "outdated" | "current";
+  onPublish: (skill: PoolSkillSpec) => void | Promise<void>;
 }
 
 export function PoolSkillListItem({
@@ -31,6 +33,8 @@ export function PoolSkillListItem({
   onEdit,
   onBroadcast,
   onDelete,
+  publicationState,
+  onPublish,
 }: PoolSkillListItemProps) {
   const { t } = useTranslation();
 
@@ -88,6 +92,22 @@ export function PoolSkillListItem({
         </div>
       </div>
       <div className={styles.listItemRight}>
+        <Button
+          type={publicationState === "current" ? "default" : "primary"}
+          disabled={batchModeEnabled || publicationState === "current"}
+          onClick={(e) => {
+            e.stopPropagation();
+            void onPublish(skill);
+          }}
+        >
+          {t(
+            publicationState === "current"
+              ? "skillGovernance.publishCurrent"
+              : publicationState === "outdated"
+              ? "skillGovernance.publishNewVersion"
+              : "skillGovernance.publish",
+          )}
+        </Button>
         <Button
           className={styles.actionButton}
           disabled={batchModeEnabled}

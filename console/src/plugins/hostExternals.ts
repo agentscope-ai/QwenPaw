@@ -105,6 +105,10 @@ class PluginSystem {
     this._notify();
   }
 
+  remove(pluginId: string): void {
+    if (this.records.delete(pluginId)) this._notify();
+  }
+
   // ── Read API (consumed by PluginContext / usePlugins) ────────────────────
 
   /** Merged map of all tool renderers across all plugins.

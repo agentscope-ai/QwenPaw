@@ -1,0 +1,162 @@
+schema_version: 1
+captured_on: 2026-08-20
+
+# 共享字段只用于减少重复；YAML 合并后，每条失败仍包含完整的分类信息。
+x-windows-symlink: &windows-symlink
+  kind: failure
+  error_type: ""
+  summary_pattern: "WinError 1314"
+  blocks_multi_user: false
+  rationale: Windows 当前进程没有创建符号链接所需权限。
+
+x-memory-edges: &memory-edges
+  kind: failure
+  error_type: ""
+  summary_pattern: "KeyError: 'edges'"
+  blocks_multi_user: true
+  rationale: 记忆重排测试夹具与当前响应结构不一致，属于记忆核心链路风险。
+
+x-mattermost-cert: &mattermost-cert
+  kind: error
+  error_type: ""
+  summary_pattern: "NO_CERTIFICATE_OR_CRL_FOUND"
+  blocks_multi_user: false
+  rationale: 前序证书环境测试遗留 SSL_CERT_FILE，导致同一进程内的 Mattermost fixture 级联失败。
+
+x-playwright-browser: &playwright-browser
+  kind: failure
+  error_type: ""
+  summary_pattern: "Executable doesn't exist at .*ms-playwright"
+  blocks_multi_user: false
+  rationale: 本机缺少当前 Playwright 版本对应的 Chromium 可执行文件。
+
+x-cloudpaw-install: &cloudpaw-install
+  kind: failure
+  error_type: ""
+  summary_pattern: "Dependency installation failed for 'cloudpaw'"
+  blocks_multi_user: false
+  rationale: 隔离集成环境中的官方插件依赖安装进程返回失败，未进入插件功能断言。
+
+suites:
+  backend.unit_contract:
+    command: python -m pytest tests/unit tests/contract -q --junitxml=backend-unit-contract.xml
+    environment:
+      PROCESSOR_ARCHITECTURE: AMD64
+    known_failures:
+      - <<: *windows-symlink
+        test_id: tests.unit.cli.test_cli_task::test_isolated_workspace_creates_overlay
+      - <<: *windows-symlink
+        test_id: tests.unit.cli.test_cli_task::test_isolated_workspace_does_not_pollute_real_workspace
+      - <<: *windows-symlink
+        test_id: tests.unit.security.skill_scanner.test_init.TestComputeSkillContentHash::test_skips_symlinks
+      - test_id: tests.unit.security.skill_scanner.test_scan_policy.TestScanPolicyYamlIO::test_to_yaml_includes_header
+        kind: failure
+        error_type: ""
+        summary_pattern: "UnicodeDecodeError: 'gbk'"
+        blocks_multi_user: false
+        rationale: 测试读取 UTF-8 YAML 时沿用 Windows GBK 默认编码。
+      - <<: *windows-symlink
+        test_id: tests.unit.security.skill_scanner.test_scanner.TestSkillScannerDiscoverFiles::test_skips_symlinks
+      - <<: *memory-edges
+        test_id: tests.unit.test_memory_reranker::test_no_base_url_skip_with_truncation
+      - <<: *memory-edges
+        test_id: tests.unit.test_memory_reranker::test_rerank_preserves_expansions
+      - <<: *memory-edges
+        test_id: tests.unit.test_memory_reranker::test_rerank_timeout_preserves_answer_sections
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_no_abstract_methods_remaining
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_no_abstractmethods__in_instance
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_required_methods_not_raising_not_implemented
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_has_channel_type_attribute
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_has_start_method
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_has_stop_method
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_has_send_method
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_has_from_config_method
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_has_build_agent_request_from_native_method
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_start_method_signature_compatible
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_stop_method_signature_compatible
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_resolve_session_id_signature_compatible
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_uses_manager_queue_attribute_exists
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_render_style_attributes_exist
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_resolve_session_id_returns_str
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_resolve_session_id_with_meta
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_get_to_handle_from_request_exists
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_policy_attributes_exist
+      - <<: *mattermost-cert
+        test_id: tests.contract.channels.test_mattermost_contract.TestMattermostChannelContract::test_policy_attributes_types
+
+  backend.browser:
+    command: python -m pytest tests/integration/browser -q --junitxml=backend-browser.xml
+    environment:
+      PROCESSOR_ARCHITECTURE: AMD64
+    known_failures:
+      - <<: *playwright-browser
+        test_id: tests.integration.browser.test_browser_tool_e2e::test_browser_tool_drives_a_real_page
+      - <<: *playwright-browser
+        test_id: tests.integration.browser.test_e2e_isolation::test_two_incognito_sessions_are_isolated
+        summary_pattern: "QwenPaw Browser SDK internal failure"
+      - <<: *playwright-browser
+        test_id: tests.integration.browser.test_e2e_isolation::test_same_session_id_is_isolated_by_workspace
+      - <<: *playwright-browser
+        test_id: tests.integration.browser.test_e2e_isolation::test_profile_and_incognito_have_independent_process_cells[contexts0]
+      - <<: *playwright-browser
+        test_id: tests.integration.browser.test_e2e_isolation::test_profile_and_incognito_have_independent_process_cells[contexts1]
+      - <<: *playwright-browser
+        test_id: tests.integration.browser.test_playwright_provider_e2e::test_real_provider_isolates_sessions_and_profile
+      - <<: *playwright-browser
+        test_id: tests.integration.browser.test_playwright_provider_e2e::test_real_provider_observes_locates_and_acts
+
+  backend.full_no_browser:
+    command: python -m pytest -q --ignore=tests/integration/browser --junitxml=backend-no-browser.xml
+    environment:
+      PROCESSOR_ARCHITECTURE: AMD64
+    known_failures:
+      - <<: *cloudpaw-install
+        test_id: tests.integration.test_agent_scoped_routing::test_plugins_install_real_via_agentscoped
+      - <<: *cloudpaw-install
+        test_id: tests.integration.test_plugins::test_plugins_install_official_cloudpaw_lifecycle
+      - <<: *windows-symlink
+        test_id: tests.unit.cli.test_cli_task::test_isolated_workspace_creates_overlay
+      - <<: *windows-symlink
+        test_id: tests.unit.cli.test_cli_task::test_isolated_workspace_does_not_pollute_real_workspace
+      - <<: *windows-symlink
+        test_id: tests.unit.security.skill_scanner.test_init.TestComputeSkillContentHash::test_skips_symlinks
+      - test_id: tests.unit.security.skill_scanner.test_scan_policy.TestScanPolicyYamlIO::test_to_yaml_includes_header
+        kind: failure
+        error_type: ""
+        summary_pattern: "UnicodeDecodeError: 'gbk'"
+        blocks_multi_user: false
+        rationale: 测试读取 UTF-8 YAML 时沿用 Windows GBK 默认编码。
+      - <<: *windows-symlink
+        test_id: tests.unit.security.skill_scanner.test_scanner.TestSkillScannerDiscoverFiles::test_skips_symlinks
+      - <<: *memory-edges
+        test_id: tests.unit.test_memory_reranker::test_no_base_url_skip_with_truncation
+      - <<: *memory-edges
+        test_id: tests.unit.test_memory_reranker::test_rerank_preserves_expansions
+      - <<: *memory-edges
+        test_id: tests.unit.test_memory_reranker::test_rerank_timeout_preserves_answer_sections
+
+  frontend.full:
+    command: npm --prefix console test -- --run
+    known_failures: []
+
+  e2e.smoke:
+    command: python -m pytest e2e -m smoke -q
+    known_failures: []

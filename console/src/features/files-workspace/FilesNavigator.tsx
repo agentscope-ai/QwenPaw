@@ -13,7 +13,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Modal, Switch } from "antd";
+import { Input, Modal, Switch } from "antd";
 import {
   ArrowLeftRight,
   ChevronDown,
@@ -29,6 +29,7 @@ import {
   Settings2,
   RefreshCw,
   Upload,
+  FilePlus2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -43,6 +44,8 @@ import { isDefaultWorkspaceMarkdown } from "./defaultWorkspaceMarkdown";
 import {
   filesWorkspaceScopeKey,
   type FilesWorkspaceScope,
+  type MemoryScope,
+  type MemoryScopeSummary,
 } from "./filesWorkspaceScope";
 import {
   buildDailyMemoryTree,
@@ -56,6 +59,7 @@ import type {
   WorkspaceRoot,
 } from "./types";
 import styles from "./FilesWorkspace.module.less";
+import type { AgentRequestContext } from "../../api/modules/agentRequestContext";
 
 interface DirectoryNodeProps {
   entry: DirectoryEntry;
@@ -65,6 +69,7 @@ interface DirectoryNodeProps {
   onSelect: (target: FileTarget) => void;
   depth: number;
   root: WorkspaceRoot;
+  requestContext?: AgentRequestContext;
 }
 
 interface ProfileFileRowProps {
@@ -73,6 +78,7 @@ interface ProfileFileRowProps {
   selected: boolean;
   onSelect: () => void;
   onToggle: () => void;
+  readOnly: boolean;
 }
 
 type NavigatorSource = "workspace" | "profile" | "daily" | "digest";
@@ -107,6 +113,7 @@ function ProfileFileRow({
   selected,
   onSelect,
   onToggle,
+  readOnly,
 }: ProfileFileRowProps) {
   const { t } = useTranslation();
   const {
@@ -118,7 +125,7 @@ function ProfileFileRow({
     isDragging,
   } = useSortable({
     id: entry.path,
-    disabled: !enabled,
+    disabled: !enabled || readOnly,
   });
 
   return (
@@ -133,7 +140,7 @@ function ProfileFileRow({
       }}
     >
       <button type="button" className={styles.profileOpen} onClick={onSelect}>
-        {enabled && (
+        {enabled && !readOnly && (
           <span
             className={styles.dragHandle}
             {...attributes}
@@ -149,6 +156,7 @@ function ProfileFileRow({
       <Switch
         size="small"
         checked={enabled}
+        disabled={readOnly}
         aria-label={t("files.promptToggle", { name: entry.name })}
         onClick={(_checked, event) => {
           event.stopPropagation();
@@ -167,6 +175,7 @@ function DirectoryNode({
   onSelect,
   depth,
   root,
+  requestContext,
 }: DirectoryNodeProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
@@ -186,6 +195,7 @@ function DirectoryNode({
           chatId,
           root,
           projectDirOverride,
+          requestContext,
         );
         setChildren((current) =>
           nextCursor ? [...current, ...page.entries] : page.entries,
@@ -196,7 +206,7 @@ function DirectoryNode({
         setLoading(false);
       }
     },
-    [chatId, entry.path, projectDirOverride, root],
+    [chatId, entry.path, projectDirOverride, requestContext, root],
   );
 
   const toggle = () => {
@@ -230,6 +240,7 @@ function DirectoryNode({
               selectedPath={selectedPath}
               onSelect={onSelect}
               root={root}
+              requestContext={requestContext}
             />
           ) : (
             <button
@@ -360,21 +371,41 @@ function MemoryDirectoryNode({
 }
 
 interface FilesNavigatorProps {
+  profileOnly?: boolean;
+  rootDirectory?: string;
+  scopeKeyOverride?: string;
   selectedPath: string;
   onSelect: (target: FileTarget) => void;
   activeMemoryGraphRoot: MemoryGraphRoot | null;
   onShowMemoryGraph: (root: MemoryGraphRoot) => void;
   onShowFiles: () => void;
   scope: FilesWorkspaceScope;
+  memoryScope: MemoryScope;
+  memoryScopes: MemoryScopeSummary[];
+  onMemoryScopeChange: (scope: MemoryScope) => void;
+  onRebuildMemoryIndex: () => Promise<void>;
+  requestContext?: AgentRequestContext;
+  canEditProjectFiles: boolean;
+  canEditAgentFiles: boolean;
 }
 
 export default function FilesNavigator({
+  profileOnly = false,
+  rootDirectory = "",
+  scopeKeyOverride,
   selectedPath,
   onSelect,
   activeMemoryGraphRoot,
   onShowMemoryGraph,
   onShowFiles,
   scope,
+  memoryScope,
+  memoryScopes,
+  onMemoryScopeChange,
+  onRebuildMemoryIndex,
+  requestContext,
+  canEditProjectFiles,
+  canEditAgentFiles,
 }: FilesNavigatorProps) {
   const { t } = useTranslation();
   const chatId = scope.kind === "session" ? scope.chatId : undefined;
@@ -387,7 +418,7 @@ export default function FilesNavigator({
     scope.kind === "session" && !scope.chatId
       ? pendingProjectDir
       : initialProjectDirOverride;
-  const scopeKey = filesWorkspaceScopeKey(scope);
+  const scopeKey = scopeKeyOverride ?? filesWorkspaceScopeKey(scope);
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
   const [profileFiles, setProfileFiles] = useState<DirectoryEntry[]>([]);
   const [dailyFiles, setDailyFiles] = useState<MemoryTreeEntry[]>([]);
@@ -399,10 +430,19 @@ export default function FilesNavigator({
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<File[] | null>(null);
   const [conflictingNames, setConflictingNames] = useState<string[]>([]);
-  const [source, setSource] = useState<NavigatorSource>("workspace");
+  const [source, setSource] = useState<NavigatorSource>(
+    profileOnly ? "profile" : "workspace",
+  );
+  const [rebuilding, setRebuilding] = useState(false);
+  const [creatingMemory, setCreatingMemory] = useState(false);
+  const [memoryFileName, setMemoryFileName] = useState("");
   const [projectDirectory, setProjectDirectory] = useState("");
   const [workspaceDirectory, setWorkspaceDirectory] = useState("");
+  const [projectKind, setProjectKind] = useState("legacy");
+  const [workspaceKind, setWorkspaceKind] = useState("legacy");
   const [workspaceRoot, setWorkspaceRoot] = useState<WorkspaceRoot>("project");
+  const directoryOnly = Boolean(rootDirectory);
+  const scopedOnly = directoryOnly || profileOnly;
   const uploadRef = useRef<HTMLInputElement>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -456,26 +496,35 @@ export default function FilesNavigator({
   );
 
   const loadDirectoryIdentity = useCallback(async () => {
-    const agentInfo = await projectDirectoryApi.get();
-    const effectiveProject = projectDirOverride
-      ? projectDirOverride
-      : chatId
-      ? (await chatProjectDirectoryApi.get(chatId)).project_dir
-      : agentInfo.path;
+    const agentInfo = await projectDirectoryApi.get(requestContext);
+    const effectiveProject =
+      agentInfo.project_kind === "user_runtime"
+        ? agentInfo.path
+        : projectDirOverride
+        ? projectDirOverride
+        : chatId
+        ? (await chatProjectDirectoryApi.get(chatId)).project_dir
+        : agentInfo.path;
     setProjectDirectory(effectiveProject);
     setWorkspaceDirectory(agentInfo.workspace_dir ?? agentInfo.path);
-  }, [chatId, projectDirOverride]);
+    setProjectKind(agentInfo.project_kind ?? "legacy");
+    setWorkspaceKind(agentInfo.workspace_kind ?? "legacy");
+  }, [chatId, projectDirOverride, requestContext]);
+
+  const canEditCurrentRoot =
+    workspaceRoot === "project" ? canEditProjectFiles : canEditAgentFiles;
 
   const loadRoot = useCallback(async () => {
     setLoading(true);
     try {
       const page = await workspaceApi.listDirectory(
-        "",
+        rootDirectory,
         undefined,
         200,
         chatId,
         workspaceRoot,
         projectDirOverride,
+        requestContext,
       );
       setEntries(page.entries);
       setCursor(page.next_cursor);
@@ -483,14 +532,20 @@ export default function FilesNavigator({
     } finally {
       setLoading(false);
     }
-  }, [chatId, projectDirOverride, workspaceRoot]);
+  }, [
+    chatId,
+    projectDirOverride,
+    requestContext,
+    rootDirectory,
+    workspaceRoot,
+  ]);
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
     try {
       const [files, enabled] = await Promise.all([
-        workspaceApi.listFiles(),
-        workspaceApi.getSystemPromptFiles(),
+        workspaceApi.listFiles(requestContext),
+        workspaceApi.getSystemPromptFiles(requestContext),
       ]);
       const order = Array.isArray(enabled) ? enabled : [];
       setEnabledFiles(order);
@@ -519,38 +574,59 @@ export default function FilesNavigator({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [requestContext]);
 
-  const loadMemory = useCallback(async (section: "daily" | "digest") => {
-    setLoading(true);
-    try {
-      const files = await workspaceApi.listMemoryFiles(section);
-      const entries = files.map((file) => ({
-        name: file.filename.split("/").pop() ?? file.filename,
-        path: file.filename,
-        kind: "file" as const,
-        size: file.size,
-        modified_at: file.modified_time,
-        preview_kind: "text" as const,
-      }));
-      const tree =
-        section === "daily"
-          ? buildDailyMemoryTree(entries)
-          : buildMemoryTree(entries);
-      if (section === "daily") setDailyFiles(tree);
-      else setDigestFiles(tree);
-    } finally {
-      setLoading(false);
+  const loadMemory = useCallback(
+    async (section: "daily" | "digest") => {
+      setLoading(true);
+      try {
+        const files = await workspaceApi.listMemoryFiles(
+          section,
+          memoryScope,
+          requestContext,
+        );
+        const entries = files.map((file) => ({
+          name: file.filename.split("/").pop() ?? file.filename,
+          path: file.filename,
+          kind: "file" as const,
+          size: file.size,
+          modified_at: file.modified_time,
+          preview_kind: "text" as const,
+        }));
+        const tree =
+          section === "daily"
+            ? buildDailyMemoryTree(entries)
+            : buildMemoryTree(entries);
+        if (section === "daily") setDailyFiles(tree);
+        else setDigestFiles(tree);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [memoryScope, requestContext],
+  );
+
+  useEffect(() => {
+    if (profileOnly) {
+      void loadDirectoryIdentity();
+      return;
     }
-  }, []);
-
-  useEffect(() => {
     void Promise.all([loadDirectoryIdentity(), loadRoot(), loadProfile()]);
-  }, [loadDirectoryIdentity, loadProfile, loadRoot]);
+  }, [loadDirectoryIdentity, loadProfile, loadRoot, profileOnly]);
 
   useEffect(() => {
+    if (profileOnly) {
+      setSource("profile");
+      setWorkspaceRoot("workspace");
+      return;
+    }
+    if (directoryOnly) {
+      setSource("workspace");
+      setWorkspaceRoot("project");
+      return;
+    }
     if (sameDirectory) setWorkspaceRoot("workspace");
-  }, [sameDirectory]);
+  }, [directoryOnly, profileOnly, sameDirectory]);
 
   useEffect(() => {
     if (source === "profile") void loadProfile();
@@ -577,11 +653,12 @@ export default function FilesNavigator({
     try {
       await workspaceApi.uploadFiles(
         files,
-        "",
+        rootDirectory,
         conflict,
         chatId,
         workspaceRoot,
         projectDirOverride,
+        requestContext,
       );
       setPendingUploads(null);
       setConflictingNames([]);
@@ -599,20 +676,22 @@ export default function FilesNavigator({
   };
 
   const toggleProfileFile = async (filename: string) => {
+    if (!canEditAgentFiles) return;
     const next = enabledFiles.includes(filename)
       ? enabledFiles.filter((file) => file !== filename)
       : [...enabledFiles, filename];
-    await workspaceApi.setSystemPromptFiles(next);
+    await workspaceApi.setSystemPromptFiles(next, requestContext);
     setEnabledFiles(next);
   };
 
   const reorderProfileFiles = async (event: DragEndEvent) => {
+    if (!canEditAgentFiles) return;
     if (!event.over || event.active.id === event.over.id) return;
     const oldIndex = enabledFiles.indexOf(String(event.active.id));
     const newIndex = enabledFiles.indexOf(String(event.over.id));
     if (oldIndex < 0 || newIndex < 0) return;
     const next = arrayMove(enabledFiles, oldIndex, newIndex);
-    await workspaceApi.setSystemPromptFiles(next);
+    await workspaceApi.setSystemPromptFiles(next, requestContext);
     setEnabledFiles(next);
     setProfileFiles((current) =>
       [...current].sort((left, right) => {
@@ -624,6 +703,37 @@ export default function FilesNavigator({
         return left.name.localeCompare(right.name);
       }),
     );
+  };
+
+  const createMemoryFile = async () => {
+    if (source !== "daily" && source !== "digest") return;
+    const selectedScope = memoryScopes.find(
+      (item) => item.scope === memoryScope,
+    );
+    if (!selectedScope?.can_edit) return;
+    const trimmed = memoryFileName.trim();
+    if (
+      !trimmed ||
+      /[\\/]/.test(trimmed) ||
+      trimmed === "." ||
+      trimmed === ".."
+    ) {
+      return;
+    }
+    const path = trimmed.toLowerCase().endsWith(".md")
+      ? trimmed
+      : `${trimmed}.md`;
+    await workspaceApi.createMemoryFile(
+      path,
+      "",
+      source,
+      memoryScope,
+      requestContext,
+    );
+    setCreatingMemory(false);
+    setMemoryFileName("");
+    await loadMemory(source);
+    onSelect({ source, path });
   };
 
   const displayEntries = useMemo(() => {
@@ -654,8 +764,20 @@ export default function FilesNavigator({
             <div className={styles.directoryContextBody}>
               <span className={styles.directoryContextLabel}>
                 {t(`files.${workspaceRoot}Directory`)}
+                {(workspaceRoot === "workspace" ||
+                  projectKind === "user_runtime") && (
+                  <span className={styles.workspaceKindBadge}>
+                    {t(
+                      `files.workspaceKinds.${
+                        workspaceRoot === "workspace"
+                          ? workspaceKind
+                          : projectKind
+                      }`,
+                    )}
+                  </span>
+                )}
               </span>
-              {workspaceRoot === "project" ? (
+              {workspaceRoot === "project" && canEditAgentFiles ? (
                 <SessionProjectDirectory
                   scope={scope}
                   showFullPath
@@ -666,17 +788,30 @@ export default function FilesNavigator({
                 <span className={styles.directoryIdentity}>
                   <span className={styles.directoryIdentityText}>
                     <strong>
-                      {workspaceDirectory
+                      {(workspaceRoot === "project"
+                        ? projectDirectory
+                        : workspaceDirectory
+                      )
                         .replace(/[\\/]+$/, "")
                         .split(/[\\/]/)
                         .pop() || t("files.workspaceDirectory")}
                     </strong>
-                    <span title={workspaceDirectory}>{workspaceDirectory}</span>
+                    <span
+                      title={
+                        workspaceRoot === "project"
+                          ? projectDirectory
+                          : workspaceDirectory
+                      }
+                    >
+                      {workspaceRoot === "project"
+                        ? projectDirectory
+                        : workspaceDirectory}
+                    </span>
                   </span>
                 </span>
               )}
             </div>
-            {roots.length > 1 && (
+            {!scopedOnly && roots.length > 1 && (
               <button
                 type="button"
                 className={styles.directorySwitch}
@@ -701,19 +836,21 @@ export default function FilesNavigator({
             >
               <RefreshCw size={15} />
             </button>
-            <button
-              type="button"
-              className={styles.iconButton}
-              onClick={() => uploadRef.current?.click()}
-              aria-label={t("files.upload")}
-              disabled={uploading}
-            >
-              {uploading ? (
-                <LoaderCircle className={styles.spin} size={15} />
-              ) : (
-                <Upload size={15} />
-              )}
-            </button>
+            {!profileOnly && (
+              <button
+                type="button"
+                className={styles.iconButton}
+                onClick={() => uploadRef.current?.click()}
+                aria-label={t("files.upload")}
+                disabled={uploading || !canEditCurrentRoot}
+              >
+                {uploading ? (
+                  <LoaderCircle className={styles.spin} size={15} />
+                ) : (
+                  <Upload size={15} />
+                )}
+              </button>
+            )}
           </div>
         </div>
         <input
@@ -728,9 +865,11 @@ export default function FilesNavigator({
           }}
         />
       </header>
-      <div className={styles.sourceTabs} role="tablist">
-        {(["workspace", "profile", "daily", "digest"] as NavigatorSource[]).map(
-          (item) => (
+      {!scopedOnly && (
+        <div className={styles.sourceTabs} role="tablist">
+          {(
+            ["workspace", "profile", "daily", "digest"] as NavigatorSource[]
+          ).map((item) => (
             <button
               type="button"
               role="tab"
@@ -747,9 +886,75 @@ export default function FilesNavigator({
             >
               {t(`files.${item}`)}
             </button>
-          ),
+          ))}
+        </div>
+      )}
+      {!scopedOnly &&
+        (source === "daily" || source === "digest") &&
+        memoryScopes.length > 0 && (
+          <div className={styles.memoryScopePanel}>
+            <div className={styles.memoryScopeTabs} role="tablist">
+              {memoryScopes.map((item) => (
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={memoryScope === item.scope}
+                  key={item.scope}
+                  className={
+                    memoryScope === item.scope
+                      ? styles.memoryScopeTabActive
+                      : styles.memoryScopeTab
+                  }
+                  onClick={() => onMemoryScopeChange(item.scope)}
+                >
+                  {t(`files.memoryScope.${item.scope}`)}
+                </button>
+              ))}
+            </div>
+            {(() => {
+              const selected = memoryScopes.find(
+                (item) => item.scope === memoryScope,
+              );
+              if (!selected) return null;
+              return (
+                <div className={styles.memoryScopeStatus}>
+                  <span>
+                    {t(`files.memoryIndexState.${selected.index_state}`)}
+                  </span>
+                  {selected.can_edit && (
+                    <div className={styles.memoryScopeActions}>
+                      <button
+                        type="button"
+                        className={styles.memoryCreateButton}
+                        onClick={() => setCreatingMemory(true)}
+                      >
+                        <FilePlus2 size={12} />
+                        {t("files.createMemoryFile")}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={rebuilding}
+                        onClick={async () => {
+                          setRebuilding(true);
+                          try {
+                            await onRebuildMemoryIndex();
+                          } finally {
+                            setRebuilding(false);
+                          }
+                        }}
+                      >
+                        {rebuilding && (
+                          <LoaderCircle className={styles.spin} size={12} />
+                        )}
+                        {t("files.rebuildMemoryIndex")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         )}
-      </div>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -792,6 +997,7 @@ export default function FilesNavigator({
                       selectedPath={selectedPath}
                       onSelect={onSelect}
                       root={workspaceRoot}
+                      requestContext={requestContext}
                     />
                   );
                 }
@@ -808,6 +1014,7 @@ export default function FilesNavigator({
                         onSelect({ source: "profile", path: entry.path })
                       }
                       onToggle={() => void toggleProfileFile(entry.path)}
+                      readOnly={!canEditAgentFiles}
                     />
                   );
                 }
@@ -848,6 +1055,7 @@ export default function FilesNavigator({
                     chatId,
                     workspaceRoot,
                     projectDirOverride,
+                    requestContext,
                   );
                   setEntries((current) => [...current, ...page.entries]);
                   setCursor(page.next_cursor);
@@ -903,6 +1111,32 @@ export default function FilesNavigator({
             </button>
           ))}
         </div>
+      </Modal>
+      <Modal
+        title={t("files.createMemoryFileTitle")}
+        open={creatingMemory}
+        okText={t("common.create")}
+        cancelText={t("common.cancel")}
+        okButtonProps={{
+          disabled:
+            !memoryFileName.trim() ||
+            /[\\/]/.test(memoryFileName) ||
+            memoryFileName.trim() === "." ||
+            memoryFileName.trim() === "..",
+        }}
+        onOk={() => void createMemoryFile()}
+        onCancel={() => {
+          setCreatingMemory(false);
+          setMemoryFileName("");
+        }}
+      >
+        <Input
+          autoFocus
+          value={memoryFileName}
+          placeholder={t("files.createMemoryFilePlaceholder")}
+          onChange={(event) => setMemoryFileName(event.target.value)}
+          onPressEnter={() => void createMemoryFile()}
+        />
       </Modal>
     </aside>
   );

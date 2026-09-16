@@ -39,6 +39,8 @@ import { agentsApi } from "../../api/modules/agents";
 import type { MemoryGraphNode, MemoryGraphSnapshot } from "../../api/types";
 import type { MemorySection } from "../../api/types/workspace";
 import type { MemoryGraphRoot } from "./types";
+import type { MemoryScope } from "./filesWorkspaceScope";
+import type { AgentRequestContext } from "../../api/modules/agentRequestContext";
 import styles from "./MemoryGraphView.module.less";
 
 interface GraphNode extends NodeObject {
@@ -700,12 +702,16 @@ function fitGraphModel(
 
 export default function MemoryGraphView({
   agentId,
+  memoryScope = "public",
   root,
   onOpenFile,
+  requestContext,
 }: {
   agentId: string;
+  memoryScope?: MemoryScope;
   root: MemoryGraphRoot;
   onOpenFile: (section: MemorySection, path: string) => void;
+  requestContext?: AgentRequestContext;
 }) {
   const { t } = useTranslation();
   const canvasLabel = t("files.memoryGraphCanvasLabel");
@@ -742,7 +748,15 @@ export default function MemoryGraphView({
       }
       setSelectedId("");
       try {
-        const next = await agentsApi.getMemoryGraph(agentId);
+        const next = requestContext
+          ? await agentsApi.getMemoryGraph(
+              agentId,
+              memoryScope,
+              requestContext,
+            )
+          : memoryScope === "public" || memoryScope === undefined
+            ? await agentsApi.getMemoryGraph(agentId)
+            : await agentsApi.getMemoryGraph(agentId, memoryScope);
         if (sequence !== requestSequence.current) return;
         setSnapshot(next);
         setSnapshotAgentId(agentId);
@@ -753,7 +767,7 @@ export default function MemoryGraphView({
         if (sequence === requestSequence.current) setLoading(false);
       }
     },
-    [agentId],
+    [agentId, memoryScope, requestContext],
   );
 
   useEffect(() => {

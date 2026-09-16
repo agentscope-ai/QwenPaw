@@ -428,7 +428,11 @@ class PawAppContext:
 
         self._storage = AppStorage(
             session=self._session,
-            namespace=f"pawapp:{self.app_id}",
+            namespace=(
+                f"pawapp:{self.app_id}"
+                if self.user_id == "default"
+                else f"pawapp:{self.app_id}:{self.user_id}"
+            ),
         )
         self._tools = ToolProxy(
             tool_coordinator=coordinator,

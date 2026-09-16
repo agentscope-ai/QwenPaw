@@ -1,12 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Drawer, Form, Input, Button, Select } from "@agentscope-ai/design";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import type { SkillDetail } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
-import { api } from "../../../../api";
+import { useSkillRuntime } from "../useSkillRuntime";
 import { deriveInstalledFromLabel } from "../../../../utils/skill";
 
 /** Parse YAML frontmatter from a `---`-delimited content string. */
@@ -95,7 +94,7 @@ export function SkillDrawer({
   const abortControllerRef = useRef<AbortController | null>(null);
   const [configText, setConfigText] = useState("{}");
   const [configError, setConfigError] = useState("");
-  const { message } = useAppMessage();
+  const { scope, api, message } = useSkillRuntime();
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -173,7 +172,18 @@ export function SkillDrawer({
     }
   };
 
+  useEffect(() => {
+    if (!open) {
+      abortControllerRef.current?.abort();
+      setOptimizing(false);
+    }
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [open, scope]);
+
   const handleOptimize = async () => {
+    if (!scope.current() || !scope.canEdit) return;
     if (!contentValue.trim()) {
       message.warning(t("skills.noContentToOptimize"));
       return;
@@ -188,6 +198,8 @@ export function SkillDrawer({
       await api.streamOptimizeSkill(
         originalContent,
         (textChunk) => {
+          if (!scope.current() || abortControllerRef.current?.signal.aborted)
+            return;
           setContentValue((prev) => {
             const newContent = prev + textChunk;
             form.setFieldsValue({ content: newContent });
@@ -197,7 +209,7 @@ export function SkillDrawer({
         abortControllerRef.current.signal,
         i18n.language, // Pass current language to API
       );
-      message.success(t("skills.optimizeSuccess"));
+      if (scope.current()) message.success(t("skills.optimizeSuccess"));
     } catch (error: unknown) {
       const aborted =
         error instanceof DOMException && error.name === "AbortError";
@@ -207,6 +219,7 @@ export function SkillDrawer({
         );
       }
     } finally {
+      if (!scope.current()) return;
       setOptimizing(false);
       abortControllerRef.current = null;
     }

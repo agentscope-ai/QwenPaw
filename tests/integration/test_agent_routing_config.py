@@ -7,24 +7,8 @@ import pytest
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_agent_scoped_acp_put_get_roundtrip(app_server) -> None:
-    """Test purpose:
-    - Verify agent-scoped ACP config endpoint supports full payload update and
-      readback.
-
-    Test flow:
-    1. Create a dedicated test agent.
-    2. GET scoped ACP config as baseline.
-    3. PUT scoped ACP config with one agent's enabled flag toggled.
-    4. GET scoped ACP config and verify the update is persisted.
-    5. Restore baseline and delete test agent.
-
-    API endpoints:
-    - POST /api/agents
-    - GET /api/agents/{agentId}/config/acp
-    - PUT /api/agents/{agentId}/config/acp
-    - DELETE /api/agents/{agentId}
-    """
+def test_agent_scoped_acp_config_is_read_only(app_server) -> None:
+    """历史 ACP 配置可读，但产品关闭后不允许整体写入。"""
     agent_id = "integ_scoped_acp_01"
     endpoint = f"/api/agents/{agent_id}/config/acp"
 
@@ -35,70 +19,21 @@ def test_agent_scoped_acp_put_get_roundtrip(app_server) -> None:
     )
     assert create_agent.status_code == 201, app_server.logs_tail()
 
-    baseline = None
-    changed_agent = None
     try:
         get_before = app_server.api_request("GET", endpoint)
         assert get_before.status_code == 200, app_server.logs_tail()
         baseline = get_before.json()
         assert isinstance(baseline, dict)
-        agents = baseline.get("agents")
-        assert isinstance(agents, dict) and agents
-        changed_agent = next(iter(agents.keys()))
-
-        updated = {"agents": {}}
-        for name, cfg in agents.items():
-            cfg_dict = dict(cfg)
-            if name == changed_agent:
-                cfg_dict["enabled"] = not bool(cfg_dict.get("enabled", False))
-            updated["agents"][name] = cfg_dict
-
-        put_resp = app_server.api_request("PUT", endpoint, json=updated)
-        assert put_resp.status_code == 200, app_server.logs_tail()
-        assert bool(
-            put_resp.json()
-            .get("agents", {})
-            .get(changed_agent, {})
-            .get("enabled", False),
-        ) == bool(updated["agents"][changed_agent]["enabled"])
-
-        get_after = app_server.api_request("GET", endpoint)
-        assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(
-            get_after.json()
-            .get("agents", {})
-            .get(changed_agent, {})
-            .get("enabled", False),
-        ) == bool(updated["agents"][changed_agent]["enabled"])
+        put_resp = app_server.api_request("PUT", endpoint, json=baseline)
+        assert put_resp.status_code == 405, app_server.logs_tail()
     finally:
-        if isinstance(baseline, dict):
-            restore = app_server.api_request("PUT", endpoint, json=baseline)
-            assert restore.status_code == 200, app_server.logs_tail()
         app_server.api_request("DELETE", f"/api/agents/{agent_id}")
 
 
 @pytest.mark.integration
 @pytest.mark.p1
-def test_agent_scoped_acp_single_agent_put_get_roundtrip(app_server) -> None:
-    """Test purpose:
-    - Verify agent-scoped ACP single-agent endpoint supports update and
-      readback for one ACP agent entry.
-
-    Test flow:
-    1. Create a dedicated test agent.
-    2. GET scoped ACP and pick one existing ACP agent key.
-    3. GET scoped ACP single-agent config as baseline.
-    4. PUT scoped single-agent config with toggled enabled value.
-    5. GET again and verify update persisted.
-    6. Restore baseline and delete test agent.
-
-    API endpoints:
-    - POST /api/agents
-    - GET /api/agents/{agentId}/config/acp
-    - GET /api/agents/{agentId}/config/acp/{agent_name}
-    - PUT /api/agents/{agentId}/config/acp/{agent_name}
-    - DELETE /api/agents/{agentId}
-    """
+def test_agent_scoped_acp_single_agent_config_is_read_only(app_server) -> None:
+    """历史 ACP 单项配置可读，但产品关闭后不允许修改。"""
     agent_id = "integ_scoped_acp_agent_01"
 
     create_agent = app_server.api_request(
@@ -113,7 +48,6 @@ def test_agent_scoped_acp_single_agent_put_get_roundtrip(app_server) -> None:
     assert create_agent.status_code == 201, app_server.logs_tail()
 
     acp_agent_name = None
-    baseline = None
     try:
         get_acp = app_server.api_request(
             "GET",
@@ -131,26 +65,9 @@ def test_agent_scoped_acp_single_agent_put_get_roundtrip(app_server) -> None:
         assert isinstance(baseline, dict)
         assert "enabled" in baseline
         assert "tool_parse_mode" in baseline
-
-        updated = dict(baseline)
-        updated["enabled"] = not bool(baseline.get("enabled", False))
-
-        put_resp = app_server.api_request("PUT", endpoint, json=updated)
-        assert put_resp.status_code == 200, app_server.logs_tail()
-        assert bool(put_resp.json().get("enabled", False)) == bool(
-            updated["enabled"],
-        )
-
-        get_after = app_server.api_request("GET", endpoint)
-        assert get_after.status_code == 200, app_server.logs_tail()
-        assert bool(get_after.json().get("enabled", False)) == bool(
-            updated["enabled"],
-        )
+        put_resp = app_server.api_request("PUT", endpoint, json=baseline)
+        assert put_resp.status_code == 405, app_server.logs_tail()
     finally:
-        if acp_agent_name and isinstance(baseline, dict):
-            endpoint = f"/api/agents/{agent_id}/config/acp/{acp_agent_name}"
-            restore = app_server.api_request("PUT", endpoint, json=baseline)
-            assert restore.status_code == 200, app_server.logs_tail()
         app_server.api_request("DELETE", f"/api/agents/{agent_id}")
 
 

@@ -11,6 +11,7 @@ All fixtures are designed to be isolated, safe, and easy to use.
 import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from collections.abc import Generator
@@ -19,6 +20,46 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_TEST_FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+sys.path.insert(0, str(_TEST_FIXTURES_DIR))
+
+from postgres import postgres_test_schema  # noqa: E402,F401
+from runtime_dirs import (  # noqa: E402,F401
+    bootstrap_test_runtime,
+    isolated_runtime_dirs,
+    shutdown_test_runtime,
+)
+
+_TEST_SESSION_RUNTIME = bootstrap_test_runtime(_PROJECT_ROOT)
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--checkpoint-test-git",
+        default=None,
+        help="Explicit Git executable for isolated checkpoint compatibility tests.",
+    )
+
+
+@pytest.fixture
+def checkpoint_test_git(request, monkeypatch):
+    """Only opt-in checkpoint tests use this explicit binary; never alter PATH."""
+    executable = request.config.getoption("--checkpoint-test-git")
+    if executable is None:
+        return
+    executable_path = Path(executable)
+    if not executable_path.is_absolute() or not executable_path.is_file():
+        pytest.fail("--checkpoint-test-git must name an existing absolute path")
+    popen = subprocess.Popen
+
+    def popen_with_checkpoint_git(command, *args, **kwargs):
+        if isinstance(command, (list, tuple)) and command and command[0] == "git":
+            command = [str(executable_path), *command[1:]]
+        return popen(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen_with_checkpoint_git)
 
 from qwenpaw.providers import provider_manager as _provider_manager_module
 
@@ -449,7 +490,7 @@ def pytest_collection_modifyitems(
 
 
 @pytest.fixture(autouse=True)
-def isolated_secret_dir(monkeypatch, tmp_path):
+def isolated_secret_dir(monkeypatch, isolated_runtime_dirs):
     """Isolate all tests from real disk provider data.
 
     ProviderManager._init_from_storage reads persisted configs and mutates
@@ -457,7 +498,7 @@ def isolated_secret_dir(monkeypatch, tmp_path):
     This fixture ensures every test uses a clean temporary directory and
     a fresh ProviderManager singleton.
     """
-    secret_dir = tmp_path / ".qwenpaw.secret"
+    secret_dir = Path(os.environ["QWENPAW_SECRET_DIR"])
     monkeypatch.setattr(_provider_manager_module, "SECRET_DIR", secret_dir)
     monkeypatch.setattr(
         _provider_manager_module.ProviderManager,
@@ -465,3 +506,8 @@ def isolated_secret_dir(monkeypatch, tmp_path):
         None,
     )
     return secret_dir
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Remove only the marked session-level test runtime."""
+    shutdown_test_runtime()

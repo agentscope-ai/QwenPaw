@@ -10,10 +10,13 @@ Each Workspace represents a standalone agent workspace with its own:
 
 Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
+from contextlib import aclosing
 import logging
 from pathlib import Path
 from typing import Any, AsyncGenerator, Iterable, Optional
 
+from ...platform_ops.maintenance_lifecycle import admitted_stream
 from ...config.timezone import normalize_tz
 from ...config.utils import load_config
 
@@ -31,9 +34,43 @@ from ..task_tracker import TaskTracker
 from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
+from ..crons.repo.postgres_repo import PostgresJobRepository
 from ...config.config import load_agent_config
+from ...identity.runtime import is_multi_user_enabled
+from ...workspaces.resolver import (
+    ResolvedWorkspace,
+    WorkspaceKind,
+    WorkspaceResolver,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _cron_service_args(ws) -> dict[str, Any]:
+    """Select one persistence model for the current identity mode."""
+    if is_multi_user_enabled():
+        from ...automation.grants import build_automation_authorization_service
+        from ...identity.runtime import get_identity_schema
+
+        repository = PostgresJobRepository(
+            agent_key=ws.agent_id,
+            schema=get_identity_schema(),
+        )
+        authorization_service = build_automation_authorization_service(
+            repository,
+            ws.agent_id,
+        )
+    else:
+        repository = JsonJobRepository(str(ws.workspace_dir / "jobs.json"))
+        authorization_service = None
+    return {
+        "repo": repository,
+        "workspace": ws,
+        "channel_manager": ws._service_manager.services.get("channel_manager"),
+        "timezone": normalize_tz(load_config().user_timezone or "UTC") or "UTC",
+        "agent_id": ws.agent_id,
+        "authorization_service": authorization_service,
+    }
 
 
 class Workspace:
@@ -50,7 +87,11 @@ class Workspace:
     to ``Runtime.run()``.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(
+        self,
+        agent_id: str,
+        workspace_dir: str | Path | ResolvedWorkspace,
+    ):
         """Initialize agent instance.
 
         Args:
@@ -58,8 +99,28 @@ class Workspace:
             workspace_dir: Path to agent's workspace directory
         """
         self.agent_id = agent_id
-        self.workspace_dir = Path(workspace_dir).expanduser()
-        self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        if isinstance(workspace_dir, ResolvedWorkspace):
+            resolved_workspace = workspace_dir
+        else:
+            legacy_path = Path(workspace_dir).expanduser()
+            if not legacy_path.is_absolute():
+                legacy_path = legacy_path.resolve()
+            resolved_workspace = WorkspaceResolver(
+                legacy_workspaces={agent_id: legacy_path},
+            ).resolve(
+                kind=WorkspaceKind.LEGACY,
+                resource_id=agent_id,
+                workspace_key=str(legacy_path),
+            )
+        self.workspace_dir = resolved_workspace.path
+        self.workspace_kind = resolved_workspace.kind.value
+        self.workspace_key = resolved_workspace.workspace_key
+        self.workspace_read_only = resolved_workspace.read_only
+        if self.workspace_read_only:
+            if not self.workspace_dir.is_dir():
+                raise FileNotFoundError(str(self.workspace_dir))
+        else:
+            self.workspace_dir.mkdir(parents=True, exist_ok=True)
 
         # Per-workspace pluggable registries (tools, hooks, commands, prompts)
         self.plugins = WorkspacePlugins()
@@ -286,6 +347,7 @@ class Workspace:
         """Inject the cross-workspace AppServiceManager reference."""
         self._app_services = app_services
 
+    @admitted_stream
     async def stream_query(
         self,
         request: Any,
@@ -314,20 +376,24 @@ class Workspace:
                 "user_id": getattr(request, "user_id", None),
                 "channel": getattr(request, "channel", None) or "console",
             }
-            async for item in self.harness_runtime.stream(
-                backend=backend,
-                request=request,
-                cwd=self.workspace_dir.resolve(),
-                settings=settings,
-            ):
-                yield item
+            async with aclosing(
+                self.harness_runtime.stream(
+                    backend=backend,
+                    request=request,
+                    cwd=self.workspace_dir.resolve(),
+                    settings=settings,
+                ),
+            ) as stream:
+                async for item in stream:
+                    yield item
             return
 
         from ...runtime import Runtime
 
         rt = Runtime(workspace=self, app_services=self._app_services)
-        async for item in rt.run(request):
-            yield item
+        async with aclosing(rt.run(request)) as stream:
+            async for item in stream:
+                yield item
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -440,20 +506,7 @@ class Workspace:
             ServiceDescriptor(
                 name="cron_manager",
                 service_class=CronManager,
-                init_args=lambda ws: {
-                    "repo": JsonJobRepository(
-                        str(ws.workspace_dir / "jobs.json"),
-                    ),
-                    "workspace": ws,
-                    "channel_manager": ws._service_manager.services.get(
-                        "channel_manager",
-                    ),
-                    "timezone": normalize_tz(
-                        load_config().user_timezone or "UTC",
-                    )
-                    or "UTC",
-                    "agent_id": ws.agent_id,
-                },
+                init_args=_cron_service_args,
                 start_method="start",
                 stop_method="stop",
                 priority=40,
@@ -543,6 +596,31 @@ class Workspace:
             self._config = load_agent_config(self.agent_id)
             logger.debug(f"Loaded config for agent: {self.agent_id}")
 
+            if is_multi_user_enabled():
+                from ...drivers.credentials.postgres_store import (
+                    PostgresCredentialStore,
+                )
+                from ...identity.runtime import get_identity_schema
+                from ..tools.credentials import (
+                    ToolCredentialService,
+                    declared_tool_password_fields,
+                    load_agent_tool_credentials,
+                )
+
+                tool_names = [
+                    tool.name
+                    for tool in self._config.tools.builtin_tools.values()
+                ] if self._config.tools else []
+                await load_agent_tool_credentials(
+                    agent_key=self.agent_id,
+                    tool_fields=declared_tool_password_fields(tool_names),
+                    service=ToolCredentialService(
+                        store=PostgresCredentialStore(
+                            schema=get_identity_schema(),
+                        ),
+                    ),
+                )
+
             # 2. Run legacy weixin -> wechat data migrations BEFORE services
             # start so ChatManager / Runner see the canonical layout.
             self._migrate_legacy_weixin_data()
@@ -567,6 +645,9 @@ class Workspace:
         Each step is guarded so a failure logs a warning instead of
         blocking startup; affected files stay in their legacy state.
         """
+        if is_multi_user_enabled():
+            return
+
         from ..crons.repo.json_repo import (
             migrate_final_mode_to_stream,
             migrate_legacy_weixin_jobs_file,

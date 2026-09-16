@@ -16,14 +16,25 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
+from ...access.capabilities import Capability
+from ...access.dependencies import get_actor
+from ...access.service import AuthorizationDeniedError, AuthorizationService
+from ...identity.runtime import is_multi_user_enabled
 from qwenpaw.exceptions import (
     AppBaseException,
 )
 
-from ..agent_context import get_agent_for_request
-from ..utils import schedule_agent_reload
+from ..agent_context import get_agent_for_request, require_running_config_editor
+from ..utils import reload_inherited_agents, schedule_agent_reload
 from ...config.config import load_agent_config, save_agent_config
 from ...providers.provider import ProviderInfo, ModelInfo
+from ...providers.api_projection import (
+    SensitiveListEditError,
+    is_masked_secret,
+    preserve_sensitive_values,
+    project_provider_info,
+    sanitize_provider_error,
+)
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
 from ...providers.openrouter_provider import OpenRouterProvider
@@ -31,7 +42,53 @@ from ...config.config import ModelSlotConfig
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/models", tags=["models"])
+
+def _require_global_model_manage(request: Request) -> None:
+    """多用户模式下，全局模型配置只允许管理员修改。"""
+    if not is_multi_user_enabled():
+        return
+    try:
+        AuthorizationService().require(
+            get_actor(request),
+            Capability.MODELS_MANAGE,
+        )
+    except AuthorizationDeniedError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+
+
+async def _require_model_management_route(request: Request) -> None:
+    """保护管理路由，同时保留目录和会话模型选择兼容入口。"""
+
+    path = request.url.path.rstrip("/")
+    if request.method == "GET" and path.endswith("/models"):
+        if is_multi_user_enabled() and not AuthorizationService().is_allowed(
+            get_actor(request), Capability.MODELS_MANAGE
+        ):
+            from ...models.runtime import get_model_service
+
+            status = await get_model_service(
+                request.app.state.provider_manager
+            ).repository.get_status()
+            if status["enforced"]:
+                _require_global_model_manage(request)
+        return
+    if path.endswith("/models/active"):
+        if (
+            request.method == "GET"
+            and request.query_params.get("scope") != "global"
+        ):
+            return
+        if request.method == "PUT":
+            # 写 scope 位于请求体，交由 handler 按 global/agent 分别鉴权。
+            return
+    _require_global_model_manage(request)
+
+
+router = APIRouter(
+    prefix="/models",
+    tags=["models"],
+    dependencies=[Depends(_require_model_management_route)],
+)
 
 ChatModelName = Literal[
     "OpenAIChatModel",
@@ -77,6 +134,9 @@ def _active_models_info(
 
 class ProviderConfigRequest(BaseModel):
     api_key: Optional[str] = Field(default=None)
+    clear_api_key: bool = Field(default=False)
+    clear_custom_headers: bool = Field(default=False)
+    clear_base_url: bool = Field(default=False)
     base_url: Optional[str] = Field(default=None)
     name: Optional[str] = Field(
         default=None,
@@ -118,6 +178,13 @@ class ModelSlotRequest(BaseModel):
         default=None,
         description="Target agent ID when scope is 'agent'",
     )
+
+
+class ActiveModelUpdateInfo(ActiveModelsInfo):
+    """模型写入结果及继承型 Agent 的运行态应用摘要。"""
+
+    applied_agent_ids: list[str] = Field(default_factory=list)
+    pending_reload_agent_ids: list[str] = Field(default_factory=list)
 
 
 class CreateCustomProviderRequest(BaseModel):
@@ -227,7 +294,10 @@ async def _load_agent_model(
 async def list_all_providers(
     manager: ProviderManager = Depends(get_provider_manager),
 ) -> List[ProviderInfo]:
-    return await manager.list_provider_info()
+    return [
+        project_provider_info(provider)
+        for provider in await manager.list_provider_info()
+    ]
 
 
 @router.put(
@@ -240,19 +310,49 @@ async def configure_provider(
     provider_id: str = Path(...),
     body: ProviderConfigRequest = Body(...),
 ) -> ProviderInfo:
+    provider = manager.get_provider(provider_id)
+    if provider is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Provider '{provider_id}' not found",
+        )
     config = {
-        "api_key": body.api_key,
-        "base_url": body.base_url,
         "chat_model": body.chat_model,
-        "generate_kwargs": body.generate_kwargs,
-        "custom_headers": body.custom_headers,
         "auth_mode": body.auth_mode,
     }
+    if body.clear_base_url:
+        config["base_url"] = ""
+    elif body.base_url:
+        config["base_url"] = body.base_url
+    try:
+        if "generate_kwargs" in body.model_fields_set:
+            config["generate_kwargs"] = preserve_sensitive_values(
+                provider.generate_kwargs,
+                body.generate_kwargs,
+            )
+    except SensitiveListEditError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cannot edit a list containing hidden credentials; replace "
+                "the credential-bearing configuration explicitly."
+            ),
+        ) from exc
+    if body.clear_custom_headers:
+        config["custom_headers"] = {}
+    elif body.custom_headers:
+        config["custom_headers"] = preserve_sensitive_values(
+            provider.custom_headers,
+            body.custom_headers,
+        )
+    if body.clear_api_key:
+        config["api_key"] = ""
+    elif body.api_key and not is_masked_secret(body.api_key):
+        config["api_key"] = body.api_key
     # Renaming is restricted to custom providers so built-in
     # provider names stay immutable.
     name = body.name.strip() if body.name else None
     if name:
-        provider = manager.get_provider(provider_id)
         if provider is not None and provider.is_custom:
             config["name"] = name
     ok = manager.update_provider(provider_id, config)
@@ -268,7 +368,7 @@ async def configure_provider(
             status_code=404,
             detail=f"Provider '{provider_id}' not found after update",
         )
-    return provider_info
+    return project_provider_info(provider_info)
 
 
 @router.post(
@@ -295,7 +395,7 @@ async def create_custom_provider_endpoint(
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return provider_info
+    return project_provider_info(provider_info)
 
 
 class TestConnectionResponse(BaseModel):
@@ -392,11 +492,16 @@ async def test_provider(
         return TestConnectionResponse(
             success=ok,
             message=(
-                "Connection successful" if ok else f"Connection failed: {msg}"
+                "Connection successful"
+                if ok
+                else sanitize_provider_error(msg)
             ),
         )
     except (ValueError, AppBaseException) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=404,
+            detail=sanitize_provider_error(exc),
+        ) from exc
 
 
 @router.post(
@@ -483,11 +588,14 @@ async def test_model(
             message=(
                 "Model connection successful"
                 if ok
-                else f"Model connection failed: {msg}"
+                else sanitize_provider_error(msg)
             ),
         )
     except (ValueError, AppBaseException) as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=404,
+            detail=sanitize_provider_error(exc),
+        ) from exc
 
 
 @router.delete(
@@ -499,13 +607,22 @@ async def delete_custom_provider_endpoint(
     manager: ProviderManager = Depends(get_provider_manager),
     provider_id: str = Path(...),
 ) -> List[ProviderInfo]:
+    from ...models.runtime import require_no_model_references
+
+    try:
+        await require_no_model_references(manager, provider_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
         ok = manager.remove_custom_provider(provider_id)
         if not ok:
             raise ValueError(f"Custom Provider '{provider_id}' not found")
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return await manager.list_provider_info()
+    return [
+        project_provider_info(provider)
+        for provider in await manager.list_provider_info()
+    ]
 
 
 @router.post(
@@ -534,7 +651,7 @@ async def add_model_endpoint(
         )  # Validate provider exists and add model
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return provider
+    return project_provider_info(provider)
 
 
 class ProbeMultimodalResponse(BaseModel):
@@ -587,6 +704,12 @@ async def remove_model_endpoint(
     provider_id: str = Path(...),
     model_id: str = Path(...),
 ) -> ProviderInfo:
+    from ...models.runtime import require_no_model_references
+
+    try:
+        await require_no_model_references(manager, provider_id, model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     try:
         provider = await manager.delete_model_from_provider(
             provider_id=provider_id,
@@ -594,7 +717,7 @@ async def remove_model_endpoint(
         )  # Validate provider and model exist and delete
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return provider
+    return project_provider_info(provider)
 
 
 @router.put(
@@ -626,7 +749,7 @@ async def configure_model(
         )
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return provider_info
+    return project_provider_info(provider_info)
 
 
 @router.get(
@@ -694,16 +817,17 @@ async def get_active_models(
 
 @router.put(
     "/active",
-    response_model=ActiveModelsInfo,
+    response_model=ActiveModelUpdateInfo,
     summary="Set active LLM",
 )
 async def set_active_model(
     request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
     body: ModelSlotRequest = Body(...),
-) -> ActiveModelsInfo:
+) -> ActiveModelUpdateInfo:
     """Set active model by scope."""
     if body.scope == "global":
+        _require_global_model_manage(request)
         try:
             await manager.activate_model(body.provider_id, body.model)
         except (
@@ -718,24 +842,15 @@ async def set_active_model(
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
 
-        # Sync to active agent if its active_model is unset (#4937)
-        try:
-            workspace = await get_agent_for_request(request)
-            agent_config = load_agent_config(workspace.agent_id)
-            if (
-                not agent_config.active_model
-                or not agent_config.active_model.provider_id
-            ):
-                agent_config.active_model = ModelSlotConfig(
-                    provider_id=body.provider_id,
-                    model=body.model,
-                )
-                save_agent_config(workspace.agent_id, agent_config)
-                schedule_agent_reload(request, workspace.agent_id)
-        except Exception:
-            pass
-
-        return _active_models_info(manager, manager.get_active_model())
+        reload_summary = await reload_inherited_agents(request)
+        response = _active_models_info(manager, manager.get_active_model())
+        return ActiveModelUpdateInfo(
+            **response.model_dump(),
+            applied_agent_ids=reload_summary.applied_agent_ids,
+            pending_reload_agent_ids=(
+                reload_summary.pending_reload_agent_ids
+            ),
+        )
 
     if not body.agent_id:
         raise HTTPException(
@@ -750,6 +865,7 @@ async def set_active_model(
             request,
             agent_id=body.agent_id,
         )
+        require_running_config_editor(request)
         agent_config = load_agent_config(workspace.agent_id)
         agent_config.active_model = ModelSlotConfig(
             provider_id=body.provider_id,
@@ -759,8 +875,9 @@ async def set_active_model(
         # Hot reload agent (async, non-blocking)
         schedule_agent_reload(request, workspace.agent_id)
 
+    except HTTPException:
+        raise
     except (
-        HTTPException,
         OSError,
         ValueError,
         TypeError,
@@ -778,13 +895,11 @@ async def set_active_model(
 
     manager.maybe_probe_multimodal(body.provider_id, body.model)
 
-    return _active_models_info(
+    response = _active_models_info(
         manager,
-        ModelSlotConfig(
-            provider_id=body.provider_id,
-            model=body.model,
-        ),
+        ModelSlotConfig(provider_id=body.provider_id, model=body.model),
     )
+    return ActiveModelUpdateInfo(**response.model_dump())
 
 
 # =============================================================================

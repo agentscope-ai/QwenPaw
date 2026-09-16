@@ -1,0 +1,149 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  background: #f7f8fa;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+}
+
+.centerState {
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid rgba(16, 24, 40, 0.08);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.heroIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  color: #d45d00;
+  border-radius: 14px;
+  background: rgba(255, 127, 22, 0.1);
+}
+
+.heroTitle {
+  margin: 0 0 4px !important;
+}
+
+.hero > :last-child {
+  margin-left: auto;
+}
+
+.summaryGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.summaryCard {
+  border: 1px solid rgba(16, 24, 40, 0.07);
+}
+
+.summaryValue {
+  margin-bottom: 5px;
+  color: #1d2939;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.integrity,
+.section {
+  margin-top: 16px;
+}
+
+.mapping,
+.hash,
+.muted {
+  font-size: 12px;
+}
+
+.hash {
+  overflow-wrap: anywhere;
+}
+
+.muted {
+  color: #98a2b3;
+}
+
+.cardTitle,
+.secretRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.secretList {
+  display: grid;
+  gap: 10px;
+}
+
+.issueList {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.secretRow code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.secretRow :last-child {
+  margin-left: auto;
+}
+
+:global(.dark-mode) {
+  .page {
+    background: #111315;
+  }
+
+  .hero,
+  .summaryCard {
+    border-color: rgba(255, 255, 255, 0.09);
+    background: #1d2024;
+  }
+
+  .summaryValue {
+    color: rgba(255, 255, 255, 0.92);
+  }
+}
+
+@media (max-width: 1000px) {
+  .summaryGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .content {
+    padding: 16px;
+  }
+
+  .summaryGrid {
+    grid-template-columns: 1fr;
+  }
+}

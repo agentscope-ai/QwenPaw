@@ -281,14 +281,18 @@ export const useInboxData = () => {
     );
     if (!ids.length) return 0;
     const idSet = new Set(ids);
-    await Promise.allSettled(ids.map((id) => api.deleteInboxEvent(id)));
-    let deleted = 0;
+    const result = await api.deleteInboxEvents(ids);
+    const deleted = result.deleted;
+    if (deleted <= 0) return 0;
+    if (deleted !== ids.length) {
+      await loadPushMessages();
+      return deleted;
+    }
     let unreadDeleted = 0;
     setPushMessages((prev) => {
       const remaining: PushMessage[] = [];
       for (const message of prev) {
         if (idSet.has(message.id)) {
-          deleted += 1;
           if (!message.read) unreadDeleted += 1;
           continue;
         }
@@ -304,7 +308,7 @@ export const useInboxData = () => {
       },
     }));
     return deleted;
-  }, []);
+  }, [loadPushMessages]);
 
   const deleteMessage = useCallback(
     (messageId: string) => {

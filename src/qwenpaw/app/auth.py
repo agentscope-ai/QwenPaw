@@ -15,6 +15,7 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -31,7 +32,13 @@ from typing import Optional
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from ..access.actor import ActorContext, ActorType, actor_from_request
 from ..constant import SECRET_DIR, EnvVarLoader
+from ..identity.runtime import get_identity_runtime, is_multi_user_enabled
+from ..persistence.repository_provider import (
+    CutoverDomain,
+    assert_legacy_write_allowed,
+)
 from ..security.secret_store import (
     AUTH_SECRET_FIELDS,
     decrypt_dict_fields,
@@ -55,24 +62,23 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/login",
         "/api/auth/status",
         "/api/auth/register",
+        "/api/auth/refresh",
+        "/api/auth/logout",
         "/api/desktop/shutdown",
         "/api/version",
         "/api/settings/language",
         "/api/settings/upload-limit",
-        "/api/frontend_plugin",
     },
 )
 
-# Prefixes that do NOT require authentication (static assets)
-# /api/frontend_plugin/ is safe: only read-only GET handlers are registered
-# under that prefix (list + static file serving).  All write operations
-# remain under /api/plugins/ which requires authentication.
+# Prefixes that do NOT require authentication (console static assets).
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/assets/",
     "/logo.png",
     "/qwenpaw-symbol.svg",
-    "/api/frontend_plugin/",
 )
+
+_PUBLIC_GET_PATHS: frozenset[str] = frozenset({"/api/mcp/oauth/callback"})
 
 
 # ---------------------------------------------------------------------------
@@ -232,13 +238,12 @@ def _load_auth_data() -> dict:
                 for field in AUTH_SECRET_FIELDS
             )
             data = decrypt_dict_fields(data, AUTH_SECRET_FIELDS)
-            if needs_rewrite:
+            if needs_rewrite and not is_multi_user_enabled():
                 try:
                     _save_auth_data(data)
                 except Exception as enc_err:
                     logger.debug(
-                        "Deferred plaintext→encrypted migration for"
-                        " auth.json: %s",
+                        "Deferred plaintext→encrypted migration for" " auth.json: %s",
                         enc_err,
                     )
             return data
@@ -253,6 +258,7 @@ def _save_auth_data(data: dict) -> None:
 
     Sensitive fields (``jwt_secret``) are encrypted before writing.
     """
+    assert_legacy_write_allowed(CutoverDomain.IDENTITY)
     _prepare_secret_parent(AUTH_FILE)
     encrypted_data = encrypt_dict_fields(data, AUTH_SECRET_FIELDS)
     with open(AUTH_FILE, "w", encoding="utf-8") as f:
@@ -692,6 +698,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         if self._should_skip_auth(request):
+            if self._is_compatibility_no_auth_request(request):
+                request.state.actor = ActorContext(
+                    user_id=None,
+                    actor_type=ActorType.SERVICE,
+                    platform_role=None,
+                    admin_mode=False,
+                    request_id=(
+                        request.headers.get("x-request-id", "").strip()
+                        or secrets.token_hex(16)
+                    ),
+                )
             return await call_next(request)
 
         token = self._extract_token(request)
@@ -702,6 +719,21 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 media_type="application/json",
             )
 
+        if is_multi_user_enabled():
+            authenticated = await get_identity_runtime().sessions.authenticate_access(
+                token
+            )
+            if authenticated is None:
+                return Response(
+                    content='{"detail":"Invalid or expired token"}',
+                    status_code=401,
+                    media_type="application/json",
+                )
+            request.state.authenticated_session = authenticated
+            request.state.user = authenticated.user.username
+            request.state.actor = actor_from_request(request, multi_user=True)
+            return await call_next(request)
+
         user = verify_token(token)
         if user is None:
             return Response(
@@ -711,23 +743,48 @@ class AuthMiddleware(BaseHTTPMiddleware):
             )
 
         request.state.user = user
+        request.state.actor = actor_from_request(request, multi_user=False)
         return await call_next(request)
+
+    @staticmethod
+    def _is_compatibility_no_auth_request(request: Request) -> bool:
+        """Identify a protected API admitted by the legacy IP allow-list."""
+        if (
+            is_multi_user_enabled()
+            or not is_auth_enabled()
+            or not has_registered_users()
+        ):
+            return False
+        path = request.url.path
+        return not (
+            request.method == "OPTIONS"
+            or (request.method == "GET" and path in _PUBLIC_GET_PATHS)
+            or path in _PUBLIC_PATHS
+            or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+            or not path.startswith("/api/")
+        )
 
     @staticmethod
     def _should_skip_auth(  # pylint: disable=too-many-return-statements
         request: Request,
     ) -> bool:
-        if not is_auth_enabled() or not has_registered_users():
+        if not is_multi_user_enabled() and (
+            not is_auth_enabled() or not has_registered_users()
+        ):
             return True
 
         path = request.url.path
         if (
             request.method == "OPTIONS"
+            or (request.method == "GET" and path in _PUBLIC_GET_PATHS)
             or path in _PUBLIC_PATHS
             or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
             or not path.startswith("/api/")
         ):
             return True
+
+        if is_multi_user_enabled():
+            return False
 
         cfg, _ = _get_config_cached()
         allowed = cfg.security.allow_no_auth_hosts

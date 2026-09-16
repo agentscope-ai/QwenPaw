@@ -35,6 +35,27 @@ _NO_RETRY_INSTRUCTION = (
 )
 
 
+def _automation_tool_allowed(
+    request_context: dict[str, Any] | None,
+    tool_name: str,
+) -> bool | None:
+    """Return an automation snapshot decision, or None for user requests."""
+    context = request_context or {}
+    if context.get("actor_type") != "automation":
+        return None
+    authorization = context.get("automation_authorization")
+    if not isinstance(authorization, dict):
+        return False
+    grants = authorization.get("grants")
+    if not isinstance(grants, list):
+        return False
+    expected = f"tool:{tool_name}"
+    return any(
+        isinstance(grant, dict) and grant.get("capability") == expected
+        for grant in grants
+    )
+
+
 def _is_execution_level_off() -> bool:
     """Check if execution_level is 'off' (dev mode pass-through).
 
@@ -262,6 +283,15 @@ async def _policy_tool_check_permissions(
     # ── Effective approval_level check (session > agent) ──
     request_ctx = getattr(self, "_qp_request_context", None) or {}
     effective_level = _resolve_effective_approval_level(request_ctx)
+    is_automation = request_ctx.get("actor_type") == "automation"
+    if (
+        effective_level is not None
+        and effective_level.is_disabled()
+        and is_automation
+    ):
+        from ..security.tool_guard.execution_level import ToolExecutionLevel
+
+        effective_level = ToolExecutionLevel.AUTO
     if effective_level is not None and effective_level.is_disabled():
         # OFF means "never ask the user" — it does NOT mean "skip the
         # sandbox". Sandbox isolation is an execution mechanism, not an
@@ -283,7 +313,7 @@ async def _policy_tool_check_permissions(
 
     if governor is None:
         # Check if execution_level is "off" (dev mode) — allow pass-through
-        if _is_execution_level_off():
+        if _is_execution_level_off() and not is_automation:
             return PermissionDecision(
                 behavior=PermissionBehavior.ALLOW,
                 message="governance: execution_level=off (dev mode), "
@@ -306,6 +336,16 @@ async def _policy_tool_check_permissions(
         )
 
     tc_spec = self._build_tc_spec()
+
+    automation_allowed = _automation_tool_allowed(request_ctx, tc_spec.tool_name)
+    if automation_allowed is False:
+        return PermissionDecision(
+            behavior=PermissionBehavior.DENY,
+            message=(
+                f"governance: automation grant does not allow "
+                f"'{tc_spec.tool_name}'."
+            ),
+        )
 
     decision = governor.assert_policy(tc_spec)
     governor.audit(tc_spec, decision)
@@ -334,6 +374,14 @@ async def _policy_tool_check_permissions(
             message="governance: sandbox fallback.",
         )
     elif decision.action is GovernanceAction.ASK:
+        if automation_allowed is True:
+            return PermissionDecision(
+                behavior=PermissionBehavior.DENY,
+                message=(
+                    "governance: unattended automation cannot request "
+                    "interactive approval."
+                ),
+            )
         # Requires user confirmation
         self._qp_policy_decision = decision
 
@@ -529,6 +577,7 @@ async def _ask_user_approval(
 
     ctx = request_context or {}
     user_id = str(ctx.get("user_id") or "")
+    approval_user_id = str(ctx.get("approval_user_id") or user_id)
     channel = str(ctx.get("channel") or "")
     root_session_id = str(ctx.get("root_session_id") or session_id)
     root_agent_id = str(ctx.get("root_agent_id") or agent_id or "unknown")
@@ -669,10 +718,13 @@ async def _ask_user_approval(
             },
             "channel_meta": ctx.get("channel_meta"),
             "_channel_instance": ctx.get("_channel_instance"),
+            "conversation_id": ctx.get("conversation_id"),
+            "run_id": ctx.get("run_id"),
             **(
                 {"_spawn_subagent": True} if ctx.get("_spawn_subagent") else {}
             ),
         },
+        approval_user_id=approval_user_id,
     )
 
     logger.info(

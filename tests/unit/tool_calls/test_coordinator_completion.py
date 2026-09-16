@@ -151,6 +151,59 @@ async def test_middleware_caller_observes_coordinator_response():
 
 
 @pytest.mark.asyncio
+async def test_middleware_snapshots_background_execution_identity():
+    """工具转后台后仍应保留发起用户、会话、运行与审批人。"""
+    coordinator = ToolCoordinator()
+    middleware = ToolCoordinatorMiddleware(coordinator=coordinator)
+    request_context = {
+        "session_id": "session-identity",
+        "agent_id": "agent-identity",
+        "root_session_id": "root-identity",
+        "user_id": "user-identity",
+        "approval_user_id": "user-identity",
+        "conversation_id": "conversation-identity",
+        "run_id": "run-identity",
+        "actor_context": {"user_id": "user-identity"},
+        "source": "cron",
+        "actor_type": "automation",
+        "cron_job_id": "cron-identity",
+        "automation_authorization": {
+            "authorized_by_user_id": "user-identity",
+            "capability": "agent.run",
+        },
+    }
+    agent = type("AgentStub", (), {"_request_context": request_context})()
+    tool_call = _ToolCall(id="call-identity")
+
+    async def next_handler(
+        tool_call: _ToolCall,
+    ) -> AsyncGenerator[Any, None]:
+        entry = coordinator.get(tool_call.id)
+        assert entry is not None
+        assert entry.ctx.extra["execution_context"] == request_context
+        request_context["user_id"] = "mutated-after-start"
+        request_context["actor_context"]["user_id"] = "mutated-actor"
+        request_context["automation_authorization"]["capability"] = "mutated"
+        assert entry.ctx.extra["execution_context"]["user_id"] == "user-identity"
+        assert entry.ctx.extra["execution_context"]["actor_context"] == {
+            "user_id": "user-identity",
+        }
+        assert entry.ctx.extra["execution_context"]["automation_authorization"] == {
+            "authorized_by_user_id": "user-identity",
+            "capability": "agent.run",
+        }
+        yield _text_response(tool_call.id, "done")
+
+    await _collect(
+        middleware.on_acting(
+            agent,
+            {"tool_call": tool_call},
+            next_handler,
+        ),
+    )
+
+
+@pytest.mark.asyncio
 async def test_background_completion_emits_hint():
     coordinator = ToolCoordinator(
         default_timeout_secs=0.001,

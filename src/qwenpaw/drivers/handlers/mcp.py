@@ -52,6 +52,8 @@ class MCPDriverHandler(DriverHandler):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._client: Any | None = None
+        self._http_request_lock = asyncio.Lock()
+        self._http_headers: dict[str, str] = {}
         self._capability_cache: (
             tuple[
                 float,
@@ -83,6 +85,7 @@ class MCPDriverHandler(DriverHandler):
                 credentials,
             )
             headers.update(implicit_auth_headers(credentials, headers))
+            self._http_headers = dict(headers)
             self._client = HttpStatefulClient(
                 name=self._card.name,
                 transport=transport,
@@ -119,6 +122,13 @@ class MCPDriverHandler(DriverHandler):
         del context
         if self._client is None:
             raise RuntimeError(f"MCP driver '{self.name}' is not connected")
+        if str(self._card.endpoint.get("transport") or "stdio") != "stdio":
+            async with self._http_request_lock:
+                await self._refresh_http_credentials()
+                return await self._client.call_tool(
+                    str(kwargs["tool_name"]),
+                    dict(kwargs.get("arguments") or {}),
+                )
         return await self._client.call_tool(
             str(kwargs["tool_name"]),
             dict(kwargs.get("arguments") or {}),
@@ -128,7 +138,24 @@ class MCPDriverHandler(DriverHandler):
         """Delegate to underlying MCP client list_tools."""
         if self._client is None:
             raise RuntimeError(f"MCP driver '{self.name}' is not connected")
+        if str(self._card.endpoint.get("transport") or "stdio") != "stdio":
+            async with self._http_request_lock:
+                await self._refresh_http_credentials()
+                return await self._client.list_tools()
         return await self._client.list_tools()
+
+    async def _refresh_http_credentials(self) -> None:
+        """Apply rotated tokens before the next request on a live transport."""
+        credentials = await self._resolve_credentials()
+        headers = resolve_binding(self._card.endpoint.get("headers") or {}, credentials)
+        headers.update(implicit_auth_headers(credentials, headers))
+        if headers != self._http_headers:
+            self._client.headers = headers or None
+            await self._client.reload()
+            self._http_headers = dict(headers)
+            self._capability_cache = None
+            # Revocation may have committed while the new connection opened.
+            await self._credential_provider.resolve()
 
     async def list_capabilities(
         self,
@@ -184,9 +211,7 @@ class MCPDriverHandler(DriverHandler):
             return DriverInvocationResult(
                 ok=False,
                 error_type="unsupported_capability",
-                message=(
-                    f"Unsupported MCP capability: {invocation.capability_id}"
-                ),
+                message=(f"Unsupported MCP capability: {invocation.capability_id}"),
             )
         subjects = _subjects_from_context(invocation.request_context)
         subject = subjects[0]
@@ -213,19 +238,16 @@ class MCPDriverHandler(DriverHandler):
                 error_type="driver_policy_approval_required",
                 message=str(exc),
             )
-        except Exception as exc:
+        except Exception:
             logger.warning(
-                "MCP capability invocation failed for Driver '%s' "
-                "tool '%s': %s",
+                "MCP capability invocation failed for Driver '%s' tool '%s'",
                 self.name,
                 tool_name,
-                exc,
-                exc_info=True,
             )
             return DriverInvocationResult(
                 ok=False,
                 error_type="execution_error",
-                message=str(exc),
+                message="mcp_tool_execution_failed",
                 metadata={"driver_name": self.name, "tool_name": tool_name},
             )
         return DriverInvocationResult(ok=True, value=value)
@@ -269,8 +291,7 @@ def validate_mcp_endpoint(card: DriverCard) -> None:
             or not all(isinstance(item, str) for item in args)
         ):
             raise DriverCardError(
-                f"DriverCard {card.name} endpoint.args must be a list "
-                "of strings",
+                f"DriverCard {card.name} endpoint.args must be a list " "of strings",
             )
         cwd = endpoint.get("cwd")
         if cwd is not None and not isinstance(cwd, str):
@@ -281,8 +302,7 @@ def validate_mcp_endpoint(card: DriverCard) -> None:
 
     if transport not in {"streamable_http", "sse"}:
         raise DriverCardError(
-            f"DriverCard {card.name} has unsupported MCP transport: "
-            f"{transport}",
+            f"DriverCard {card.name} has unsupported MCP transport: " f"{transport}",
         )
     url = endpoint.get("url")
     if not isinstance(url, str) or not url.strip():
@@ -339,8 +359,7 @@ def _mcp_tool_to_capability(
         fallback=driver_name,
     )
     description = str(
-        getattr(raw_tool, "description", getattr(tool, "description", ""))
-        or "",
+        getattr(raw_tool, "description", getattr(tool, "description", "")) or "",
     )
     if display_namespace != driver_name and display_name:
         description = (

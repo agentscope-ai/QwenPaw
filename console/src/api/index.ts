@@ -7,6 +7,7 @@ export { getApiUrl, getApiToken } from "./config";
 import { rootApi } from "./modules/root";
 import { acpApi } from "./modules/acp";
 import { channelApi } from "./modules/channel";
+import { channelBindingsApi } from "./modules/channelBindings";
 import { heartbeatApi } from "./modules/heartbeat";
 import { cronJobApi } from "./modules/cronjob";
 import { chatApi, sessionApi } from "./modules/chat";
@@ -38,6 +39,7 @@ export const api = {
 
   // Channels
   ...channelApi,
+  ...channelBindingsApi,
 
   // Heartbeat
   ...heartbeatApi,

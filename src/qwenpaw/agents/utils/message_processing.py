@@ -176,16 +176,9 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
             timeout=30,
             check=True,
         )
-        logger.debug("Converted audio %s -> %s", src_path, dst_path)
         return dst_path
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        stderr = getattr(e, "stderr", b"") or b""
-        logger.warning(
-            "Audio conversion failed for %s: %s\nffmpeg stderr: %s",
-            src_path,
-            e,
-            stderr.decode(errors="replace"),
-        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        logger.warning("Audio conversion failed")
         # Clean up the temp file on failure.
         try:
             os.unlink(dst_path)
@@ -265,14 +258,30 @@ async def _process_audio_block(
     audio_mode = load_config().agents.audio_mode
 
     if audio_mode == "native":
-        converted = await asyncio.to_thread(
-            _convert_audio_to_wav,
-            local_path,
-        )
+        from .audio_transcription import wait_for_reader
+        from agentscope.message import Base64Source
+        import base64
+
+        def convert_and_embed():
+            converted = _convert_audio_to_wav(local_path)
+            if not converted:
+                return None
+            try:
+                return base64.b64encode(Path(converted).read_bytes()).decode("ascii")
+            finally:
+                if Path(converted).resolve() != Path(local_path).resolve():
+                    Path(converted).unlink(missing_ok=True)
+
+        embedded = await wait_for_reader(convert_and_embed)
+        if embedded is not None:
+            source = {"type": "base64", "data": embedded, "media_type": "audio/wav"}
+            if isinstance(block, dict):
+                block["source"] = source
+            else:
+                block.source = Base64Source(**source)
+            return True
         ext = (os.path.splitext(local_path)[1] or "").lower()
-        if converted:
-            audio_path = converted
-        elif ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
+        if ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
             # Already a supported format, no conversion needed.
             audio_path = local_path
         else:

@@ -1,0 +1,1 @@
+"""Agent-authorized skill governance."""

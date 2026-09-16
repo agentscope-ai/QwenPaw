@@ -36,7 +36,10 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../../../../stores/sessionListStore";
-import { useAgentStore } from "../../../../stores/agentStore";
+import {
+  isAgentHistoricalReadOnly,
+  useAgentStore,
+} from "../../../../stores/agentStore";
 import {
   type DateGroup,
   groupSessions,
@@ -45,6 +48,8 @@ import {
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import styles from "./index.module.less";
 import type { ChatStatus } from "../../../../api/types/chat";
+import ConversationShareDialog from "../ConversationShareDialog";
+import { approvalLevelStorageKey } from "../ApprovalLevelToggle";
 
 /** Fixed height of each session item row */
 const SESSION_ROW_HEIGHT = 77;
@@ -75,10 +80,12 @@ interface VirtualRowData {
   handleDelete: (sessionId: string) => void;
   handlePinToggle: (sessionId: string) => void;
   handleArchiveToggle: (sessionId: string) => void;
+  handleShare: (sessionId: string) => void;
   handleEditChange: (value: string) => void;
   handleEditSubmit: () => void;
   handleEditCancel: () => void;
   toggleGroup: (key: DateGroup) => void;
+  readOnly: boolean;
 }
 
 /** Virtual list row renderer — handles both group headers and session items */
@@ -119,6 +126,7 @@ const VirtualRow = React.memo(function VirtualRow({
     ? getChannelLabel(channelKey, data.t)
     : undefined;
   const isEditing = data.editingSessionId === session.id;
+  const itemReadOnly = data.readOnly || session.accessRole === "viewer";
 
   return (
     <div style={style}>
@@ -135,6 +143,8 @@ const VirtualRow = React.memo(function VirtualRow({
         generating={session.generating}
         pinned={session.pinned}
         archived={session.archived}
+        readOnly={session.accessRole === "viewer"}
+        sharedBy={session.sharedBy}
         active={
           session.id === data.currentSessionId ||
           session.id === data.switchingSessionId ||
@@ -144,10 +154,11 @@ const VirtualRow = React.memo(function VirtualRow({
         editing={isEditing}
         editValue={isEditing ? data.editValue : undefined}
         onClick={data.handleSessionClick}
-        onEdit={data.handleEditStart}
-        onDelete={data.handleDelete}
-        onPin={data.handlePinToggle}
-        onArchive={data.handleArchiveToggle}
+        onEdit={itemReadOnly ? undefined : data.handleEditStart}
+        onDelete={itemReadOnly ? undefined : data.handleDelete}
+        onPin={itemReadOnly ? undefined : data.handlePinToggle}
+        onArchive={itemReadOnly ? undefined : data.handleArchiveToggle}
+        onShare={itemReadOnly ? undefined : data.handleShare}
         onEditChange={data.handleEditChange}
         onEditSubmit={data.handleEditSubmit}
         onEditCancel={data.handleEditCancel}
@@ -170,6 +181,9 @@ interface ExtendedChatSession extends IAgentScopeRuntimeWebUISession {
   pinned?: boolean;
   archivedAt?: string | null;
   archived?: boolean;
+  accessRole?: "owner" | "viewer";
+  readOnly?: boolean;
+  sharedBy?: string | null;
 }
 
 interface ChatSessionDrawerProps {
@@ -234,6 +248,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const location = useLocation();
   const sdkState = useChatAnywhereSessionsState();
   const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const historicalReadOnly = useAgentStore((state) =>
+    isAgentHistoricalReadOnly(state.agents, state.selectedAgent),
+  );
   const createNewSession = useCreateNewSession();
 
   // In embedded mode, maintain a local session list fetched directly from the
@@ -276,6 +293,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   /** Current value of the rename input */
   const [editValue, setEditValue] = useState("");
+  const [sharingChatId, setSharingChatId] = useState<string | null>(null);
 
   /** Whether the session list is being fetched (default true because destroyOnHidden re-mounts) */
   const [listLoading, setListLoading] = useState(true);
@@ -291,6 +309,9 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   const [searchInput, setSearchInput] = useState("");
   /** Debounced search query used for actual filtering (300ms delay) */
   const [searchQuery, setSearchQuery] = useState("");
+  const [accessScope, setAccessScope] = useState<
+    "all" | "owned" | "shared"
+  >("all");
 
   /** Debounce search input to avoid excessive re-renders during fast typing */
   useEffect(() => {
@@ -335,11 +356,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
   /** Re-fetch session list from the backend and sync to context state */
   const refreshSessions = useCallback(async () => {
     const owner = sessionApi.getActiveOwner();
-    const list = await sessionApi.getSessionList();
+    const list = await sessionApi.getSessionList(accessScope);
     // Never publish a list that finished loading under a previous agent.
     if (!sessionApi.isActiveOwner(owner)) return;
     setSessions(list);
-  }, [setSessions]);
+  }, [setSessions, accessScope]);
 
   /** Open drawer → refresh session list and start polling */
   useEffect(() => {
@@ -356,7 +377,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     const fetchSessions = async () => {
       setListLoading(true);
       try {
-        const list = await sessionApi.getSessionList();
+        const list = await sessionApi.getSessionList(accessScope);
         if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
@@ -381,7 +402,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // Pause polling during session switch to avoid bandwidth contention
       if (sessionApi.isSessionSwitching) return;
       try {
-        const list = await sessionApi.getSessionList();
+        const list = await sessionApi.getSessionList(accessScope);
         if (!isCancelled && sessionApi.isActiveOwner(owner)) {
           // sessionApi already returns the previous array reference when the
           // list hasn't changed, so a reference check is enough to skip no-op
@@ -400,7 +421,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       isCancelled = true;
       clearInterval(timer);
     };
-  }, [props.open, selectedAgent, setSessions]);
+  }, [props.open, selectedAgent, setSessions, accessScope]);
 
   /** Whether a session switch is in progress (issue #4557) */
   const [switchingSessionId, setSwitchingSessionId] = useState<string | null>(
@@ -409,10 +430,6 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
   const handleSessionClick = useCallback(
     (sessionId: string) => {
-      if (sessionId === currentSessionId) {
-        return;
-      }
-
       // Both embedded and non-embedded modes use the same switching logic
       // as simple mode's SidebarSessionList: just navigate to the session
       // URL. ChatSessionInitializer's useEffect will pick up the URL change
@@ -421,10 +438,12 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       // the "flash to new chat" issue.
       setSwitchingSessionId(sessionId);
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
+      sessionApi.trackNavigatedSession(effectiveId);
+      sessionApi.preferredChatId = effectiveId;
       const targetPath = buildChatPath(effectiveId);
       navigate(targetPath);
     },
-    [currentSessionId, navigate],
+    [navigate],
   );
 
   // Listen for embedded switch completion so we can clear switchingSessionId.
@@ -461,7 +480,7 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
       // Per-session cleanup is safe regardless of the active agent: it is
       // keyed to the deleted conversation only.
-      localStorage.removeItem(`approval_level-${sessionId}`);
+      localStorage.removeItem(approvalLevelStorageKey(sessionId));
 
       // Clear the message queue for the deleted session so stale items don't
       // linger in storage or get sent after deletion. The queue may be keyed
@@ -613,6 +632,19 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
     [sessions, refreshSessions, location.pathname, message, t],
   );
 
+  const handleShare = useCallback(
+    (sessionId: string) => {
+      const session = sessions.find((item) => item.id === sessionId) as
+        | ExtendedChatSession
+        | undefined;
+      const backendId = session ? getBackendId(session) : null;
+      if (backendId && session?.accessRole !== "viewer") {
+        setSharingChatId(backendId);
+      }
+    },
+    [sessions],
+  );
+
   /** Filter sessions by search query */
   const filteredSessions = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -741,10 +773,12 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleDelete,
       handlePinToggle,
       handleArchiveToggle,
+      handleShare,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
       toggleGroup,
+      readOnly: historicalReadOnly,
     }),
     [
       flatRows,
@@ -758,10 +792,12 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
       handleDelete,
       handlePinToggle,
       handleArchiveToggle,
+      handleShare,
       handleEditChange,
       handleEditSubmit,
       handleEditCancel,
       toggleGroup,
+      historicalReadOnly,
     ],
   );
 
@@ -800,12 +836,51 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
 
       {/* Create new chat button */}
       <div className={styles.createSection}>
-        <div className={styles.createButton} onClick={handleCreateSession}>
+        <div
+          className={`${styles.createButton} ${
+            historicalReadOnly ? styles.createButtonDisabled : ""
+          }`}
+          aria-disabled={historicalReadOnly}
+          onClick={historicalReadOnly ? undefined : handleCreateSession}
+        >
           {t("chat.createNewChat")}
         </div>
       </div>
 
       {/* Search bar */}
+      <div
+        className={styles.scopeFilter}
+        aria-label={t("chat.scopeLabel", "会话范围")}
+      >
+        <button
+          type="button"
+          className={
+            accessScope === "all" ? styles.scopeActive : styles.scopeButton
+          }
+          onClick={() => setAccessScope("all")}
+        >
+          {t("chat.scopeAll")}
+        </button>
+        <button
+          type="button"
+          className={
+            accessScope === "owned" ? styles.scopeActive : styles.scopeButton
+          }
+          onClick={() => setAccessScope("owned")}
+        >
+          {t("chat.scopeOwned")}
+        </button>
+        <button
+          type="button"
+          className={
+            accessScope === "shared" ? styles.scopeActive : styles.scopeButton
+          }
+          onClick={() => setAccessScope("shared")}
+        >
+          {t("chat.scopeShared")}
+        </button>
+      </div>
+
       <div className={styles.searchContainer}>
         <Input
           size="small"
@@ -855,6 +930,11 @@ const ChatSessionDrawer: React.FC<ChatSessionDrawerProps> = (props) => {
         )}
         <div className={styles.bottomGradient} />
       </div>
+      <ConversationShareDialog
+        open={sharingChatId !== null}
+        chatId={sharingChatId}
+        onClose={() => setSharingChatId(null)}
+      />
     </>
   );
 

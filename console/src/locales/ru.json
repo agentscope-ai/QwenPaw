@@ -16,6 +16,7 @@
     "disable": "Отключить",
     "enabled": "Включено",
     "disabled": "Отключено",
+    "readOnly": "Только чтение",
     "preview": "Предпросмотр",
     "raw": "Исходник",
     "view": "Просмотр",
@@ -1353,6 +1354,7 @@
     }
   },
   "environments": {
+    "deploymentScopeNotice": "Здесь управляются только переменные окружения развертывания платформы. Сохраненные значения нельзя просмотреть. Учетные данные агентов, инструментов и MCP настраиваются в соответствующих разделах.",
     "parent": "Настройки",
     "environments": "Переменные окружения",
     "title": "Переменные окружения",
@@ -1770,6 +1772,7 @@
     "perMillionOut": "/1M исх."
   },
   "files": {
+    "fileCenter": {"attachments":"Temporary attachments","library":"Personal library","artifacts":"Artifacts","agentConfig":"Agent configuration","memory":"Memory","myMemory":"My memory","publicMemory":"Public memory","memoryScopeLabel":"Memory scope","memoryTypeLabel":"Memory type","conversationMemory":"Memory journal","distilledMemory":"Long-term memory","open":"Open in File Center","loadFailed":"Failed to load the file.","memoryLoadFailed":"Failed to load memory files","memoryPreviewFailed":"This memory file cannot be previewed right now. Try again.","memoryScopeLoadFailed":"Failed to load memory scopes","memoryIndexState":"Memory index status: {{state}}. Existing memory files remain available.","memoryIndexNotice":{"needs_reindex":"The memory search index needs an update. File browsing and preview remain available.","reindexing":"The memory search index is updating. File browsing and preview remain available.","reindex_failed":"The memory search index update failed. File browsing and preview remain available.","unavailable":"Memory search is unavailable. File browsing and preview remain available."},"memorySectionDescription":{"daily":"Conversation journals saved by date. Files can be opened and previewed directly.","digest":"Long-term topic memories distilled by Dream. Files can be opened and previewed directly."},"noMemoryFiles":"No memory files","noMemoryAccess":"This account has no readable memory scope","selectMemory":"Select a memory file"},
     "title": "Файлы",
     "navigator": "Навигатор файлов",
     "source": "Источник",
@@ -2329,6 +2332,10 @@
     "asyncExecution": "Асинхронное выполнение",
     "asyncExecutionEnabled": "Асинхронное выполнение включено",
     "asyncExecutionDisabled": "Асинхронное выполнение отключено",
+    "credentialKeep": "Сохранить текущие учетные данные",
+    "credentialReplace": "Заменить учетные данные",
+    "credentialDelete": "Удалить учетные данные",
+    "browserPolicyLocked": "Отключено политикой платформы",
     "browserUnifiedMode": "Унифицированный браузер (бета)",
     "browserLegacyMode": "Режим совместимости с устаревшей версией",
     "browserUnifiedModeButton": "Новый (бета)",
@@ -3166,6 +3173,8 @@
     "detailContent": "Вывод",
     "detailPayload": "Данные",
     "detailExecutionTrace": "Трассировка выполнения",
+    "memoryFiles": "Generated memory files",
+    "openSourceConversation": "Open source conversation",
     "detailTraceEmpty": "Трассировка выполнения недоступна",
     "filterByAgent": "Фильтр по агенту",
     "filterBySourceType": "Фильтр по источнику",

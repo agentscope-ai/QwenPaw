@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { agentsApi } from "@/api";
 import type { ReMeMemoryStatusResponse } from "@/api/modules/agents";
+import type { AgentRequestContext } from "@/api/modules/agentRequestContext";
 import { useAgentStore } from "@/stores/agentStore";
 
 export type ReMeRuntimeStatus =
@@ -21,9 +22,12 @@ const emptyMemoryStatus = (
   runtime,
 });
 
-export function useReMeRuntimeStatus(enabled: boolean) {
+export function useReMeRuntimeStatus(
+  enabled: boolean,
+  requestContext?: AgentRequestContext,
+) {
   const { selectedAgent } = useAgentStore();
-  const agentId = selectedAgent || "default";
+  const agentId = requestContext?.agentId || selectedAgent || "default";
   const [runtimeStatus, setRuntimeStatus] = useState<ReMeRuntimeStatus>({
     type: "unknown",
   });
@@ -43,10 +47,13 @@ export function useReMeRuntimeStatus(enabled: boolean) {
         : { type: "checking" },
     );
     try {
-      const status = await agentsApi.getMemoryStatus(
-        agentId,
-        controller.signal,
-      );
+      const status = requestContext
+        ? await agentsApi.getMemoryStatus(
+            agentId,
+            controller.signal,
+            requestContext,
+          )
+        : await agentsApi.getMemoryStatus(agentId, controller.signal);
       if (!controller.signal.aborted) {
         setRuntimeStatus({ type: "healthy", agentId, data: status });
       }
@@ -60,7 +67,7 @@ export function useReMeRuntimeStatus(enabled: boolean) {
     } finally {
       if (requestRef.current === controller) requestRef.current = null;
     }
-  }, [agentId, enabled]);
+  }, [agentId, enabled, requestContext]);
 
   useEffect(() => {
     if (!enabled) {
@@ -75,10 +82,13 @@ export function useReMeRuntimeStatus(enabled: boolean) {
     const poll = async () => {
       controller = new AbortController();
       try {
-        const runtime = await agentsApi.getMemoryRuntimeStatus(
-          agentId,
-          controller.signal,
-        );
+        const runtime = requestContext
+          ? await agentsApi.getMemoryRuntimeStatus(
+              agentId,
+              controller.signal,
+              requestContext,
+            )
+          : await agentsApi.getMemoryRuntimeStatus(agentId, controller.signal);
         if (active) {
           setRuntimeStatus((current) => ({
             type: "healthy",
@@ -116,7 +126,7 @@ export function useReMeRuntimeStatus(enabled: boolean) {
       controller?.abort();
       requestRef.current?.abort();
     };
-  }, [agentId, enabled]);
+  }, [agentId, enabled, requestContext]);
 
   return { runtimeStatus, checkMemoryStatus };
 }

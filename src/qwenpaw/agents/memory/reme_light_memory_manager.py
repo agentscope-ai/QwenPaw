@@ -11,7 +11,10 @@ import hashlib
 import logging
 import os
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from pathlib import Path, PurePosixPath
 from typing import Any, TYPE_CHECKING
+from uuid import UUID
 
 import httpx
 
@@ -27,6 +30,11 @@ from .embedding_model import (
 )
 from .prompts import build_memory_guidance_prompt
 from .reme_config import get_reme_app_config
+from .scope_runtime import ScopedMemoryRuntimePool
+from .scoped_memory_pool import (
+    ScopedMemoryManagerView,
+    merge_memory_search_results,
+)
 from ..model_factory import create_model_and_formatter
 from ...app.inbox_store import append_event as append_inbox_event
 from ...app.crons.contracts import ServiceCronJob
@@ -43,6 +51,7 @@ from ...utils.io_utils import (
     run_sync_io,
     unlink_async,
 )
+from ...memory_scope.models import MemoryScopeDenied
 
 if TYPE_CHECKING:
     from reme import ReMe
@@ -54,6 +63,7 @@ os.environ.setdefault("REME_DISABLE_LOGURU", "true")
 
 NO_MEMORY_RESULTS = "(no memory results)"
 INBOX_RESULT_JOB_NAMES = {"auto_memory", "auto_dream", "daily_paper"}
+INBOX_MEMORY_FILE_JOB_NAMES = {"auto_memory", "auto_dream"}
 INBOX_NOTIFICATION_FIELDS = {
     "auto_memory": "auto_memory_inbox_push_enabled",
     "auto_dream": "auto_dream_inbox_push_enabled",
@@ -63,6 +73,10 @@ INBOX_RESULT_HOOK_KEY = "qwenpaw_memory_result_hook"
 INBOX_EMITTED_METADATA_KEY = "_qwenpaw_inbox_emitted"
 MAX_INBOX_BODY_CHARS = 4000
 _REME_SESSION_ID_HASH_PREFIX = "qpsid_sha256_"
+_MANAGED_REME_RESULT: ContextVar[bool] = ContextVar(
+    "qwenpaw_managed_reme_result",
+    default=False,
+)
 
 
 def _to_reme_session_id(session_id: str) -> str:
@@ -99,7 +113,13 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ReMe jobs.
     """
 
-    def __init__(self, working_dir: str, agent_id: str):
+    def __init__(
+        self,
+        working_dir: str,
+        agent_id: str,
+        *,
+        enable_scoped_runtime: bool = True,
+    ):
         super().__init__(working_dir=working_dir, agent_id=agent_id)
         self._reme: "ReMe | None" = None
         self._reindex_lock = asyncio.Lock()
@@ -108,7 +128,17 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self._active_reme_jobs = 0
         self._lifecycle_operation: str | None = None
         self._tested_embedding: tuple[tuple[Any, ...], Any] | None = None
+        self._scope_actor_user_id: UUID | None = None
+        self._scope_access_checker: Any = None
         self._active_embedding_config: EmbeddingModelConfig | None = None
+        self._scoped_runtime_pool = (
+            ScopedMemoryRuntimePool(
+                factory=self._create_scoped_runtime,
+                registrar=self._register_private_workspace,
+            )
+            if enable_scoped_runtime
+            else None
+        )
         # Reranker config is not cached here; load_agent_config() already
         # provides mtime-based caching, so every call reads fresh data.
         logger.info(
@@ -149,7 +179,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def start(self) -> None:
         """Start the embedded ReMe application."""
         if self._reme is None:
-            return
+            raise RuntimeError("ReMe application was not initialized")
 
         await self._update_qwenpaw_model()
         try:
@@ -160,12 +190,83 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
         except Exception:
             logger.exception("ReMe start failed")
-            return
+            raise
 
     async def close(self) -> bool:
         """Close ReMe and clean up background summary worker state."""
+        if self._scoped_runtime_pool is not None:
+            await self._scoped_runtime_pool.close()
         async with self._exclusive_reme_lifecycle("close"):
             return await self._close_reme_unlocked()
+
+    def for_request(self, request_context: dict[str, Any]) -> Any:
+        """为多用户请求返回带可信身份的轻量视图。"""
+        from ...identity.runtime import is_multi_user_enabled
+
+        if not is_multi_user_enabled():
+            return self
+        return ScopedMemoryManagerView(self, request_context)
+
+    def for_model_request(self, request_context: dict[str, Any], authority: Any) -> Any:
+        """Bind server-validated model authority without mutating this service."""
+        from ...identity.runtime import is_multi_user_enabled
+
+        return ScopedMemoryManagerView(
+            self,
+            request_context,
+            model_authority=authority,
+            scoped=is_multi_user_enabled(),
+        )
+
+    async def _create_scoped_runtime(
+        self,
+        scope: Any,
+        user_id: UUID | None,
+        agent_id: str,
+        workspace: Any,
+    ) -> "ReMeLightMemoryManager":
+        del scope
+        runtime = ReMeLightMemoryManager(
+            working_dir=str(workspace),
+            agent_id=agent_id,
+            enable_scoped_runtime=False,
+        )
+        await runtime.start()
+        runtime._scope_actor_user_id = user_id
+        runtime._scope_access_checker = self._require_private_memory_access
+        return runtime
+
+    async def _require_private_memory_access(self, user_id: UUID) -> None:
+        """在提交和实际写入私有记忆前重新确认 Agent 访问权。"""
+        from ...access.agent_repository import PostgresAgentRepository
+        from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+
+        if not is_multi_user_enabled():
+            return
+        access = await PostgresAgentRepository(
+            schema=get_identity_schema(),
+        ).get_accessible(agent_key=self.agent_id, user_id=user_id)
+        if access is None or access.historical_read_only:
+            raise MemoryScopeDenied("memory_access_denied")
+
+    async def _register_private_workspace(
+        self,
+        user_id: UUID,
+        agent_id: str,
+        workspace_key: str,
+    ) -> None:
+        from ...identity.runtime import get_identity_schema
+        from ...persistence.agent_user_workspaces import (
+            AgentUserWorkspaceRepository,
+        )
+
+        await AgentUserWorkspaceRepository(
+            schema=get_identity_schema()
+        ).ensure_private(
+            user_id=user_id,
+            agent_key=agent_id,
+            workspace_key=workspace_key,
+        )
 
     async def _close_reme_unlocked(self) -> bool:
         """Close ReMe after the caller has quiesced all ReMe jobs."""
@@ -245,7 +346,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 ServiceCronJob(
                     key="dream",
                     cron=cfg.dream_cron,
-                    callback=self.dream,
+                    callback=self.public_dream,
                     misfire_grace_seconds=600,
                     jitter_seconds=60,
                 ),
@@ -256,7 +357,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 ServiceCronJob(
                     key="daily-paper",
                     cron=cfg.daily_paper_cron,
-                    callback=self.daily_paper,
+                    callback=self.public_daily_paper,
                     misfire_grace_seconds=600,
                 ),
             )
@@ -278,12 +379,23 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             return 0
         return int(interval)
 
-    async def _update_qwenpaw_model(self) -> None:
+    async def _update_qwenpaw_model(self, authority: Any = None) -> None:
         """Reuse QwenPaw's active model in ReMe's default LLM component."""
         if self._reme is None:
             return
 
-        model, _formatter = create_model_and_formatter(self.agent_id)
+        from types import SimpleNamespace
+        from ...models.runtime import recheck_model_authority
+        from ...providers.provider_manager import ProviderManager
+
+        slot = await recheck_model_authority(
+            SimpleNamespace(_model_authority=authority), ProviderManager.get_instance()
+        )
+        model, _formatter = (
+            create_model_and_formatter(self.agent_id, model_slot_override=slot)
+            if slot is not None
+            else create_model_and_formatter(self.agent_id)
+        )
         await self._reme.update_component(
             "as_llm",
             "default",
@@ -414,6 +526,16 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 raise_on_error=raise_on_error,
                 **kwargs,
             )
+        if needs_llm:
+            # ReMe's default component is shared. Hold the existing exclusive
+            # lease across both model injection and all consumers of that job.
+            async with self._exclusive_reme_lifecycle("model-job"):
+                return await self._run_reme_job_unlocked(
+                    name,
+                    needs_llm=True,
+                    raise_on_error=raise_on_error,
+                    **kwargs,
+                )
         async with self._reme_job_lease():
             return await self._run_reme_job_unlocked(
                 name,
@@ -435,18 +557,68 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             logger.debug("ReMe job skipped; app not started: %s", name)
             return None
         try:
+            authority = kwargs.pop("_model_authority", None)
+            source_conversation_id = str(
+                kwargs.pop("_source_conversation_id", "") or "",
+            )
+            scope_user_id = getattr(self, "_scope_actor_user_id", None)
+            access_checker = getattr(self, "_scope_access_checker", None)
+            if scope_user_id is not None and access_checker:
+                await access_checker(scope_user_id)
             if needs_llm:
-                await self._update_qwenpaw_model()
-            response = await self._reme.run_job(name, **kwargs)
+                from ...identity.runtime import is_multi_user_enabled
+                from ...models.governance import ModelAccessError
+
+                if authority is None and is_multi_user_enabled():
+                    raise ModelAccessError("authority_unavailable")
+                if authority is None:
+                    await self._update_qwenpaw_model()
+                else:
+                    await self._update_qwenpaw_model(authority)
+            before_files = (
+                await run_sync_io(self._snapshot_memory_files)
+                if name in INBOX_MEMORY_FILE_JOB_NAMES
+                else {}
+            )
+            result_token = _MANAGED_REME_RESULT.set(True)
+            try:
+                response = await self._reme.run_job(name, **kwargs)
+            finally:
+                _MANAGED_REME_RESULT.reset(result_token)
+            after_files = (
+                await run_sync_io(self._snapshot_memory_files)
+                if name in INBOX_MEMORY_FILE_JOB_NAMES
+                else {}
+            )
+            inbox_kwargs = dict(kwargs)
+            inbox_kwargs["_memory_files"] = self._changed_memory_file_locators(
+                before_files,
+                after_files,
+                memory_scope=(
+                    "private"
+                    if getattr(self, "_scope_actor_user_id", None) is not None
+                    else str(kwargs.get("memory_scope") or "public")
+                ),
+            )
+            if source_conversation_id:
+                inbox_kwargs["_source_conversation_id"] = (
+                    source_conversation_id
+                )
             await self._append_reme_job_result_to_inbox(
                 name,
                 response=response,
-                kwargs=kwargs,
+                kwargs=inbox_kwargs,
             )
             return response
-        except Exception:
+        except Exception as exc:
             logger.exception("ReMe job failed: %s", name)
-            if raise_on_error:
+            from ...models.governance import ModelAccessError
+
+            if (
+                raise_on_error
+                or isinstance(exc, ModelAccessError)
+                or (needs_llm and authority is not None)
+            ):
                 raise
             return None
 
@@ -471,6 +643,8 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ) -> None:
         """Handle result notifications emitted from ReMe background steps."""
         del metadata
+        if _MANAGED_REME_RESULT.get():
+            return
         await self._append_reme_job_result_to_inbox(
             job_name,
             response=response,
@@ -486,6 +660,7 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     ) -> bool:
         if name not in INBOX_RESULT_JOB_NAMES:
             return False
+
         memory_config = await run_sync_io(self.get_memory_config)
         if not getattr(memory_config, INBOX_NOTIFICATION_FIELDS[name]):
             logger.info(
@@ -526,6 +701,20 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 kwargs.get("memory_hint") or kwargs.get("hint") or "",
             ),
         }
+        source_conversation_id = str(
+            kwargs.get("_source_conversation_id") or "",
+        )
+        try:
+            UUID(source_conversation_id)
+        except ValueError:
+            pass
+        else:
+            payload["source_conversation_id"] = source_conversation_id
+        memory_files = self._sanitize_memory_file_locators(
+            kwargs.get("_memory_files"),
+        )
+        if memory_files:
+            payload["memory_files"] = memory_files
         if name == "daily_paper":
             payload["force"] = bool(kwargs.get("force", False))
             payload["topics"] = str(kwargs.get("topics") or "")
@@ -540,6 +729,19 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     if key in response_metadata:
                         payload[key] = response_metadata[key]
 
+        recipient_user_id = kwargs.get("recipient_user_id")
+        is_public_job = kwargs.get("memory_scope") == "public"
+        if not recipient_user_id and is_public_job:
+            recipient_user_id = await self._resolve_public_memory_recipient()
+            if recipient_user_id is None:
+                logger.warning("skip public inbox event without owner: %s", name)
+                return False
+        legacy_global = recipient_user_id == "__legacy_global__"
+        if not recipient_user_id:
+            from ...identity.runtime import is_multi_user_enabled
+            if is_multi_user_enabled():
+                logger.warning("skip inbox broadcast without recipient: %s", name)
+                return False
         try:
             event = await append_inbox_event(
                 agent_id=self.agent_id,
@@ -551,6 +753,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 title=title,
                 body=body,
                 payload=payload,
+                recipient_user_id=(
+                    None if legacy_global else str(recipient_user_id)
+                    if recipient_user_id
+                    else None
+                ),
             )
             if isinstance(response_metadata, dict):
                 response_metadata[INBOX_EMITTED_METADATA_KEY] = True
@@ -577,6 +784,110 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                 success,
             )
             return False
+
+    def _snapshot_memory_files(
+        self,
+    ) -> dict[tuple[str, str], tuple[int, int]]:
+        """Capture managed Markdown identities without physical paths."""
+        try:
+            config = self.get_memory_config()
+            workspace = Path(self.working_dir)
+            daily_root = (workspace / str(config.daily_dir)).resolve()
+            digest_root = (workspace / str(config.digest_dir)).resolve()
+            snapshot: dict[tuple[str, str], tuple[int, int]] = {}
+            for section, root in (("daily", daily_root), ("digest", digest_root)):
+                if not root.exists():
+                    continue
+                for path in root.rglob("*.md"):
+                    if not path.is_file() or path.is_symlink():
+                        continue
+                    try:
+                        resolved_path = path.resolve()
+                        resolved_path.relative_to(root)
+                    except (OSError, ValueError):
+                        continue
+                    if section == "daily" and digest_root != daily_root:
+                        try:
+                            path.resolve().relative_to(digest_root)
+                        except ValueError:
+                            pass
+                        else:
+                            continue
+                    stat = path.stat()
+                    snapshot[(section, path.relative_to(root).as_posix())] = (
+                        stat.st_mtime_ns,
+                        stat.st_size,
+                    )
+            return snapshot
+        except Exception:  # pylint: disable=broad-except
+            logger.debug("failed to snapshot ReMe memory files", exc_info=True)
+            return {}
+
+    @staticmethod
+    def _sanitize_memory_file_locators(value: Any) -> list[dict[str, str]]:
+        if not isinstance(value, list):
+            return []
+        result: list[dict[str, str]] = []
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            scope = item.get("scope")
+            section = item.get("section")
+            relative_path = item.get("path")
+            if scope not in {"private", "public"}:
+                continue
+            if section not in {"daily", "digest"}:
+                continue
+            if not isinstance(relative_path, str):
+                continue
+            candidate = PurePosixPath(relative_path)
+            if (
+                not relative_path
+                or relative_path != relative_path.strip()
+                or relative_path.startswith("/")
+                or "\\" in relative_path
+                or any(part in {"", ".", ".."} for part in candidate.parts)
+            ):
+                continue
+            result.append(
+                {"scope": scope, "section": section, "path": relative_path},
+            )
+        return result
+
+    def _changed_memory_file_locators(
+        self,
+        before: dict[tuple[str, str], tuple[int, int]],
+        after: dict[tuple[str, str], tuple[int, int]],
+        *,
+        memory_scope: str,
+    ) -> list[dict[str, str]]:
+        changed = sorted(
+            key for key, value in after.items() if before.get(key) != value
+        )
+        return [
+            {
+                "scope": (
+                    "private" if memory_scope == "private" else "public"
+                ),
+                "section": section,
+                "path": relative_path,
+            }
+            for section, relative_path in changed
+        ]
+
+    async def _resolve_public_memory_recipient(self) -> str | None:
+        """公共后台任务仅通知 Agent 所有者，不向全平台广播。"""
+        from ...access.agent_repository import PostgresAgentRepository
+        from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+
+        if not is_multi_user_enabled():
+            return "__legacy_global__"
+        governance = await PostgresAgentRepository(
+            schema=get_identity_schema(),
+        ).get_governance(self.agent_id)
+        if governance is None:
+            return None
+        return str(governance.owner_user_id)
 
     @staticmethod
     def _inbox_result_title(name: str) -> str:
@@ -661,6 +972,85 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         if not answer:
             answer = NO_MEMORY_RESULTS
         return _tool_chunk(answer, ok=response.success)
+
+    async def scoped_memory_search(
+        self,
+        *,
+        query: str,
+        max_results: int = 5,
+        min_score: float = 0,
+        actor_user_id: str | None,
+    ) -> ToolChunk:
+        """合并公共运行时与当前用户私有运行时的检索结果。"""
+        query = query.strip()
+        if not query:
+            return _tool_chunk("Error: query cannot be empty", ok=False)
+        user_id = self._trusted_user_id(actor_user_id)
+        if self._scoped_runtime_pool is None:
+            raise MemoryScopeDenied("scoped_runtime_unavailable")
+        private_runtime = await self._scoped_runtime_pool.get_private(
+            user_id=user_id,
+            agent_id=self.agent_id,
+        )
+
+        async def public_search(search_query: str, limit: int):
+            return await self._search_result_items(
+                search_query,
+                limit,
+                min_score,
+            )
+
+        async def private_search(search_query: str, limit: int):
+            return await private_runtime._search_result_items(
+                search_query,
+                limit,
+                min_score,
+            )
+
+        merged = await merge_memory_search_results(
+            public_search=public_search,
+            private_search=private_search,
+            query=query,
+            max_results=max_results,
+        )
+        if not merged:
+            if merged.public_error and merged.private_error:
+                return _tool_chunk("ReMe search unavailable.", ok=False)
+            return _tool_chunk(NO_MEMORY_RESULTS)
+        lines = []
+        for item in merged:
+            line_suffix = f":{item.line}" if item.line is not None else ""
+            lines.append(
+                f"[{item.scope_label}] {item.path}{line_suffix} "
+                f"[score={item.score:.4f}]\n{item.text}"
+            )
+        return _tool_chunk("\n\n".join(lines))
+
+    async def _search_result_items(
+        self,
+        query: str,
+        limit: int,
+        min_score: float,
+    ) -> list[dict[str, Any]]:
+        """返回供跨作用域合并使用的结构化 ReMe 命中。"""
+        response = await self._run_reme_job(
+            "search",
+            query=query,
+            limit=max(1, limit),
+            min_score=max(0.0, min_score),
+        )
+        if response is None or not response.success:
+            return []
+        raw_results = list((response.metadata or {}).get("results") or [])
+        return [
+            {
+                "path": str(item.get("path") or ""),
+                "line": item.get("start_line"),
+                "text": str(item.get("text") or ""),
+                "score": float(self._extract_score(item)),
+            }
+            for item in raw_results
+        ]
 
     # ── reranker helpers ──────────────────────────────────────────────
 
@@ -1063,12 +1453,25 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             )
             return ""
 
+        job_kwargs: dict[str, Any] = {
+            "messages": [
+                message.model_dump(mode="json") for message in messages
+            ],
+            "session_id": _to_reme_session_id(session_id),
+            "memory_hint": str(kwargs.get("memory_hint") or ""),
+        }
+        scope_user_id = getattr(self, "_scope_actor_user_id", None)
+        if scope_user_id is not None:
+            job_kwargs.update(
+                memory_scope="private",
+                recipient_user_id=str(scope_user_id),
+            )
         response = await self._run_reme_job(
             "auto_memory",
             needs_llm=True,
-            messages=[message.model_dump(mode="json") for message in messages],
-            session_id=_to_reme_session_id(session_id),
-            memory_hint=str(kwargs.get("memory_hint") or ""),
+            _model_authority=kwargs.get("_model_authority"),
+            _source_conversation_id=kwargs.get("_source_conversation_id"),
+            **job_kwargs,
         )
         if response is None:
             return ""
@@ -1135,6 +1538,43 @@ class ReMeLightMemoryManager(BaseMemoryManager):
             "msg": msgs + [assistant_msg],
         }
 
+    async def scoped_auto_memory_search(
+        self,
+        *,
+        messages: list[Msg] | Msg,
+        actor_user_id: str | None,
+        **kwargs: Any,
+    ) -> dict | None:
+        """用公共+当前用户私有作用域执行自动记忆搜索。"""
+        del kwargs
+        agent_config = await load_agent_config_async(self.agent_id)
+        config = agent_config.running.reme_light_memory_config
+        if not config.auto_memory_search_config.enabled:
+            return None
+        msgs = [messages] if isinstance(messages, Msg) else list(messages)
+        query = self._build_query(msgs)
+        if not query:
+            return None
+        cap = max(1, config.auto_memory_search_config.max_results)
+        chunk = await self.scoped_memory_search(
+            query=query,
+            max_results=cap,
+            actor_user_id=actor_user_id,
+        )
+        text = "".join(
+            block.text
+            for block in chunk.content
+            if isinstance(block, TextBlock)
+        ).strip()
+        if not text or text == NO_MEMORY_RESULTS:
+            return None
+        assistant_msg = self._build_auto_memory_search_msg(
+            query=query,
+            max_results=cap,
+            text=text,
+        )
+        return {"query": query, "text": text, "msg": msgs + [assistant_msg]}
+
     async def auto_memory(
         self,
         all_messages: list[Msg],
@@ -1159,15 +1599,87 @@ class ReMeLightMemoryManager(BaseMemoryManager):
         self.add_summarize_task(
             messages=all_messages,
             session_id=session_id,
+            _model_authority=kwargs.get("_model_authority"),
+            _source_conversation_id=kwargs.get("_source_conversation_id"),
         )
+
+    async def scoped_auto_memory(
+        self,
+        *,
+        messages: list[Msg],
+        actor_user_id: str | None,
+        **kwargs: Any,
+    ) -> None:
+        """把用户对话衍生记忆提交到该用户的私有运行时。"""
+        user_id = self._trusted_user_id(actor_user_id)
+        if self._scoped_runtime_pool is None:
+            raise MemoryScopeDenied("scoped_runtime_unavailable")
+        await self._require_private_memory_access(user_id)
+        runtime = await self._scoped_runtime_pool.get_private(
+            user_id=user_id,
+            agent_id=self.agent_id,
+        )
+        await runtime.auto_memory(messages, **kwargs)
+
+    async def scoped_dream(self, *, actor_user_id: str | None, **kwargs: Any) -> None:
+        """在当前用户的私有 ReMe 运行时执行手动 dream。"""
+        user_id = self._trusted_user_id(actor_user_id)
+        if self._scoped_runtime_pool is None:
+            raise MemoryScopeDenied("scoped_runtime_unavailable")
+        await self._require_private_memory_access(user_id)
+        runtime = await self._scoped_runtime_pool.get_private(
+            user_id=user_id,
+            agent_id=self.agent_id,
+        )
+        await runtime.dream(
+            **kwargs,
+            memory_scope="private",
+            recipient_user_id=str(user_id),
+        )
+
+    async def get_private_runtime(self, user_id: UUID) -> "ReMeLightMemoryManager":
+        """Return the current user's authorized private ReMe runtime."""
+        if self._scoped_runtime_pool is None:
+            raise MemoryScopeDenied("scoped_runtime_unavailable")
+        await self._require_private_memory_access(user_id)
+        return await self._scoped_runtime_pool.get_private(
+            user_id=user_id,
+            agent_id=self.agent_id,
+        )
+
+    async def public_dream(self) -> None:
+        """定时任务入口：始终使用 Agent 公共记忆。"""
+        await self.dream(memory_scope="public")
+
+    async def public_daily_paper(self) -> None:
+        """定时任务入口：始终使用 Agent 公共记忆。"""
+        await self.daily_paper(memory_scope="public")
+
+    @staticmethod
+    def _trusted_user_id(value: str | None) -> UUID:
+        try:
+            return UUID(str(value or ""))
+        except ValueError as exc:
+            raise MemoryScopeDenied("authenticated_user_required") from exc
 
     async def dream(self, **kwargs: Any) -> None:
         """Run one ReMe auto-dream pass."""
+        job_kwargs: dict[str, Any] = {
+            "date": str(kwargs.get("date") or ""),
+            "hint": str(kwargs.get("hint") or ""),
+        }
+        for key in (
+            "memory_scope",
+            "recipient_user_id",
+            "_model_authority",
+            "_source_conversation_id",
+        ):
+            if key in kwargs:
+                job_kwargs[key] = kwargs[key]
         response = await self._run_reme_job(
             "auto_dream",
             needs_llm=True,
-            date=str(kwargs.get("date") or ""),
-            hint=str(kwargs.get("hint") or ""),
+            **job_kwargs,
         )
         if response is not None and not response.success:
             raise RuntimeError(str(response.answer))
@@ -1175,19 +1687,22 @@ class ReMeLightMemoryManager(BaseMemoryManager):
     async def daily_paper(self, **kwargs: Any) -> None:
         """Build one Daily Paper brief and publish its result to inbox."""
         cfg = await run_sync_io(self.get_memory_config)
+        job_kwargs: dict[str, Any] = {
+            "date": str(kwargs.get("date") or ""),
+            "force": bool(kwargs.get("force", False)),
+            "use_hf_mirror": bool(
+                kwargs.get("use_hf_mirror", cfg.daily_paper_use_hf_mirror),
+            ),
+            "topics": str(kwargs.get("topics", cfg.daily_paper_topics) or ""),
+        }
+        for key in ("memory_scope", "recipient_user_id", "_model_authority"):
+            if key in kwargs:
+                job_kwargs[key] = kwargs[key]
         response = await self._run_reme_job(
             "daily_paper",
             needs_llm=True,
             raise_on_error=True,
-            date=str(kwargs.get("date") or ""),
-            force=bool(kwargs.get("force", False)),
-            use_hf_mirror=bool(
-                kwargs.get(
-                    "use_hf_mirror",
-                    cfg.daily_paper_use_hf_mirror,
-                ),
-            ),
-            topics=str(kwargs.get("topics", cfg.daily_paper_topics) or ""),
+            **job_kwargs,
         )
         if response is None:
             raise RuntimeError("ReMe is not started; Daily Paper did not run")
@@ -1219,7 +1734,11 @@ class ReMeLightMemoryManager(BaseMemoryManager):
                     "reindex",
                     lifecycle_locked=True,
                 )
-            if response is not None and response.success:
+            if (
+                response is not None
+                and response.success
+                and getattr(self, "_scope_actor_user_id", None) is None
+            ):
 
                 def clear_requirement(
                     agent_config: AgentProfileConfig,

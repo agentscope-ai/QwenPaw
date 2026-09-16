@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button, Empty, Modal, Input, Select } from "@agentscope-ai/design";
 import { Tabs } from "antd";
 import { LockKeyhole, Plus, Server } from "lucide-react";
@@ -84,6 +84,8 @@ function MCPPage() {
     updateClient,
     updatePolicy,
     refreshClients,
+    canEdit,
+    scopeKey,
   } = useMCP();
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"json" | "form">("json");
@@ -126,6 +128,11 @@ function MCPPage() {
     setForm({ ...defaultForm });
     setActiveTab("json");
   }, []);
+
+  useEffect(() => {
+    setCreateModalOpen(false);
+    resetModal();
+  }, [scopeKey, resetModal]);
 
   const handleToggleEnabled = async (
     client: MCPClientInfo,
@@ -268,15 +275,16 @@ function MCPPage() {
     <div className={styles.mcpPage}>
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("mcp.title") }]}
-        extra={
+        extra={canEdit ? (
           <Button
+            data-testid="mcp-create-open"
             type="primary"
             icon={<Plus size={14} />}
             onClick={() => setCreateModalOpen(true)}
           >
             {t("mcp.create")}
           </Button>
-        }
+        ) : undefined}
       />
 
       {loading ? (
@@ -305,13 +313,14 @@ function MCPPage() {
               <div className={styles.mcpGrid}>
                 {clients.map((client) => (
                   <MCPClientCard
-                    key={client.key}
+                    key={`${scopeKey}:${client.key}`}
                     client={client}
                     onToggle={handleToggleEnabled}
                     onDelete={handleDelete}
                     onUpdate={updateClient}
                     onUpdatePolicy={updatePolicy}
                     onRefresh={refreshClients}
+                    canEdit={canEdit && client.can_edit !== false}
                   />
                 ))}
               </div>
@@ -385,6 +394,7 @@ function MCPPage() {
               {t("common.cancel")}
             </Button>
             <Button
+              data-testid="mcp-create-submit"
               type="primary"
               onClick={
                 activeTab === "json"
@@ -427,6 +437,7 @@ function MCPPage() {
                     </ul>
                   </div>
                   <Input.TextArea
+                    data-testid="mcp-create-json"
                     value={newClientJson}
                     onChange={(e) => setNewClientJson(e.target.value)}
                     autoSize={{ minRows: 15, maxRows: 25 }}

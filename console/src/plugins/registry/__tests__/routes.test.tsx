@@ -21,6 +21,17 @@ describe("routeRegistry.add", () => {
     expect(snap.map((r) => r.id)).toContain("r1");
   });
 
+  it("preserves the capability required by a protected route", () => {
+    routeRegistry.add("core", {
+      id: "admin-users",
+      path: "/admin/users",
+      component: Base,
+      capability: "users.manage",
+    });
+
+    expect(routeRegistry.snapshot()[0].capability).toBe("users.manage");
+  });
+
   it("rejects duplicate id with conflict audit", () => {
     routeRegistry.add("core", { id: "r1", path: "/a", component: Base });
     routeRegistry.add("p1", { id: "r1", path: "/b", component: Base });

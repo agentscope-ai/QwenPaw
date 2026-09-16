@@ -8,6 +8,7 @@ import styles from "./ResultCard.module.less";
 
 interface ResultCardProps {
   item: MarketResult;
+  canInstall?: boolean;
   onInstall: () => void;
   onOpenDetail: () => void;
 }
@@ -32,6 +33,7 @@ const CURSOR_STYLE = { cursor: "pointer" } as const;
 export const ResultCard = memo(function ResultCard({
   item,
   onInstall,
+  canInstall = true,
   onOpenDetail,
 }: ResultCardProps) {
   const { t } = useTranslation();
@@ -104,7 +106,7 @@ export const ResultCard = memo(function ResultCard({
         ))}
       </div>
 
-      {(hover || isMobile) && (
+      {canInstall && (hover || isMobile) && (
         <div
           className={styles.cardFooter}
           onClick={stopPropagation}

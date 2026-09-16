@@ -5,7 +5,15 @@ import { request } from "./request";
 vi.mock("./config", () => ({
   getApiUrl: (path: string) => `/api${path}`,
   getApiToken: vi.fn(() => ""),
+  getApiAuthMode: vi.fn(() => "multi_user"),
   clearAuthToken: vi.fn(),
+}));
+
+vi.mock("./authSession", () => ({
+  getAccessSessionGeneration: vi.fn(() => 0),
+  ensureAccessSessionFresh: vi.fn().mockResolvedValue(true),
+  refreshAccessSession: vi.fn().mockResolvedValue(true),
+  clearAccessSession: vi.fn(),
 }));
 
 vi.mock("./authHeaders", () => ({
@@ -14,6 +22,7 @@ vi.mock("./authHeaders", () => ({
 
 import { clearAuthToken } from "./config";
 import { buildAuthHeaders } from "./authHeaders";
+import { clearAccessSession, refreshAccessSession } from "./authSession";
 
 // Helper: create a mock Response
 function mockFetch(
@@ -70,6 +79,17 @@ describe("request", () => {
     expect(headers.get("Content-Type")).toBe("application/json");
   });
 
+  it("does not add a JSON content type to FormData uploads", async () => {
+    mockFetch(200, { data: "ok" });
+    const formData = new FormData();
+    formData.append("file", new File(["guide"], "guide.txt"));
+
+    await request("/documents/upload", { method: "POST", body: formData });
+
+    const headers: Headers = (fetch as any).mock.calls[0][1].headers;
+    expect(headers.has("Content-Type")).toBe(false);
+  });
+
   it("PUT request automatically adds Content-Type", async () => {
     mockFetch(200, { status: "ok" });
     await request("/models/active", { method: "PUT", body: "{}" });
@@ -109,10 +129,35 @@ describe("request", () => {
   // Error handling
   // ---------------------------------------------------------------------------
 
-  it("calls clearAuthToken and redirects to /login on 401", async () => {
+  it("refreshes once and retries the request on 401", async () => {
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: "Unauthorized",
+        headers: { get: () => "application/json" },
+        text: () => Promise.resolve(""),
+      } as unknown as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: { get: () => "application/json" },
+        json: () => Promise.resolve({ data: "ok" }),
+      } as unknown as Response);
+
+    await expect(request("/models")).resolves.toEqual({ data: "ok" });
+    expect(refreshAccessSession).toHaveBeenCalledOnce();
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(clearAuthToken).not.toHaveBeenCalled();
+  });
+
+  it("clears the session and redirects when refresh fails", async () => {
+    vi.mocked(refreshAccessSession).mockResolvedValueOnce(false);
     mockFetch(401);
     await expect(request("/models")).rejects.toThrow("Not authenticated");
-    expect(clearAuthToken).toHaveBeenCalledOnce();
+    expect(clearAccessSession).toHaveBeenCalledOnce();
     expect(window.location.href).toBe("/login?redirect=%2Fchat");
   });
 

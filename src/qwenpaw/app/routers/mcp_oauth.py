@@ -15,7 +15,9 @@ import json as _json
 import logging
 import secrets
 import time
+from datetime import UTC, datetime, timedelta
 from typing import Dict, Optional, Tuple
+from uuid import UUID
 from urllib.parse import urlencode, urlparse
 
 import httpx
@@ -29,7 +31,7 @@ from ...drivers.adapters.mcp_console import (
     detach_mcp_oauth_credential,
     mcp_oauth_credential_ref,
 )
-from ...drivers.constants import PROTOCOL_MCP
+from ...drivers.constants import CREDENTIAL_KIND_OAUTH_AUTH_CODE, PROTOCOL_MCP
 from ...drivers.credentials.store import AsyncCredentialStore
 from ...drivers.credentials.types import CredentialRecord
 from ...drivers.errors import CredentialNotFoundError
@@ -51,6 +53,7 @@ def _mcp_card_path(workspace, client_key: str):
 # ---------------------------------------------------------------------------
 
 _TTL_SECONDS = 600
+_MAX_COMPLETIONS = 1024
 
 
 class OAuthSession:
@@ -66,6 +69,11 @@ class OAuthSession:
         token_endpoint: str,
         redirect_uri: str,
         scope: str,
+        *,
+        initiated_by: UUID | None = None,
+        driver_id: UUID | None = None,
+        driver_revision: int | None = None,
+        postgres: bool = False,
     ) -> None:
         """Initialise OAuth session."""
         self.agent_id = agent_id
@@ -76,6 +84,10 @@ class OAuthSession:
         self.token_endpoint = token_endpoint
         self.redirect_uri = redirect_uri
         self.scope = scope
+        self.initiated_by = initiated_by
+        self.driver_id = driver_id
+        self.driver_revision = driver_revision
+        self.postgres = postgres
         self.created_at = time.monotonic()
 
     def is_expired(self) -> bool:
@@ -84,13 +96,40 @@ class OAuthSession:
 
 
 _state_store: Dict[str, OAuthSession] = {}
+_completion_store: Dict[str, tuple[OAuthSession, str, float]] = {}
 
 
 def _purge_expired() -> None:
-    """Remove expired sessions (called opportunistically)."""
+    """Expire pending sessions and bound the short-lived completion cache."""
+    now = time.monotonic()
+    stale_completions = [
+        key
+        for key, (_, _, completed_at) in _completion_store.items()
+        if now - completed_at > _TTL_SECONDS
+    ]
+    for key in stale_completions:
+        _completion_store.pop(key, None)
     expired = [k for k, v in _state_store.items() if v.is_expired()]
     for k in expired:
-        del _state_store[k]
+        session = _state_store.pop(k)
+        _completion_store[k] = (session, "expired", now)
+    overflow = len(_completion_store) - _MAX_COMPLETIONS
+    if overflow > 0:
+        oldest = sorted(
+            _completion_store,
+            key=lambda key: _completion_store[key][2],
+        )[:overflow]
+        for key in oldest:
+            _completion_store.pop(key, None)
+
+
+def _record_completion(
+    state: str,
+    session: OAuthSession,
+    status: str,
+) -> None:
+    _completion_store[state] = (session, status, time.monotonic())
+    _purge_expired()
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +349,7 @@ class OAuthStartRequest(BaseModel):
         default="",
         description="Override token endpoint (skips discovery)",
     )
+    expected_revision: Optional[int] = None
 
 
 class OAuthStartResponse(BaseModel):
@@ -325,6 +365,8 @@ class OAuthStatusResponse(BaseModel):
     authorized: bool
     expires_at: float
     scope: str
+    session_id: Optional[str] = None
+    status: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -358,11 +400,10 @@ def _popup_html(
 ) -> str:
     """Return HTML for the OAuth popup callback page.
 
-    Uses localStorage for same-origin communication so the main window
-    receives the result even when window.opener is null after cross-origin
-    OAuth redirects.
+    Communicates only with the same-origin opener and never stores tokens or
+    authorization results in browser storage.
     """
-    data: dict = {"type": "mcp-oauth", "status": status}
+    data: dict = {"type": f"mcp-oauth-{status}"}
     if extra_data:
         data.update(extra_data)
 
@@ -407,11 +448,8 @@ def _popup_html(
   <script>
     (function () {{
       var data = {json_data};
-      var KEY = 'mcp_oauth_result';
-      try {{ localStorage.setItem(KEY, JSON.stringify(data)); }}
-      catch (e) {{}}
       if (window.opener && !window.opener.closed) {{
-        try {{ window.opener.postMessage(data, '*'); }}
+        try {{ window.opener.postMessage(data, window.location.origin); }}
         catch (e) {{}}
       }}
       setTimeout(function () {{ window.close(); }}, 1500);
@@ -441,6 +479,7 @@ async def oauth_start(
     performs Dynamic Client Registration, and returns the authorization
     URL for the frontend to open in a browser popup.
     """
+    from ...access.dependencies import get_actor
     from ..agent_context import get_agent_for_request
 
     _purge_expired()
@@ -448,8 +487,48 @@ async def oauth_start(
     # -- Validate agent exists and is enabled -----------------------------
     agent = await get_agent_for_request(request)
     agent_id = agent.agent_id
-    card = await _load_mcp_card_for_oauth(agent, client_key)
-    endpoint_url = str(card.endpoint.get("url") or body.url or "")
+    actor = get_actor(request)
+    initiated_by = actor.user_id
+    pg_target = None
+    postgres = False
+    from ...identity.runtime import get_identity_schema
+    from ..mcp.postgres_repository import (
+        PostgresMCPRepository,
+        is_postgres_mcp_enabled,
+        workspace_uses_postgres,
+    )
+
+    if is_postgres_mcp_enabled():
+        pg_repo = PostgresMCPRepository(schema=get_identity_schema())
+        if await workspace_uses_postgres(agent, repository=pg_repo):
+            async with pg_repo.transaction() as db:
+                pg_target = await pg_repo.get_oauth_target(
+                    session=db,
+                    agent_key=agent_id,
+                    client_key=client_key,
+                )
+            if pg_target is None:
+                raise HTTPException(status_code=404, detail="mcp_not_found")
+            if actor.user_id is None or not pg_target.enabled:
+                raise HTTPException(status_code=403, detail="forbidden")
+            if body.expected_revision is None:
+                raise HTTPException(409, detail="expected_revision_required")
+            if body.expected_revision != pg_target.revision:
+                raise HTTPException(409, detail="mcp_revision_conflict")
+            if pg_target.oauth_authorization_conflict:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Remove the existing Authorization header before starting OAuth.",
+                )
+            initiated_by = actor.user_id
+            postgres = True
+            endpoint_url = pg_target.endpoint_url
+        else:
+            card = await _load_mcp_card_for_oauth(agent, client_key)
+            endpoint_url = str(card.endpoint.get("url") or body.url or "")
+    else:
+        card = await _load_mcp_card_for_oauth(agent, client_key)
+        endpoint_url = str(card.endpoint.get("url") or body.url or "")
     if not endpoint_url:
         raise HTTPException(
             status_code=400,
@@ -471,7 +550,11 @@ async def oauth_start(
         ) = await _discover_oauth_metadata(endpoint_url)
 
     # -- Resolve client_id -------------------------------------------------
-    existing_oauth = await _load_optional_oauth_credential(agent, client_key)
+    existing_oauth = (
+        None
+        if postgres
+        else await _load_optional_oauth_credential(agent, client_key)
+    )
     client_id = body.client_id or (
         str(existing_oauth.public.get("client_id") or "")
         if existing_oauth
@@ -487,6 +570,31 @@ async def oauth_start(
     challenge = _code_challenge(verifier)
     state = secrets.token_hex(16)
 
+    driver_id = None
+    driver_revision = None
+    if postgres:
+        from ..mcp.oauth_repository import PostgresOAuthRepository
+
+        assert pg_target is not None and initiated_by is not None
+        driver_id = pg_target.driver_id
+        driver_revision = pg_target.revision
+        pg_repo = PostgresMCPRepository(schema=get_identity_schema())
+        async with pg_repo.transaction() as db:
+            current_target = await pg_repo.get_oauth_target(
+                session=db,
+                agent_key=agent_id,
+                client_key=client_key,
+            )
+            if current_target != pg_target:
+                raise HTTPException(status_code=409, detail="mcp_revision_conflict")
+            await PostgresOAuthRepository(schema=get_identity_schema()).create(
+                session=db,
+                state=state,
+                driver_id=driver_id,
+                initiated_by=initiated_by,
+                expires_at=datetime.now(UTC) + timedelta(seconds=_TTL_SECONDS),
+            )
+
     # -- Store session -----------------------------------------------------
     _state_store[state] = OAuthSession(
         agent_id=agent_id,
@@ -497,6 +605,10 @@ async def oauth_start(
         token_endpoint=token_endpoint,
         redirect_uri=redirect_uri,
         scope=body.scope,
+        initiated_by=initiated_by,
+        driver_id=driver_id,
+        driver_revision=driver_revision,
+        postgres=postgres,
     )
 
     # -- Build authorization URL ------------------------------------------
@@ -517,7 +629,12 @@ async def oauth_start(
     return OAuthStartResponse(auth_url=auth_url, session_id=state)
 
 
-def _make_error_page(message: str) -> HTMLResponse:
+def _make_error_page(
+    message: str,
+    *,
+    session: OAuthSession | None = None,
+    session_id: str = "",
+) -> HTMLResponse:
     """Return an HTML error page for the OAuth popup."""
     safe = _html_lib.escape(message)
     body = (
@@ -525,7 +642,18 @@ def _make_error_page(message: str) -> HTMLResponse:
         "<strong>Authorization failed</strong></p>"
         f"<p style='color:#666;font-size:13px'>{safe}</p>"
     )
-    return HTMLResponse(_popup_html("error", body), status_code=400)
+    extra_data = None
+    if session is not None:
+        extra_data = {
+            "session_id": session_id,
+            "client_key": session.client_key,
+            "agent_id": session.agent_id,
+            "error": "oauth_failed",
+        }
+    return HTMLResponse(
+        _popup_html("error", body, extra_data=extra_data),
+        status_code=400,
+    )
 
 
 async def _exchange_code_for_tokens(
@@ -636,6 +764,99 @@ async def _persist_tokens(
     await config_service.save_card(card)
 
 
+async def _persist_postgres_tokens(
+    request: Request,
+    session: OAuthSession,
+    state: str,
+    tokens: dict,
+) -> None:
+    """Atomically consume state, revalidate ownership, and bind new tokens."""
+    if session.driver_id is None or session.initiated_by is None:
+        raise ValueError("oauth_session_invalid")
+    access_token = str(tokens.get("access_token") or "")
+    if not access_token:
+        raise ValueError("oauth_token_invalid")
+    refresh_token = str(tokens.get("refresh_token") or "")
+    try:
+        expires_in = max(0, int(tokens.get("expires_in", 3600)))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("oauth_token_invalid") from exc
+    expires_at = time.time() + expires_in
+
+    from ...identity.runtime import get_identity_schema
+    from ..mcp.oauth_repository import PostgresOAuthRepository
+    from ..mcp.postgres_repository import PostgresMCPRepository
+
+    pg_repo = PostgresMCPRepository(schema=get_identity_schema())
+    oauth_repo = PostgresOAuthRepository(schema=get_identity_schema())
+    async with pg_repo.transaction() as db:
+        await oauth_repo.consume(
+            session=db,
+            state=state,
+            driver_id=session.driver_id,
+            initiated_by=session.initiated_by,
+        )
+        target = await pg_repo.get_oauth_target(
+            session=db,
+            agent_key=session.agent_id,
+            client_key=session.client_key,
+        )
+        if not _oauth_target_is_unchanged(session, target):
+            raise ValueError("oauth_target_changed")
+        secret_values = {"access_token": access_token}
+        if refresh_token:
+            secret_values["refresh_token"] = refresh_token
+        await pg_repo.replace_bound_credential(
+            session=db,
+            target=target,
+            actor_user_id=session.initiated_by,
+            purpose="oauth",
+            kind=CREDENTIAL_KIND_OAUTH_AUTH_CODE,
+            public={
+                "client_id": session.client_id,
+                "scope": str(tokens.get("scope") or session.scope),
+                "expires_at": expires_at,
+                "token_endpoint": session.token_endpoint,
+                "auth_endpoint": session.auth_endpoint,
+            },
+            secrets=secret_values,
+        )
+    manager = getattr(request.app.state, "multi_agent_manager", None)
+    if manager is not None:
+        workspace = await manager.get_agent(session.agent_id)
+        await _reload_driver_best_effort(workspace, session.client_key)
+
+
+def _oauth_target_is_unchanged(session: OAuthSession, target) -> bool:
+    return bool(
+        target is not None
+        and target.enabled
+        and target.driver_id == session.driver_id
+        and target.revision == session.driver_revision
+    )
+
+
+async def _fail_postgres_session(session: OAuthSession, state: str) -> None:
+    if (
+        not session.postgres
+        or session.driver_id is None
+        or session.initiated_by is None
+    ):
+        return
+    from ...identity.runtime import get_identity_schema
+    from ..mcp.oauth_repository import PostgresOAuthRepository
+    from ..mcp.postgres_repository import PostgresMCPRepository
+
+    pg_repo = PostgresMCPRepository(schema=get_identity_schema())
+    async with pg_repo.transaction() as db:
+        await PostgresOAuthRepository(schema=get_identity_schema()).fail(
+            session=db,
+            state=state,
+            driver_id=session.driver_id,
+            initiated_by=session.initiated_by,
+        )
+
+
 def _workspace_credential_store(workspace) -> AsyncCredentialStore:
     return DriverConfigService(workspace).credential_store
 
@@ -701,33 +922,60 @@ async def oauth_callback(
     MCP client's OAuth credential record, then returns HTML that
     notifies the opener popup window and closes itself.
     """
-    _purge_expired()
-
-    if error:
-        return _make_error_page(error_description or error)
-
-    if not code or not state:
+    if error or not code or not state:
+        if state and (failed_session := _state_store.pop(state, None)) is not None:
+            try:
+                await _fail_postgres_session(failed_session, state)
+            except Exception:
+                logger.warning("MCP OAuth failure state could not be finalized")
+            _record_completion(state, failed_session, "failed")
+            return _make_error_page(
+                "OAuth authorization was cancelled.",
+                session=failed_session,
+                session_id=state,
+            )
         return _make_error_page("Missing 'code' or 'state' parameter.")
 
     session = _state_store.get(state)
     if session is None or session.is_expired():
+        if session is not None:
+            _state_store.pop(state, None)
+            try:
+                await _fail_postgres_session(session, state)
+            except Exception:
+                logger.warning("MCP OAuth expiry state could not be finalized")
+            _record_completion(state, session, "expired")
         return _make_error_page(
             "OAuth session expired or not found. Please try again.",
+            session=session,
+            session_id=state,
         )
 
     try:
+        # Remove the verifier before I/O so concurrent callbacks cannot reuse it.
+        _state_store.pop(state, None)
         tokens = await _exchange_code_for_tokens(session, code)
-        await _persist_tokens(request, session, tokens)
-    except Exception as exc:
-        logger.error(
-            f"OAuth callback failed for '{session.client_key}': {exc}",
-            exc_info=True,
+        if session.postgres:
+            await _persist_postgres_tokens(request, session, state, tokens)
+        else:
+            await _persist_tokens(request, session, tokens)
+    except Exception:
+        _state_store.pop(state, None)
+        try:
+            await _fail_postgres_session(session, state)
+        except Exception:
+            logger.warning("MCP OAuth failure state could not be finalized")
+        _record_completion(state, session, "failed")
+        logger.warning(
+            "MCP OAuth callback rejected",
         )
-        detail = getattr(exc, "detail", str(exc))
-        return _make_error_page(str(detail))
+        return _make_error_page(
+            "OAuth authorization could not be completed.",
+            session=session,
+            session_id=state,
+        )
 
-    _state_store.pop(state, None)
-
+    _record_completion(state, session, "completed")
     success_body = (
         "<p style='color:#27ae60;font-size:1.8em;margin:0'>&#10003;</p>"
         "<p style='font-size:1.1em;font-weight:600;margin:8px 0 4px'>"
@@ -740,11 +988,45 @@ async def oauth_callback(
             "success",
             success_body,
             extra_data={
-                "clientKey": session.client_key,
-                "agentId": session.agent_id,
+                "session_id": state,
+                "client_key": session.client_key,
+                "agent_id": session.agent_id,
             },
         ),
     )
+
+
+def _legacy_session_status(
+    session_id: str | None,
+    agent_id: str,
+    client_key: str,
+    initiated_by: UUID | None,
+) -> str | None:
+    if not session_id:
+        return None
+    pending = _state_store.get(session_id)
+    if pending is not None:
+        if (
+            pending.agent_id != agent_id
+            or pending.client_key != client_key
+            or pending.initiated_by != initiated_by
+        ):
+            return None
+        return "expired" if pending.is_expired() else "pending"
+    completed = _completion_store.get(session_id)
+    if completed is None:
+        return None
+    session, status, completed_at = completed
+    if time.monotonic() - completed_at > _TTL_SECONDS:
+        _completion_store.pop(session_id, None)
+        return None
+    if (
+        session.agent_id != agent_id
+        or session.client_key != client_key
+        or session.initiated_by != initiated_by
+    ):
+        return None
+    return status
 
 
 @router.get(
@@ -754,27 +1036,98 @@ async def oauth_callback(
 async def oauth_status(
     client_key: str,
     request: Request,
+    session_id: Optional[str] = None,
 ) -> OAuthStatusResponse:
-    """Return the current OAuth token status for an MCP client."""
+    """Return credential status, optionally correlated to one OAuth start."""
+    from ...access.dependencies import get_actor
+    from ...identity.runtime import get_identity_schema
     from ..agent_context import get_agent_for_request
+    from ..mcp.postgres_repository import (
+        PostgresMCPRepository,
+        is_postgres_mcp_enabled,
+        workspace_uses_postgres,
+    )
 
     agent = await get_agent_for_request(request)
+    actor = get_actor(request)
+    if is_postgres_mcp_enabled():
+        pg_repo = PostgresMCPRepository(schema=get_identity_schema())
+        if await workspace_uses_postgres(agent, repository=pg_repo):
+            if actor.user_id is None:
+                raise HTTPException(status_code=403, detail="forbidden")
+            from ..mcp.oauth_repository import PostgresOAuthRepository
+
+            async with pg_repo.transaction() as db:
+                target = await pg_repo.get_oauth_target(
+                    session=db,
+                    agent_key=agent.agent_id,
+                    client_key=client_key,
+                )
+                if target is None:
+                    raise HTTPException(status_code=404, detail="mcp_not_found")
+                correlated = None
+                if session_id:
+                    correlated = await PostgresOAuthRepository(
+                        schema=get_identity_schema()
+                    ).status(
+                        session=db,
+                        state=session_id,
+                        driver_id=target.driver_id,
+                        initiated_by=actor.user_id,
+                    )
+            if session_id and correlated is None:
+                raise HTTPException(404, detail="oauth_session_not_found")
+            status = await pg_repo.bound_credential_status(
+                agent_key=agent.agent_id,
+                client_key=client_key,
+                purpose="oauth",
+            )
+            not_expired = (
+                status.expires_at <= 0 or status.expires_at > time.time()
+            )
+            correlation_status = correlated.status if correlated else None
+            return OAuthStatusResponse(
+                authorized=(
+                    status.authorized
+                    and not_expired
+                    and (not session_id or correlation_status == "completed")
+                ),
+                expires_at=status.expires_at,
+                scope=status.scope,
+                session_id=session_id,
+                status=correlation_status,
+            )
     await _load_mcp_card_for_oauth(agent, client_key)
+    correlation_status = _legacy_session_status(
+        session_id,
+        agent.agent_id,
+        client_key,
+        actor.user_id,
+    )
+    if session_id and correlation_status is None:
+        raise HTTPException(404, detail="oauth_session_not_found")
     oauth = await _load_optional_oauth_credential(agent, client_key)
     if oauth is None or not oauth.secrets.get("access_token"):
         return OAuthStatusResponse(
             authorized=False,
             expires_at=0.0,
             scope="",
+            session_id=session_id,
+            status=correlation_status,
         )
 
     # Token is valid only when not expired (expires_at=0 means no expiry set)
     expires_at = float(oauth.public.get("expires_at") or 0.0)
     not_expired = expires_at <= 0 or expires_at > time.time()
     return OAuthStatusResponse(
-        authorized=not_expired,
+        authorized=(
+            not_expired
+            and (not session_id or correlation_status == "completed")
+        ),
         expires_at=expires_at,
         scope=str(oauth.public.get("scope") or ""),
+        session_id=session_id,
+        status=correlation_status,
     )
 
 
@@ -782,11 +1135,46 @@ async def oauth_status(
 async def oauth_revoke(
     client_key: str,
     request: Request,
+    expected_revision: Optional[int] = None,
 ) -> dict:
     """Clear OAuth tokens for an MCP client (logout / re-auth prep)."""
     from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
+    from ...access.dependencies import get_actor
+    from ...identity.runtime import get_identity_schema
+    from ..mcp.postgres_repository import (
+        PostgresMCPRepository,
+        is_postgres_mcp_enabled,
+        workspace_uses_postgres,
+    )
+
+    if is_postgres_mcp_enabled():
+        pg_repo = PostgresMCPRepository(schema=get_identity_schema())
+        if await workspace_uses_postgres(agent, repository=pg_repo):
+            actor = get_actor(request)
+            if actor.user_id is None:
+                raise HTTPException(status_code=403, detail="forbidden")
+            if expected_revision is None:
+                raise HTTPException(409, detail="expected_revision_required")
+            async with pg_repo.transaction() as db:
+                target = await pg_repo.get_oauth_target(
+                    session=db,
+                    agent_key=agent.agent_id,
+                    client_key=client_key,
+                )
+                if target is None:
+                    raise HTTPException(status_code=404, detail="mcp_not_found")
+                if target.revision != expected_revision:
+                    raise HTTPException(409, detail="mcp_revision_conflict")
+                await pg_repo.revoke_bound_credential(
+                    session=db,
+                    target=target,
+                    actor_user_id=actor.user_id,
+                    purpose="oauth",
+                )
+            await _reload_driver_best_effort(agent, client_key)
+            return {"message": "OAuth tokens cleared"}
     card = await _load_mcp_card_for_oauth(agent, client_key)
     config_service = DriverConfigService(agent)
     store = config_service.credential_store

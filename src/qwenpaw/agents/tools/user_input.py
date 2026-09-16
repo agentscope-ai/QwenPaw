@@ -215,6 +215,8 @@ async def ask_user_input(
     user_id = str(ctx.get("user_id") or "default")
     agent_id = str(ctx.get("agent_id") or get_current_agent_id())
 
+    from ...runtime_status.scope import execution_user_id
+
     svc = get_user_input_service()
     pending = await svc.create_pending(
         session_id=session_id,
@@ -223,6 +225,7 @@ async def ask_user_input(
         channel="console",
         agent_id=agent_id,
         title=title,
+        recipient_user_id=execution_user_id(ctx),
         questions=parsed_questions,
         timeout_seconds=timeout,
     )

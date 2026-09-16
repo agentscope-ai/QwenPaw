@@ -39,17 +39,16 @@ import {
   SparkOtherLine,
   SparkPluginLine,
   SparkSaveLine,
-  SparkScanLine,
   SparkToolLine,
   SparkUserGroupLine,
   SparkVoiceChat01Line,
   SparkWifiLine,
 } from "@agentscope-ai/icons";
-import { GitBranch } from "lucide-react";
+import { Database, Files, GitBranch, ScanSearch } from "lucide-react";
 import i18next from "i18next";
-import { Files } from "lucide-react";
 import { menuRegistry } from "../../plugins/registry/store";
 import type { MenuItem } from "../../plugins/registry/types";
+import { Capability } from "../../access/capabilities";
 
 /** Translate a nav key. Falls back to defaultValue when i18n hasn't loaded. */
 const navLabel = (key: string, defaultValue?: string) => (): string =>
@@ -165,15 +164,6 @@ export const BUILTIN_MENU: MenuItem[] = [
     order: 40,
   },
   {
-    id: "core.acp",
-    location: "primary.agentScoped",
-    parentId: "core.workspace-group",
-    label: navLabel("nav.acp"),
-    icon: SparkScanLine,
-    route: "core.acp",
-    order: 50,
-  },
-  {
     id: "core.agent-config",
     location: "primary.agentScoped",
     parentId: "core.workspace-group",
@@ -225,7 +215,28 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.models"),
     icon: SparkModePlazaLine,
     route: "core.models",
+    capability: Capability.PlatformSettingsManage,
     order: 20,
+  },
+  {
+    id: "core.admin-users",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("nav.users", "User Management"),
+    icon: SparkUserGroupLine,
+    route: "core.admin-users",
+    capability: Capability.UsersManage,
+    order: 120,
+  },
+  {
+    id: "core.admin-publications",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("nav.publications", "发布审核"),
+    icon: SparkMyApplicationLine,
+    route: "core.admin-publications",
+    capability: Capability.PublicationsReview,
+    order: 28,
   },
   {
     id: "core.skill-pool",
@@ -234,6 +245,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.skillPool", "Skill Pool"),
     icon: SparkOtherLine,
     route: "core.skill-pool",
+    capability: Capability.PlatformSettingsManage,
     order: 30,
   },
   {
@@ -243,6 +255,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.environments"),
     icon: SparkInternetLine,
     route: "core.environments",
+    capability: Capability.PlatformSettingsManage,
     order: 50,
   },
   {
@@ -252,6 +265,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.offloadPolicy", "Tool Offload"),
     icon: SparkDateLine,
     route: "core.offload-policy",
+    capability: Capability.PlatformSettingsManage,
     order: 55,
   },
   {
@@ -261,7 +275,28 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.security"),
     icon: SparkBrowseLine,
     route: "core.security",
+    capability: Capability.PlatformSettingsManage,
     order: 60,
+  },
+  {
+    id: "core.system-status",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("nav.systemStatus", "System Status"),
+    icon: Database,
+    route: "core.system-status",
+    capability: Capability.PlatformSettingsManage,
+    order: 65,
+  },
+  {
+    id: "core.migration-preview",
+    location: "primary.settings",
+    parentId: "core.settings-group",
+    label: navLabel("nav.migrationPreview", "Migration Preview"),
+    icon: ScanSearch,
+    route: "core.migration-preview",
+    capability: Capability.PlatformSettingsManage,
+    order: 67,
   },
   {
     id: "core.token-usage",
@@ -279,6 +314,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.backups"),
     icon: SparkSaveLine,
     route: "core.backups",
+    capability: Capability.PlatformSettingsManage,
     order: 80,
   },
   {
@@ -288,6 +324,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.voiceTranscription"),
     icon: SparkMicLine,
     route: "core.voice-transcription",
+    capability: Capability.PlatformSettingsManage,
     order: 90,
   },
   {
@@ -297,6 +334,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.debug", "Debug"),
     icon: SparkDebugLine,
     route: "core.debug",
+    capability: Capability.PlatformSettingsManage,
     order: 100,
   },
   {
@@ -306,6 +344,7 @@ export const BUILTIN_MENU: MenuItem[] = [
     label: navLabel("nav.pluginManager", "Plugin Manager"),
     icon: SparkPluginLine,
     route: "core.plugin-manager",
+    capability: Capability.PlatformSettingsManage,
     order: 110,
   },
 ];

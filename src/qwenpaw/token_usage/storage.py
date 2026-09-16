@@ -9,6 +9,11 @@ from pathlib import Path
 
 import aiofiles
 
+from ..persistence.repository_provider import (
+    CutoverDomain,
+    assert_legacy_write_allowed,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -41,6 +46,7 @@ def save_data_sync(path: Path, data: dict) -> bool:
     Returns:
         ``True`` on success, ``False`` when the atomic write fails.
     """
+    assert_legacy_write_allowed(CutoverDomain.TOKENS)
     tmp_path = path.with_suffix(".tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

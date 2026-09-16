@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import { createClientMessageId } from "../utils/clientMessageId";
+import {
+  getAuthenticatedStorageUserId,
+  getUserScopedStorageKey,
+  getUserScopedStoragePrefix,
+} from "./identityStorage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,6 +80,10 @@ export interface QueueItemInput {
 
 export const STORAGE_PREFIX = "qwenpaw:message-queue:";
 
+export function getStoragePrefix(): string {
+  return getUserScopedStoragePrefix(STORAGE_PREFIX);
+}
+
 /** Shape persisted in localStorage per session */
 interface PersistedQueue {
   items: QueueItem[];
@@ -82,7 +91,7 @@ interface PersistedQueue {
 }
 
 export function getStorageKey(sessionId: string): string {
-  return `${STORAGE_PREFIX}${sessionId}`;
+  return `${getStoragePrefix()}${sessionId}`;
 }
 
 function readQueueFromStorage(sessionId: string): PersistedQueue | null {
@@ -177,6 +186,7 @@ type BroadcastPayload = {
   runState?: QueueRunState;
   // For migrate: target session id (sessionId is the source)
   toSessionId?: string;
+  storageUserId?: string;
 };
 
 let _channel: BroadcastChannel | null = null;
@@ -195,7 +205,10 @@ function broadcast(payload: BroadcastPayload) {
   const ch = getChannel();
   if (ch) {
     try {
-      ch.postMessage(payload);
+      ch.postMessage({
+        ...payload,
+        storageUserId: getAuthenticatedStorageUserId(),
+      });
     } catch {
       // ignore
     }
@@ -356,8 +369,12 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     let agentId: string | undefined;
     try {
       const agentStorage =
-        sessionStorage.getItem("qwenpaw-agent-storage") ||
-        localStorage.getItem("qwenpaw-agent-storage");
+        sessionStorage.getItem(
+          getUserScopedStorageKey("qwenpaw-agent-storage"),
+        ) ||
+        localStorage.getItem(
+          getUserScopedStorageKey("qwenpaw-agent-storage"),
+        );
       if (agentStorage) {
         const parsed = JSON.parse(agentStorage);
         agentId = parsed?.state?.selectedAgent || undefined;
@@ -604,6 +621,7 @@ if (typeof window !== "undefined") {
     ch.addEventListener("message", (event: MessageEvent<BroadcastPayload>) => {
       const data = event.data;
       if (!data || typeof data !== "object") return;
+      if (data.storageUserId !== getAuthenticatedStorageUserId()) return;
       const store = useMessageQueueStore.getState();
       if (data.type === "migrate") {
         // Source cleared, destination set with merged items.
@@ -628,8 +646,9 @@ if (typeof window !== "undefined") {
   // storage event: fallback for environments without BroadcastChannel, and
   // also covers the case where another tab wrote without our channel.
   window.addEventListener("storage", (event) => {
-    if (!event.key || !event.key.startsWith(STORAGE_PREFIX)) return;
-    const sessionId = event.key.slice(STORAGE_PREFIX.length);
+    const storagePrefix = getStoragePrefix();
+    if (!event.key || !event.key.startsWith(storagePrefix)) return;
+    const sessionId = event.key.slice(storagePrefix.length);
     const store = useMessageQueueStore.getState();
     if (event.newValue == null) {
       store.applyRemoteItems(sessionId, []);

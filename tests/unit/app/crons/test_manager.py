@@ -24,6 +24,10 @@ from qwenpaw.app.crons.models import (
     CronJobState,
     ScheduleSpec,
 )
+from qwenpaw.app.agent_context import (
+    get_current_user_id,
+    set_current_user_id,
+)
 from tests.unit.app.conftest import (
     InMemoryJobRepository,
     make_cron_job_spec,
@@ -43,6 +47,27 @@ def manager(repo: InMemoryJobRepository) -> CronManager:
         workspace=MagicMock(),
         channel_manager=AsyncMock(),
     )
+
+
+@pytest.mark.asyncio
+async def test_service_job_does_not_inherit_request_user(
+    manager: CronManager,
+) -> None:
+    observed_user_ids: list[str | None] = []
+
+    async def callback() -> None:
+        observed_user_ids.append(get_current_user_id())
+
+    set_current_user_id("request-user")
+    try:
+        await manager._run_service_job(
+            "memory",
+            ServiceCronJob(key="dream", cron="0 0 * * *", callback=callback),
+        )
+        assert observed_user_ids == [None]
+        assert get_current_user_id() == "request-user"
+    finally:
+        set_current_user_id(None)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +169,27 @@ async def test_start_loads_existing_jobs(repo: InMemoryJobRepository):
 
     jobs = await mgr.list_jobs()
     assert any(j.id == "preloaded" for j in jobs)
+    await mgr.stop()
+
+
+@pytest.mark.asyncio
+async def test_start_does_not_schedule_pending_authorization_job(
+    repo: InMemoryJobRepository,
+):
+    spec = make_cron_job_spec(job_id="pending")
+    spec.status = "pending_authorization"
+    spec.enabled = True
+    await repo.upsert_job(spec)
+
+    mgr = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+        authorization_service=MagicMock(),
+    )
+    await mgr.start()
+
+    assert mgr._scheduler.get_job("pending") is None
     await mgr.stop()
 
 

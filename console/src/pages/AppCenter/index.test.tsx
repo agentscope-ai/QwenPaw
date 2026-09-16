@@ -5,6 +5,7 @@ import { useLocation } from "react-router-dom";
 
 import { renderWithProviders } from "@/test/common_setup";
 import AppCenterPage from "./index";
+import { useAuthStore } from "@/stores/authStore";
 
 const hoisted = vi.hoisted(() => ({
   listApps: vi.fn(),
@@ -107,6 +108,16 @@ describe("AppCenterPage", () => {
     });
     hoisted.fetchMarketPlugins.mockResolvedValue({ plugins: [], total: 0 });
     window.history.replaceState({}, "", "/apps");
+    useAuthStore.setState({
+      mode: "multi_user",
+      phase: "authenticated",
+      user: {
+        id: "admin-1",
+        username: "admin",
+        platform_role: "admin",
+        status: "active",
+      },
+    });
   });
 
   it("renders installed apps by default without mounting external views", async () => {
@@ -120,6 +131,56 @@ describe("AppCenterPage", () => {
       screen.queryByLabelText("appCenter.searchMarket"),
     ).not.toBeInTheDocument();
     expect(hoisted.fetchMarketPlugins).not.toHaveBeenCalled();
+  });
+
+  it("hides install channels and uninstall actions from ordinary members", async () => {
+    useAuthStore.setState({
+      mode: "multi_user",
+      phase: "authenticated",
+      user: {
+        id: "member-1",
+        username: "member",
+        platform_role: "member",
+        status: "active",
+      },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("alpha-app")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /appCenter.officialApps/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("tab", { name: /appCenter.appMarket/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /appCenter.uninstall/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides install entry buttons from ordinary members with no authorized apps", async () => {
+    hoisted.listApps.mockResolvedValue({ apps: [], total: 0 });
+    useAuthStore.setState({
+      mode: "multi_user",
+      phase: "authenticated",
+      user: {
+        id: "member-1",
+        username: "member",
+        platform_role: "member",
+        status: "active",
+      },
+    });
+
+    renderPage();
+
+    expect(await screen.findByText("appCenter.noApps")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /appCenter.browseOfficialApps/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /appCenter.browseMarket/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("enters the official view and loads featured apps lazily", async () => {

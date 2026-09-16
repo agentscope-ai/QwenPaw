@@ -16,6 +16,7 @@
     "disable": "Desativar",
     "enabled": "Ativado",
     "disabled": "Desativado",
+    "readOnly": "Somente leitura",
     "preview": "Visualizar",
     "raw": "Código-fonte",
     "view": "Visualizar",
@@ -1580,6 +1581,7 @@
     }
   },
   "environments": {
+    "deploymentScopeNotice": "Esta página gerencia apenas variáveis de implantação da plataforma. Valores salvos não podem ser visualizados. Gerencie credenciais de agentes, ferramentas e MCP nas configurações correspondentes.",
     "parent": "Configuracoes",
     "environments": "Variaveis de Ambiente",
     "title": "Variaveis de Ambiente",
@@ -1993,6 +1995,7 @@
     "perMillionOut": "/1M out"
   },
   "files": {
+    "fileCenter": {"attachments":"Temporary attachments","library":"Personal library","artifacts":"Artifacts","agentConfig":"Agent configuration","memory":"Memory","myMemory":"My memory","publicMemory":"Public memory","memoryScopeLabel":"Memory scope","memoryTypeLabel":"Memory type","conversationMemory":"Memory journal","distilledMemory":"Long-term memory","open":"Open in File Center","loadFailed":"Failed to load the file.","memoryLoadFailed":"Failed to load memory files","memoryPreviewFailed":"This memory file cannot be previewed right now. Try again.","memoryScopeLoadFailed":"Failed to load memory scopes","memoryIndexState":"Memory index status: {{state}}. Existing memory files remain available.","memoryIndexNotice":{"needs_reindex":"The memory search index needs an update. File browsing and preview remain available.","reindexing":"The memory search index is updating. File browsing and preview remain available.","reindex_failed":"The memory search index update failed. File browsing and preview remain available.","unavailable":"Memory search is unavailable. File browsing and preview remain available."},"memorySectionDescription":{"daily":"Conversation journals saved by date. Files can be opened and previewed directly.","digest":"Long-term topic memories distilled by Dream. Files can be opened and previewed directly."},"noMemoryFiles":"No memory files","noMemoryAccess":"This account has no readable memory scope","selectMemory":"Select a memory file"},
     "title": "Arquivos",
     "navigator": "Navegador de arquivos",
     "source": "Fonte",
@@ -2558,6 +2561,10 @@
     "asyncExecution": "Async Execution",
     "asyncExecutionEnabled": "Async execution Ativado",
     "asyncExecutionDisabled": "Async execution Desativado",
+    "credentialKeep": "Manter credencial atual",
+    "credentialReplace": "Substituir credencial",
+    "credentialDelete": "Excluir credencial",
+    "browserPolicyLocked": "Desativado pela política da plataforma",
     "browserUnifiedMode": "Navegador unificado (Beta)",
     "browserLegacyMode": "Modo de compatibilidade legado",
     "browserUnifiedModeButton": "Novo (Beta)",
@@ -3206,6 +3213,8 @@
     "detailContent": "Saída",
     "detailPayload": "Dados",
     "detailExecutionTrace": "Rastro de execução",
+    "memoryFiles": "Generated memory files",
+    "openSourceConversation": "Open source conversation",
     "detailTraceEmpty": "Nenhum rastro de execução disponível",
     "filterByAgent": "Filtrar por agente",
     "filterBySourceType": "Filtrar por origem",

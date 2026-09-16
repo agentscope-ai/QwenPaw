@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw.agents.utils.audio_transcription import (
+    TranscriptionSnapshot,
     _get_configured_provider_creds,
     _get_manager,
     _url_for_provider,
@@ -322,7 +323,10 @@ class TestTranscribeAudio:
             "qwenpaw.config.load_config",
             return_value=mock_config,
         ), patch(
-            f"{_MOD}._transcribe_local_whisper",
+            f"{_MOD}.capture_snapshot",
+            return_value=TranscriptionSnapshot("local_whisper"),
+        ), patch(
+            f"{_MOD}._local",
             new_callable=AsyncMock,
             return_value="hello world",
         ):
@@ -337,7 +341,12 @@ class TestTranscribeAudio:
             "qwenpaw.config.load_config",
             return_value=mock_config,
         ), patch(
-            f"{_MOD}._transcribe_whisper_api",
+            f"{_MOD}.capture_snapshot",
+            return_value=TranscriptionSnapshot("whisper_api"),
+        ), patch(
+            "qwenpaw.models.runtime.is_multi_user_enabled", return_value=False,
+        ), patch(
+            f"{_MOD}._remote",
             new_callable=AsyncMock,
             return_value="transcribed text",
         ):

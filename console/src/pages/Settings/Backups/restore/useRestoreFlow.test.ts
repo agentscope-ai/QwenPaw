@@ -30,7 +30,6 @@ describe("useRestoreFlow", () => {
 
     expect(result.current.preRestoreConfirmTarget).toEqual(b);
     expect(result.current.restoreTarget).toBeNull();
-    expect(result.current.preRestoreBackupTarget).toBeNull();
   });
 
   it("confirmRestoreWithoutBackup clears confirm target and sets restore target", () => {
@@ -48,22 +47,6 @@ describe("useRestoreFlow", () => {
     expect(result.current.restoreTarget).toEqual(b);
   });
 
-  it("confirmRestoreWithBackup clears confirm target and sets backup target", () => {
-    const { result } = renderHook(() => useRestoreFlow());
-    const b = makeBackup("b1");
-
-    act(() => {
-      result.current.handleRestore(b);
-    });
-    act(() => {
-      result.current.confirmRestoreWithBackup(b);
-    });
-
-    expect(result.current.preRestoreConfirmTarget).toBeNull();
-    expect(result.current.preRestoreBackupTarget).toEqual(b);
-    expect(result.current.restoreTarget).toBeNull();
-  });
-
   it("cancelPreRestore clears confirm target", () => {
     const { result } = renderHook(() => useRestoreFlow());
     const b = makeBackup("b1");
@@ -76,35 +59,5 @@ describe("useRestoreFlow", () => {
     });
 
     expect(result.current.preRestoreConfirmTarget).toBeNull();
-  });
-
-  it("onPreRestoreBackupSuccess promotes backup target to restore target", () => {
-    const { result } = renderHook(() => useRestoreFlow());
-    const b = makeBackup("b1");
-
-    act(() => {
-      result.current.confirmRestoreWithBackup(b);
-    });
-    act(() => {
-      result.current.onPreRestoreBackupSuccess();
-    });
-
-    expect(result.current.preRestoreBackupTarget).toBeNull();
-    expect(result.current.restoreTarget).toEqual(b);
-  });
-
-  it("onPreRestoreBackupClose clears backup target without promoting", () => {
-    const { result } = renderHook(() => useRestoreFlow());
-    const b = makeBackup("b1");
-
-    act(() => {
-      result.current.confirmRestoreWithBackup(b);
-    });
-    act(() => {
-      result.current.onPreRestoreBackupClose();
-    });
-
-    expect(result.current.preRestoreBackupTarget).toBeNull();
-    expect(result.current.restoreTarget).toBeNull();
   });
 });

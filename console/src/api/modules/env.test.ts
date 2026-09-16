@@ -1,9 +1,7 @@
 /**
  * Tests for api/modules/env.ts
  *
- * Contract-guard style: verify return pass-through.  `saveEnvs` is a
- * full-replacement batch op; `deleteEnv` removes one key.  We verify
- * shape and error propagation, not exact request body strings (#5438).
+ * Contract guard for the write-only secret API.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -26,30 +24,28 @@ describe("envApi", () => {
 
   it("listEnvs returns the EnvVar[] from request", async () => {
     const envs = [
-      { key: "API_KEY", value: "v1", is_secret: true },
-      { key: "DEBUG", value: "false", is_secret: false },
+      { key: "API_KEY", configured: true },
+      { key: "DEBUG", configured: true },
     ];
     vi.mocked(request).mockResolvedValue(envs);
     const result = await envApi.listEnvs();
     expect(result).toEqual(envs);
   });
 
-  it("saveEnvs returns the full updated EnvVar[] after batch save", async () => {
-    const updated = [{ key: "K", value: "V", is_secret: false }];
+  it("updateEnvs sends explicit operations and returns masked state", async () => {
+    const updated = [{ key: "K", configured: true }];
+    const operations = [{ key: "K", action: "replace" as const, value: "V" }];
     vi.mocked(request).mockResolvedValue(updated);
-    const result = await envApi.saveEnvs({ K: "V" });
+    const result = await envApi.updateEnvs(operations);
     expect(result).toBe(updated);
-  });
-
-  it("deleteEnv returns the remaining EnvVar[] after deletion", async () => {
-    const remaining = [{ key: "OTHER", value: "x", is_secret: false }];
-    vi.mocked(request).mockResolvedValue(remaining);
-    const result = await envApi.deleteEnv("OLD_KEY");
-    expect(result).toBe(remaining);
+    expect(request).toHaveBeenCalledWith("/envs", {
+      method: "PUT",
+      body: JSON.stringify({ operations }),
+    });
   });
 
   it("propagates request errors", async () => {
     vi.mocked(request).mockRejectedValue(new Error("conflict"));
-    await expect(envApi.saveEnvs({})).rejects.toThrow("conflict");
+    await expect(envApi.updateEnvs([])).rejects.toThrow("conflict");
   });
 });

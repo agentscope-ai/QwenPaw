@@ -59,6 +59,8 @@ class RuntimeConfigPage(BasePage):
     AUTO_CONTINUE_SWITCH = '#auto_continue_on_text_only'
     MEMORY_BACKEND_SELECT = '#memory_manager_backend'
     MAX_INPUT_LENGTH_INPUT = '#max_input_length'
+    SHELL_TIMEOUT_INPUT = '#shell_command_timeout'
+    AUTO_TITLE_SWITCH = '#auto_title_config_enabled'
 
     # Save button
     SAVE_BTN = 'button.qwenpaw-btn-primary:has-text("保存"), button:has-text("保 存")'
@@ -204,6 +206,27 @@ class RuntimeConfigPage(BasePage):
         logger.info(f"Switched to tab: {tab_key}")
         return self
 
+    def switch_to_loop_mode(self, mode_name: str) -> "RuntimeConfigPage":
+        """切换循环设置卡片中的内层模式标签。"""
+        self.switch_to_react_tab()
+        tab = self.page.get_by_role("tab", name=mode_name, exact=True).first
+        expect(tab).to_be_visible(timeout=self.timeout)
+        tab.click()
+        expect(tab).to_have_attribute("aria-selected", "true")
+        return self
+
+    def expand_loop_gate(self, gate_name: str) -> "RuntimeConfigPage":
+        """展开当前循环模式中的 Gate 参数。"""
+        panel = self.page.locator(self.ACTIVE_PANEL).first
+        gate = panel.get_by_text(gate_name, exact=True).last
+        expect(gate).to_be_visible(timeout=self.timeout)
+        gate.click()
+        return self
+
+    def loop_mode_tab(self, mode_name: str) -> Locator:
+        """返回循环模式标签，供重载后的保真断言复用。"""
+        return self.page.get_by_role("tab", name=mode_name, exact=True).first
+
     # ========== ReAct tab field operations ==========
 
     def get_max_iters(self) -> str:
@@ -254,6 +277,31 @@ class RuntimeConfigPage(BasePage):
         expect(input_el).to_be_visible(timeout=self.timeout)
         input_el.fill(str(value))
         logger.info(f"Set max context length: {value}")
+        return self
+
+    def get_shell_timeout(self) -> str:
+        """读取 Shell 命令默认超时。"""
+        return self.page.locator(self.SHELL_TIMEOUT_INPUT).first.input_value()
+
+    def set_shell_timeout(self, value: int) -> "RuntimeConfigPage":
+        """设置 Shell 命令默认超时。"""
+        field = self.page.locator(self.SHELL_TIMEOUT_INPUT).first
+        expect(field).to_be_visible(timeout=self.timeout)
+        field.fill(str(value))
+        return self
+
+    def is_auto_title_enabled(self) -> bool:
+        """返回自动生成会话标题开关状态。"""
+        switch = self.page.locator(self.AUTO_TITLE_SWITCH).first
+        expect(switch).to_be_visible(timeout=self.timeout)
+        return switch.get_attribute("aria-checked") == "true"
+
+    def set_auto_title_enabled(self, enabled: bool) -> "RuntimeConfigPage":
+        """仅在状态不同时切换自动生成会话标题。"""
+        switch = self.page.locator(self.AUTO_TITLE_SWITCH).first
+        expect(switch).to_be_visible(timeout=self.timeout)
+        if (switch.get_attribute("aria-checked") == "true") != enabled:
+            switch.click()
         return self
 
     # ========== Generic panel operations ==========

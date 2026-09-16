@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from contextlib import contextmanager
+import tempfile
 from typing import Any
 
 from ...exceptions import SkillsError
@@ -35,6 +37,8 @@ from .store import (
     suggest_conflict_name,
     validate_skill_content,
     write_skill_to_dir,
+    workspace_skill_writer,
+    workspace_skill_write_lock,
 )
 
 
@@ -68,8 +72,9 @@ def _register_workspace_skill_entry(
         protected=False,
     )
     payload["skills"][skill_name] = {
+        **entry,
         "enabled": bool(entry.get("enabled", enable)),
-        "channels": entry.get("channels") or ["all"],
+        "channels": entry.get("channels", ["all"]),
         "source": metadata["source"],
         "installed_from": (
             installed_from or str(entry.get("installed_from", "") or "")
@@ -111,6 +116,71 @@ class SkillService:
     def _read_manifest(self) -> dict[str, Any]:
         return read_skill_manifest(self.workspace_dir)
 
+    @contextmanager
+    def install_verified_snapshot(
+        self, name, source, version, *, expected_content_hash=None
+    ):
+        """Install a scanned exact snapshot; compensate until the caller commits its DB transaction."""
+        from ...skills.snapshots import directory_hash
+
+        with workspace_skill_write_lock(self.workspace_dir):
+            target = get_workspace_skills_dir(self.workspace_dir) / name
+            manifest_path = get_workspace_skill_manifest_path(self.workspace_dir)
+            manifest_before = (
+                manifest_path.read_bytes() if manifest_path.exists() else None
+            )
+            with tempfile.TemporaryDirectory(
+                prefix="qwenpaw_skill_install_"
+            ) as scratch:
+                staged = Path(scratch) / "staged"
+                backup = Path(scratch) / "backup"
+                copy_skill_dir(source, staged, exact=True)
+                if directory_hash(staged) != version["content_hash"]:
+                    raise ValueError("snapshot_integrity_failed")
+                scan_skill_dir_or_raise(staged, name)
+                actual = (
+                    directory_hash(target, shared=False) if target.exists() else None
+                )
+                if actual != expected_content_hash:
+                    raise ValueError("content_conflict")
+                if target.exists():
+                    copy_skill_dir(target, backup, exact=True)
+                changed = False
+                try:
+                    changed = True
+                    copy_skill_dir(staged, target, exact=True)
+                    if directory_hash(target) != version["content_hash"]:
+                        raise ValueError("snapshot_integrity_failed")
+
+                    def register(payload):
+                        _register_workspace_skill_entry(
+                            payload, name, target, enable=True, source="customized"
+                        )
+                        entry = payload["skills"][name]
+                        entry.update(
+                            source_pool_version_id=str(version["id"]),
+                            source_pool_version=version["version"],
+                            source_content_hash=version["content_hash"],
+                            detached=False,
+                        )
+
+                    mutate_json(manifest_path, default_workspace_manifest(), register)
+                    yield self._read_manifest()["skills"][name]
+                except BaseException:
+                    if changed:
+                        if target.exists():
+                            shutil.rmtree(target)
+                        if backup.exists():
+                            copy_skill_dir(backup, target, exact=True)
+                        if manifest_before is None:
+                            manifest_path.unlink(missing_ok=True)
+                        else:
+                            # Restore exact pre-operation bytes while the workspace lock is held.
+                            restore_path = Path(scratch) / "manifest"
+                            restore_path.write_bytes(manifest_before)
+                            shutil.copyfile(restore_path, manifest_path)
+                    raise
+
     def list_all_skills(self) -> list[SkillInfo]:
         manifest = self._read_manifest()
         skill_root = get_workspace_skills_dir(self.workspace_dir)
@@ -142,6 +212,7 @@ class SkillService:
                 skills.append(skill)
         return skills
 
+    @workspace_skill_writer
     def create_skill(
         self,
         name: str,
@@ -226,6 +297,7 @@ class SkillService:
             ) from exc
         return skill_name
 
+    @workspace_skill_writer
     def save_skill(
         self,
         *,
@@ -234,6 +306,7 @@ class SkillService:
         target_name: str | None = None,
         config: dict[str, Any] | None = None,
         overwrite: bool = False,
+        expected_content_hash: str | None = None,
     ) -> dict[str, Any]:
         """Edit-in-place or rename-save a workspace skill."""
         validate_skill_content(content)
@@ -257,6 +330,13 @@ class SkillService:
 
         skill_root = get_workspace_skills_dir(self.workspace_dir)
         target_dir = safe_skill_dir(skill_root, final_name)
+        from ...skills.snapshots import directory_hash
+
+        actual = directory_hash(target_dir, shared=False) if target_dir.exists() else None
+        if overwrite and (expected_content_hash is None or actual != expected_content_hash):
+            raise ValueError("content_conflict")
+        if expected_content_hash is not None and actual != expected_content_hash:
+            raise ValueError("content_conflict")
         if target_dir.exists() and not overwrite:
             existing = (
                 {
@@ -270,6 +350,7 @@ class SkillService:
             return {
                 "success": False,
                 "reason": "conflict",
+                "expected_content_hash": actual,
                 "suggested_name": suggest_conflict_name(
                     final_name,
                     existing,
@@ -281,7 +362,48 @@ class SkillService:
             content=content,
             config=config,
             old_entry=old_entry,
+            expected_content_hash=actual,
         )
+
+    @contextmanager
+    def save_skill_transaction(self, **values):
+        """Keep both rename destinations and manifest recoverable through DB commit."""
+        with self.skill_files_transaction(
+            values["skill_name"], values.get("target_name") or values["skill_name"]
+        ):
+            yield self.save_skill(**values)
+
+    @contextmanager
+    def skill_files_transaction(self, *skill_names):
+        """Compensate file mutations until the surrounding database commit succeeds."""
+        with workspace_skill_write_lock(self.workspace_dir):
+            root = get_workspace_skills_dir(self.workspace_dir)
+            names = {normalize_skill_dir_name(name) for name in skill_names}
+            targets = [safe_skill_dir(root, name) for name in sorted(names)]
+            manifest_path = get_workspace_skill_manifest_path(self.workspace_dir)
+            manifest_before = (
+                manifest_path.read_bytes() if manifest_path.exists() else None
+            )
+            with tempfile.TemporaryDirectory(prefix="qwenpaw_skill_save_") as scratch:
+                backups = []
+                for index, target in enumerate(targets):
+                    backup = Path(scratch) / str(index)
+                    if target.exists():
+                        copy_skill_dir(target, backup, exact=True)
+                    backups.append((target, backup))
+                try:
+                    yield
+                except BaseException:
+                    for target, backup in backups:
+                        if target.exists():
+                            shutil.rmtree(target)
+                        if backup.exists():
+                            copy_skill_dir(backup, target, exact=True)
+                    if manifest_before is None:
+                        manifest_path.unlink(missing_ok=True)
+                    else:
+                        manifest_path.write_bytes(manifest_before)
+                    raise
 
     def _save_skill_in_place(
         self,
@@ -344,8 +466,9 @@ class SkillService:
                 payload["skills"].get(skill_name) or old_entry or {}
             )
             next_entry = {
+                **current_entry,
                 "enabled": bool(current_entry.get("enabled", False)),
-                "channels": current_entry.get("channels") or ["all"],
+                "channels": current_entry.get("channels", ["all"]),
                 "source": metadata["source"],
                 "installed_from": str(
                     current_entry.get("installed_from", "") or "",
@@ -379,6 +502,7 @@ class SkillService:
         content: str,
         config: dict[str, Any] | None,
         old_entry: dict[str, Any],
+        expected_content_hash: str | None = None,
     ) -> dict[str, Any]:
         skill_root = get_workspace_skills_dir(self.workspace_dir)
         target_dir = safe_skill_dir(skill_root, final_name)
@@ -391,12 +515,17 @@ class SkillService:
                 encoding="utf-8",
             )
             scan_skill_dir_or_raise(staged_dir, final_name)
+            from ...skills.snapshots import directory_hash
+
+            actual = directory_hash(target_dir, shared=False) if target_dir.exists() else None
+            if actual != expected_content_hash:
+                raise ValueError("content_conflict")
             copy_skill_dir(staged_dir, target_dir)
 
         old_config = (
             config if config is not None else old_entry.get("config") or {}
         )
-        old_channels = old_entry.get("channels") or ["all"]
+        old_channels = old_entry.get("channels", ["all"])
         metadata = build_skill_metadata(
             final_name,
             target_dir,
@@ -410,8 +539,9 @@ class SkillService:
                 payload["skills"].get(skill_name) or old_entry or {}
             )
             next_entry = {
+                **current_entry,
                 "enabled": bool(current_entry.get("enabled", False)),
-                "channels": current_entry.get("channels") or old_channels,
+                "channels": current_entry.get("channels", old_channels),
                 "source": metadata["source"],
                 "installed_from": str(
                     current_entry.get("installed_from", "") or "",
@@ -441,6 +571,7 @@ class SkillService:
             "name": final_name,
         }
 
+    @workspace_skill_writer
     def import_from_zip(
         self,
         data: bytes,
@@ -551,6 +682,7 @@ class SkillService:
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
+    @workspace_skill_writer
     def enable_skill(
         self,
         name: str,
@@ -624,6 +756,7 @@ class SkillService:
             "reason": None,
         }
 
+    @workspace_skill_writer
     def disable_skill(self, name: str) -> dict[str, Any]:
         try:
             skill_name = normalize_skill_dir_name(name)
@@ -706,6 +839,7 @@ class SkillService:
             _update,
         )
 
+    @workspace_skill_writer
     def delete_skill(self, name: str) -> bool:
         try:
             skill_name = normalize_skill_dir_name(name)

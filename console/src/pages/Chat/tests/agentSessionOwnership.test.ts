@@ -69,6 +69,115 @@ afterEach(() => {
 });
 
 describe("agent session ownership epochs", () => {
+  it("clears stale SDK messages when the user explicitly creates a chat", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    sessionApi.userInitiatedCreate = true;
+    const spec = {
+      messages: [{ id: "old", role: "user" }],
+    } as any;
+
+    await sessionApi.createSession(spec);
+
+    expect(spec.messages).toEqual([]);
+  });
+
+  it("lets the SDK clear its current messages before announcing a new session", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    sessionApi.userInitiatedCreate = true;
+    const order: string[] = [];
+    sessionApi.onSessionCreated = () => order.push("notified");
+
+    await sessionApi.createSession({});
+    order.push("sdk-resumed");
+
+    expect(order).toEqual(["sdk-resumed"]);
+    await flush();
+    expect(order).toEqual(["sdk-resumed", "notified"]);
+  });
+
+  it("discards an old session load that finishes after a new chat is created", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const oldLoad = deferred<any>();
+    vi.spyOn(sessionApi as any, "_doGetSession").mockReturnValueOnce(
+      oldLoad.promise,
+    );
+
+    const pendingOldSession = sessionApi.getSession(A_CHAT);
+    sessionApi.userInitiatedCreate = true;
+    await sessionApi.createSession({});
+    oldLoad.resolve({
+      id: A_CHAT,
+      name: "old chat",
+      messages: [{ role: "assistant" }],
+    });
+
+    await expect(pendingOldSession).resolves.toMatchObject({ messages: [] });
+  });
+
+  it("resolves a newly sent chat from its authoritative response id", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    const spec: {id?: string} = {};
+    await sessionApi.createSession(spec);
+    const resolved = vi.fn();
+    sessionApi.onSessionIdResolved = resolved;
+    sessionApi.acceptResolvedChat(spec.id!, B_CHAT, sessionApi.getActiveOwner());
+    expect(sessionApi.getEffectiveSessionId(spec.id!)).toBe(B_CHAT);
+    expect(resolved).toHaveBeenCalledWith(spec.id, B_CHAT);
+  });
+  it("does not select a background history read over the explicitly navigated chat", async () => {
+    sessionApi.setActiveAgent("agent-a");
+    vi.spyOn(api, "listChats").mockResolvedValue([makeChatSpec(A_CHAT, A_CHAT), makeChatSpec(B_CHAT, B_CHAT)]);
+    vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    await sessionApi.getSessionList();
+    sessionApi.trackNavigatedSession(B_CHAT);
+    const selected = vi.fn();
+    sessionApi.onSessionSelected = selected;
+    await sessionApi.getSession(A_CHAT);
+    expect(selected).not.toHaveBeenCalled();
+    expect(sessionApi.lastActiveChatId).toBe(B_CHAT);
+  });
+  it("persists a selected session without requiring every navigation caller to supply a callback", () => {
+    sessionApi.setActiveAgent("agent-a");
+    useAgentStore.setState({ selectedAgent: "agent-a", lastChatIdByAgent: { "agent-a": B_CHAT } });
+    sessionApi.trackNavigatedSession(A_CHAT);
+    expect(useAgentStore.getState().getLastChatId("agent-a")).toBe(A_CHAT);
+    sessionApi.trackNavigatedSession("1750000000000");
+    expect(useAgentStore.getState().getLastChatId("agent-a")).toBe(A_CHAT);
+  });
+  it("resetting the authenticated identity invalidates caches even when the agent id stays the same", () => {
+    sessionApi.setActiveAgent("default");
+    const before = sessionApi.getActiveOwner();
+    sessionApi.preferredChatId = "private-chat";
+    sessionApi.lastActiveChatId = "private-chat";
+
+    sessionApi.resetIdentityState();
+
+    const after = sessionApi.getActiveOwner();
+    expect(after.agentId).toBe("default");
+    expect(after.generation).toBeGreaterThan(before.generation);
+    expect(sessionApi.preferredChatId).toBeNull();
+    expect(sessionApi.lastActiveChatId).toBeNull();
+  });
+
+  it("revoked viewer access removes the session and notifies cleanup", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    const shared = {
+      ...makeChatSpec(A_CHAT, "console:viewer", "shared chat"),
+      access_role: "viewer",
+      read_only: true,
+    } as ChatSpec;
+    listSpy.mockResolvedValueOnce([shared]);
+    sessionApi.setActiveAgent("agent-a");
+    await sessionApi.getSessionList();
+
+    const onSessionRemoved = vi.fn();
+    sessionApi.onSessionRemoved = onSessionRemoved;
+    const remaining = sessionApi.invalidateSessionAccess(A_CHAT);
+
+    expect(remaining).toEqual([]);
+    expect(onSessionRemoved).toHaveBeenCalledWith(A_CHAT);
+  });
+
   it("Test A: an old agent's list request cannot replace the new agent's list", async () => {
     const listSpy = vi.spyOn(api, "listChats");
     const onSessionSelected = vi.fn();

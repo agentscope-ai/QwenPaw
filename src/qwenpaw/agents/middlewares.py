@@ -137,11 +137,13 @@ class MemoryMiddleware(MiddlewareBase):
             # retried on the next model call because no turn marker is stored.
             turn_state["search"] = {}
             try:
+                scope_identity = self._scope_identity(agent)
                 result = await self._memory_manager.auto_memory_search(
                     query_msg,
                     agent_name=agent.name,
                     session_id=agent.state.session_id,
                     user_turn_id=turn_marker,
+                    **scope_identity,
                 )
             except Exception:
                 logger.exception(
@@ -330,6 +332,7 @@ class MemoryMiddleware(MiddlewareBase):
             await self._memory_manager.auto_memory(
                 messages,
                 session_id=self._agent_session_id(agent),
+                **self._scope_identity(agent),
             )
         except Exception:
             logger.exception("MemoryMiddleware auto_memory failed")
@@ -519,6 +522,28 @@ class MemoryMiddleware(MiddlewareBase):
         if isinstance(request_context, dict):
             return str(request_context.get("session_id") or "")
         return ""
+
+    @staticmethod
+    def _scope_identity(agent: "Agent") -> dict[str, str]:
+        """只从服务端构造的请求上下文提取记忆身份字段。"""
+        request_context = getattr(agent, "_request_context", None) or {}
+        if not isinstance(request_context, dict):
+            return {
+                "actor_user_id": "",
+                "agent_id": "",
+                "run_id": "",
+                "_source_conversation_id": "",
+            }
+        return {
+            "actor_user_id": str(request_context.get("user_id") or ""),
+            "agent_id": str(request_context.get("agent_id") or ""),
+            "run_id": str(request_context.get("run_id") or ""),
+            "_source_conversation_id": str(
+                request_context.get("conversation_id")
+                or request_context.get("chat_id")
+                or "",
+            ),
+        }
 
     @staticmethod
     def _is_automation_request(agent: "Agent") -> bool:

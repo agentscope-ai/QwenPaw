@@ -243,6 +243,7 @@ class AgentStatsService:
         workspace_dir: Path,
         start_date: date,
         end_date: date,
+        token_summary=None,
     ) -> AgentStatsSummary:
         chats_file = workspace_dir / "chats.json"
         sessions_dir = workspace_dir / "sessions"
@@ -389,10 +390,11 @@ class AgentStatsService:
             except Exception as e:
                 logger.warning("Failed to load message statistics: %s", e)
 
-        token_summary = await get_token_usage_manager().get_summary(
-            start_date=start_date,
-            end_date=end_date,
-        )
+        if token_summary is None:
+            token_summary = await get_token_usage_manager().get_summary(
+                start_date=start_date,
+                end_date=end_date,
+            )
         for date_str, ts in token_summary.by_date.items():
             if date_str in daily_stats:
                 daily_stats[date_str]["prompt_tokens"] = ts.prompt_tokens

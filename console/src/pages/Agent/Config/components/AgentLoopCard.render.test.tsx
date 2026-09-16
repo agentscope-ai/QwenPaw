@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { Form } from "@agentscope-ai/design";
 import type { FormInstance } from "antd";
-import type { CustomLoopModeConfig } from "@/api/types";
+import type { CustomLoopModeConfig, LoopConfig } from "@/api/types";
 import { renderWithProviders } from "@/test/common_setup";
 import { AgentLoopCard, buildCustomLoopMode } from "./AgentLoopCard";
 
@@ -20,9 +20,11 @@ vi.mock("react-i18next", () => ({
 
 function LoopForm({
   modes = [],
+  initialLoop,
   onForm,
 }: {
   modes?: CustomLoopModeConfig[];
+  initialLoop?: Partial<LoopConfig>;
   onForm?: (form: FormInstance) => void;
 }) {
   const [form] = Form.useForm();
@@ -31,13 +33,97 @@ function LoopForm({
   }, [form, onForm]);
 
   return (
-    <Form form={form} initialValues={{ loop: { custom_modes: modes } }}>
+    <Form
+      form={form}
+      initialValues={{ loop: { ...initialLoop, custom_modes: modes } }}
+    >
       <AgentLoopCard />
     </Form>
   );
 }
 
 describe("AgentLoopCard custom mode rendering", () => {
+  it("preserves built-in and custom loop values across tab switches and collapse", async () => {
+    let form: FormInstance | undefined;
+    const mode = buildCustomLoopMode([], "Research", "research", "research", 1);
+    const doomGateIndex = mode.gates.findIndex(
+      (gate) => gate.type === "doom_loop",
+    );
+    const doomGate = mode.gates[doomGateIndex];
+    if (!doomGate) throw new Error("Research mode must include doom-loop gate");
+    doomGate.params.window_size = 7;
+    doomGate.params.similarity_threshold = 0.75;
+
+    renderWithProviders(
+      <LoopForm
+        modes={[mode]}
+        initialLoop={{
+          iteration: { enabled: true, max_iterations: 77 },
+          goal: { max_iterations: 12, max_tokens: 34567 },
+          mission: {
+            max_iterations: 8,
+            max_retries_per_story: 2,
+            default_verification_instructions: "Check the rendered result",
+            default_verify_command: "pytest -q",
+          },
+        }}
+        onForm={(next) => (form = next)}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Goal" }));
+    fireEvent.click(screen.getByRole("button", { name: /Goal turn limit/ }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mission" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Mission verification policy/ }),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Research" }));
+    fireEvent.click(
+      within(screen.getByRole("tabpanel")).getByText("Repetition protection"),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "Default" }));
+
+    expect(form?.getFieldsValue(true).loop).toEqual({
+      iteration: { enabled: true, max_iterations: 77 },
+      goal: { max_iterations: 12, max_tokens: 34567 },
+      mission: {
+        max_iterations: 8,
+        max_retries_per_story: 2,
+        default_verification_instructions: "Check the rendered result",
+        default_verify_command: "pytest -q",
+      },
+      custom_modes: [mode],
+    });
+  }, 15_000);
+
+  it("keeps gate identity, parameters and order after deleting another gate", async () => {
+    let form: FormInstance | undefined;
+    const mode = buildCustomLoopMode([], "Research", "research", "research", 1);
+    renderWithProviders(
+      <LoopForm modes={[mode]} onForm={(next) => (form = next)} />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Research" }));
+    const editor = within(screen.getByRole("tabpanel"));
+    fireEvent.click(editor.getByText("Repetition protection"));
+    const removeButtons = editor.getAllByLabelText("Remove gate");
+    fireEvent.click(removeButtons[0]);
+
+    const savedGates = form?.getFieldValue([
+      "loop",
+      "custom_modes",
+      0,
+      "gates",
+    ]);
+    expect(savedGates).toEqual(mode.gates.slice(1));
+    expect(savedGates[2]).toMatchObject({
+      id: mode.gates[3].id,
+      type: "doom_loop",
+      enabled: true,
+      params: mode.gates[3].params,
+    });
+  }, 15_000);
+
   it("shows a newly created template and its preset gates immediately", async () => {
     let form: FormInstance | undefined;
     renderWithProviders(<LoopForm onForm={(next) => (form = next)} />);

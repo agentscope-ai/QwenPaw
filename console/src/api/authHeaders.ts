@@ -1,4 +1,5 @@
 import { getApiToken } from "./config";
+import { getUserScopedStorageKey } from "../stores/identityStorage";
 
 /** Authorization + X-Agent-Id for API requests. Caller sets Content-Type when needed. */
 export function buildAuthHeaders(): Record<string, string> {
@@ -9,9 +10,9 @@ export function buildAuthHeaders(): Record<string, string> {
   }
   try {
     // Read from sessionStorage first (per-tab agent), fall back to localStorage
+    const storageKey = getUserScopedStorageKey("qwenpaw-agent-storage");
     const agentStorage =
-      sessionStorage.getItem("qwenpaw-agent-storage") ||
-      localStorage.getItem("qwenpaw-agent-storage");
+      sessionStorage.getItem(storageKey) || localStorage.getItem(storageKey);
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;

@@ -18,6 +18,26 @@ def test_adbpg_auto_memory_search_defaults():
     assert cfg.auto_memory_search_config.max_results == 3
 
 
+def test_adbpg_rejects_non_positive_search_timeout():
+    with pytest.raises(ValidationError):
+        ADBPGMemoryConfig(search_timeout=0)
+
+
+def test_adbpg_roundtrip_preserves_credentials_and_nested_search_config():
+    source = {
+        "rest_base_url": "https://adbpg.example/api",
+        "rest_api_key": "secret-key",
+        "memory_isolation": False,
+        "search_timeout": 15,
+        "auto_memory_search_config": {
+            "enabled": False,
+            "max_results": 8,
+        },
+    }
+
+    assert ADBPGMemoryConfig.model_validate(source).model_dump() == source
+
+
 def test_reme_light_job_notifications_default_to_enabled():
     cfg = ReMeLightMemoryConfig()
 
@@ -48,6 +68,29 @@ def test_explicit_notification_setting_wins_over_legacy_switch():
 
 def test_memory_search_tool_defaults_to_enabled():
     assert ReMeLightMemoryConfig().memory_search_enabled is True
+
+
+def test_reme_auto_memory_search_defaults_to_enabled():
+    cfg = ReMeLightMemoryConfig()
+
+    assert cfg.auto_memory_search_config.enabled is True
+    assert cfg.auto_memory_search_config.max_results == 2
+
+
+def test_reme_auto_memory_search_preserves_explicit_disabled_roundtrip():
+    source = {
+        "auto_memory_search_config": {
+            "enabled": False,
+            "max_results": 7,
+        },
+    }
+
+    cfg = ReMeLightMemoryConfig.model_validate(source)
+
+    assert cfg.auto_memory_search_config.enabled is False
+    assert cfg.model_dump()["auto_memory_search_config"] == source[
+        "auto_memory_search_config"
+    ]
 
 
 def test_legacy_rebuild_on_start_setting_is_ignored():

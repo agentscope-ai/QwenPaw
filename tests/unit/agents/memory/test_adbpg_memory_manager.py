@@ -56,6 +56,9 @@ async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
     result = await manager.auto_memory_search(
         [_user_msg("我喜欢什么动物")],
         agent_name="Agent One",
+        actor_user_id="user-1",
+        agent_id="agent-1",
+        run_id="run-1",
     )
 
     assert result is not None
@@ -78,6 +81,9 @@ async def test_adbpg_auto_memory_search_injects_tool_messages(tmp_path):
     manager.memory_search.assert_awaited_once_with(
         query="我喜欢什么动物",
         max_results=2,
+        actor_user_id="user-1",
+        agent_id="agent-1",
+        run_id="run-1",
     )
 
 

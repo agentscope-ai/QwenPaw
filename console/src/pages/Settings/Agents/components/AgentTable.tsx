@@ -19,6 +19,9 @@ import {
   DeleteOutlined,
   RobotOutlined,
   CopyOutlined,
+  DownloadOutlined,
+  GlobalOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 import {
   EyeOff,
@@ -29,6 +32,7 @@ import {
   SquareTerminal,
 } from "lucide-react";
 import type { AgentSummary } from "../../../../api/types/agents";
+import type { ModelSlotConfig } from "../../../../api/types/provider";
 import { useTheme } from "../../../../contexts/ThemeContext";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
 import { SortableAgentRow, DragHandle } from "./SortableAgentRow";
@@ -47,10 +51,15 @@ interface AgentTableProps {
   reordering: boolean;
   onEdit: (agent: AgentSummary) => void;
   onCopy: (agent: AgentSummary) => void;
+  onExport?: (agent: AgentSummary) => void;
   onDelete: (agentId: string) => void;
   onToggle: (agentId: string, currentEnabled: boolean) => void;
   onPin: (agentId: string, currentPinned: boolean) => void;
   onReorder: (activeId: string, overId: string) => void;
+  onManageMembers?: (agent: AgentSummary) => void;
+  isAdmin?: boolean;
+  onPublication?: (agent: AgentSummary, published: boolean) => void;
+  globalActiveModel?: ModelSlotConfig | null;
 }
 
 export function AgentTable({
@@ -59,10 +68,15 @@ export function AgentTable({
   reordering,
   onEdit,
   onCopy,
+  onExport,
   onDelete,
   onToggle,
   onPin,
   onReorder,
+  onManageMembers,
+  isAdmin = false,
+  onPublication,
+  globalActiveModel,
 }: AgentTableProps) {
   const { t } = useTranslation();
   const { isDark } = useTheme();
@@ -118,7 +132,13 @@ export function AgentTable({
         <Tooltip title={t("agent.dragHandleTooltip")}>
           <span>
             <DragHandle
-              disabled={reordering || loading || record.id === "default"}
+              label={t("agent.dragHandleTooltip")}
+              disabled={
+                reordering ||
+                loading ||
+                record.id === "default" ||
+                record.can_reorder === false
+              }
             />
           </span>
         </Tooltip>
@@ -156,6 +176,20 @@ export function AgentTable({
       dataIndex: "id",
       key: "id",
       width: 180,
+    },
+    {
+      title: t("agent.accessRole.column"),
+      dataIndex: "access_role",
+      key: "access_role",
+      width: 140,
+      render: (role: AgentSummary["access_role"] = "owner", record) => (
+        <Space size={4} wrap>
+          <Tag>{t(`agent.accessRole.${role}`)}</Tag>
+          {record.visibility === "public" && (
+            <Tag color="blue">{t("agent.visibility.public")}</Tag>
+          )}
+        </Space>
+      ),
     },
     {
       title: t("agent.backend.column"),
@@ -223,12 +257,20 @@ export function AgentTable({
           );
         }
         if (!record.active_model) {
+          const inheritedLabel = globalActiveModel
+            ? t("agent.modelInheritCurrent", {
+                model: `${globalActiveModel.provider_id}/${globalActiveModel.model}`,
+              })
+            : t("agent.modelPlaceholder");
           return (
-            <span style={{ opacity: 0.45 }}>{t("agent.modelPlaceholder")}</span>
+            <Space size={6} wrap>
+              <span style={{ opacity: 0.65 }}>{inheritedLabel}</span>
+              {record.model_locked && <Tag>{t("agent.modelLocked")}</Tag>}
+            </Space>
           );
         }
         return (
-          <Space size={6}>
+          <Space size={6} wrap>
             <img
               src={providerIcon(record.active_model.provider_id)}
               alt=""
@@ -237,6 +279,7 @@ export function AgentTable({
             <Tooltip title={record.active_model.model}>
               <span>{record.active_model.model}</span>
             </Tooltip>
+            {record.model_locked && <Tag>{t("agent.modelLocked")}</Tag>}
           </Space>
         );
       },
@@ -251,6 +294,14 @@ export function AgentTable({
           record.startup_status === "pending" ||
           record.startup_status === "starting";
         const toggleDisabled = record.id === "default" || startupInProgress;
+        const pinDisabled =
+          record.id === "default" || record.can_reorder === false;
+        const editDisabled =
+          record.id === "default" || record.can_edit === false;
+        const copyDisabled = record.can_copy === false;
+        const effectiveToggleDisabled =
+          toggleDisabled || record.can_toggle === false;
+        const deleteDisabled = toggleDisabled || record.can_delete === false;
         const pinActionLabel =
           record.id === "default"
             ? t("agent.defaultPinned")
@@ -260,6 +311,51 @@ export function AgentTable({
 
         return (
           <Space>
+            {isAdmin && onPublication && record.access_role === "owner" && (
+              <Popconfirm
+                title={t(
+                  record.visibility === "public"
+                    ? "agent.revokePublicationConfirm"
+                    : "agent.publishConfirm",
+                )}
+                onConfirm={() =>
+                  onPublication(record, record.visibility !== "public")
+                }
+                okText={t("common.confirm")}
+                cancelText={t("common.cancel")}
+              >
+                <Tooltip
+                  title={t(
+                    record.visibility === "public"
+                      ? "agent.revokePublication"
+                      : "agent.publishPublic",
+                  )}
+                >
+                  <Button
+                    type="text"
+                    size="middle"
+                    danger={record.visibility === "public"}
+                    aria-label={t(
+                      record.visibility === "public"
+                        ? "agent.revokePublication"
+                        : "agent.publishPublic",
+                    )}
+                    icon={<GlobalOutlined />}
+                  />
+                </Tooltip>
+              </Popconfirm>
+            )}
+            {record.can_manage_members && onManageMembers && (
+              <Tooltip title={t("agent.manageMembers")}>
+                <Button
+                  type="text"
+                  size="middle"
+                  aria-label={t("agent.manageMembers")}
+                  icon={<TeamOutlined />}
+                  onClick={() => onManageMembers(record)}
+                />
+              </Tooltip>
+            )}
             <Tooltip title={pinActionLabel}>
               <Button
                 type="text"
@@ -273,35 +369,69 @@ export function AgentTable({
                   )
                 }
                 onClick={() => onPin(record.id, Boolean(record.pinned))}
-                disabled={record.id === "default"}
-                style={record.id === "default" ? disabledStyle : iconStyle}
+                disabled={pinDisabled}
+                style={pinDisabled ? disabledStyle : iconStyle}
+                title={
+                  record.can_reorder === false
+                    ? t("agent.pinForbidden")
+                    : undefined
+                }
               />
             </Tooltip>
-            <Button
-              type="text"
-              size="middle"
-              icon={<EditOutlined />}
-              onClick={() => onEdit(record)}
-              disabled={record.id === "default"}
-              style={record.id === "default" ? disabledStyle : iconStyle}
+            <Tooltip
               title={
                 record.id === "default"
                   ? t("agent.defaultNotEditable")
-                  : undefined
+                  : record.can_edit === false
+                  ? t("agent.editForbidden")
+                  : t("agent.edit")
               }
-            />
-            <Button
-              type="text"
-              size="middle"
-              icon={<CopyOutlined />}
-              onClick={() => onCopy(record)}
-              style={iconStyle}
+            >
+              <span>
+                <Button
+                  type="text"
+                  size="middle"
+                  aria-label={t("agent.edit")}
+                  icon={<EditOutlined />}
+                  onClick={() => onEdit(record)}
+                  disabled={editDisabled}
+                  style={editDisabled ? disabledStyle : iconStyle}
+                />
+              </span>
+            </Tooltip>
+            {record.access_role === "owner" && onExport && (
+              <Tooltip title={t("agent.exportPortableHint")}>
+                <Button
+                  type="text"
+                  size="middle"
+                  aria-label={t("agent.exportPortable")}
+                  icon={<DownloadOutlined />}
+                  onClick={() => onExport(record)}
+                  disabled={record.can_export === false}
+                />
+              </Tooltip>
+            )}
+            <Tooltip
               title={
-                record.id === "default"
+                copyDisabled
+                  ? t("agent.copyForbidden")
+                  : record.id === "default"
                   ? t("agent.copyDefaultTooltip")
                   : t("agent.copyTooltip")
               }
-            />
+            >
+              <span>
+                <Button
+                  type="text"
+                  size="middle"
+                  aria-label={t("agent.copy")}
+                  icon={<CopyOutlined />}
+                  onClick={() => onCopy(record)}
+                  disabled={copyDisabled}
+                  style={copyDisabled ? disabledStyle : iconStyle}
+                />
+              </span>
+            </Tooltip>
             <Popconfirm
               title={
                 record.enabled
@@ -314,48 +444,68 @@ export function AgentTable({
                   : t("agent.enableConfirmDesc")
               }
               onConfirm={() => onToggle(record.id, record.enabled)}
-              disabled={toggleDisabled}
+              disabled={effectiveToggleDisabled}
               okText={t("common.confirm")}
               cancelText={t("common.cancel")}
             >
-              <Button
-                type="text"
-                size="middle"
-                icon={record.enabled ? <EyeOff size={14} /> : <Eye size={14} />}
-                disabled={toggleDisabled}
-                style={record.id === "default" ? disabledStyle : iconStyle}
+              <Tooltip
                 title={
                   record.id === "default"
                     ? t("agent.defaultNotDisablable")
+                    : record.can_toggle === false
+                    ? t("agent.toggleForbidden")
                     : startupInProgress
                     ? t("agent.status.waitUntilStarted")
-                    : undefined
+                    : t(record.enabled ? "agent.disable" : "agent.enable")
                 }
-              />
+              >
+                <span>
+                  <Button
+                    type="text"
+                    size="middle"
+                    aria-label={t(
+                      record.enabled ? "agent.disable" : "agent.enable",
+                    )}
+                    icon={
+                      record.enabled ? <EyeOff size={14} /> : <Eye size={14} />
+                    }
+                    disabled={effectiveToggleDisabled}
+                    style={effectiveToggleDisabled ? disabledStyle : iconStyle}
+                  />
+                </span>
+              </Tooltip>
             </Popconfirm>
             <Popconfirm
               title={t("agent.deleteConfirm")}
               description={t("agent.deleteConfirmDesc")}
               onConfirm={() => onDelete(record.id)}
-              disabled={toggleDisabled}
+              disabled={deleteDisabled}
               okText={t("common.confirm")}
               cancelText={t("common.cancel")}
             >
-              <Button
-                type="link"
-                size="middle"
-                danger
-                icon={<DeleteOutlined />}
-                disabled={toggleDisabled}
-                style={record.id === "default" ? disabledStyle : undefined}
+              <Tooltip
                 title={
                   record.id === "default"
                     ? t("agent.defaultNotDeletable")
+                    : record.can_delete === false
+                    ? t("agent.deleteForbidden")
                     : startupInProgress
                     ? t("agent.status.waitUntilStarted")
-                    : undefined
+                    : t("agent.delete")
                 }
-              />
+              >
+                <span>
+                  <Button
+                    type="link"
+                    size="middle"
+                    danger
+                    aria-label={t("agent.delete")}
+                    icon={<DeleteOutlined />}
+                    disabled={deleteDisabled}
+                    style={deleteDisabled ? disabledStyle : undefined}
+                  />
+                </span>
+              </Tooltip>
             </Popconfirm>
           </Space>
         );
@@ -393,7 +543,7 @@ export function AgentTable({
               },
             }}
             pagination={false}
-            scroll={{ x: 1620, y: bodyHeight }}
+            scroll={{ x: 1760, y: bodyHeight }}
           />
         </div>
       </SortableContext>

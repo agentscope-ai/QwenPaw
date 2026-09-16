@@ -18,6 +18,8 @@ from typing import Any
 import pytest
 from helpers import default_http_timeout
 
+pytestmark = pytest.mark.usefixtures("skills_model_ready")
+
 _HTTP_TIMEOUT = default_http_timeout(15.0)
 _POOL_BASE = "/api/skills/pool"
 

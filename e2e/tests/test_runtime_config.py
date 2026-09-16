@@ -30,6 +30,35 @@ def navigate_to_agent_config(page: Page):
     page.wait_for_timeout(3000)
 
 
+@pytest.mark.integration
+@pytest.mark.p0
+@pytest.mark.runtime_config
+class TestBasicSettingsFidelity:
+    """基础设置统一保存的刷新回读与恢复回归。"""
+
+    def test_shell_timeout_and_auto_title_roundtrip(self, page: Page):
+        from pages.runtime_config_page import RuntimeConfigPage
+
+        runtime_page = RuntimeConfigPage(page).open().switch_to_react_tab()
+        original_timeout = int(runtime_page.get_shell_timeout())
+        original_auto_title = runtime_page.is_auto_title_enabled()
+        test_timeout = original_timeout + 1
+
+        try:
+            runtime_page.set_shell_timeout(test_timeout)
+            runtime_page.set_auto_title_enabled(not original_auto_title)
+            runtime_page.click_save().assert_config_saved()
+
+            runtime_page.open().switch_to_react_tab()
+            assert int(runtime_page.get_shell_timeout()) == test_timeout
+            assert runtime_page.is_auto_title_enabled() is not original_auto_title
+        finally:
+            runtime_page.open().switch_to_react_tab()
+            runtime_page.set_shell_timeout(original_timeout)
+            runtime_page.set_auto_title_enabled(original_auto_title)
+            runtime_page.click_save().assert_config_saved()
+
+
 # ============================================================================
 # AGCFG-001: ReAct agent tab display + language dropdown + timezone verification
 # ============================================================================
@@ -310,7 +339,38 @@ class TestAgentConfigSaveAndReset:
             save_btn = page.locator('div[class*="footer"] button.qwenpaw-btn-primary').first
         expect(save_btn).to_be_visible(timeout=5000)
         save_btn.click()
-        page.wait_for_timeout(2000)
+    page.wait_for_timeout(2000)
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+@pytest.mark.runtime_config
+class TestLoopConfigFidelity:
+    """循环配置在折叠、切换和重载后的页面保真。"""
+
+    def test_builtin_loop_values_survive_tab_switch_and_reload(self, page: Page):
+        from pages.runtime_config_page import RuntimeConfigPage
+
+        runtime_page = RuntimeConfigPage(page).open()
+        runtime_page.switch_to_loop_mode("Goal")
+        runtime_page.expand_loop_gate("Goal turn limit")
+        goal_turns = page.get_by_label("Maximum goal turns").first
+        expect(goal_turns).to_be_visible()
+        original_value = goal_turns.input_value()
+
+        runtime_page.switch_to_loop_mode("Mission")
+        runtime_page.switch_to_loop_mode("Goal")
+        runtime_page.expand_loop_gate("Goal turn limit")
+        assert page.get_by_label("Maximum goal turns").first.input_value() == (
+            original_value
+        )
+
+        page.reload(wait_until="domcontentloaded")
+        runtime_page.wait_for_page_loaded().switch_to_loop_mode("Goal")
+        runtime_page.expand_loop_gate("Goal turn limit")
+        assert page.get_by_label("Maximum goal turns").first.input_value() == (
+            original_value
+        )
 
         # Step 6: Verify the save success notification
         log_test_step("6. Verify the save success notification")

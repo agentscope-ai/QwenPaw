@@ -74,6 +74,20 @@ describe("RichFileReferenceInput", () => {
     expect(container.querySelector("textarea")).toHaveValue("");
   });
 
+  it("renders a selected personal library document as one readable chip", async () => {
+    const raw = "@[AI写作需求文档.md](personal-library:doc-1)";
+    const { container } = render(
+      <RichFileReferenceInputProvider onOpenReference={vi.fn()}>
+        <RichFileReferenceInput value={raw} onChange={vi.fn()} />
+      </RichFileReferenceInputProvider>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "AI写作需求文档.md" }),
+    ).toBeInTheDocument();
+    expect(container.querySelector("textarea")).toHaveValue(raw);
+  });
+
   it("turns a whole-line Monaco paste into an atomic line reference", async () => {
     setLastEditorCopy({
       text: "const ready = true;",

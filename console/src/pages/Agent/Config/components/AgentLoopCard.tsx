@@ -1152,6 +1152,32 @@ function SortableGateCard({
       className={loopStyles.gateCard}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
+      <Form.Item
+        name={["loop", "custom_modes", modeIndex, "gates", gateIndex, "id"]}
+        hidden
+      >
+        <Input />
+      </Form.Item>
+      <Form.Item
+        name={["loop", "custom_modes", modeIndex, "gates", gateIndex, "type"]}
+        hidden
+      >
+        <Input />
+      </Form.Item>
+      <Form.Item
+        name={[
+          "loop",
+          "custom_modes",
+          modeIndex,
+          "gates",
+          gateIndex,
+          "enabled",
+        ]}
+        hidden
+        valuePropName="checked"
+      >
+        <Switch />
+      </Form.Item>
       <div className={loopStyles.gateSummary}>
         <button
           type="button"
@@ -1280,6 +1306,16 @@ function CustomModeEditor({
 
   return (
     <div className={loopStyles.modeEditor}>
+      <Form.Item name={["loop", "custom_modes", modeIndex, "id"]} hidden>
+        <Input />
+      </Form.Item>
+      <Form.Item
+        name={["loop", "custom_modes", modeIndex, "enabled"]}
+        hidden
+        valuePropName="checked"
+      >
+        <Switch />
+      </Form.Item>
       <div className={loopStyles.customHeader}>
         <div>
           <Tag className={loopStyles.customTag}>

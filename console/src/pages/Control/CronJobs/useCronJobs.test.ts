@@ -10,6 +10,10 @@ vi.mock("../../../api", () => ({
     replaceCronJob: vi.fn(),
     deleteCronJob: vi.fn(),
     triggerCronJob: vi.fn(),
+    pauseCronJob: vi.fn(),
+    resumeCronJob: vi.fn(),
+    getCronJobAuthorization: vi.fn(),
+    authorizeCronJob: vi.fn(),
   },
 }));
 vi.mock("../../../stores/agentStore", () => ({
@@ -51,7 +55,7 @@ describe("useCronJobs", () => {
       expect(result.current.loading).toBe(false);
     });
 
-    expect(api.listCronJobs).toHaveBeenCalledTimes(1);
+    expect(api.listCronJobs).toHaveBeenCalledWith("mine");
     expect(result.current.jobs).toEqual(mockJobs);
   });
 
@@ -63,14 +67,14 @@ describe("useCronJobs", () => {
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let returnValue: boolean | undefined;
+    let returnValue: unknown;
     await act(async () => {
       returnValue = await result.current.createJob(
         newJob as unknown as Parameters<typeof result.current.createJob>[0],
       );
     });
 
-    expect(returnValue).toBe(true);
+    expect(returnValue).toEqual(newJob);
     expect(result.current.jobs[0]).toEqual(newJob);
     expect(mockMessage.success).toHaveBeenCalledWith("Created successfully");
   });
@@ -84,7 +88,7 @@ describe("useCronJobs", () => {
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let returnValue: boolean | undefined;
+    let returnValue: unknown;
     await act(async () => {
       returnValue = await result.current.createJob(
         {} as unknown as Parameters<typeof result.current.createJob>[0],
@@ -105,7 +109,7 @@ describe("useCronJobs", () => {
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
 
-    let returnValue: boolean | undefined;
+    let returnValue: unknown;
     await act(async () => {
       returnValue = await result.current.updateJob(
         "j1",
@@ -113,7 +117,7 @@ describe("useCronJobs", () => {
       );
     });
 
-    expect(returnValue).toBe(true);
+    expect(returnValue).toEqual(updatedJob);
     expect(result.current.jobs.find((j) => j.id === "j1")).toEqual(updatedJob);
     expect(mockMessage.success).toHaveBeenCalledWith("Updated successfully");
   });
@@ -129,7 +133,7 @@ describe("useCronJobs", () => {
 
     const originalJob = result.current.jobs.find((j) => j.id === "j1");
 
-    let returnValue: boolean | undefined;
+    let returnValue: unknown;
     await act(async () => {
       returnValue = await result.current.updateJob("j1", {
         id: "j1",
@@ -184,8 +188,7 @@ describe("useCronJobs", () => {
   // 8. toggleEnabled 成功：enabled 翻转，API 调用，message.success
   it("toggleEnabled 成功：enabled 状态翻转，message.success 被调用", async () => {
     const job = mockJobs[0]; // enabled: true
-    const toggled = { ...job, enabled: false };
-    (api.replaceCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(toggled);
+    (api.pauseCronJob as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
 
     const { result } = renderHook(() => useCronJobs());
     await waitFor(() => expect(result.current.loading).toBe(false));
@@ -198,11 +201,10 @@ describe("useCronJobs", () => {
     });
 
     expect(returnValue).toBe(true);
-    expect(api.replaceCronJob).toHaveBeenCalledWith(
-      job.id,
-      expect.objectContaining({ enabled: false }),
+    expect(api.pauseCronJob).toHaveBeenCalledWith(job.id);
+    expect(result.current.jobs.find((j) => j.id === job.id)).toEqual(
+      expect.objectContaining({ enabled: false, status: "paused" }),
     );
-    expect(result.current.jobs.find((j) => j.id === job.id)).toEqual(toggled);
     expect(mockMessage.success).toHaveBeenCalledWith("Disabled");
   });
 

@@ -79,12 +79,12 @@ def test_settings_language_reject_invalid(app_server) -> None:
 @pytest.mark.p0
 def test_envs_put_get_roundtrip(app_server) -> None:
     """Test purpose:
-    - Verify batch env writes can be fully read back.
+    - Verify environment values can be written but never read back.
 
     Test flow:
     1. PUT two env entries.
-    2. Assert PUT returns a list with expected count.
-    3. GET env list and verify key/value pairs match.
+    2. Assert PUT returns only key/configured status.
+    3. GET env list and verify no plaintext value is returned.
 
     API endpoints:
     - PUT /api/envs
@@ -93,7 +93,20 @@ def test_envs_put_get_roundtrip(app_server) -> None:
     put_response = app_server.api_request(
         "PUT",
         "/api/envs",
-        json={"INTEGRATION_TEST_KEY": "value_1", "ANOTHER_KEY": "value_2"},
+        json={
+            "operations": [
+                {
+                    "key": "INTEGRATION_TEST_KEY",
+                    "action": "replace",
+                    "value": "value_1",
+                },
+                {
+                    "key": "ANOTHER_KEY",
+                    "action": "replace",
+                    "value": "value_2",
+                },
+            ],
+        },
     )
     assert put_response.status_code == 200, app_server.logs_tail()
     saved_items = put_response.json()
@@ -103,9 +116,11 @@ def test_envs_put_get_roundtrip(app_server) -> None:
     get_response = app_server.api_request("GET", "/api/envs")
     assert get_response.status_code == 200, app_server.logs_tail()
     items = get_response.json()
-    item_map = {item["key"]: item["value"] for item in items}
-    assert item_map["INTEGRATION_TEST_KEY"] == "value_1"
-    assert item_map["ANOTHER_KEY"] == "value_2"
+    item_map = {item["key"]: item["configured"] for item in items}
+    assert item_map["INTEGRATION_TEST_KEY"] is True
+    assert item_map["ANOTHER_KEY"] is True
+    assert "value_1" not in get_response.text
+    assert "value_2" not in get_response.text
 
 
 @pytest.mark.integration
@@ -126,12 +141,19 @@ def test_envs_delete_key(app_server) -> None:
     seed_response = app_server.api_request(
         "PUT",
         "/api/envs",
-        json={"DELETE_ME": "x", "KEEP_ME": "y"},
+        json={
+            "operations": [
+                {"key": "DELETE_ME", "action": "replace", "value": "x"},
+                {"key": "KEEP_ME", "action": "replace", "value": "y"},
+            ],
+        },
     )
     assert seed_response.status_code == 200, app_server.logs_tail()
 
     delete_response = app_server.api_request("DELETE", "/api/envs/DELETE_ME")
     assert delete_response.status_code == 200, app_server.logs_tail()
-    item_map = {item["key"]: item["value"] for item in delete_response.json()}
+    item_map = {
+        item["key"]: item["configured"] for item in delete_response.json()
+    }
     assert "DELETE_ME" not in item_map
-    assert item_map["KEEP_ME"] == "y"
+    assert item_map["KEEP_ME"] is True

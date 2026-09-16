@@ -116,6 +116,16 @@ class QwenPawLocalWorkspace(AgentScopeLocalWorkspace):
         denied = {
             n for n, c in cfg.items() if getattr(c, "enabled", True) is False
         }
+        from ...browser.policy import effective_browser_policy
+        from ...config.utils import load_config
+        from ...identity.runtime import is_multi_user_enabled
+
+        browser_policy = effective_browser_policy(
+            load_config().browser,
+            multi_user=is_multi_user_enabled(),
+        )
+        if not browser_policy.allowed:
+            denied.add("browser")
         explicit_enabled = {
             n for n, c in cfg.items() if getattr(c, "enabled", True)
         }

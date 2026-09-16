@@ -7,6 +7,7 @@ import styles from "./DetailDrawer.module.less";
 
 interface DetailDrawerProps {
   item: MarketResult | null;
+  canInstall?: boolean;
   onInstall: () => void;
   onClose: () => void;
 }
@@ -33,6 +34,7 @@ function formatStatValue(key: string, value: string | number): string {
 export const DetailDrawer = memo(function DetailDrawer({
   item,
   onInstall,
+  canInstall = true,
   onClose,
 }: DetailDrawerProps) {
   const { t } = useTranslation();
@@ -76,7 +78,7 @@ export const DetailDrawer = memo(function DetailDrawer({
       onClose={onClose}
       destroyOnHidden
       footer={
-        item ? (
+        item && canInstall ? (
           <div className={styles.drawerFooter}>
             <Button type="primary" onClick={onInstall}>
               {t("common.save")}

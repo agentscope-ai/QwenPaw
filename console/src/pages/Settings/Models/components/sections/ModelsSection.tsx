@@ -16,6 +16,7 @@ interface ModelsSectionProps {
     extra_models?: Array<{ id: string; name: string; is_free?: boolean }>;
     base_url?: string;
     api_key?: string;
+    api_key_configured?: boolean;
     is_custom: boolean;
     is_local?: boolean;
     require_api_key?: boolean;
@@ -55,7 +56,8 @@ export const ModelsSection = React.memo(function ModelsSection({
         if (!hasModels) return false;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
-        if (p.require_api_key ?? true) return !!p.api_key;
+        if (p.require_api_key ?? true)
+          return !!(p.api_key_configured || p.api_key);
         return true;
       }),
     [providers],

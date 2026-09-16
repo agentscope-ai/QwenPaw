@@ -87,9 +87,13 @@ class StopCommandHandler(BaseControlCommandHandler):
             cancelled_inputs = await (
                 user_input_service.cancel_all_pending_by_root_session(
                     target_session_id,
+                    agent_id=workspace.agent_id,
+                    user_id=context.user_id,
                 )
             )
-            clear_runtime_status(workspace.agent_id, target_session_id)
+            clear_runtime_status(
+                workspace.agent_id, target_session_id, user_id=context.user_id,
+            )
         except Exception:
             logger.debug(
                 "/stop: failed to clear pending interaction state",

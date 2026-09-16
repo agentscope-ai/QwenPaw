@@ -20,11 +20,16 @@ export function OffloadPolicyCard() {
       .then((res) => {
         setPolicy((res.default_action as OffloadPolicy) || "keep_foreground");
       })
-      .catch(() => {})
+      .catch(() => {
+        message.error(
+          t("agentConfig.offloadPolicy.loadFailed", "Failed to load policy"),
+        );
+      })
       .finally(() => setLoading(false));
   }, []);
 
   const handleChange = async (value: OffloadPolicy) => {
+    if (saving || value === policy) return;
     setSaving(true);
     try {
       await toolCallsApi.setOffloadPolicy(value);
@@ -86,12 +91,7 @@ export function OffloadPolicyCard() {
           <Spin />
         </div>
       ) : (
-        <Radio.Group
-          value={policy}
-          onChange={(e) => handleChange(e.target.value as OffloadPolicy)}
-          disabled={saving}
-          style={{ width: "100%" }}
-        >
+        <Radio.Group value={policy} disabled={saving} style={{ width: "100%" }}>
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
             {options.map((option) => (
               <Card
@@ -103,7 +103,7 @@ export function OffloadPolicyCard() {
                   cursor: "pointer",
                   transition: "all 0.3s",
                 }}
-                onClick={() => !saving && handleChange(option.value)}
+                onClick={() => handleChange(option.value)}
                 hoverable
               >
                 <Radio value={option.value} style={{ width: "100%" }}>

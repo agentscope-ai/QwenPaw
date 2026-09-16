@@ -357,6 +357,23 @@ class DriverPolicyHintContributor(SyncPromptContributor):
         return rendered or None
 
 
+class PersonalLibraryContributor(SyncPromptContributor):
+    """仅在当前用户已授权资料库时注入检索边界。"""
+
+    name = "personal_library"
+    priority = 89
+
+    def contribute_sync(self, ctx: "HookContext") -> str | None:
+        extras = getattr(ctx, "extras", {}) or {}
+        if not extras.get("personal_library_enabled"):
+            return None
+        return """# 个人资料库
+
+本次对话可读取**当前登录用户在当前 Agent 下**的个人资料库。该资料库与其他用户、其他 Agent、共享 Agent 工作区和 Agent 资料相互隔离。
+
+当用户提及“我的资料库”、上传的文档、文件名，或要求审阅其个人文档时，必须先调用 `personal_library_search`；文件名匹配同样有效。取得 `document_id` 后，再调用 `personal_library_read` 阅读正文。不要使用工作区文件搜索来替代个人资料库检索，也不要声称已阅读资料库文件而未调用该工具。"""
+
+
 # ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
@@ -368,6 +385,7 @@ _ALL_CONTRIBUTORS = (
     CodingModeContributor,
     ScrollContextContributor,
     DriverPolicyHintContributor,
+    PersonalLibraryContributor,
     EnvContextContributor,
 )
 
@@ -390,6 +408,7 @@ __all__ = [
     "CodingModeContributor",
     "ScrollContextContributor",
     "DriverPolicyHintContributor",
+    "PersonalLibraryContributor",
     "EnvContextContributor",
     "build_default_prompt_manager",
 ]
