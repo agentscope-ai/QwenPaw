@@ -26,6 +26,7 @@ The Host binding supplies:
 
 The adapter probes `GET /api/v1/capabilities/submissions` before each operation.
 Only protocol version 1 with durable submission and replay support is accepted.
+Answer/cancel operations additionally require `durable_commands: true`.
 Older Engines and JSON mode cannot fall back to the legacy session/chat POSTs.
 `check_compatibility(scope)` is available to the Host readiness binding;
 unsupported submission raises `unsupported_engine_protocol` before POST.
@@ -44,13 +45,14 @@ There is no Host-native setup form yet. See the
 [runtime routes and operator grant contract](pawapp-task-runtime.md).
 
 The current verified Engine source is
-[`89cc1d2`](https://github.com/cyruszhang/QwenPaw-Data/commit/89cc1d2c65983d4c0135b8db6f5f4ba712e2d55e).
+[`183bca7`](https://github.com/cyruszhang/QwenPaw-Data/commit/183bca7).
 This is a development dependency, not a released minimum version. Host and Engine
 run in separate dependency environments and communicate only over HTTP/SSE.
 
 ## Scope and recovery
 
-`submit`, `query`, and `attach` receive the persisted `TaskSubmission`. Its
+`submit`, `query`, `attach`, `command`, and `query_command` receive the persisted
+`TaskSubmission`. Its
 trusted principal/workspace/App scope is hashed into a stable Engine
 `X-User-Id` namespace. The adapter holds no task→scope/run map in memory, so a
 fresh adapter can reconcile an existing task. The Engine header is a business
@@ -84,6 +86,14 @@ the complete available prose, including an explicit empty string if none was
 emitted. Metadata includes a digest of the source frame; raw non-prose payloads
 and provider error messages are not copied into Host delivery events.
 
+A completed `ask_user_question` plugin call is projected as
+`waiting_for_input` with its call ID, title, bounded questions, options and
+selection mode. Malformed clarification payloads fail replay instead of being
+silently skipped. The attachment returns at this deliberate boundary. After the
+Host sends a durable answer, replay rebuilds the same projection, observes the
+matching plugin output, clears the pending request, and continues the original
+run.
+
 The adapter maps response outcomes as follows:
 
 | Engine response | Host status |
@@ -102,18 +112,20 @@ linear replay of historical events on each attachment; projection checkpoints
 can optimize this later. Engine's watermark is never used to skip unconsumed
 events.
 
-The coordinator commits projected status, text, cursor, Host event, and delivery
-intents together. Direct creates App-session updates. Delegated also creates a
-continuation job for the original Main Chat on terminal transition. The Host's
+The coordinator commits projected status, text, typed input request, cursor,
+Host event, and delivery intents together. Direct creates App-session updates.
+Delegated also creates a continuation job for the original Main Chat on waiting
+and terminal transitions. The Host's
 leased worker delivers a tool-free summary after the chat becomes idle, with
-prepared-result replay and destination receipts. Clarification requests,
-answer/cancel receipts, artifacts, and rich cards are not projected by this slice.
+prepared-result replay and destination receipts. Answer/cancel commands use the
+Engine's scoped durable receipt endpoints; artifacts and rich cards are not
+projected by this slice.
 
 ## Verification
 
 Unit tests use HTTP fixtures to cover capability rejection, scoped identities,
-lookup uncertainty, text replacement/filtering, terminal mapping, and corrupt
-or incomplete replay. The separate-process tests use the real Engine API,
+lookup uncertainty, text replacement/filtering, clarification boundaries,
+terminal mapping, and corrupt or incomplete replay. The separate-process tests use the real Engine API,
 SQLite stores, event writer/envelope, and startup recovery with a controlled
 executor, without model or datasource calls.
 
@@ -130,8 +142,9 @@ These tests create isolated temporary stores, bind an ephemeral loopback port,
 and terminate only the Engine processes they start. Without the two Engine
 variables they skip explicitly. Coverage includes Direct/Delegated output and
 delivery intents, concurrent submissions, a failure before acceptance, a lost
-accepted response, a fresh Host store/adapter after partial output, and an actual
-Engine process kill/restart. This validates the backend protocol, not production
+accepted response, a fresh Host store/adapter after partial output, an actual
+Engine process kill/restart, clarification answer/resume, and cancellation with
+retained partial output. This validates the backend protocol, not production
 analytics or UI. `tests/integration/test_pawapp_task_dispatch.py` additionally
 tests authenticated Console ingress through the real Engine into a persisted
 Main Chat summary, using controlled tool calling and summary generation.

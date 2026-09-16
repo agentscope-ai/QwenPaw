@@ -485,6 +485,22 @@ async def test_resolved_waiting_event_does_not_prompt_for_stale_input(
                 cursor=str(index),
                 status=status,
                 text_result="42" if index else "partial",
+                detail={
+                    "input_request": {
+                        "request_id": "clarification-1",
+                        "questions": [
+                            {
+                                "question": "Which period?",
+                                "options": [
+                                    {"label": "Q1"},
+                                    {"label": "Q2"},
+                                ],
+                            },
+                        ],
+                    },
+                }
+                if index == 0
+                else {},
             ),
         )
         if index == 0 and prepared:

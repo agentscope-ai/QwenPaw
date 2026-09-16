@@ -6,29 +6,45 @@ from .contracts import (
     ExecutorEvent,
     ExecutorRunRef,
     TaskDelivery,
+    TaskCommand,
+    TaskAnswer,
     TaskEvent,
     TaskHandle,
+    TaskInputRequest,
+    TaskInputQuestion,
+    TaskInputOption,
     TaskOrigin,
     TaskScope,
     TaskStoreError,
     TaskSubmission,
 )
 from .store import TaskStore
-from .coordinator import SubmissionLookup, TaskAdapter, TaskCoordinator
+from .coordinator import (
+    CommandLookup,
+    SubmissionLookup,
+    TaskAdapter,
+    TaskCoordinator,
+)
 
 __all__ = [
     "ActionDescriptor",
     "ExecutorEvent",
     "ExecutorRunRef",
     "TaskDelivery",
+    "TaskCommand",
+    "TaskAnswer",
     "TaskEvent",
     "TaskHandle",
+    "TaskInputRequest",
+    "TaskInputQuestion",
+    "TaskInputOption",
     "TaskOrigin",
     "TaskScope",
     "TaskStoreError",
     "TaskSubmission",
     "TaskStore",
     "SubmissionLookup",
+    "CommandLookup",
     "TaskAdapter",
     "TaskCoordinator",
 ]

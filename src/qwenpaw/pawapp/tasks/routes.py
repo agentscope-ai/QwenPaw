@@ -7,6 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.encoders import jsonable_encoder
+from pydantic import Field
 
 from ..deps import get_scoped_ctx
 from .contracts import (
@@ -14,6 +15,7 @@ from .contracts import (
     Engagement,
     Identity,
     TaskOrigin,
+    TaskAnswer,
     TaskScope,
     TaskStoreError,
 )
@@ -29,6 +31,16 @@ class DispatchRequest(Contract):
     chat_id: Identity
     engagement: Engagement
     inputs: dict
+
+
+class AnswerTaskRequest(Contract):
+    command_id: Identity
+    request_id: Identity
+    answers: tuple[TaskAnswer, ...]
+
+
+class CancelTaskRequest(Contract):
+    reason: Annotated[str, Field(max_length=2000)] | None = None
 
 
 class HostOrigins:
@@ -214,6 +226,46 @@ async def get_task(request: Request, task_id: str, scope: Scope):
         submission = await request.app.state.pawapp_tasks.get(scope, task_id)
         return {"task": submission.handle}
     except TaskStoreError as exc:
+        raise _error(exc) from None
+
+
+@router.post("/tasks/{task_id}/answer")
+async def answer_task(
+    request: Request,
+    task_id: str,
+    scope: Scope,
+    body: AnswerTaskRequest,
+):
+    try:
+        command = await request.app.state.pawapp_tasks.answer(
+            scope,
+            task_id,
+            command_id=body.command_id,
+            request_id=body.request_id,
+            answers=[
+                answer.model_dump(mode="json") for answer in body.answers
+            ],
+        )
+        return {"command": command}
+    except (TaskStoreError, ValueError) as exc:
+        raise _error(exc) from None
+
+
+@router.post("/tasks/{task_id}/cancel")
+async def cancel_task(
+    request: Request,
+    task_id: str,
+    scope: Scope,
+    body: CancelTaskRequest,
+):
+    try:
+        command = await request.app.state.pawapp_tasks.cancel(
+            scope,
+            task_id,
+            reason=body.reason,
+        )
+        return {"command": command}
+    except (TaskStoreError, ValueError) as exc:
         raise _error(exc) from None
 
 

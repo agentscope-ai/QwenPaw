@@ -16,11 +16,13 @@ from pydantic import model_validator
 
 from .contracts import (
     TERMINAL_STATUSES,
+    WAITING_STATUSES,
     ActionDescriptor,
     Contract,
     ExecutorEvent,
     ExecutorRunRef,
     TaskOrigin,
+    TaskCommand,
     TaskScope,
     TaskStoreError,
     TaskSubmission,
@@ -37,6 +39,11 @@ class SubmissionLookup(Contract):
         if (self.state == "accepted") != (self.run_ref is not None):
             raise ValueError("only accepted submissions carry a run reference")
         return self
+
+
+class CommandLookup(Contract):
+    state: Literal["accepted", "rejected", "not_found", "unknown"]
+    reason: str | None = None
 
 
 class TaskAdapter(Protocol):
@@ -62,6 +69,20 @@ class TaskAdapter(Protocol):
         self,
         submission: TaskSubmission,
     ) -> AsyncGenerator[ExecutorEvent, None]:
+        ...
+
+    async def command(
+        self,
+        submission: TaskSubmission,
+        command: TaskCommand,
+    ) -> CommandLookup:
+        ...
+
+    async def query_command(
+        self,
+        submission: TaskSubmission,
+        command: TaskCommand,
+    ) -> CommandLookup:
         ...
 
 
@@ -205,6 +226,110 @@ class TaskCoordinator:
             reason="submission_unknown",
         )
 
+    # pylint: disable-next=too-many-return-statements,too-many-branches
+    async def deliver_command(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        command_id: str,
+    ) -> TaskCommand:
+        """Deliver or reconcile one durable command using its original ID."""
+        submission = await self.store.get(scope, task_id)
+        binding = self._binding(scope.app_id, submission.handle.action_id)
+        if (
+            binding.action.descriptor_digest
+            != submission.handle.descriptor_digest
+        ):
+            raise TaskStoreError("descriptor_changed")
+        await self._authorize(
+            scope,
+            self.describe(scope.app_id, submission.handle.action_id),
+            submission.handle.origin,
+            deepcopy(submission.inputs),
+        )
+        command = await self.store.command(scope, task_id, command_id)
+        if command.state in {"accepted", "rejected"}:
+            return command
+        if submission.handle.status in TERMINAL_STATUSES:
+            return await self.store.mark_command(
+                scope,
+                task_id,
+                command_id,
+                state="accepted" if command.kind == "cancel" else "rejected",
+                reason="already_terminal"
+                if command.kind == "cancel"
+                else "stale_request",
+            )
+        if submission.handle.executor_run_ref is None:
+            submission = await self.reconcile(scope, task_id)
+        if submission.handle.status in TERMINAL_STATUSES:
+            return await self.store.mark_command(
+                scope,
+                task_id,
+                command_id,
+                state="accepted" if command.kind == "cancel" else "rejected",
+                reason="already_terminal"
+                if command.kind == "cancel"
+                else "stale_request",
+            )
+        if submission.handle.executor_run_ref is None:
+            return await self.store.mark_command(
+                scope,
+                task_id,
+                command_id,
+                state="unknown",
+                reason="submission_unknown",
+            )
+
+        submission, command, started = await self.store.begin_command(
+            scope,
+            task_id,
+            command_id,
+        )
+        if not started:
+            try:
+                lookup = await binding.adapter.query_command(
+                    submission,
+                    command,
+                )
+            except Exception:
+                lookup = CommandLookup(state="unknown")
+            if lookup.state in {"accepted", "rejected"}:
+                return await self.store.mark_command(
+                    scope,
+                    task_id,
+                    command_id,
+                    state=lookup.state,
+                    reason=lookup.reason,
+                )
+            if lookup.state == "unknown":
+                return await self.store.mark_command(
+                    scope,
+                    task_id,
+                    command_id,
+                    state="unknown",
+                    reason="command_unknown",
+                )
+        try:
+            lookup = await binding.adapter.command(submission, command)
+        except Exception:
+            try:
+                lookup = await binding.adapter.query_command(
+                    submission,
+                    command,
+                )
+            except Exception:
+                lookup = CommandLookup(state="unknown")
+        if lookup.state == "not_found":
+            lookup = CommandLookup(state="unknown", reason="command_unknown")
+        return await self.store.mark_command(
+            scope,
+            task_id,
+            command_id,
+            state=lookup.state,
+            reason=lookup.reason,
+        )
+
     async def consume(self, scope: TaskScope, task_id: str) -> TaskSubmission:
         """Attach/replay an accepted run. EOF leaves task facts intact."""
         submission = await self.store.get(scope, task_id)
@@ -230,7 +355,9 @@ class TaskCoordinator:
                         task_id,
                         event,
                     )
-                    if submission.handle.status in TERMINAL_STATUSES:
+                    if submission.handle.status in (
+                        TERMINAL_STATUSES | WAITING_STATUSES
+                    ):
                         return submission
         except Exception:
             await self.store.mark_recovery(

@@ -237,7 +237,96 @@ def make_task_tools(context: TaskToolContext):
                 error=True,
             )
 
-    return [list_apps, describe_action, delegate, get_app_task]
+    async def answer_task(
+        app_id: str,
+        task_id: str,
+        request_id: str,
+        command_id: str,
+        answers: list[dict[str, Any]],
+    ) -> ToolChunk:
+        """Answer the current input request for a delegated App task.
+
+        Read request_id, exact question text and option labels from the task's
+        input_request. Reuse command_id and identical answers on an uncertain
+        retry. A stale request or changed retry is rejected without affecting
+        another task.
+        """
+        try:
+            scope = context.scope(app_id)
+            submission = await context.runtime.get(scope, task_id)
+            if (
+                submission.handle.origin.engagement != "delegated"
+                or submission.handle.origin.origin_ref != context.chat_id
+            ):
+                raise TaskStoreError("task_not_found")
+            command = await context.runtime.answer(
+                scope,
+                task_id,
+                command_id=command_id,
+                request_id=request_id,
+                answers=answers,
+            )
+            return _result(
+                {
+                    "kind": "pawapp_task_command",
+                    "app_id": app_id,
+                    "task_id": task_id,
+                    "command": command.model_dump(mode="json"),
+                },
+                error=command.state in {"rejected", "unknown"},
+            )
+        except (TaskStoreError, ValueError) as exc:
+            return _result(
+                {"state": "error", "reason": _reason(exc)},
+                error=True,
+            )
+
+    async def cancel_task(
+        app_id: str,
+        task_id: str,
+        reason: str = "",
+    ) -> ToolChunk:
+        """Request cancellation of a delegated App task.
+
+        Cancellation keeps existing output and follows the task's authoritative
+        executor result. Repeated calls return the same durable receipt.
+        """
+        try:
+            scope = context.scope(app_id)
+            submission = await context.runtime.get(scope, task_id)
+            if (
+                submission.handle.origin.engagement != "delegated"
+                or submission.handle.origin.origin_ref != context.chat_id
+            ):
+                raise TaskStoreError("task_not_found")
+            command = await context.runtime.cancel(
+                scope,
+                task_id,
+                reason=reason or None,
+            )
+            return _result(
+                {
+                    "kind": "pawapp_task_command",
+                    "app_id": app_id,
+                    "task_id": task_id,
+                    "command": command.model_dump(mode="json"),
+                },
+                error=command.state in {"rejected", "unknown"},
+            )
+        except (TaskStoreError, ValueError) as exc:
+            return _result(
+                {"state": "error", "reason": _reason(exc)},
+                error=True,
+            )
+
+    return [
+        list_apps,
+        describe_action,
+        delegate,
+        get_app_task,
+        answer_task,
+        cancel_task,
+    ]
 
 
 def _reason(exc):

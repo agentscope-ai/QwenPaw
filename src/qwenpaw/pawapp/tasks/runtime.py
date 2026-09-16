@@ -38,6 +38,12 @@ class _ReadyAdapter:
     def attach(self, submission):
         return self.adapter.attach(submission)
 
+    async def command(self, submission, command):
+        return await self.adapter.command(submission, command)
+
+    async def query_command(self, submission, command):
+        return await self.adapter.query_command(submission, command)
+
 
 @dataclass
 class _RuntimeBinding:
@@ -73,6 +79,7 @@ class HostTaskRuntime:
         self._supervisor: asyncio.Task | None = None
         self._closed = False
         self._retry_at: dict[str, float] = {}
+        self._forced_rewake: set[str] = set()
 
     async def start(self):
         if self._closed:
@@ -281,12 +288,80 @@ class HostTaskRuntime:
         )
         return submission
 
-    def _wake(self, submission):
+    async def answer(
+        self,
+        scope,
+        task_id,
+        *,
+        command_id,
+        request_id,
+        answers,
+    ):
+        await self._sync()
+        submission = await self.get(scope, task_id)
+        command = await self.store.prepare_answer(
+            scope,
+            task_id,
+            command_id=command_id,
+            request_id=request_id,
+            answers=answers,
+        )
+        binding = self._binding(scope, submission.handle.action_id)
+        command = await binding.coordinator.deliver_command(
+            scope,
+            task_id,
+            command.command_id,
+        )
+        await self.store.audit(
+            scope,
+            submission.handle.action_id,
+            "answer",
+            command.state,
+            request_id=command_id,
+            task_id=task_id,
+        )
+        self._wake(await self.store.get(scope, task_id), force=True)
+        return command
+
+    async def cancel(self, scope, task_id, *, reason=None):
+        await self._sync()
+        submission = await self.get(scope, task_id)
+        command = await self.store.prepare_cancel(
+            scope,
+            task_id,
+            reason=reason,
+        )
+        if command.state not in {"accepted", "rejected"}:
+            binding = self._binding(scope, submission.handle.action_id)
+            command = await binding.coordinator.deliver_command(
+                scope,
+                task_id,
+                command.command_id,
+            )
+        await self.store.audit(
+            scope,
+            submission.handle.action_id,
+            "cancel",
+            command.state,
+            request_id=command.command_id,
+            task_id=task_id,
+        )
+        self._wake(await self.store.get(scope, task_id), force=True)
+        return command
+
+    def _wake(self, submission, *, force=False):
         handle = submission.handle
         if self._closed or handle.status in TERMINAL_STATUSES:
             return
+        if force:
+            self._retry_at.pop(handle.task_id, None)
         current = self._workers.get(handle.task_id)
         if current is not None and not current[1].done():
+            if force and handle.task_id not in self._forced_rewake:
+                self._forced_rewake.add(handle.task_id)
+                current[1].add_done_callback(
+                    lambda _job: self._rewake(submission),
+                )
             return
         if (
             sum(not job.done() for _, job in self._workers.values()) >= 32
@@ -299,6 +374,10 @@ class HostTaskRuntime:
         job = asyncio.create_task(self._drive(handle.scope, handle.task_id))
         job.add_done_callback(self._worker_finished)
         self._workers[handle.task_id] = (key, job)
+
+    def _rewake(self, submission):
+        self._forced_rewake.discard(submission.handle.task_id)
+        self._wake(submission, force=True)
 
     @staticmethod
     def _worker_finished(job):
@@ -319,6 +398,13 @@ class HostTaskRuntime:
             # configuration if reconciliation needs to submit the same ID.
             submission = await binding.coordinator.reconcile(scope, task_id)
             if submission.handle.executor_run_ref is not None:
+                command = await self.store.pending_command(scope, task_id)
+                if command is not None:
+                    await binding.coordinator.deliver_command(
+                        scope,
+                        task_id,
+                        command.command_id,
+                    )
                 await binding.coordinator.consume(scope, task_id)
         except Exception as exc:
             # Never copy transport response bodies, prompts or tokens to logs.

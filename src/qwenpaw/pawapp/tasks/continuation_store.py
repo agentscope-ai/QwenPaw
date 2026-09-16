@@ -52,6 +52,10 @@ def enqueue(connection, handle, *, sequence=None, status=None, text=None):
         "status": status or handle.status,
         "text_result": result[:16000] if result else result,
         "text_truncated": bool(result and len(result) > 16000),
+        "input_request": handle.input_request.model_dump(mode="json")
+        if (status or handle.status) == "waiting_for_input"
+        and handle.input_request is not None
+        else None,
     }
     connection.execute(
         """INSERT OR IGNORE INTO task_continuations

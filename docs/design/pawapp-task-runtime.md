@@ -16,9 +16,9 @@ neither the descriptor nor adapter registration is a permission grant.
 The Host creates one `TaskStore` at a Host-owned path in its working directory
 using `await TaskStore.open(path)`. SQLite owns task facts, action/input snapshots,
 submission identities, run mappings, events, replay cursors and delivery receipts.
-The file uses schema version 3. Additive migrations retain version 1/2 tasks,
-add boundary audit records and backfill pending continuation jobs from the
-existing outbox; unsupported versions are rejected. Connections
+The file uses schema version 4. Additive migrations retain version 1/2/3 tasks,
+add boundary audit records, durable task commands, and backfill pending
+continuation jobs from the existing outbox; unsupported versions are rejected. Connections
 use WAL, full synchronous commits and short transactions on worker threads.
 
 `app/task_tracker.py` continues to track active Main Chat execution and stream
@@ -82,6 +82,8 @@ The base path is `/api/pawapps/{app_id}/workspaces/{workspace_id}`:
 | `POST /actions/{action_id}/prepare` | Readiness only; creates no task or grant. |
 | `POST /actions/{action_id}/tasks` | `202` with a durable task handle, or `200` with a structured blocked result. |
 | `GET /tasks/{task_id}` | Scoped task handle and current text snapshot. |
+| `POST /tasks/{task_id}/answer` | Persist and deliver an answer for the handle's current typed input request. |
+| `POST /tasks/{task_id}/cancel` | Persist cancellation intent and target the original submission/run. |
 | `GET /tasks/{task_id}/events?after=0&limit=100` | Ordered replay after the Host event sequence; maximum page size 1000. |
 
 Both POST bodies accept only `request_id`, `chat_id`, `engagement` and `inputs`.
@@ -151,6 +153,8 @@ Only adapters declaring `submission_protocol_version = 1` are accepted:
 | `submit(TaskSubmission)` | Durably deduplicate `submission_id`, including concurrent retries and executor restarts; return the original `ExecutorRunRef`. |
 | `query(TaskSubmission)` | Use its durable submission ID and trusted scope; return `accepted` with the original run, authoritative `not_found`, or `unknown`. Losing a response or acceptance history is `unknown`, not `not_found`. |
 | `attach(TaskSubmission)` | Use its bound run and saved cursor; emit new events in executor sequence order, followed by explicit terminal status. |
+| `command(TaskSubmission, TaskCommand)` | Apply the Host-persisted answer/cancel identity to the original run and return a durable outcome. |
+| `query_command(TaskSubmission, TaskCommand)` | Reconcile the same command ID as `accepted`, `rejected`, authoritative `not_found`, or `unknown`. |
 
 All three calls receive the persisted submission so query/replay can recover
 the same scope after Host restart, without an adapter-local identity cache.
@@ -167,13 +171,13 @@ registration is restored. Query failures preserve task state and recorded output
 Data's legacy `EngineClient.create_chat` remains the existing chat path. The
 task adapter uses `POST /api/v1/submissions` and requires the Engine's explicit
 protocol-1 capability probe. The verified development Engine is
-[`89cc1d2`](https://github.com/cyruszhang/QwenPaw-Data/commit/89cc1d2c65983d4c0135b8db6f5f4ba712e2d55e)
+[`183bca7`](https://github.com/cyruszhang/QwenPaw-Data/commit/183bca7)
 on `dev/pawapp-vnext-engine`; no published minimum compatible version is claimed.
 See the [Data adapter contract and integration command](pawapp-data-task-adapter.md).
 
 ## Main Chat tools and task cards
 
-The Console chat entry point binds four tools to the authenticated principal,
+The Console chat entry point binds six tools to the authenticated principal,
 resolved workspace and originating Main Chat:
 
 | Tool | Behavior |
@@ -182,6 +186,8 @@ resolved workspace and originating Main Chat:
 | `describe_action(app_id, action_id)` | Full granted descriptor and digest, including the input schema and effects. |
 | `delegate(app_id, action_id, inputs, request_id)` | Submit an independent delegated task, returning its durable handle or a setup blocker. |
 | `get_app_task(app_id, task_id)` | Read status and text for a task delegated from this Main Chat. |
+| `answer_task(app_id, task_id, command_id, request_id, answers)` | Answer the exact typed request currently pending on a task delegated from this chat. |
+| `cancel_task(app_id, task_id, reason="")` | Request cancellation and return the task's durable command receipt. |
 
 Action schemas are loaded on demand, rather than injected as a separate top-level
 tool for every App action. Caller identity, workspace and return chat are captured
@@ -209,11 +215,11 @@ retry. Recovery and partial output never imply successful completion. Setup link
 are constructed from the App ID, not from a tool-supplied external URL. English
 and Chinese labels are included; malformed results use the generic tool card.
 
-Delegated waiting/terminal transitions now schedule an assistant summary using
+Delegated waiting/terminal transitions schedule an assistant summary using
 the workspace's configured model and language. The summary is appended to the
 originating Main Chat when it becomes idle. This worker calls the model without
-tools or runtime hooks; executing follow-on actions, answering the App and
-cancelling its task remain separate gates.
+tools or runtime hooks. The next Main Chat turn can use the separately bound
+answer/cancel tools; arbitrary follow-on action execution remains a separate gate.
 
 ## Events and recovery
 
@@ -229,6 +235,21 @@ intents commit in one transaction. Success requires a persisted text result
 (possibly supplied by an earlier event). Terminal states cannot be overwritten.
 EOF and transport failure record recovery state without inferring success or
 interruption. Only an authoritative executor event can establish interruption.
+
+An `ask_user_question` tool call projects a bounded `input_request` onto the task
+and ends that attachment at an intentional waiting boundary. The Host validates
+answer question identities, option labels and selection cardinality against this
+snapshot before persisting a command. Waiting tasks are not polled until a
+command exists; replay after an answer clears the request when the matching tool
+result arrives.
+
+The Host records each answer/cancel meaning under a stable command ID before
+external I/O. Same-ID retries return the same receipt; changed answer content is
+`command_conflict`. A stale answer is rejected, while cancellation before
+submission terminalizes locally without dispatch. Once a run exists, terminal
+executor state wins cancellation races and its partial output remains available.
+Uncertain sends are reconciled through the executor receipt rather than assigned
+a new identity.
 
 Delegated waiting/terminal transitions create a continuation intent for the
 original Main Chat, in addition to a task update. Direct tasks create only updates
@@ -286,8 +307,10 @@ it is not a real Data engine or Main Chat end-to-end test.
 coordinator against a separate Engine process with real HTTP/SSE, SQL receipt
 creation, and startup recovery. Its executor emits controlled text without a
 provider call. The tests verify both engagements, concurrent delegation,
-uncertain submissions, Host store reopen, and forced Engine restart. They do
-not exercise a live Main Agent, UI, or analytical tools.
+uncertain submissions, Host store reopen, forced Engine restart, a real
+clarification pause/answer/resume, idempotent command receipts, and cancellation
+that retains partial output. They do not exercise a live Main Agent, UI, or
+analytical tools.
 
 `test_task_runtime.py` verifies HTTP authentication, forged scope claims,
 cross-user reads, origin/resource denial, blocked setup without latent work,
@@ -314,7 +337,6 @@ recovery, refresh failure/retry, stale responses, newer history snapshots,
 unmount cleanup, setup links and handle validation.
 
 Remaining integration includes a grant UI,
-durable answer/cancel receipts,
 general Main Agent continuation with follow-on tools, and the Host/public plus
 App/private Skill/Tool runtime bridge. These are still P1a gates. Artifact Canvas
 and cross-App Exchange are not part of this implementation.

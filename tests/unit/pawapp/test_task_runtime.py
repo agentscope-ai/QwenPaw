@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from qwenpaw.app import auth
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.pawapp.tasks import (
+    CommandLookup,
     ExecutorEvent,
     ExecutorRunRef,
     SubmissionLookup,
@@ -50,6 +51,8 @@ class Executor:
         self.ready = Readiness(state="ready")
         self.release = asyncio.Event()
         self.release.set()
+        self.commands = {}
+        self.command_calls = []
 
     async def readiness(self, scope, inputs):
         del scope, inputs
@@ -81,6 +84,22 @@ class Executor:
             cursor="0",
             status="succeeded",
             text_result="42",
+        )
+
+    async def command(self, submission, command):
+        self.command_calls.append(
+            (submission.handle.task_id, command.command_id),
+        )
+        return self.commands.setdefault(
+            command.command_id,
+            CommandLookup(state="accepted"),
+        )
+
+    async def query_command(self, submission, command):
+        del submission
+        return self.commands.get(
+            command.command_id,
+            CommandLookup(state="not_found"),
         )
 
     async def aclose(self):
@@ -310,6 +329,138 @@ async def test_blocked_setup_creates_no_task_or_latent_execution(host):
     )
     assert ready.json() == {"state": "ready"}
     assert not host.runs
+
+
+@pytest.mark.asyncio
+async def test_answer_and_cancel_routes_use_scoped_durable_commands(host):
+    origin = await host.app.state.pawapp_task_origins.resolve(
+        SCOPE,
+        "delegated",
+        "main",
+    )
+    waiting = await host.store.create(
+        SCOPE,
+        ACTION,
+        request_id="waiting-route",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    await host.store.begin_submission(SCOPE, waiting.handle.task_id)
+    ref = ExecutorRunRef(
+        executor_id="engine",
+        session_id="session-waiting-route",
+        run_id="run-waiting-route",
+    )
+    host.runs[waiting.handle.submission_id] = ref
+    await host.store.record_accepted(SCOPE, waiting.handle.task_id, ref)
+    await host.store.apply_event(
+        SCOPE,
+        waiting.handle.task_id,
+        ExecutorEvent(
+            run_ref=ref,
+            sequence=0,
+            cursor="0",
+            status="waiting_for_input",
+            detail={
+                "input_request": {
+                    "request_id": "question-route",
+                    "questions": [
+                        {
+                            "question": "Which period?",
+                            "options": [{"label": "Q1"}, {"label": "Q2"}],
+                        },
+                    ],
+                },
+            },
+        ),
+    )
+    host.adapters[0].release.clear()
+    answer = await host.client.post(
+        PREFIX + f"/tasks/{waiting.handle.task_id}/answer",
+        json={
+            "command_id": "answer-route",
+            "request_id": "question-route",
+            "answers": [
+                {
+                    "question": "Which period?",
+                    "selected_options": ["Q1"],
+                },
+            ],
+        },
+    )
+    assert answer.status_code == 200
+    assert answer.json()["command"]["state"] == "accepted"
+    assert (
+        await host.client.post(
+            PREFIX + f"/tasks/{waiting.handle.task_id}/answer",
+            json={
+                "command_id": "answer-route",
+                "request_id": "question-route",
+                "answers": [
+                    {
+                        "question": "Which period?",
+                        "selected_options": ["Q1"],
+                    },
+                ],
+            },
+        )
+    ).json() == answer.json()
+    assert (
+        await host.client.get(
+            PREFIX + f"/tasks/{waiting.handle.task_id}",
+            headers={"Authorization": "Bearer bob-token"},
+        )
+    ).status_code == 404
+
+    pending = await host.store.create(
+        SCOPE,
+        ACTION,
+        request_id="cancel-route",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    cancelled = await host.client.post(
+        PREFIX + f"/tasks/{pending.handle.task_id}/cancel",
+        json={"reason": "No longer needed"},
+    )
+    assert cancelled.status_code == 200
+    assert cancelled.json()["command"]["state"] == "accepted"
+    assert (
+        await host.store.get(SCOPE, pending.handle.task_id)
+    ).handle.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_command_wake_is_replayed_after_active_worker_exits(
+    host,
+    tmp_path,
+):
+    store = await TaskStore.open(tmp_path / "rewake.db")
+    runtime = host.runtime(store)
+    await runtime._sync()
+    origin = await host.app.state.pawapp_task_origins.resolve(
+        SCOPE,
+        "delegated",
+        "main",
+    )
+    task = await store.create(
+        SCOPE,
+        ACTION,
+        request_id="rewake",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    blocker = asyncio.create_task(asyncio.Event().wait())
+    key = (SCOPE.app_id, ACTION.action_id)
+    runtime._workers[task.handle.task_id] = (key, blocker)
+    runtime._retry_at[task.handle.task_id] = float("inf")
+    runtime._wake(task, force=True)
+    assert task.handle.task_id in runtime._forced_rewake
+    blocker.cancel()
+    await asyncio.gather(blocker, return_exceptions=True)
+    await asyncio.sleep(0)
+    assert runtime._workers[task.handle.task_id][1] is not blocker
+    await runtime.aclose()
 
 
 @pytest.mark.asyncio

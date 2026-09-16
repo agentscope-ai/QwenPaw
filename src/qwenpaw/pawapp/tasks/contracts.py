@@ -31,6 +31,13 @@ WAITING_STATUSES = frozenset(
     {"waiting_for_input", "waiting_for_setup", "waiting_for_approval"},
 )
 RecoveryState = Literal["none", "reconciling", "unresolved"]
+CommandState = Literal[
+    "prepared",
+    "in_flight",
+    "accepted",
+    "rejected",
+    "unknown",
+]
 
 
 def canonical_json(value: Any) -> str:
@@ -138,6 +145,87 @@ class ExecutorRunRef(Contract):
     run_id: Identity
 
 
+class TaskInputOption(Contract):
+    label: Annotated[str, Field(min_length=1, max_length=1000)]
+    description: Annotated[str, Field(max_length=2000)] = ""
+
+
+class TaskInputQuestion(Contract):
+    question: Annotated[str, Field(min_length=1, max_length=2000)]
+    description: Annotated[str, Field(max_length=4000)] = ""
+    multi_select: bool = False
+    options: tuple[TaskInputOption, ...] = Field(min_length=2, max_length=4)
+
+    @model_validator(mode="after")
+    def validate_options(self) -> TaskInputQuestion:
+        if len({option.label for option in self.options}) != len(self.options):
+            raise ValueError("input option labels must be unique")
+        return self
+
+
+class TaskInputRequest(Contract):
+    request_id: Identity
+    title: Annotated[str, Field(max_length=2000)] = ""
+    questions: tuple[TaskInputQuestion, ...] = Field(
+        min_length=1,
+        max_length=4,
+    )
+
+    @model_validator(mode="after")
+    def validate_questions(self) -> TaskInputRequest:
+        canonical_json(
+            [question.model_dump(mode="json") for question in self.questions],
+        )
+        return self
+
+
+class TaskAnswer(Contract):
+    question: Annotated[str, Field(min_length=1, max_length=2000)]
+    selected_options: tuple[
+        Annotated[str, Field(min_length=1, max_length=1000)],
+        ...,
+    ] = ()
+    custom_text: Annotated[str, Field(max_length=4000)] | None = None
+
+    @model_validator(mode="after")
+    def validate_answer(self) -> TaskAnswer:
+        if not self.selected_options and not (self.custom_text or "").strip():
+            raise ValueError("an answer requires a selection or custom text")
+        if len(set(self.selected_options)) != len(self.selected_options):
+            raise ValueError("selected options must be unique")
+        return self
+
+
+class TaskCommand(Contract):
+    protocol_version: Literal[1] = 1
+    task_id: Identity
+    command_id: Identity
+    kind: Literal["answer", "cancel"]
+    request_id: Identity | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    state: CommandState = "prepared"
+    reason: Identity | None = None
+    created_at: float
+    updated_at: float
+
+    @model_validator(mode="after")
+    def validate_command(self) -> TaskCommand:
+        canonical_json(self.payload)
+        if self.kind == "answer":
+            if not self.request_id or not isinstance(
+                self.payload.get("answers"),
+                list,
+            ):
+                raise ValueError(
+                    "answer commands require request_id and answers",
+                )
+        elif self.request_id is not None or set(self.payload) - {"reason"}:
+            raise ValueError("cancel commands accept only a reason")
+        if self.state == "rejected" and not self.reason:
+            raise ValueError("rejected commands require a reason")
+        return self
+
+
 class TaskHandle(Contract):
     schema_version: Literal[1] = 1
     task_id: Identity
@@ -155,6 +243,8 @@ class TaskHandle(Contract):
     executor_sequence: int | None = Field(default=None, ge=0)
     event_sequence: int = Field(default=0, ge=0)
     text_result: str | None = None
+    input_request: TaskInputRequest | None = None
+    cancel_requested: bool = False
     created_at: float
     updated_at: float
 
@@ -182,7 +272,7 @@ class ExecutorEvent(Contract):
 class TaskEvent(Contract):
     task_id: Identity
     sequence: int = Field(ge=1)
-    kind: Literal["created", "submission", "executor", "recovery"]
+    kind: Literal["created", "submission", "executor", "recovery", "command"]
     status: TaskStatus
     payload: dict[str, Any]
     created_at: float

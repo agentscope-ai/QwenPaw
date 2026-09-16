@@ -135,6 +135,12 @@ class EngineProcess:
         with sqlite3.connect(self.home / "host/host.db") as db:
             return db.execute("SELECT COUNT(*) FROM submissions").fetchone()[0]
 
+    def count_commands(self):
+        with sqlite3.connect(self.home / "host/host.db") as db:
+            return db.execute(
+                "SELECT COUNT(*) FROM submission_commands",
+            ).fetchone()[0]
+
 
 @pytest.fixture
 async def engine(tmp_path):
@@ -294,6 +300,96 @@ async def test_concurrent_delegations_keep_separate_runs(tmp_path, engine):
         )
         assert engine.count_runs() == 3
     finally:
+        await adapter.aclose()
+
+
+async def test_real_engine_clarification_answer_is_durable(tmp_path, engine):
+    store = await TaskStore.open(tmp_path / "host/tasks.db")
+    adapter = BRIDGE.DataTaskAdapter(
+        engine.endpoint,
+        executor_id="engine:test",
+    )
+    boundary = coordinator(store, adapter)
+    try:
+        submitted = await dispatch(boundary, text="clarify")
+        waiting = await asyncio.wait_for(
+            boundary.consume(SCOPE, submitted.handle.task_id),
+            10,
+        )
+        request = waiting.handle.input_request
+        assert waiting.handle.status == "waiting_for_input"
+        assert waiting.handle.recovery_state == "none"
+        assert request is not None
+        assert request.request_id == "clarification-1"
+        command = await store.prepare_answer(
+            SCOPE,
+            waiting.handle.task_id,
+            command_id="answer-1",
+            request_id=request.request_id,
+            answers=[
+                {
+                    "question": "Which period?",
+                    "selected_options": ["Q1"],
+                },
+            ],
+        )
+        receipt = await boundary.deliver_command(
+            SCOPE,
+            waiting.handle.task_id,
+            command.command_id,
+        )
+        assert receipt.state == "accepted"
+        assert (
+            await boundary.deliver_command(
+                SCOPE,
+                waiting.handle.task_id,
+                command.command_id,
+            )
+        ) == receipt
+        result = await asyncio.wait_for(
+            boundary.consume(SCOPE, waiting.handle.task_id),
+            10,
+        )
+        assert result.handle.status == "succeeded"
+        assert result.handle.input_request is None
+        assert result.handle.text_result == "Revenue is 42."
+        assert engine.count_commands() == 1
+    finally:
+        await adapter.aclose()
+
+
+async def test_real_engine_cancel_retains_partial_output(tmp_path, engine):
+    store = await TaskStore.open(tmp_path / "host/tasks.db")
+    adapter = BRIDGE.DataTaskAdapter(
+        engine.endpoint,
+        executor_id="engine:test",
+    )
+    boundary = coordinator(store, adapter)
+    submitted = await dispatch(boundary, text="pause")
+    consumer = asyncio.create_task(
+        boundary.consume(SCOPE, submitted.handle.task_id),
+    )
+    try:
+        await wait_for_partial(store, submitted.handle.task_id)
+        command = await store.prepare_cancel(
+            SCOPE,
+            submitted.handle.task_id,
+            reason="No longer needed",
+        )
+        receipt = await boundary.deliver_command(
+            SCOPE,
+            submitted.handle.task_id,
+            command.command_id,
+        )
+        assert receipt.state == "accepted"
+        result = await asyncio.wait_for(consumer, 10)
+        assert result.handle.status == "cancelled"
+        assert result.handle.text_result == "Revenue is "
+        assert engine.count_commands() == 1
+    finally:
+        if not consumer.done():
+            consumer.cancel()
+            await asyncio.gather(consumer, return_exceptions=True)
         await adapter.aclose()
 
 

@@ -18,6 +18,7 @@ from qwenpaw.pawapp.tasks.agent_tools import (
     bind_task_tools,
     make_task_tools,
 )
+from qwenpaw.pawapp.tasks import ExecutorEvent, ExecutorRunRef
 from qwenpaw.pawapp.tasks.binding import Readiness
 from qwenpaw.runtime.builder import AgentBuilder
 from qwenpaw.schemas import AgentRequest
@@ -25,6 +26,7 @@ from tests.unit.pawapp.test_task_runtime import (
     host as host_fixture,
     settled,
     SCOPE,
+    ACTION,
     BODY,
 )
 
@@ -96,6 +98,77 @@ async def test_discover_describe_delegate_and_read(host):
     assert read["task"]["origin"]["return_session_ref"] == "main-session"
     assert read["task"]["scope"] == SCOPE.model_dump()
     assert len(host.runs) == 1
+
+
+@pytest.mark.asyncio
+async def test_answer_tool_uses_typed_pending_request_and_durable_identity(
+    host,
+):
+    bound = tools(host)
+    # Initialize the runtime binding, then construct a deterministic waiting
+    # task without involving a provider model.
+    await bound["list_apps"]()
+    origin = await host.app.state.pawapp_task_origins.resolve(
+        SCOPE,
+        "delegated",
+        "main",
+    )
+    task = await host.store.create(
+        SCOPE,
+        ACTION,
+        request_id="waiting-tool",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    await host.store.begin_submission(SCOPE, task.handle.task_id)
+    ref = ExecutorRunRef(
+        executor_id="engine",
+        session_id="session-waiting",
+        run_id="run-waiting",
+    )
+    host.runs[task.handle.submission_id] = ref
+    await host.store.record_accepted(SCOPE, task.handle.task_id, ref)
+    await host.store.apply_event(
+        SCOPE,
+        task.handle.task_id,
+        ExecutorEvent(
+            run_ref=ref,
+            sequence=0,
+            cursor="0",
+            status="waiting_for_input",
+            detail={
+                "input_request": {
+                    "request_id": "question-1",
+                    "questions": [
+                        {
+                            "question": "Which period?",
+                            "options": [{"label": "Q1"}, {"label": "Q2"}],
+                        },
+                    ],
+                },
+            },
+        ),
+    )
+    host.adapters[0].release.clear()
+    args = {
+        "app_id": SCOPE.app_id,
+        "task_id": task.handle.task_id,
+        "request_id": "question-1",
+        "command_id": "answer-question-1",
+        "answers": [
+            {"question": "Which period?", "selected_options": ["Q1"]},
+        ],
+    }
+    first = payload(await bound["answer_task"](**args))
+    retry = payload(await bound["answer_task"](**args))
+    assert first["command"]["state"] == "accepted"
+    assert retry["command"] == first["command"]
+    assert (
+        host.adapters[0].command_calls.count(
+            (task.handle.task_id, "answer-question-1"),
+        )
+        == 1
+    )
 
 
 @pytest.mark.asyncio
@@ -319,6 +392,8 @@ async def test_builder_uses_private_context_not_payload_claims(
         "describe_action",
         "delegate",
         "get_app_task",
+        "answer_task",
+        "cancel_task",
     }
     assert all(
         agent == "sales" and rc["user_id"] == "alice" for agent, rc in wraps

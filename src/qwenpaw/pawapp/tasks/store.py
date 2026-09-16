@@ -24,8 +24,11 @@ from .contracts import (
     ExecutorRunRef,
     RecoveryState,
     TaskDelivery,
+    TaskAnswer,
+    TaskCommand,
     TaskEvent,
     TaskHandle,
+    TaskInputRequest,
     TaskOrigin,
     TaskScope,
     TaskStoreError,
@@ -36,7 +39,7 @@ from .contracts import (
 from .continuation_store import enqueue, migrate as migrate_continuations
 
 _T = TypeVar("_T")
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 _AUDIT_SCHEMA = """CREATE TABLE task_audit (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at REAL NOT NULL,
@@ -48,6 +51,13 @@ _AUDIT_SCHEMA = """CREATE TABLE task_audit (
     outcome TEXT NOT NULL,
     request_id TEXT,
     task_id TEXT
+)"""
+_COMMAND_SCHEMA = """CREATE TABLE IF NOT EXISTS task_commands (
+    task_id TEXT NOT NULL REFERENCES tasks(task_id),
+    command_id TEXT NOT NULL,
+    meaning_digest TEXT NOT NULL,
+    command_json TEXT NOT NULL,
+    PRIMARY KEY(task_id, command_id)
 )"""
 _SCHEMA = (
     """CREATE TABLE tasks (
@@ -135,6 +145,13 @@ class TaskStore:
                 connection.execute(_AUDIT_SCHEMA)
             if version in (0, 1, 2):
                 migrate_continuations(connection)
+            if version in (0, 1, 2, 3):
+                connection.execute(_COMMAND_SCHEMA)
+                connection.execute(
+                    """CREATE INDEX IF NOT EXISTS task_commands_pending
+                    ON task_commands(task_id,
+                    json_extract(command_json, '$.state'))""",
+                )
                 connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             elif version != _SCHEMA_VERSION:
                 raise TaskStoreError("unsupported_store_version")
@@ -333,6 +350,254 @@ class TaskStore:
             lambda connection: self._get(connection, scope, task_id),
         )
 
+    @staticmethod
+    def _command(
+        connection: sqlite3.Connection,
+        task_id: str,
+        command_id: str,
+    ) -> tuple[TaskCommand, str] | None:
+        row = connection.execute(
+            """SELECT command_json, meaning_digest FROM task_commands
+            WHERE task_id = ? AND command_id = ?""",
+            (task_id, command_id),
+        ).fetchone()
+        if row is None:
+            return None
+        return (
+            TaskCommand.model_validate_json(row["command_json"]),
+            row["meaning_digest"],
+        )
+
+    async def command(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        command_id: str,
+    ) -> TaskCommand:
+        def operation(connection):
+            self._get(connection, scope, task_id)
+            found = self._command(connection, task_id, command_id)
+            if found is None:
+                raise TaskStoreError("command_not_found")
+            return found[0]
+
+        return await self._run(operation)
+
+    async def prepare_answer(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        *,
+        command_id: str,
+        request_id: str,
+        answers: list[dict],
+    ) -> TaskCommand:
+        answers = [
+            TaskAnswer.model_validate(answer).model_dump(mode="json")
+            for answer in answers
+        ]
+        payload = json.loads(canonical_json({"answers": answers}))
+        meaning = content_digest(
+            {"kind": "answer", "request_id": request_id, "payload": payload},
+        )
+
+        def operation(connection):
+            submission = self._get(connection, scope, task_id)
+            existing = self._command(connection, task_id, command_id)
+            if existing is not None:
+                if existing[1] != meaning:
+                    raise TaskStoreError("command_conflict")
+                return existing[0]
+            handle = submission.handle
+            if (
+                handle.status != "waiting_for_input"
+                or handle.input_request is None
+                or handle.input_request.request_id != request_id
+            ):
+                raise TaskStoreError("stale_request")
+            questions = {
+                question.question: question
+                for question in handle.input_request.questions
+            }
+            if (
+                len(answers) != len(questions)
+                or len(questions) != len(handle.input_request.questions)
+                or {answer["question"] for answer in answers} != set(questions)
+            ):
+                raise TaskStoreError("invalid_task_answer")
+            for answer in answers:
+                question = questions[answer["question"]]
+                selected = answer["selected_options"]
+                labels = {option.label for option in question.options}
+                if any(option not in labels for option in selected) or (
+                    not question.multi_select and len(selected) > 1
+                ):
+                    raise TaskStoreError("invalid_task_answer")
+            now = time.time()
+            command = TaskCommand(
+                task_id=task_id,
+                command_id=command_id,
+                kind="answer",
+                request_id=request_id,
+                payload=payload,
+                created_at=now,
+                updated_at=now,
+            )
+            connection.execute(
+                "INSERT INTO task_commands VALUES (?, ?, ?, ?)",
+                (task_id, command_id, meaning, command.model_dump_json()),
+            )
+            return command
+
+        return await self._run(operation, write=True)
+
+    async def prepare_cancel(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        *,
+        reason: str | None,
+    ) -> TaskCommand:
+        command_id = "cancel_" + content_digest([task_id, "cancel"])[:32]
+        payload = {"reason": reason} if reason else {}
+        meaning = content_digest({"kind": "cancel", "task_id": task_id})
+
+        def operation(connection):
+            submission = self._get(connection, scope, task_id)
+            existing = self._command(connection, task_id, command_id)
+            if existing is not None:
+                return existing[0]
+            handle = submission.handle
+            now = time.time()
+            terminal_before_submit = (
+                handle.status not in TERMINAL_STATUSES
+                and handle.submission_state == "prepared"
+            )
+            state = (
+                "accepted"
+                if terminal_before_submit or handle.status in TERMINAL_STATUSES
+                else "prepared"
+            )
+            command = TaskCommand(
+                task_id=task_id,
+                command_id=command_id,
+                kind="cancel",
+                payload=payload,
+                state=state,
+                reason="already_terminal"
+                if handle.status in TERMINAL_STATUSES
+                else None,
+                created_at=now,
+                updated_at=now,
+            )
+            connection.execute(
+                "INSERT INTO task_commands VALUES (?, ?, ?, ?)",
+                (task_id, command_id, meaning, command.model_dump_json()),
+            )
+            if handle.status in TERMINAL_STATUSES:
+                return command
+            handle = handle.model_copy(
+                update={
+                    "cancel_requested": True,
+                    "status": "cancelled"
+                    if terminal_before_submit
+                    else handle.status,
+                    "input_request": None
+                    if terminal_before_submit
+                    else handle.input_request,
+                },
+            )
+            self._event(
+                connection,
+                submission.model_copy(update={"handle": handle}),
+                "command",
+                {"kind": "cancel", "state": state},
+                wake=terminal_before_submit,
+            )
+            return command
+
+        return await self._run(operation, write=True)
+
+    async def begin_command(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        command_id: str,
+    ) -> tuple[TaskSubmission, TaskCommand, bool]:
+        def operation(connection):
+            submission = self._get(connection, scope, task_id)
+            found = self._command(connection, task_id, command_id)
+            if found is None:
+                raise TaskStoreError("command_not_found")
+            command, _ = found
+            if command.state != "prepared":
+                return submission, command, False
+            command = command.model_copy(
+                update={"state": "in_flight", "updated_at": time.time()},
+            )
+            connection.execute(
+                """UPDATE task_commands SET command_json = ?
+                WHERE task_id = ? AND command_id = ?""",
+                (command.model_dump_json(), task_id, command_id),
+            )
+            return submission, command, True
+
+        return await self._run(operation, write=True)
+
+    async def mark_command(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        command_id: str,
+        *,
+        state: str,
+        reason: str | None = None,
+    ) -> TaskCommand:
+        if state not in {"accepted", "rejected", "unknown"}:
+            raise ValueError("invalid command result")
+
+        def operation(connection):
+            self._get(connection, scope, task_id)
+            found = self._command(connection, task_id, command_id)
+            if found is None:
+                raise TaskStoreError("command_not_found")
+            command = found[0]
+            if command.state in {"accepted", "rejected"}:
+                return command
+            command = command.model_copy(
+                update={
+                    "state": state,
+                    "reason": reason,
+                    "updated_at": time.time(),
+                },
+            )
+            connection.execute(
+                """UPDATE task_commands SET command_json = ?
+                WHERE task_id = ? AND command_id = ?""",
+                (command.model_dump_json(), task_id, command_id),
+            )
+            return command
+
+        return await self._run(operation, write=True)
+
+    async def pending_command(
+        self,
+        scope: TaskScope,
+        task_id: str,
+    ) -> TaskCommand | None:
+        def operation(connection):
+            self._get(connection, scope, task_id)
+            row = connection.execute(
+                """SELECT command_json FROM task_commands WHERE task_id = ?
+                AND json_extract(command_json, '$.state')
+                IN ('prepared', 'in_flight', 'unknown')
+                ORDER BY json_extract(command_json, '$.created_at') LIMIT 1""",
+                (task_id,),
+            ).fetchone()
+            return TaskCommand.model_validate_json(row[0]) if row else None
+
+        return await self._run(operation)
+
     async def find_request(
         self,
         scope: TaskScope,
@@ -372,6 +637,14 @@ class TaskStore:
                 """SELECT submission_json FROM tasks WHERE task_id > ?
                 AND json_extract(submission_json, '$.handle.status')
                 NOT IN ('succeeded', 'failed', 'cancelled', 'interrupted')
+                AND (
+                    json_extract(submission_json, '$.handle.status')
+                        != 'waiting_for_input'
+                    OR EXISTS (
+                        SELECT 1 FROM task_commands
+                        WHERE task_commands.task_id = tasks.task_id
+                    )
+                )
                 ORDER BY task_id LIMIT ?""",
                 (after, limit),
             ).fetchall()
@@ -574,6 +847,19 @@ class TaskStore:
             )
             if status == "succeeded" and result is None:
                 raise TaskStoreError("result_required")
+            input_request = handle.input_request
+            if event.status == "waiting_for_input":
+                try:
+                    input_request = TaskInputRequest.model_validate(
+                        event.detail["input_request"],
+                    )
+                except (KeyError, ValueError):
+                    raise TaskStoreError("invalid_input_request") from None
+            elif (
+                event.status is not None
+                and event.status != "waiting_for_input"
+            ):
+                input_request = None
             wake = (
                 status != handle.status
                 and status in TERMINAL_STATUSES | WAITING_STATUSES
@@ -582,6 +868,7 @@ class TaskStore:
                 update={
                     "status": status,
                     "text_result": result,
+                    "input_request": input_request,
                     "replay_cursor": event.cursor,
                     "executor_sequence": event.sequence,
                     "recovery_state": "none",

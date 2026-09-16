@@ -14,6 +14,7 @@ from qwenpaw.pawapp.tasks import (
     ActionDescriptor,
     ExecutorRunRef,
     TaskOrigin,
+    TaskCommand,
     TaskScope,
     TaskStore,
     TaskStoreError,
@@ -25,6 +26,7 @@ CAPS = {
     "protocol_version": 1,
     "durable_submissions": True,
     "event_replay": True,
+    "durable_commands": True,
 }
 REF = ExecutorRunRef(
     executor_id="data:test",
@@ -92,16 +94,21 @@ def message(
     kind="message",
     content=None,
     seq=1,
+    status="in_progress",
+    source_id=None,
 ):
-    return {
+    result = {
         "object": "message",
         "id": msg_id,
         "sequence": seq,
         "type": kind,
         "role": role,
-        "status": "in_progress",
+        "status": status,
         "content": [] if content is None else content,
     }
+    if source_id is not None:
+        result["source_id"] = source_id
+    return result
 
 
 def text(value, *, msg_id="m1", delta=True):
@@ -258,6 +265,133 @@ async def test_submit_uses_durable_endpoint_and_scope_stamp(submission):
         "submission_id": submission.handle.submission_id,
         **submission.inputs,
     }
+
+
+async def test_commands_use_durable_identity_and_validate_receipts(submission):
+    requests = []
+    command = TaskCommand(
+        task_id=submission.handle.task_id,
+        command_id="answer-1",
+        kind="answer",
+        request_id="clarification-1",
+        payload={
+            "answers": [
+                {"question": "Which period?", "selected_options": ["Q1"]},
+            ],
+        },
+        state="in_flight",
+        created_at=1,
+        updated_at=1,
+    )
+
+    def handler(request):
+        requests.append(request)
+        if request.url.path == "/api/v1/capabilities/submissions":
+            return httpx.Response(200, json=CAPS)
+        return httpx.Response(
+            200,
+            json={
+                "protocol_version": 1,
+                "submission_id": submission.handle.submission_id,
+                "command_id": command.command_id,
+                "kind": command.kind,
+                "state": "accepted",
+                "reason": None,
+            },
+        )
+
+    adapter = BRIDGE.DataTaskAdapter(
+        lambda: ("http://engine.test", "test-token"),
+        executor_id=REF.executor_id,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        assert (await adapter.command(submission, command)).state == "accepted"
+        assert (
+            await adapter.query_command(submission, command)
+        ).state == "accepted"
+    finally:
+        await adapter.aclose()
+    assert json.loads(requests[1].content) == {
+        "protocol_version": 1,
+        "command_id": "answer-1",
+        "kind": "answer",
+        "request_id": "clarification-1",
+        "answers": command.payload["answers"],
+    }
+    assert requests[3].method == "GET"
+
+
+async def test_clarification_projects_waiting_request_and_answer_resume(
+    submission,
+):
+    clarification = message(
+        "question",
+        kind="plugin_call",
+        status="completed",
+        content=[
+            {
+                "type": "data",
+                "data": {
+                    "call_id": "clarification-1",
+                    "name": "ask_user_question",
+                    "arguments": json.dumps(
+                        {
+                            "title": "Choose a period",
+                            "questions": [
+                                {
+                                    "question": "Which period?",
+                                    "options": [
+                                        {"label": "Q1"},
+                                        {"label": "Q2"},
+                                    ],
+                                },
+                            ],
+                        },
+                    ),
+                },
+            },
+        ],
+        source_id="clarification-1",
+    )
+    resumed = message(
+        "answer",
+        role="tool",
+        kind="plugin_call_output",
+        status="completed",
+        source_id="clarification-1",
+    )
+    requests = []
+    adapter = client(
+        submission,
+        events=frames(clarification, resumed),
+        requests=requests,
+    )
+    events = await collect(adapter, submission)
+    assert len(events) == 1
+    assert events[0].status == "waiting_for_input"
+    assert events[0].detail["input_request"]["request_id"] == "clarification-1"
+    assert (
+        events[0].text_result == "Choose a period\nWhich period?\n1) Q1\n2) Q2"
+    )
+    resumed_submission = submission.model_copy(
+        update={
+            "handle": submission.handle.model_copy(
+                update={
+                    "replay_cursor": "0",
+                    "executor_sequence": 0,
+                    "text_result": events[0].text_result,
+                },
+            ),
+        },
+    )
+    resumed_adapter = client(
+        resumed_submission,
+        events=frames(clarification, resumed),
+        requests=requests,
+    )
+    resumed_events = await collect(resumed_adapter, resumed_submission)
+    assert resumed_events[0].status == "running"
     assert all(
         req.headers["authorization"] == "Bearer test-token" for req in requests
     )
@@ -266,6 +400,30 @@ async def test_submit_uses_durable_endpoint_and_scope_stamp(submission):
         == adapter.identity_namespace(submission.handle.scope)
         for req in requests
     )
+
+
+async def test_malformed_clarification_cannot_be_silently_skipped(submission):
+    clarification = message(
+        "question",
+        kind="plugin_call",
+        status="completed",
+        source_id="clarification-1",
+        content=[
+            {
+                "type": "data",
+                "data": {
+                    "call_id": "different-id",
+                    "name": "ask_user_question",
+                    "arguments": {"questions": []},
+                },
+            },
+        ],
+    )
+    with pytest.raises(TaskStoreError, match="invalid_engine_event"):
+        await collect(
+            client(submission, events=frames(clarification)),
+            submission,
+        )
 
 
 @pytest.mark.parametrize("field", ["principal_id", "workspace_id", "app_id"])

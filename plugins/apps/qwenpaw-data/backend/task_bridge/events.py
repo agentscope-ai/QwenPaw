@@ -92,6 +92,7 @@ class TextProjection:
         self.sequence = -1
         self._messages: dict[str, _Message] = {}
         self.terminal = False
+        self._waiting_request: str | None = None
 
     @property
     def text(self) -> str:
@@ -102,7 +103,10 @@ class TextProjection:
             if message.included and message.blocks
         )
 
-    def apply(self, frame: dict[str, Any]) -> ExecutorEvent:
+    def apply(  # pylint: disable=too-many-branches
+        self,
+        frame: dict[str, Any],
+    ) -> ExecutorEvent:
         if (
             frame.get("session_id") != self.run_ref.session_id
             or frame.get("chat_id") != self.run_ref.run_id
@@ -120,6 +124,17 @@ class TextProjection:
         detail = {"object": kind, "source_digest": content_digest(frame)}
         if kind == "message":
             self._message(frame)
+            request = _input_request(frame)
+            if request is not None:
+                self._waiting_request = request["request_id"]
+                status = "waiting_for_input"
+                detail["input_request"] = request
+            elif (
+                frame.get("type") == "plugin_call_output"
+                and frame.get("source_id") == self._waiting_request
+            ):
+                self._waiting_request = None
+                status = "running"
         elif kind == "content":
             self._content(frame)
         elif kind == "response":
@@ -169,9 +184,13 @@ class TextProjection:
             status=status,
             # A terminal response always carries the complete available prose;
             # an empty successful result is represented explicitly as "".
-            text_result=self.text
-            if self.text != before or self.terminal
-            else None,
+            text_result=(
+                _render_input_request(detail["input_request"])
+                if status == "waiting_for_input"
+                else self.text
+                if self.text != before or self.terminal
+                else None
+            ),
             detail=detail,
         )
 
@@ -235,3 +254,104 @@ class TextProjection:
         message.blocks[index] = (
             message.blocks.get(index, "") + text if delta else text
         )
+
+
+# pylint: disable-next=too-many-return-statements,too-many-branches
+def _input_request(
+    frame: dict[str, Any],
+) -> dict[str, Any] | None:
+    if (
+        frame.get("type") != "plugin_call"
+        or frame.get("status") != "completed"
+    ):
+        return None
+    blocks = frame.get("content")
+    if not isinstance(blocks, list):
+        return None
+    data = next(
+        (
+            block.get("data")
+            for block in blocks
+            if isinstance(block, dict) and block.get("type") == "data"
+        ),
+        None,
+    )
+    if not isinstance(data, dict) or data.get("name") != "ask_user_question":
+        return None
+    request_id, arguments = data.get("call_id"), data.get("arguments")
+    if (
+        not isinstance(request_id, str)
+        or not request_id
+        or frame.get("source_id") != request_id
+    ):
+        raise _invalid()
+    if isinstance(arguments, str):
+        try:
+            arguments = json.loads(arguments)
+        except ValueError:
+            raise _invalid() from None
+    if not isinstance(arguments, dict):
+        raise _invalid()
+    raw_questions = arguments.get("questions")
+    if not isinstance(raw_questions, list) or not raw_questions:
+        raise _invalid()
+    questions = []
+    for raw in raw_questions:
+        if not isinstance(raw, dict):
+            raise _invalid()
+        question, options = raw.get("question"), raw.get("options")
+        multi_select = raw.get("multiSelect", False)
+        description = raw.get("description") or ""
+        if (
+            not isinstance(question, str)
+            or not question
+            or not isinstance(options, list)
+            or not isinstance(multi_select, bool)
+            or not isinstance(description, str)
+        ):
+            raise _invalid()
+        normalized = []
+        for option in options:
+            if not isinstance(option, dict):
+                raise _invalid()
+            label = option.get("label")
+            option_description = option.get("description") or ""
+            if (
+                not isinstance(label, str)
+                or not label
+                or not isinstance(option_description, str)
+            ):
+                raise _invalid()
+            normalized.append(
+                {
+                    "label": label,
+                    "description": option_description,
+                },
+            )
+        questions.append(
+            {
+                "question": question,
+                "description": description,
+                "multi_select": multi_select,
+                "options": normalized,
+            },
+        )
+    title = arguments.get("title") or ""
+    if not isinstance(title, str):
+        raise _invalid()
+    return {
+        "request_id": request_id,
+        "title": title,
+        "questions": questions,
+    }
+
+
+def _render_input_request(request: dict[str, Any]) -> str:
+    lines = [request["title"]] if request.get("title") else []
+    multiple = len(request["questions"]) > 1
+    for index, question in enumerate(request["questions"], start=1):
+        prefix = f"{index}. " if multiple else ""
+        lines.append(prefix + question["question"])
+        for option_index, option in enumerate(question["options"], start=1):
+            lines.append(f"{option_index}) {option['label']}")
+    return "\n".join(lines)

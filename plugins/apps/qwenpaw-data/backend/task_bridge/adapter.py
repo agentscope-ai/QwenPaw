@@ -10,10 +10,12 @@ import httpx
 
 from qwenpaw.pawapp.tasks import (
     ActionDescriptor,
+    CommandLookup,
     ExecutorEvent,
     ExecutorRunRef,
     SubmissionLookup,
     TaskScope,
+    TaskCommand,
     TaskStoreError,
     TaskSubmission,
 )
@@ -135,7 +137,7 @@ class DataTaskAdapter:
             raise TaskStoreError("invalid_engine_response")
         return payload
 
-    async def _check_protocol(self, connection) -> None:
+    async def _check_protocol(self, connection) -> dict:
         try:
             caps = await self._json(
                 connection,
@@ -153,6 +155,7 @@ class DataTaskAdapter:
             or caps.get("event_replay") is not True
         ):
             raise TaskStoreError("unsupported_engine_protocol")
+        return caps
 
     async def check_compatibility(self, scope: TaskScope) -> None:
         """Read-only durable submission protocol probe."""
@@ -280,6 +283,79 @@ class DataTaskAdapter:
             raise TaskStoreError("invalid_engine_acceptance")
         return lookup.run_ref
 
+    @staticmethod
+    def _command_lookup(payload: dict, command: TaskCommand) -> CommandLookup:
+        if (
+            payload.get("protocol_version") != 1
+            or payload.get("submission_id") is None
+            or payload.get("command_id") != command.command_id
+            or payload.get("kind") not in {command.kind, None}
+        ):
+            raise TaskStoreError("invalid_engine_response")
+        state = payload.get("state")
+        if state not in {"accepted", "rejected", "not_found", "unknown"}:
+            raise TaskStoreError("invalid_engine_response")
+        reason = payload.get("reason")
+        if reason is not None and (
+            not isinstance(reason, str) or not 1 <= len(reason) <= 256
+        ):
+            raise TaskStoreError("invalid_engine_response")
+        return CommandLookup(state=state, reason=reason)
+
+    async def command(
+        self,
+        submission: TaskSubmission,
+        command: TaskCommand,
+    ) -> CommandLookup:
+        connection = self._connection(submission.handle.scope)
+        caps = await self._check_protocol(connection)
+        if caps.get("durable_commands") is not True:
+            raise TaskStoreError("unsupported_engine_commands")
+        body: dict[str, Any] = {
+            "protocol_version": 1,
+            "command_id": command.command_id,
+            "kind": command.kind,
+        }
+        if command.kind == "answer":
+            body.update(
+                {
+                    "request_id": command.request_id,
+                    "answers": command.payload["answers"],
+                },
+            )
+        elif command.payload.get("reason"):
+            body["reason"] = command.payload["reason"]
+        submission_id = self._submission_id(submission)
+        payload = await self._json(
+            connection,
+            "POST",
+            f"/api/v1/submissions/{submission_id}/commands",
+            json=body,
+        )
+        if payload.get("submission_id") != submission_id:
+            raise TaskStoreError("invalid_engine_response")
+        return self._command_lookup(payload, command)
+
+    async def query_command(
+        self,
+        submission: TaskSubmission,
+        command: TaskCommand,
+    ) -> CommandLookup:
+        connection = self._connection(submission.handle.scope)
+        caps = await self._check_protocol(connection)
+        if caps.get("durable_commands") is not True:
+            raise TaskStoreError("unsupported_engine_commands")
+        submission_id = self._submission_id(submission)
+        payload = await self._json(
+            connection,
+            "GET",
+            "/api/v1/submissions/"
+            f"{submission_id}/commands/{command.command_id}",
+        )
+        if payload.get("submission_id") != submission_id:
+            raise TaskStoreError("invalid_engine_response")
+        return self._command_lookup(payload, command)
+
     async def query(self, submission: TaskSubmission) -> SubmissionLookup:
         submission_id = self._submission_id(submission)
         connection = self._connection(submission.handle.scope)
@@ -345,11 +421,13 @@ class DataTaskAdapter:
                     event = projection.apply(frame)
                     if event.sequence == after and (
                         handle.text_result is not None
-                        and projection.text != handle.text_result
+                        and event.text_result != handle.text_result
                     ):
                         raise TaskStoreError("engine_replay_conflict")
                     if event.sequence > after:
                         yield event
+                        if event.status == "waiting_for_input":
+                            return
                     if projection.terminal:
                         if event.sequence <= after:
                             raise TaskStoreError("engine_replay_conflict")

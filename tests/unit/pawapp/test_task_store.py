@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from qwenpaw.pawapp.task import SSEChannel
 from qwenpaw.pawapp.tasks import (
     ActionDescriptor,
+    CommandLookup,
     ExecutorEvent,
     ExecutorRunRef,
     TaskOrigin,
@@ -83,6 +84,31 @@ async def accept(store, scope, action, origin):
     return await store.record_accepted(scope, task_id, run_ref())
 
 
+async def wait_for_period(store, scope, task_id):
+    return await store.apply_event(
+        scope,
+        task_id,
+        ExecutorEvent(
+            run_ref=run_ref(),
+            sequence=0,
+            cursor="0",
+            status="waiting_for_input",
+            detail={
+                "input_request": {
+                    "request_id": "clarification-1",
+                    "title": "Choose a period",
+                    "questions": [
+                        {
+                            "question": "Which period?",
+                            "options": [{"label": "Q1"}, {"label": "Q2"}],
+                        },
+                    ],
+                },
+            },
+        ),
+    )
+
+
 @pytest.mark.asyncio
 async def test_concurrent_retries_allocate_one_durable_identity(
     store,
@@ -115,6 +141,86 @@ async def test_concurrent_retries_allocate_one_durable_identity(
         "created",
         "submission",
     ]
+
+
+@pytest.mark.asyncio
+async def test_answer_commands_are_scoped_validated_and_idempotent(
+    store,
+    scope,
+    action,
+    origin,
+):
+    task = await accept(store, scope, action, origin)
+    await wait_for_period(store, scope, task.handle.task_id)
+    assert await store.recoverable() == []
+    kwargs = {
+        "command_id": "answer-1",
+        "request_id": "clarification-1",
+        "answers": [
+            {"question": "Which period?", "selected_options": ["Q1"]},
+        ],
+    }
+    first = await store.prepare_answer(scope, task.handle.task_id, **kwargs)
+    assert [item.handle.task_id for item in await store.recoverable()] == [
+        task.handle.task_id,
+    ]
+    retry = await store.prepare_answer(scope, task.handle.task_id, **kwargs)
+    assert retry == first
+    with pytest.raises(TaskStoreError, match="command_conflict"):
+        await store.prepare_answer(
+            scope,
+            task.handle.task_id,
+            **{
+                **kwargs,
+                "answers": [
+                    {
+                        "question": "Which period?",
+                        "selected_options": ["Q2"],
+                    },
+                ],
+            },
+        )
+    with pytest.raises(TaskStoreError, match="invalid_task_answer"):
+        await store.prepare_answer(
+            scope,
+            task.handle.task_id,
+            command_id="answer-invalid",
+            request_id="clarification-1",
+            answers=[
+                {"question": "Which period?", "selected_options": ["Q3"]},
+            ],
+        )
+    other = scope.model_copy(update={"principal_id": "mallory"})
+    with pytest.raises(TaskStoreError, match="task_not_found"):
+        await store.command(other, task.handle.task_id, first.command_id)
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_submission_is_terminal_without_executor_run(
+    store,
+    scope,
+    action,
+    origin,
+):
+    task = await create(store, scope, action, origin)
+    command = await store.prepare_cancel(
+        scope,
+        task.handle.task_id,
+        reason="No longer needed",
+    )
+    assert command.state == "accepted"
+    cancelled = await store.get(scope, task.handle.task_id)
+    assert cancelled.handle.status == "cancelled"
+    assert cancelled.handle.cancel_requested is True
+    assert not await store.begin_submission(scope, task.handle.task_id)
+    assert (
+        await store.prepare_cancel(
+            scope,
+            task.handle.task_id,
+            reason="A different retry reason",
+        )
+        == command
+    )
 
 
 @pytest.mark.asyncio
@@ -329,6 +435,20 @@ async def test_delivery_recovery_respects_origin_and_persists_receipts(
             sequence=0,
             cursor="0",
             status="waiting_for_input",
+            detail={
+                "input_request": {
+                    "request_id": "clarification-1",
+                    "questions": [
+                        {
+                            "question": "Which period?",
+                            "options": [
+                                {"label": "Q1"},
+                                {"label": "Q2"},
+                            ],
+                        },
+                    ],
+                },
+            },
         ),
     )
     await store.apply_event(
@@ -434,6 +554,9 @@ class ProtocolFixture:
         self.fault = None
         self.unknown = False
         self.closed = False
+        self.commands = {}
+        self.command_calls = []
+        self.command_fault = None
 
     async def submit(self, submission):
         submission_id = submission.handle.submission_id
@@ -473,6 +596,28 @@ class ProtocolFixture:
                     yield event
         finally:
             self.closed = True
+
+    async def command(self, submission, command):
+        del submission
+        self.command_calls.append(command.command_id)
+        if self.command_fault == "before_accept":
+            self.command_fault = None
+            raise TimeoutError("injected before command acceptance")
+        result = self.commands.setdefault(
+            command.command_id,
+            CommandLookup(state="accepted"),
+        )
+        if self.command_fault == "after_accept":
+            self.command_fault = None
+            raise TimeoutError("injected after command acceptance")
+        return result
+
+    async def query_command(self, submission, command):
+        del submission
+        return self.commands.get(
+            command.command_id,
+            CommandLookup(state="not_found"),
+        )
 
 
 async def fixture_policy(scope, action, origin, inputs):
@@ -627,6 +772,53 @@ async def test_missing_previously_accepted_run_never_creates_replacement(
     assert recovered.handle.executor_run_ref == run_ref()
     assert recovered.handle.status == "pending"
     assert len(engine.submitted_ids) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["before_accept", "after_accept"])
+async def test_command_recovery_reuses_durable_identity(
+    store,
+    scope,
+    action,
+    origin,
+    fault,
+):
+    engine = ProtocolFixture()
+    boundary = coordinator(store, action, engine)
+    task = await dispatch(boundary, scope, origin)
+    await wait_for_period(store, scope, task.handle.task_id)
+    command = await store.prepare_answer(
+        scope,
+        task.handle.task_id,
+        command_id="answer-recovery",
+        request_id="clarification-1",
+        answers=[
+            {"question": "Which period?", "selected_options": ["Q1"]},
+        ],
+    )
+    engine.command_fault = fault
+    first = await boundary.deliver_command(
+        scope,
+        task.handle.task_id,
+        command.command_id,
+    )
+    if fault == "after_accept":
+        assert first.state == "accepted"
+    else:
+        assert first.state == "unknown"
+        reopened = coordinator(
+            await TaskStore.open(store.path),
+            action,
+            engine,
+        )
+        first = await reopened.deliver_command(
+            scope,
+            task.handle.task_id,
+            command.command_id,
+        )
+        assert first.state == "accepted"
+    assert set(engine.command_calls) == {command.command_id}
+    assert len(engine.commands) == 1
 
 
 @pytest.mark.asyncio
