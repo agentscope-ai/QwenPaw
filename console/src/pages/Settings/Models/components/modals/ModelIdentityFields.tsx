@@ -6,12 +6,14 @@ export function ModelIdentityFields({
   options,
   loading = false,
   idField = "id",
+  idSuffix,
   nameLabel,
   onSelect,
 }: {
   options: { value: string; label?: ReactNode }[];
   loading?: boolean;
   idField?: string;
+  idSuffix?: ReactNode;
   nameLabel?: string;
   onSelect?: (value: string) => void;
 }) {
@@ -38,7 +40,7 @@ export function ModelIdentityFields({
               : t("models.modelDiscoveryUnavailableHint")
           }
         >
-          <Input />
+          <Input suffix={idSuffix} />
         </AutoComplete>
       </Form.Item>
       <Form.Item

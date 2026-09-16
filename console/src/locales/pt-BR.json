@@ -2271,7 +2271,11 @@
     "modalityFile": "File",
     "modalityText": "Text only",
     "perMillionIn": "/1M in",
-    "perMillionOut": "/1M out"
+    "perMillionOut": "/1M out",
+    "resetMaxTokens": "Restaurar automático",
+    "providerDefault": "Padrão do provedor",
+    "maxOutputCapabilityLabel": "Capacidade do modelo",
+    "unknown": "Desconhecido"
   },
   "files": {
     "title": "Arquivos",
@@ -3007,7 +3011,10 @@
       "global": "Configurações globais",
       "extensions": "Extensões"
     },
-    "pages": { "general": "Geral", "navigation": "Barra lateral" },
+    "pages": {
+      "general": "Geral",
+      "navigation": "Barra lateral"
+    },
     "descriptions": {
       "general": "Idioma, tema e comportamento do aplicativo",
       "navigation": "Visibilidade da barra lateral",
@@ -3437,7 +3444,7 @@
     },
     "navigation": {
       "workspace": "Espaço de trabalho",
-      "overview": "Operações",
+      "overview": "Visão geral do sistema",
       "runtimes": "Tempos de execução",
       "users": "Usuários",
       "credentials": "Credenciais",
@@ -3554,8 +3561,8 @@
       "encrypted": "Criptografado em repouso; texto simples não pode ser lido"
     },
     "overview": {
-      "eyebrow": "Painel de operações",
-      "title": "Visão geral do Hub",
+      "eyebrow": "Status do sistema",
+      "title": "Visão geral do sistema Hub",
       "description": "Entenda a integridade do Hub usando estado de tempo de execução real, recursos de host e eventos de auditoria.",
       "availability": "Disponibilidade de tempo de execução",
       "availabilityDetail": "{{running}} dos tempos de execução {{total}} estão atualmente online",
@@ -3762,6 +3769,20 @@
       "submit": "Criptografar e armazenar"
     },
     "governance": {
+      "analytics": {
+        "usage": "Uso",
+        "memberRanking": "Ranking de membros",
+        "rank": "Posição",
+        "charged": "Tokens debitados",
+        "share": "Participação",
+        "requests": "Chamadas",
+        "failures": "Chamadas com falha",
+        "actual": "Tokens informados",
+        "conservative": "Débito conservador",
+        "reserved": "Reserva em andamento",
+        "activeMembers": "Membros ativos",
+        "chargedHint": "Tokens debitados do orçamento, incluindo débito conservador quando o provedor não informa o uso completo."
+      },
       "budget": {
         "inherit": "Padrão da organização",
         "custom": "Limite personalizado",
@@ -3849,7 +3870,21 @@
         "memberCount_few": "{{count, number}} membros",
         "memberCount_many": "{{count, number}} membros",
         "memberCount_other": "{{count, number}} membros",
-        "availableModels": "Modelos disponíveis"
+        "availableModels": "Modelos disponíveis",
+        "capabilities": "Recursos do modelo",
+        "completeCapabilities": "Complete os limites de tokens ausentes. O limite de resposta não pode exceder a capacidade do modelo.",
+        "responseLimit": "Limitar tamanho da resposta (opcional)",
+        "modelSection": "Modelo e recursos",
+        "advancedSettings": "Configurações avançadas",
+        "connectionDisabled": "Conexão do provedor desativada",
+        "providerEnabled": "Provedor ativado",
+        "toggleProvider": "Ativar provedor {{name}}",
+        "changeDefaultFirst": "Escolha outro modelo padrão antes de desativar este modelo ou seu provedor.",
+        "modelEnabled": "Modelo ativado",
+        "modelDisabled": "Modelo desativado",
+        "toggleModel": "Ativar modelo {{name}}",
+        "viewProvider": "Ver provedor",
+        "zeroUnlimited": "0 significa sem limite"
       },
       "invitations": {
         "title": "Convidar membros",
@@ -3903,6 +3938,7 @@
         "title": "Redefinir senha · {{username}}"
       },
       "dashboard": {
+        "requests": "Requisições neste mês",
         "manageAccounts": "Gerenciar contas e limites",
         "running": "Instâncias em execução",
         "monthlyTokens": "Tokens do mês",
@@ -4012,7 +4048,8 @@
         "accountDisabled": "Esta conta está desativada.",
         "boundsUnverified": "Verifique os limites de entrada e saída do modelo antes de usar um orçamento finito.",
         "budgetExceeded": "O orçamento de tokens se esgotou. Entre em contato com o administrador.",
-        "passwordMemberOnly": "Aqui só é possível redefinir senhas de membros comuns."
+        "passwordMemberOnly": "Aqui só é possível redefinir senhas de membros comuns.",
+        "connectionDisabled": "O provedor está desativado. Ative o interruptor no cartão antes de testar ou definir um modelo padrão."
       }
     }
   },

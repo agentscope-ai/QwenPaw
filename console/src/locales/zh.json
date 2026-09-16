@@ -3741,7 +3741,7 @@
     },
     "navigation": {
       "workspace": "工作空间",
-      "overview": "运营总览",
+      "overview": "运行概览",
       "runtimes": "运行环境",
       "users": "用户",
       "credentials": "凭据",
@@ -3858,7 +3858,7 @@
       "encrypted": "已加密保存，不可读取明文"
     },
     "overview": {
-      "eyebrow": "运营控制台",
+      "eyebrow": "运行状态",
       "title": "Hub 运行概览",
       "description": "基于真实运行状态、主机资源和审计事件掌握 Hub 当前情况。",
       "availability": "实例在线率",
@@ -4066,6 +4066,20 @@
       "submit": "加密并保存"
     },
     "governance": {
+      "analytics": {
+        "usage": "用量",
+        "memberRanking": "成员排名",
+        "rank": "排名",
+        "charged": "计入额度 Token",
+        "share": "占比",
+        "requests": "调用次数",
+        "failures": "失败调用",
+        "actual": "上游报告 Token",
+        "conservative": "保守计费",
+        "reserved": "处理中预留",
+        "activeMembers": "活跃成员",
+        "chargedHint": "计入预算的 Token；上游未返回完整用量时，包含保守计费。"
+      },
       "budget": {
         "inherit": "继承组织默认",
         "custom": "自定义额度",
@@ -4153,7 +4167,21 @@
         "memberCount_few": "{{count, number}} 位成员",
         "memberCount_many": "{{count, number}} 位成员",
         "memberCount_other": "{{count, number}} 位成员",
-        "availableModels": "可用模型"
+        "availableModels": "可用模型",
+        "capabilities": "模型能力",
+        "completeCapabilities": "请补充缺失的 Token 信息，输出限制不能超过模型能力上限。",
+        "responseLimit": "限制回复长度（可选）",
+        "modelSection": "模型与能力",
+        "advancedSettings": "高级设置",
+        "connectionDisabled": "供应商连接已停用",
+        "providerEnabled": "供应商已启用",
+        "toggleProvider": "启用供应商 {{name}}",
+        "changeDefaultFirst": "请先更换默认模型，再停用当前模型或它的供应商。",
+        "modelEnabled": "模型已启用",
+        "modelDisabled": "模型已停用",
+        "toggleModel": "启用模型 {{name}}",
+        "viewProvider": "查看供应商",
+        "zeroUnlimited": "0 表示无限制"
       },
       "invitations": {
         "title": "邀请成员加入",
@@ -4207,6 +4235,7 @@
         "title": "重置密码 · {{username}}"
       },
       "dashboard": {
+        "requests": "本月调用",
         "manageAccounts": "管理账号与额度",
         "running": "运行实例",
         "monthlyTokens": "本月 Token",
@@ -4316,7 +4345,8 @@
         "accountDisabled": "此账号已停用。",
         "boundsUnverified": "使用有限预算前，请先验证模型输入与输出上限。",
         "budgetExceeded": "Token 预算已用完，请联系管理员。",
-        "passwordMemberOnly": "这里只能重置普通成员的密码。"
+        "passwordMemberOnly": "这里只能重置普通成员的密码。",
+        "connectionDisabled": "供应商已停用。请在供应商卡片上打开开关后，再测试或设为默认模型。"
       }
     }
   },

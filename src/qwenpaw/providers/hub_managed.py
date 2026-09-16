@@ -80,6 +80,8 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 supports_multimodal=m["supports_image"],
                 max_input_length=m["input_token_limit"],
                 max_input_length_configured=True,
+                max_output_length=m["output_token_limit"],
+                max_output_length_source="adapter",
             )
             for m in catalog["models"]
         ],

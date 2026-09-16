@@ -327,7 +327,10 @@
       "global": "Cài đặt toàn cục",
       "extensions": "Tiện ích mở rộng"
     },
-    "pages": { "general": "Chung", "navigation": "Thanh bên" },
+    "pages": {
+      "general": "Chung",
+      "navigation": "Thanh bên"
+    },
     "descriptions": {
       "general": "Ngôn ngữ, giao diện và hành vi ứng dụng",
       "navigation": "Khả năng hiển thị của thanh bên",
@@ -406,7 +409,7 @@
     },
     "navigation": {
       "workspace": "Không gian làm việc",
-      "overview": "Tổng quan",
+      "overview": "Tổng quan hệ thống",
       "runtimes": "Môi trường chạy",
       "users": "Người dùng",
       "credentials": "Thông tin xác thực",
@@ -523,8 +526,8 @@
       "encrypted": "Được mã hóa khi lưu; không thể đọc bản rõ"
     },
     "overview": {
-      "eyebrow": "Buồng lái vận hành",
-      "title": "Tổng quan hoạt động của Hub",
+      "eyebrow": "Trạng thái hệ thống",
+      "title": "Tổng quan hệ thống Hub",
       "description": "Tìm hiểu tình trạng của Hub bằng cách sử dụng trạng thái thời gian chạy thực, tài nguyên máy chủ và sự kiện kiểm tra.",
       "availability": "Tính khả dụng của thời gian chạy",
       "availabilityDetail": "{{running}} của thời gian chạy {{total}} hiện đang trực tuyến",
@@ -731,6 +734,20 @@
       "submit": "Mã hóa và lưu trữ"
     },
     "governance": {
+      "analytics": {
+        "usage": "Mức sử dụng",
+        "memberRanking": "Xếp hạng thành viên",
+        "rank": "Hạng",
+        "charged": "Token đã tính",
+        "share": "Tỷ lệ",
+        "requests": "Lượt gọi",
+        "failures": "Lượt gọi lỗi",
+        "actual": "Token được báo cáo",
+        "conservative": "Tính phí thận trọng",
+        "reserved": "Dự trữ đang xử lý",
+        "activeMembers": "Thành viên hoạt động",
+        "chargedHint": "Token được trừ vào ngân sách, gồm phần tính phí thận trọng khi nhà cung cấp không báo cáo đủ mức sử dụng."
+      },
       "budget": {
         "inherit": "Mặc định của tổ chức",
         "custom": "Hạn mức tùy chỉnh",
@@ -818,7 +835,21 @@
         "memberCount_few": "{{count, number}} thành viên",
         "memberCount_many": "{{count, number}} thành viên",
         "memberCount_other": "{{count, number}} thành viên",
-        "availableModels": "Mô hình khả dụng"
+        "availableModels": "Mô hình khả dụng",
+        "capabilities": "Khả năng của mô hình",
+        "completeCapabilities": "Bổ sung giới hạn token còn thiếu. Giới hạn phản hồi không được vượt quá khả năng mô hình.",
+        "responseLimit": "Giới hạn độ dài phản hồi (không bắt buộc)",
+        "modelSection": "Mô hình và khả năng",
+        "advancedSettings": "Cài đặt nâng cao",
+        "connectionDisabled": "Kết nối nhà cung cấp đã tắt",
+        "providerEnabled": "Nhà cung cấp đã bật",
+        "toggleProvider": "Bật nhà cung cấp {{name}}",
+        "changeDefaultFirst": "Chọn mô hình mặc định khác trước khi tắt mô hình này hoặc nhà cung cấp của nó.",
+        "modelEnabled": "Mô hình đã bật",
+        "modelDisabled": "Mô hình đã tắt",
+        "toggleModel": "Bật mô hình {{name}}",
+        "viewProvider": "Xem nhà cung cấp",
+        "zeroUnlimited": "0 nghĩa là không giới hạn"
       },
       "invitations": {
         "title": "Mời thành viên",
@@ -872,6 +903,7 @@
         "title": "Đặt lại mật khẩu · {{username}}"
       },
       "dashboard": {
+        "requests": "Yêu cầu tháng này",
         "manageAccounts": "Quản lý tài khoản và hạn mức",
         "running": "Phiên bản đang chạy",
         "monthlyTokens": "Token trong tháng",
@@ -981,7 +1013,8 @@
         "accountDisabled": "Tài khoản này đã bị vô hiệu hóa.",
         "boundsUnverified": "Xác minh giới hạn đầu vào và đầu ra trước khi dùng ngân sách có hạn mức.",
         "budgetExceeded": "Ngân sách token đã hết. Liên hệ quản trị viên.",
-        "passwordMemberOnly": "Chỉ có thể đặt lại mật khẩu thành viên thông thường tại đây."
+        "passwordMemberOnly": "Chỉ có thể đặt lại mật khẩu thành viên thông thường tại đây.",
+        "connectionDisabled": "Nhà cung cấp đã tắt. Bật công tắc trên thẻ trước khi kiểm tra hoặc đặt mô hình mặc định."
       }
     }
   },
@@ -2656,7 +2689,20 @@
     "selectAllProviders": "Chọn tất cả",
     "clearProviderSelection": "Bỏ chọn tất cả",
     "noMatchingProviders": "Không có nhà cung cấp phù hợp",
-    "provider": "Nhà cung cấp"
+    "provider": "Nhà cung cấp",
+    "resetMaxTokens": "Đặt lại tự động",
+    "providerDefault": "Mặc định của nhà cung cấp",
+    "maxOutputCapabilityLabel": "Giới hạn khả năng mô hình",
+    "unknown": "Chưa rõ",
+    "maxInputLengthLabel": "Độ dài ngữ cảnh tối đa",
+    "maxInputLengthHint": "Kích thước cửa sổ ngữ cảnh, kiểm soát ngưỡng nén ngữ cảnh (≥1000)",
+    "maxTokensLabel": "Token đầu ra tối đa",
+    "maxTokensHint": "Số token đầu ra tối đa cho mỗi phản hồi",
+    "tagVision": "Hình ảnh",
+    "tagNotProbed": "Chưa kiểm tra",
+    "tagText": "Văn bản",
+    "tagVideo": "Video",
+    "tagMultimodal": "Đa phương thức"
   },
   "security": {
     "parent": "Cài đặt",

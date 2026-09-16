@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { App, Button, Select, Skeleton } from "antd";
-import { Wallet } from "lucide-react";
 import {
   governanceRequest as request,
   type ModelPolicy,
@@ -11,6 +10,7 @@ import BudgetEditor from "./BudgetEditor";
 import { budgetMode, budgetLimit, type BudgetMode } from "./budgetUtils";
 import { governanceErrorMessage } from "./errors";
 import styles from "./governance.module.less";
+import layout from "./OrganizationBudget.module.less";
 
 export default function OrganizationBudget() {
   const { t } = useTranslation();
@@ -51,8 +51,8 @@ export default function OrganizationBudget() {
   if (!policy) return <Skeleton active />;
   const save = async (defaults: boolean) => {
     if (
-      (mode === "limited" && !amount) ||
-      (memberMode === "limited" && !memberAmount)
+      (!defaults && mode === "limited" && !amount) ||
+      (defaults && memberMode === "limited" && !memberAmount)
     ) {
       message.error(t("hub.governance.budget.positiveLimit"));
       return;
@@ -79,58 +79,56 @@ export default function OrganizationBudget() {
     }
   };
   return (
-    <div className={styles.settingsColumns}>
-      <article className={styles.card}>
-        <div className={styles.heading}>
-          <div>
-            <h3>{t("hub.governance.budget.organizationMonthly")}</h3>
-            <p>{t("hub.governance.budget.organizationHint")}</p>
+    <div className={layout.settings}>
+      <article className={layout.section}>
+        <h3>{t("hub.governance.budget.organizationMonthly")}</h3>
+        <div className={layout.controls}>
+          <BudgetEditor
+            mode={mode}
+            amount={amount}
+            onMode={setMode}
+            onAmount={setAmount}
+          />
+          <div className={layout.actions}>
+            <Button type="primary" loading={busy} onClick={() => save(false)}>
+              {t("common.save")}
+            </Button>
           </div>
-          <Wallet size={18} />
-        </div>
-        <BudgetEditor
-          mode={mode}
-          amount={amount}
-          onMode={setMode}
-          onAmount={setAmount}
-        />
-        <div className={styles.actions}>
-          <Button type="primary" loading={busy} onClick={() => save(false)}>
-            {t("hub.governance.budget.save")}
-          </Button>
         </div>
       </article>
-      <article className={styles.card}>
+      <article className={layout.section}>
         <h3>{t("hub.governance.budget.defaultMember")}</h3>
-        <p>{t("hub.governance.budget.defaultMemberHint")}</p>
-        <BudgetEditor
-          mode={memberMode}
-          amount={memberAmount}
-          onMode={setMemberMode}
-          onAmount={setMemberAmount}
-        />
-        <div className={styles.field}>
-          <label>{t("hub.governance.budget.timezone")}</label>
-          <Select
-            aria-label={t("hub.governance.budget.timezone")}
-            value={policy.timezone}
-            onChange={(timezone) => setPolicy({ ...policy, timezone })}
-            options={[
-              ...new Set([
-                policy.timezone,
-                "Asia/Shanghai",
-                "UTC",
-                "America/New_York",
-                "Europe/London",
-                "Asia/Tokyo",
-              ]),
-            ].map((value) => ({ value, label: value }))}
+        <div className={layout.controls}>
+          <BudgetEditor
+            mode={memberMode}
+            amount={memberAmount}
+            onMode={setMemberMode}
+            onAmount={setMemberAmount}
           />
-          <small>{t("hub.governance.budget.timezoneHint")}</small>
+          <div className={styles.field}>
+            <label>{t("hub.governance.budget.timezone")}</label>
+            <Select
+              aria-label={t("hub.governance.budget.timezone")}
+              value={policy.timezone}
+              onChange={(timezone) => setPolicy({ ...policy, timezone })}
+              options={[
+                ...new Set([
+                  policy.timezone,
+                  "Asia/Shanghai",
+                  "UTC",
+                  "America/New_York",
+                  "Europe/London",
+                  "Asia/Tokyo",
+                ]),
+              ].map((value) => ({ value, label: value }))}
+            />
+          </div>
+          <div className={layout.actions}>
+            <Button type="primary" loading={busy} onClick={() => save(true)}>
+              {t("common.save")}
+            </Button>
+          </div>
         </div>
-        <Button type="primary" loading={busy} onClick={() => save(true)}>
-          {t("hub.governance.budget.saveDefaults")}
-        </Button>
       </article>
     </div>
   );

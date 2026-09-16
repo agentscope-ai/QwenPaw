@@ -47,8 +47,8 @@ class ConnectionBody(StrictBody):
     api_key: str | None = Field(default=None, min_length=1, max_length=8192)
     enabled: bool = True
     quota_scope: str = Field(min_length=1, max_length=120)
-    requests_per_minute: int = Field(default=60, ge=1, le=100000)
-    concurrency: int = Field(default=4, ge=1, le=1000)
+    requests_per_minute: int = Field(default=0, ge=0, le=100000)
+    concurrency: int = Field(default=0, ge=0, le=1000)
 
     @field_validator("provider_id")
     @classmethod
@@ -97,9 +97,9 @@ class ModelBody(StrictBody):
         "max_completion_tokens",
     ] = "max_tokens"
     budget_verified: bool = False
-    supports_image: bool = False
-    requests_per_minute: int = Field(default=60, ge=1, le=100000)
-    concurrency: int = Field(default=4, ge=1, le=1000)
+    supports_image: bool | None = None
+    requests_per_minute: int = Field(default=0, ge=0, le=100000)
+    concurrency: int = Field(default=0, ge=0, le=1000)
 
 
 class InviteBatchBody(StrictBody):

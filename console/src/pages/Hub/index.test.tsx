@@ -114,7 +114,7 @@ describe("HubPage", () => {
     expect(await screen.findByText("hub.overview.title")).toBeInTheDocument();
     expect(hubApi.getOverview).toHaveBeenCalledOnce();
     expect(
-      await screen.findByText("hub.governance.dashboard.tokenUsage"),
+      await screen.findByText("hub.governance.dashboard.requests"),
     ).toBeInTheDocument();
   });
 

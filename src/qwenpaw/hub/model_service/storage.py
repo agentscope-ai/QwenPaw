@@ -74,6 +74,8 @@ CREATE INDEX IF NOT EXISTS idx_model_requests_period_user
 ON hub_model_requests(period, user_id, status);
 CREATE INDEX IF NOT EXISTS idx_model_requests_model
 ON hub_model_requests(model_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_model_requests_created
+ON hub_model_requests(created_at);
 CREATE INDEX IF NOT EXISTS idx_invites_batch ON hub_invites(batch_id);
 """
 

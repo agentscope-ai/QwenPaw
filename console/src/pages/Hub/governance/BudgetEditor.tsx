@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { InputNumber, Radio } from "antd";
+import { InputNumber, Select } from "antd";
 import styles from "./governance.module.less";
 
 import type { BudgetMode } from "./budgetUtils";
@@ -19,18 +19,25 @@ export default function BudgetEditor({
   const { t } = useTranslation();
   return (
     <div className={styles.budgetEditor}>
-      <Radio.Group
+      <Select<BudgetMode>
         value={mode}
-        onChange={(e) => onMode(e.target.value)}
-        className={styles.choices}
-      >
-        {allowInherit && (
-          <Radio value="inherit">{t("hub.governance.budget.inherit")}</Radio>
-        )}
-        <Radio value="limited">{t("hub.governance.budget.custom")}</Radio>
-        <Radio value="unlimited">{t("hub.governance.budget.unlimited")}</Radio>
-        <Radio value="blocked">{t("hub.governance.budget.pause")}</Radio>
-      </Radio.Group>
+        onChange={onMode}
+        aria-label={t("hub.governance.budget.monthlyLimit")}
+        style={{ width: "100%", maxWidth: 360 }}
+        options={[
+          ...(allowInherit
+            ? [
+                {
+                  value: "inherit" as const,
+                  label: t("hub.governance.budget.inherit"),
+                },
+              ]
+            : []),
+          { value: "unlimited", label: t("hub.governance.budget.unlimited") },
+          { value: "limited", label: t("hub.governance.budget.custom") },
+          { value: "blocked", label: t("hub.governance.budget.pause") },
+        ]}
+      />
       {mode === "limited" && (
         <InputNumber
           style={{ width: "100%", maxWidth: 360 }}

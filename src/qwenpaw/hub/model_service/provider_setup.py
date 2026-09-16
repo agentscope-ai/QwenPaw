@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """Reuse provider presets and discovery with isolated Hub credentials."""
 
+from datetime import datetime, timezone
+
 from ...utils.io_utils import run_sync_io
 from ...providers.openai_provider import OpenAIProvider
 from ...providers.openrouter_provider import OpenRouterProvider
 from ...providers.provider_catalog import BUILTIN_PROVIDERS
+from ...providers.provider_discovery import merge_discovered_model
 
 
 def supported_presets():
@@ -67,6 +70,13 @@ def _discovery_provider(catalog, connection_id: str):
 
 
 async def discover_models(catalog, connection_id: str):
-    """Discover through an ephemeral provider with Hub-owned credentials."""
+    """Merge discovery with the shared catalog without personal writes."""
     provider = await run_sync_io(_discovery_provider, catalog, connection_id)
-    return await provider.fetch_models(timeout=10)
+    fetched = await provider.fetch_models(timeout=10)
+    models = {model.id: model for model in provider.models}
+    discovered_at = datetime.now(timezone.utc).isoformat()
+    for remote in fetched:
+        model = merge_discovered_model(provider, remote, discovered_at)
+        model.discovery_origin = "both" if remote.id in models else "api"
+        models[model.id] = model
+    return list(models.values())

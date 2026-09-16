@@ -204,12 +204,24 @@ class ModelCatalog:
             None,
         )
         if model and model["enabled"] and model["all_members"]:
-            if any(
-                c["id"] == model["connection_id"] and c["enabled"]
-                for c in self.rows("hub_model_connections", db)
-            ):
-                return
+            self._require_connection(
+                model,
+                self.rows("hub_model_connections", db),
+            )
+            return
         raise ValueError("Choose an enabled all-member default")
+
+    @staticmethod
+    def _require_connection(model, connections):
+        """Explain connection availability to administrators only."""
+        connection = next(
+            (c for c in connections if c["id"] == model["connection_id"]),
+            None,
+        )
+        if connection is None:
+            raise ValueError("Connection does not exist")
+        if not connection["enabled"]:
+            raise ValueError("Model provider connection is disabled")
 
     @staticmethod
     def _available(model, connection, user_id, *, test=False):
@@ -238,6 +250,8 @@ class ModelCatalog:
         }
         for model in self.rows("hub_managed_models", db):
             connection = connections.get(model["connection_id"])
+            if model["id"] == model_id and test:
+                self._require_connection(model, connections.values())
             if model["id"] == model_id and self._available(
                 model,
                 connection,

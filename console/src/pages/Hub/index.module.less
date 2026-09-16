@@ -420,12 +420,6 @@
   color: var(--app-error-text) !important;
 }
 
-.overviewGrid {
-  display: grid;
-  grid-template-columns: 0.85fr 1.15fr;
-  gap: 13px;
-}
-
 .surfacePanel,
 .dataPanel,
 .settingStrip {
@@ -475,11 +469,11 @@
     margin-bottom: 6px;
 
     > span {
-      color: var(--hub-accent-deep);
+      color: var(--hub-muted);
     }
 
     strong {
-      font-size: 10px;
+      font-size: 12px;
     }
 
     small {
@@ -496,7 +490,7 @@
 
 .activityItem {
   display: grid;
-  grid-template-columns: 30px 1fr auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
   padding: 9px 0;
@@ -512,8 +506,8 @@
     height: 28px;
     place-items: center;
     border-radius: 8px;
-    color: var(--hub-accent-deep);
-    background: var(--hub-accent-soft);
+    color: var(--hub-muted);
+    background: transparent;
   }
 
   strong,
@@ -522,14 +516,15 @@
   }
 
   strong {
-    font-size: 9px;
+    font-size: 11px;
+    font-weight: 500;
   }
 
   small,
   time {
     margin-top: 2px;
     color: var(--hub-faint);
-    font-size: 8px;
+    font-size: 10px;
   }
 }
 
@@ -926,13 +921,6 @@
   margin-top: 14px;
 }
 
-.settingsMeta {
-  margin: 12px 2px 0;
-  color: var(--hub-faint);
-  font-size: 9px;
-  text-align: right;
-}
-
 .dataPanel {
   overflow: hidden;
 }
@@ -1181,10 +1169,6 @@
     grid-column: 1 / -1;
   }
 
-  .overviewGrid {
-    grid-template-columns: 1fr;
-  }
-
   .settingsGrid {
     grid-template-columns: 1fr;
   }
@@ -1386,4 +1370,53 @@
 
 .accessSettings {
   max-width: 740px;
+}
+
+.overview {
+  max-width: 1440px;
+  margin: 0 auto;
+  .pageHeader {
+    margin-bottom: 20px;
+  }
+  .pageHeader > div > span {
+    display: none;
+  }
+  .pageHeader h1 {
+    font-size: 22px;
+    margin: 0;
+  }
+  .surfaceHeader {
+    margin-bottom: 12px;
+    min-height: 28px;
+  }
+  .surfaceHeader strong {
+    font-size: 13px;
+  }
+  .resourceMeter {
+    margin-top: 16px;
+  }
+  .resourceMeter > div:first-child {
+    margin-bottom: 3px;
+  }
+  .resourceMeter > div:first-child small {
+    font-size: 11px;
+  }
+  .activityItem {
+    padding: 9px 0;
+    gap: 6px;
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+  .activityItem > span {
+    grid-row: span 2;
+    width: 20px;
+    height: 20px;
+  }
+  .activityItem time {
+    grid-column: 2;
+    margin: 0;
+    font-size: 10px;
+  }
+  .emptyCompact {
+    min-height: 112px;
+  }
 }

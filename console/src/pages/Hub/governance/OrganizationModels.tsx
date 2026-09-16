@@ -1,6 +1,16 @@
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useState, useRef } from "react";
-import { App, Button, Form, Modal, Select, Tabs, Skeleton, Tag } from "antd";
+import {
+  App,
+  Button,
+  Form,
+  Modal,
+  Select,
+  Switch,
+  Tabs,
+  Skeleton,
+  Tag,
+} from "antd";
 import {
   Edit3,
   Plus,
@@ -8,7 +18,6 @@ import {
   Boxes,
   Plug,
   ArrowRight,
-  Check,
   X,
 } from "lucide-react";
 import {
@@ -19,9 +28,11 @@ import {
   type ManagedModel,
   type UsageReport,
 } from "../../../api/modules/hubGovernance";
+import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import { ConnectionFields, ModelFields } from "./ModelForms";
 import { editable } from "./shared";
 import { governanceErrorMessage } from "./errors";
+import ModelUsage from "./ModelUsage";
 import styles from "./governance.module.less";
 
 export default function OrganizationModels({
@@ -36,13 +47,6 @@ export default function OrganizationModels({
   const [presets, setPresets] = useState<ModelProviderPreset[]>([]);
   const [models, setModels] = useState<ManagedModel[]>([]);
   const [users, setUsers] = useState<UsageReport["members"]>([]);
-  const [status, setStatus] = useState<
-    {
-      runtime_id: string;
-      observed_revision: number | null;
-      used_revision: number | null;
-    }[]
-  >([]);
   const [editing, setEditing] = useState<{
     type: "connection" | "model";
     id?: string;
@@ -50,18 +54,18 @@ export default function OrganizationModels({
   }>();
   const [independentScope, setIndependentScope] = useState("");
   const [busy, setBusy] = useState(false);
-  const [tab, setTab] = useState("models");
+  const [updatingItem, setUpdatingItem] = useState<string>();
+  const [tab, setTab] = useState(initialModel === "usage" ? "usage" : "models");
   const [error, setError] = useState("");
   const [form] = Form.useForm();
   const [policyForm] = Form.useForm();
   const load = useCallback(async () => {
     try {
-      const [p, c, m, u, s, presets] = await Promise.all([
+      const [p, c, m, u, presets] = await Promise.all([
         request<ModelPolicy>("admin/model-policy"),
         request<ModelConnection[]>("admin/model-connections"),
         request<ManagedModel[]>("admin/models"),
         request<UsageReport>("admin/usage"),
-        request<typeof status>("admin/model-status"),
         request<ModelProviderPreset[]>("admin/model-provider-presets"),
       ]);
       setPresets(presets);
@@ -70,7 +74,6 @@ export default function OrganizationModels({
       setConnections(c);
       setModels(m);
       setUsers(u.members);
-      setStatus(s);
       if (m.length) policyForm.setFieldsValue(p);
     } catch (e) {
       setError((e as Error).message);
@@ -114,26 +117,67 @@ export default function OrganizationModels({
     } else
       form.setFieldsValue(
         type === "connection"
-          ? { enabled: true, requests_per_minute: 60, concurrency: 4 }
+          ? { enabled: true, requests_per_minute: 0, concurrency: 0 }
           : {
               connection_id: connectionId ?? connections[0]?.id,
               description: "",
               enabled: true,
               all_members: true,
               user_ids: [],
-              output_token_limit: 4096,
               output_limit_field: "max_tokens",
-              budget_verified: false,
-              supports_image: false,
-              requests_per_minute: 60,
-              concurrency: 4,
+              requests_per_minute: 0,
+              concurrency: 0,
             },
       );
     setEditing({ type, id: value?.id, revision: value?.revision });
   };
+  const connectionById = new Map(
+    connections.map((connection) => [connection.id, connection]),
+  );
+  const availableModels = models.filter(
+    (model) =>
+      model.enabled && connectionById.get(model.connection_id)?.enabled,
+  );
+  const updateEnabled = async (
+    type: "connection" | "model",
+    item: ModelConnection | ManagedModel,
+    enabled: boolean,
+  ) => {
+    const affectsDefault =
+      type === "model"
+        ? policy?.default_model_id === item.id
+        : models.some(
+            (m) =>
+              m.id === policy?.default_model_id && m.connection_id === item.id,
+          );
+    if (!enabled && affectsDefault) {
+      message.warning(t("hub.governance.models.changeDefaultFirst"));
+      return;
+    }
+    setUpdatingItem(`${type}:${item.id}`);
+    try {
+      const { id, ...body } = item;
+      if ("has_key" in body) delete (body as Partial<ModelConnection>).has_key;
+      const resource = type === "connection" ? "model-connections" : "models";
+      await request(`admin/${resource}/${id}`, "PUT", { ...body, enabled });
+      await load();
+    } catch (e) {
+      message.error(governanceErrorMessage(e, t));
+    } finally {
+      setUpdatingItem(undefined);
+    }
+  };
   const openedInitial = useRef<string>();
   useEffect(() => {
-    if (!initialModel || openedInitial.current === initialModel) return;
+    if (initialModel === "usage") setTab("usage");
+  }, [initialModel]);
+  useEffect(() => {
+    if (
+      !initialModel ||
+      initialModel === "usage" ||
+      openedInitial.current === initialModel
+    )
+      return;
     const found = models.find((model) => model.id === initialModel);
     if (found) {
       openedInitial.current = initialModel;
@@ -148,30 +192,31 @@ export default function OrganizationModels({
             {t("hub.governance.models.eyebrow")}
           </span>
           <h2>{t("hub.governance.models.title")}</h2>
-          <p>{t("hub.governance.models.subtitle")}</p>
         </div>
-        <div className={styles.actions}>
-          <Button
-            aria-label={t("common.refresh")}
-            icon={<RefreshCw size={15} />}
-            onClick={load}
-          />
-          <Button
-            type="primary"
-            icon={<Plus size={15} />}
-            onClick={() =>
-              open(
-                tab === "connections" || !connections.length
-                  ? "connection"
-                  : "model",
-              )
-            }
-          >
-            {tab === "connections" || !connections.length
-              ? t("hub.governance.models.addProvider")
-              : t("hub.governance.models.addModel")}
-          </Button>
-        </div>
+        {tab !== "usage" && (
+          <div className={styles.actions}>
+            <Button
+              aria-label={t("common.refresh")}
+              icon={<RefreshCw size={15} />}
+              onClick={load}
+            />
+            <Button
+              type="primary"
+              icon={<Plus size={15} />}
+              onClick={() =>
+                open(
+                  tab === "connections" || !connections.length
+                    ? "connection"
+                    : "model",
+                )
+              }
+            >
+              {tab === "connections" || !connections.length
+                ? t("hub.governance.models.addProvider")
+                : t("hub.governance.models.addModel")}
+            </Button>
+          </div>
+        )}
       </div>
       {error && (
         <div role="alert" className={styles.notice}>
@@ -182,24 +227,26 @@ export default function OrganizationModels({
       {!policy && !error && <Skeleton active />}
       {policy && (
         <>
-          <div className={styles.serviceStrip}>
-            <span className={styles.serviceIcon}>
-              <Boxes size={20} />
-            </span>
-            <div>
-              <strong>{t("hub.governance.models.organizationTitle")}</strong>
-              <p>{t("hub.governance.models.organizationHint")}</p>
+          {tab !== "usage" && (
+            <div className={styles.serviceStrip}>
+              <span className={styles.serviceIcon}>
+                <Boxes size={20} />
+              </span>
+              <div>
+                <strong>{t("hub.governance.models.organizationTitle")}</strong>
+              </div>
+              <Tag
+                bordered={false}
+                color={availableModels.length > 0 ? "success" : "default"}
+              >
+                {availableModels.length > 0
+                  ? t("hub.runtimes.available")
+                  : t("hub.governance.models.setup")}
+              </Tag>
             </div>
-            <Tag
-              bordered={false}
-              color={models.some((m) => m.enabled) ? "success" : "default"}
-            >
-              {models.some((m) => m.enabled)
-                ? t("hub.runtimes.available")
-                : t("hub.governance.models.setup")}
-            </Tag>
-          </div>
+          )}
           <Tabs
+            className={styles.modelTabs}
             activeKey={tab}
             onChange={setTab}
             items={[
@@ -212,25 +259,6 @@ export default function OrganizationModels({
                       <div className={styles.onboarding}>
                         <Boxes size={32} />
                         <h3>{t("hub.governance.models.emptyTitle")}</h3>
-                        <p>{t("hub.governance.models.emptyDescription")}</p>
-                        <div className={styles.steps}>
-                          {[
-                            t("hub.governance.models.addProvider"),
-                            t("hub.governance.models.addAndTest"),
-                            t("hub.governance.models.setDefault"),
-                          ].map((label, i) => (
-                            <span key={label}>
-                              <b>
-                                {i === 0 && connections.length ? (
-                                  <Check size={13} />
-                                ) : (
-                                  i + 1
-                                )}
-                              </b>
-                              {label}
-                            </span>
-                          ))}
-                        </div>
                         <Button
                           type="primary"
                           icon={<ArrowRight size={15} />}
@@ -248,17 +276,40 @@ export default function OrganizationModels({
                         {models.map((m) => (
                           <article key={m.id} className={styles.card}>
                             <div className={styles.heading}>
-                              <span className={styles.serviceIcon}>
-                                <Boxes size={19} />
-                              </span>
-                              <Tag
-                                bordered={false}
-                                color={m.enabled ? "success" : "default"}
-                              >
-                                {m.enabled
-                                  ? t("hub.runtimes.available")
-                                  : t("common.disabled")}
-                              </Tag>
+                              <ProviderIcon
+                                providerId={
+                                  connectionById.get(m.connection_id)
+                                    ?.provider_id ||
+                                  connectionById.get(m.connection_id)?.name ||
+                                  m.name
+                                }
+                                size={36}
+                              />
+                              <div className={styles.connectionToggle}>
+                                <span>
+                                  {t(
+                                    m.enabled
+                                      ? "hub.governance.models.modelEnabled"
+                                      : "hub.governance.models.modelDisabled",
+                                  )}
+                                </span>
+                                <Switch
+                                  size="small"
+                                  checked={m.enabled}
+                                  loading={updatingItem === `model:${m.id}`}
+                                  disabled={
+                                    !!updatingItem &&
+                                    updatingItem !== `model:${m.id}`
+                                  }
+                                  aria-label={t(
+                                    "hub.governance.models.toggleModel",
+                                    { name: m.name },
+                                  )}
+                                  onChange={(enabled) =>
+                                    updateEnabled("model", m, enabled)
+                                  }
+                                />
+                              </div>
                             </div>
                             <h3>
                               {m.name}{" "}
@@ -270,10 +321,13 @@ export default function OrganizationModels({
                             </h3>
                             <p>
                               {m.description ||
-                                connections.find(
-                                  (c) => c.id === m.connection_id,
-                                )?.name}
+                                connectionById.get(m.connection_id)?.name}
                             </p>
+                            {!connectionById.get(m.connection_id)?.enabled && (
+                              <p className={styles.muted}>
+                                {t("hub.governance.models.connectionDisabled")}
+                              </p>
+                            )}
                             <div className={styles.detailRow}>
                               <span>{t("hub.governance.models.access")}</span>
                               <strong>
@@ -289,6 +343,16 @@ export default function OrganizationModels({
                                 {t("hub.governance.models.configure")}
                               </Button>
                               <Button
+                                disabled={
+                                  !connectionById.get(m.connection_id)?.enabled
+                                }
+                                title={
+                                  !connectionById.get(m.connection_id)?.enabled
+                                    ? t(
+                                        "hub.governance.errors.connectionDisabled",
+                                      )
+                                    : undefined
+                                }
                                 onClick={async () => {
                                   try {
                                     await request(
@@ -307,6 +371,12 @@ export default function OrganizationModels({
                               >
                                 {t("hub.governance.models.testConnection")}
                               </Button>
+                              {!connectionById.get(m.connection_id)?.enabled &&
+                                connectionById.has(m.connection_id) && (
+                                  <Button onClick={() => setTab("connections")}>
+                                    {t("hub.governance.models.viewProvider")}
+                                  </Button>
+                                )}
                             </div>
                           </article>
                         ))}
@@ -317,9 +387,6 @@ export default function OrganizationModels({
                         <div className={styles.heading}>
                           <div>
                             <h3>{t("hub.governance.models.memberDefaults")}</h3>
-                            <p>
-                              {t("hub.governance.models.memberDefaultsHint")}
-                            </p>
                           </div>
                         </div>
                         <Form
@@ -359,9 +426,15 @@ export default function OrganizationModels({
                               placeholder={t(
                                 "hub.governance.models.chooseDefault",
                               )}
-                              options={models
-                                .filter((m) => m.enabled && m.all_members)
-                                .map((m) => ({ value: m.id, label: m.name }))}
+                              options={availableModels
+                                .filter((m) => m.all_members)
+                                .map((m) => ({
+                                  value: m.id,
+                                  label: `${m.name} · ${
+                                    connectionById.get(m.connection_id)?.name ??
+                                    ""
+                                  }`,
+                                }))}
                             />
                           </Form.Item>
                           <Button
@@ -387,20 +460,45 @@ export default function OrganizationModels({
                         {connections.map((c) => (
                           <article className={styles.card} key={c.id}>
                             <div className={styles.heading}>
-                              <span className={styles.serviceIcon}>
-                                <Plug size={19} />
-                              </span>
-                              <Tag
-                                bordered={false}
-                                color={c.enabled ? "success" : "default"}
-                              >
-                                {c.enabled
-                                  ? t("common.enabled")
-                                  : t("common.disabled")}
-                              </Tag>
+                              <ProviderIcon
+                                providerId={c.provider_id || c.name}
+                                size={40}
+                              />
+                              <div className={styles.connectionToggle}>
+                                <span>
+                                  {t(
+                                    c.enabled
+                                      ? "hub.governance.models.providerEnabled"
+                                      : "hub.governance.models.connectionDisabled",
+                                  )}
+                                </span>
+                                <Switch
+                                  size="small"
+                                  checked={c.enabled}
+                                  loading={
+                                    updatingItem === `connection:${c.id}`
+                                  }
+                                  disabled={
+                                    !!updatingItem &&
+                                    updatingItem !== `connection:${c.id}`
+                                  }
+                                  aria-label={t(
+                                    "hub.governance.models.toggleProvider",
+                                    { name: c.name },
+                                  )}
+                                  onChange={(enabled) =>
+                                    updateEnabled("connection", c, enabled)
+                                  }
+                                />
+                              </div>
                             </div>
                             <h3>{c.name}</h3>
-                            <p>{c.base_url}</p>
+                            <p
+                              className={styles.connectionUrl}
+                              title={c.base_url}
+                            >
+                              {c.base_url}
+                            </p>
                             <div className={styles.detailRow}>
                               <span>API Key</span>
                               <strong>
@@ -431,27 +529,15 @@ export default function OrganizationModels({
                         <strong>
                           {t("hub.governance.models.noProviders")}
                         </strong>
-                        <p>{t("hub.governance.models.noProvidersHint")}</p>
                       </div>
                     )}
-                    <details className={styles.help}>
-                      <summary>{t("hub.governance.models.deployment")}</summary>
-                      <p>{t("hub.governance.models.deploymentHint")}</p>
-                      {status.map((s) => (
-                        <div key={s.runtime_id} className={styles.detailRow}>
-                          <span>{s.runtime_id}</span>
-                          <span>
-                            {s.observed_revision === null
-                              ? t("hub.governance.models.disconnected")
-                              : s.observed_revision === policy.revision
-                              ? t("hub.governance.models.synced")
-                              : t("hub.governance.models.pending")}
-                          </span>
-                        </div>
-                      ))}
-                    </details>
                   </div>
                 ),
+              },
+              {
+                key: "usage",
+                label: t("hub.governance.analytics.usage"),
+                children: <ModelUsage />,
               },
             ]}
           />
@@ -459,6 +545,10 @@ export default function OrganizationModels({
       )}
       <Modal
         open={!!editing}
+        centered
+        destroyOnHidden
+        afterClose={() => form.resetFields()}
+        okText={t("common.save")}
         title={
           editing?.type === "connection"
             ? t("hub.governance.models.connectionTitle")
@@ -472,22 +562,12 @@ export default function OrganizationModels({
       >
         <Form
           form={form}
+          key={`${editing?.type}:${editing?.id ?? "new"}`}
           layout="vertical"
           className={styles.form}
-          onValuesChange={(changed) => {
-            if (editing?.type !== "model") return;
-            if ("connection_id" in changed) {
-              form.setFieldsValue({
-                upstream_model: undefined,
-                name: undefined,
-                input_token_limit: undefined,
-                supports_image: false,
-                budget_verified: false,
-              });
-            } else if ("upstream_model" in changed) {
-              form.setFieldValue("budget_verified", false);
-            }
-          }}
+          onFinishFailed={({ errorFields }) =>
+            message.error(errorFields[0]?.errors[0])
+          }
           onFinish={async (values) => {
             if (!editing) return;
             setBusy(true);
@@ -496,8 +576,17 @@ export default function OrganizationModels({
               if (editing.type === "connection") {
                 if (!body.api_key) delete body.api_key;
                 body.provider_id = body.provider_id || null;
+                body.enabled = editing.id
+                  ? connections.find((c) => c.id === editing.id)?.enabled ??
+                    true
+                  : true;
               } else {
                 body.name = body.name?.trim() || body.upstream_model?.trim();
+                body.budget_verified = true;
+                body.enabled = editing.id
+                  ? models.find((m) => m.id === editing.id)?.enabled ?? true
+                  : true;
+                if (body.all_members) body.user_ids = [];
               }
               const path =
                 editing.type === "connection"
@@ -530,6 +619,7 @@ export default function OrganizationModels({
               connections={connections}
               users={users}
               presets={presets}
+              saved={models.find((model) => model.id === editing?.id)}
             />
           )}
         </Form>

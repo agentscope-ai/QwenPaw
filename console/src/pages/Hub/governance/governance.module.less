@@ -109,16 +109,7 @@
   background: var(--app-surface-subtle);
   border-radius: 10px;
 }
-.summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 8px 24px;
-  border-bottom: 1px solid var(--app-border);
-  font-size: 11px;
-  color: var(--app-text-secondary);
-}
+
 .settingsColumns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -134,23 +125,7 @@
     max-width: 360px;
   }
 }
-.choices {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  :global(.qwenpaw-radio-wrapper) {
-    padding: 11px;
-    border: 1px solid var(--app-border);
-    border-radius: 9px;
-    margin: 0;
-    font-size: 12px;
-    background: var(--app-surface);
-  }
-  :global(.qwenpaw-radio-wrapper-checked) {
-    border-color: var(--app-accent);
-    background: var(--app-accent-soft);
-  }
-}
+
 .field {
   display: grid;
   gap: 8px;
@@ -164,99 +139,7 @@
     line-height: 1.6;
   }
 }
-.dashboard {
-  display: grid;
-  gap: 18px;
-  margin-bottom: 24px;
-}
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
-}
-.metricCard {
-  background: var(--app-surface);
-  color: var(--app-text);
-  border: 1px solid var(--app-border);
-  border-radius: 14px;
-  padding: 20px;
-  display: grid;
-  gap: 18px;
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-  min-width: 0;
-  &:hover {
-    border-color: var(--app-accent);
-  }
-  > span {
-    display: flex;
-    gap: 9px;
-    align-items: center;
-    font-size: 11px;
-    color: var(--app-text-secondary);
-  }
-  strong {
-    font-size: 30px;
-    line-height: 1;
-    font-weight: 600;
-    letter-spacing: -0.04em;
-    font-variant-numeric: tabular-nums;
-  }
-  small {
-    display: flex;
-    justify-content: space-between;
-    font-size: 10px;
-    color: var(--app-text-tertiary);
-  }
-}
-.chartGrid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(260px, 1fr);
-  gap: 18px;
-}
-.chartGrid > .card {
-  min-height: 270px;
-}
-.chart {
-  display: flex;
-  align-items: end;
-  gap: 5px;
-  height: 170px;
-  margin-top: 12px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid var(--app-border);
-}
-.barColumn {
-  display: flex;
-  flex: 1;
-  height: 100%;
-  align-items: end;
-  position: relative;
-  min-width: 0;
-  span {
-    position: absolute;
-    bottom: -18px;
-    white-space: nowrap;
-    width: 100%;
-    text-align: center;
-    font-size: 8px;
-    color: var(--app-text-tertiary);
-  }
-}
-.bar {
-  width: 100%;
-  border-radius: 3px 3px 0 0;
-  background: var(--app-accent);
-  opacity: 0.8;
-  min-height: 0;
-}
-.chartLegend {
-  display: flex;
-  justify-content: space-between;
-  color: var(--app-text-secondary);
-  font-size: 10px;
-}
+
 .detailRow {
   display: flex;
   align-items: center;
@@ -273,42 +156,7 @@
     font-variant-numeric: tabular-nums;
   }
 }
-.rankRow {
-  width: 100%;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  padding: 8px 0;
-  background: transparent;
-  border: 0;
-  color: var(--app-text);
-  text-align: left;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  strong {
-    margin-left: auto;
-    font-weight: 550;
-  }
-  small {
-    color: var(--app-text-tertiary);
-    font-weight: 400;
-    font-size: 10px;
-  }
-  &:hover {
-    color: var(--app-accent-text);
-  }
-}
-.rank {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-  background: var(--app-surface-subtle);
-  border-radius: 7px;
-  color: var(--app-text-secondary);
-  font-size: 10px;
-}
+
 .notice {
   display: flex;
   align-items: center;
@@ -539,30 +387,7 @@
     line-height: 1.7;
   }
 }
-.steps {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-  margin: 28px 0;
-  font-size: 11px;
-  color: var(--app-text-secondary);
-  span {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-  }
-  b {
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    background: var(--app-surface-subtle);
-    border: 1px solid var(--app-border);
-    border-radius: 50%;
-    font-size: 10px;
-  }
-}
+
 .userModal {
   :global(.qwenpaw-modal-body) {
     max-height: min(70vh, 760px);
@@ -573,14 +398,7 @@
     padding: 4px 0 8px;
   }
 }
-@media (max-width: 1100px) {
-  .metrics {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .chartGrid {
-    grid-template-columns: 1fr;
-  }
-}
+
 @media (max-width: 700px) {
   .panel {
     gap: 16px;
@@ -594,12 +412,7 @@
   .settingsColumns {
     grid-template-columns: 1fr;
   }
-  .metricCard {
-    padding: 16px;
-    strong {
-      font-size: 26px;
-    }
-  }
+
   .userHead {
     display: none;
   }
@@ -623,25 +436,13 @@
   .tableFooter {
     flex-wrap: wrap;
   }
-  .steps {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 14px;
-    width: fit-content;
-    margin: 24px auto;
-  }
+
   .serviceStrip {
     padding: 16px;
     flex-wrap: wrap;
     > div {
       flex: 1;
     }
-  }
-  .barColumn:nth-child(even) span {
-    visibility: hidden;
-  }
-  .chart {
-    gap: 3px;
   }
 }
 
@@ -652,16 +453,99 @@
   font-size: 10px;
 }
 
-.modelUsageRow {
-  width: 100%;
-  padding: 0;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  font: inherit;
-  color: var(--app-text);
-  cursor: pointer;
-  &:hover strong {
-    color: var(--app-accent-text);
+.formSection {
+  padding: 4px 0 20px;
+  & + & {
+    border-top: 1px solid var(--app-border);
+    padding-top: 20px;
   }
+  h3 {
+    margin: 0 0 16px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--app-text);
+  }
+  :global(.ant-form-item:last-child) {
+    margin-bottom: 0;
+  }
+}
+.catalogStatus {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: -2px 0 16px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  > span {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.capabilities {
+  padding: 16px;
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+  background: var(--app-fill-subtle);
+  font-size: 12px;
+}
+.capabilityValues {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 16px 0 0;
+  dt {
+    color: var(--app-text-secondary);
+  }
+  dd {
+    margin: 4px 0 0;
+    font-size: 18px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+}
+.missingCapabilities {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--app-border);
+}
+.advancedSettings {
+  border-top: 1px solid var(--app-border);
+  padding: 14px 0 0;
+  margin-top: 16px;
+  font-size: 12px;
+  summary {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--app-text-secondary);
+  }
+  &[open] > summary {
+    margin-bottom: 16px;
+  }
+}
+.connectionUrl {
+  overflow-wrap: anywhere;
+}
+
+.connectionToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+
+.permissionRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  margin-bottom: 12px;
+  font-size: 13px;
+}
+
+.modelTabs {
+  min-width: 0;
 }

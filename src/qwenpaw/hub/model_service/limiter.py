@@ -72,9 +72,21 @@ class SharedLimiter:
             history = self.starts[key]
             while history and history[0] <= now - 60:
                 history.popleft()
-            if self.active[key] >= min(
-                v["concurrency"] for v in values
-            ) or len(history) >= min(v["requests_per_minute"] for v in values):
+            concurrency = min(
+                (v["concurrency"] for v in values if v["concurrency"] > 0),
+                default=0,
+            )
+            rpm = min(
+                (
+                    v["requests_per_minute"]
+                    for v in values
+                    if v["requests_per_minute"] > 0
+                ),
+                default=0,
+            )
+            if (concurrency and self.active[key] >= concurrency) or (
+                rpm and len(history) >= rpm
+            ):
                 raise HTTPException(
                     429,
                     "Organization model is busy",

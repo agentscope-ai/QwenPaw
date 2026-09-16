@@ -14,7 +14,6 @@ import { Slot } from "../../plugins/registry/Slot";
 import { pickSelectedKey } from "./routeSelection";
 
 import { HubModeContext } from "../../contexts/HubModeContext";
-import MemberModels from "../../pages/Hub/governance/MemberModels";
 
 const { Content } = Layout;
 
@@ -52,7 +51,6 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
         )}
         <Layout className={styles.mainContentLayout}>
           <Header showBrand={settingsCenterActive} />
-          {hubMode && <MemberModels compact />}
           <Content className="page-container">
             <ConsolePollService />
             <AgentStatusPollingController />

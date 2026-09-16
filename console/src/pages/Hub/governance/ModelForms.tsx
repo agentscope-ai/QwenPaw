@@ -1,3 +1,4 @@
+import { CircleHelp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Form, Input, InputNumber, Select, Switch } from "antd";
 import { ProviderConnectionFields } from "../../Settings/Models/components/modals/ProviderConnectionFields";
@@ -5,6 +6,7 @@ import { ProviderIcon } from "../../Settings/Models/components/ProviderIconCompo
 import { getValidApiKeyPrefixes } from "../../Settings/Models/apiKeyValidation";
 import { HubModelIdentityFields } from "./HubModelIdentityFields";
 import type {
+  ManagedModel,
   ModelConnection,
   ModelProviderPreset,
 } from "../../../api/modules/hubGovernance";
@@ -42,8 +44,14 @@ export function ConnectionFields({
           disabled={!!connectionId}
           onChange={(id) => {
             const selected = presets.find((p) => p.id === id);
+            const baseName = selected?.name ?? "";
+            let name = baseName;
+            let suffix = 2;
+            while (name && connections.some((c) => c.name === name)) {
+              name = `${baseName} ${suffix++}`;
+            }
             form.setFieldsValue({
-              name: selected?.name ?? "",
+              name,
               base_url: selected?.base_url ?? "",
               api_key: undefined,
             });
@@ -92,7 +100,6 @@ export function ConnectionFields({
         <Form.Item
           name="quota_scope"
           label={t("hub.governance.models.shareLimits")}
-          extra={t("hub.governance.models.shareLimitsHint")}
           rules={[{ required: true }]}
         >
           <Select
@@ -112,13 +119,6 @@ export function ConnectionFields({
         </Form.Item>
         <RateFields />
       </details>
-      <Form.Item
-        name="enabled"
-        label={t("common.enabled")}
-        valuePropName="checked"
-      >
-        <Switch />
-      </Form.Item>
     </>
   );
 }
@@ -129,16 +129,24 @@ export function RateFields() {
       <Form.Item
         name="requests_per_minute"
         label={t("hub.governance.models.rpm")}
+        tooltip={{
+          title: t("hub.governance.models.zeroUnlimited"),
+          icon: <CircleHelp size={14} />,
+        }}
         rules={[{ required: true }]}
       >
-        <InputNumber min={1} max={100000} precision={0} />
+        <InputNumber min={0} max={100000} precision={0} />
       </Form.Item>
       <Form.Item
         name="concurrency"
         label={t("hub.governance.models.concurrency")}
+        tooltip={{
+          title: t("hub.governance.models.zeroUnlimited"),
+          icon: <CircleHelp size={14} />,
+        }}
         rules={[{ required: true }]}
       >
-        <InputNumber min={1} max={1000} precision={0} />
+        <InputNumber min={0} max={1000} precision={0} />
       </Form.Item>
     </>
   );
@@ -147,96 +155,103 @@ export function ModelFields({
   connections,
   users,
   presets,
+  saved,
 }: {
   connections: ModelConnection[];
   users: { user_id: string; username: string }[];
   presets: ModelProviderPreset[];
+  saved?: ManagedModel;
 }) {
   const { t } = useTranslation();
+  const form = Form.useFormInstance();
+  const allMembers = Form.useWatch("all_members", form);
   return (
     <>
-      <Form.Item
-        name="connection_id"
-        label={t("hub.governance.models.connection")}
-        rules={[{ required: true }]}
-      >
-        <Select
-          options={connections.map((c) => ({ value: c.id, label: c.name }))}
+      <section className={styles.formSection}>
+        <h3>{t("hub.governance.models.modelSection")}</h3>
+        <Form.Item
+          name="connection_id"
+          label={t("models.provider")}
+          rules={[{ required: true }]}
+        >
+          <Select
+            showSearch
+            optionFilterProp="searchLabel"
+            onChange={() =>
+              form.setFieldsValue({
+                upstream_model: undefined,
+                name: undefined,
+              })
+            }
+            options={connections.map((c) => ({
+              value: c.id,
+              searchLabel: c.name,
+              label: (
+                <span className={styles.actions}>
+                  <ProviderIcon
+                    key={c.provider_id ?? c.id}
+                    providerId={c.provider_id || c.name}
+                    size={20}
+                  />
+                  {c.name}
+                </span>
+              ),
+            }))}
+          />
+        </Form.Item>
+        <HubModelIdentityFields
+          connections={connections}
+          presets={presets}
+          saved={saved}
         />
-      </Form.Item>
-      <HubModelIdentityFields connections={connections} presets={presets} />
-      <Form.Item
-        name="description"
-        label={t("hub.governance.models.description")}
-      >
-        <Input.TextArea maxLength={1000} />
-      </Form.Item>
-      <Form.Item
-        name="input_token_limit"
-        label={t("hub.governance.models.inputLimit")}
-        rules={[{ required: true }]}
-      >
-        <InputNumber min={1000} max={10000000} precision={0} />
-      </Form.Item>
-      <Form.Item
-        name="output_token_limit"
-        label={t("hub.governance.models.outputLimit")}
-        rules={[{ required: true }]}
-      >
-        <InputNumber min={1} max={1000000} precision={0} />
-      </Form.Item>
-      <Form.Item
-        name="output_limit_field"
-        label={t("hub.governance.models.outputParameter")}
-      >
-        <Select
-          options={[
-            { value: "max_tokens" },
-            { value: "max_completion_tokens" },
-          ]}
-        />
-      </Form.Item>
-      <Form.Item
-        name="budget_verified"
-        label={t("hub.governance.models.boundsVerified")}
-        valuePropName="checked"
-      >
-        <Switch />
-      </Form.Item>
-      <Form.Item
-        name="supports_image"
-        label={t("hub.governance.models.supportsImages")}
-        valuePropName="checked"
-      >
-        <Switch />
-      </Form.Item>
-      <Form.Item
-        name="all_members"
-        label={t("hub.governance.models.allMembers")}
-        valuePropName="checked"
-      >
-        <Switch />
-      </Form.Item>
-      <Form.Item
-        name="user_ids"
-        label={t("hub.governance.models.selectedMembers")}
-      >
-        <Select
-          mode="multiple"
-          options={users.map((u) => ({ value: u.user_id, label: u.username }))}
-        />
-      </Form.Item>
-      <details className={styles.help}>
-        <summary>{t("hub.governance.models.rateLimits")}</summary>
+      </section>
+      <section className={styles.formSection}>
+        <h3>{t("hub.governance.users.modelAccess")}</h3>
+        <div className={styles.permissionRow}>
+          <span>{t("hub.governance.models.allMembers")}</span>
+          <Form.Item name="all_members" valuePropName="checked" noStyle>
+            <Switch aria-label={t("hub.governance.models.allMembers")} />
+          </Form.Item>
+        </div>
+        {!allMembers && (
+          <Form.Item
+            name="user_ids"
+            label={t("hub.governance.models.selectedMembers")}
+          >
+            <Select
+              mode="multiple"
+              options={users.map((u) => ({
+                value: u.user_id,
+                label: u.username,
+              }))}
+            />
+          </Form.Item>
+        )}
+      </section>
+      <details className={styles.advancedSettings}>
+        <summary>{t("hub.governance.models.advancedSettings")}</summary>
+        <Form.Item
+          name="description"
+          label={t("hub.governance.models.description")}
+        >
+          <Input.TextArea
+            maxLength={1000}
+            autoSize={{ minRows: 2, maxRows: 4 }}
+          />
+        </Form.Item>
+        <Form.Item
+          name="output_limit_field"
+          label={t("hub.governance.models.outputParameter")}
+        >
+          <Select
+            options={[
+              { value: "max_tokens" },
+              { value: "max_completion_tokens" },
+            ]}
+          />
+        </Form.Item>
         <RateFields />
       </details>
-      <Form.Item
-        name="enabled"
-        label={t("hub.governance.models.published")}
-        valuePropName="checked"
-      >
-        <Switch />
-      </Form.Item>
     </>
   );
 }

@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import date
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
 from ..api_models import PasswordChangeBody
+from .analytics import usage_details
 from .provider_setup import discover_models, provider_presets
 from .api_models import (
     BudgetBody,
@@ -229,6 +231,17 @@ def governance_router(
     @router.get("/admin/usage")
     def usage(_admin=Depends(require_admin)):
         return budgets.report()
+
+    @router.get("/admin/usage/details")
+    def detailed_usage(
+        start_date: date,
+        end_date: date,
+        _admin=Depends(require_admin),
+    ):
+        try:
+            return usage_details(store, start_date, end_date)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from exc
 
     @router.get("/me/models")
     def member_models(user=Depends(require_user)):

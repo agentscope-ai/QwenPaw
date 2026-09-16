@@ -3884,7 +3884,7 @@
     },
     "navigation": {
       "workspace": "Workspace",
-      "overview": "Operations",
+      "overview": "System overview",
       "runtimes": "Runtimes",
       "users": "Users",
       "credentials": "Credentials",
@@ -4001,8 +4001,8 @@
       "encrypted": "Encrypted at rest; plaintext cannot be read"
     },
     "overview": {
-      "eyebrow": "Operations cockpit",
-      "title": "Hub operations overview",
+      "eyebrow": "System status",
+      "title": "Hub system overview",
       "description": "Understand Hub health using real runtime state, host resources and audit events.",
       "availability": "Runtime availability",
       "availabilityDetail": "{{running}} of {{total}} runtimes are currently online",
@@ -4209,6 +4209,20 @@
       "submit": "Encrypt and store"
     },
     "governance": {
+      "analytics": {
+        "usage": "Usage",
+        "memberRanking": "Member ranking",
+        "rank": "Rank",
+        "charged": "Charged tokens",
+        "share": "Share",
+        "requests": "Calls",
+        "failures": "Failed calls",
+        "actual": "Reported tokens",
+        "conservative": "Conservative charge",
+        "reserved": "In-flight reservation",
+        "activeMembers": "Active members",
+        "chargedHint": "Tokens deducted from the budget, including conservative charges when upstream usage is unavailable."
+      },
       "budget": {
         "inherit": "Organization default",
         "custom": "Custom limit",
@@ -4296,7 +4310,21 @@
         "memberCount_few": "{{count, number}} members",
         "memberCount_many": "{{count, number}} members",
         "memberCount_other": "{{count, number}} members",
-        "availableModels": "Available models"
+        "availableModels": "Available models",
+        "capabilities": "Model capabilities",
+        "completeCapabilities": "Complete the missing token limits. The response limit must not exceed the model capability.",
+        "responseLimit": "Limit response length (optional)",
+        "modelSection": "Model and capabilities",
+        "advancedSettings": "Advanced settings",
+        "connectionDisabled": "Provider connection disabled",
+        "providerEnabled": "Provider enabled",
+        "toggleProvider": "Enable provider {{name}}",
+        "changeDefaultFirst": "Choose a different default model before disabling this model or its provider.",
+        "modelEnabled": "Model enabled",
+        "modelDisabled": "Model disabled",
+        "toggleModel": "Enable model {{name}}",
+        "viewProvider": "View provider",
+        "zeroUnlimited": "0 means unlimited"
       },
       "invitations": {
         "title": "Invite members",
@@ -4350,6 +4378,7 @@
         "title": "Reset password · {{username}}"
       },
       "dashboard": {
+        "requests": "Requests this month",
         "manageAccounts": "Manage accounts and limits",
         "running": "Running instances",
         "monthlyTokens": "Monthly tokens",
@@ -4459,7 +4488,8 @@
         "accountDisabled": "This account is disabled.",
         "boundsUnverified": "Verify model input and output limits before using a finite budget.",
         "budgetExceeded": "The token budget is exhausted. Contact your administrator.",
-        "passwordMemberOnly": "Only ordinary member passwords can be reset here."
+        "passwordMemberOnly": "Only ordinary member passwords can be reset here.",
+        "connectionDisabled": "The provider is disabled. Turn it on using the switch on its card before testing or setting a default model."
       }
     }
   },

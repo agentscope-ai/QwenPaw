@@ -2033,7 +2033,11 @@
     "selectAllProviders": "すべて選択",
     "clearProviderSelection": "すべて解除",
     "noMatchingProviders": "一致するプロバイダーがありません",
-    "filterFreeOnly": "無料モデルのみ"
+    "filterFreeOnly": "無料モデルのみ",
+    "resetMaxTokens": "自動に戻す",
+    "providerDefault": "プロバイダーの既定値",
+    "maxOutputCapabilityLabel": "モデルの出力上限",
+    "unknown": "不明"
   },
   "files": {
     "title": "ファイル",
@@ -2756,7 +2760,10 @@
       "global": "グローバル設定",
       "extensions": "拡張機能"
     },
-    "pages": { "general": "一般", "navigation": "サイドバー" },
+    "pages": {
+      "general": "一般",
+      "navigation": "サイドバー"
+    },
     "descriptions": {
       "general": "言語、テーマ、アプリの動作",
       "navigation": "サイドバーの表示項目",
@@ -3156,7 +3163,7 @@
     },
     "navigation": {
       "workspace": "ワークスペース",
-      "overview": "運用状況",
+      "overview": "稼働状況",
       "runtimes": "ランタイム",
       "users": "ユーザー",
       "credentials": "認証情報",
@@ -3273,8 +3280,8 @@
       "encrypted": "保存時は暗号化されます。平文は読み取れません"
     },
     "overview": {
-      "eyebrow": "オペレーションコックピット",
-      "title": "ハブ運用の概要",
+      "eyebrow": "システム状態",
+      "title": "Hub の稼働状況",
       "description": "実際の実行時状態、ホスト リソース、監査イベントを使用してハブの健全性を理解します。",
       "availability": "ランタイムの可用性",
       "availabilityDetail": "{{total}} ランタイム中 {{running}} は現在オンラインです",
@@ -3481,6 +3488,20 @@
       "submit": "暗号化して保存する"
     },
     "governance": {
+      "analytics": {
+        "usage": "使用量",
+        "memberRanking": "メンバーランキング",
+        "rank": "順位",
+        "charged": "課金対象 Token",
+        "share": "割合",
+        "requests": "呼び出し",
+        "failures": "失敗した呼び出し",
+        "actual": "報告された Token",
+        "conservative": "保守的課金",
+        "reserved": "処理中の予約",
+        "activeMembers": "アクティブメンバー",
+        "chargedHint": "予算から差し引かれる Token。上流の使用量が不明な場合の保守的課金を含みます。"
+      },
       "budget": {
         "inherit": "組織の既定値",
         "custom": "上限を指定",
@@ -3568,7 +3589,21 @@
         "memberCount_few": "{{count, number}} 名のメンバー",
         "memberCount_many": "{{count, number}} 名のメンバー",
         "memberCount_other": "{{count, number}} 名のメンバー",
-        "availableModels": "利用可能なモデル"
+        "availableModels": "利用可能なモデル",
+        "capabilities": "モデルの能力",
+        "completeCapabilities": "不足しているトークン上限を入力してください。出力制限はモデルの上限以下にしてください。",
+        "responseLimit": "応答の長さを制限（任意）",
+        "modelSection": "モデルと能力",
+        "advancedSettings": "詳細設定",
+        "connectionDisabled": "プロバイダー接続が無効",
+        "providerEnabled": "プロバイダーが有効",
+        "toggleProvider": "プロバイダー {{name}} を有効にする",
+        "changeDefaultFirst": "このモデルまたはプロバイダーを無効にする前に、別の既定モデルを選択してください。",
+        "modelEnabled": "モデルが有効",
+        "modelDisabled": "モデルが無効",
+        "toggleModel": "モデル {{name}} を有効にする",
+        "viewProvider": "プロバイダーを表示",
+        "zeroUnlimited": "0 は無制限を意味します"
       },
       "invitations": {
         "title": "メンバーを招待",
@@ -3622,6 +3657,7 @@
         "title": "パスワードをリセット · {{username}}"
       },
       "dashboard": {
+        "requests": "今月のリクエスト",
         "manageAccounts": "アカウントと上限を管理",
         "running": "稼働中のインスタンス",
         "monthlyTokens": "今月のトークン",
@@ -3731,7 +3767,8 @@
         "accountDisabled": "このアカウントは無効です。",
         "boundsUnverified": "有限予算を使用する前に、モデルの入力と出力の上限を検証してください。",
         "budgetExceeded": "トークン予算を使い切りました。管理者にお問い合わせください。",
-        "passwordMemberOnly": "ここでは一般メンバーのパスワードのみリセットできます。"
+        "passwordMemberOnly": "ここでは一般メンバーのパスワードのみリセットできます。",
+        "connectionDisabled": "プロバイダーが無効です。カードのスイッチで有効にしてから、テストまたは既定モデルの設定を行ってください。"
       }
     }
   },

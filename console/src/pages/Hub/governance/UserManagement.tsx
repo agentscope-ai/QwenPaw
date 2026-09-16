@@ -165,7 +165,6 @@ export default function UserManagement(props: Props) {
             {t("hub.governance.models.eyebrow")}
           </span>
           <h2>{t("hub.navigation.users")}</h2>
-          <p>{t("hub.governance.users.description")}</p>
         </div>
         {tab === "members" && (
           <Button
@@ -316,7 +315,6 @@ export default function UserManagement(props: Props) {
                     <div className={styles.empty}>
                       <Users size={28} />
                       <strong>{t("hub.governance.users.emptyTitle")}</strong>
-                      <p>{t("hub.governance.users.emptyHint")}</p>
                     </div>
                   )}
                   <div className={styles.tableFooter}>
@@ -414,12 +412,6 @@ export default function UserManagement(props: Props) {
                         {t("hub.governance.users.saveLimit")}
                       </Button>
                     </div>
-                    <details className={styles.help}>
-                      <summary>
-                        {t("hub.governance.users.calculationTitle")}
-                      </summary>
-                      <p>{t("hub.governance.users.calculationHint")}</p>
-                    </details>
                   </div>
                 ),
               },
@@ -428,9 +420,6 @@ export default function UserManagement(props: Props) {
                 label: t("hub.governance.users.modelAccess"),
                 children: (
                   <div className={styles.panel}>
-                    <p className={styles.muted}>
-                      {t("hub.governance.users.modelAccessHint")}
-                    </p>
                     {models.map((m) => (
                       <div className={styles.accessRow} key={m.id}>
                         <div>

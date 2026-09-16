@@ -3,7 +3,6 @@ import { createClientMessageId } from "../../../utils/clientMessageId";
 import { useCallback, useEffect, useState } from "react";
 import {
   App,
-  Alert,
   Button,
   Form,
   Input,
@@ -58,7 +57,6 @@ export default function Invitations() {
       <div className={styles.heading}>
         <div>
           <h3>{t("hub.governance.invitations.title")}</h3>
-          <p>{t("hub.governance.invitations.description")}</p>
         </div>
         <Button
           icon={<Plus size={16} />}
@@ -74,7 +72,10 @@ export default function Invitations() {
       {registrationMode && registrationMode !== "invite" && (
         <div className={styles.notice}>
           <Info size={16} />
-          <span>{t("hub.governance.invitations.modeHint")}</span>
+          <span>
+            {t("hub.governance.settings.registration")}:{" "}
+            {t(`hub.governance.settings.${registrationMode}`)}
+          </span>
         </div>
       )}
       {!batches.length && (
@@ -82,7 +83,6 @@ export default function Invitations() {
           <div className={styles.empty}>
             <Ticket size={28} />
             <strong>{t("hub.governance.invitations.emptyTitle")}</strong>
-            <p>{t("hub.governance.invitations.emptyDescription")}</p>
           </div>
         </div>
       )}
@@ -231,12 +231,6 @@ export default function Invitations() {
         onOk={() => setCodes([])}
         width={720}
       >
-        <Alert
-          type="info"
-          showIcon
-          icon={<Info size={16} />}
-          message={t("hub.governance.invitations.codesHint")}
-        />
         <pre className={styles.codes}>{codes.join("\n")}</pre>
         <Button
           icon={<Download size={14} />}

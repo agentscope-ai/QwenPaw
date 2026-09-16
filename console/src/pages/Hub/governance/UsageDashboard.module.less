@@ -1,0 +1,72 @@
+.dashboard {
+  display: grid;
+  gap: 16px;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.metricCard,
+.secondaryGrid > article {
+  min-width: 0;
+  padding: 22px 24px;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 2px 8px #00000003;
+}
+.metricCard {
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--app-text-secondary);
+    font-size: 13px;
+  }
+  strong {
+    display: block;
+    margin-top: 12px;
+    font-size: 30px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    font-variant-numeric: tabular-nums;
+  }
+  svg {
+    opacity: 0.4;
+  }
+  &:hover {
+    border-color: var(--app-accent-border);
+    svg {
+      opacity: 1;
+    }
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 3px;
+  }
+}
+.secondaryGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+@media (max-width: 700px) {
+  .metrics {
+    gap: 8px;
+  }
+  .metricCard {
+    padding: 16px 12px;
+    strong {
+      font-size: 24px;
+    }
+  }
+  .secondaryGrid {
+    grid-template-columns: 1fr;
+  }
+}

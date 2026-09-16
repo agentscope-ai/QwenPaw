@@ -62,7 +62,7 @@ export interface ManagedModel {
   output_token_limit: number;
   output_limit_field: string;
   budget_verified: boolean;
-  supports_image: boolean;
+  supports_image: boolean | null;
   requests_per_minute: number;
   concurrency: number;
   revision: number;
@@ -111,8 +111,26 @@ export interface MemberModelCatalog {
     id: string;
     name: string;
     description: string;
-    supports_image: boolean;
+    supports_image: boolean | null;
     input_token_limit: number;
     output_token_limit: number;
   }[];
+}
+
+export interface UsageDetailRow {
+  date: string;
+  user_id: string;
+  username: string;
+  model_id: string;
+  model_name: string;
+  requests: number;
+  charged: number;
+  actual: number;
+  reserved: number;
+  conservative: number;
+  failures: number;
+}
+export interface UsageDetails {
+  timezone: string;
+  rows: UsageDetailRow[];
 }

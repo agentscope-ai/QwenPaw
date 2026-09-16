@@ -74,11 +74,9 @@ function ModelsPage() {
     const providerParam = searchParams.get("provider");
     const manageModels = searchParams.get("manageModels") === "true";
     if (providerParam && providers.length > 0) {
-      const target = providers.find(
-        (p) => p.id === providerParam && p.id !== "hub-managed",
-      );
+      const target = providers.find((p) => p.id === providerParam);
       if (target) {
-        if (manageModels) {
+        if (manageModels || target.id === "hub-managed") {
           setModelsModalProvider(target);
         } else {
           setConfigModalProvider(target);

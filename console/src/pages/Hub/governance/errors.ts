@@ -20,6 +20,8 @@ const errorKeys: Record<string, string> = {
   "Unknown model grant": "grantMissing",
   "Account is disabled": "accountDisabled",
   "Model budget bounds are unverified": "boundsUnverified",
+  "Model provider connection is disabled": "connectionDisabled",
+  hub_model_unavailable: "modelUnavailable",
   hub_budget_exceeded: "budgetExceeded",
   "Only ordinary member passwords can reset": "passwordMemberOnly",
 };

@@ -726,7 +726,6 @@ export default function HubPage() {
                   <PageHeader
                     eyebrow={t("hub.runtimes.eyebrow")}
                     title={t("hub.runtimes.title")}
-                    description={t("hub.runtimes.description")}
                     action={
                       <Button
                         type="primary"
@@ -1015,7 +1014,6 @@ export default function HubPage() {
                   <PageHeader
                     eyebrow={t("hub.credentials.eyebrow")}
                     title={t("hub.credentials.title")}
-                    description={t("hub.credentials.description")}
                     action={
                       <Button
                         type="primary"
@@ -1128,7 +1126,6 @@ export default function HubPage() {
                   <PageHeader
                     eyebrow={t("hub.audit.eyebrow")}
                     title={t("hub.audit.title")}
-                    description={t("hub.audit.description")}
                   />
                   <DataPanel
                     search={auditQuery}
@@ -1205,7 +1202,6 @@ export default function HubPage() {
           initialValues={{ autoStart: true }}
           onFinish={createRuntime}
         >
-          <p className={styles.formHint}>{t("hub.runtimeForm.hint")}</p>
           <Form.Item
             label={t("hub.runtimeForm.runtimeId")}
             name="runtimeId"
@@ -1245,7 +1241,6 @@ export default function HubPage() {
           initialValues={{ role: "user" }}
           onFinish={createUser}
         >
-          <p className={styles.formHint}>{t("hub.userForm.hint")}</p>
           <Form.Item
             label={t("hub.userForm.username")}
             name="username"
@@ -1290,7 +1285,6 @@ export default function HubPage() {
           initialValues={{ scope: "tenant" }}
           onFinish={saveCredential}
         >
-          <p className={styles.formHint}>{t("hub.credentialForm.hint")}</p>
           <Form.Item label={t("hub.credentialForm.scope")} name="scope">
             <Select
               options={[
@@ -1341,7 +1335,6 @@ function SettingsLoadingPanel({
       <PageHeader
         eyebrow={t("hub.settings.eyebrow")}
         title={t("hub.settings.title")}
-        description={t("hub.settings.description")}
       />
       <div className={styles.settingsLoadingCard}>
         <Skeleton active paragraph={{ rows: 5 }} />
@@ -1421,7 +1414,6 @@ function SettingsPanel({
       <PageHeader
         eyebrow={t("hub.settings.eyebrow")}
         title={t("hub.settings.title")}
-        description={t("hub.settings.description")}
         action={
           activeTab !== "budget" && (
             <Button
@@ -1456,14 +1448,12 @@ function SettingsPanel({
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.access.title")}</strong>
-                        <span>{t("hub.settings.access.description")}</span>
                       </div>
                       <Settings2 size={18} />
                     </div>
                     <Form.Item
                       name="publicBaseUrl"
                       label={t("hub.settings.access.publicBaseUrl")}
-                      extra={t("hub.settings.access.publicBaseUrlHint")}
                       rules={[{ type: "url" }]}
                     >
                       <Input placeholder="https://hub.example.com" />
@@ -1478,9 +1468,6 @@ function SettingsPanel({
                             <strong>
                               {t(`hub.governance.settings.${mode}`)}
                             </strong>
-                            <span>
-                              {t(`hub.governance.settings.${mode}Hint`)}
-                            </span>
                           </Radio>
                         ))}
                       </Radio.Group>
@@ -1501,7 +1488,6 @@ function SettingsPanel({
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.security.title")}</strong>
-                        <span>{t("hub.settings.security.description")}</span>
                       </div>
                       <ShieldBan size={18} />
                     </div>
@@ -1509,14 +1495,12 @@ function SettingsPanel({
                       <Form.Item
                         name="ipBlacklist"
                         label={t("hub.settings.security.ipBlacklist")}
-                        extra={t("hub.settings.security.ipBlacklistHint")}
                       >
                         <Select mode="tags" tokenSeparators={[","]} />
                       </Form.Item>
                       <Form.Item
                         name="trustedProxyIps"
                         label={t("hub.settings.security.trustedProxyIps")}
-                        extra={t("hub.settings.security.trustedProxyIpsHint")}
                       >
                         <Select mode="tags" tokenSeparators={[","]} />
                       </Form.Item>
@@ -1525,18 +1509,12 @@ function SettingsPanel({
                       <RateLimitFields
                         prefix="login"
                         title={t("hub.settings.security.loginRateLimit")}
-                        description={t(
-                          "hub.settings.security.loginRateLimitHint",
-                        )}
                         form={form}
                         t={t}
                       />
                       <RateLimitFields
                         prefix="registration"
                         title={t("hub.settings.security.registrationRateLimit")}
-                        description={t(
-                          "hub.settings.security.registrationRateLimitHint",
-                        )}
                         form={form}
                         t={t}
                       />
@@ -1560,7 +1538,6 @@ function SettingsPanel({
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.runtime.title")}</strong>
-                        <span>{t("hub.settings.runtime.description")}</span>
                       </div>
                       <Boxes size={18} />
                     </div>
@@ -1584,23 +1561,12 @@ function SettingsPanel({
                         t={t}
                       />
                     </Form.Item>
-                    <div className={styles.backendNotice}>
-                      <ShieldBan size={15} />
-                      <span>
-                        {t(
-                          runtimeProvisioner === "docker"
-                            ? "hub.settings.runtime.dockerIsolationHint"
-                            : "hub.settings.runtime.localIsolationHint",
-                        )}
-                      </span>
-                    </div>
                   </article>
 
                   <article className={styles.settingsCard}>
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.quotas.title")}</strong>
-                        <span>{t("hub.settings.quotas.description")}</span>
                       </div>
                       <Gauge size={18} />
                     </div>
@@ -1622,7 +1588,6 @@ function SettingsPanel({
                       <div className={styles.settingsCardHeader}>
                         <div>
                           <strong>{t("hub.settings.docker.title")}</strong>
-                          <span>{t("hub.settings.docker.description")}</span>
                         </div>
                         <Box size={18} />
                       </div>
@@ -1827,12 +1792,6 @@ function SettingsPanel({
           ]}
         />
       </Form>
-      <p className={styles.settingsMeta}>
-        {t("hub.settings.meta", {
-          revision: settings.revision,
-          date: formatDate(settings.updated_at),
-        })}
-      </p>
     </section>
   );
 }
@@ -1840,13 +1799,11 @@ function SettingsPanel({
 function RateLimitFields({
   prefix,
   title,
-  description,
   form,
   t,
 }: {
   prefix: "login" | "registration";
   title: string;
-  description: string;
   initialTab?: string;
   form: FormInstance<SettingsFormValues>;
   t: (key: string, options?: Record<string, unknown>) => string;
@@ -1858,7 +1815,6 @@ function RateLimitFields({
       <div className={styles.rateLimitHeader}>
         <div>
           <strong>{title}</strong>
-          <span>{description}</span>
         </div>
         <Form.Item name={enabledName} valuePropName="checked" noStyle>
           <Switch />
@@ -1909,13 +1865,11 @@ function BackendSelector({
       value: "local" as const,
       icon: HardDrive,
       title: t("hub.settings.runtime.localBackend"),
-      description: t("hub.settings.runtime.localBackendHint"),
     },
     {
       value: "docker" as const,
       icon: Box,
       title: t("hub.settings.runtime.dockerBackend"),
-      description: t("hub.settings.runtime.dockerBackendHint"),
     },
   ];
   return (
@@ -1942,11 +1896,9 @@ function BackendSelector({
             <Icon size={18} />
             <span>
               <strong>{option.title}</strong>
-              <small>
-                {disabled
-                  ? t("hub.settings.runtime.backendUnavailable")
-                  : option.description}
-              </small>
+              {disabled && (
+                <small>{t("hub.settings.runtime.backendUnavailable")}</small>
+              )}
             </span>
           </button>
         );
@@ -1985,13 +1937,11 @@ function ImageSourceSelector({
       value: "local" as const,
       icon: HardDrive,
       title: t("hub.settings.docker.localHost"),
-      description: t("hub.settings.docker.localHostHint"),
     },
     {
       value: "custom" as const,
       icon: Settings2,
       title: t("hub.settings.docker.custom"),
-      description: t("hub.settings.docker.customHint"),
     },
   ];
   return (
@@ -2041,19 +1991,16 @@ function OverviewPanel({
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
   return (
-    <section>
+    <section className={styles.overview}>
       <PageHeader
         eyebrow={t("hub.overview.eyebrow")}
         title={t("hub.overview.title")}
-        description={t("hub.overview.description")}
       />
-      <UsageDashboard overview={overview} onNavigate={onNavigate} />
-      <div className={styles.overviewGrid}>
+      <UsageDashboard overview={overview} onNavigate={onNavigate}>
         <article className={styles.surfacePanel}>
           <div className={styles.surfaceHeader}>
             <div>
               <strong>{t("hub.overview.hostResources")}</strong>
-              <span>{t("hub.overview.liveSnapshot")}</span>
             </div>
             <Gauge size={18} />
           </div>
@@ -2077,12 +2024,11 @@ function OverviewPanel({
           <div className={styles.surfaceHeader}>
             <div>
               <strong>{t("hub.overview.recentActivity")}</strong>
-              <span>{t("hub.overview.auditBacked")}</span>
             </div>
             <BellRing size={18} />
           </div>
           <div className={styles.activityList}>
-            {overview.recent_events.map((event) => (
+            {overview.recent_events.slice(0, 5).map((event) => (
               <div className={styles.activityItem} key={event.event_id}>
                 <span>
                   {event.action.includes("user") ||
@@ -2096,7 +2042,6 @@ function OverviewPanel({
                 </span>
                 <div>
                   <strong>{t(`hub.auditActions.${event.action}`)}</strong>
-                  <small>{event.resource_id}</small>
                 </div>
                 <time>{formatDate(event.created_at)}</time>
               </div>
@@ -2106,7 +2051,7 @@ function OverviewPanel({
             )}
           </div>
         </article>
-      </div>
+      </UsageDashboard>
     </section>
   );
 }
@@ -2130,7 +2075,7 @@ function ResourceMeter({
       <Progress
         percent={value}
         showInfo={false}
-        strokeColor="var(--app-accent)"
+        strokeColor="var(--app-text-tertiary)"
         trailColor="var(--app-fill-subtle)"
         size="small"
       />
@@ -2141,12 +2086,10 @@ function ResourceMeter({
 function PageHeader({
   eyebrow,
   title,
-  description,
   action,
 }: {
   eyebrow: string;
   title: string;
-  description: string;
   action?: React.ReactNode;
 }) {
   return (
@@ -2154,7 +2097,6 @@ function PageHeader({
       <div>
         <span>{eyebrow}</span>
         <h1>{title}</h1>
-        <p>{description}</p>
       </div>
       {action}
     </header>

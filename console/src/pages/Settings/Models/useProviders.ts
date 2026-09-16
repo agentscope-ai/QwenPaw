@@ -57,6 +57,8 @@ export function useProviders() {
                         reasoning_effort: null,
                         max_input_length: model.input_token_limit,
                         max_input_length_configured: true,
+                        max_output_length: model.output_token_limit,
+                        max_output_length_source: "adapter" as const,
                       })),
                       extra_models: [],
                     }
