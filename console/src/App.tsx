@@ -23,6 +23,7 @@ import "dayjs/locale/ru";
 import "dayjs/locale/id";
 dayjs.extend(relativeTime);
 import MainLayout from "./layouts/MainLayout";
+import { RuntimeActivity } from "./components/RuntimeActivity";
 import { ThemeProvider, useTheme } from "./contexts/ThemeContext";
 import { PluginProvider } from "./plugins/PluginContext";
 import { ApprovalProvider } from "./contexts/ApprovalContext";
@@ -420,6 +421,7 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     <AuthGuard authStatus={backendInfo.authStatus} useHardRedirect>
       <RuntimeAvailabilityGuard enabled={hubMode}>
         <Suspense fallback={null}>
+          <RuntimeActivity />
           <DesktopOSPage />
         </Suspense>
       </RuntimeAvailabilityGuard>
@@ -454,7 +456,10 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
           element={
             <AuthGuard authStatus={backendInfo.authStatus}>
               <RuntimeAvailabilityGuard enabled={hubMode}>
-                <MainLayout hubMode={hubMode} />
+                <>
+                  <RuntimeActivity />
+                  <MainLayout hubMode={hubMode} />
+                </>
               </RuntimeAvailabilityGuard>
             </AuthGuard>
           }

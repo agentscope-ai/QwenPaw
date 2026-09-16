@@ -169,6 +169,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         }
         environment.update(
             {
+                "QWENPAW_RUNNING_IN_CONTAINER": "true",
                 "QWENPAW_WORKING_DIR": "/app/working",
                 "QWENPAW_SECRET_DIR": "/app/working.secret",
                 "QWENPAW_BACKUP_DIR": "/app/working.backups",

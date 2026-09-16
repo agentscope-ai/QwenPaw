@@ -149,6 +149,11 @@ def _looks_like_project_path(value: str) -> bool:
         "daemon": ("qwenpaw.cli.daemon_cmd", "daemon_group", ".daemon_cmd"),
         "chats": ("qwenpaw.cli.chats_cmd", "chats_group", ".chats_cmd"),
         "chat": ("qwenpaw.cli.chats_cmd", "chats_group", ".chats_cmd"),
+        "telemetry": (
+            "qwenpaw.cli.telemetry_cmd",
+            "telemetry_cmd",
+            ".telemetry_cmd",
+        ),
         "clean": ("qwenpaw.cli.clean_cmd", "clean_cmd", ".clean_cmd"),
         "cron": ("qwenpaw.cli.cron_cmd", "cron_group", ".cron_cmd"),
         "env": ("qwenpaw.cli.env_cmd", "env_group", ".env_cmd"),

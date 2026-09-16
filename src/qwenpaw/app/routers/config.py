@@ -15,6 +15,7 @@ from fastapi import (
 )
 from pydantic import BaseModel, Field
 
+from ...utils.daily_telemetry import record_activity
 from ...agents.acp.core import ACPAgentConfig, ACPConfig
 from ...agents.acp.node_runtime import (
     ACPNodeRuntimeStatus,
@@ -230,6 +231,7 @@ async def put_channels(
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
 
+    await record_activity("operation")
     return channels_config
 
 
@@ -552,6 +554,7 @@ async def put_channel(
     # Hot reload config (async, non-blocking)
     schedule_agent_reload(request, agent.agent_id)
 
+    await record_activity("operation")
     return channel_config
 
 

@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from ..__version__ import __version__ as QWENPAW_VERSION
 from ..constant import EnvVarLoader
 
 logger = logging.getLogger(__name__)
@@ -53,11 +54,13 @@ def get_system_info() -> dict[str, Any]:
     - architecture: CPU architecture (x86_64/arm64/etc)
     - has_gpu: GPU availability detection
     """
-    from ..__version__ import __version__ as qwenpaw_ver
+    return {"install_id": str(uuid.uuid4()), **get_environment_info()}
 
+
+def get_environment_info() -> dict[str, Any]:
+    """Collect the Runtime environment without generating an identity."""
     info = {
-        "install_id": str(uuid.uuid4()),
-        "qwenpaw_version": _safe_get(lambda: qwenpaw_ver, "unknown"),
+        "qwenpaw_version": _safe_get(lambda: QWENPAW_VERSION, "unknown"),
         "install_method": _safe_get(_detect_install_method, "unknown"),
         "os": _safe_get(platform.system, "unknown"),
         "os_version": _safe_get(platform.release, "unknown"),
