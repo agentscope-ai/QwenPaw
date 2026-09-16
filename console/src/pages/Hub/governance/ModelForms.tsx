@@ -3,8 +3,23 @@ import type { ModelConnection } from "../../../api/modules/hubGovernance";
 import styles from "./governance.module.less";
 import { useGovernanceText } from "./shared";
 
-export function ConnectionFields() {
+export function ConnectionFields({
+  connections,
+  connectionId,
+  independentScope,
+}: {
+  connections: ModelConnection[];
+  connectionId?: string;
+  independentScope: string;
+}) {
   const text = useGovernanceText();
+  const groups = new Map<string, string[]>();
+  for (const connection of connections) {
+    if (connection.id === connectionId) continue;
+    const names = groups.get(connection.quota_scope) ?? [];
+    names.push(connection.name);
+    groups.set(connection.quota_scope, names);
+  }
   return (
     <>
       <Form.Item
@@ -23,20 +38,32 @@ export function ConnectionFields() {
       >
         <Input.Password autoComplete="new-password" />
       </Form.Item>
-      <Form.Item
-        name="quota_scope"
-        label={text(
-          "上游配额标识（共用配额填相同值）",
-          "Shared upstream quota identifier",
-        )}
-        rules={[{ required: true }]}
-      >
-        <Input maxLength={120} />
-      </Form.Item>
       <details className={styles.help}>
-        <summary>
-          {text("速率与并发限制", "Rate and concurrency limits")}
-        </summary>
+        <summary>{text("高级设置 · 限流", "Advanced · Rate limits")}</summary>
+        <Form.Item
+          name="quota_scope"
+          label={text("与其他连接共享限流", "Share rate limits with")}
+          extra={text(
+            "仅在供应商对这些连接共用限额时选择。共享后合并计算请求量与并发数，按组内最低上限执行；不影响成员 Token 预算。",
+            "Choose only when your provider shares limits across these connections. Requests and concurrency are counted together, using the lowest limits in the group. Member token budgets are unaffected.",
+          )}
+          rules={[{ required: true }]}
+        >
+          <Select
+            showSearch
+            optionFilterProp="label"
+            options={[
+              {
+                value: independentScope,
+                label: text("独立限流（默认）", "Independent limits (default)"),
+              },
+              ...Array.from(groups, ([value, names]) => ({
+                value,
+                label: names.join(" / "),
+              })),
+            ]}
+          />
+        </Form.Item>
         <RateFields />
       </details>
       <Form.Item

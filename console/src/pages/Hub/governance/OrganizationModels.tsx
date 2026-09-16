@@ -44,6 +44,7 @@ export default function OrganizationModels({
     id?: string;
     revision?: number;
   }>();
+  const [independentScope, setIndependentScope] = useState("");
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState("models");
   const [error, setError] = useState("");
@@ -77,6 +78,22 @@ export default function OrganizationModels({
     value?: ModelConnection | ManagedModel,
   ) => {
     form.resetFields();
+    if (type === "connection") {
+      const connection = value as ModelConnection | undefined;
+      const sharesQuota = connections.some(
+        (other) =>
+          other.id !== connection?.id &&
+          other.quota_scope === connection?.quota_scope,
+      );
+      const scope =
+        connection && !sharesQuota
+          ? connection.quota_scope
+          : Array.from(crypto.getRandomValues(new Uint32Array(4)), (part) =>
+              part.toString(16).padStart(8, "0"),
+            ).join("");
+      setIndependentScope(scope);
+      form.setFieldValue("quota_scope", scope);
+    }
     if (value) {
       const data = editable(value);
       if ("has_key" in data) delete data.has_key;
@@ -498,7 +515,11 @@ export default function OrganizationModels({
           }}
         >
           {editing?.type === "connection" ? (
-            <ConnectionFields />
+            <ConnectionFields
+              connections={connections}
+              connectionId={editing.id}
+              independentScope={independentScope}
+            />
           ) : (
             <ModelFields connections={connections} users={users} />
           )}
