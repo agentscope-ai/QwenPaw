@@ -688,12 +688,10 @@ describe("published SDK cancellation with CoPaw adapter", () => {
         expect(host.loaded).toContainEqual({ id: A, generating: false }),
       );
       const handle = await act(async () =>
-        host
-          .current()
-          .dispatch("handleExecute", {
-            data: { query: "cancel me", fileList: [] },
-            options: { sessionId: A },
-          }),
+        host.current().dispatch("handleExecute", {
+          data: { query: "cancel me", fileList: [] },
+          options: { sessionId: A },
+        }),
       );
       await act(async () => {
         await handle.accepted;

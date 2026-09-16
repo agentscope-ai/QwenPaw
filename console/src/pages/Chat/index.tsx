@@ -4223,7 +4223,8 @@ export default function ChatPage() {
         currentSessionId: chatId,
         hideBuiltInSessionList: true,
         api: sdkSessionApi,
-        onCurrentSessionChange: (id?: string) => sessionApi.activateCreatedSession(id),
+        onCurrentSessionChange: (id?: string) =>
+          sessionApi.activateCreatedSession(id),
       },
       api: {
         ...defaultConfig.api,
