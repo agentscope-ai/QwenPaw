@@ -149,7 +149,8 @@ def test_provision_engine_mcp_without_token_sends_no_auth_header(
 
 
 @pytest.mark.skipif(
-    sys.platform == "win32", reason="POSIX mode bits are not enforced on Windows"
+    sys.platform == "win32",
+    reason="POSIX mode bits are not enforced on Windows",
 )
 def test_provision_engine_mcp_creates_file_with_private_mode(
     tmp_path: Path,
@@ -166,7 +167,8 @@ def test_provision_engine_mcp_creates_file_with_private_mode(
 
 
 @pytest.mark.skipif(
-    sys.platform == "win32", reason="POSIX mode bits are not enforced on Windows"
+    sys.platform == "win32",
+    reason="POSIX mode bits are not enforced on Windows",
 )
 def test_provision_engine_mcp_corrects_existing_file_mode(
     tmp_path: Path,
