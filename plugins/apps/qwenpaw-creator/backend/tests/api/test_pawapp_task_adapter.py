@@ -35,13 +35,24 @@ TARGET_REF = "element:shot-1"
 
 
 def test_registered_contract_matches_design_fixture() -> None:
-    path = (
+    video_path = (
         Path(__file__).resolve().parents[6]
         / "docs/design/pawapp-vnext-creator-video-action.example.json"
     )
+    storyboard_path = (
+        Path(__file__).resolve().parents[6]
+        / "docs/design/pawapp-vnext-creator-storyboard-action.example.json"
+    )
 
     assert pawapp_tasks.creator_video_action_descriptor() == (
-        ActionDescriptor.model_validate_json(path.read_text(encoding="utf-8"))
+        ActionDescriptor.model_validate_json(
+            video_path.read_text(encoding="utf-8"),
+        )
+    )
+    assert pawapp_tasks.creator_storyboard_action_descriptor() == (
+        ActionDescriptor.model_validate_json(
+            storyboard_path.read_text(encoding="utf-8"),
+        )
     )
 
 
@@ -65,8 +76,16 @@ def _services(tmp_path: Path) -> CreatorFileServices:
     return services
 
 
-def _submission(submission_id: str = "submission-1") -> TaskSubmission:
-    action = pawapp_tasks.creator_video_action_descriptor()
+def _submission(
+    submission_id: str = "submission-1",
+    *,
+    storyboard: bool = False,
+) -> TaskSubmission:
+    action = (
+        pawapp_tasks.creator_storyboard_action_descriptor()
+        if storyboard
+        else pawapp_tasks.creator_video_action_descriptor()
+    )
     scope = TaskScope(
         principal_id="alice",
         workspace_id="workspace-1",
@@ -98,23 +117,27 @@ class _FakeR2VService:
         services: CreatorFileServices,
         *,
         error: Exception | None = None,
+        task_id: str = "creator-video-task-1",
+        task_kind: TaskKind = TaskKind.R2V_GENERATION,
     ) -> None:
         self.services = services
         self.error = error
         self.dispatches = 0
         self.notifications = []
+        self.task_id = task_id
+        self.task_kind = task_kind
 
     async def dispatch(self, **kwargs):
         self.dispatches += 1
         if self.error is not None:
             raise self.error
-        task_id = "creator-video-task-1"
+        task_id = self.task_id
         store = ProjectExecutionStore(self.services.root)
         store.create_task(
             TaskRecord(
                 task_id=task_id,
                 project_id=kwargs["project_id"],
-                kind=TaskKind.R2V_GENERATION,
+                kind=self.task_kind,
                 request_fingerprint="sha256:request",
                 idempotency_key=kwargs["idempotency_key"],
                 metadata={"targetRef": kwargs["target_ref"]},
@@ -138,6 +161,22 @@ def _patch_runtime(
     monkeypatch.setattr(
         pawapp_tasks,
         "file_r2v_execution_service",
+        lambda _services: runtime,
+    )
+
+
+def _patch_storyboard_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    runtime: _FakeR2VService,
+) -> None:
+    monkeypatch.setattr(
+        pawapp_tasks,
+        "dispatch_file_image_command",
+        lambda _services, **kwargs: runtime.dispatch(**kwargs),
+    )
+    monkeypatch.setattr(
+        pawapp_tasks,
+        "file_image_execution_service",
         lambda _services: runtime,
     )
 
@@ -212,6 +251,55 @@ async def test_attach_replays_attempts_and_terminal_project_reference(
     assert events[-1].text_result == (
         "Creator generated video for element:shot-1."
     )
+
+
+@pytest.mark.asyncio
+async def test_storyboard_submission_projects_the_image_task_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path)
+    runtime = _FakeR2VService(
+        services,
+        task_id="creator-storyboard-task-1",
+        task_kind=TaskKind.IMAGE_GENERATION,
+    )
+    _patch_storyboard_runtime(monkeypatch, runtime)
+    adapter = pawapp_tasks.CreatorStoryboardTaskAdapter(
+        lambda: services,
+        poll_interval_seconds=0.01,
+    )
+    submission = _submission("storyboard-submission-1", storyboard=True)
+
+    first = await adapter.submit(submission)
+    replay = await adapter.submit(submission)
+    store = ProjectExecutionStore(services.root)
+    store.append_task_attempt(
+        PROJECT_ID,
+        runtime.task_id,
+        event_id="storyboard-attempt-started-1",
+        attempt_id="storyboard-attempt-1",
+        status="RUNNING",
+    )
+    store.append_task_attempt(
+        PROJECT_ID,
+        runtime.task_id,
+        event_id="storyboard-attempt-succeeded-1",
+        attempt_id="storyboard-attempt-1",
+        status="SUCCEEDED",
+        output={"artifactVersionId": "storyboard-version-1"},
+    )
+
+    events = [event async for event in adapter.attach(submission)]
+
+    assert first == replay
+    assert first.executor_id == pawapp_tasks.STORYBOARD_EXECUTOR_ID
+    assert runtime.dispatches == 1
+    assert [event.status for event in events] == ["running", "succeeded"]
+    assert events[-1].text_result == (
+        "Creator generated storyboard for element:shot-1."
+    )
+    assert events[-1].detail["project_ref"]["project_id"] == PROJECT_ID
 
 
 @pytest.mark.asyncio
@@ -346,3 +434,27 @@ async def test_readiness_checks_project_target_and_busy_state(
     )
     assert busy.state == "blocked"
     assert busy.reason == "creator_video_target_busy"
+
+    storyboard = pawapp_tasks.CreatorStoryboardTaskAdapter(lambda: services)
+    storyboard_submission = _submission(storyboard=True)
+    ready_while_video_is_busy = await storyboard.readiness(
+        storyboard_submission.handle.scope,
+        storyboard_submission.inputs,
+    )
+    assert ready_while_video_is_busy.state == "ready"
+
+    ProjectExecutionStore(services.root).create_task(
+        TaskRecord(
+            task_id="busy-storyboard-task",
+            project_id=PROJECT_ID,
+            kind=TaskKind.IMAGE_GENERATION,
+            request_fingerprint="sha256:busy-storyboard",
+            metadata={"targetRef": TARGET_REF},
+        ),
+    )
+    busy_storyboard = await storyboard.readiness(
+        storyboard_submission.handle.scope,
+        storyboard_submission.inputs,
+    )
+    assert busy_storyboard.state == "blocked"
+    assert busy_storyboard.reason == "creator_storyboard_target_busy"

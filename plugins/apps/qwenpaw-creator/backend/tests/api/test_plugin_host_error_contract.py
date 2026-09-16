@@ -93,18 +93,28 @@ def test_plugin_rejects_unsafe_runtime_path_configuration(
         module.configure_creator_runtime_environment(working_dir=tmp_path)
 
 
-def test_plugin_registers_durable_video_action(monkeypatch) -> None:
+def test_plugin_registers_durable_media_actions(monkeypatch) -> None:
     module = _load_plugin_entrypoint(monkeypatch)
 
     registrations = module.app._task_actions
 
-    assert len(registrations) == 1
-    assert registrations[0].action.action_id == "generate-video"
-    assert registrations[0].requirement_ids == ("shot-video",)
-    assert registrations[0].settings_entry == "/apps/qwenpaw-creator"
+    assert [item.action.action_id for item in registrations] == [
+        "generate-storyboard",
+        "generate-video",
+    ]
+    assert registrations[0].requirement_ids == ("storyboard-image",)
+    assert registrations[1].requirement_ids == ("shot-video",)
+    assert all(
+        item.settings_entry == "/apps/qwenpaw-creator"
+        for item in registrations
+    )
+    assert isinstance(
+        registrations[1].factory(),
+        module.CreatorVideoTaskAdapter,
+    )
     assert isinstance(
         registrations[0].factory(),
-        module.CreatorVideoTaskAdapter,
+        module.CreatorStoryboardTaskAdapter,
     )
 
 

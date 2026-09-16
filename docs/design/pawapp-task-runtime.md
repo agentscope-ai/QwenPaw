@@ -8,10 +8,11 @@ originating Main Chat.
 The Data
 [adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
 implements this boundary against the Engine's durable submission API. Its
-server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json);
-Creator's video descriptor has its own reviewed
-[example](pawapp-vnext-creator-video-action.example.json). Neither a descriptor
-nor adapter registration is a permission grant.
+server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json).
+Creator's reviewed fixtures cover
+[storyboard generation](pawapp-vnext-creator-storyboard-action.example.json) and
+[video generation](pawapp-vnext-creator-video-action.example.json). Neither a
+descriptor nor adapter registration is a permission grant.
 
 ## Host ownership
 
@@ -121,13 +122,14 @@ access. Replace this file atomically when changing it. A minimal scoped grant is
 ```
 
 Compute the digest offline from the reviewed descriptor using
-`ActionDescriptor.model_validate_json(...).descriptor_digest`; the Data fixture
-is `docs/design/pawapp-vnext-data-action.example.json` and Creator's video fixture
-is `docs/design/pawapp-vnext-creator-video-action.example.json`. A changed
-descriptor requires a new grant. `input_values` constrains exact string input values;
-omitting it grants the action for all input resources in that scope. Policy is
-checked on each request and before recovery. It is a temporary explicit operator
-policy, not a settings/approval UI or the full Skill/Tool permission bridge.
+`ActionDescriptor.model_validate_json(...).descriptor_digest`; the fixtures are
+`docs/design/pawapp-vnext-data-action.example.json`,
+`docs/design/pawapp-vnext-creator-storyboard-action.example.json`, and
+`docs/design/pawapp-vnext-creator-video-action.example.json`. A changed descriptor
+requires a new grant. `input_values` constrains exact string input values; omitting
+it grants the action for all input resources in that scope. Policy is checked on
+each request and before recovery. It is a temporary explicit operator policy, not
+a settings/approval UI or the full Skill/Tool permission bridge.
 
 Host auth-disabled/bootstrap/trusted-host modes retain their existing behavior:
 the principal is `default` when middleware supplies no authenticated user. That
@@ -156,15 +158,16 @@ after consuming them, and a successful server-side configuration save sends the
 receipt through the internal coordinator. The save idempotency record includes
 the setup request ID, and the backend resolves the workspace from the
 authenticated principal plus the Host-owned request. These checks are available
-to Creator's `generate-video` task action. `generate-storyboard` remains a future
-action.
+to Creator's `generate-storyboard` and `generate-video` task actions.
 
-Creator's `generate-video` adapter accepts an existing `project_id` and
-`element:<id>` target, writes a Creator-owned submission record before media
-admission, and then delegates to the existing R2V Task/Attempt ledger. The Host
-submission ID is also the R2V idempotency key. Replays return the same logical
+Both Creator media adapters accept an existing `project_id` and `element:<id>`
+target, then write a Creator-owned submission record before media admission. The
+storyboard action delegates to the existing image Task/Attempt ledger through its
+admission-only dispatch path; the video action delegates to the existing R2V
+Task/Attempt ledger. Both retain the canonical media-call budget check. The Host
+submission ID is also the Creator idempotency key. Replays return the same logical
 Host run even when Creator attaches the request to an already active equivalent
-R2V task. A crash with no provable acceptance remains `unknown`, so recovery
+media task. A crash with no provable acceptance remains `unknown`, so recovery
 cannot silently purchase a second generation. Deterministic Creator admission
 errors become durable failed runs with bounded reason codes and no internal error
 text. Cancellation has its own durable command receipt keyed by the exact Host

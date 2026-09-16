@@ -52,7 +52,9 @@ from services.media_files import (  # noqa: E402
 from services.media_files.motion_engine import ensure_vendor_libs  # noqa: E402
 from services.observability import trace_event  # noqa: E402
 from services.pawapp_tasks import (  # noqa: E402
+    CreatorStoryboardTaskAdapter,
     CreatorVideoTaskAdapter,
+    creator_storyboard_action_descriptor,
     creator_video_action_descriptor,
 )
 from services.project_files.facade import (  # noqa: E402
@@ -167,6 +169,14 @@ def _creator_task_services() -> CreatorFileServices:
     return _file_services
 
 
+app.task_action(
+    ActionRegistration(
+        action=creator_storyboard_action_descriptor(),
+        factory=lambda: CreatorStoryboardTaskAdapter(_creator_task_services),
+        settings_entry="/apps/qwenpaw-creator",
+        requirement_ids=("storyboard-image",),
+    ),
+)
 app.task_action(
     ActionRegistration(
         action=creator_video_action_descriptor(),

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Protocol-1 Host task adapter for Creator's durable video runtime."""
+"""Protocol-1 Host task adapters for Creator's durable media runtime."""
 
 from __future__ import annotations
 
@@ -10,9 +10,15 @@ from typing import Literal
 
 from pydantic import Field
 
-from domain.enums import TaskKind, TaskStatus
+from domain.enums import CreatorCommandType, TaskKind, TaskStatus
 from domain.errors import CreatorError
+from services.media_files.image_execution import (
+    FileImageDispatch,
+    dispatch_file_image_command,
+    file_image_execution_service,
+)
 from services.media_files.r2v_execution import (
+    FileR2VDispatch,
     execute_file_r2v_command,
     file_r2v_execution_service,
 )
@@ -42,8 +48,13 @@ from qwenpaw.pawapp.tasks.binding import Readiness
 from qwenpaw.pawapp.tasks.contracts import content_digest
 
 APP_ID = "qwenpaw-creator"
-ACTION_ID = "generate-video"
-EXECUTOR_ID = "qwenpaw-creator.video"
+VIDEO_ACTION_ID = "generate-video"
+STORYBOARD_ACTION_ID = "generate-storyboard"
+VIDEO_EXECUTOR_ID = "qwenpaw-creator.video"
+STORYBOARD_EXECUTOR_ID = "qwenpaw-creator.storyboard"
+# Backward-compatible module names for the first shipped action.
+ACTION_ID = VIDEO_ACTION_ID
+EXECUTOR_ID = VIDEO_EXECUTOR_ID
 _TERMINAL = {
     TaskStatus.SUCCEEDED,
     TaskStatus.FAILED,
@@ -56,7 +67,7 @@ def creator_video_action_descriptor() -> ActionDescriptor:
     """Describe generation from one committed storyboard-backed element."""
     return ActionDescriptor(
         app_id=APP_ID,
-        action_id=ACTION_ID,
+        action_id=VIDEO_ACTION_ID,
         summary=(
             "Generate video for one existing Creator project element using "
             "its committed prompt, storyboard, references, and settings."
@@ -91,7 +102,47 @@ def creator_video_action_descriptor() -> ActionDescriptor:
     )
 
 
-class CreatorVideoSubmission(StrictRuntimeModel):
+def creator_storyboard_action_descriptor() -> ActionDescriptor:
+    """Describe storyboard generation for one committed project element."""
+    return ActionDescriptor(
+        app_id=APP_ID,
+        action_id=STORYBOARD_ACTION_ID,
+        summary=(
+            "Generate a storyboard image for one existing Creator project "
+            "element using its committed prompt, visual design, references, "
+            "and settings."
+        ),
+        engagements=("delegated", "direct"),
+        input_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "string",
+                    "pattern": r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$",
+                },
+                "target_ref": {
+                    "type": "string",
+                    "pattern": (
+                        r"^element:[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+                    ),
+                },
+            },
+            "required": ["project_id", "target_ref"],
+            "additionalProperties": False,
+        },
+        output_types=("text/plain",),
+        permissions=(
+            "creator.project.read",
+            "creator.project.write",
+            "creator.image.generate",
+        ),
+        effects=("model_usage", "project_mutation"),
+        adapter_ref="qwenpaw-creator.storyboard-generation.v1",
+    )
+
+
+class CreatorMediaSubmission(StrictRuntimeModel):
     """Creator-side acceptance fact for one Host submission identity."""
 
     schema_version: Literal[1] = 1
@@ -106,7 +157,7 @@ class CreatorVideoSubmission(StrictRuntimeModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
-class CreatorVideoCommandReceipt(StrictRuntimeModel):
+class CreatorMediaCommandReceipt(StrictRuntimeModel):
     """Durable result for one exact Host command identity."""
 
     schema_version: Literal[1] = 1
@@ -118,10 +169,15 @@ class CreatorVideoCommandReceipt(StrictRuntimeModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
-class CreatorVideoTaskAdapter:
-    """Project the existing R2V Task/Attempt ledger onto Host protocol 1."""
+class _CreatorMediaTaskAdapter:
+    """Project one Creator media Task/Attempt ledger onto Host protocol 1."""
 
     submission_protocol_version = 1
+    action_id: str
+    executor_id: str
+    storage_key: str
+    media_name: str
+    task_kind: TaskKind
 
     def __init__(
         self,
@@ -137,19 +193,38 @@ class CreatorVideoTaskAdapter:
     async def aclose(self) -> None:
         """The App lifecycle, rather than each Host binding, owns services."""
 
-    @staticmethod
-    def _validate(submission: TaskSubmission) -> tuple[str, str, str]:
-        descriptor = creator_video_action_descriptor()
+    def action_descriptor(self) -> ActionDescriptor:
+        raise NotImplementedError
+
+    async def _dispatch(
+        self,
+        services: CreatorFileServices,
+        record: CreatorMediaSubmission,
+    ) -> FileImageDispatch | FileR2VDispatch:
+        raise NotImplementedError
+
+    def _notify_terminal(
+        self,
+        services: CreatorFileServices,
+        task: TaskRecord,
+    ) -> None:
+        raise NotImplementedError
+
+    def _code(self, suffix: str) -> str:
+        return f"creator_{self.storage_key}_{suffix}"
+
+    def _validate(self, submission: TaskSubmission) -> tuple[str, str, str]:
+        descriptor = self.action_descriptor()
         if (
             submission.action.descriptor_digest != descriptor.descriptor_digest
-            or submission.handle.action_id != ACTION_ID
+            or submission.handle.action_id != self.action_id
             or submission.handle.descriptor_digest
             != descriptor.descriptor_digest
         ):
-            raise TaskStoreError("creator_video_action_mismatch")
+            raise TaskStoreError(self._code("action_mismatch"))
         descriptor.validate_inputs(submission.inputs)
         if submission.handle.scope.app_id != APP_ID:
-            raise TaskStoreError("creator_video_scope_mismatch")
+            raise TaskStoreError(self._code("scope_mismatch"))
         submission_id = require_safe_runtime_segment(
             submission.handle.submission_id,
             label="Host submission_id",
@@ -176,13 +251,13 @@ class CreatorVideoTaskAdapter:
         self,
         services: CreatorFileServices,
         submission_id: str,
-    ) -> AtomicJsonRecordStore[CreatorVideoSubmission]:
+    ) -> AtomicJsonRecordStore[CreatorMediaSubmission]:
         return AtomicJsonRecordStore(
             services.root
             / ".pawapp"
-            / "video-submissions"
+            / f"{self.storage_key}-submissions"
             / f"{submission_id}.json",
-            CreatorVideoSubmission,
+            CreatorMediaSubmission,
         )
 
     def _command_store(
@@ -190,7 +265,7 @@ class CreatorVideoTaskAdapter:
         services: CreatorFileServices,
         submission_id: str,
         command_id: str,
-    ) -> AtomicJsonRecordStore[CreatorVideoCommandReceipt]:
+    ) -> AtomicJsonRecordStore[CreatorMediaCommandReceipt]:
         command_id = require_safe_runtime_segment(
             command_id,
             label="Host command_id",
@@ -198,19 +273,19 @@ class CreatorVideoTaskAdapter:
         return AtomicJsonRecordStore(
             services.root
             / ".pawapp"
-            / "video-commands"
+            / f"{self.storage_key}-commands"
             / submission_id
             / f"{command_id}.json",
-            CreatorVideoCommandReceipt,
+            CreatorMediaCommandReceipt,
         )
 
     def _prepare(
         self,
         services: CreatorFileServices,
         submission: TaskSubmission,
-    ) -> CreatorVideoSubmission:
+    ) -> CreatorMediaSubmission:
         submission_id, project_id, target_ref = self._validate(submission)
-        candidate = CreatorVideoSubmission(
+        candidate = CreatorMediaSubmission(
             submission_id=submission_id,
             meaning_digest=self._meaning(submission),
             project_id=project_id,
@@ -225,7 +300,7 @@ class CreatorVideoTaskAdapter:
             or current.project_id != project_id
             or current.target_ref != target_ref
         ):
-            raise TaskStoreError("creator_video_submission_conflict")
+            raise TaskStoreError(self._code("submission_conflict"))
         return current
 
     def _read_submission(
@@ -234,7 +309,7 @@ class CreatorVideoTaskAdapter:
         submission: TaskSubmission,
         *,
         required: bool,
-    ) -> CreatorVideoSubmission | None:
+    ) -> CreatorMediaSubmission | None:
         submission_id, project_id, target_ref = self._validate(submission)
         record = self._submission_store(
             services,
@@ -242,7 +317,7 @@ class CreatorVideoTaskAdapter:
         ).read_or_none()
         if record is None:
             if required:
-                raise TaskStoreError("creator_video_submission_missing")
+                raise TaskStoreError(self._code("submission_missing"))
             return None
         if (
             record.submission_id != submission_id
@@ -250,23 +325,23 @@ class CreatorVideoTaskAdapter:
             or record.project_id != project_id
             or record.target_ref != target_ref
         ):
-            raise TaskStoreError("creator_video_submission_conflict")
+            raise TaskStoreError(self._code("submission_conflict"))
         return record
 
     def _transition(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
+        record: CreatorMediaSubmission,
         *,
         state: Literal["accepted", "failed"],
         creator_task_id: str | None = None,
         failure_code: str | None = None,
-    ) -> CreatorVideoSubmission:
+    ) -> CreatorMediaSubmission:
         store = self._submission_store(services, record.submission_id)
 
-        def update(current: CreatorVideoSubmission):
+        def update(current: CreatorMediaSubmission):
             if current.meaning_digest != record.meaning_digest:
-                raise TaskStoreError("creator_video_submission_conflict")
+                raise TaskStoreError(self._code("submission_conflict"))
             if current.state != "prepared":
                 if (
                     current.state == state
@@ -274,7 +349,7 @@ class CreatorVideoTaskAdapter:
                     and current.failure_code == failure_code
                 ):
                     return current
-                raise TaskStoreError("creator_video_submission_conflict")
+                raise TaskStoreError(self._code("submission_conflict"))
             return current.model_copy(
                 update={
                     "state": state,
@@ -286,10 +361,9 @@ class CreatorVideoTaskAdapter:
 
         return store.update(update).value
 
-    @staticmethod
-    def _run_ref(record: CreatorVideoSubmission) -> ExecutorRunRef:
+    def _run_ref(self, record: CreatorMediaSubmission) -> ExecutorRunRef:
         return ExecutorRunRef(
-            executor_id=EXECUTOR_ID,
+            executor_id=self.executor_id,
             session_id=record.project_id,
             run_id=record.submission_id,
         )
@@ -303,22 +377,22 @@ class CreatorVideoTaskAdapter:
     def _mapped_task(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
+        record: CreatorMediaSubmission,
     ) -> TaskRecord:
         if record.state != "accepted" or not record.creator_task_id:
-            raise TaskStoreError("creator_video_task_unavailable")
+            raise TaskStoreError(self._code("task_unavailable"))
         try:
             task = self._execution_store(services).get_task(
                 record.project_id,
                 record.creator_task_id,
             )
         except RecordNotFoundError:
-            raise TaskStoreError("creator_video_task_unavailable") from None
+            raise TaskStoreError(self._code("task_unavailable")) from None
         if (
-            task.kind is not TaskKind.R2V_GENERATION
+            task.kind is not self.task_kind
             or task.metadata.get("targetRef") != record.target_ref
         ):
-            raise TaskStoreError("creator_video_task_mismatch")
+            raise TaskStoreError(self._code("task_mismatch"))
         return task
 
     async def readiness(
@@ -329,10 +403,10 @@ class CreatorVideoTaskAdapter:
         if scope.app_id != APP_ID:
             return Readiness(
                 state="blocked",
-                reason="creator_video_scope_mismatch",
+                reason=self._code("scope_mismatch"),
             )
         try:
-            creator_video_action_descriptor().validate_inputs(inputs)
+            self.action_descriptor().validate_inputs(inputs)
             services = self._services()
             snapshot = await asyncio.to_thread(
                 services.projects.read,
@@ -346,21 +420,21 @@ class CreatorVideoTaskAdapter:
             if not found:
                 return Readiness(
                     state="blocked",
-                    reason="creator_video_target_missing",
+                    reason=self._code("target_missing"),
                 )
             tasks = await asyncio.to_thread(
                 self._execution_store(services).list_tasks,
                 str(inputs["project_id"]),
             )
             busy = any(
-                item.kind is TaskKind.R2V_GENERATION
+                item.kind is self.task_kind
                 and item.status not in _TERMINAL
                 and item.metadata.get("targetRef") == inputs["target_ref"]
                 for item in tasks
             )
             return Readiness(
                 state="blocked" if busy else "ready",
-                reason="creator_video_target_busy" if busy else None,
+                reason=self._code("target_busy") if busy else None,
             )
         except Exception:  # noqa: BLE001
             return Readiness(
@@ -374,13 +448,7 @@ class CreatorVideoTaskAdapter:
         if record.state in {"accepted", "failed"}:
             return self._run_ref(record)
         try:
-            dispatch = await execute_file_r2v_command(
-                services,
-                project_id=record.project_id,
-                target_ref=record.target_ref,
-                arguments={},
-                idempotency_key=record.submission_id,
-            )
+            dispatch = await self._dispatch(services, record)
         except CreatorError as error:
             record = await asyncio.to_thread(
                 self._transition,
@@ -437,22 +505,27 @@ class CreatorVideoTaskAdapter:
             "QUARANTINED": "failed",
         }[event.status.value]
 
-    @staticmethod
-    def _text(status: str, target_ref: str) -> str | None:
+    def _text(self, status: str, target_ref: str) -> str | None:
         if status == "running":
-            return f"Creator is generating video for {target_ref}."
+            return f"Creator is generating {self.media_name} for {target_ref}."
         if status == "succeeded":
-            return f"Creator generated video for {target_ref}."
+            return f"Creator generated {self.media_name} for {target_ref}."
         if status == "cancelled":
-            return f"Creator video generation was cancelled for {target_ref}."
+            return (
+                f"Creator {self.media_name} generation was cancelled for "
+                f"{target_ref}."
+            )
         if status == "failed":
-            return f"Creator video generation failed for {target_ref}."
+            return (
+                f"Creator {self.media_name} generation failed for "
+                f"{target_ref}."
+            )
         return None
 
     async def _project_detail(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
+        record: CreatorMediaSubmission,
     ) -> dict:
         revision = 1
         if record.state != "failed":
@@ -489,10 +562,11 @@ class CreatorVideoTaskAdapter:
                 yield ExecutorEvent(
                     run_ref=run_ref,
                     sequence=0,
-                    cursor="creator-video-failed",
+                    cursor=f"creator-{self.storage_key}-failed",
                     status="failed",
                     text_result=(
-                        "Creator could not admit the video generation task."
+                        "Creator could not admit the "
+                        f"{self.media_name} generation task."
                     ),
                     detail={
                         **detail,
@@ -501,7 +575,7 @@ class CreatorVideoTaskAdapter:
                 )
             return
         if record.state != "accepted":
-            raise TaskStoreError("creator_video_submission_unknown")
+            raise TaskStoreError(self._code("submission_unknown"))
 
         while True:
             task = await asyncio.to_thread(
@@ -518,7 +592,7 @@ class CreatorVideoTaskAdapter:
                 yield ExecutorEvent(
                     run_ref=run_ref,
                     sequence=0,
-                    cursor="creator-video-queued",
+                    cursor=f"creator-{self.storage_key}-queued",
                     status="pending",
                     detail=detail,
                 )
@@ -530,7 +604,10 @@ class CreatorVideoTaskAdapter:
                 yield ExecutorEvent(
                     run_ref=run_ref,
                     sequence=event.attempt_seq,
-                    cursor=f"creator-video-attempt-{event.attempt_seq}",
+                    cursor=(
+                        f"creator-{self.storage_key}-attempt-"
+                        f"{event.attempt_seq}"
+                    ),
                     status=status,
                     text_result=self._text(status, record.target_ref),
                     detail=detail,
@@ -547,7 +624,7 @@ class CreatorVideoTaskAdapter:
                         run_ref=run_ref,
                         sequence=sequence,
                         cursor=(
-                            "creator-video-terminal-"
+                            f"creator-{self.storage_key}-terminal-"
                             + task.status.value.casefold()
                         ),
                         status=task_status,
@@ -560,7 +637,7 @@ class CreatorVideoTaskAdapter:
     def _cancel(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
+        record: CreatorMediaSubmission,
         reason: str,
     ) -> CommandLookup:
         if record.state != "accepted":
@@ -600,7 +677,7 @@ class CreatorVideoTaskAdapter:
                 },
                 _lifecycle_lock_held=True,
             )
-        file_r2v_execution_service(services).notify_terminal_task(task)
+        self._notify_terminal(services, task)
         return CommandLookup(state="accepted")
 
     @staticmethod
@@ -618,14 +695,14 @@ class CreatorVideoTaskAdapter:
     def _prepare_command(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
+        record: CreatorMediaSubmission,
         command: TaskCommand,
-    ) -> CreatorVideoCommandReceipt:
+    ) -> CreatorMediaCommandReceipt:
         command_id = require_safe_runtime_segment(
             command.command_id,
             label="Host command_id",
         )
-        candidate = CreatorVideoCommandReceipt(
+        candidate = CreatorMediaCommandReceipt(
             command_id=command_id,
             meaning_digest=self._command_meaning(command),
         )
@@ -640,15 +717,15 @@ class CreatorVideoTaskAdapter:
             current.command_id != command_id
             or current.meaning_digest != candidate.meaning_digest
         ):
-            raise TaskStoreError("creator_video_command_conflict")
+            raise TaskStoreError(self._code("command_conflict"))
         return current
 
     def _read_command(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
+        record: CreatorMediaSubmission,
         command: TaskCommand,
-    ) -> CreatorVideoCommandReceipt | None:
+    ) -> CreatorMediaCommandReceipt | None:
         command_id = require_safe_runtime_segment(
             command.command_id,
             label="Host command_id",
@@ -662,34 +739,34 @@ class CreatorVideoTaskAdapter:
             receipt.command_id != command_id
             or receipt.meaning_digest != self._command_meaning(command)
         ):
-            raise TaskStoreError("creator_video_command_conflict")
+            raise TaskStoreError(self._code("command_conflict"))
         return receipt
 
     def _transition_command(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
-        receipt: CreatorVideoCommandReceipt,
+        record: CreatorMediaSubmission,
+        receipt: CreatorMediaCommandReceipt,
         result: CommandLookup,
-    ) -> CreatorVideoCommandReceipt:
+    ) -> CreatorMediaCommandReceipt:
         if result.state not in {"accepted", "rejected"}:
-            raise TaskStoreError("creator_video_command_not_terminal")
+            raise TaskStoreError(self._code("command_not_terminal"))
         store = self._command_store(
             services,
             record.submission_id,
             receipt.command_id,
         )
 
-        def update(current: CreatorVideoCommandReceipt):
+        def update(current: CreatorMediaCommandReceipt):
             if current.meaning_digest != receipt.meaning_digest:
-                raise TaskStoreError("creator_video_command_conflict")
+                raise TaskStoreError(self._code("command_conflict"))
             if current.state != "prepared":
                 if (
                     current.state == result.state
                     and current.reason == result.reason
                 ):
                     return current
-                raise TaskStoreError("creator_video_command_conflict")
+                raise TaskStoreError(self._code("command_conflict"))
             return current.model_copy(
                 update={
                     "state": result.state,
@@ -703,9 +780,9 @@ class CreatorVideoTaskAdapter:
     def _execute_command(
         self,
         services: CreatorFileServices,
-        record: CreatorVideoSubmission,
+        record: CreatorMediaSubmission,
         command: TaskCommand,
-        receipt: CreatorVideoCommandReceipt,
+        receipt: CreatorMediaCommandReceipt,
     ) -> CommandLookup:
         if receipt.state != "prepared":
             return CommandLookup(state=receipt.state, reason=receipt.reason)
@@ -732,7 +809,7 @@ class CreatorVideoTaskAdapter:
         command: TaskCommand,
     ) -> CommandLookup:
         if command.task_id != submission.handle.task_id:
-            raise TaskStoreError("creator_video_command_task_mismatch")
+            raise TaskStoreError(self._code("command_task_mismatch"))
         services = self._services()
         record = await asyncio.to_thread(
             self._read_submission,
@@ -761,7 +838,7 @@ class CreatorVideoTaskAdapter:
         command: TaskCommand,
     ) -> CommandLookup:
         if command.task_id != submission.handle.task_id:
-            raise TaskStoreError("creator_video_command_task_mismatch")
+            raise TaskStoreError(self._code("command_task_mismatch"))
         services = self._services()
         record = await asyncio.to_thread(
             self._read_submission,
@@ -788,7 +865,76 @@ class CreatorVideoTaskAdapter:
         )
 
 
+class CreatorVideoTaskAdapter(_CreatorMediaTaskAdapter):
+    """Project Creator's R2V ledger onto Host protocol 1."""
+
+    action_id = VIDEO_ACTION_ID
+    executor_id = VIDEO_EXECUTOR_ID
+    storage_key = "video"
+    media_name = "video"
+    task_kind = TaskKind.R2V_GENERATION
+
+    def action_descriptor(self) -> ActionDescriptor:
+        return creator_video_action_descriptor()
+
+    async def _dispatch(
+        self,
+        services: CreatorFileServices,
+        record: CreatorMediaSubmission,
+    ) -> FileR2VDispatch:
+        return await execute_file_r2v_command(
+            services,
+            project_id=record.project_id,
+            target_ref=record.target_ref,
+            arguments={},
+            idempotency_key=record.submission_id,
+        )
+
+    def _notify_terminal(
+        self,
+        services: CreatorFileServices,
+        task: TaskRecord,
+    ) -> None:
+        file_r2v_execution_service(services).notify_terminal_task(task)
+
+
+class CreatorStoryboardTaskAdapter(_CreatorMediaTaskAdapter):
+    """Project Creator's storyboard-image ledger onto Host protocol 1."""
+
+    action_id = STORYBOARD_ACTION_ID
+    executor_id = STORYBOARD_EXECUTOR_ID
+    storage_key = "storyboard"
+    media_name = "storyboard"
+    task_kind = TaskKind.IMAGE_GENERATION
+
+    def action_descriptor(self) -> ActionDescriptor:
+        return creator_storyboard_action_descriptor()
+
+    async def _dispatch(
+        self,
+        services: CreatorFileServices,
+        record: CreatorMediaSubmission,
+    ) -> FileImageDispatch:
+        return await dispatch_file_image_command(
+            services,
+            project_id=record.project_id,
+            command=CreatorCommandType.GENERATE_STORYBOARD_IMAGE,
+            target_ref=record.target_ref,
+            arguments={},
+            idempotency_key=record.submission_id,
+        )
+
+    def _notify_terminal(
+        self,
+        services: CreatorFileServices,
+        task: TaskRecord,
+    ) -> None:
+        file_image_execution_service(services).notify_terminal_task(task)
+
+
 __all__ = [
+    "CreatorStoryboardTaskAdapter",
     "CreatorVideoTaskAdapter",
+    "creator_storyboard_action_descriptor",
     "creator_video_action_descriptor",
 ]
