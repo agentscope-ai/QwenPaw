@@ -137,6 +137,21 @@ prepared-result replay and destination receipts. Answer/cancel commands use the
 Engine's scoped durable receipt endpoints. The task card lists artifact versions,
 downloads authorized content, and previews text/Markdown or sandboxed HTML.
 
+The first projected event also binds the Engine session as a `ProjectRef`.
+Opening the task asks the Host to persist a bounded `TaskContext` and returns a
+local App path containing only an opaque handoff ID. The target App resolves
+that ID through its authenticated principal, workspace, and App scope; a copied
+ID has no independent authority. Repeating the same task/context revision
+returns the same handoff. QwenPaw Data then opens the existing Engine session
+through its `session_id` route without submitting another run. The handoff
+contains the task goal, scope, project/ref revisions, exact artifact refs, and a
+resume ref, but no full chat transcript or principal identity.
+
+When a handoff targets another App, Host grants only the artifact versions in
+that persisted snapshot. The grant retains the originating principal and
+workspace scope and is rechecked on every artifact read; possession of an
+`ArtifactRef` or handoff ID alone does not grant access.
+
 Protocol 1 permits at most 64 MiB per artifact, 128 artifact versions, and
 256 MiB of referenced bytes per task. Published versions follow task retention;
 there is no automatic deletion in this slice. Host reads always revalidate the

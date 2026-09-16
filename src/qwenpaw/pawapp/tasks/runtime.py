@@ -74,6 +74,7 @@ class HostTaskRuntime:
         registrations: Callable[[], dict],
         authorize_origin: AuthorizeOrigin,
         artifacts=None,
+        handoffs=None,
         interval: float = 2.0,
     ):
         self.store = store
@@ -81,6 +82,7 @@ class HostTaskRuntime:
         self._registrations = registrations
         self._authorize_origin = authorize_origin
         self.artifacts = artifacts
+        self.handoffs = handoffs
         self._interval = interval
         self._bindings: dict[tuple[str, str], _RuntimeBinding] = {}
         self._workers: dict[str, tuple[tuple[str, str], asyncio.Task]] = {}
@@ -296,6 +298,24 @@ class HostTaskRuntime:
             submission.inputs,
         )
         return submission
+
+    async def open_app(self, scope, task_id):
+        """Issue an authenticated handoff for the task's App-owned project."""
+        if self.handoffs is None:
+            raise TaskStoreError("handoff_store_unavailable")
+        submission = await self.get(scope, task_id)
+        project = submission.handle.project_ref
+        if project is None:
+            raise TaskStoreError("project_unavailable")
+        return await self.handoffs.create(
+            submission,
+            target_app_id=project.app_id,
+        )
+
+    async def resolve_handoff(self, scope, handoff_id):
+        if self.handoffs is None:
+            raise TaskStoreError("handoff_store_unavailable")
+        return await self.handoffs.resolve(scope, handoff_id)
 
     async def answer(
         self,

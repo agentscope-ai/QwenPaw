@@ -223,6 +223,13 @@ async def test_materializes_registered_artifact_before_task_commit(
     ref = published.detail["artifact_ref"]
     assert ref["name"] == "report.md"
     assert ref["digest"] == digest
+    assert published.detail["project_ref"] == {
+        "schema_version": 1,
+        "app_id": "qwenpaw-data",
+        "project_id": REF.session_id,
+        "kind": "analysis-session",
+        "revision": 1,
+    }
     artifact_request = next(
         request
         for request in requests

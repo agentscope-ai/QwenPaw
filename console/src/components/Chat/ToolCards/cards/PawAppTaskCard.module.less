@@ -47,6 +47,21 @@
   text-decoration: underline;
 }
 
+.openApp {
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+}
+
 .resultLabel {
   font-weight: 600;
   margin-bottom: 6px;

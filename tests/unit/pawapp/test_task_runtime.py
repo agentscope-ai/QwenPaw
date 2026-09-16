@@ -16,6 +16,7 @@ from qwenpaw.app import auth
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.pawapp.artifact_routes import router as artifact_router
 from qwenpaw.pawapp.artifacts import ArtifactStore
+from qwenpaw.pawapp.handoffs import HandoffStore
 from qwenpaw.pawapp.tasks import (
     CommandLookup,
     ExecutorEvent,
@@ -87,6 +88,17 @@ class Executor:
             cursor="0",
             status="succeeded",
             text_result="42",
+            detail={
+                "project_ref": {
+                    "schema_version": 1,
+                    "app_id": submission.handle.scope.app_id,
+                    "project_id": (
+                        submission.handle.executor_run_ref.session_id
+                    ),
+                    "kind": "analysis-session",
+                    "revision": 1,
+                },
+            },
         )
 
     async def command(self, submission, command):
@@ -166,6 +178,10 @@ async def host(tmp_path, monkeypatch):
     )
     store = await TaskStore.open(tmp_path / "tasks.db")
     artifacts = await ArtifactStore.open(tmp_path / "artifacts")
+    handoffs = await HandoffStore.open(
+        tmp_path / "handoffs.sqlite3",
+        artifacts,
+    )
     runs = {}
     adapters = []
 
@@ -189,6 +205,7 @@ async def host(tmp_path, monkeypatch):
             registrations=lambda: registrations,
             authorize_origin=origins,
             artifacts=artifacts,
+            handoffs=handoffs,
             interval=0.01,
         )
 
@@ -217,6 +234,7 @@ async def host(tmp_path, monkeypatch):
             runtime=runtime,
             chats=chats,
             artifacts=artifacts,
+            handoffs=handoffs,
         )
     await app.state.pawapp_tasks.aclose()
 
@@ -228,6 +246,47 @@ async def settled(host, task_id):
             if item.handle.status == "succeeded":
                 return item
             await asyncio.sleep(0.01)
+
+
+async def test_open_task_issues_scoped_handoff_to_existing_project(host):
+    response = await host.client.post(
+        PREFIX + "/actions/analyze/tasks",
+        json=BODY,
+    )
+    task_id = response.json()["task"]["task_id"]
+    submission = await settled(host, task_id)
+
+    opened = await host.client.post(PREFIX + f"/tasks/{task_id}/open")
+    assert opened.status_code == 200
+    action = opened.json()["action"]
+    assert action["project_ref"] == submission.handle.project_ref.model_dump(
+        mode="json",
+    )
+    assert action["path"] == (
+        f"/apps/qwenpaw-data?handoff={action['handoff_id']}"
+    )
+    assert "private prompt" not in action["path"]
+    replay = await host.client.post(PREFIX + f"/tasks/{task_id}/open")
+    assert replay.json()["action"] == action
+
+    resolved = await host.client.get(
+        PREFIX + f"/handoffs/{action['handoff_id']}",
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["handoff"]["context"]["project_ref"] == action[
+        "project_ref"
+    ]
+
+    denied = await host.client.get(
+        PREFIX + f"/handoffs/{action['handoff_id']}",
+        headers={"Authorization": "Bearer bob-token"},
+    )
+    assert denied.status_code == 404
+    wrong_app = await host.client.get(
+        "/api/pawapps/other/workspaces/sales/handoffs/"
+        + action["handoff_id"],
+    )
+    assert wrong_app.status_code == 404
 
 
 async def test_artifact_content_rejects_another_principal(host):

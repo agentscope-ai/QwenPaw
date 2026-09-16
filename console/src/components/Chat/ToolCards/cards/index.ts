@@ -82,6 +82,7 @@ export type BuiltinCardComponent = React.FC<BuiltinCardProps>;
 export const BUILTIN_CARD_REGISTRY: Record<string, BuiltinCardComponent> = {
   delegate: PawAppTaskCard,
   get_app_task: PawAppTaskCard,
+  open_app: PawAppTaskCard,
   // File I/O
   read_file: ReadFileCard,
   write_file: WriteFileCard,

@@ -26,6 +26,14 @@ export interface PawAppArtifactRef {
   digest: string;
 }
 
+export interface PawAppProjectRef {
+  schema_version: 1;
+  app_id: string;
+  project_id: string;
+  kind: string;
+  revision: number;
+}
+
 export interface PawAppTask {
   task_id: string;
   action_id: string;
@@ -35,6 +43,22 @@ export interface PawAppTask {
   event_sequence: number;
   text_result: string | null;
   output_refs?: PawAppArtifactRef[];
+  project_ref?: PawAppProjectRef | null;
+}
+
+export interface PawAppOpenAction {
+  schema_version: 1;
+  app_id: string;
+  handoff_id: string;
+  path: string;
+  project_ref: PawAppProjectRef;
+}
+
+export interface PawAppOpenResult {
+  kind: "pawapp_open_app";
+  app_id: string;
+  workspace_id: string;
+  action: PawAppOpenAction;
 }
 
 export interface PawAppTaskResult {
@@ -58,6 +82,19 @@ function record(value: unknown): value is Record<string, unknown> {
 
 function identity(value: unknown): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= 256;
+}
+
+function isProjectRef(value: unknown): value is PawAppProjectRef {
+  return (
+    record(value) &&
+    value.schema_version === 1 &&
+    identity(value.app_id) &&
+    /^[a-z0-9][a-z0-9-]*$/.test(value.app_id) &&
+    identity(value.project_id) &&
+    identity(value.kind) &&
+    Number.isSafeInteger(value.revision) &&
+    Number(value.revision) >= 1
+  );
 }
 
 export function isPawAppTask(value: unknown): value is PawAppTask {
@@ -93,7 +130,25 @@ export function isPawAppTask(value: unknown): value is PawAppTask {
             Number(ref.size_bytes) >= 0 &&
             typeof ref.digest === "string" &&
             /^sha256:[0-9a-f]{64}$/.test(ref.digest),
-        )))
+        ))) &&
+    (value.project_ref === undefined ||
+      value.project_ref === null ||
+      isProjectRef(value.project_ref))
+  );
+}
+
+function isOpenAction(value: unknown): value is PawAppOpenAction {
+  if (!record(value) || !isProjectRef(value.project_ref)) return false;
+  if (
+    value.schema_version !== 1 ||
+    !identity(value.app_id) ||
+    !/^[a-z0-9][a-z0-9-]*$/.test(value.app_id) ||
+    !identity(value.handoff_id)
+  )
+    return false;
+  return (
+    value.project_ref.app_id === value.app_id &&
+    value.path === `/apps/${value.app_id}?handoff=${value.handoff_id}`
   );
 }
 
@@ -166,6 +221,41 @@ export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {
   }
 }
 
+function decodeToolValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    if (
+      !value.every(
+        (block) =>
+          record(block) &&
+          block.type === "text" &&
+          typeof block.text === "string",
+      )
+    )
+      return null;
+    value = value.map((block) => block.text).join("");
+  }
+  return typeof value === "string" ? JSON.parse(value) : value;
+}
+
+export function parsePawAppOpenResult(value: unknown): PawAppOpenResult | null {
+  try {
+    value = decodeToolValue(value);
+    if (
+      !record(value) ||
+      value.kind !== "pawapp_open_app" ||
+      !identity(value.app_id) ||
+      !/^[a-z0-9][a-z0-9-]*$/.test(value.app_id) ||
+      !identity(value.workspace_id) ||
+      !isOpenAction(value.action) ||
+      value.action.app_id !== value.app_id
+    )
+      return null;
+    return value as unknown as PawAppOpenResult;
+  } catch {
+    return null;
+  }
+}
+
 export async function getPawAppTask(
   appId: string,
   workspaceId: string,
@@ -187,4 +277,25 @@ export async function getPawAppTask(
     throw new Error("invalid_task_response");
   }
   return result.task;
+}
+
+export async function openPawAppTask(
+  appId: string,
+  workspaceId: string,
+  taskId: string,
+): Promise<PawAppOpenAction> {
+  const result = await request<{ action: unknown }>(
+    `/pawapps/${encodeURIComponent(appId)}/workspaces/${encodeURIComponent(
+      workspaceId,
+    )}/tasks/${encodeURIComponent(taskId)}/open`,
+    { method: "POST", headers: { "X-Agent-Id": workspaceId } },
+  );
+  if (
+    !isOpenAction(result.action) ||
+    result.action.app_id !== appId ||
+    result.action.project_ref.app_id !== appId
+  ) {
+    throw new Error("invalid_open_app_response");
+  }
+  return result.action;
 }

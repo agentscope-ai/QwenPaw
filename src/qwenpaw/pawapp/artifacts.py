@@ -27,7 +27,17 @@ _T = TypeVar("_T")
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_TASK_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_TASK_ARTIFACTS = 128
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+_GRANT_SCHEMA = """CREATE TABLE IF NOT EXISTS artifact_grants (
+    artifact_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    principal_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL,
+    target_app_id TEXT NOT NULL,
+    handoff_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    PRIMARY KEY(artifact_id, version, target_app_id, handoff_id)
+)"""
 _SCHEMA = (
     """CREATE TABLE artifact_versions (
         artifact_id TEXT NOT NULL,
@@ -58,6 +68,7 @@ _SCHEMA = (
         operation TEXT NOT NULL,
         outcome TEXT NOT NULL
     )""",
+    _GRANT_SCHEMA,
 )
 
 
@@ -136,6 +147,9 @@ class ArtifactStore:
             if version == 0:
                 for statement in _SCHEMA:
                     connection.execute(statement)
+                connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
+            elif version == 1:
+                connection.execute(_GRANT_SCHEMA)
                 connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
             elif version != _SCHEMA_VERSION:
                 raise TaskStoreError("unsupported_artifact_store_version")
@@ -367,14 +381,27 @@ class ArtifactStore:
 
         def operation(
             connection: sqlite3.Connection,
-        ) -> tuple[ArtifactRef, str]:
+        ) -> tuple[ArtifactRef, str] | None:
             row = connection.execute(
                 """SELECT ref_json, digest FROM artifact_versions
                 WHERE artifact_id = ? AND version = ? AND principal_id = ?
-                AND workspace_id = ? AND app_id = ?""",
+                AND workspace_id = ? AND (
+                    app_id = ? OR EXISTS (
+                        SELECT 1 FROM artifact_grants grant_row
+                        WHERE grant_row.artifact_id =
+                            artifact_versions.artifact_id
+                        AND grant_row.version = artifact_versions.version
+                        AND grant_row.principal_id = ?
+                        AND grant_row.workspace_id = ?
+                        AND grant_row.target_app_id = ?
+                    )
+                )""",
                 (
                     artifact_id,
                     version,
+                    scope.principal_id,
+                    scope.workspace_id,
+                    scope.app_id,
                     scope.principal_id,
                     scope.workspace_id,
                     scope.app_id,
@@ -389,7 +416,7 @@ class ArtifactStore:
                     "read",
                     "not_found",
                 )
-                raise TaskStoreError("artifact_not_found")
+                return None
             self._audit(
                 connection,
                 scope,
@@ -401,7 +428,10 @@ class ArtifactStore:
             ref = ArtifactRef.model_validate_json(row["ref_json"])
             return ref, row["digest"]
 
-        ref, digest = await self._run(operation, write=True)
+        result = await self._run(operation, write=True)
+        if result is None:
+            raise TaskStoreError("artifact_not_found")
+        ref, digest = result
         blob = self.blobs / digest.removeprefix("sha256:")
         try:
             content = await asyncio.to_thread(self._read_blob, blob)
@@ -411,6 +441,57 @@ class ArtifactStore:
         if actual != digest or len(content) != ref.size_bytes:
             raise TaskStoreError("artifact_blob_corrupt")
         return ref, content
+
+    async def grant(
+        self,
+        owner: TaskScope,
+        ref: ArtifactRef,
+        *,
+        target_app_id: str,
+        handoff_id: str,
+    ) -> None:
+        """Grant one immutable version through a durable scoped handoff."""
+        if (
+            ref.producer.app_id != owner.app_id
+            or not target_app_id
+            or not handoff_id
+        ):
+            raise TaskStoreError("invalid_artifact_grant")
+
+        def operation(connection: sqlite3.Connection) -> None:
+            row = connection.execute(
+                """SELECT ref_json FROM artifact_versions
+                WHERE artifact_id = ? AND version = ? AND principal_id = ?
+                AND workspace_id = ? AND app_id = ?""",
+                (
+                    ref.artifact_id,
+                    ref.version,
+                    owner.principal_id,
+                    owner.workspace_id,
+                    owner.app_id,
+                ),
+            ).fetchone()
+            if row is None or ArtifactRef.model_validate_json(
+                row["ref_json"],
+            ) != ref:
+                raise TaskStoreError("artifact_not_found")
+            connection.execute(
+                """INSERT OR IGNORE INTO artifact_grants
+                (artifact_id, version, principal_id, workspace_id,
+                 target_app_id, handoff_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    ref.artifact_id,
+                    ref.version,
+                    owner.principal_id,
+                    owner.workspace_id,
+                    target_app_id,
+                    handoff_id,
+                    time.time(),
+                ),
+            )
+
+        await self._run(operation, write=True)
 
 
 __all__ = [

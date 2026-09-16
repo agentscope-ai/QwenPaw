@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PawAppTaskCard from "./PawAppTaskCard";
 import {
   getPawAppTask,
+  openPawAppTask,
+  parsePawAppOpenResult,
   parsePawAppTaskResult,
 } from "../../../../api/modules/pawappTasks";
 import type { PawAppTask } from "../../../../api/modules/pawappTasks";
@@ -31,6 +33,7 @@ vi.mock("../shared", () => ({
 vi.mock("../../../../api/modules/pawappTasks", async (original) => ({
   ...(await original<typeof import("../../../../api/modules/pawappTasks")>()),
   getPawAppTask: vi.fn(),
+  openPawAppTask: vi.fn(),
 }));
 
 const task: PawAppTask = {
@@ -63,9 +66,11 @@ function content(value: unknown = task): ToolCallContent {
   };
 }
 const api = vi.mocked(getPawAppTask);
+const openApi = vi.mocked(openPawAppTask);
 beforeEach(() => {
   vi.useFakeTimers();
   api.mockReset();
+  openApi.mockReset();
 });
 afterEach(() => {
   cleanup();
@@ -263,6 +268,68 @@ describe("PawApp task cards", () => {
       ),
     ).toBeNull();
     expect(parsePawAppTaskResult("{invalid")).toBeNull();
+  });
+
+  it("mints a handoff before opening an existing App project", async () => {
+    const withProject: PawAppTask = {
+      ...task,
+      project_ref: {
+        schema_version: 1,
+        app_id: "qwenpaw-data",
+        project_id: "session-1",
+        kind: "analysis-session",
+        revision: 1,
+      },
+    };
+    api.mockResolvedValue(withProject);
+    openApi.mockResolvedValue({
+      schema_version: 1,
+      app_id: "qwenpaw-data",
+      handoff_id: "handoff-1",
+      path: "/apps/qwenpaw-data?handoff=handoff-1",
+      project_ref: withProject.project_ref!,
+    });
+    render(<PawAppTaskCard content={content(withProject)} />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "tool.pawappTask.openApp" }),
+    );
+    await flush();
+
+    expect(openApi).toHaveBeenCalledWith("qwenpaw-data", "sales", "task-1");
+    expect(window.location.pathname + window.location.search).toBe(
+      "/apps/qwenpaw-data?handoff=handoff-1",
+    );
+  });
+
+  it("parses Host-issued open_app results and rejects external paths", () => {
+    const result = {
+      kind: "pawapp_open_app",
+      app_id: "qwenpaw-data",
+      workspace_id: "sales",
+      action: {
+        schema_version: 1,
+        app_id: "qwenpaw-data",
+        handoff_id: "handoff-1",
+        path: "/apps/qwenpaw-data?handoff=handoff-1",
+        project_ref: {
+          schema_version: 1,
+          app_id: "qwenpaw-data",
+          project_id: "session-1",
+          kind: "analysis-session",
+          revision: 1,
+        },
+      },
+    };
+    expect(parsePawAppOpenResult(JSON.stringify(result))).toEqual(result);
+    expect(
+      parsePawAppOpenResult(
+        JSON.stringify({
+          ...result,
+          action: { ...result.action, path: "https://untrusted.test" },
+        }),
+      ),
+    ).toBeNull();
   });
 
   it("loads an authorized HTML artifact into a sandboxed preview", async () => {

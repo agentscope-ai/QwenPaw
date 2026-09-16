@@ -237,6 +237,35 @@ def make_task_tools(context: TaskToolContext):
                 error=True,
             )
 
+    async def open_app(app_id: str, task_id: str) -> ToolChunk:
+        """Open the App project created by a task delegated from this chat.
+
+        The Host returns a local, authenticated handoff. Use this after the
+        task has published a project_ref; do not construct an App URL.
+        """
+        try:
+            scope = context.scope(app_id)
+            submission = await context.runtime.get(scope, task_id)
+            if (
+                submission.handle.origin.engagement != "delegated"
+                or submission.handle.origin.origin_ref != context.chat_id
+            ):
+                raise TaskStoreError("task_not_found")
+            action = await context.runtime.open_app(scope, task_id)
+            return _result(
+                {
+                    "kind": "pawapp_open_app",
+                    "app_id": app_id,
+                    "workspace_id": context.workspace_id,
+                    "action": action.model_dump(mode="json"),
+                },
+            )
+        except (TaskStoreError, ValueError) as exc:
+            return _result(
+                {"state": "error", "reason": _reason(exc)},
+                error=True,
+            )
+
     async def answer_task(
         app_id: str,
         task_id: str,
@@ -324,6 +353,7 @@ def make_task_tools(context: TaskToolContext):
         describe_action,
         delegate,
         get_app_task,
+        open_app,
         answer_task,
         cancel_task,
     ]

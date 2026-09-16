@@ -6,9 +6,12 @@ import type { BuiltinCardProps } from "./index";
 import {
   getPawAppTask,
   isTerminalTask,
+  openPawAppTask,
   pawAppArtifactUrl,
   type PawAppArtifactRef,
+  parsePawAppOpenResult,
   parsePawAppTaskResult,
+  type PawAppOpenResult,
   type PawAppTask,
   type PawAppTaskResult,
 } from "../../../../api/modules/pawappTasks";
@@ -19,6 +22,12 @@ import styles from "./PawAppTaskCard.module.less";
 import GenericToolCard from "./GenericToolCard";
 
 const MAX_REPORT_PREVIEW_BYTES = 2 * 1024 * 1024;
+
+function navigateToApp(path: string) {
+  const href = addRouterBasename(window.location.pathname, path);
+  window.history.pushState(window.history.state, "", href);
+  window.dispatchEvent(new PopStateEvent("popstate"));
+}
 
 function ArtifactItem({
   appId,
@@ -140,6 +149,8 @@ function TaskCard({
   const latestTask = useRef(snapshot);
   const [unavailable, setUnavailable] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [opening, setOpening] = useState(false);
+  const [openFailed, setOpenFailed] = useState(false);
   const taskId = result?.task?.task_id;
   const appId = result?.app_id;
   const workspaceId = result?.workspace_id;
@@ -201,6 +212,19 @@ function TaskCard({
   const appHref = appId
     ? addRouterBasename(window.location.pathname, `/apps/${appId}`)
     : undefined;
+  const openApp = async () => {
+    if (!appId || !workspaceId || !taskId) return;
+    setOpening(true);
+    setOpenFailed(false);
+    try {
+      const action = await openPawAppTask(appId, workspaceId, taskId);
+      navigateToApp(action.path);
+    } catch {
+      setOpenFailed(true);
+    } finally {
+      setOpening(false);
+    }
+  };
   return (
     <ToolCardShell
       content={content}
@@ -216,14 +240,18 @@ function TaskCard({
             <span className={styles.status} data-status={status} role="status">
               {status && t(`tool.pawappTask.status.${status}`)}
             </span>
-            {appHref && (
-              <a href={appHref}>
-                {t(
-                  blocked
-                    ? "tool.pawappTask.settings"
-                    : "tool.pawappTask.openApp",
-                )}
-              </a>
+            {blocked && appHref && (
+              <a href={appHref}>{t("tool.pawappTask.settings")}</a>
+            )}
+            {!blocked && task?.project_ref && (
+              <button
+                className={styles.openApp}
+                type="button"
+                disabled={opening}
+                onClick={() => void openApp()}
+              >
+                {t("tool.pawappTask.openApp")}
+              </button>
             )}
           </div>
           {blocked && (
@@ -245,6 +273,7 @@ function TaskCard({
             </p>
           )}
           {recovering && !unavailable && <p>{t("tool.pawappTask.recovery")}</p>}
+          {openFailed && <p>{t("tool.pawappTask.refreshFailed")}</p>}
           {task?.text_result != null && task.text_result !== "" && (
             <div>
               <div className={styles.resultLabel}>
@@ -285,11 +314,44 @@ function TaskCard({
   );
 }
 
+function OpenAppCard({
+  content,
+  isStreaming,
+  result,
+}: BuiltinCardProps & { result: PawAppOpenResult }) {
+  const { t } = useTranslation();
+  return (
+    <ToolCardShell
+      content={content}
+      isStreaming={isStreaming}
+      icon={<RocketOutlined />}
+      title={t("tool.pawappTask.title", { app: result.app_id })}
+      inlineResult={t("tool.pawappTask.openApp")}
+      defaultExpanded
+    >
+      <div className={styles.body}>
+        <button
+          className={styles.openApp}
+          type="button"
+          onClick={() => navigateToApp(result.action.path)}
+        >
+          {t("tool.pawappTask.openApp")}
+        </button>
+      </div>
+    </ToolCardShell>
+  );
+}
+
 export default function PawAppTaskCard(props: BuiltinCardProps) {
+  const openResult = useMemo(
+    () => parsePawAppOpenResult(props.content.result),
+    [props.content.result],
+  );
   const result = useMemo(
     () => parsePawAppTaskResult(props.content.result),
     [props.content.result],
   );
+  if (openResult) return <OpenAppCard {...props} result={openResult} />;
   if (!result) return <GenericToolCard {...props} />;
   // A different handle must never inherit another card's state or requests.
   const key = `${result?.app_id}:${result?.workspace_id}:${result?.task?.task_id}:${result?.state}`;

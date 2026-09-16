@@ -97,6 +97,11 @@ async def test_discover_describe_delegate_and_read(host):
     assert read["task"]["text_result"] == "42"
     assert read["task"]["origin"]["return_session_ref"] == "main-session"
     assert read["task"]["scope"] == SCOPE.model_dump()
+    opened = payload(
+        await bound["open_app"](app_id=SCOPE.app_id, task_id=task_id),
+    )
+    assert opened["kind"] == "pawapp_open_app"
+    assert opened["action"]["path"].startswith("/apps/qwenpaw-data?handoff=")
     assert len(host.runs) == 1
 
 
@@ -249,6 +254,12 @@ async def test_task_identity_and_reads_are_bound_to_the_originating_chat(host):
             task_id=first_id,
         ),
     ) == {"state": "error", "reason": "task_not_found"}
+    assert payload(
+        await second["open_app"](
+            app_id=SCOPE.app_id,
+            task_id=first_id,
+        ),
+    ) == {"state": "error", "reason": "task_not_found"}
 
 
 @pytest.mark.asyncio
@@ -392,6 +403,7 @@ async def test_builder_uses_private_context_not_payload_claims(
         "describe_action",
         "delegate",
         "get_app_task",
+        "open_app",
         "answer_task",
         "cancel_task",
     }

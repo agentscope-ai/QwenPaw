@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 
 import pytest
 
@@ -111,6 +112,29 @@ async def test_publication_is_immutable_versioned_and_scoped(tmp_path):
             source(b"changed"),
             b"changed",
         )
+
+
+async def test_v1_store_migrates_exact_handoff_grants(tmp_path):
+    artifacts = await ArtifactStore.open(tmp_path / "artifacts")
+    connection = sqlite3.connect(artifacts.path)
+    try:
+        connection.execute("DROP TABLE artifact_grants")
+        connection.execute("PRAGMA user_version = 1")
+        connection.commit()
+    finally:
+        connection.close()
+
+    await ArtifactStore.open(tmp_path / "artifacts")
+    connection = sqlite3.connect(artifacts.path)
+    try:
+        version = connection.execute("PRAGMA user_version").fetchone()[0]
+        schema = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'artifact_grants'",
+        ).fetchone()
+    finally:
+        connection.close()
+    assert version == 2
+    assert schema is not None
 
 
 async def test_task_commits_published_ref_and_terminal_result(tmp_path):

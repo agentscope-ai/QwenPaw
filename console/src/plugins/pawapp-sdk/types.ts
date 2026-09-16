@@ -195,6 +195,61 @@ export interface PawHostNamespace {
   notify(title: string, body?: string): Promise<void>;
 }
 
+export interface PawProjectRef {
+  schema_version: 1;
+  app_id: string;
+  project_id: string;
+  kind: string;
+  revision: number;
+}
+
+export interface PawArtifactRef {
+  schema_version: 1;
+  artifact_id: string;
+  type: string;
+  version: number;
+  name: string;
+  media_type: string;
+  size_bytes: number;
+  digest: string;
+  producer: Record<string, string>;
+  created_at: number;
+}
+
+export interface PawTaskContext {
+  schema_version: 1;
+  context_id: string;
+  revision: number;
+  task_id: string;
+  goal: string;
+  scope: {
+    workspace_id: string;
+    source_app_id: string;
+    action_id: string;
+    engagement: "delegated" | "direct";
+  };
+  artifact_refs: PawArtifactRef[];
+  decision_refs: PawArtifactRef[];
+  project_ref: PawProjectRef;
+  resume_ref: string;
+}
+
+export interface PawHandoffRequest {
+  schema_version: 1;
+  handoff_id: string;
+  source_app_id: string;
+  target_app_id: string;
+  context: PawTaskContext;
+  created_at: number;
+}
+
+export interface PawAppsNamespace {
+  resolveHandoff(
+    handoffId: string,
+    options?: { workspaceId?: string },
+  ): Promise<PawHandoffRequest>;
+}
+
 export interface PawPageRegistration {
   /** Defaults to /apps/{appId}. */
   path?: string;
@@ -436,6 +491,7 @@ export interface PawSdk {
   host: PawHostNamespace;
   ui: PawUiNamespace;
   dependencies: PawDependenciesNamespace;
+  apps: PawAppsNamespace;
   chat(message: string, options?: PawChatOptions): Promise<string>;
   chatStream(
     message: string,

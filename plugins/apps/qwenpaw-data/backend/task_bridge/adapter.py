@@ -415,16 +415,22 @@ class DataTaskAdapter:
 
     async def materialize_event(self, submission, event, artifacts):
         """Copy executor files into immutable Host storage before commit."""
+        detail = dict(event.detail)
+        run = submission.handle.executor_run_ref
+        if event.sequence == 0 and run is not None:
+            detail["project_ref"] = {
+                "schema_version": 1,
+                "app_id": submission.handle.scope.app_id,
+                "project_id": run.session_id,
+                "kind": "analysis-session",
+                "revision": 1,
+            }
         source = event.detail.get("artifact")
         if source is None:
-            return event
+            return event.model_copy(update={"detail": detail})
         content = await self._download_artifact(submission, source)
         ref = await artifacts.publish(submission, source, content)
-        detail = {
-            key: value
-            for key, value in event.detail.items()
-            if key != "artifact"
-        }
+        detail.pop("artifact", None)
         detail["artifact_ref"] = ref.model_dump(mode="json")
         return event.model_copy(update={"detail": detail})
 

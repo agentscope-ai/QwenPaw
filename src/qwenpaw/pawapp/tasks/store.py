@@ -24,6 +24,7 @@ from .contracts import (
     ExecutorEvent,
     ExecutorRunRef,
     RecoveryState,
+    ProjectRef,
     TaskDelivery,
     TaskAnswer,
     TaskCommand,
@@ -847,6 +848,25 @@ class TaskStore:
                 else handle.text_result
             )
             output_refs = list(handle.output_refs)
+            project_ref = handle.project_ref
+            project_payload = event.detail.get("project_ref")
+            if project_payload is not None:
+                try:
+                    incoming_project = ProjectRef.model_validate(
+                        project_payload,
+                    )
+                except ValueError:
+                    raise TaskStoreError("invalid_project_ref") from None
+                if incoming_project.app_id != handle.scope.app_id:
+                    raise TaskStoreError("invalid_project_ref")
+                if project_ref is not None and (
+                    incoming_project.app_id != project_ref.app_id
+                    or incoming_project.project_id != project_ref.project_id
+                    or incoming_project.kind != project_ref.kind
+                    or incoming_project.revision < project_ref.revision
+                ):
+                    raise TaskStoreError("project_ref_conflict")
+                project_ref = incoming_project
             artifact_payload = event.detail.get("artifact_ref")
             if artifact_payload is not None:
                 try:
@@ -893,6 +913,7 @@ class TaskStore:
                     "status": status,
                     "text_result": result,
                     "output_refs": tuple(output_refs),
+                    "project_ref": project_ref,
                     "input_request": input_request,
                     "replay_cursor": event.cursor,
                     "executor_sequence": event.sequence,

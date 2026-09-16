@@ -110,11 +110,20 @@ def _error(exc):
         exc.code if isinstance(exc, TaskStoreError) else "invalid_task_request"
     )
     status = 409
-    if code in {"task_not_found", "action_not_found", "origin_not_found"}:
+    if code in {
+        "task_not_found",
+        "action_not_found",
+        "origin_not_found",
+        "handoff_not_found",
+    }:
         status = 404
     elif code in {"action_forbidden", "workspace_unavailable"}:
         status = 403
-    elif code in {"task_policy_unavailable", "task_runtime_closed"}:
+    elif code in {
+        "task_policy_unavailable",
+        "task_runtime_closed",
+        "handoff_store_unavailable",
+    }:
         status = 503
     elif isinstance(exc, ValueError):
         status = 422
@@ -226,6 +235,27 @@ async def get_task(request: Request, task_id: str, scope: Scope):
         submission = await request.app.state.pawapp_tasks.get(scope, task_id)
         return {"task": submission.handle}
     except TaskStoreError as exc:
+        raise _error(exc) from None
+
+
+@router.post("/tasks/{task_id}/open")
+async def open_task_app(request: Request, task_id: str, scope: Scope):
+    try:
+        action = await request.app.state.pawapp_tasks.open_app(scope, task_id)
+        return {"action": action}
+    except (TaskStoreError, ValueError) as exc:
+        raise _error(exc) from None
+
+
+@router.get("/handoffs/{handoff_id}")
+async def resolve_handoff(request: Request, handoff_id: str, scope: Scope):
+    try:
+        handoff = await request.app.state.pawapp_tasks.resolve_handoff(
+            scope,
+            handoff_id,
+        )
+        return {"handoff": handoff}
+    except (TaskStoreError, ValueError) as exc:
         raise _error(exc) from None
 
 

@@ -172,6 +172,16 @@ class ArtifactRef(Contract):
     created_at: float
 
 
+class ProjectRef(Contract):
+    """Reference to an App-owned mutable project at a known revision."""
+
+    schema_version: Literal[1] = 1
+    app_id: Identity
+    project_id: Identity
+    kind: Identity
+    revision: int = Field(ge=1)
+
+
 class TaskInputOption(Contract):
     label: Annotated[str, Field(min_length=1, max_length=1000)]
     description: Annotated[str, Field(max_length=2000)] = ""
@@ -271,6 +281,7 @@ class TaskHandle(Contract):
     event_sequence: int = Field(default=0, ge=0)
     text_result: str | None = None
     output_refs: tuple[ArtifactRef, ...] = ()
+    project_ref: ProjectRef | None = None
     input_request: TaskInputRequest | None = None
     cancel_requested: bool = False
     created_at: float
