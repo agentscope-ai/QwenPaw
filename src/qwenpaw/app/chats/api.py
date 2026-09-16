@@ -195,6 +195,12 @@ class ProjectDirectoryUpdate(BaseModel):
     project_dir: str
 
 
+class ChatStatusResponse(BaseModel):
+    """Lightweight TaskTracker status for one Agent-scoped chat."""
+
+    status: Literal["idle", "running"]
+
+
 class AddConversationMemberRequest(BaseModel):
     """将一个已具备当前 Agent 访问资格的用户加入只读会话。"""
 
@@ -751,6 +757,16 @@ async def clear_chat_project_dir(
 
 
 # ----- Existing CRUD endpoints -----
+
+
+@router.get("/{chat_id}/status", response_model=ChatStatusResponse)
+async def get_chat_status(
+    chat_id: str,
+    workspace=Depends(get_workspace),
+) -> ChatStatusResponse:
+    """Return run status without loading and projecting full chat history."""
+    status = await workspace.task_tracker.get_status(chat_id)
+    return ChatStatusResponse(status=status)
 
 
 @router.get("/{chat_id}", response_model=ChatHistory)

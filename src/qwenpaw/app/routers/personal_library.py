@@ -7,6 +7,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ...access.dependencies import get_actor
@@ -186,6 +187,31 @@ async def read_text_document(
         offset=result.offset,
         next_offset=result.next_offset,
         truncated=result.truncated,
+    )
+
+
+@router.get("/documents/{document_id}/download", response_class=FileResponse)
+async def download_document(
+    request: Request,
+    document_id: UUID,
+) -> FileResponse:
+    """下载当前用户在当前 Agent 下有权访问的资料库原始文件。"""
+    workspace = await get_agent_for_request(request)
+    try:
+        document, path, media_type = await _get_service().resolve_download(
+            owner_user_id=_owner_id(request),
+            document_id=document_id,
+            agent_key=workspace.agent_id,
+        )
+    except PersonalLibraryNotFound as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="library_document_not_found",
+        ) from exc
+    return FileResponse(
+        path=path,
+        filename=document.name,
+        media_type=media_type,
     )
 
 

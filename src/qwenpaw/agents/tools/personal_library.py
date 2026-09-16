@@ -14,7 +14,17 @@ def build_personal_library_tools(*, service: PersonalLibraryService, owner_user_
     async def personal_library_search(query: str, max_results: int = 5) -> list[dict[str, object]]:
         """只读搜索已授权的个人资料库，正文和文件名均可匹配；先搜索再按 ID 分页读取，不能修改资料。"""
         hits = await service.search_text(owner_user_id=owner_user_id, agent_key=agent_key, query=query, max_results=max_results)
-        return [{"document_id": str(hit.document.id), "relative_path": hit.document.relative_path, "excerpt": hit.excerpt, "score": hit.score} for hit in hits]
+        return [
+            {
+                "document_id": str(hit.document.id),
+                "relative_path": hit.document.relative_path,
+                "excerpt": hit.excerpt,
+                "score": hit.score,
+                "match_source": hit.match_source,
+                "matched_terms": list(hit.matched_terms),
+            }
+            for hit in hits
+        ]
 
     async def personal_library_read(document_id: str, offset: int = 0, limit: int = 65_536) -> dict[str, object]:
         """只读分页读取个人资料库文本；授权会在每一次调用时重新检查。"""

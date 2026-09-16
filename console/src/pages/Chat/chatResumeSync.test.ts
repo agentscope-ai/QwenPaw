@@ -89,7 +89,29 @@ describe("decideChatResumeAction", () => {
     ).toBe("none");
   });
 
-  it("reconnects an active run only when the backend is ahead", () => {
+  it("does not replay an active stream when backend events outnumber grouped UI cards", () => {
+    expect(
+      decideChatResumeAction({
+        backendStatus: "running",
+        backendMessageCount: 22,
+        currentMessageCount: 2,
+        frontendRunning: true,
+      }),
+    ).toBe("none");
+  });
+
+  it("reconnects a running backend when the foreground stream is no longer active", () => {
+    expect(
+      decideChatResumeAction({
+        backendStatus: "running",
+        backendMessageCount: 2,
+        currentMessageCount: 2,
+        frontendRunning: false,
+      }),
+    ).toBe("reconnect");
+  });
+
+  it("does not infer a missing stream from incomparable backend event counts", () => {
     expect(
       decideChatResumeAction({
         backendStatus: "running",
@@ -97,6 +119,6 @@ describe("decideChatResumeAction", () => {
         currentMessageCount: 4,
         frontendRunning: true,
       }),
-    ).toBe("reconnect");
+    ).toBe("none");
   });
 });

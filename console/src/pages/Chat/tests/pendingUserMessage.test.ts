@@ -161,6 +161,31 @@ describe("patchLastUserMessage — pending cache lifecycle", () => {
     );
   });
 
+  it("does not duplicate a pending message already persisted during generation", async () => {
+    seedSessionList("chat-running-persisted");
+    sessionApi.setLastUserMessage(
+      "chat-running-persisted",
+      "question persisted before tab switch",
+      undefined,
+      "client-running",
+    );
+    await mockGetChat({
+      messages: [
+        userMsg("u1", "question persisted before tab switch", "client-running"),
+        assistantMsg("a1", "partial answer"),
+      ],
+      status: "running",
+    } as ChatHistory);
+
+    const session = await sessionApi.getSession("chat-running-persisted");
+    expect(userCardTexts(session)).toEqual([
+      "question persisted before tab switch",
+    ]);
+    expect(
+      sessionStorage.getItem(`${STORAGE_PREFIX}chat-running-persisted`),
+    ).toBeNull();
+  });
+
   it("stores identical pending session ids under separate authenticated user keys", () => {
     localStorage.setItem("qwenpaw_authenticated_user_id", "user-a");
     sessionApi.setLastUserMessage("same-chat", "user-a-message");

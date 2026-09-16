@@ -227,6 +227,17 @@ describe("chatApi CRUD", () => {
     );
   });
 
+  it("getChatStatus uses the lightweight endpoint and frozen agent scope", async () => {
+    await chatApi.getChatStatus("chat/1", { agentId: "agent-a" });
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/status",
+      expect.objectContaining({
+        signal: undefined,
+        headers: { "X-Agent-Id": "agent-a" },
+      }),
+    );
+  });
+
   it("updateChat sends PUT to the correct path", async () => {
     await chatApi.updateChat("chat-1", { name: "New Name" });
     expect(request).toHaveBeenCalledWith(

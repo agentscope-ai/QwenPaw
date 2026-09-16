@@ -33,10 +33,17 @@ export function decideChatResumeAction({
   currentMessageCount,
   frontendRunning,
 }: ChatResumeSyncState): ChatResumeAction {
-  const hasMissingMessages = backendMessageCount > currentMessageCount;
   if (backendStatus === "idle") {
     const historyDiffers = backendMessageCount !== currentMessageCount;
     return frontendRunning || historyDiffers ? "replace_history" : "none";
   }
-  return hasMissingMessages ? "reconnect" : "none";
+  if (backendStatus === "running") {
+    // The backend counts every flat event (tool calls and outputs included),
+    // while the SDK groups a complete assistant turn into one response card.
+    // Their counts therefore cannot be used to decide whether a live stream
+    // is behind. Reconnecting an already-active stream replays buffered events
+    // after a tab resumes and duplicates the entire turn.
+    return frontendRunning ? "none" : "reconnect";
+  }
+  return "none";
 }

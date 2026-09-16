@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -68,7 +69,52 @@ async def test_plain_filename_prompt_resolves_own_authorized_document(monkeypatc
     monkeypatch.setattr(console, "_personal_library_service", lambda: service)
     payload = {"content_parts": [{"type": "text", "text": "帮我看下我这个 ai 写作需求文档 有没有需要优化的地方"}]}
     await console._resolve_personal_library_references(_request(owner), SimpleNamespace(agent_id="default"), payload)
-    assert payload["meta"]["request_context"]["personal_library_references"][0]["document_id"] == str(document.id)
+    context = payload["meta"]["request_context"]
+    assert context["personal_library_references"][0]["document_id"] == str(document.id)
+    assert context["personal_library_retrieval_trace"] == {
+        "mode": "automatic",
+        "documents": [{"document_id": str(document.id), "name": "AI写作需求文档.md"}],
+    }
+
+
+@pytest.mark.asyncio
+async def test_automatic_personal_library_retrieval_emits_visible_tool_trace():
+    async def source(_payload):
+        yield 'data: {"type":"result","object":"message"}\n\n'
+
+    payload = {
+        "meta": {
+            "request_context": {
+                "personal_library_retrieval_trace": {
+                    "mode": "automatic",
+                    "documents": [
+                        {"document_id": str(uuid4()), "name": "产品说明.docx"},
+                    ],
+                },
+            },
+        },
+    }
+
+    lines = [
+        line
+        async for line in console._with_personal_library_retrieval_trace(source)(
+            payload,
+        )
+    ]
+    wires = [json.loads(line.removeprefix("data: ").strip()) for line in lines]
+
+    assert [wire.get("type") for wire in wires] == [
+        "plugin_call",
+        "plugin_call_output",
+        "result",
+    ]
+    call_data = wires[0]["content"][0]["data"]
+    result_data = wires[1]["content"][0]["data"]
+    assert call_data["name"] == "personal_library_search"
+    assert result_data["name"] == "personal_library_search"
+    assert result_data["state"] == "success"
+    assert "产品说明.docx" in result_data["output"]
+    assert call_data["call_id"] == result_data["call_id"]
 
 
 @pytest.mark.asyncio

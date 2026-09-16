@@ -39,4 +39,10 @@ describe("personalLibraryApi", () => {
       expect.objectContaining({ headers: { "X-Agent-Id": "agent-b" } }),
     );
   });
+
+  it("builds an authenticated binary download route", () => {
+    expect(personalLibraryApi.downloadUrl("doc 1")).toBe(
+      "/api/console/personal-library/documents/doc%201/download",
+    );
+  });
 });

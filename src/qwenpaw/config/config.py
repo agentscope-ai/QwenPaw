@@ -2289,6 +2289,36 @@ def _merge_plugin_manifest_tools(
             )
 
 
+def _merge_scoped_builtin_tools(
+    tools: Dict[str, BuiltinToolConfig],
+) -> None:
+    """加入按请求绑定身份、不能进入全局函数注册表的内置工具。"""
+    scoped = (
+        (
+            "personal_library_search",
+            "智能检索当前用户在当前智能体下的个人知识库",
+            "📚",
+        ),
+        (
+            "personal_library_read",
+            "按文档 ID 分页读取已授权的个人知识库内容",
+            "📖",
+        ),
+    )
+    for name, description, icon in scoped:
+        tools.setdefault(
+            name,
+            BuiltinToolConfig(
+                name=name,
+                enabled=True,
+                description=description,
+                display_to_user=True,
+                async_execution=False,
+                icon=icon,
+            ),
+        )
+
+
 def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
     """Return built-in tool definitions from ``@tool_descriptor`` UI metadata.
 
@@ -2339,6 +2369,7 @@ def _default_builtin_tools() -> Dict[str, BuiltinToolConfig]:
                     "refusing to persist an empty/incomplete ToolsConfig",
                 ) from exc
 
+            _merge_scoped_builtin_tools(tools)
             _BUILTIN_TOOLS_CACHE = tools
 
         merged = _copy_builtin_tools(_BUILTIN_TOOLS_CACHE)

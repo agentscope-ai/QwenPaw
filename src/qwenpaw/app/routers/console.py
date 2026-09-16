@@ -541,6 +541,8 @@ async def _resolve_personal_library_references(
     request_context = dict(meta.get("request_context") or {})
     raw_ids = request_context.pop("personal_library_document_ids", [])
     request_context.pop("personal_library_references", None)
+    # 只允许服务端写入检索轨迹，避免客户端伪造工具执行记录。
+    request_context.pop("personal_library_retrieval_trace", None)
     file_refs = request_context.pop("file_references", [])
     if not isinstance(file_refs, list) or len(file_refs) > 5:
         raise HTTPException(400, "invalid_file_references")
@@ -556,7 +558,8 @@ async def _resolve_personal_library_references(
             conversation_id,
         ).resolve(file_refs)
         return
-    if raw_ids in (None, []):
+    automatic_match = raw_ids in (None, [])
+    if automatic_match:
         actor = get_actor(request)
         text = "\n".join(
             str(_part_value(part, "text") or "")
@@ -625,6 +628,17 @@ async def _resolve_personal_library_references(
         ) from exc
 
     request_context["personal_library_references"] = resolved
+    if automatic_match:
+        request_context["personal_library_retrieval_trace"] = {
+            "mode": "automatic",
+            "documents": [
+                {
+                    "document_id": item["document_id"],
+                    "name": item["name"],
+                }
+                for item in resolved
+            ],
+        }
     meta["request_context"] = request_context
 
 
@@ -681,6 +695,97 @@ def _persisting_stream_source(workspace, chat, stream_fn):
     if wrapper is None:
         return stream_fn
     return wrapper(workspace.chat_manager, chat, stream_fn)
+
+
+def _with_personal_library_retrieval_trace(stream_fn):
+    """把自动资料库检索作为只读工具轨迹发送并持久化。"""
+
+    async def traced(payload: dict[str, Any]):
+        request_context = (
+            payload.get("meta", {}).get("request_context", {})
+            if isinstance(payload, dict)
+            else {}
+        )
+        trace = request_context.get("personal_library_retrieval_trace")
+        documents = trace.get("documents") if isinstance(trace, dict) else None
+        names = [
+            str(item.get("name") or "").strip()
+            for item in documents or []
+            if isinstance(item, dict) and str(item.get("name") or "").strip()
+        ]
+        if names:
+            call_id = f"auto_personal_library_{uuid.uuid4().hex}"
+            call_message_id = f"msg_{uuid.uuid4().hex}"
+            output_message_id = f"msg_{uuid.uuid4().hex}"
+            arguments = json.dumps(
+                {
+                    "mode": "automatic",
+                    "matched_documents": names,
+                },
+                ensure_ascii=False,
+            )
+            output = (
+                f"自动检索命中 {len(names)} 份个人知识库资料："
+                + "、".join(names)
+            )
+
+            def content(data: dict[str, Any]) -> list[dict[str, Any]]:
+                return [
+                    {
+                        "data": data,
+                        "type": "data",
+                        "delta": False,
+                        "index": 0,
+                        "msg_id": None,
+                        "object": "content",
+                        "status": "completed",
+                    },
+                ]
+
+            call_wire = {
+                "id": call_message_id,
+                "name": "assistant",
+                "role": "assistant",
+                "type": "plugin_call",
+                "object": "message",
+                "status": "completed",
+                "content": content(
+                    {
+                        "name": "personal_library_search",
+                        "call_id": call_id,
+                        "arguments": arguments,
+                    },
+                ),
+                "metadata": {
+                    "qwenpaw_source": "automatic_personal_library_retrieval",
+                },
+            }
+            output_wire = {
+                "id": output_message_id,
+                "name": "assistant",
+                "role": "tool",
+                "type": "plugin_call_output",
+                "object": "message",
+                "status": "completed",
+                "content": content(
+                    {
+                        "name": "personal_library_search",
+                        "call_id": call_id,
+                        "state": "success",
+                        "output": output,
+                    },
+                ),
+                "metadata": {
+                    "qwenpaw_source": "automatic_personal_library_retrieval",
+                },
+            }
+            yield f"data: {json.dumps(call_wire, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps(output_wire, ensure_ascii=False)}\n\n"
+
+        async for line in stream_fn(payload):
+            yield line
+
+    return traced
 
 
 def _empty_sse_response() -> StreamingResponse:
@@ -870,7 +975,9 @@ async def post_console_chat(
                 ),
             )
         stream_source = _persisting_stream_source(
-            workspace, chat, console_channel.stream_one
+            workspace,
+            chat,
+            _with_personal_library_retrieval_trace(console_channel.stream_one),
         )
         try:
             queue, _ = await tracker.attach_or_start(
@@ -1499,7 +1606,11 @@ async def post_console_chat_task(  # pylint: disable=too-many-statements
         last_response: Optional[Dict[str, Any]] = None
         try:
             stream_source = _persisting_stream_source(
-                workspace, chat, console_channel.stream_one
+                workspace,
+                chat,
+                _with_personal_library_retrieval_trace(
+                    console_channel.stream_one,
+                ),
             )
             async for sse_line in stream_source(native_payload):
                 parsed = _parse_sse_payload(sse_line)

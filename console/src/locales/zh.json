@@ -2381,6 +2381,7 @@
       "uploadSucceeded": "已上传到个人资料库：{{name}}",
       "uploadFailed": "上传个人资料库文件失败",
       "loadFailed": "个人资料库加载失败，请重试。",
+      "previewFailed": "个人资料库文件预览失败。请确认文件仍存在且当前账号有权访问。",
       "retry": "重试",
       "uploadConflict": "个人资料库中已存在同名文件，请先刷新并更换文件名后重试。",
       "empty": "个人资料库暂无文件",

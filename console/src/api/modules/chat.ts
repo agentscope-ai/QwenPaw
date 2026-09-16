@@ -29,6 +29,10 @@ export interface ChatUploadResponse {
   size?: number;
 }
 
+export interface ChatStatusResponse {
+  status: "idle" | "running";
+}
+
 const FILES_PREVIEW = "/files/preview";
 
 const withApiToken = (url: string): string => {
@@ -136,6 +140,20 @@ export const chatApi = {
     request<ChatHistory>(`/chats/${encodeURIComponent(chatId)}`, {
       signal: options?.signal,
     }),
+
+  getChatStatus: (
+    chatId: string,
+    options?: { signal?: AbortSignal; agentId?: string },
+  ) =>
+    request<ChatStatusResponse>(
+      `/chats/${encodeURIComponent(chatId)}/status`,
+      {
+        signal: options?.signal,
+        headers: options?.agentId
+          ? { "X-Agent-Id": options.agentId }
+          : undefined,
+      },
+    ),
 
   updateChat: (chatId: string, chat: ChatUpdateRequest) =>
     request<ChatSpec>(`/chats/${encodeURIComponent(chatId)}`, {

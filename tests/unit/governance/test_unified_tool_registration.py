@@ -330,6 +330,13 @@ class TestBuiltinToolConfigFromDescriptors:
         assert tools["web_search"].icon == "🔎"
         assert tools["view_image"].display_to_user is False
 
+    def test_request_scoped_personal_library_tools_have_ui_metadata(self):
+        tools = _default_builtin_tools()
+        assert tools["personal_library_search"].enabled is True
+        assert tools["personal_library_search"].icon == "📚"
+        assert tools["personal_library_read"].enabled is True
+        assert tools["personal_library_read"].icon == "📖"
+
     def test_late_plugin_manifest_merged_after_cache_warm(
         self,
     ) -> None:

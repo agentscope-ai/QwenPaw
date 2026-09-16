@@ -121,3 +121,6 @@ def test_personal_library_prompt_requires_current_users_library_tools(tmp_path):
     assert "personal_library_search" in fragment
     assert "当前登录用户" in fragment
     assert "不要使用工作区文件搜索来替代" in fragment
+    assert "优先于 `web_search`" in fragment
+    assert "不限定资料主题" in fragment
+    assert "企业名称、品牌、产品型号" not in fragment

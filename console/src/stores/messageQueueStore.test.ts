@@ -217,6 +217,27 @@ describe("messageQueueStore", () => {
     expect(item.channel).toBe("web");
   });
 
+  it("prefers the immutable submission target over mutable browser globals", () => {
+    sessionStorage.setItem(
+      "qwenpaw-agent-storage",
+      JSON.stringify({ state: { selectedAgent: "visible-agent" } }),
+    );
+    (window as unknown as { currentSessionId?: string }).currentSessionId =
+      "visible-session";
+
+    useMessageQueueStore.getState().enqueue(SESSION_ID, {
+      text: "frozen",
+      agentId: "submitted-agent",
+      backendSessionId: "submitted-session",
+    });
+
+    const item = useMessageQueueStore.getState().getQueue(SESSION_ID)[0];
+    expect(item.agentId).toBe("submitted-agent");
+    expect(item.backendSessionId).toBe("submitted-session");
+    delete (window as unknown as { currentSessionId?: string })
+      .currentSessionId;
+  });
+
   // ---------------------------------------------------------------------------
   // remove / edit / reorder
   // ---------------------------------------------------------------------------

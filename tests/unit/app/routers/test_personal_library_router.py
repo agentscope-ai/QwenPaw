@@ -94,6 +94,42 @@ async def test_router_hides_another_users_document(
 
 
 @pytest.mark.asyncio
+async def test_router_downloads_own_binary_and_hides_it_from_other_users(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from qwenpaw.app.routers import personal_library as router
+
+    owner_id, other_id = uuid4(), uuid4()
+    service = PersonalLibraryService(
+        repository=InMemoryRepository(),
+        working_dir=tmp_path,
+    )
+    monkeypatch.setattr(router, "_get_service", lambda: service)
+    monkeypatch.setattr(router, "get_agent_for_request", _workspace)
+    document = await service.save_upload(
+        owner_user_id=owner_id,
+        filename="报告.pdf",
+        content=b"%PDF-1.4 test",
+        media_type="application/octet-stream",
+    )
+
+    response = await router.download_document(
+        request=_request(owner_id),
+        document_id=document.id,
+    )
+    assert Path(response.path).read_bytes() == b"%PDF-1.4 test"
+    assert response.media_type == "application/pdf"
+
+    with pytest.raises(HTTPException) as raised:
+        await router.download_document(
+            request=_request(other_id),
+            document_id=document.id,
+        )
+    assert raised.value.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_router_upload_binds_document_to_authenticated_user(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

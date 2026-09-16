@@ -1,4 +1,6 @@
-import { Button, Popconfirm, Space, Table, Tag } from "antd";
+import { EditOutlined, GlobalOutlined } from "@ant-design/icons";
+import { Brain, SlidersHorizontal } from "lucide-react";
+import { Button, Popconfirm, Space, Table, Tag, Tooltip } from "antd";
 import { useTranslation } from "react-i18next";
 import type { AdminAgentSummary } from "@/api/types/agents";
 
@@ -45,19 +47,39 @@ export function AdminAgentsTable({
         },
         {
           title: t("common.actions"),
+          width: 220,
+          fixed: "right",
           render: (_value, agent: AdminAgentSummary) => {
             const published = agent.visibility === "public";
             return (
               <Space>
-                <Button onClick={() => onEdit(agent)}>
-                  {t("agent.governanceEdit")}
-                </Button>
-                <Button onClick={() => onRuntimeConfig(agent)}>
-                  {t("agent.governanceRuntimeConfig")}
-                </Button>
-                <Button onClick={() => onMemoryFiles(agent)}>
-                  {t("agent.governanceMemoryFiles")}
-                </Button>
+                <Tooltip title={t("agent.governanceEdit")}>
+                  <Button
+                    type="text"
+                    size="middle"
+                    aria-label={t("agent.governanceEdit")}
+                    icon={<EditOutlined />}
+                    onClick={() => onEdit(agent)}
+                  />
+                </Tooltip>
+                <Tooltip title={t("agent.governanceRuntimeConfig")}>
+                  <Button
+                    type="text"
+                    size="middle"
+                    aria-label={t("agent.governanceRuntimeConfig")}
+                    icon={<SlidersHorizontal size={15} />}
+                    onClick={() => onRuntimeConfig(agent)}
+                  />
+                </Tooltip>
+                <Tooltip title={t("agent.governanceMemoryFiles")}>
+                  <Button
+                    type="text"
+                    size="middle"
+                    aria-label={t("agent.governanceMemoryFiles")}
+                    icon={<Brain size={15} />}
+                    onClick={() => onMemoryFiles(agent)}
+                  />
+                </Tooltip>
                 <Popconfirm
                   title={t(
                     published
@@ -66,13 +88,25 @@ export function AdminAgentsTable({
                   )}
                   onConfirm={() => onPublication(agent, !published)}
                 >
-                  <Button danger={published}>
-                    {t(
+                  <Tooltip
+                    title={t(
                       published
                         ? "agent.revokePublication"
                         : "agent.publishPublic",
                     )}
-                  </Button>
+                  >
+                    <Button
+                      type="text"
+                      size="middle"
+                      danger={published}
+                      aria-label={t(
+                        published
+                          ? "agent.revokePublication"
+                          : "agent.publishPublic",
+                      )}
+                      icon={<GlobalOutlined />}
+                    />
+                  </Tooltip>
                 </Popconfirm>
               </Space>
             );

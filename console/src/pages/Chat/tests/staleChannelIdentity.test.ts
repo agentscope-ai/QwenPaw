@@ -142,6 +142,30 @@ describe("getSessionIdentity stale-channel fallback", () => {
     expect(identity.channel).toBe("feishu");
     expect(identity.sessionId).toBe("feishu:u3");
   });
+
+  it("resolves an explicitly submitted conversation independently of the active tab", async () => {
+    const first = makeChatSpec(
+      "77777777-7777-4777-8777-777777777777",
+      "console",
+      "user-first",
+    );
+    const second = makeChatSpec(
+      "88888888-8888-4888-8888-888888888888",
+      "dingtalk",
+      "user-second",
+    );
+    vi.spyOn(api, "listChats").mockResolvedValue([first, second]);
+    await sessionApi.getSessionList();
+    sessionApi.lastActiveChatId = second.id;
+
+    const identity = sessionApi.getSessionIdentity(first.id);
+
+    expect(identity).toEqual({
+      sessionId: first.session_id,
+      userId: first.user_id,
+      channel: first.channel,
+    });
+  });
 });
 
 describe("resetWindowIdentity", () => {

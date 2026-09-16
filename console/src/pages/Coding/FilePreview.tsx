@@ -103,6 +103,7 @@ function useAuthBlobUrl(
   chatId?: string,
   binaryUrl?: string,
   root?: WorkspaceRoot,
+  binaryHeaders?: Record<string, string>,
 ): {
   blobUrl: string | null;
   loading: boolean;
@@ -124,6 +125,7 @@ function useAuthBlobUrl(
         headers: {
           ...buildAuthHeaders(),
           ...(chatId ? { "X-Chat-Id": chatId } : {}),
+          ...binaryHeaders,
         },
       });
       if (!res.ok) throw new Error(`${res.status}`);
@@ -151,7 +153,7 @@ function useAuthBlobUrl(
         return null;
       });
     };
-  }, [binaryUrl, chatId, filePath, root, selectedAgent]);
+  }, [binaryHeaders, binaryUrl, chatId, filePath, root, selectedAgent]);
 
   return { blobUrl, loading, failed };
 }
@@ -165,11 +167,13 @@ function ImagePreview({
   chatId,
   binaryUrl,
   root,
+  binaryHeaders,
 }: {
   filePath: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
+  binaryHeaders?: Record<string, string>;
 }) {
   const { t } = useTranslation();
   const { blobUrl, loading, failed } = useAuthBlobUrl(
@@ -177,6 +181,7 @@ function ImagePreview({
     chatId,
     binaryUrl,
     root,
+    binaryHeaders,
   );
   if (loading) {
     return (
@@ -208,11 +213,13 @@ function PdfPreview({
   chatId,
   binaryUrl,
   root,
+  binaryHeaders,
 }: {
   filePath: string;
   chatId?: string;
   binaryUrl?: string;
   root?: WorkspaceRoot;
+  binaryHeaders?: Record<string, string>;
 }) {
   const { t } = useTranslation();
   const { blobUrl, loading, failed } = useAuthBlobUrl(
@@ -220,6 +227,7 @@ function PdfPreview({
     chatId,
     binaryUrl,
     root,
+    binaryHeaders,
   );
   if (loading) {
     return (
@@ -453,6 +461,7 @@ export interface FilePreviewProps {
   content: string;
   chatId?: string;
   binaryUrl?: string;
+  binaryHeaders?: Record<string, string>;
   root?: WorkspaceRoot;
   projectDirOverride?: string;
   workspaceBacked?: boolean;
@@ -463,6 +472,7 @@ export default function FilePreview({
   content,
   chatId,
   binaryUrl,
+  binaryHeaders,
   root,
   projectDirOverride,
   workspaceBacked,
@@ -476,6 +486,7 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
+        binaryHeaders={binaryHeaders}
       />
     );
   }
@@ -486,6 +497,7 @@ export default function FilePreview({
         chatId={chatId}
         binaryUrl={binaryUrl}
         root={root}
+        binaryHeaders={binaryHeaders}
       />
     );
   }

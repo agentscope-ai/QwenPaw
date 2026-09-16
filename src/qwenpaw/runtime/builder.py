@@ -348,17 +348,31 @@ class AgentBuilder:
             from ..agents.tools.personal_library import build_personal_library_tools
 
             context_user_id = (request_context or {}).get("user_id")
-            if context_user_id and agent_id:
+            configured_tools = getattr(
+                getattr(agent_config, "tools", None),
+                "builtin_tools",
+                {},
+            ) or {}
+            enabled_library_tools = {
+                name
+                for name in ("personal_library_search", "personal_library_read")
+                if getattr(configured_tools.get(name), "enabled", True)
+            }
+            if context_user_id and agent_id and enabled_library_tools:
                 owner_user_id = UUID(str(context_user_id))
                 library_service = PersonalLibraryService(
                     repository=PostgresPersonalLibraryRepository(schema=get_identity_schema()),
                 )
-                extra_tools.extend(self._wrap_personal_library_tools(
-                    build_personal_library_tools(
+                bound_tools = build_personal_library_tools(
                         service=library_service,
                         owner_user_id=owner_user_id,
                         agent_key=agent_id,
-                    ),
+                    )
+                bound_tools = [
+                    tool for tool in bound_tools if tool.__name__ in enabled_library_tools
+                ]
+                extra_tools.extend(self._wrap_personal_library_tools(
+                    bound_tools,
                     agent_id=agent_id,
                     request_context=request_context,
                     governor=governor,

@@ -19,6 +19,7 @@ import {
 import { useTurnUsageStore } from "../turnUsageStore";
 import { QWENPAW_CLIENT_MESSAGE_ID_KEY } from "../../../utils/clientMessageId";
 import { getUserScopedStoragePrefix } from "../../../stores/identityStorage";
+import { syncSessionsGlobal } from "../../../stores/sessionListStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -983,13 +984,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   /**
-   * When reconnecting to a running conversation, the backend history may not
-   * include the latest user message (it's only persisted after generation
-   * completes). If generating, look up the cached data from sessionStorage
-   * and patch it into the message list (including any attachments).
-   *
-   * When not generating the conversation is done — clear the cached entry
-   * once the fetched history contains the pending text.
+   * When reconnecting to a conversation, confirm whether backend history
+   * already contains the locally cached request. Only patch the pending card
+   * while persistence is still unconfirmed, including any attachments.
    *
    * Returns true when an unconfirmed pending message was patched in (the
    * history is incomplete and must not be treated as canonical).
@@ -1005,30 +1002,26 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return false;
     }
 
-    // When the chat is idle, clear the cache only after the fetched
-    // history actually contains the pending text. Clearing
-    // unconditionally lost the last message in two windows: POST sent
-    // but the run not registered yet (status still "idle"), and
-    // generation completed but the memory flush not finished.
-    if (!generating) {
-      let lastUserText = "";
-      let lastUserClientMessageId: string | undefined;
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].role !== ROLE_USER) continue;
-        const input = messages[i]?.cards?.[0]?.data?.input?.[0];
-        lastUserText = extractTextFromContent(input?.content);
-        lastUserClientMessageId = extractClientMessageId(input?.metadata);
-        break;
-      }
-      const persistenceConfirmed = cached.clientMessageId && lastUserClientMessageId
+    // The backend now persists the user request before the assistant turn
+    // finishes. Confirm it for both running and idle histories before adding
+    // the local pending card; otherwise a tab resume appends the same request
+    // below the partial assistant response.
+    let lastUserText = "";
+    let lastUserClientMessageId: string | undefined;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role !== ROLE_USER) continue;
+      const input = messages[i]?.cards?.[0]?.data?.input?.[0];
+      lastUserText = extractTextFromContent(input?.content);
+      lastUserClientMessageId = extractClientMessageId(input?.metadata);
+      break;
+    }
+    const persistenceConfirmed =
+      cached.clientMessageId && lastUserClientMessageId
         ? lastUserClientMessageId === cached.clientMessageId
         : lastUserText.trim() === cached.text.trim();
-      if (persistenceConfirmed) {
-        clearPendingUserMessage(backendSessionId);
-        return false;
-      }
-      // History is missing the turn — fall through and patch it in,
-      // keeping the cache until a later fetch confirms persistence.
+    if (persistenceConfirmed) {
+      clearPendingUserMessage(backendSessionId);
+      return false;
     }
 
     // Use the full content array (with images/files) when available;
@@ -1157,7 +1150,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /** Returns session identity from the session list (authoritative).
    *  Uses lastActiveChatId (set only by intentional user actions) as the
    *  primary lookup key, avoiding the stale window globals problem. */
-  getSessionIdentity(): {
+  getSessionIdentity(referenceId?: string): {
     sessionId: string;
     userId: string;
     channel: string;
@@ -1165,8 +1158,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // lastActiveChatId is immune to stale updateWindowVariables overwrites
     // because it is only set by onSessionSelected / onSessionCreated /
     // handleSessionClick — all intentional user actions.
-    const session = this.lastActiveChatId
-      ? this.findSession(this.lastActiveChatId)
+    const lookupId = referenceId || this.lastActiveChatId;
+    const session = lookupId
+      ? this.findSession(lookupId)
       : undefined;
     if (session?.userId) {
       return {
@@ -1180,6 +1174,15 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // still resolve to a session in the current list. After an agent switch
     // the list is reloaded and a stale identity — including a channel that
     // may no longer exist — fails this lookup and falls through to defaults.
+    // An explicit reference belongs to the submission snapshot. If it no
+    // longer resolves, never borrow identity from the currently visible tab.
+    if (referenceId) {
+      return {
+        sessionId: isLocalTimestamp(referenceId) ? referenceId : "",
+        userId: DEFAULT_USER_ID,
+        channel: DEFAULT_CHANNEL,
+      };
+    }
     const windowSessionId = window.currentSessionId || "";
     const windowSession = windowSessionId
       ? (this.sessionList.find(
@@ -1652,6 +1655,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const { list, realId } = resolveRealId(this.sessionList, tempId);
     this.sessionList = list;
     if (realId) {
+      // Publish the resolved mapping immediately. During a streaming response
+      // the route already carries the backend UUID; keeping the global list on
+      // the temporary id makes a resumed tab mount a second conversation view.
+      syncSessionsGlobal(this.sessionList as ExtendedSession[]);
       // Migrate the pending user message from the local timestamp key to
       // the backend UUID key so patchLastUserMessage can find it after
       // page refresh (where the URL — and therefore the lookup key — is

@@ -105,6 +105,35 @@ async def test_search_matches_filename_and_never_returns_another_users_document(
 
 
 @pytest.mark.asyncio
+async def test_search_ranks_fuzzy_filename_and_reports_match_reason(
+    tmp_path: Path,
+) -> None:
+    owner_id = uuid4()
+    repository = GrantRepository()
+    service = PersonalLibraryService(repository=repository, working_dir=tmp_path)
+    expected = await service.create_text(
+        owner_user_id=owner_id,
+        relative_path="威盾防水-W8硅橡胶外墙防水装饰一体化系统说明文档.md",
+        content="W8 产品技术说明。",
+    )
+    await service.create_text(
+        owner_user_id=owner_id,
+        relative_path="其他产品说明.md",
+        content="无关内容。",
+    )
+
+    hits = await service.search_text(
+        owner_user_id=owner_id,
+        agent_key="default",
+        query="威盾w8外墙装饰一体化系统资料",
+    )
+
+    assert [hit.document.id for hit in hits] == [expected.id]
+    assert hits[0].match_source == "filename"
+    assert hits[0].score >= 100
+
+
+@pytest.mark.asyncio
 async def test_search_matches_multiple_terms_across_filename_and_content(
     tmp_path: Path,
 ) -> None:
@@ -163,3 +192,129 @@ async def test_search_and_read_docx_in_current_agent_library(tmp_path: Path) -> 
     assert hits[0].excerpt == "[按文件名匹配]"
     assert "W8硅橡胶外墙防水装饰一体化系统" in loaded.content
     assert "防水、装饰和防护" in loaded.content
+
+
+@pytest.mark.asyncio
+async def test_prompt_matching_recognizes_shortened_product_document_name(
+    tmp_path: Path,
+) -> None:
+    """用户省略文件名中的修饰词时，仍应唯一识别对应产品资料。"""
+    owner_id = uuid4()
+    repository = GrantRepository()
+    service = PersonalLibraryService(repository=repository, working_dir=tmp_path)
+    document = await service.save_upload(
+        owner_user_id=owner_id,
+        agent_key="default",
+        filename="威盾防水-W8硅橡胶外墙防水装饰一体化系统说明文档.docx",
+        content=_docx_bytes("W8 产品正文"),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    matched = await service.match_prompt_documents(
+        owner_user_id=owner_id,
+        agent_key="default",
+        text=(
+            "你先分析下威盾w8外墙装饰一体化系统的资料，"
+            "然后帮我生成一个威盾w8的产品宣传图"
+        ),
+    )
+
+    assert [item.id for item in matched] == [document.id]
+
+
+@pytest.mark.asyncio
+async def test_natural_product_question_prefers_matching_library_document(
+    tmp_path: Path,
+) -> None:
+    """自然问法应提取品牌和型号，而不是要求整句原文命中。"""
+    owner_id = uuid4()
+    repository = GrantRepository()
+    service = PersonalLibraryService(repository=repository, working_dir=tmp_path)
+    document = await service.save_upload(
+        owner_user_id=owner_id,
+        agent_key="default",
+        filename="威盾防水-W8硅橡胶外墙防水装饰一体化系统说明文档.docx",
+        content=_docx_bytes(
+            "W8硅橡胶外墙防水装饰一体化系统",
+            "兼具防水、装饰、耐候和基层防护优势。",
+        ),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    hits = await service.search_text(
+        owner_user_id=owner_id,
+        agent_key="default",
+        query="你认为威盾的w8系统都有哪些优势",
+    )
+    matched = await service.match_prompt_documents(
+        owner_user_id=owner_id,
+        agent_key="default",
+        text="你认为威盾的w8系统都有哪些优势",
+    )
+
+    assert hits and hits[0].document.id == document.id
+    assert [item.id for item in matched] == [document.id]
+
+
+@pytest.mark.asyncio
+async def test_upload_builds_reusable_content_index(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """上传时完成正文抽取后，后续搜索不应反复解析 Office 源文件。"""
+    owner_id = uuid4()
+    repository = GrantRepository()
+    service = PersonalLibraryService(repository=repository, working_dir=tmp_path)
+    document = await service.save_upload(
+        owner_user_id=owner_id,
+        agent_key="default",
+        filename="W8技术资料.docx",
+        content=_docx_bytes("硅橡胶技术具有耐候、抗开裂和基层防护能力。"),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+    def fail_if_reparsed(_path: Path) -> str:
+        raise AssertionError("search unexpectedly reparsed the source document")
+
+    monkeypatch.setattr(
+        "qwenpaw.personal_library.service.extract_searchable_text",
+        fail_if_reparsed,
+    )
+    hits = await service.search_text(
+        owner_user_id=owner_id,
+        agent_key="default",
+        query="耐候 基层防护",
+    )
+
+    assert [hit.document.id for hit in hits] == [document.id]
+    assert hits[0].match_source == "content"
+
+
+@pytest.mark.asyncio
+async def test_prompt_matching_uses_index_relevance_without_topic_whitelist(
+    tmp_path: Path,
+) -> None:
+    """旅行、学习等任意主题都应由索引相关性决定，不依赖企业关键词。"""
+    owner_id = uuid4()
+    repository = GrantRepository()
+    service = PersonalLibraryService(repository=repository, working_dir=tmp_path)
+    document = await service.create_text(
+        owner_user_id=owner_id,
+        agent_key="default",
+        relative_path="行程草案.md",
+        content="北海道冬季旅行建议安排七天六晚，包含札幌、小樽和函馆。",
+    )
+
+    matched = await service.match_prompt_documents(
+        owner_user_id=owner_id,
+        agent_key="default",
+        text="我准备去北海道旅行，安排几天比较合适？",
+    )
+    unrelated = await service.match_prompt_documents(
+        owner_user_id=owner_id,
+        agent_key="default",
+        text="请写一首关于春天的诗",
+    )
+
+    assert [item.id for item in matched] == [document.id]
+    assert unrelated == []

@@ -69,6 +69,8 @@ export interface QueueItemInput {
   images?: QueueImage[];
   mentions?: QueueMention[];
   quote?: QueueQuote;
+  agentId?: string;
+  backendSessionId?: string;
   userId?: string;
   channel?: string;
 }
@@ -366,7 +368,7 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
     }
     // Capture the current selected agent at enqueue time so that
     // background sending uses the correct X-Agent-Id even after switch.
-    let agentId: string | undefined;
+    let inferredAgentId: string | undefined;
     try {
       const agentStorage =
         sessionStorage.getItem(
@@ -377,14 +379,14 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
         );
       if (agentStorage) {
         const parsed = JSON.parse(agentStorage);
-        agentId = parsed?.state?.selectedAgent || undefined;
+        inferredAgentId = parsed?.state?.selectedAgent || undefined;
       }
     } catch {
       // ignore
     }
     // Capture backend session_id so background sender targets the correct
     // session even if the session list is cleared after agent switch.
-    const backendSessionId =
+    const inferredBackendSessionId =
       (window as unknown as { currentSessionId?: string }).currentSessionId ||
       undefined;
     const item: QueueItem = {
@@ -395,8 +397,8 @@ export const useMessageQueueStore = create<MessageQueueStore>((set, get) => ({
       images: input.images,
       mentions: input.mentions,
       quote: input.quote,
-      agentId,
-      backendSessionId,
+      agentId: input.agentId || inferredAgentId,
+      backendSessionId: input.backendSessionId || inferredBackendSessionId,
       userId: input.userId,
       channel: input.channel,
       status: "pending",

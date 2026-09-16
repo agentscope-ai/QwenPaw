@@ -2522,6 +2522,7 @@
       "uploadSucceeded": "Uploaded to your personal library: {{name}}",
       "uploadFailed": "Failed to upload the personal library file",
       "loadFailed": "Failed to load the personal library. Please retry.",
+      "previewFailed": "Failed to preview the personal library file. Confirm it still exists and this account can access it.",
       "retry": "Retry",
       "uploadConflict": "A file with the same name already exists. Refresh the library and rename the file before retrying.",
       "empty": "Your personal library has no files",

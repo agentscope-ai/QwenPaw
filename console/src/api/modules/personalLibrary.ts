@@ -15,7 +15,8 @@ export interface PersonalLibraryDocument {
   updated_at: string;
 }
 
-export interface PersonalLibraryDocumentContent extends PersonalLibraryDocument {
+export interface PersonalLibraryDocumentContent
+  extends PersonalLibraryDocument {
   content: string;
   offset: number;
   next_offset: number | null;
@@ -23,8 +24,14 @@ export interface PersonalLibraryDocumentContent extends PersonalLibraryDocument 
 }
 
 export const personalLibraryApi = {
+  downloadUrl: (id: string) =>
+    `/api/console/personal-library/documents/${encodeURIComponent(
+      id,
+    )}/download`,
   list: (path = "", context?: AgentRequestContext) => {
-    const url = `/console/personal-library/documents?path=${encodeURIComponent(path)}`;
+    const url = `/console/personal-library/documents?path=${encodeURIComponent(
+      path,
+    )}`;
     const options = withAgentRequestContext(undefined, context);
     return options
       ? request<PersonalLibraryDocument[]>(url, options)
@@ -38,51 +45,76 @@ export const personalLibraryApi = {
       withAgentRequestContext({ method: "POST", body: formData }, context),
     );
   },
-  readText: (id: string, offset = 0, limit = 65_536, context?: AgentRequestContext) =>
+  readText: (
+    id: string,
+    offset = 0,
+    limit = 65_536,
+    context?: AgentRequestContext,
+  ) =>
     request<PersonalLibraryDocumentContent>(
-      `/console/personal-library/documents/${encodeURIComponent(id)}/text?offset=${offset}&limit=${limit}`,
+      `/console/personal-library/documents/${encodeURIComponent(
+        id,
+      )}/text?offset=${offset}&limit=${limit}`,
       withAgentRequestContext(undefined, context),
     ),
-  copyAttachment: (input: {
-    attachmentId: string;
-    destinationPath: string;
-    overwrite?: boolean;
-  }, context?: AgentRequestContext) =>
-    request<PersonalLibraryDocument>("/console/personal-library/imports/attachment", {
-      ...withAgentRequestContext(undefined, context),
-      method: "POST",
-      body: JSON.stringify({
-        attachment_id: input.attachmentId,
-        destination_path: input.destinationPath,
-        overwrite: input.overwrite ?? false,
-      }),
-    }),
-  copyRuntimeFile: (input: {
-    sourcePath: string;
-    destinationPath: string;
-    overwrite?: boolean;
-  }, context?: AgentRequestContext) =>
-    request<PersonalLibraryDocument>("/console/personal-library/imports/runtime-file", {
-      ...withAgentRequestContext(undefined, context),
-      method: "POST",
-      body: JSON.stringify({
-        source_path: input.sourcePath,
-        destination_path: input.destinationPath,
-        overwrite: input.overwrite ?? false,
-      }),
-    }),
-  copyArtifact: (input: {
-    sourcePath: string;
-    destinationPath: string;
-    overwrite?: boolean;
-  }, context?: AgentRequestContext) =>
-    request<PersonalLibraryDocument>("/console/personal-library/imports/artifact", {
-      ...withAgentRequestContext(undefined, context),
-      method: "POST",
-      body: JSON.stringify({
-        source_path: input.sourcePath,
-        destination_path: input.destinationPath,
-        overwrite: input.overwrite ?? false,
-      }),
-    }),
+  copyAttachment: (
+    input: {
+      attachmentId: string;
+      destinationPath: string;
+      overwrite?: boolean;
+    },
+    context?: AgentRequestContext,
+  ) =>
+    request<PersonalLibraryDocument>(
+      "/console/personal-library/imports/attachment",
+      {
+        ...withAgentRequestContext(undefined, context),
+        method: "POST",
+        body: JSON.stringify({
+          attachment_id: input.attachmentId,
+          destination_path: input.destinationPath,
+          overwrite: input.overwrite ?? false,
+        }),
+      },
+    ),
+  copyRuntimeFile: (
+    input: {
+      sourcePath: string;
+      destinationPath: string;
+      overwrite?: boolean;
+    },
+    context?: AgentRequestContext,
+  ) =>
+    request<PersonalLibraryDocument>(
+      "/console/personal-library/imports/runtime-file",
+      {
+        ...withAgentRequestContext(undefined, context),
+        method: "POST",
+        body: JSON.stringify({
+          source_path: input.sourcePath,
+          destination_path: input.destinationPath,
+          overwrite: input.overwrite ?? false,
+        }),
+      },
+    ),
+  copyArtifact: (
+    input: {
+      sourcePath: string;
+      destinationPath: string;
+      overwrite?: boolean;
+    },
+    context?: AgentRequestContext,
+  ) =>
+    request<PersonalLibraryDocument>(
+      "/console/personal-library/imports/artifact",
+      {
+        ...withAgentRequestContext(undefined, context),
+        method: "POST",
+        body: JSON.stringify({
+          source_path: input.sourcePath,
+          destination_path: input.destinationPath,
+          overwrite: input.overwrite ?? false,
+        }),
+      },
+    ),
 };
