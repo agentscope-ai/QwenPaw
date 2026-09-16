@@ -159,6 +159,50 @@ class HostTaskRuntime:
         await self.policy.check(scope, binding.registration.action)
         return binding.coordinator.describe(scope.app_id, action_id)
 
+    async def catalog(self, principal_id, workspace_id, *, intent=""):
+        """Compact granted descriptors; no readiness probes or dispatch."""
+        await self._sync()
+        result = []
+        for (app_id, action_id), binding in sorted(self._bindings.items()):
+            scope = TaskScope(
+                principal_id=principal_id,
+                workspace_id=workspace_id,
+                app_id=app_id,
+            )
+            action = binding.coordinator.describe(app_id, action_id)
+            try:
+                await self.policy.check(scope, action)
+            except TaskStoreError as exc:
+                if exc.code == "action_forbidden":
+                    continue
+                raise
+            result.append(
+                {
+                    "app_id": app_id,
+                    "action_id": action_id,
+                    "summary": action.summary,
+                    "engagements": action.engagements,
+                    "required_inputs": action.input_schema.get("required", []),
+                },
+            )
+        if intent:
+            # Intent is a ranking hint, not a reason to hide granted actions
+            # whose descriptions use another language or vocabulary.
+            result.sort(
+                key=lambda item: intent.casefold()
+                not in (
+                    " ".join(
+                        item[key]
+                        for key in (
+                            "app_id",
+                            "action_id",
+                            "summary",
+                        )
+                    ).casefold()
+                ),
+            )
+        return result
+
     def _binding(self, scope, action_id):
         key = (scope.app_id, action_id)
         binding = self._bindings.get(key)

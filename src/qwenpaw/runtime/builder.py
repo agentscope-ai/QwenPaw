@@ -141,6 +141,11 @@ class AgentBuilder:
                     ),
                 )
 
+        if ctx is not None:
+            tools.extend(
+                self._pawapp_task_tools(ctx, request_context, governor),
+            )
+
         # Final pass: cover workspace + extras + memory in one filter.
         tools = self.apply_subagent_tool_whitelist(tools, request_context)
         tools.sort(key=self._tool_name)
@@ -188,6 +193,51 @@ class AgentBuilder:
         ]
         ctx.extras["preloaded_skills"] = list(preloaded_skills.values())
         return Toolkit(tools=tools, skills_or_loaders=viewer_skills)
+
+    def _pawapp_task_tools(self, ctx, request_context, governor):
+        from ..pawapp.tasks.agent_tools import TaskToolContext, make_task_tools
+        from ..governance.tool_registry import (
+            DEFAULT_REGISTRY,
+            register_tool_governance,
+        )
+
+        authority = getattr(
+            getattr(ctx, "request", None),
+            "_pawapp_task_context",
+            None,
+        )
+        if (
+            not isinstance(authority, TaskToolContext)
+            or authority.workspace_id != getattr(ctx, "agent_id", None)
+            or authority.session_id != getattr(ctx, "session_id", None)
+            or (request_context or {}).get("_spawn_subagent")
+        ):
+            return []
+        trusted = {
+            **(request_context or {}),
+            "user_id": authority.principal_id,
+            "agent_id": authority.workspace_id,
+            "session_id": authority.session_id,
+            "channel": "console",
+        }
+        tools = []
+        for func in make_task_tools(authority):
+            register_tool_governance(
+                DEFAULT_REGISTRY,
+                python_name=func.__name__,
+                tool_type="internal",
+                target_param="app_id",
+                owner="pawapp-host",
+            )
+            tools.append(
+                self._wrap_tool(
+                    func,
+                    authority.workspace_id,
+                    trusted,
+                    governor,
+                ),
+            )
+        return tools
 
     @staticmethod
     def _tool_name(tool: Any) -> str:

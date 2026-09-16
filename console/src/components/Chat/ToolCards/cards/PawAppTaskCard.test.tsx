@@ -1,0 +1,266 @@
+// @vitest-environment jsdom
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import PawAppTaskCard from "./PawAppTaskCard";
+import {
+  getPawAppTask,
+  parsePawAppTaskResult,
+} from "../../../../api/modules/pawappTasks";
+import type { PawAppTask } from "../../../../api/modules/pawappTasks";
+import type { ToolCallContent } from "../shared/types";
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+vi.mock("../shared", () => ({
+  ToolCardShell: ({
+    title,
+    children,
+  }: {
+    title: string;
+    children: React.ReactNode;
+  }) => <section aria-label={title}>{children}</section>,
+  DefaultBlock: ({ content }: { content: string }) => <pre>{content}</pre>,
+}));
+vi.mock("../../../../api/modules/pawappTasks", async (original) => ({
+  ...(await original<typeof import("../../../../api/modules/pawappTasks")>()),
+  getPawAppTask: vi.fn(),
+}));
+
+const task: PawAppTask = {
+  task_id: "task-1",
+  action_id: "analyze",
+  scope: {
+    principal_id: "alice",
+    app_id: "qwenpaw-data",
+    workspace_id: "sales",
+  },
+  status: "pending",
+  recovery_state: "none",
+  event_sequence: 1,
+  text_result: null,
+};
+function content(value: unknown = task): ToolCallContent {
+  return {
+    id: "call-1",
+    name: "delegate",
+    type: "tool_call",
+    params: {},
+    status: "done",
+    result: JSON.stringify({
+      kind: "pawapp_task",
+      state: "accepted",
+      app_id: "qwenpaw-data",
+      workspace_id: "sales",
+      task: value,
+    }),
+  };
+}
+const api = vi.mocked(getPawAppTask);
+beforeEach(() => {
+  vi.useFakeTimers();
+  api.mockReset();
+});
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+const flush = () =>
+  act(async () => {
+    await Promise.resolve();
+  });
+
+describe("PawApp task cards", () => {
+  it("ignores stale terminal responses and keeps following the newer run state", async () => {
+    api
+      .mockResolvedValueOnce({ ...task, status: "failed", event_sequence: 2 })
+      .mockResolvedValueOnce({
+        ...task,
+        status: "succeeded",
+        event_sequence: 4,
+        text_result: "Complete",
+      });
+    render(
+      <PawAppTaskCard
+        content={content({ ...task, status: "running", event_sequence: 3 })}
+      />,
+    );
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.running",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByText("Complete")).toBeTruthy();
+  });
+
+  it("uses newer snapshots for the same handle without regressing on refresh", async () => {
+    api.mockResolvedValue(task);
+    const view = render(<PawAppTaskCard content={content()} />);
+    await flush();
+    view.rerender(
+      <PawAppTaskCard
+        content={content({
+          ...task,
+          status: "succeeded",
+          event_sequence: 3,
+          text_result: "Saved result",
+        })}
+      />,
+    );
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.succeeded",
+    );
+    expect(screen.getByText("Saved result")).toBeTruthy();
+    const calls = api.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(api).toHaveBeenCalledTimes(calls);
+  });
+
+  it("refreshes persisted handles through progress and explicit completion", async () => {
+    api
+      .mockResolvedValueOnce({
+        ...task,
+        status: "running",
+        event_sequence: 2,
+        text_result: "Revenue is",
+      })
+      .mockResolvedValueOnce({
+        ...task,
+        status: "succeeded",
+        event_sequence: 3,
+        text_result: "Revenue is 42.",
+      });
+    render(<PawAppTaskCard content={content()} />);
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.running",
+    );
+    expect(screen.getByText("Revenue is")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.succeeded",
+    );
+    expect(screen.getByText("Revenue is 42.")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6000);
+    });
+    expect(api).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps recovery distinct from success and errors preserve partial output", async () => {
+    api
+      .mockResolvedValueOnce({
+        ...task,
+        status: "running",
+        recovery_state: "reconciling",
+        text_result: "partial",
+        event_sequence: 2,
+      })
+      .mockRejectedValueOnce(new Error("offline"))
+      .mockResolvedValueOnce({
+        ...task,
+        status: "interrupted",
+        event_sequence: 3,
+        text_result: "partial",
+      });
+    render(<PawAppTaskCard content={content()} />);
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.recovering",
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2000);
+    });
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.unavailable",
+    );
+    expect(screen.getByText("partial")).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "tool.pawappTask.refresh" }),
+    );
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.interrupted",
+    );
+  });
+
+  it("shows blocked setup without starting work or trusting an external URL", async () => {
+    const value = {
+      ...content(),
+      result: JSON.stringify({
+        kind: "pawapp_task",
+        state: "blocked",
+        app_id: "qwenpaw-data",
+        workspace_id: "sales",
+        reason: "analysis_model_missing",
+        settings_entry: "https://untrusted.test",
+      }),
+    };
+    render(<PawAppTaskCard content={value} />);
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.blocked",
+    );
+    expect(screen.getByRole("link").getAttribute("href")).toBe(
+      "/apps/qwenpaw-data",
+    );
+    await flush();
+    expect(api).not.toHaveBeenCalled();
+  });
+
+  it("aborts when unmounted and ignores a late response from another handle", async () => {
+    let oldResolve!: (value: PawAppTask) => void;
+    api
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            oldResolve = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        ...task,
+        task_id: "task-2",
+        status: "running",
+        event_sequence: 2,
+      });
+    const view = render(<PawAppTaskCard content={content()} />);
+    const signal = api.mock.calls[0][3];
+    view.rerender(
+      <PawAppTaskCard content={content({ ...task, task_id: "task-2" })} />,
+    );
+    await flush();
+    expect(signal.aborted).toBe(true);
+    await act(async () => {
+      oldResolve({ ...task, status: "succeeded", text_result: "stale" });
+    });
+    expect(screen.queryByText("stale")).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe(
+      "tool.pawappTask.status.running",
+    );
+  });
+
+  it("parses both renderers' text blocks and rejects mismatched scope", () => {
+    expect(
+      parsePawAppTaskResult([{ type: "text", text: content().result }])?.task
+        ?.task_id,
+    ).toBe("task-1");
+    expect(
+      parsePawAppTaskResult(
+        content({ ...task, scope: { ...task.scope, app_id: "other" } }).result,
+      ),
+    ).toBeNull();
+    expect(parsePawAppTaskResult("{invalid")).toBeNull();
+  });
+});

@@ -4392,6 +4392,41 @@
     "retry": "Retry"
   },
   "tool": {
+    "pawappTask": {
+      "title": "{{app}} task",
+      "defaultTitle": "Delegate to App",
+      "openApp": "Open App",
+      "settings": "Open App settings",
+      "result": "Result",
+      "partialResult": "Output so far",
+      "taskId": "Task {{id}}",
+      "refresh": "Refresh status",
+      "refreshFailed": "Cannot refresh task status. Any output shown is the last saved snapshot.",
+      "recovery": "Reconnecting to the original run. Completion has not been confirmed.",
+      "setupNeeded": "App setup is required. No task was started. Complete setup, then retry your request.",
+      "status": {
+        "pending": "Queued",
+        "running": "Running",
+        "waiting_for_input": "Waiting for input",
+        "waiting_for_setup": "Waiting for setup",
+        "waiting_for_approval": "Waiting for approval",
+        "paused": "Paused",
+        "succeeded": "Completed",
+        "failed": "Failed",
+        "cancelled": "Cancelled",
+        "interrupted": "Interrupted",
+        "blocked": "Setup required",
+        "recovering": "Recovering",
+        "unavailable": "Status unavailable"
+      },
+      "reason": {
+        "analysis_model_missing": "Configure the analysis model in the App's Agent Configuration, then retry. No task was started.",
+        "datasource_missing": "Configure the selected datasource in the App, then retry. No task was started.",
+        "unsupported_engine_protocol": "This App version does not support independent tasks. Update the App before retrying.",
+        "readiness_unsupported": "This App version cannot verify task readiness. Update the App before retrying.",
+        "engine_unavailable": "The App service is unavailable. Open the App to check its status, then retry. No task was started."
+      }
+    },
     "readFile": "Read {{file}}",
     "readFileDefault": "Read file",
     "writeFile": "Create {{file}}",

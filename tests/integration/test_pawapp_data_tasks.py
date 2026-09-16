@@ -269,9 +269,21 @@ async def test_concurrent_delegations_keep_separate_runs(tmp_path, engine):
         )
         tasks = {item.handle.task_id for item in submitted}
         assert len(tasks) == 3
+
+        async def follow(task_id):
+            # EOF can race the Engine's final persisted event. Like the Host
+            # supervisor, replay the same run; never infer success from EOF.
+            while True:
+                result = await boundary.consume(SCOPE, task_id)
+                if result.handle.status == "succeeded":
+                    return result
+                assert result.handle.recovery_state == "reconciling"
+                await boundary.reconcile(SCOPE, task_id)
+                await asyncio.sleep(0.01)
+
         results = await asyncio.wait_for(
             asyncio.gather(
-                *(boundary.consume(SCOPE, task_id) for task_id in tasks),
+                *(follow(task_id) for task_id in tasks),
             ),
             10,
         )

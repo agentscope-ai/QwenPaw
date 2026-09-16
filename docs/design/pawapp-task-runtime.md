@@ -1,8 +1,9 @@
 # PawApp vNext task runtime
 
 The `qwenpaw.pawapp.tasks` package provides durable Host tasks, authenticated
-HTTP dispatch and recovery through the Host lifecycle. Main Agent tools and
-Data Console task cards are separate gates. The Data
+HTTP dispatch and recovery through the Host lifecycle. Main Chat can discover
+granted actions, delegate tasks and follow their progress in Console task cards.
+The Data
 [adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
 implements this boundary against the Engine's durable submission API. Its
 server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json);
@@ -167,6 +168,47 @@ protocol-1 capability probe. The verified development Engine is
 on `dev/pawapp-vnext-engine`; no published minimum compatible version is claimed.
 See the [Data adapter contract and integration command](pawapp-data-task-adapter.md).
 
+## Main Chat tools and task cards
+
+The Console chat entry point binds four tools to the authenticated principal,
+resolved workspace and originating Main Chat:
+
+| Tool | Behavior |
+| --- | --- |
+| `list_apps(intent="")` | Compact granted action catalog, optionally ranked by intent; no readiness probes or dispatch. |
+| `describe_action(app_id, action_id)` | Full granted descriptor and digest, including the input schema and effects. |
+| `delegate(app_id, action_id, inputs, request_id)` | Submit an independent delegated task, returning its durable handle or a setup blocker. |
+| `get_app_task(app_id, task_id)` | Read status and text for a task delegated from this Main Chat. |
+
+Action schemas are loaded on demand, rather than injected as a separate top-level
+tool for every App action. Caller identity, workspace and return chat are captured
+by the Host; the model cannot pass them as tool arguments. An in-memory private
+request attribute carries this authority from Console ingress to agent assembly.
+JSON requests and serialized history cannot create it. App sessions, archived
+chats, other channels and subagents do not receive these tools. Legacy Console
+identities that differ from the authenticated user remain usable for chat but do
+not acquire task authority.
+
+The tools use the standard permission wrapper and recheck the Host action grants
+and input restrictions on invocation. Delegation namespaces the model's request
+ID by the originating chat: retrying the same intent and inputs returns the same
+task, while another chat's identical request ID is independent. Acceptance means
+queued, not completed. Setup blockers create no latent work; after configuration,
+the user must explicitly retry.
+
+Both Console chat renderers use `PawAppTaskCard` for `delegate` and `get_app_task`.
+The card validates the persisted handle and refreshes it through the authenticated
+task API, explicitly retaining the task's workspace when the selected workspace
+changes. It polls every two seconds until an authoritative terminal status, uses
+event sequences to reject stale snapshots, and aborts pending reads on unmount or
+a handle change. Refresh failures preserve the last output and offer a manual
+retry. Recovery and partial output never imply successful completion. Setup links
+are constructed from the App ID, not from a tool-supplied external URL. English
+and Chinese labels are included; malformed results use the generic tool card.
+
+Task completion still does not schedule a new Main Agent turn automatically.
+Continuation delivery, user answers and cancellation remain separate gates.
+
 ## Events and recovery
 
 Executor and Host event sequences are distinct. An executor event includes its
@@ -211,9 +253,18 @@ cross-user reads, origin/resource denial, blocked setup without latent work,
 idempotency, lifecycle recovery, unload and schema migration.
 `test_pawapp_task_dispatch.py` verifies authenticated Host HTTP dispatch through
 the real separate Engine process for both engagements, with controlled execution
-and a fixture datasource catalog.
+and a fixture datasource catalog. It also exercises Console chat ingress, channel
+request conversion, runtime context, bound agent tools and the card status API
+against that Engine. A controlled tool caller replaces the LLM; this is not a
+live-model or browser end-to-end test.
 
-Remaining integration includes task cards and Main Agent tools, a grant UI,
+`test_task_agent_tools.py` covers scoped discovery, schema loading, retries,
+blocked setup, grant revocation, invalid App IDs, cross-chat isolation and private
+invocation authority. `PawAppTaskCard.test.tsx` covers progress, completion,
+recovery, refresh failure/retry, stale responses, newer history snapshots,
+unmount cleanup, setup links and handle validation.
+
+Remaining integration includes a grant UI,
 durable answer/cancel receipts,
 continuation worker leases and destination deduplication, and the Host/public plus
 App/private Skill/Tool runtime bridge. These are still P1a gates. Artifact Canvas

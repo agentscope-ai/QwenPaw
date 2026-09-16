@@ -1,0 +1,66 @@
+.body {
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 8px 0;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 13px;
+
+  p {
+    margin: 0;
+    color: var(--app-text-secondary);
+  }
+  a {
+    color: var(--app-accent);
+  }
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.status {
+  font-weight: 600;
+  &[data-status="running"],
+  &[data-status="pending"] {
+    color: var(--app-accent);
+  }
+  &[data-status="failed"],
+  &[data-status="interrupted"] {
+    color: var(--app-error);
+  }
+}
+
+.refresh {
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.resultLabel {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  font: inherit;
+}
+.identifier {
+  overflow-wrap: anywhere;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}

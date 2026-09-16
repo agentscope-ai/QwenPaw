@@ -4410,6 +4410,41 @@
     "retry": "重试"
   },
   "tool": {
+    "pawappTask": {
+      "title": "{{app}} 任务",
+      "defaultTitle": "委派给 App",
+      "openApp": "打开 App",
+      "settings": "打开 App 配置",
+      "result": "结果",
+      "partialResult": "当前输出",
+      "taskId": "任务 {{id}}",
+      "refresh": "刷新状态",
+      "refreshFailed": "暂时无法刷新任务状态；当前输出是最后保存的快照。",
+      "recovery": "正在重新连接原有执行，尚未确认任务完成。",
+      "setupNeeded": "需要先完成 App 配置。尚未启动任务，请配置后重新提交请求。",
+      "status": {
+        "pending": "排队中",
+        "running": "执行中",
+        "waiting_for_input": "等待输入",
+        "waiting_for_setup": "等待配置",
+        "waiting_for_approval": "等待审批",
+        "paused": "已暂停",
+        "succeeded": "已完成",
+        "failed": "失败",
+        "cancelled": "已取消",
+        "interrupted": "已中断",
+        "blocked": "需要配置",
+        "recovering": "恢复中",
+        "unavailable": "状态暂不可用"
+      },
+      "reason": {
+        "analysis_model_missing": "请在 App 的 Agent Configuration 中配置分析模型，然后重试。尚未启动任务。",
+        "datasource_missing": "请在 App 中配置所选数据源，然后重试。尚未启动任务。",
+        "unsupported_engine_protocol": "此 App 版本尚不支持独立任务，请更新 App 后重试。",
+        "readiness_unsupported": "此 App 版本无法检查任务配置，请更新 App 后重试。",
+        "engine_unavailable": "App 服务暂不可用，请打开 App 检查服务状态后重试。尚未启动任务。"
+      }
+    },
     "readFile": "阅读 {{file}}",
     "readFileDefault": "阅读 文件",
     "writeFile": "创建 {{file}}",

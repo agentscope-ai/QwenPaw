@@ -4,7 +4,9 @@ The Data App's `backend/task_bridge` package connects `TaskCoordinator` to
 Engine submission protocol 1. It can submit, reconcile, and consume independent
 analysis tasks in Direct or Delegated mode. The Data App declares its action
 through `PawApp.task_action`; Host owns adapter lifecycle, scoped HTTP dispatch,
-grants, readiness and recovery. Main Agent tools and UI remain separate gates.
+grants, readiness and recovery. Main Chat tools and Console task cards now use
+this boundary; see the [Host task runtime](pawapp-task-runtime.md). Automatic
+Main Agent continuation remains a separate gate.
 
 ## Binding and compatibility
 

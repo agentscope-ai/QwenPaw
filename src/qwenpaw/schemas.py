@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -254,6 +254,9 @@ class AgentRequest(BaseModel):
     """
 
     model_config = ConfigDict(extra="allow")
+
+    # Set only by Console ingress; never serialized into history or payloads.
+    _pawapp_task_context: Any = PrivateAttr(default=None)
 
     input: List[Message] = Field(default_factory=list)
     session_id: Optional[str] = None

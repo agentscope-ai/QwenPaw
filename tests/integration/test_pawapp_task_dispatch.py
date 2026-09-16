@@ -1,10 +1,20 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=redefined-outer-name,unused-import
+# pylint: disable=redefined-outer-name,protected-access
 """Authenticated Host HTTP → independent Engine process → Host task result."""
+
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.app.routers import console
+from qwenpaw.app.task_tracker import TaskTracker
 from qwenpaw.pawapp.tasks.binding import ActionRegistration
+from qwenpaw.runtime.builder import AgentBuilder
+from qwenpaw.runtime.runtime import Runtime
+from qwenpaw.schemas import AgentResponse, RunStatus
 from tests.integration.test_pawapp_data_tasks import (
     engine as engine_fixture,
     TOKEN,
@@ -55,3 +65,98 @@ async def test_host_dispatch_to_engine_process(
         json=body,
     )
     assert again.json()["task"]["task_id"] == task_id
+
+
+@pytest.mark.asyncio
+async def test_console_tool_to_engine_and_card_status_api(
+    host,
+    engine,
+    tmp_path,
+    monkeypatch,
+):
+    """Real Console ingress and Engine with a controlled tool caller."""
+    host.registrations[(ACTION.app_id, ACTION.action_id)] = ActionRegistration(
+        action=ACTION,
+        factory=lambda: BRIDGE.DataTaskAdapter(
+            lambda: (engine.base, TOKEN),
+            executor_id="integration-engine",
+        ),
+        settings_entry="/apps/qwenpaw-data",
+    )
+    workspace = SimpleNamespace(
+        agent_id="sales",
+        workspace_dir=tmp_path,
+        task_tracker=TaskTracker(),
+        chat_manager=SimpleNamespace(
+            get_or_create_chat=AsyncMock(return_value=host.chats["main"]),
+            mark_chat_finished=AsyncMock(),
+        ),
+    )
+    results = []
+
+    async def controlled_agent(request):
+        runtime = Runtime(workspace=workspace, app_services=None)
+        ctx = runtime._build_context(runtime._normalize(request))
+        bound = AgentBuilder()._pawapp_task_tools(
+            ctx,
+            request.request_context,
+            None,
+        )
+        delegate = {tool.name: tool for tool in bound}["delegate"]
+        chunk = await delegate(
+            app_id="qwenpaw-data",
+            action_id="analyze",
+            inputs=BODY["inputs"],
+            request_id="main-intent",
+        )
+        results.append(json.loads(chunk.content[0].text))
+        yield AgentResponse(
+            object="response",
+            status=RunStatus.Completed,
+            output=[],
+        )
+
+    channel = ConsoleChannel(
+        process=controlled_agent,
+        enabled=True,
+        bot_prefix="",
+        media_dir=str(tmp_path),
+    )
+    workspace.channel_manager = SimpleNamespace(
+        get_channel=AsyncMock(return_value=channel),
+    )
+    monkeypatch.setattr(
+        console,
+        "get_agent_for_request",
+        AsyncMock(return_value=workspace),
+    )
+    monkeypatch.setattr(console, "generate_and_update_title", AsyncMock())
+    host.app.include_router(console.router, prefix="/api")
+    response = await host.client.post(
+        "/api/console/chat",
+        headers={"X-Agent-Id": "sales"},
+        json={
+            "session_id": "main-session",
+            "user_id": "alice",
+            "channel": "console",
+            "input": [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": "Analyze revenue"}],
+                },
+            ],
+            "request_context": {"user_id": "bob", "agent_id": "other"},
+        },
+    )
+    assert response.status_code == 200
+    assert len(results) == 1, response.text
+    result = results[0]
+    assert result["state"] == "accepted"
+    assert result["task"]["scope"]["principal_id"] == "alice"
+    assert result["task"]["scope"]["workspace_id"] == "sales"
+    assert result["task"]["origin"]["return_session_ref"] == "main-session"
+    task_id = result["task"]["task_id"]
+    await settled(host, task_id)
+    card = await host.client.get(PREFIX + f"/tasks/{task_id}")
+    assert card.status_code == 200
+    assert card.json()["task"]["text_result"] == "Revenue is 42."
