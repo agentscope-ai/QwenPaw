@@ -211,3 +211,53 @@ async def test_watch_events_heartbeat_during_scan(tmp_path, monkeypatch):
     assert frames
     assert all(m == ": heartbeat\n\n" for m in frames)
     await agen.aclose()
+
+
+@pytest.mark.asyncio
+async def test_watch_events_cancel_does_not_block_loop(tmp_path, monkeypatch):
+    """Regression: cancelling the stream during a scan must not stall the
+    event loop — cleanup joins the poller thread off the loop."""
+    monkeypatch.setattr(workspace_router, "_WATCH_QUEUE_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(workspace_router, "_WATCH_POLL_INTERVAL_SECONDS", 1.0)
+    monkeypatch.setattr(workspace_router, "_WATCH_HEARTBEAT_SECONDS", 60.0)
+
+    in_scan = threading.Event()
+    release = threading.Event()
+
+    def slow_scan(_watch_dir):
+        in_scan.set()
+        release.wait(timeout=5)
+        return {}
+
+    monkeypatch.setattr(workspace_router, "_scan_snapshot", slow_scan)
+
+    request = _FakeRequest()
+    agen = workspace_watch_events(request, tmp_path)
+    assert (await anext(agen)) == 'data: {"type": "connected"}\n\n'
+
+    # Resume the generator into its polling loop; it will sit on the queue
+    # while the worker performs the (monkeypatched) slow scan.
+    anext_task = asyncio.create_task(anext(agen))
+    await asyncio.to_thread(in_scan.wait, 2)
+    assert in_scan.is_set(), "worker should be inside the slow scan"
+
+    async def tick() -> None:
+        await asyncio.sleep(0.05)
+
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    tick_task = asyncio.create_task(tick())
+    anext_task.cancel()
+
+    # Cancelling the consumer delivers CancelledError inside the generator's
+    # polling loop, so the finally block runs. A synchronous thread.join()
+    # there would hold the loop for the whole join timeout (2s), delaying
+    # the 0.05s tick by roughly the same amount.
+    await tick_task
+    elapsed = loop.time() - started
+    release.set()
+    with pytest.raises((asyncio.CancelledError, StopAsyncIteration)):
+        await anext_task
+    assert (
+        elapsed < 0.5
+    ), f"cancellation stalled the event loop ({elapsed:.2f}s)"

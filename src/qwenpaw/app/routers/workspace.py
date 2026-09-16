@@ -1232,7 +1232,13 @@ async def workspace_watch_events(
         pass
     finally:
         stop.set()
-        thread.join(timeout=_WATCH_POLL_INTERVAL_SECONDS + 1.0)
+        # Join the poller off the event loop: when the stream is cancelled the
+        # worker may still be mid-scan, and a synchronous join here would
+        # stall the loop for the remainder of the scan (see review #7725).
+        await asyncio.to_thread(
+            thread.join,
+            _WATCH_POLL_INTERVAL_SECONDS + 1.0,
+        )
 
 
 @router.get(
