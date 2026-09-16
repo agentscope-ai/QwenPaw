@@ -13,7 +13,9 @@ from ...providers.realtime_voice import ProviderResponseResult
 
 @dataclass(frozen=True)
 class PresentationIntent:
-    kind: Literal["converse", "clarify", "receipt", "rejected", "update"]
+    kind: Literal[
+        "converse", "clarify", "admission", "rejected", "update"
+    ]
     turn_id: str = ""
     user_text: str = ""
     task_ref: str = ""
@@ -28,8 +30,14 @@ class PresentationIntent:
         return max(1, len(self.changed_ids))
 
     @property
-    def automatic(self) -> bool:
-        return self.kind in {"receipt", "update"}
+    def system_feedback(self) -> bool:
+        """Return whether this intent presents an application-owned fact."""
+        return self.kind in {"admission", "update"}
+
+    @property
+    def coalescing_key(self) -> str:
+        """Only unspoken progress updates may replace an older update."""
+        return f"update:{self.task_ref}" if self.kind == "update" else ""
 
     def cancel(self) -> None:
         if self.completion is not None and not self.completion.done():
@@ -37,14 +45,14 @@ class PresentationIntent:
 
 
 class PresentationQueue:
-    """Questions are FIFO; only ungenerated automatic notices coalesce."""
+    """User turns and admissions are FIFO; only progress may coalesce."""
 
     def __init__(self, capacity: int) -> None:
         if capacity < 1:
             raise ValueError("presentation capacity must be positive")
         self.capacity = capacity
         self._direct: deque[PresentationIntent] = deque()
-        self._automatic: OrderedDict[str, PresentationIntent] = OrderedDict()
+        self._coalesced: OrderedDict[str, PresentationIntent] = OrderedDict()
         self._changed = asyncio.Event()
         self._closed = False
 
@@ -52,8 +60,8 @@ class PresentationQueue:
         if self._closed:
             intent.cancel()
             return False
-        key = f"{intent.kind}:{intent.task_ref}"
-        previous = self._automatic.get(key) if intent.automatic else None
+        key = intent.coalescing_key
+        previous = self._coalesced.get(key) if key else None
         if previous is not None:
             intent = replace(
                 intent,
@@ -62,7 +70,7 @@ class PresentationQueue:
                 ),
             )
         occupied = sum(
-            i.cost for i in (*self._direct, *self._automatic.values())
+            i.cost for i in (*self._direct, *self._coalesced.values())
         )
         if (
             occupied - (previous.cost if previous else 0) + intent.cost
@@ -72,8 +80,8 @@ class PresentationQueue:
             return False
         if previous is not None:
             previous.cancel()
-        if intent.automatic:
-            self._automatic[key] = intent
+        if key:
+            self._coalesced[key] = intent
         else:
             self._direct.append(intent)
         self._changed.set()
@@ -83,8 +91,8 @@ class PresentationQueue:
         while True:
             if self._direct:
                 return self._direct.popleft()
-            if self._automatic:
-                return self._automatic.popitem(last=False)[1]
+            if self._coalesced:
+                return self._coalesced.popitem(last=False)[1]
             if self._closed:
                 return None
             self._changed.clear()
@@ -92,10 +100,10 @@ class PresentationQueue:
 
     def close(self) -> None:
         self._closed = True
-        for intent in (*self._direct, *self._automatic.values()):
+        for intent in (*self._direct, *self._coalesced.values()):
             intent.cancel()
         self._direct.clear()
-        self._automatic.clear()
+        self._coalesced.clear()
         self._changed.set()
 
 

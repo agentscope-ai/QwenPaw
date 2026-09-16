@@ -16,7 +16,7 @@ from ...services.project_directory import (
     session_project_dir,
 )
 from ..task_tracker import RunInput
-from .models import ChatSpec, SessionSource
+from .models import ChatSpec, is_realtime_voice_chat
 from .runtime_events import user_message_sse
 from .timeline import ChatTimelineJournal
 
@@ -124,7 +124,7 @@ class ChatRunCoordinator:
         request_context["input_origin"] = request.origin
         request_context["project_dir"] = str(project_dir)
         request_context["project_dir_source"] = project_source
-        if chat.source == SessionSource.realtime_voice:
+        if is_realtime_voice_chat(chat):
             request_context["source"] = "realtime_voice"
 
         payload = {

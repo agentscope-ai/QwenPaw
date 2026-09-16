@@ -820,3 +820,30 @@ async def test_busy_server_vad_response_is_not_retried(monkeypatch):
         == response_create_count
     )
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout_is_an_expected_session_close(monkeypatch):
+    session, socket = await connect_session(monkeypatch)
+    events = session.events()
+    await anext(events)
+
+    socket.feed(
+        {
+            "type": "error",
+            "event_id": "idle-timeout",
+            "error": {
+                "code": "response_idle_timeout",
+                "message": "The idle realtime session was closed.",
+            },
+        }
+    )
+
+    event = await asyncio.wait_for(anext(events), timeout=1)
+    assert event.kind == "session.closed"
+    assert event.data == {
+        "reason": "idle_timeout",
+        "recoverable": True,
+    }
+    assert session._expected_close_reason == "idle_timeout"
+    await session.close()

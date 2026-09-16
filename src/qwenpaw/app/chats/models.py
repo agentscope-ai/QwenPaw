@@ -29,7 +29,6 @@ class SessionSource(str, Enum):
     chat = "chat"
     cron = "cron"
     subagent = "subagent"
-    realtime_voice = "realtime_voice"
 
 
 class ChatGroupKind(str, Enum):
@@ -176,6 +175,12 @@ class ChatSpec(BaseModel):
     def archived(self) -> bool:
         """Whether this chat is archived (derived from archived_at)."""
         return self.archived_at is not None
+
+
+def is_realtime_voice_chat(chat: ChatSpec) -> bool:
+    """Return whether a regular Chat carries realtime voice capability."""
+    voice = chat.meta.get("realtime_voice")
+    return isinstance(voice, dict)
 
 
 class ChatUpdate(BaseModel):

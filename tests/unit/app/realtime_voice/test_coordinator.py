@@ -214,7 +214,7 @@ async def test_converse_purpose_does_not_assert_task_category_or_mutation():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("referenced", [False, True])
-async def test_receipt_uses_accepted_words_without_waiting_for_task_state(
+async def test_admission_uses_accepted_words_without_waiting_for_task_state(
     referenced,
 ):
     provider, bridge = Provider(), Bridge()
@@ -230,9 +230,9 @@ async def test_receipt_uses_accepted_words_without_waiting_for_task_state(
         origin="semantic",
         action=action,
     )
-    await coordinator._queue_receipt(turn, receipt(task_ref="内部任务九"))
+    await coordinator._queue_admission(turn, receipt(task_ref="内部任务九"))
     intent = await coordinator._presentation_queue.get()
-    assert intent.kind == "receipt"
+    assert intent.kind == "admission"
     assert intent.history_user_text == original
     await coordinator._present(intent)
     instruction = provider.created_messages[-2][2]
@@ -455,7 +455,7 @@ async def test_overload_preserves_text_without_resubmitting_admitted_work():
                 lambda: provider.request_response.await_count == 1
             )
     await coordinator._queue_presentation(
-        PresentationIntent("receipt", "admitted", task_ref="请求一"),
+        PresentationIntent("admission", "admitted", task_ref="请求一"),
         persist_exchange=False,
     )
     rejected = [
@@ -539,7 +539,13 @@ async def test_configured_reply_language_reaches_voice_session(language):
         assert f'"{language}"' in instructions
         assert "中文口语" not in instructions
         assert "不要执行任务" in instructions
-        for kind in ("converse", "receipt", "update", "clarify", "rejected"):
+        for kind in (
+            "converse",
+            "admission",
+            "update",
+            "clarify",
+            "rejected",
+        ):
             provider.created_messages.clear()
             await coordinator._present(PresentationIntent(kind))
             assert f'"{language}"' in provider.created_messages[0][2]
@@ -638,7 +644,10 @@ async def test_handoff_uses_ordinary_chat_bridge_and_speech_only_response():
     await eventually(lambda: provider.request_response.await_count == 1)
 
     assert committed.data["action"] == {"type": "HANDOFF"}
+    assert accepted.data["turn_id"] == committed.data["turn_id"]
+    assert accepted.data["input_id"] == "task-1"
     assert accepted.data["task_ref"] == "请求一"
+    assert accepted.correlation_id == committed.data["turn_id"]
     bridge.enqueue_action.assert_awaited_once_with(
         HandoffVoiceAction(),
         "run tests",
@@ -818,8 +827,8 @@ async def test_history_question_enters_agent_instead_of_voice_query_path():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["receipt", "update"])
-async def test_automatic_notices_do_not_read_history_or_replay_questions(kind):
+@pytest.mark.parametrize("kind", ["admission", "update"])
+async def test_system_feedback_does_not_read_history_or_replay_questions(kind):
     provider, bridge = Provider(), Bridge()
     coordinator, _, timeline = build_coordinator(provider, bridge, [])
     timeline.read_context.return_value = "公开前文"
@@ -1467,8 +1476,8 @@ def test_waiting_facts_do_not_imply_user_action():
 @pytest.mark.parametrize(
     "kind,phase,purpose",
     [
-        ("receipt", "progress", "本轮是接收确认"),
-        ("receipt", "final", "本轮是接收确认"),
+        ("admission", "progress", "本轮是接收确认"),
+        ("admission", "final", "本轮是接收确认"),
         ("update", "progress", "本轮是进度或状态反馈"),
         ("update", "incomplete", "本轮是进度或状态反馈"),
         ("update", "final", "本轮是结果反馈"),
@@ -1531,13 +1540,13 @@ async def test_automatic_facts_are_scoped_without_history_query_branch():
     assert "共2项" not in notice and "请求二" not in notice
     assert '"persisted"' not in notice and '"id": "m:b"' not in notice
 
-    receipt_notice = await coordinator._presentation_instruction(
-        PresentationIntent("receipt", task_ref="请求一")
+    admission_notice = await coordinator._presentation_instruction(
+        PresentationIntent("admission", task_ref="请求一")
     )
-    assert '"accepted": true' in receipt_notice
-    assert "结果201" not in receipt_notice
-    assert "计算第一项" not in receipt_notice
-    assert "正在运行，尚未完成" not in receipt_notice
+    assert '"accepted": true' in admission_notice
+    assert "结果201" not in admission_notice
+    assert "计算第一项" not in admission_notice
+    assert "正在运行，尚未完成" not in admission_notice
 
     await coordinator.start()
     session = coordinator._provider.connect.call_args.args[0]
@@ -1684,8 +1693,8 @@ async def test_automatic_scope_distinguishes_repeated_request_text():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", ["receipt", "update"])
-async def test_concise_automatic_feedback_preserves_answers_not_length_limits(
+@pytest.mark.parametrize("kind", ["admission", "update"])
+async def test_concise_system_feedback_preserves_answers_not_length_limits(
     kind,
 ):
     bridge = Bridge()
@@ -1704,7 +1713,7 @@ async def test_concise_automatic_feedback_preserves_answers_not_length_limits(
         PresentationIntent(kind)
     )
     assert "不减少用户所需信息" in notice
-    if kind != "receipt":
+    if kind != "admission":
         assert text in notice
     if kind == "update":
         assert "没有待处理事项时直接结束" in notice
@@ -1770,6 +1779,6 @@ async def test_automatic_result_feedback_is_not_a_status_only_question(
         assert "回答状态问题" not in instruction
     # Exercise the actual request, not just its system instruction: a later
     # user-role status question used to override the intended result feedback.
-    for kind in ("receipt", "update"):
+    for kind in ("admission", "update"):
         await coordinator._present(PresentationIntent(kind))
         assert provider.created_messages[-1][2] == ("请按本轮反馈目的，用自然口语向用户反馈以上信息。")

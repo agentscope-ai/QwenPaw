@@ -29,6 +29,18 @@ async def test_bounded_coalescing_and_direct_fifo():
 
 
 @pytest.mark.asyncio
+async def test_independent_admissions_are_fifo_and_never_coalesced():
+    queue = PresentationQueue(10)
+    admissions = [
+        PresentationIntent("admission", turn_id=f"turn-{index}")
+        for index in range(10)
+    ]
+
+    assert all(queue.put(intent) for intent in admissions)
+    assert [await queue.get() for _ in admissions] == admissions
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("feedback_first", [False, True])
 async def test_credit_requires_terminal_and_matching_playback(feedback_first):
     credit = OutputCredit()

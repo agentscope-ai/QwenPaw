@@ -28,6 +28,22 @@ def test_session_source_values():
     assert SessionSource.chat == "chat"
     assert SessionSource.cron == "cron"
     assert SessionSource.subagent == "subagent"
+    assert "realtime_voice" not in {source.value for source in SessionSource}
+
+
+def test_realtime_voice_capability_keeps_downgrade_safe_chat_source():
+    spec = ChatSpec(
+        session_id="realtime_voice:voice-1",
+        user_id="u1",
+        meta={"realtime_voice": {"version": 3}},
+    )
+
+    persisted = spec.model_dump(mode="json")
+
+    assert persisted["source"] == "chat"
+    assert ChatSpec.model_validate(persisted).meta["realtime_voice"] == {
+        "version": 3,
+    }
 
 
 # ---------------------------------------------------------------------------

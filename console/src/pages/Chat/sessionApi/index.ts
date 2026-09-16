@@ -148,6 +148,33 @@ function stableHash(value: string): string {
   return `${(first >>> 0).toString(36)}${(second >>> 0).toString(36)}`;
 }
 
+/**
+ * Runtime ownership fields are nested by the persisted chat envelope, while
+ * live AgentScope Runtime messages carry them directly in `metadata`.
+ */
+function runtimeMetadata(
+  message: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!message.metadata || typeof message.metadata !== "object") return {};
+  const metadata = message.metadata as Record<string, unknown>;
+  const nested = metadata.metadata;
+  return nested && typeof nested === "object" && !Array.isArray(nested)
+    ? (nested as Record<string, unknown>)
+    : metadata;
+}
+
+function semanticGroupId(message: Record<string, unknown>): string | undefined {
+  const value = runtimeMetadata(message).timeline_group_id;
+  return typeof value === "string" && value ? value : undefined;
+}
+
+function respondsToInputIds(message: Record<string, unknown>): string[] {
+  const value = runtimeMetadata(message).responds_to_input_ids;
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && !!item)
+    : [];
+}
+
 function stableBackendMessageId(msg: Message, historyIndex: number): string {
   const metadata =
     msg.metadata && typeof msg.metadata === "object"
@@ -187,7 +214,7 @@ const metadataTimeToSeconds = (ts: unknown): number => {
 
 /** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
 const parseTimestamp = (msg: Record<string, unknown>): number =>
-  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.timestamp);
+  metadataTimeToSeconds(runtimeMetadata(msg as Message).timestamp);
 
 /**
  * Parse metadata.finished_at string to unix seconds (0 when absent).
@@ -196,7 +223,7 @@ const parseTimestamp = (msg: Record<string, unknown>): number =>
  * earlier for turns with long tool calls.
  */
 const parseFinishedAt = (msg: Record<string, unknown>): number =>
-  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.finished_at);
+  metadataTimeToSeconds(runtimeMetadata(msg as Message).finished_at);
 
 /** Extract plain text from a message's content array. */
 const extractTextFromContent = (content: unknown): string => {
@@ -337,6 +364,7 @@ export const buildResponseCard = (
   historyIndex = 0,
   groupOrdinal = 0,
   terminal?: TurnTerminal,
+  semanticKey?: string,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -362,11 +390,13 @@ export const buildResponseCard = (
   }));
 
   const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
-  const cardId = `runtime-response-${
-    outputMessages.length
-      ? stableBackendMessageId(outputMessages[0], historyIndex)
-      : `terminal-${historyIndex}`
-  }-${groupOrdinal}`;
+  const cardId = semanticKey
+    ? `runtime-response-group-${stableHash(semanticKey)}`
+    : `runtime-response-${
+        outputMessages.length
+          ? stableBackendMessageId(outputMessages[0], historyIndex)
+          : `terminal-${historyIndex}`
+      }-${groupOrdinal}`;
 
   return {
     id: cardId,
@@ -410,6 +440,7 @@ export const convertMessages = (
     historyIndex: number;
     messages: OutputMessage[];
     terminal?: TurnTerminal;
+    semanticKey?: string;
   };
   type TimelineEntry =
     | { kind: "user"; historyIndex: number; message: Message }
@@ -417,20 +448,100 @@ export const convertMessages = (
 
   const entries: TimelineEntry[] = [];
   const callOwners = new Map<string, OutputGroup>();
+  const callSemanticGroups = new Map<string, string>();
+  const semanticGroups = new Map<string, OutputGroup>();
+  const ownedSemanticGroups = new Map<number, OutputGroup[]>();
+  const ownedSemanticKeys = new Set<string>();
+  const userAliases = new Map<number, Set<string>>();
+  const userTerminals = new Map<number, TurnTerminal | undefined>();
   let currentGroup: OutputGroup | null = null;
   let pendingTerminal: TurnTerminal | undefined;
 
   messages.forEach((message, historyIndex) => {
     if (message.role === ROLE_USER) {
+      const aliases = new Set<string>();
+      const stableId = stableBackendMessageId(message, historyIndex);
+      if (stableId) aliases.add(stableId);
+      if (typeof message.id === "string" && message.id) aliases.add(message.id);
+      const metadata = message.metadata as Record<string, unknown> | undefined;
+      if (typeof metadata?.original_id === "string" && metadata.original_id) {
+        aliases.add(metadata.original_id);
+      }
+      const groupId = semanticGroupId(message);
+      if (groupId) aliases.add(groupId);
+      userAliases.set(historyIndex, aliases);
+      userTerminals.set(
+        historyIndex,
+        runtimeMetadata(message).qwenpaw_turn_state as TurnTerminal | undefined,
+      );
+      return;
+    }
+    const callId = toolCallId(message);
+    const groupId = semanticGroupId(message);
+    if (callId && groupId && TOOL_CALL_TYPES.has(String(message.type || ""))) {
+      callSemanticGroups.set(callId, groupId);
+    }
+  });
+
+  const effectiveSemanticGroupId = (message: Message): string | undefined => {
+    const direct = semanticGroupId(message);
+    if (direct) return direct;
+    const callId = toolCallId(message);
+    return callId ? callSemanticGroups.get(callId) : undefined;
+  };
+
+  messages.forEach((message, historyIndex) => {
+    if (message.role === ROLE_USER) return;
+    const groupId = effectiveSemanticGroupId(message);
+    if (!groupId) return;
+    let group = semanticGroups.get(groupId);
+    if (!group) {
+      group = {
+        kind: "output",
+        historyIndex,
+        messages: [],
+        semanticKey: groupId,
+      };
+      semanticGroups.set(groupId, group);
+    }
+    group.messages.push(toOutputMessage(message));
+  });
+
+  for (const [groupId, group] of semanticGroups) {
+    const references = new Set<string>([groupId]);
+    for (const message of group.messages) {
+      for (const inputId of respondsToInputIds(message))
+        references.add(inputId);
+    }
+    let ownerIndex: number | undefined;
+    for (const [historyIndex, aliases] of userAliases) {
+      if ([...references].some((reference) => aliases.has(reference))) {
+        ownerIndex = historyIndex;
+      }
+    }
+    if (ownerIndex !== undefined) {
+      const groups = ownedSemanticGroups.get(ownerIndex) ?? [];
+      groups.push(group);
+      ownedSemanticGroups.set(ownerIndex, groups);
+      ownedSemanticKeys.add(groupId);
+      group.terminal = userTerminals.get(ownerIndex);
+    }
+  }
+
+  messages.forEach((message, historyIndex) => {
+    if (message.role === ROLE_USER) {
       entries.push({ kind: "user", historyIndex, message });
-      const meta = message.metadata as Record<string, any> | undefined;
-      pendingTerminal = (meta?.metadata ?? meta)?.qwenpaw_turn_state;
+      pendingTerminal = userTerminals.get(historyIndex);
+      const ownedGroups = ownedSemanticGroups.get(historyIndex) ?? [];
+      ownedGroups.sort((left, right) => left.historyIndex - right.historyIndex);
+      entries.push(...ownedGroups);
       currentGroup = null;
       // A turn that produced no output at all still needs a card, otherwise a
       // cancelled or failed request leaves no trace in restored history.
       if (
-        pendingTerminal?.status === "failed" ||
-        pendingTerminal?.status === "canceled"
+        !ownedGroups.length &&
+        (pendingTerminal?.status === "failed" ||
+          pendingTerminal?.status === "canceled")
       ) {
         currentGroup = {
           kind: "output",
@@ -440,6 +551,11 @@ export const convertMessages = (
         };
         entries.push(currentGroup);
       }
+      return;
+    }
+
+    const semanticKey = effectiveSemanticGroupId(message);
+    if (semanticKey && ownedSemanticKeys.has(semanticKey)) {
       return;
     }
 
@@ -482,6 +598,7 @@ export const convertMessages = (
       entry.historyIndex,
       ordinal,
       entry.terminal,
+      entry.semanticKey,
     );
   });
 };

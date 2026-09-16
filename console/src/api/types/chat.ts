@@ -1,5 +1,5 @@
 export type ChatStatus = "idle" | "running";
-export type ChatSource = "chat" | "cron" | "subagent" | "realtime_voice";
+export type ChatSource = "chat" | "cron" | "subagent";
 export type ChatGroupKind = "default" | "cron" | "subagents" | "custom";
 
 export interface ChatGroup {
@@ -29,6 +29,11 @@ export interface ChatSpec {
   group_id?: string | null;
   parent_session_id?: string | null;
   root_session_id?: string | null;
+}
+
+export function isRealtimeVoiceChat(chat: Pick<ChatSpec, "meta">): boolean {
+  const voice = chat.meta?.realtime_voice;
+  return typeof voice === "object" && voice !== null && !Array.isArray(voice);
 }
 
 export interface Message {

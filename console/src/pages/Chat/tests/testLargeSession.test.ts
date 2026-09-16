@@ -481,6 +481,85 @@ describe("convertMessages — tool lifecycle correlation", () => {
   });
 });
 
+describe("convertMessages — semantic reply ownership", () => {
+  const message = (
+    role: string,
+    text: string,
+    groupId: string,
+    respondsTo: string[] = [],
+    id?: string,
+  ): Message => ({
+    ...(id ? { id } : {}),
+    role,
+    type: "message",
+    content: [{ type: "text", text }],
+    metadata: {
+      original_id: id,
+      metadata: {
+        timeline_group_id: groupId,
+        responds_to_input_ids: respondsTo,
+      },
+    },
+  });
+
+  it("places interleaved output beside its owning input", () => {
+    const converted = convertMessages([
+      message("user", "task A", "input-a", [], "input-a"),
+      message("assistant", "A started", "input-a", ["input-a"], "run-output"),
+      message("user", "task B", "input-b", [], "input-b"),
+      message("user", "task C", "input-c", [], "input-c"),
+      message("assistant", "A done", "input-a", ["input-a"], "run-output"),
+      message("assistant", "B done", "input-b", ["input-b"], "run-output"),
+      message("assistant", "C done", "input-c", ["input-c"], "run-output"),
+    ]);
+
+    expect(converted.map((item) => item.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
+    const responseText = converted
+      .filter((item) => item.role === "assistant")
+      .map((item) =>
+        ((item.cards?.[0]?.data as any).output as Message[])
+          .map((output) => extractTextFromContent(output.content))
+          .join("|"),
+      );
+    expect(responseText).toEqual(["A started|A done", "B done", "C done"]);
+    expect(new Set(converted.map((item) => item.id)).size).toBe(
+      converted.length,
+    );
+  });
+
+  it("places a multi-input reply after the last referenced input", () => {
+    const converted = convertMessages([
+      message("user", "first detail", "input-a", [], "input-a"),
+      message("user", "second detail", "input-b", [], "input-b"),
+      message(
+        "assistant",
+        "combined answer",
+        "combined-reply",
+        ["input-a", "input-b"],
+        "run-output",
+      ),
+    ]);
+
+    expect(converted.map((item) => item.role)).toEqual([
+      "user",
+      "user",
+      "assistant",
+    ]);
+    expect(
+      extractTextFromContent(
+        ((converted[2].cards?.[0]?.data as any).output as Message[])[0].content,
+      ),
+    ).toBe("combined answer");
+  });
+});
+
 // ---------------------------------------------------------------------------
 // 3. Output card structure correctness on large inputs
 // ---------------------------------------------------------------------------
@@ -759,7 +838,7 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
     vi.restoreAllMocks();
   });
 
-  it("retains the authoritative Chat source through session hydration", async () => {
+  it("retains realtime voice metadata through session hydration", async () => {
     const apiImport = await import("../../../api");
     const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
       id: "voice-1",
@@ -769,13 +848,16 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
       channel: "console",
       created_at: null,
       updated_at: null,
-      source: "realtime_voice",
+      source: "chat",
+      meta: { realtime_voice: { version: 3 } },
       messages: [],
       status: "idle",
     });
 
     const session = await sessionApiDefaultExport.getSession("voice-1");
-    expect((session as { source?: string }).source).toBe("realtime_voice");
+    expect((session as { meta?: Record<string, unknown> }).meta).toEqual({
+      realtime_voice: { version: 3 },
+    });
     expect(getChat).toHaveBeenCalledTimes(1);
   });
 
