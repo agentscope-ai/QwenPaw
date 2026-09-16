@@ -1,0 +1,169 @@
+.breadcrumbs {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  align-items: center;
+  overflow: hidden;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}
+
+.crumbGroup {
+  min-width: 0;
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+}
+
+.crumb {
+  min-width: 0;
+  height: 26px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  color: inherit;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
+  }
+}
+
+.separator {
+  flex: 0 0 auto;
+  color: var(--app-text-quaternary);
+}
+
+.filename {
+  min-width: 48px;
+  overflow: hidden;
+  color: var(--app-text);
+  font-weight: 520;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directoryMenu {
+  width: min(360px, calc(100vw - 32px));
+  max-height: min(480px, calc(100vh - 160px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  background: var(--app-surface-raised);
+  box-shadow: var(--app-shadow-lg);
+}
+
+.directoryMenuHeader {
+  min-height: 38px;
+  padding: 6px 9px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border-bottom: 1px solid var(--app-border-subtle);
+
+  strong {
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  button {
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: grid;
+    place-items: center;
+    color: var(--app-text-secondary);
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--app-text);
+      background: var(--app-fill-subtle);
+    }
+  }
+}
+
+.directoryMenuBody {
+  padding: 5px;
+  overflow: auto;
+}
+
+.directoryEntry,
+.retryButton,
+.loadMore {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--app-text-secondary);
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+
+  span {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: var(--app-text);
+    background: var(--app-fill-subtle);
+  }
+}
+
+.directoryState {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+}
+
+.loadMore {
+  justify-content: center;
+  margin-top: 4px;
+  border: 1px dashed var(--app-border);
+  text-align: center;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

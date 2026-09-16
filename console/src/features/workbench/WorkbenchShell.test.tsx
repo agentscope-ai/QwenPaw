@@ -42,18 +42,21 @@ vi.mock("../files-workspace/FilesWorkspace", () => ({
     initialTarget,
     navigatorOpen,
     onFileActivated,
+    showBreadcrumbs,
     showEditorTabs,
     workspaceOnly,
   }: {
     initialTarget?: { path: string };
     navigatorOpen?: boolean;
     onFileActivated?: (path: string) => void;
+    showBreadcrumbs?: boolean;
     showEditorTabs?: boolean;
     workspaceOnly?: boolean;
   }) => (
     <div
       data-testid="files-capability"
       data-navigator-open={String(navigatorOpen)}
+      data-show-breadcrumbs={String(showBreadcrumbs)}
       data-show-editor-tabs={String(showEditorTabs)}
       data-workspace-only={String(workspaceOnly)}
     >
@@ -120,6 +123,10 @@ describe("WorkbenchShell", () => {
     expect(screen.getByTestId("files-capability")).toHaveAttribute(
       "data-show-editor-tabs",
       "false",
+    );
+    expect(screen.getByTestId("files-capability")).toHaveAttribute(
+      "data-show-breadcrumbs",
+      "true",
     );
   });
 

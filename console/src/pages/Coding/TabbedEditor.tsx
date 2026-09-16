@@ -46,6 +46,7 @@ import { useAppMessage } from "../../hooks/useAppMessage";
 import { copyText } from "../../utils/clipboard";
 import { setTextareaValue } from "../Chat/utils";
 import { clearLastEditorCopy, setLastEditorCopy } from "./lastEditorCopy";
+import type { WorkspaceRoot } from "../../features/files-workspace/types";
 import {
   useCodingTabsStore,
   useDiffsForScope,
@@ -57,6 +58,7 @@ import {
   getEditorLanguage,
   visibleEditorPath,
 } from "./editorCopyFormatting";
+import FileBreadcrumbs from "./FileBreadcrumbs";
 import styles from "./TabbedEditor.module.less";
 
 // ---------------------------------------------------------------------------
@@ -82,6 +84,8 @@ interface TabbedEditorProps {
   projectDirOverride?: string;
   /** Workbench renders file resources in its shared top-level tab strip. */
   showTabBar?: boolean;
+  showBreadcrumbs?: boolean;
+  onOpenWorkspaceFile?: (path: string, root: WorkspaceRoot) => void;
   navigation?: {
     path: string;
     line: number;
@@ -196,6 +200,8 @@ export default function TabbedEditor({
   chatId,
   projectDirOverride,
   showTabBar = true,
+  showBreadcrumbs = false,
+  onOpenWorkspaceFile,
   navigation,
 }: TabbedEditorProps) {
   const { t } = useTranslation();
@@ -1238,7 +1244,19 @@ export default function TabbedEditor({
 
       {/* ── Toolbar ────────────────────────────────────────────────────── */}
       <div className={styles.toolbar}>
-        <span className={styles.fileName}>{activeDisplayPath}</span>
+        {showBreadcrumbs &&
+        activeTab?.source === "workspace" &&
+        onOpenWorkspaceFile ? (
+          <FileBreadcrumbs
+            path={activeDisplayPath}
+            root={activeTab.workspaceRoot}
+            chatId={chatId}
+            projectDirOverride={projectDirOverride}
+            onOpenFile={onOpenWorkspaceFile}
+          />
+        ) : (
+          <span className={styles.fileName}>{activeDisplayPath}</span>
+        )}
 
         <div className={styles.toolbarRight}>
           {activeDiff && (

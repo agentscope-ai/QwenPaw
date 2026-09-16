@@ -34,6 +34,7 @@ const lifecycle = vi.hoisted(() => ({
   editorProps: null as {
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
+    showBreadcrumbs?: boolean;
     showTabBar?: boolean;
   } | null,
 }));
@@ -96,6 +97,7 @@ vi.mock("../../pages/Coding/TabbedEditor", () => ({
   default: function MockTabbedEditor(props: {
     onCloseOtherTabs: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
+    showBreadcrumbs?: boolean;
     showTabBar?: boolean;
   }) {
     lifecycle.editorProps = props;
@@ -234,11 +236,13 @@ describe("FilesWorkspace directory changes", () => {
         navigatorOpen={false}
         navigatorPosition="right"
         scope={{ kind: "agent", agentId: "agent-a" }}
+        showBreadcrumbs
         showEditorTabs={false}
       />,
     );
 
     expect(lifecycle.navigatorMounted).not.toHaveBeenCalled();
+    expect(lifecycle.editorProps?.showBreadcrumbs).toBe(true);
     expect(lifecycle.editorProps?.showTabBar).toBe(false);
     expect(container.firstElementChild?.className).toContain(
       "workspaceNavigatorRight",

@@ -162,7 +162,7 @@ queue state.
 3. [x] Chat Files restricted to project and bound directories.
 4. [x] Unified file and capability resource tabs.
 5. [x] Right-side on-demand file-tree drawer.
-6. [ ] Lazy breadcrumb directory navigation.
+6. [x] Lazy breadcrumb directory navigation.
 7. [ ] Changes resource and non-Git turn review.
 8. [ ] Bottom-capable terminal resource with explicit permissions.
 9. [ ] Tool and subagent history, results, logs, and cancellation.

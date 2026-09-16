@@ -44,6 +44,7 @@ interface FilesWorkspaceProps {
   navigatorPosition?: "left" | "right";
   /** Global Files owns local tabs; Chat Workbench owns shared resource tabs. */
   showEditorTabs?: boolean;
+  showBreadcrumbs?: boolean;
   onFileActivated?: (path: string) => void;
 }
 
@@ -74,6 +75,7 @@ export default function FilesWorkspace({
   navigatorOpen = true,
   navigatorPosition = "left",
   showEditorTabs = true,
+  showBreadcrumbs = false,
   onFileActivated,
 }: FilesWorkspaceProps) {
   const { t } = useTranslation();
@@ -510,7 +512,11 @@ export default function FilesWorkspace({
             onLoadFile={loadTabContent}
             chatId={chatId}
             projectDirOverride={projectDirOverride}
+            showBreadcrumbs={showBreadcrumbs}
             showTabBar={showEditorTabs}
+            onOpenWorkspaceFile={(path, root) => {
+              void openTarget({ source: "workspace", path, root });
+            }}
             navigation={editorNavigation}
             onDownloadFile={async (path) => {
               const tab = tabsRef.current.find((item) => item.path === path);

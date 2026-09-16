@@ -391,6 +391,7 @@ export default function WorkbenchShell({
                 navigatorOpen={layout.fileTreeOpen}
                 navigatorPosition="right"
                 onFileActivated={activateFile}
+                showBreadcrumbs
                 showEditorTabs={false}
                 workspaceOnly
               />
