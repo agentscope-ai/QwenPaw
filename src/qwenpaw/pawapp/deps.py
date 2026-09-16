@@ -99,7 +99,7 @@ def _build_ctx(
         _app_services=app_services,
         _plugin_registry=plugin_registry,
         _session=session,
-        _sse_channel=None,  # Set by TaskManager for long-running tasks
+        _sse_channel=None,  # App-owned streams may attach a channel
     )
 
 

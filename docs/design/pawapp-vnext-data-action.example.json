@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "app_id": "qwenpaw-data",
+  "action_id": "analyze",
+  "summary": "Analyze a selected datasource using the Data App's domain runtime.",
+  "engagements": ["delegated", "direct"],
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "text": {"type": "string", "minLength": 1},
+      "datasource_id": {"type": "string", "minLength": 1}
+    },
+    "required": ["text", "datasource_id"],
+    "additionalProperties": false
+  },
+  "output_types": ["text/plain"],
+  "permissions": ["data.analysis.execute", "data.datasource.read"],
+  "effects": ["model_usage", "datasource_query"],
+  "adapter_ref": "qwenpaw-data.analysis.v1"
+}
