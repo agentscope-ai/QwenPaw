@@ -75,23 +75,32 @@ def test_packaged_catalog_snapshot() -> None:
         ("DEEPSEEK_MODELS", "deepseek-chat"),
         ("GEMINI_MODELS", "gemini-3.1-pro-preview"),
     }
-    assert {
-        model.id: model.max_input_length
+    # The generator writes ModelInfo's 128k field default for entries whose
+    # window it never collected, so the loader normalizes an equal-to-default
+    # value to "not provided" and keeps real values in the catalog slot.
+    dashscope_windows = {
+        model.id: model.max_input_length_catalog
         for model in catalog["DASHSCOPE_MODELS"]
-    } == {
-        "qwen3.8-max": 131_072,
+    }
+    assert dashscope_windows == {
+        "qwen3.8-max": None,
         "qwen3.7-max": 1_000_000,
         "qwen3.7-plus": 1_000_000,
         "qwen3.6-plus": 1_000_000,
-        "deepseek-v4-pro": 131_072,
+        "deepseek-v4-pro": None,
         "glm-5.2": 1_000_000,
     }
     assert all(
-        model.max_input_length == 1_048_576
+        model.max_input_length is None
+        for models in catalog.values()
+        for model in models
+    )
+    assert all(
+        model.max_input_length_catalog == 1_048_576
         for model in catalog["GEMINI_MODELS"]
     )
     assert {
-        model.id: model.max_input_length
+        model.id: model.max_input_length_catalog
         for model in catalog["OPENAI_MODELS"]
         if model.id in {"gpt-5.2", "gpt-4.1", "o4-mini"}
     } == {
@@ -100,7 +109,7 @@ def test_packaged_catalog_snapshot() -> None:
         "o4-mini": 200_000,
     }
     assert {
-        model.id: model.max_input_length
+        model.id: model.max_input_length_catalog
         for model in catalog["VOLCENGINE_CODINGPLAN_MODELS"]
         if model.id
         in {"deepseek-v4-flash", "kimi-k2.7-code", "doubao-seed-2.1-turbo"}
@@ -110,7 +119,7 @@ def test_packaged_catalog_snapshot() -> None:
         "doubao-seed-2.1-turbo": 262_144,
     }
     assert {
-        model.id: model.max_input_length
+        model.id: model.max_input_length_catalog
         for model in catalog["VOLCENGINE_AGENTPLAN_MODELS"]
         if model.id
         in {"deepseek-v4-flash", "kimi-k2.7-code", "ark-code-latest"}
@@ -120,7 +129,8 @@ def test_packaged_catalog_snapshot() -> None:
         "ark-code-latest": 262_144,
     }
     assert {
-        model.id: model.max_input_length for model in catalog["MIMO_MODELS"]
+        model.id: model.max_input_length_catalog
+        for model in catalog["MIMO_MODELS"]
     } == {
         "mimo-v2.5-pro": 1_048_576,
         "mimo-v2.5": 1_048_576,

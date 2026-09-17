@@ -6,7 +6,10 @@ from typing import Any
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider import ModelInfo
 
-PROVIDER_SNAPSHOT_SCHEMA_VERSION = 2
+PROVIDER_SNAPSHOT_SCHEMA_VERSION = 3
+
+# Names that may legitimately appear in ``ModelInfo.config_overrides``.
+_CONFIG_OVERRIDE_FIELDS = frozenset(ModelInfo.model_fields)
 
 PERSISTED_MODEL_STATE_FIELDS = (
     "generate_kwargs",
@@ -14,7 +17,7 @@ PERSISTED_MODEL_STATE_FIELDS = (
     "max_output_length_source",
     "max_output_length_updated_at",
     "max_input_length",
-    "max_input_length_configured",
+    "max_input_length_catalog",
     "max_input_length_auto_detected",
     "relay_reasoning",
     "thinking_enabled",
@@ -48,6 +51,25 @@ def _migrate_legacy_model_output_limit(
     model["generate_kwargs"] = generate_kwargs
 
 
+def _migrate_context_window_override(model: dict[str, Any]) -> None:
+    """Split the legacy override+flag pair into the two window slots.
+
+    Before schema v3, ``max_input_length`` carried the user override and the
+    provider/catalog value at the same time, told apart by
+    ``max_input_length_configured``. A value that was never flagged as
+    explicit belonged to the catalog level (and a legacy 128k there meant
+    "not provided", which the catalog loader now normalizes itself).
+    """
+    configured = bool(model.pop("max_input_length_configured", False))
+    value = model.get("max_input_length")
+    if value is None or configured:
+        # Nothing stored, or a user override: both keep the value as-is.
+        return
+    model["max_input_length"] = None
+    if value != DEFAULT_CONTEXT_WINDOW:
+        model["max_input_length_catalog"] = value
+
+
 def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
     """Upgrade a provider snapshot to the current output-limit schema."""
     version = data.get("snapshot_schema_version", 1)
@@ -69,6 +91,11 @@ def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
             if not isinstance(model, dict):
                 continue
             _migrate_legacy_model_output_limit(model)
+            if not (
+                isinstance(version, int)
+                and version >= PROVIDER_SNAPSHOT_SCHEMA_VERSION
+            ):
+                _migrate_context_window_override(model)
 
     data["snapshot_schema_version"] = PROVIDER_SNAPSHOT_SCHEMA_VERSION
     return True
@@ -79,8 +106,14 @@ def serialize_model_state(model: ModelInfo) -> dict[str, Any]:
     state = {
         field: getattr(model, field) for field in PERSISTED_MODEL_STATE_FIELDS
     }
-    if "max_input_length_configured" not in model.model_fields_set:
-        state.pop("max_input_length_configured", None)
+    # Drop override names whose field no longer exists (for example the
+    # removed ``max_input_length_configured``), so snapshots converge
+    # instead of carrying dead names forever.
+    state["config_overrides"] = [
+        field
+        for field in model.config_overrides
+        if field in _CONFIG_OVERRIDE_FIELDS
+    ]
     return state
 
 
@@ -93,10 +126,7 @@ def restore_model_state(model: ModelInfo, state: dict[str, Any]) -> None:
     output_source = state.get("max_output_length_source")
     restore_output_capability = output_source in {"api", "adapter", "user"}
     for field in PERSISTED_MODEL_STATE_FIELDS:
-        if field in {
-            "generate_kwargs",
-            "max_input_length_configured",
-        }:
+        if field == "generate_kwargs":
             continue
         if field.startswith("max_output_length") and not (
             restore_output_capability
@@ -105,12 +135,3 @@ def restore_model_state(model: ModelInfo, state: dict[str, Any]) -> None:
         value = state.get(field)
         if value is not None:
             setattr(model, field, value)
-
-    configured_flag = state.get("max_input_length_configured")
-    if configured_flag is None:
-        configured_length = state.get("max_input_length")
-        configured_flag = (
-            configured_length is not None
-            and configured_length != DEFAULT_CONTEXT_WINDOW
-        )
-    model.max_input_length_configured = bool(configured_flag)

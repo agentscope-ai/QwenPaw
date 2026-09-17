@@ -15,7 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from qwenpaw.exceptions import ProviderError
 
-from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
+from .context_windows import (
+    ContextWindowResolution,
+    resolve_context_window_details,
+)
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -166,18 +169,20 @@ class ModelInfo(BaseModel):
         default=None,
         description="UTC timestamp of the output capability update.",
     )
-    max_input_length: int = Field(
-        default=DEFAULT_CONTEXT_WINDOW,
+    max_input_length: int | None = Field(
+        default=None,
         ge=1000,
-        description="Maximum input context window size (tokens). "
+        description="User override for the input context window (tokens). "
+        "None means inherit: the runtime resolves the window from the "
+        "provider API, the model catalog, or the static pattern catalog. "
         "Controls when context compaction is triggered.",
     )
-    max_input_length_configured: bool = Field(
-        default=False,
-        description=(
-            "Whether max_input_length was explicitly configured. This keeps "
-            "an intentional 131072-token override distinct from the default."
-        ),
+    max_input_length_catalog: int | None = Field(
+        default=None,
+        ge=1000,
+        description="Input context window documented by the provider model "
+        "catalog. A documented value equal to the 128k default is treated "
+        "as not provided by the catalog loader.",
     )
     max_input_length_auto_detected: int | None = Field(
         default=None,
@@ -269,6 +274,22 @@ class ModelInfo(BaseModel):
         description=(
             "Whether the provider can apply an agent-level thinking override "
             "to this model. Derived in ProviderInfo responses."
+        ),
+    )
+    effective_max_input_length: int | None = Field(
+        default=None,
+        description=(
+            "Read-only projection of the context window actually used at "
+            "runtime (context_windows.resolve_context_window_details). "
+            "Derived in ProviderInfo responses; never persisted or read back "
+            "as input."
+        ),
+    )
+    effective_max_input_length_source: str | None = Field(
+        default=None,
+        description=(
+            "Read-only provenance of effective_max_input_length: 'user', "
+            "'api', 'catalog' or 'default'. Derived with it."
         ),
     )
 
@@ -961,6 +982,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         for model in Provider.all_models(self):
             if model.id == model_id:
                 changed_fields: list[str] = []
+                cleared_fields: list[str] = []
                 if (
                     "generate_kwargs" in config
                     and config["generate_kwargs"] is not None
@@ -970,23 +992,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     if model.generate_kwargs != generate_kwargs:
                         model.generate_kwargs = generate_kwargs
                         changed_fields.append("generate_kwargs")
-                if (
-                    "max_input_length" in config
-                    and config["max_input_length"] is not None
-                ):
-                    max_input_length = int(config["max_input_length"])
-                    if (
-                        model.max_input_length != max_input_length
-                        or not model.max_input_length_configured
-                    ):
+                if "max_input_length" in config:
+                    # Present-with-None clears the override (inherit again);
+                    # an absent key leaves it untouched.
+                    max_input_length = config["max_input_length"]
+                    if max_input_length is not None:
+                        max_input_length = int(max_input_length)
+                    if model.max_input_length != max_input_length:
                         model.max_input_length = max_input_length
-                        model.max_input_length_configured = True
-                        changed_fields.extend(
-                            [
-                                "max_input_length",
-                                "max_input_length_configured",
-                            ],
-                        )
+                        if max_input_length is None:
+                            cleared_fields.append("max_input_length")
+                        else:
+                            changed_fields.append("max_input_length")
                 if (
                     "relay_reasoning" in config
                     and config["relay_reasoning"] is not None
@@ -1020,7 +1037,14 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                         model.reasoning_effort = reasoning_effort
                         changed_fields.append("reasoning_effort")
                 model.config_overrides = list(
-                    dict.fromkeys(model.config_overrides + changed_fields),
+                    dict.fromkeys(
+                        [
+                            field
+                            for field in model.config_overrides
+                            if field not in cleared_fields
+                        ]
+                        + changed_fields,
+                    ),
                 )
                 return True
         return False
@@ -1096,18 +1120,22 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """
         return True
 
-    def get_context_size(self, model_id: str) -> int:
-        """Resolve the context window for *model_id*.
+    def get_context_window_details(
+        self,
+        model_id: str,
+    ) -> ContextWindowResolution:
+        """Resolve the context window for *model_id* and its provenance.
 
         Feeds ``model.context_size`` (which drives automatic context
         compression) AND the display/usage path
-        (``config.get_model_max_input_length``) -- both MUST go through this
-        method so the reported usage%% and the compaction trigger never
-        diverge. Resolution lives in
-        :func:`.context_windows.resolve_context_window`:
-        explicitly configured ``max_input_length`` > API auto-detected value
-        > non-default provider/catalog value > static pattern catalog
-        (unless :meth:`_context_catalog_enabled` opts out) > 128k default.
+        (``config.get_model_max_input_length``) AND the console's read-only
+        ``effective_max_input_length`` projection -- all MUST go through this
+        method so the reported usage%, the compaction trigger, and what the
+        UI shows never diverge. Resolution lives in
+        :func:`.context_windows.resolve_context_window_details`: user
+        override > API auto-detected value > provider catalog value > static
+        pattern catalog (unless :meth:`_context_catalog_enabled` opts out) >
+        128k default.
         """
         model_info = self.get_model_info(model_id)
         discovered_info = self.get_discovered_model_info(model_id)
@@ -1123,25 +1151,25 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "max_input_length_auto_detected",
                 None,
             )
-        return resolve_context_window(
+        return resolve_context_window_details(
             model_id,
-            configured=(
-                configured_info.max_input_length
+            override=(
+                getattr(configured_info, "max_input_length", None)
                 if configured_info is not None
                 else None
             ),
-            configured_is_explicit=(
-                getattr(
-                    configured_info,
-                    "max_input_length_configured",
-                    False,
-                )
+            auto_detected=auto_detected,
+            catalog=(
+                getattr(configured_info, "max_input_length_catalog", None)
                 if configured_info is not None
-                else False
+                else None
             ),
             use_catalog=self._context_catalog_enabled(),
-            auto_detected=auto_detected,
         )
+
+    def get_context_size(self, model_id: str) -> int:
+        """The resolved context window for *model_id*, in tokens."""
+        return self.get_context_window_details(model_id).value
 
     def _get_context_size(self, model_id: str) -> int:
         """Alias of :meth:`get_context_size` kept for provider internals."""
@@ -1201,6 +1229,9 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             payload["supports_agent_thinking"] = self.supports_agent_thinking(
                 model.id,
             )
+            window = self.get_context_window_details(model.id)
+            payload["effective_max_input_length"] = window.value
+            payload["effective_max_input_length_source"] = window.source
             return payload
 
         # Serialize models/extra_models to plain dicts so that

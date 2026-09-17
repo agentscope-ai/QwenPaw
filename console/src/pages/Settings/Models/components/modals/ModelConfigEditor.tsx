@@ -51,7 +51,7 @@ export function ModelConfigEditor({
     configuredMaxTokens,
   );
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
-    model.max_input_length ?? 131072,
+    model.max_input_length ?? null,
   );
   const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
   const [relayReasoning, setRelayReasoning] = useState<boolean>(
@@ -80,7 +80,7 @@ export function ModelConfigEditor({
   useEffect(() => {
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
-    setMaxInputLength(model.max_input_length ?? 131072);
+    setMaxInputLength(model.max_input_length ?? null);
     setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
     setThinkingEnabled(model.thinking_enabled ?? null);
@@ -97,7 +97,9 @@ export function ModelConfigEditor({
     model.reasoning_effort,
   ]);
 
-  const effectiveMaxInputLength = maxInputLength ?? 131072;
+  const effectiveMaxInputLength = model.effective_max_input_length ?? null;
+  const windowSource = model.effective_max_input_length_source ?? null;
+  const inputLengthOverridden = model.max_input_length != null;
 
   const handleChange = useCallback((val: string) => {
     setText(val);
@@ -140,7 +142,7 @@ export function ModelConfigEditor({
     try {
       const updated = await api.configureModel(providerId, model.id, {
         ...(maxInputLengthDirty
-          ? { max_input_length: effectiveMaxInputLength }
+          ? { max_input_length: maxInputLength ?? null }
           : {}),
         generate_kwargs: parsed,
         relay_reasoning: relayReasoning,
@@ -222,15 +224,39 @@ export function ModelConfigEditor({
           </div>
         </div>
         <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxInputLengthLabel", "Max Context Length")}
+          <div
+            style={{
+              ...labelStyle,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
+            <span>{t("models.maxInputLengthLabel", "Max Context Length")}</span>
+            {inputLengthOverridden && (
+              <Button
+                type="text"
+                size="small"
+                icon={<RotateCcw size={14} />}
+                aria-label={t(
+                  "models.resetMaxInputLength",
+                  "Clear override",
+                )}
+                title={t("models.resetMaxInputLength", "Clear override")}
+                onClick={() => handleMaxInputLengthChange(null)}
+              />
+            )}
           </div>
           <InputNumber
             style={{ width: "100%" }}
             min={1000}
             step={1024}
             value={maxInputLength}
-            placeholder="131072"
+            placeholder={
+              effectiveMaxInputLength != null
+                ? String(effectiveMaxInputLength)
+                : undefined
+            }
             onChange={handleMaxInputLengthChange}
           />
           <div
@@ -243,6 +269,22 @@ export function ModelConfigEditor({
             {t(
               "models.maxInputLengthHint",
               "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
+            )}
+            {!inputLengthOverridden && effectiveMaxInputLength != null && (
+              <>
+                <br />
+                {t("models.maxInputLengthInherited", {
+                  defaultValue:
+                    "Inherited · effective {{value}} · from {{source}}",
+                  value: effectiveMaxInputLength.toLocaleString(),
+                  source: t(
+                    `models.maxInputLengthSource_${
+                      windowSource ?? "default"
+                    }`,
+                    windowSource ?? "default",
+                  ),
+                })}
+              </>
             )}
           </div>
         </div>

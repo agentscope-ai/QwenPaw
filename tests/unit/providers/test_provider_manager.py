@@ -38,6 +38,9 @@ from qwenpaw.providers.provider import (
     ProviderInfo,
 )
 from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.provider_model_state import (
+    PROVIDER_SNAPSHOT_SCHEMA_VERSION,
+)
 
 
 def _install_v210_provider_fixture(
@@ -421,7 +424,6 @@ async def test_custom_provider_preserves_explicit_default_context_window(
         max_input_length=DEFAULT_CONTEXT_WINDOW,
     )
     assert "max_input_length" in request_model.model_fields_set
-    assert request_model.max_input_length_configured is False
 
     await manager.add_custom_provider(
         ProviderInfo(
@@ -436,7 +438,7 @@ async def test_custom_provider_preserves_explicit_default_context_window(
     assert reloaded is not None
     model = reloaded.get_model_info("claude-sonnet-4-5")
     assert model is not None
-    assert model.max_input_length_configured is True
+    assert model.max_input_length == DEFAULT_CONTEXT_WINDOW
     assert (
         reloaded.get_context_size("claude-sonnet-4-5")
         == DEFAULT_CONTEXT_WINDOW
@@ -1224,7 +1226,9 @@ def test_load_provider_migrates_v210_builtin_snapshot(
     assert migrated.custom_headers == {"X-Legacy": "kept"}
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
-    assert persisted["snapshot_schema_version"] == 2
+    assert persisted["snapshot_schema_version"] == (
+        PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    )
     assert all("max_tokens" not in model for model in persisted["models"])
     configured = next(
         model
@@ -1271,7 +1275,9 @@ def test_load_provider_migrates_v210_custom_snapshot(
     assert migrated.custom_headers == {"X-Custom-Legacy": "kept"}
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
-    assert persisted["snapshot_schema_version"] == 2
+    assert persisted["snapshot_schema_version"] == (
+        PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    )
     assert all(
         "max_tokens" not in model for model in persisted["extra_models"]
     )
@@ -1307,7 +1313,9 @@ def test_prepare_plugin_registration_migrates_v210_snapshot(
     assert provider.custom_headers == {"X-Plugin-Legacy": "kept"}
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
-    assert persisted["snapshot_schema_version"] == 2
+    assert persisted["snapshot_schema_version"] == (
+        PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    )
     configured = persisted["extra_models"][0]
     assert "max_tokens" not in configured
     assert configured["generate_kwargs"]["max_tokens"] == 4096
@@ -1727,16 +1735,16 @@ async def test_sync_update_and_async_discovery_share_atomic_transaction(
 
 
 @pytest.mark.parametrize(
-    ("saved_length", "expected_configured"),
+    ("saved_length", "expected_catalog_value"),
     [
-        (64_000, True),
-        (DEFAULT_CONTEXT_WINDOW, False),
+        (64_000, 64_000),
+        (DEFAULT_CONTEXT_WINDOW, None),
     ],
 )
-def test_legacy_builtin_context_window_infers_non_default_as_configured(
+def test_legacy_builtin_context_window_moves_to_the_catalog_slot(
     isolated_secret_dir,
     saved_length: int,
-    expected_configured: bool,
+    expected_catalog_value: int | None,
 ) -> None:
     manager = ProviderManager()
     provider = manager.get_provider("openai")
@@ -1757,8 +1765,11 @@ def test_legacy_builtin_context_window_infers_non_default_as_configured(
     assert reloaded is not None
     model = reloaded.get_model_info("gpt-4o")
     assert model is not None
-    assert model.max_input_length == saved_length
-    assert model.max_input_length_configured is expected_configured
+    assert model.max_input_length is None
+    assert model.max_input_length_catalog == expected_catalog_value
+    # The legacy resolution outcome is preserved: a stored non-default value
+    # still wins, a stored 128k placeholder still means "not provided".
+    assert reloaded.get_context_size("gpt-4o") == saved_length
 
 
 def test_builtin_capability_probe_results_survive_storage_reload(
@@ -2523,7 +2534,6 @@ async def test_discovery_preserves_explicit_context_override(
             name="Configured Model",
             source="discovered",
             max_input_length=64_000,
-            max_input_length_configured=True,
         ),
     ]
 
@@ -2545,8 +2555,10 @@ async def test_discovery_preserves_explicit_context_override(
     model = provider.get_discovered_model_info("vendor/model")
     assert model is not None
     assert model.max_input_length == 64_000
-    assert model.max_input_length_configured is True
     assert model.max_input_length_auto_detected == 1_000_000
+    # A window reported by a fetch is catalog-level data: it can never
+    # overwrite (or become) a user override.
+    assert model.max_input_length_catalog == 1_000_000
     assert provider.get_context_size("vendor/model") == 64_000
 
 

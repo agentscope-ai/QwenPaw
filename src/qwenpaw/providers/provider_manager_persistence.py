@@ -251,8 +251,6 @@ class ProviderManagerPersistenceMixin(
         elif update_kind == "configured_update":
             model_fields = set(fields or set())
             model_fields.add("config_overrides")
-            if "max_input_length" in model_fields:
-                model_fields.add("max_input_length_configured")
             self._copy_model_fields(
                 latest,
                 result,

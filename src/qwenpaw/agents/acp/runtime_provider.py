@@ -122,12 +122,7 @@ class OpenAIRuntimeProviderConfig:
         """Create the in-memory provider without writing credentials."""
         model_kwargs: dict[str, Any] = {}
         if self.max_input_tokens is not None:
-            model_kwargs.update(
-                {
-                    "max_input_length": self.max_input_tokens,
-                    "max_input_length_configured": True,
-                },
-            )
+            model_kwargs["max_input_length"] = self.max_input_tokens
         if self.max_output_tokens is not None:
             model_kwargs["generate_kwargs"] = {
                 "max_tokens": self.max_output_tokens,

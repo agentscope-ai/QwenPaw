@@ -31,7 +31,6 @@ from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 from qwenpaw.token_usage import TokenRecordingModelWrapper
 
-
 _REAL_INSTALL_MODEL_FORMATTER = model_factory._install_model_formatter
 
 
@@ -148,9 +147,7 @@ def test_context_size_is_restored_when_missing():
     provider = SimpleNamespace(
         id="provider",
         get_context_size=lambda _model_id: 131_072,
-        get_model_info=lambda _model_id: SimpleNamespace(
-            max_input_length_configured=False,
-        ),
+        get_model_info=lambda _model_id: SimpleNamespace(),
     )
 
     model_factory._ensure_model_context_size(model, provider, "model")
@@ -164,9 +161,7 @@ def test_implicit_default_context_size_is_replaced():
     provider = SimpleNamespace(
         id="provider",
         get_context_size=lambda _model_id: 131_072,
-        get_model_info=lambda _model_id: SimpleNamespace(
-            max_input_length_configured=False,
-        ),
+        get_model_info=lambda _model_id: SimpleNamespace(),
     )
 
     model_factory._ensure_model_context_size(model, provider, "model")
@@ -357,7 +352,6 @@ def test_global_model_switch_during_construction_keeps_context(
                     id=model_id,
                     name=model_id,
                     max_input_length=context_size,
-                    max_input_length_configured=True,
                 )
                 for model_id, context_size in [
                     ("model-a", 32_768),

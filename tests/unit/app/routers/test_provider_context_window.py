@@ -51,6 +51,36 @@ async def test_configure_model_only_forwards_submitted_fields() -> None:
     }
 
 
+async def test_configure_model_forwards_null_as_a_clear() -> None:
+    """An explicit null must reach the provider (clear the override), while an
+    omitted field must not appear in the payload at all."""
+    captured = None
+
+    async def update_model_config(**kwargs):
+        nonlocal captured
+        captured = kwargs
+        return SimpleNamespace()
+
+    manager = SimpleNamespace(update_model_config=update_model_config)
+
+    await configure_model(
+        manager=manager,
+        provider_id="openai",
+        model_id="gpt-test",
+        body=ModelConfigRequest(max_input_length=None),
+    )
+
+    assert captured["config"] == {"max_input_length": None}
+
+
+@pytest.mark.parametrize("value", [0, -1, 999])
+def test_model_config_rejects_non_positive_context_windows(
+    value: object,
+) -> None:
+    with pytest.raises(ValidationError, match="max_input_length"):
+        ModelConfigRequest(max_input_length=value)
+
+
 @pytest.mark.parametrize("value", [0, -1, 1.5, True])
 def test_model_config_rejects_invalid_max_tokens(value: object) -> None:
     with pytest.raises(ValidationError, match="max_tokens"):

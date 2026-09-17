@@ -176,9 +176,6 @@ class OpenRouterProvider(Provider):
                 except (TypeError, ValueError):
                     context_length = 0
                 if context_length >= 1000:  # ModelInfo's field lower bound
-                    # Keep the legacy field populated for API compatibility;
-                    # provenance still marks this as discovered metadata.
-                    window_kwargs["max_input_length"] = context_length
                     window_kwargs[
                         "max_input_length_auto_detected"
                     ] = context_length

@@ -22,9 +22,20 @@ export interface ModelInfo {
   max_output_length?: number | null;
   max_output_length_source?: "api" | "catalog" | "adapter" | "user" | "unknown";
   max_output_length_updated_at?: string | null;
-  max_input_length: number;
-  max_input_length_configured?: boolean;
+  max_input_length: number | null;
+  max_input_length_catalog?: number | null;
   max_input_length_auto_detected?: number | null;
+  /**
+   * Read-only projection of the window actually used at runtime, and where it
+   * came from. Derived by the provider on every response; never sent back.
+   */
+  effective_max_input_length?: number | null;
+  effective_max_input_length_source?:
+    | "user"
+    | "api"
+    | "catalog"
+    | "default"
+    | null;
   generate_kwargs: Record<string, unknown>;
   relay_reasoning: boolean;
   thinking_enabled: boolean | null;
@@ -164,7 +175,8 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
-  max_input_length?: number;
+  /** Omit to leave unchanged; null clears the override (inherit again). */
+  max_input_length?: number | null;
   generate_kwargs?: Record<string, unknown>;
   relay_reasoning?: boolean;
   thinking_enabled?: boolean | null;

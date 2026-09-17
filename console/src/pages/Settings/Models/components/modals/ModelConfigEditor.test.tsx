@@ -6,6 +6,11 @@ import api from "../../../../../api";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import { renderWithProviders } from "@/test/common_setup";
 
+// The context-window hint interpolates the effective value into translated
+// text, so this file needs a real i18next instance (the shared test setup
+// renders raw keys, which would hide the number entirely).
+import "@/i18n";
+
 import { ModelConfigEditor } from "./ModelConfigEditor";
 
 vi.mock("../../../../../api", () => ({
@@ -127,5 +132,87 @@ describe("ModelConfigEditor output limits", () => {
         generate_kwargs: { temperature: 0.2 },
       }),
     );
+  });
+});
+
+describe("ModelConfigEditor context window", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows the inherited effective window instead of a default", () => {
+    renderEditor(
+      createModel({
+        max_input_length: null,
+        effective_max_input_length: 272000,
+        effective_max_input_length_source: "catalog",
+      }),
+    );
+
+    expect(screen.getByPlaceholderText("272000")).toBeInTheDocument();
+    const inherited = screen.getByText(/Inherited/).textContent ?? "";
+    expect(inherited).toMatch(/272,000/);
+    expect(inherited).toMatch(/built-in catalog/);
+    expect(
+      screen.queryByRole("button", { name: /Clear override/i }),
+    ).toBeNull();
+  });
+
+  it("keeps a user override visible and offers to clear it", () => {
+    renderEditor(
+      createModel({
+        max_input_length: 131072,
+        effective_max_input_length: 131072,
+        effective_max_input_length_source: "user",
+      }),
+    );
+
+    expect(screen.getByDisplayValue("131072")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Clear override/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Inherited ·/i)).toBeNull();
+  });
+
+  it("sends null to clear the override back to inherited", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        max_input_length: 131072,
+        effective_max_input_length: 131072,
+        effective_max_input_length_source: "user",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /Clear override/i }));
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    expect(api.configureModel).toHaveBeenCalledWith(
+      "openai",
+      "test-model",
+      expect.objectContaining({ max_input_length: null }),
+    );
+  });
+
+  it("omits an untouched window while editing another setting", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        max_input_length: null,
+        effective_max_input_length: 272000,
+        effective_max_input_length_source: "catalog",
+      }),
+      "budget",
+    );
+
+    await user.click(screen.getAllByRole("switch")[0]);
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    const payload = vi.mocked(api.configureModel).mock.calls[0][2];
+    expect(payload).not.toHaveProperty("max_input_length");
   });
 });

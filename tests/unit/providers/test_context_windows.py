@@ -7,6 +7,11 @@
 The compaction trigger is ``trigger_ratio * model.context_size``; before the
 catalog every model inherited the 128k ``max_input_length`` default, so a
 1M-context model compacted exactly like a 128k one.
+
+Since schema v3 the window has three separate slots instead of one
+override-plus-flag pair: ``max_input_length`` (user override, ``None`` means
+inherit), ``max_input_length_auto_detected`` (provider API) and
+``max_input_length_catalog`` (provider catalog document).
 """
 
 from types import SimpleNamespace
@@ -17,6 +22,7 @@ from qwenpaw.providers.context_windows import (
     DEFAULT_CONTEXT_WINDOW,
     known_context_size,
     resolve_context_window,
+    resolve_context_window_details,
 )
 from qwenpaw.providers.provider import ModelInfo, Provider
 
@@ -68,13 +74,9 @@ def test_known_windows(model_id: str, expected: int):
 # -- resolve_context_window: the single resolution entry point ---------------
 
 
-def test_resolve_explicit_config_wins():
+def test_resolve_user_override_wins():
     assert (
-        resolve_context_window(
-            "claude-sonnet-4-5",
-            configured=1_000_000,
-            configured_is_explicit=True,
-        )
+        resolve_context_window("claude-sonnet-4-5", override=1_000_000)
         == 1_000_000
     )
 
@@ -83,31 +85,36 @@ def test_resolve_provider_default_does_not_override_api():
     assert (
         resolve_context_window(
             "claude-sonnet-4-5",
-            configured=64_000,
+            catalog=64_000,
             auto_detected=1_000_000,
         )
         == 1_000_000
     )
 
 
-def test_resolve_default_valued_config_falls_to_catalog():
+def test_resolve_absent_override_falls_to_catalog():
+    assert resolve_context_window("claude-sonnet-4-5") == 200_000
+
+
+def test_resolve_user_override_of_128k_is_honored():
+    # The whole point of the split slots: choosing the historical default is
+    # representable, so no companion boolean is needed.
     assert (
         resolve_context_window(
             "claude-sonnet-4-5",
-            configured=DEFAULT_CONTEXT_WINDOW,
+            override=DEFAULT_CONTEXT_WINDOW,
         )
-        == 200_000
+        == DEFAULT_CONTEXT_WINDOW
     )
 
 
-def test_resolve_explicit_default_valued_config_wins():
+def test_resolve_catalog_slot_wins_over_patterns():
     assert (
         resolve_context_window(
             "claude-sonnet-4-5",
-            configured=DEFAULT_CONTEXT_WINDOW,
-            configured_is_explicit=True,
+            catalog=1_000_000,
         )
-        == DEFAULT_CONTEXT_WINDOW
+        == 1_000_000
     )
 
 
@@ -117,16 +124,41 @@ def test_resolve_without_catalog_uses_default():
         resolve_context_window("qwen3-coder:30b", use_catalog=False)
         == DEFAULT_CONTEXT_WINDOW
     )
-    # But an explicit config still wins.
+    # But a user override still wins.
     assert (
         resolve_context_window(
             "qwen3-coder:30b",
-            configured=32_768,
-            configured_is_explicit=True,
+            override=32_768,
             use_catalog=False,
         )
         == 32_768
     )
+
+
+def test_resolve_ignores_non_positive_values():
+    # A zero/negative slot must never reach the compaction trigger (it would
+    # make every request "over the limit") or the usage percentage.
+    assert resolve_context_window("claude-sonnet-4-5", override=0) == 200_000
+    assert resolve_context_window("claude-sonnet-4-5", catalog=-5) == 200_000
+    assert (
+        resolve_context_window("claude-sonnet-4-5", auto_detected=0) == 200_000
+    )
+
+
+@pytest.mark.parametrize(
+    ("model_id", "kwargs", "expected_source"),
+    [
+        ("claude-sonnet-4-5", {"override": 1_000}, "user"),
+        ("claude-sonnet-4-5", {"auto_detected": 1_000}, "api"),
+        ("claude-sonnet-4-5", {"catalog": 1_000}, "catalog"),
+        ("claude-sonnet-4-5", {}, "catalog"),  # static pattern table
+        ("totally-unknown-model", {}, "default"),
+    ],
+)
+def test_resolve_reports_provenance(model_id, kwargs, expected_source):
+    resolution = resolve_context_window_details(model_id, **kwargs)
+    assert resolution.source == expected_source
+    assert resolution.value == resolve_context_window(model_id, **kwargs)
 
 
 def test_resolve_unknown_model_uses_default():
@@ -163,6 +195,7 @@ class _CatalogProvider:
         return None
 
     get_context_size = Provider.get_context_size
+    get_context_window_details = Provider.get_context_window_details
     _get_context_size = Provider._get_context_size
     _context_catalog_enabled = Provider._context_catalog_enabled
 
@@ -174,58 +207,87 @@ class _MutableCatalogProvider(_CatalogProvider):
     update_model_config = Provider.update_model_config
 
 
-def test_context_size_prefers_explicit_user_config():
+def test_context_size_prefers_user_override():
     p = _CatalogProvider()
     p._info = ModelInfo(
         id="claude-sonnet-4-5",
         name="x",
         max_input_length=1_000_000,
-        max_input_length_configured=True,
     )
     assert p.get_context_size("claude-sonnet-4-5") == 1_000_000
 
 
-def test_context_size_falls_back_to_catalog_when_default():
+def test_context_size_falls_back_to_catalog_when_inherited():
     p = _CatalogProvider()
-    p._info = ModelInfo(id="claude-sonnet-4-5", name="x")  # default 128k
+    p._info = ModelInfo(id="claude-sonnet-4-5", name="x")
     assert p.get_context_size("claude-sonnet-4-5") == 200_000
 
 
-def test_context_size_honors_explicit_128k_user_config():
+def test_context_size_honors_user_override_of_128k():
     p = _CatalogProvider()
     p._info = ModelInfo(
         id="claude-sonnet-4-5",
         name="x",
         max_input_length=DEFAULT_CONTEXT_WINDOW,
-        max_input_length_configured=True,
     )
     assert p.get_context_size("claude-sonnet-4-5") == DEFAULT_CONTEXT_WINDOW
 
 
-def test_model_config_update_marks_128k_as_explicit():
+def test_context_size_reports_user_override_source():
+    p = _CatalogProvider()
+    p._info = ModelInfo(
+        id="claude-sonnet-4-5",
+        name="x",
+        max_input_length=1_000_000,
+    )
+    assert p.get_context_window_details("claude-sonnet-4-5").source == "user"
+
+
+def test_model_config_update_sets_and_clears_the_override():
     p = _MutableCatalogProvider()
     model = ModelInfo(id="claude-sonnet-4-5", name="x")
     p.models = [model]
     p.extra_models = []
+    p._info = model
 
-    assert p.update_model_config(
-        model.id,
-        {"max_input_length": DEFAULT_CONTEXT_WINDOW},
+    assert p.update_model_config(model.id, {"max_input_length": 1_000})
+    assert model.max_input_length == 1_000
+    assert p.get_context_size(model.id) == 1_000
+    assert "max_input_length" in model.config_overrides
+
+    # Present-with-None clears the override and drops the protection.
+    assert p.update_model_config(model.id, {"max_input_length": None})
+    assert model.max_input_length is None
+    assert "max_input_length" not in model.config_overrides
+    assert p.get_context_size(model.id) == 200_000
+
+
+def test_model_config_update_clears_a_restored_128k_override():
+    # A user-chosen 128k must survive a "clear" round-trip the same way.
+    p = _MutableCatalogProvider()
+    model = ModelInfo(
+        id="claude-sonnet-4-5",
+        name="x",
+        max_input_length=DEFAULT_CONTEXT_WINDOW,
     )
-    assert model.max_input_length_configured is True
+    p.models = [model]
+    p.extra_models = []
     p._info = model
     assert p.get_context_size(model.id) == DEFAULT_CONTEXT_WINDOW
 
+    assert p.update_model_config(model.id, {"max_input_length": None})
+    assert p.get_context_size(model.id) == 200_000
 
-def test_unrelated_model_config_update_keeps_catalog_window():
+
+def test_unrelated_model_config_update_keeps_the_catalog_window():
     p = _MutableCatalogProvider()
     model = ModelInfo(id="claude-sonnet-4-5", name="x")
     p.models = [model]
     p.extra_models = []
+    p._info = model
 
     assert p.update_model_config(model.id, {"max_tokens": 4096})
-    assert model.max_input_length_configured is False
-    p._info = model
+    assert model.max_input_length is None
     assert p.get_context_size(model.id) == 200_000
 
 
@@ -248,12 +310,12 @@ def test_context_size_uses_discovered_only_api_metadata():
     assert p.get_context_size("remote-only") == 512_000
 
 
-def test_context_size_api_supplements_non_explicit_configured_model():
+def test_context_size_api_supplements_catalog_slot():
     p = _CatalogProvider()
     p._info = ModelInfo(
         id="claude-sonnet-4-5",
         name="Configured",
-        max_input_length=64_000,
+        max_input_length_catalog=64_000,
     )
     p.get_discovered_model_info = lambda _model_id: ModelInfo(
         id="claude-sonnet-4-5",
@@ -264,23 +326,23 @@ def test_context_size_api_supplements_non_explicit_configured_model():
     assert p.get_context_size("claude-sonnet-4-5") == 1_000_000
 
 
-def test_context_size_uses_non_explicit_catalog_value_for_unknown_model():
+def test_context_size_uses_catalog_slot_for_unknown_model():
     p = _CatalogProvider()
     p._info = ModelInfo(
         id="catalog-only-model",
         name="Catalog Only",
-        max_input_length=2_000_000,
+        max_input_length_catalog=2_000_000,
     )
 
     assert p.get_context_size("catalog-only-model") == 2_000_000
 
 
-def test_context_size_api_wins_over_non_explicit_catalog_value():
+def test_context_size_api_wins_over_catalog_slot():
     p = _CatalogProvider()
     p._info = ModelInfo(
         id="catalog-only-model",
         name="Catalog Only",
-        max_input_length=2_000_000,
+        max_input_length_catalog=2_000_000,
     )
     p.get_discovered_model_info = lambda _model_id: ModelInfo(
         id="catalog-only-model",
@@ -291,13 +353,12 @@ def test_context_size_api_wins_over_non_explicit_catalog_value():
     assert p.get_context_size("catalog-only-model") == 3_000_000
 
 
-def test_context_size_explicit_config_wins_over_discovered_metadata():
+def test_context_size_user_override_wins_over_discovered_metadata():
     p = _CatalogProvider()
     p._info = ModelInfo(
         id="claude-sonnet-4-5",
         name="Configured",
         max_input_length=64_000,
-        max_input_length_configured=True,
     )
     p.get_discovered_model_info = lambda _model_id: ModelInfo(
         id="claude-sonnet-4-5",
@@ -313,6 +374,54 @@ def test_private_alias_still_works():
     p = _CatalogProvider()
     p._info = ModelInfo(id="claude-sonnet-4-5", name="x")
     assert p._get_context_size("claude-sonnet-4-5") == 200_000
+
+
+def test_provider_info_projection_matches_the_resolution():
+    """The console renders this read-only projection instead of the raw
+    override field (issue #7810), so it must equal what compaction uses."""
+    import asyncio
+
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+
+    provider = OpenAIProvider(
+        id="openai",
+        name="OpenAI",
+        api_key="sk-test",
+        models=[
+            ModelInfo(id="gpt-5", name="gpt-5"),
+            ModelInfo(
+                id="claude-sonnet-4-5",
+                name="claude",
+                max_input_length=131_072,
+            ),
+            ModelInfo(
+                id="qwen3-max",
+                name="qwen3-max",
+                max_input_length_catalog=262_144,
+            ),
+        ],
+        extra_models=[],
+    )
+
+    info = asyncio.run(provider.get_info())
+    for model in info.models:
+        assert model.effective_max_input_length == provider.get_context_size(
+            model.id,
+        )
+
+    projected = {
+        model.id: (
+            model.effective_max_input_length,
+            model.effective_max_input_length_source,
+        )
+        for model in info.models
+    }
+    assert projected["gpt-5"] == (272_000, "catalog")
+    assert projected["claude-sonnet-4-5"] == (131_072, "user")
+    assert projected["qwen3-max"] == (262_144, "catalog")
+
+    # Response-only: the projection never lands on the live model.
+    assert provider.models[0].effective_max_input_length is None
 
 
 # -- Ollama: local serving opts out of the cloud catalog ----------------------
@@ -348,7 +457,6 @@ def test_ollama_explicit_config_still_wins():
                 id="qwen3-coder:30b",
                 name="qwen3-coder",
                 max_input_length=32_768,
-                max_input_length_configured=True,
             ),
         ],
     )
@@ -372,7 +480,7 @@ def test_openrouter_reads_context_length():
             pricing=None,
             context_length=1_000_000,
         ),
-        SimpleNamespace(  # absent → field default → catalog resolves
+        SimpleNamespace(  # absent → no detected window
             id="mistralai/mistral-large",
             name="Mistral Large",
             pricing=None,
@@ -387,12 +495,15 @@ def test_openrouter_reads_context_length():
     models = {
         m.id: m for m in OpenRouterProvider._normalize_models_payload(payload)
     }
-    assert models["anthropic/claude-sonnet-4.5"].max_input_length == 1_000_000
-    assert (
-        models["mistralai/mistral-large"].max_input_length
-        == DEFAULT_CONTEXT_WINDOW
-    )
-    assert models["foo/bar"].max_input_length == DEFAULT_CONTEXT_WINDOW
+    # The API value is auto-detected metadata: it must not occupy the user
+    # override slot, or a later refresh could not update it.
+    reported = models["anthropic/claude-sonnet-4.5"]
+    assert reported.max_input_length is None
+    assert reported.max_input_length_auto_detected == 1_000_000
+    absent = models["mistralai/mistral-large"]
+    assert absent.max_input_length is None
+    assert absent.max_input_length_auto_detected is None
+    assert models["foo/bar"].max_input_length_auto_detected is None
 
 
 # -- config display path resolves through the SAME provider method -----------
