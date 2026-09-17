@@ -19,48 +19,26 @@ export function CustomProviderModal({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
-  const [createdProviderId, setCreatedProviderId] = useState<string | null>(
-    null,
-  );
   const [form] = Form.useForm();
 
   useEffect(() => {
     if (!open) return;
     setSaving(false);
-    setCreatedProviderId(null);
     form.resetFields();
   }, [form, open]);
-
-  const createOrUpdateProvider = async () => {
-    const values = await form.validateFields();
-    let providerId = createdProviderId;
-
-    if (!providerId) {
-      const created = await api.createCustomProvider({
-        id: values.id.trim(),
-        name: values.name.trim(),
-        default_base_url: values.default_base_url.trim(),
-        chat_model: values.chat_model || "OpenAIChatModel",
-      });
-      providerId = created.id;
-      setCreatedProviderId(providerId);
-    }
-
-    await api.configureProvider(providerId, {
-      api_key: values.api_key?.trim() || "",
-      name: values.name.trim(),
-      base_url: values.default_base_url.trim(),
-      chat_model: values.chat_model || "OpenAIChatModel",
-      auto_discover: false,
-    });
-
-    return values.name.trim();
-  };
 
   const handleSave = async () => {
     try {
       setSaving(true);
-      const providerName = await createOrUpdateProvider();
+      const values = await form.validateFields();
+      const providerName = values.name.trim();
+      await api.createCustomProvider({
+        id: values.id.trim(),
+        name: providerName,
+        default_base_url: values.default_base_url.trim(),
+        api_key: values.api_key?.trim() || "",
+        chat_model: values.chat_model || "OpenAIChatModel",
+      });
       await onSaved();
       message.success(t("models.configurationSaved", { name: providerName }));
       onClose();
@@ -115,10 +93,7 @@ export function CustomProviderModal({
             },
           ]}
         >
-          <Input
-            disabled={Boolean(createdProviderId)}
-            placeholder={t("models.providerIdPlaceholder")}
-          />
+          <Input placeholder={t("models.providerIdPlaceholder")} />
         </Form.Item>
 
         <Form.Item

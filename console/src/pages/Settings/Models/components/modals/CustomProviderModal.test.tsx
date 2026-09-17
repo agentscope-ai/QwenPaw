@@ -7,7 +7,6 @@ import { renderWithProviders } from "@/test/common_setup";
 
 const apiMocks = vi.hoisted(() => ({
   createCustomProvider: vi.fn(),
-  configureProvider: vi.fn(),
 }));
 
 vi.mock("../../../../../api", () => ({
@@ -89,10 +88,9 @@ describe("CustomProviderModal", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiMocks.createCustomProvider.mockResolvedValue({ id: "team-api" });
-    apiMocks.configureProvider.mockResolvedValue({});
   });
 
-  it("saves provider configuration without discovering models", async () => {
+  it("creates a provider with its connection configuration", async () => {
     const user = userEvent.setup();
     const { onClose, onSaved } = renderModal();
     await fillConnectionForm(user);
@@ -100,33 +98,15 @@ describe("CustomProviderModal", () => {
     await user.click(screen.getByText("models.save"));
 
     await waitFor(() =>
-      expect(apiMocks.configureProvider).toHaveBeenCalledWith("team-api", {
-        api_key: "sk-secret",
+      expect(apiMocks.createCustomProvider).toHaveBeenCalledWith({
+        id: "team-api",
         name: "Team API",
-        base_url: "https://api.example.com/v1",
+        default_base_url: "https://api.example.com/v1",
+        api_key: "sk-secret",
         chat_model: "OpenAIChatModel",
-        auto_discover: false,
       }),
     );
     expect(onSaved).toHaveBeenCalledOnce();
     expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it("resumes a failed save without creating a duplicate provider", async () => {
-    apiMocks.configureProvider
-      .mockRejectedValueOnce(new Error("save failed"))
-      .mockResolvedValueOnce({});
-    const user = userEvent.setup();
-    renderModal();
-    await fillConnectionForm(user);
-
-    await user.click(screen.getByText("models.save"));
-    await waitFor(() => expect(messageMocks.error).toHaveBeenCalled());
-    await user.click(screen.getByText("models.save"));
-
-    await waitFor(() =>
-      expect(apiMocks.configureProvider).toHaveBeenCalledTimes(2),
-    );
-    expect(apiMocks.createCustomProvider).toHaveBeenCalledOnce();
   });
 });
