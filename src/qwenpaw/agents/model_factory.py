@@ -47,7 +47,7 @@ from .utils.message_request_normalizer import (
 )
 from ..exceptions import ProviderError, ModelFormatterError
 from ..providers import ProviderManager
-from ..providers.provider import agent_thinking_level
+from ..providers.provider import ModelInfo, agent_thinking_level
 from ..providers.hub_managed import (
     PROVIDER_ID,
     hub_mode,
@@ -592,6 +592,8 @@ def _normalize_messages_for_formatter(
     msgs: list,
     base_formatter_class: Type[FormatterBase],
     formatter_instance: FormatterBase | None = None,
+    *,
+    supports_multimodal: bool | None = None,
 ) -> tuple[list, bool, bool, bool]:
     """Return normalized messages and formatter-family flags.
 
@@ -611,7 +613,8 @@ def _normalize_messages_for_formatter(
         base_formatter_class,
         OpenAIResponseFormatter,
     )
-    supports_multimodal = _supports_multimodal_for_current_model()
+    if supports_multimodal is None:
+        supports_multimodal = _supports_multimodal_for_current_model()
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
         supports_multimodal = False
     strip_audio = bool(
@@ -1497,6 +1500,8 @@ def _create_file_block_support_formatter(
     base_formatter_class: Type[FormatterBase],
     provider_id: str | None = None,
     model_id: str | None = None,
+    *,
+    supports_multimodal: bool | None = None,
 ) -> Type[FormatterBase]:
     """Create a formatter class with file block support.
 
@@ -1511,10 +1516,16 @@ def _create_file_block_support_formatter(
         model_id: Model served by the provider. This is used together with
             ``provider_id`` for request-protocol capabilities that cannot be
             inferred from the shared formatter base class.
+        supports_multimodal: Capability of the selected model. Resolve it
+            once at construction when the caller has no model metadata.
 
     Returns:
         Enhanced formatter class with file block support
     """
+
+    # Snapshot capability at construction, never during async formatting.
+    if supports_multimodal is None:
+        supports_multimodal = _supports_multimodal_for_current_model()
 
     supports_reasoning_content_relay = not (
         (
@@ -1642,6 +1653,7 @@ def _create_file_block_support_formatter(
                 msgs,
                 base_formatter_class,
                 self,
+                supports_multimodal=supports_multimodal,
             )
 
             has_reasoning = False
@@ -2159,6 +2171,7 @@ def _apply_model_fallbacks(
             _install_model_formatter(
                 fallback_model,
                 provider_id=fallback_provider_id,
+                model_info=fallback_info,
             )
         except Exception:
             logger.warning(
@@ -2200,7 +2213,11 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
     with agent_thinking_level(settings.thinking_level):
         model = provider.get_chat_model_instance(selected.model)
     _ensure_model_context_size(model, provider, selected.model)
-    formatter = _install_model_formatter(model, provider_id=PROVIDER_ID)
+    formatter = _install_model_formatter(
+        model,
+        provider_id=PROVIDER_ID,
+        model_info=provider.get_model_info(selected.model),
+    )
     return (
         TokenRecordingModelWrapper(
             PROVIDER_ID,
@@ -2312,7 +2329,11 @@ def create_model_and_formatter(
     # ``ChatModelBase`` carries its own ``self.formatter`` (set by its
     # ``__init__``), so we just wrap that one with file-block support
     # instead of class-resolving via a brittle map.
-    formatter = _install_model_formatter(model, provider_id=provider_id)
+    formatter = _install_model_formatter(
+        model,
+        provider_id=provider_id,
+        model_info=provider.get_model_info(selected_model_id),
+    )
 
     # agentscope 2.0 ChatModelBase has its own retry loop
     # (model/_base.py:162: ``for attempt in range(self.max_retries + 1)``)
@@ -2368,6 +2389,8 @@ async def create_model_and_formatter_async(
 def _create_formatter_instance(
     model: ChatModelBase,
     provider_id: str | None = None,
+    *,
+    supports_multimodal: bool | None = None,
 ) -> FormatterBase:
     """Wrap the model's native formatter with file-block support.
 
@@ -2403,6 +2426,7 @@ def _create_formatter_instance(
         base_formatter_class,
         provider_id=provider_id,
         model_id=str(getattr(model, "model", "") or ""),
+        supports_multimodal=supports_multimodal,
     )
     # Carry over all Pydantic field values (max_bytes,
     # relay_reasoning_content, etc.) from the provider-constructed
@@ -2434,11 +2458,18 @@ def _create_formatter_instance(
 def _install_model_formatter(
     model: ChatModelBase,
     provider_id: str | None = None,
+    *,
+    model_info: ModelInfo | None = None,
 ) -> FormatterBase:
     """Install and return the QwenPaw formatter for one model."""
     formatter = _create_formatter_instance(
         model,
         provider_id=provider_id,
+        supports_multimodal=(
+            model_info is None
+            or bool(model_info.supports_image or model_info.supports_video)
+            or model_info.supports_multimodal is not False
+        ),
     )
     model.formatter = formatter
     return formatter

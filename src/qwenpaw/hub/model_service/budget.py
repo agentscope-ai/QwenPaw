@@ -107,18 +107,31 @@ class TokenBudgetService:
                     (subject, body.token_limit),
                 )
 
-    def reserve(self, identity, model_id, catalog, output_limit):
+    def reserve(
+        self,
+        identity,
+        model_id,
+        catalog,
+        output_limit,
+        *,
+        admin_test=False,
+    ):
         """Authorize and reserve both budgets in a short transaction."""
         with self.store.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            if not db.execute(
-                "SELECT 1 FROM hub_users WHERE user_id = ? "
+            user = db.execute(
+                "SELECT role FROM hub_users WHERE user_id = ? "
                 "AND disabled = 0 AND deleted_at IS NULL",
                 (identity["user_id"],),
-            ).fetchone():
+            ).fetchone()
+            if user is None:
                 raise PermissionError("Account is disabled")
+            # Only the control-plane route supplies this internal flag.
+            # Recheck its authority in the same transaction as admission.
+            if admin_test and user["role"] != "admin":
+                raise PermissionError("Administrator access required")
             if (
-                identity["runtime_id"] != "admin-test"
+                not admin_test
                 and not db.execute(
                     "SELECT 1 FROM hub_model_runtime_tokens t JOIN runtimes r "
                     "ON r.runtime_id = t.runtime_id WHERE t.runtime_id = ? "
@@ -136,7 +149,7 @@ class TokenBudgetService:
                 identity["user_id"],
                 model_id,
                 db,
-                test=identity["runtime_id"] == "admin-test",
+                test=admin_test,
             )
             cap = model["output_token_limit"]
             if output_limit is not None:

@@ -80,11 +80,15 @@ class ModelGateway:
             )
         return response
 
-    async def call(self, identity, body):
+    async def call(self, identity, body, *, admin_test=False):
         """Reserve once and transfer resource ownership to the response."""
         attempt = GatewayRequest(self.budgets, self.catalog)
         try:
-            _, model, connection, cap = await attempt.reserve(identity, body)
+            _, model, connection, cap = await attempt.reserve(
+                identity,
+                body,
+                admin_test=admin_test,
+            )
             response = await self._open(
                 attempt,
                 model,

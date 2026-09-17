@@ -145,6 +145,7 @@ def governance_router(
                 ],
                 "max_tokens": 16,
             },
+            admin_test=True,
         )
 
     @router.get("/admin/model-status")
