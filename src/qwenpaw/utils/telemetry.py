@@ -290,7 +290,7 @@ def mark_telemetry_collected(
                     "collected_versions": versions,
                     "opted_out": opted_out
                     or data.get("opted_out", False) is True,
-                    "version": current,
+                    "version": "1.4",
                 },
             )
     except Exception as e:

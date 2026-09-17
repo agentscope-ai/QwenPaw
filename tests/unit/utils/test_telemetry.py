@@ -168,7 +168,7 @@ def test_mark_collected_creates_marker(
     assert marker.exists()
     data = json.loads(marker.read_text())
     assert "1.0.0" in data["collected_versions"]
-    assert data["version"] == "1.0.0"
+    assert data["version"] == "1.4"
     assert data["opted_out"] is False
 
 
