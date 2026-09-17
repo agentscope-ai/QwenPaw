@@ -313,14 +313,45 @@ class TestAgentStatsCharts:
 
             # No data is a legitimate outcome on a fresh CI environment: the
             # page's own ``hasData`` (defined inline in
-            # ``pages/Settings/AgentStats/index.tsx``) is false when every
-            # counter in the API response is zero, and then the page renders an
-            # antd Empty whose description is ``agentStats.noData``. Anchor on
-            # that description rather than the previous bare
-            # ``[class*="empty"]``, which also matches unrelated elements.
+            # ``pages/Settings/AgentStats/index.tsx``:169-174) is false when
+            # every counter in the API response is zero, and then the page
+            # renders an ``Empty`` (``index.tsx:541-544``) whose description is
+            # ``agentStats.noData``.
+            #
+            # 🔴 That Empty is NOT antd's, and the previous
+            # ``.qwenpaw-empty-description`` anchor could never match it:
+            #
+            #   ``Empty`` comes from ``@agentscope-ai/design`` (1.0.29) and
+            #   builds its class names from ``getCommonConfig().sparkPrefix``
+            #   -- ``Empty/index.js:214`` ``var sparkPrefix =
+            #   commonConfig.sparkPrefix`` and ``:275``
+            #   ``className: "".concat(sparkPrefix, "-empty-description")``.
+            #   The library default is ``'spark'`` (``lib/config.js:16``
+            #   ``export var DEFAULT_SPARK_PREFIX = 'spark'``), and nothing in
+            #   ``console/src`` ever calls ``setCommonConfig`` to change it
+            #   (repo-wide grep: zero call sites). ``App.tsx:429``'s
+            #   ``prefixCls="qwenpaw"`` is the *antd* ConfigProvider prop -- a
+            #   different mechanism that this component does not read.
+            #   So the real DOM class is ``spark-empty-description``, and the
+            #   anchor above silently matched nothing (``count() == 0``), which
+            #   is why step 2's loose ``[class*='empty']`` saw the empty state
+            #   while this step denied it, 14 ms apart, in the same run.
+            #
+            # Anchor on the description element without hard-coding the prefix,
+            # then let the i18n label keep it unambiguous. ``[class*=...]``
+            # survives any prefix the design library picks (``spark-`` today,
+            # ``qwenpaw-``/``ant-`` if upstream ever wires ``setCommonConfig``),
+            # and the ``:has-text`` pair still scopes this to *the* AgentStats
+            # no-data message rather than to any unrelated element that happens
+            # to carry "empty" in a class name. Labels verified against the
+            # i18n sources: ``console/src/locales/en.json:2276``
+            # ``"noData": "No statistics data in the selected period"`` and
+            # ``console/src/locales/zh.json:2067``
+            # ``"noData": "所选时间段内暂无统计数据"`` (``:has-text`` is a
+            # substring match, so both prefixes below hit).
             empty_state = page.locator(
-                '.qwenpaw-empty-description:has-text("No statistics data"), '
-                '.qwenpaw-empty-description:has-text("暂无统计数据")'
+                '[class*="empty-description"]:has-text("No statistics data"), '
+                '[class*="empty-description"]:has-text("暂无统计数据")'
             ).first
             is_empty = empty_state.count() > 0 and empty_state.is_visible()
 
