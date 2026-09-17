@@ -551,7 +551,7 @@ export default function SidebarSessionList({
         ...sortedSessions.filter((session) => !session.pinned),
       ];
       return (["today", "week", "older"] as const)
-        .map((tier) => {
+        .map((tier): ListSection | null => {
           const sessions = ordered.filter(
             (session) => tierOfSession(session) === tier,
           );
