@@ -62,7 +62,9 @@
 
 新增小模块 `src/qwenpaw/hub/python_environment.py`，只负责 Python 环境的创建、校验、解释器路径和进程环境变量。由 `LocalProcessProvisioner.start()` 在 sandbox launch 前调用。
 
-目录约定：`<runtime-root>/python/`，与 working、secrets、logs 同级，不进用户工作区。Windows 使用 `Scripts/python.exe`，POSIX 使用 `bin/python`；不可 resolve 掉 venv 解释器符号链接后再启动。
+目录约定：`<runtime-root>/working/.venv/`，位于该用户的 QwenPaw 工作目录内。Windows 使用 `Scripts/python.exe`，POSIX 使用 `bin/python`；不可 resolve 掉 venv 解释器符号链接后再启动。
+
+Agent workspace 可以是 working 下独立的子目录，不能仅靠移动目录获得写权限。ResourceGovernor 编译内层沙箱配置时，仅当当前解释器确实运行于 `WORKING_DIR/.venv`，才将这个 venv 精确挂载为可写，供同用户多个 Agent 共用；不放开整个 working 或宿主 Python。沿用跨平台 MountSpec，由各平台沙箱执行权限。不迁移或兼容此前本分支的同级 python 目录。
 
 采用独立 venv，通过仅包含路径的 `.pth` 显式追加 Hub 的基础包目录及本仓库源码：只读复用 QwenPaw 和基础框架，用户新增包写入自己 venv。不启用 `system-site-packages`，避免执行宿主 `.pth` 而带入无关 editable 项目。真实 macOS 沙箱测试发现此类路径会让 pip 扫描失败，因此收紧了最初的实现选项。用户 runtime 本身由这个 venv 的 Python 启动，PluginLoader 原有 `sys.executable` 安装和进程内 import 自然落在同一环境，无需增加插件专属安装分支。
 
@@ -73,7 +75,7 @@
 - PYTHONPATH 只保留经过明确约束的开发源码路径，不透传任意宿主路径，更不能把宿主 site-packages 放在用户 venv 之前。
 - Hub 只创建初始环境、检查完成标记和基础解释器指纹，不在沙箱外运行用户可写的解释器。QwenPaw import/启动通过原有沙箱启动及 readiness 验证；pip、sys.prefix 和 CLI 一致性由真实环境测试覆盖。
 - 同一 runtime 创建加锁；在最终路径创建，校验通过后写完成标记。不要先创建 venv 再改名，因为 pip 等脚本可能嵌入绝对路径。失败时清理本次不完整环境。
-- 停止保留环境；记录基础解释器/环境版本指纹。基础环境不匹配时明确提示先停止 runtime，再删除其 `python/` 并启动重建，不静默继续或破坏性重建。现有 rebuild API 仅面向 Docker，本次不扩大该 API；runtime 数据保留/删除沿用现有生命周期策略。
+- 停止保留环境；记录基础解释器/环境版本指纹。基础环境不匹配时明确提示先停止 runtime，再删除其 `working/.venv/` 并启动重建，不静默继续或破坏性重建。现有 rebuild API 仅面向 Docker，本次不扩大该 API；runtime 数据保留/删除沿用现有生命周期策略。
 - 依赖安装仍在 runtime 沙箱内执行；不能为了安装第三方包让 Hub 在沙箱外运行插件安装逻辑。
 
 这是“基础依赖只读共享 + 用户依赖独立可写”，不是复制一整套 Python。它解决用户之间污染；同一个 runtime 内多个进程内插件依赖冲突仍属于现有架构边界。本次不引入每插件进程或每插件 venv，也不为新格式增加兼容层。
@@ -145,6 +147,8 @@ Creator 还有 jq、FFmpeg、Playwright 浏览器、模型/OSS 配置等独立�
 - [x] 用户 review：确认采用 app 范围浏览器读取会话。
 - [x] 实现 Python 环境模块及 provisioner 接入。
 - [x] 验证 shell / Python / pip / CLI 环境一致；保留显式内层沙箱治理限制。
+- [x] 将 venv 移入用户 working/.venv，并为独立 Agent workspace 精确挂载当前 runtime venv。
+- [x] 验证真实内层 Bash 沙箱安装、后续进程复用与用户隔离；运行相关回归。
 - [x] 实现 Hub 会话策略、SDK 接入与 Creator 资源链路。
 - [x] 在 conda QwenPaw 环境完成相关单测，新增/受影响测试全部通过。
 - [x] 完成可用的 macOS 沙箱与浏览器验收；Linux/Windows 真实 OS 验收仍待对应 runner。
@@ -160,3 +164,4 @@ Creator 还有 jq、FFmpeg、Playwright 浏览器、模型/OSS 配置等独立�
 - 浏览器验收使用真实 Hub、Chrome 和实际编译的 Console/Creator 前端，业务接口使用测试数据。点击 Creator、深链接刷新、原生 SSE、Range 206 均通过；截图确认首页及首次模型配置引导正常呈现，无 Creator 资源 4xx/5xx。
 - Python pre-commit 全部通过。相关前端测试与类型/构建检查通过；对修改文件执行 ESLint 时，原有 `config.test.ts` 和 `hostExternals.ts` 的 9 处 `no-explicit-any` 错误及 2 条原有 warning 仍存在，本次未扩展修改这些既有代码。
 - Windows/Linux 当前仅代码与相关单测覆盖，未在真实 OS 上运行平台验收；Creator 生成模型、OSS、jq 等业务依赖不属于本次浏览器鉴权验收。
+- venv 可写边界补充验证：Hub Python 环境、进程隔离、治理策略及 sandbox off-mode 相关测试共 137 项通过；真实 Hub/local runtime 端到端 1 项通过。内层 macOS Bash 使用 ResourceGovernor 实际编译的配置验证 pip 安装和 CLI：去掉 venv 挂载时安装失败，加回后成功，工作目录其他位置仍不可写；环境复用后的新进程能导入和运行，其他用户与 Hub 不能导入。未将此验证表述为 Windows/Linux 实机验收。

@@ -16,8 +16,8 @@ from .models import RuntimeRecord
 
 
 def environment_root(record: RuntimeRecord) -> Path:
-    """Keep Python outside the user's working directory."""
-    return record.working_dir.parent / "python"
+    """Persist Python inside the user's runtime working directory."""
+    return record.working_dir / ".venv"
 
 
 def python_executable(record: RuntimeRecord) -> Path:

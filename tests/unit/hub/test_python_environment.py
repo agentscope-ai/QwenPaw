@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Exercise real venvs, pip entry points and isolated shell execution."""
 
+import asyncio
 import json
 import os
 import shlex
@@ -23,6 +24,10 @@ from qwenpaw.hub.python_environment import (
     environment_root,
 )
 from qwenpaw.hub.process_isolation import MacOSSeatbeltIsolator
+from qwenpaw.governance import resource_governor
+from qwenpaw.governance.policy import ToolCallSpec
+from qwenpaw.governance.resource_governor import ResourceGovernor
+from qwenpaw.sandbox.macos_sandbox import MacOSSandbox
 
 
 def _record(tmp_path: Path, name: str) -> RuntimeRecord:
@@ -133,6 +138,103 @@ def test_environment_removes_host_overrides_and_merges_path(tmp_path: Path):
     )
     assert environment["PYTHONNOUSERSITE"] == "1"
     assert environment["PIP_USER"] == "0"
+
+
+def _agent_sandbox_config(record, monkeypatch, *, active=True):
+    workspace = record.working_dir / "agents" / "test-agent"
+    workspace.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(resource_governor, "WORKING_DIR", record.working_dir)
+    monkeypatch.setattr(
+        resource_governor,
+        "sys",
+        SimpleNamespace(
+            prefix=str(environment_root(record))
+            if active
+            else sys.base_prefix,
+            base_prefix=sys.base_prefix,
+        ),
+    )
+    governor = ResourceGovernor(
+        str(workspace),
+        governance_dir=str(record.working_dir / "governance"),
+    )
+    governor.start()
+    return governor.compile_sandbox_config(
+        ToolCallSpec(
+            tool_name="Bash",
+            target="python -m pip install",
+            agent_id="test-agent",
+            session_id="test-session",
+        ),
+    )
+
+
+def test_agent_mounts_only_active_user_venv(tmp_path, monkeypatch):
+    record = _record(tmp_path, "user")
+    config = _agent_sandbox_config(record, monkeypatch)
+    writable = {m.path for m in config.mounts if m.writable}
+    assert str(environment_root(record)) in writable
+    assert str(record.working_dir) not in writable
+    assert environment_root(record) == record.working_dir / ".venv"
+    config = _agent_sandbox_config(record, monkeypatch, active=False)
+    assert str(environment_root(record)) not in {
+        m.path for m in config.mounts if m.writable
+    }
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS Seatbelt")
+def test_inner_agent_sandbox_pip_persistence_and_isolation(
+    tmp_path,
+    monkeypatch,
+):
+    first = _record(tmp_path.resolve(), "sandbox user")
+    second = _record(tmp_path.resolve(), "other user")
+    python = ensure_python_environment(first)
+    other_python = ensure_python_environment(second)
+    wheel = _wheel(first.working_dir)
+    environment = dict(os.environ)
+    apply_python_environment(first, environment)
+    environment["HOME"] = str(first.working_dir)
+    environment["SHELL"] = "/bin/bash"
+    config = _agent_sandbox_config(first, monkeypatch)
+    config.env_vars.update(environment)
+    command = (
+        f"python -m pip install --no-index --no-deps "
+        f"{shlex.quote(str(wheel))} && paw-probe"
+    )
+    mounts = config.mounts
+    config.mounts = [
+        mount for mount in mounts if mount.path != str(environment_root(first))
+    ]
+    result = asyncio.run(MacOSSandbox(config).execute(command))
+    assert result.exit_code != 0
+    assert not (environment_root(first) / "bin" / "paw-probe").exists()
+    config.mounts = mounts
+    result = asyncio.run(MacOSSandbox(config).execute(command))
+    assert result.exit_code == 0, result.stderr
+    assert "runtime-only" in result.stdout
+    result = asyncio.run(
+        MacOSSandbox(config).execute(
+            f"touch {shlex.quote(str(first.working_dir / 'outside-venv'))}",
+        ),
+    )
+    assert result.exit_code != 0
+    assert ensure_python_environment(first) == python
+    result = asyncio.run(
+        MacOSSandbox(config).execute(
+            f"{shlex.quote(str(python))} -c 'import paw_isolation_probe'"
+            f" && paw-probe",
+        ),
+    )
+    assert result.exit_code == 0, result.stderr
+    assert "runtime-only" in result.stdout
+    for interpreter in (other_python, Path(sys.executable)):
+        result = subprocess.run(
+            [str(interpreter), "-c", "import paw_isolation_probe"],
+            capture_output=True,
+            check=False,
+        )
+        assert result.returncode != 0
 
 
 def test_concurrent_creation_and_changed_base(tmp_path: Path):
