@@ -111,6 +111,8 @@ export interface ProviderConfigRequest {
   generate_kwargs?: Record<string, unknown>;
   custom_headers?: Record<string, string>;
   auth_mode?: "api_key" | "auth_token";
+  /** Whether saving the provider should start background model discovery. */
+  auto_discover?: boolean;
 }
 
 export type CustomChatModelName =
