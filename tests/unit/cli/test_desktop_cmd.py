@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the legacy pywebview desktop bridge."""
 
+# pylint: disable=protected-access
+
 import io
 import signal
 import subprocess
