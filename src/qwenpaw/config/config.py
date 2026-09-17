@@ -2013,6 +2013,10 @@ class CodingModeConfig(BaseModel):
         default=False,
         description="Enable Coding Mode IDE layout and tools",
     )
+    terminal_enabled: bool = Field(
+        default=False,
+        description="Allow user-operated interactive terminals",
+    )
 
 
 class FallbackPolicyConfig(BaseModel):

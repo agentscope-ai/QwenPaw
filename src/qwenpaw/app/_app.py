@@ -678,6 +678,14 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
+        terminal_managers = getattr(app.state, "terminal_managers", set())
+        if terminal_managers:
+            await asyncio.gather(
+                *(manager.close_all() for manager in terminal_managers),
+                return_exceptions=True,
+            )
+            terminal_managers.clear()
+
         await PORTABILITY_IMPORT_JOBS.drain()
 
         # These three cleanup tasks are independent; run in parallel.

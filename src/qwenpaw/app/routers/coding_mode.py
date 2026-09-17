@@ -48,6 +48,7 @@ async def get_coding_mode(request: Request) -> dict:
     cm = config.coding_mode
     return {
         "enabled": bool(cm.enabled),
+        "terminal_enabled": bool(cm.terminal_enabled),
         "agent_id": config.id,
     }
 
@@ -101,5 +102,49 @@ async def post_coding_mode_toggle(
     )
     return {
         "enabled": body.enabled,
+        "terminal_enabled": bool(config.coding_mode.terminal_enabled),
+        "agent_id": config.id,
+    }
+
+
+@router.post(
+    "/terminal",
+    summary="Enable or disable interactive terminals for the current agent",
+)
+async def post_terminal_toggle(
+    body: CodingModeToggleRequest,
+    request: Request,
+) -> dict:
+    """Persist the explicit terminal permission and stop shells on revoke."""
+    import asyncio
+    from ...config.config import load_agent_config, save_agent_config
+
+    workspace = await get_agent_for_request(request)
+    from .terminal import terminal_gate_lock
+
+    async with terminal_gate_lock(workspace):
+        config = await asyncio.to_thread(
+            load_agent_config,
+            workspace.agent_id,
+        )
+        config.coding_mode.terminal_enabled = body.enabled
+        await asyncio.to_thread(
+            save_agent_config,
+            config.id,
+            config,
+        )
+        workspace.terminal_enabled = body.enabled
+        manager = getattr(workspace, "terminal_manager", None)
+        if not body.enabled and manager is not None:
+            await manager.close_all()
+
+    logger.info(
+        "Interactive terminal %s for agent %s",
+        "enabled" if body.enabled else "disabled",
+        config.id,
+    )
+    return {
+        "enabled": bool(config.coding_mode.enabled),
+        "terminal_enabled": body.enabled,
         "agent_id": config.id,
     }
