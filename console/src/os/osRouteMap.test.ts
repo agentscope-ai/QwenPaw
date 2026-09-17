@@ -26,6 +26,7 @@ describe("osRouteMap", () => {
 
   it("routes dynamic children to their owning app", () => {
     expect(pathToRouteId("/chat/session-1", routes)).toBe("core.chat");
+    expect(pathToRouteId("/chat/sales/session-1", routes)).toBe("core.chat");
   });
 
   it("prefers a concrete PawApp over the aggregate apps route", () => {

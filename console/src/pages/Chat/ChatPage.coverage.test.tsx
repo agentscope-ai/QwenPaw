@@ -668,9 +668,10 @@ describe("ChatPage coverage", () => {
       },
     );
     const view = renderWithProviders(<ChatPage />, {
-      initialEntries: ["/chat/previous-agent-chat"],
+      initialEntries: ["/chat/default/previous-agent-chat"],
     });
     await screen.findByTestId("chat-ui");
+    mockSetSelectedAgent.mockClear();
 
     mockSelectedAgent.mockReturnValue("agent-b");
     view.rerender(<ChatPage />);
@@ -678,8 +679,30 @@ describe("ChatPage coverage", () => {
     await waitFor(() => {
       expect(sessionApi.createSession).toHaveBeenCalledTimes(1);
     });
+    expect(mockSetSelectedAgent).not.toHaveBeenCalled();
     expect(sessionApi.preferredChatId).toBeNull();
     expect(sessionApi.lastActiveChatId).toBe(localSessionId);
+  });
+
+  it("keeps the URL session when a deep link switches agents", async () => {
+    const view = renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/sales/sales-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    await waitFor(() => {
+      expect(mockSetSelectedAgent).toHaveBeenCalledWith("sales");
+    });
+
+    vi.mocked(sessionApi.createSession).mockClear();
+    mockSelectedAgent.mockReturnValue("sales");
+    view.rerender(<ChatPage />);
+
+    await waitFor(() => {
+      expect(sessionApi.preferredChatId).toBe("sales-session");
+    });
+    expect(sessionApi.lastActiveChatId).toBe("sales-session");
+    expect(sessionApi.createSession).not.toHaveBeenCalled();
   });
 
   it("renders child components", async () => {

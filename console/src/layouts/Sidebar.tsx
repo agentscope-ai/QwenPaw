@@ -455,10 +455,10 @@ export default function Sidebar({
   const handleSidebarSessionClick = useCallback(
     (sessionId: string) => {
       const effectiveId = sessionApi.getEffectiveSessionId(sessionId);
-      const targetPath = buildChatPath(effectiveId);
+      const targetPath = buildChatPath(effectiveId, selectedAgent);
       navigate(targetPath);
     },
-    [navigate],
+    [navigate, selectedAgent],
   );
 
   const handleUpdateProfile = async (values: {

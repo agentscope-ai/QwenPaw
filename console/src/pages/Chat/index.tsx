@@ -213,7 +213,9 @@ import {
 import {
   CHAT_BASE_PATH,
   buildChatPath,
+  getAgentIdFromPath,
   getSessionIdFromPath,
+  shouldPreserveUrlSessionOnAgentSwitch,
 } from "../../utils/sessionRoute";
 import { useUploadLimitStore } from "../../stores/uploadLimitStore";
 import ChatSenderTabsPanel from "./components/ChatSenderTabsPanel";
@@ -1216,10 +1218,20 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isDark, previewTheme = {} } = useTheme();
-  const { selectedAgent, agents } = useAgentStore();
+  const { selectedAgent, agents, setSelectedAgent } = useAgentStore();
+  const urlAgentId = useMemo(
+    () => getAgentIdFromPath(location.pathname),
+    [location.pathname],
+  );
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
     [location.pathname],
+  );
+  const preserveUrlSessionOnAgentSwitch =
+    shouldPreserveUrlSessionOnAgentSwitch(urlAgentId, selectedAgent, chatId) &&
+    !isLocalTimestampId(chatId);
+  const isUrlAgentTransition = Boolean(
+    urlAgentId && urlAgentId !== selectedAgent,
   );
   const selectedAgentRef = useRef(selectedAgent);
   selectedAgentRef.current = selectedAgent;
@@ -1229,15 +1241,19 @@ export default function ChatPage() {
   const pendingAgentSwitchRef = useRef<string | null>(null);
   const agentJustChanged = prevSelectedAgentRef.current !== selectedAgent;
   if (agentJustChanged) {
-    pendingAgentSwitchRef.current = selectedAgent;
+    pendingAgentSwitchRef.current = preserveUrlSessionOnAgentSwitch
+      ? null
+      : selectedAgent;
   } else if (pendingAgentSwitchRef.current === selectedAgent && !chatId) {
     pendingAgentSwitchRef.current = null;
   }
   const isAgentSwitchTransition =
-    agentJustChanged || pendingAgentSwitchRef.current === selectedAgent;
+    isUrlAgentTransition ||
+    agentJustChanged ||
+    pendingAgentSwitchRef.current === selectedAgent;
   const agentSwitchTransitionRef = useRef(isAgentSwitchTransition);
   agentSwitchTransitionRef.current = isAgentSwitchTransition;
-  if (agentJustChanged) {
+  if (agentJustChanged && !preserveUrlSessionOnAgentSwitch) {
     sessionApi.preferredChatId = null;
     sessionApi.lastActiveChatId = null;
   }
@@ -2491,9 +2507,10 @@ export default function ChatPage() {
   const safeLastStored = isLocalTimestampId(getLastChatId(selectedAgent))
     ? null
     : getLastChatId(selectedAgent);
-  const effectiveChatId = isAgentSwitchTransition
-    ? undefined
-    : chatId || safeLastActive || safeLastStored;
+  const effectiveChatId =
+    isAgentSwitchTransition && !preserveUrlSessionOnAgentSwitch
+      ? undefined
+      : chatId || safeLastActive || safeLastStored;
   if (effectiveChatId && sessionApi.preferredChatId !== effectiveChatId) {
     sessionApi.preferredChatId = effectiveChatId;
   }
@@ -2502,7 +2519,7 @@ export default function ChatPage() {
 
   useEffect(() => {
     const buildCurrentSessionPath = (sessionId: string) =>
-      buildChatPath(sessionId);
+      buildChatPath(sessionId, selectedAgentRef.current);
 
     const buildCurrentBasePath = () => CHAT_BASE_PATH;
 
@@ -2684,7 +2701,16 @@ export default function ChatPage() {
 
   // Setup multimodal capabilities tracking via custom hook
 
-  // Refresh chat on agent changes and start the new agent on a blank session.
+  // Deep-link `/chat/:agentId/:sessionId` must switch the selected agent
+  // before the session list is treated as source of truth.
+  useEffect(() => {
+    if (urlAgentId && urlAgentId !== useAgentStore.getState().selectedAgent) {
+      setSelectedAgent(urlAgentId);
+    }
+  }, [urlAgentId, setSelectedAgent]);
+
+  // Refresh chat on agent changes. URL-driven switches keep their named
+  // session; manual switches start the newly selected agent on a blank chat.
   useEffect(() => {
     const prevAgent = prevSelectedAgentRef.current;
     if (prevAgent !== selectedAgent && prevAgent !== undefined) {
@@ -2696,36 +2722,56 @@ export default function ChatPage() {
       // Immediately block the queue sender while the SDK reloads ownership.
       setChatLoading(true);
 
+      const urlSessionId = chatIdRef.current;
+      const keepUrlSession = preserveUrlSessionOnAgentSwitch;
+
       // Save current chat ID for the agent we're leaving.
       // Skip temporary local timestamp ids — they are not real backend
       // sessions and should not be restored later.
-      const currentChatId =
-        chatIdRef.current || lastSessionIdRef.current || undefined;
-      if (currentChatId && prevAgent && !isLocalTimestampId(currentChatId)) {
+      // When the URL already names the destination session, attribute the
+      // previously viewed session (not the URL id) to the agent we leave.
+      const currentChatId = keepUrlSession
+        ? lastSessionIdRef.current || undefined
+        : chatIdRef.current || lastSessionIdRef.current || undefined;
+      if (
+        currentChatId &&
+        prevAgent &&
+        !isLocalTimestampId(currentChatId) &&
+        (!keepUrlSession || currentChatId !== urlSessionId)
+      ) {
         setLastChatId(prevAgent, currentChatId);
+      }
+
+      if (keepUrlSession && urlSessionId) {
+        // URL already points at this agent's session — do not restore lastChatId.
+        sessionApi.preferredChatId = urlSessionId;
+        sessionApi.lastActiveChatId = urlSessionId;
       }
 
       // Mark the current session as stale so late-arriving onSessionSelected
       // callbacks from the OLD library instance are suppressed (Bug: after
       // agent switch, old library's in-flight getSession may complete and
       // trigger onSessionSelected for the wrong session).
-      staleAutoSelectedIdRef.current =
-        lastSessionIdRef.current || chatIdRef.current || null;
+      staleAutoSelectedIdRef.current = keepUrlSession
+        ? lastSessionIdRef.current || null
+        : lastSessionIdRef.current || chatIdRef.current || null;
       lastSessionIdRef.current = null;
 
-      // Always start the newly selected agent on a blank local conversation.
-      // Preparing it before the SDK remount ensures the SDK auto-selects this
-      // empty entry instead of loading the first historical conversation.
-      sessionApi.preferredChatId = null;
-      sessionApi.lastActiveChatId = null;
-      navigateRef.current(CHAT_BASE_PATH, { replace: true });
-      sessionApi.userInitiatedCreate = true;
-      void sessionApi.createSession({});
+      if (!keepUrlSession) {
+        // Manual agent switches start on a blank local conversation.
+        // Preparing it before the SDK remount prevents the SDK from loading
+        // the first historical conversation for the destination agent.
+        sessionApi.preferredChatId = null;
+        sessionApi.lastActiveChatId = null;
+        navigateRef.current(CHAT_BASE_PATH, { replace: true });
+        sessionApi.userInitiatedCreate = true;
+        void sessionApi.createSession({});
+      }
 
       setRefreshKey((prev) => prev + 1);
     }
     prevSelectedAgentRef.current = selectedAgent;
-  }, [selectedAgent, setLastChatId]);
+  }, [preserveUrlSessionOnAgentSwitch, selectedAgent, setLastChatId]);
 
   const copyResponse = useCallback(
     async (response: CopyableResponse) => {
