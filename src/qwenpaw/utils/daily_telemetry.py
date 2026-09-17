@@ -110,6 +110,7 @@ class DailyTelemetry:
             "schema_version": 2,
             "event_type": "runtime_active",
             "telemetry_runtime_id": runtime_id,
+            "install_id": runtime_id,
             "activity_date": day,
             "deployment_mode": (
                 "hub"
