@@ -8,7 +8,7 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
-from urllib.parse import unquote
+from urllib.parse import quote, unquote
 
 import httpx
 import uvicorn
@@ -34,6 +34,7 @@ from ..__version__ import __version__
 from ..app.exception_handlers import register_exception_handlers
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
+from ..plugins.browser_access import PAWAPP_SCOPE_HEADER
 from .access_security import HubAccessSecurity
 from .pawapp_access import (
     SESSION_SECONDS,
@@ -1506,6 +1507,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             app_id,
             response,
             secure=request.url.scheme == "https",
+            prefixes=upstream.json()["browser_prefixes"],
         )
         return response
 
@@ -1558,6 +1560,8 @@ def create_hub_app(  # pylint: disable=too-many-statements
         excluded_request_headers = {
             "authorization",
             "cookie",
+            PAWAPP_SCOPE_HEADER.lower(),
+            "x-qwenpaw-runtime-token",
             "connection",
             "content-length",
             "host",
@@ -1569,6 +1573,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
             if name.lower() not in excluded_request_headers
         }
         headers["X-QwenPaw-Runtime-Token"] = internal_token
+        session = getattr(request.state, "pawapp_session", None)
+        headers.update(
+            {PAWAPP_SCOPE_HEADER: quote(str(session["app"]), safe="")}
+            if session is not None
+            else {},
+        )
         callback_route = oauth_callback_route(request.method, path)
         if callback_route:
             public_base_url = (

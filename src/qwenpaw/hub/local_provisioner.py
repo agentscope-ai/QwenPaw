@@ -8,6 +8,7 @@ import signal
 import socket
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 import urllib.error
@@ -19,6 +20,7 @@ from pathlib import Path
 from typing import IO
 
 from ..utils.http import probe_host_for_bind_host
+from ..utils.runtime_environment import system_environment
 from .credentials import runtime_credential_name_allowed
 from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
 from .models import RuntimeRecord, RuntimeState
@@ -28,10 +30,6 @@ from .process_isolation import (
     platform_process_isolator,
 )
 from .windows_reverse_tunnel import WindowsReverseTunnelBroker
-from .python_environment import (
-    apply_python_environment,
-    ensure_python_environment,
-)
 
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 10.0
@@ -158,7 +156,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         ):
             path.mkdir(parents=True, exist_ok=True)
 
-        python = str(ensure_python_environment(record))
+        python = sys.executable
         log_handle = record.log_file.open(
             "a",
             encoding="utf-8",
@@ -166,6 +164,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         )
         command = [
             python,
+            "-P",
             "-m",
             "qwenpaw",
             "app",
@@ -185,6 +184,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             tunnel.start()
             command = [
                 python,
+                "-P",
                 "-m",
                 "qwenpaw.hub.windows_runtime_bridge",
                 "--control-port",
@@ -195,6 +195,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 str(internal_port),
                 "--",
                 python,
+                "-P",
                 "-m",
                 "qwenpaw",
                 "app",
@@ -332,55 +333,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         record: RuntimeRecord,
         credentials: Mapping[str, str],
     ) -> dict[str, str]:
-        inherited_names = {
-            "PATH",
-            "PYTHONPATH",
-            "VIRTUAL_ENV",
-            "CONDA_PREFIX",
-            "SYSTEMROOT",
-            "SYSTEMDRIVE",
-            "WINDIR",
-            "COMSPEC",
-            "PATHEXT",
-            "ALLUSERSPROFILE",
-            "COMMONPROGRAMFILES",
-            "COMMONPROGRAMFILES(X86)",
-            "COMMONPROGRAMW6432",
-            "COMPUTERNAME",
-            "DRIVERDATA",
-            "NUMBER_OF_PROCESSORS",
-            "OS",
-            "PROCESSOR_ARCHITECTURE",
-            "PROCESSOR_IDENTIFIER",
-            "PROCESSOR_LEVEL",
-            "PROCESSOR_REVISION",
-            "PROGRAMDATA",
-            "PROGRAMFILES",
-            "PROGRAMFILES(X86)",
-            "PROGRAMW6432",
-            "PSMODULEPATH",
-            "PUBLIC",
-            "USERDOMAIN",
-            "USERNAME",
-            "TEMP",
-            "TMP",
-            "TMPDIR",
-            "LANG",
-            "LC_ALL",
-            "LC_CTYPE",
-        }
-        environment = {
-            key: value
-            for key, value in os.environ.items()
-            if key in inherited_names
-        }
-        python_path = environment.get("PYTHONPATH", "")
-        if python_path:
-            environment["PYTHONPATH"] = os.pathsep.join(
-                str(Path(value).expanduser().resolve())
-                for value in python_path.split(os.pathsep)
-                if value
-            )
+        environment = system_environment()
         environment.update(
             {
                 name: value
@@ -406,6 +359,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             )
         environment["QWENPAW_WORKING_DIR"] = str(record.working_dir)
         environment["QWENPAW_SECRET_DIR"] = str(record.secret_dir)
+        environment["QWENPAW_DISABLE_KEYRING"] = "1"
         environment["QWENPAW_BACKUP_DIR"] = str(record.backup_dir)
         environment[
             "QWENPAW_KEYRING_ACCOUNT"
@@ -422,7 +376,22 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         for name in ("QWENPAW_HUB_MODEL_URL", "QWENPAW_HUB_MODEL_TOKEN"):
             if credentials.get(name):
                 environment[name] = credentials[name]
-        apply_python_environment(record, environment)
+        environment["QWENPAW_RUNTIME_PROVISIONER"] = "local"
+        executable_paths = dict.fromkeys(
+            [str(Path(sys.executable).parent), sysconfig.get_path("scripts")],
+        )
+        environment["PATH"] = os.pathsep.join(
+            [*executable_paths, environment["PATH"]],
+        )
+        source_root = Path(__file__).resolve().parents[2]
+        source_paths = [str(source_root)]
+        mail_source = source_root.parent / "packages/qwenpawmail-mcp/src"
+        if mail_source.is_dir():
+            source_paths.append(str(mail_source))
+        environment["PYTHONPATH"] = os.pathsep.join(source_paths)
+        environment["PYTHONNOUSERSITE"] = "1"
+        environment["PIP_USER"] = "0"
+        environment["PIP_CONFIG_FILE"] = os.devnull
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         return environment

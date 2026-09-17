@@ -13,6 +13,7 @@ import { Suspense, useMemo, useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { App, Dropdown, Spin, type MenuProps } from "antd";
 import { Grid2X2, Image as ImageIcon, Trash2 } from "lucide-react";
+import { PawAppAccessGate } from "../plugins/PawAppAccessGate";
 import { useRoutes } from "../plugins/registry/hooks";
 import { uninstallPlugin } from "../api/modules/plugin";
 import { ChunkErrorBoundary } from "../components/ChunkErrorBoundary";
@@ -458,6 +459,11 @@ export default function DesktopOS() {
           const isStore = win.id === STORE_APP.routeId;
           const isSettings = win.id === SETTINGS_APP.routeId;
           const Component = componentById.get(win.id);
+          const appRoute = routeById.get(win.id);
+          const pawAppId =
+            appRoute && getPawAppIdFromPath(appRoute.path)
+              ? appRoute.source
+              : undefined;
           if (!isStore && !isSettings && !Component) {
             return null;
           }
@@ -489,7 +495,15 @@ export default function DesktopOS() {
                     <WindowRouter
                       routeId={win.id}
                       base={baseFromRoutePath(routeById.get(win.id)?.path)}
-                      element={<Component />}
+                      element={
+                        pawAppId ? (
+                          <PawAppAccessGate appId={pawAppId}>
+                            <Component />
+                          </PawAppAccessGate>
+                        ) : (
+                          <Component />
+                        )
+                      }
                     />
                   ) : null}
                 </Suspense>

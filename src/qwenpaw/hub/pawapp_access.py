@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-import re
+import hashlib
 import time
 from urllib.parse import unquote
 
@@ -14,40 +14,39 @@ from .models import RuntimeRecord
 
 SESSION_SECONDS = 900
 COOKIE_PREFIX = "qwenpaw_app_"
-_RESERVED = {
-    "hub",
-    "auth",
-    "frontend_plugin",
-    "pawapps",
-    "plugins",
-    "models",
-    "files",
-}
-_APP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,99}$")
 
 
 def validate_app_id(app_id: str) -> None:
-    """Allow only one unambiguous URL and cookie component."""
-    if not _APP_ID.fullmatch(app_id) or app_id in _RESERVED:
+    """Require a single URL segment without restricting manifest spelling."""
+    if (
+        not app_id
+        or app_id in {".", ".."}
+        or any(char in app_id for char in "/\\%")
+        or any(ord(char) < 32 or ord(char) == 127 for char in app_id)
+    ):
         raise HTTPException(status_code=400, detail="Invalid PawApp ID")
 
 
-def resource_app_id(path: str) -> str | None:
-    """Reject encoded routing tricks rather than normalizing scopes away."""
-    decoded = unquote(unquote(path))
-    if decoded != path or "\\" in path:
-        return None
-    parts = path.split("/")
-    if any(part in {".", "..", ""} for part in parts):
-        return None
-    if len(parts) >= 4 and parts[0] == "frontend_plugin":
-        return parts[1] if parts[2] == "files" else None
-    if len(parts) >= 4 and parts[0] == "pawapps":
-        return parts[1] if parts[2] == "static" else None
-    # Core API namespaces must never be granted through an app session.
-    if len(parts) >= 2:
-        return parts[0]
-    return None
+def cookie_name(app_id: str) -> str:
+    """Encode arbitrary manifest IDs as a fixed-size cookie component."""
+    digest = hashlib.sha256(app_id.encode("utf-8")).hexdigest()
+    return f"{COOKIE_PREFIX}{digest}"
+
+
+def _allows_path(payload: dict, path: str) -> bool:
+    if unquote(unquote(path)) != path or "\\" in path:
+        return False
+    if any(part in {".", "..", ""} for part in path.split("/")):
+        return False
+    app_id = payload.get("app")
+    prefixes = [
+        f"frontend_plugin/{app_id}/files",
+        f"pawapps/{app_id}/static",
+        *payload.get("prefixes", []),
+    ]
+    return any(
+        path == prefix or path.startswith(f"{prefix}/") for prefix in prefixes
+    )
 
 
 def issue_session(
@@ -58,6 +57,7 @@ def issue_session(
     response: Response,
     *,
     secure: bool,
+    prefixes: list[str],
 ) -> None:
     """Bind the browser grant to an installed app and runtime generation."""
     validate_app_id(app_id)
@@ -69,11 +69,12 @@ def issue_session(
             "runtime": record.runtime_id,
             "created": record.created_at,
             "app": app_id,
+            "prefixes": prefixes,
             "exp": int(time.time()) + SESSION_SECONDS,
         },
     )
     response.set_cookie(
-        f"{COOKIE_PREFIX}{app_id}",
+        cookie_name(app_id),
         token,
         max_age=SESSION_SECONDS,
         httponly=True,
@@ -92,17 +93,21 @@ def read_session(
     """Authorize native browser reads, never mutations or bearer fallback."""
     if request.method not in {"GET", "HEAD"}:
         return None
-    app_id = resource_app_id(path)
-    if not app_id or not _APP_ID.fullmatch(app_id):
-        return None
-    token = request.cookies.get(f"{COOKIE_PREFIX}{app_id}", "")
-    payload = auth.read_token_payload(token)
-    if not payload or payload.get("purpose") != "pawapp-read":
-        return None
-    if payload.get("app") != app_id:
-        return None
-    user = auth.token_user(payload)
-    return (user, payload) if user else None
+    for name, token in request.cookies.items():
+        if not name.startswith(COOKIE_PREFIX):
+            continue
+        payload = auth.read_token_payload(token)
+        if not payload or payload.get("purpose") != "pawapp-read":
+            continue
+        app_id = payload.get("app")
+        if not isinstance(app_id, str) or name != cookie_name(app_id):
+            continue
+        if not _allows_path(payload, path):
+            continue
+        user = auth.token_user(payload)
+        if user:
+            return user, payload
+    return None
 
 
 def clear_sessions(request: Request, response: Response) -> None:

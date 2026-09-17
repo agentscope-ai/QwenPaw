@@ -7,9 +7,6 @@ let mode: ReturnType<typeof resolveBackendMode> | undefined;
 
 /** Prepare native browser reads before mounting an app or opening its page. */
 export function prepareBrowserSession(appId: string): Promise<number | null> {
-  if (!/^[a-z0-9][a-z0-9-]{0,99}$/.test(appId)) {
-    return Promise.reject(new Error("Invalid PawApp ID"));
-  }
   const token = getApiToken();
   const key = `${appId}:${token}`;
   const existing = pending.get(key);
@@ -23,11 +20,14 @@ export function prepareBrowserSession(appId: string): Promise<number | null> {
     hubApps.add(appId);
     return updateBrowserSession(async () => {
       if (token !== getApiToken()) throw new Error("Account changed");
-      const response = await fetch(getApiUrl(`/hub/pawapps/${appId}/session`), {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(
+        getApiUrl(`/hub/pawapps/${encodeURIComponent(appId)}/session`),
+        {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
       if (!response.ok) {
         throw new Error(`PawApp authentication failed (${response.status})`);
       }

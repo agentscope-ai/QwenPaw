@@ -11,7 +11,6 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
-import sys
 from pathlib import Path
 from typing import Optional
 
@@ -379,12 +378,6 @@ class ResourceGovernor:
         mounts = [MountSpec(path=p, writable=w) for p, w in mount_map.items()]
         # Workspace is always readwrite
         mounts.insert(0, MountSpec(path=ws, writable=True))
-
-        # Local runtimes share one user venv across agent workspaces.
-        # Grant only the active runtime venv, never the entire user root.
-        runtime_venv = WORKING_DIR / ".venv"
-        if Path(sys.prefix) == runtime_venv and sys.prefix != sys.base_prefix:
-            mounts.append(MountSpec(path=str(runtime_venv), writable=True))
 
         # Project dirs are readwrite by default. When they are distinct
         # from the workspace, mount them explicitly so Bash can write

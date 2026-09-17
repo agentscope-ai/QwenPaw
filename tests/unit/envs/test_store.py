@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 
 import pytest
 
@@ -70,3 +72,66 @@ def test_persisted_value_overrides_then_restores_inherited_value(
 def test_missing_store_stays_sparse(isolated_store) -> None:
     assert store.load_envs() == {}
     assert not isolated_store.exists()
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "PATH",
+        "PythonPath",
+        "PIP_TARGET",
+        "UV_PYTHON",
+        "CONDA_PREFIX",
+        "BASH_ENV",
+        "LD_PRELOAD",
+        "QWENPAW_HUB_MODEL_TOKEN",
+        "HOME",
+    ],
+)
+def test_managed_runtime_rejects_persisted_control_overrides(
+    isolated_store,
+    monkeypatch,
+    key,
+):
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "user-a")
+    with pytest.raises(ValueError, match="managed"):
+        store.update_env_vars({key: "injected"})
+    isolated_store.write_text(json.dumps({key: "enc:injected"}))
+    before = store.os.environ.get(key)
+    store.load_envs_into_environ()
+    assert store.os.environ.get(key) == before
+
+
+def test_managed_user_values_persist_and_reach_children(
+    isolated_store,
+    monkeypatch,
+):
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "user-a")
+    monkeypatch.delenv("PERSISTED_USER_VALUE", raising=False)
+    store.update_env_vars({"PERSISTED_USER_VALUE": "user-a-value"})
+    assert "enc:user-a-value" in isolated_store.read_text()
+    monkeypatch.delenv("PERSISTED_USER_VALUE")
+    store._HOST_ENV_VALUES.clear()
+    store.load_envs_into_environ()
+    assert store.os.environ["PERSISTED_USER_VALUE"] == "user-a-value"
+    child = subprocess.check_output(
+        [
+            sys.executable,
+            "-c",
+            "import os; print(os.environ['PERSISTED_USER_VALUE'])",
+        ],
+        text=True,
+    )
+    assert child.strip() == "user-a-value"
+    store.delete_env_var("PERSISTED_USER_VALUE")
+    assert "PERSISTED_USER_VALUE" not in store.os.environ
+
+
+def test_managed_runtime_does_not_migrate_shared_envs(tmp_path, monkeypatch):
+    shared = tmp_path / "shared-envs.json"
+    shared.write_text('{"HOST_ONLY": "host"}', encoding="utf-8")
+    target = tmp_path / "user" / "envs.json"
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "user-runtime")
+    monkeypatch.setattr(store, "_LEGACY_ENVS_JSON_CANDIDATES", (shared,))
+    assert store.load_envs(target) == {}
+    assert not target.exists()

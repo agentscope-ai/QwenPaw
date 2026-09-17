@@ -18,10 +18,6 @@ from qwenpaw.hub.local_provisioner import (
     allocate_loopback_port,
 )
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
-from qwenpaw.hub.python_environment import (
-    ensure_python_environment,
-    python_executable,
-)
 from qwenpaw.hub.process_isolation import (
     IsolatedLaunch,
     LinuxBubblewrapIsolator,
@@ -426,8 +422,9 @@ def test_windows_runtime_uses_outbound_reverse_tunnel(
     )
     assert command[command.index("--control-port") + 1] == "9100"
     assert command[command.index("--token") + 1] == "tunnel-token"
-    assert command[separator + 1 : separator + 4] == [
-        str(python_executable(started)),
+    assert command[separator + 1 : separator + 5] == [
+        sys.executable,
+        "-P",
         "-m",
         "qwenpaw",
     ]
@@ -520,7 +517,6 @@ def test_runtime_parent_thread_survives_request_worker(
         launcher_threads.append(threading.current_thread())
         return _Process()
 
-    ensure_python_environment(_record(tmp_path))
     monkeypatch.setattr(
         "qwenpaw.hub.local_provisioner.subprocess.Popen",
         popen,
@@ -569,10 +565,12 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
         other.listen(1)
         script = textwrap.dedent(
             f"""
+            import asyncio
             import errno
             import socket
-            import subprocess
-            import sys
+            from qwenpaw.agents.tools.shell import _execute_in_sandbox
+            from qwenpaw.sandbox import SandboxConfig, SandboxMode
+            import os
             from http.server import BaseHTTPRequestHandler
             from socketserver import TCPServer
             from threading import Thread
@@ -597,10 +595,16 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
                         ("127.0.0.1", {other.getsockname()[1]})
                     ) == errno.EPERM
                 print("sandbox ready; starting CLI", flush=True)
-                subprocess.run(
-                    [sys.executable, "-m", "qwenpaw", "agents", "list"],
-                    timeout=30, check=True,
+                config = SandboxConfig(
+                    mode=SandboxMode.SEATBELT,
+                    workspace_dir={str(record.working_dir)!r},
                 )
+                result = asyncio.run(_execute_in_sandbox(
+                    "qwenpaw agents list", config, 30,
+                    {str(record.working_dir)!r}, dict(os.environ),
+                ))
+                assert result.exit_code == 0, result.stderr
+                print(result.stdout)
                 print("sandbox CLI OK; other port denied")
             """,
         )
