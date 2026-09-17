@@ -652,6 +652,8 @@ describe("SidebarSessionList", () => {
 
   it("opens the new-group input and creates a group on Enter", async () => {
     const createGroup = vi.fn().mockResolvedValue({ id: "g-new" });
+    // group creation lives in source mode only
+    localStorage.setItem("qwenpaw_session_group_mode", "source");
     mockData([sessionA]);
     mockChatGroups.mockReturnValue({
       groups: [
@@ -806,7 +808,7 @@ describe("SidebarSessionList", () => {
     });
   });
 
-  it("hides empty groups in source mode", async () => {
+  it("shows empty groups in source mode", async () => {
     localStorage.setItem("qwenpaw_session_group_mode", "source");
     mockData([sessionA]);
     mockChatGroups.mockReturnValue({
@@ -836,9 +838,86 @@ describe("SidebarSessionList", () => {
     await waitFor(() => {
       expect(screen.getByTestId("group-header-default")).toBeTruthy();
     });
-    // the empty cron group renders no header at all
-    expect(screen.queryByTestId("group-header-cron")).toBeNull();
-    expect(mockListProps.current!.itemCount).toBe(2);
+    // empty groups stay visible: they are drop targets and move targets
+    expect(screen.getByTestId("group-header-cron")).toBeTruthy();
+    expect(mockListProps.current!.itemCount).toBe(3);
+  });
+
+  it("offers group creation only in source mode", async () => {
+    mockData([sessionA]);
+    const first = renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    });
+
+    // date mode (default): no New group entry
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.queryByText("New group")).toBeNull();
+    first.unmount();
+
+    // source mode: the entry appears
+    localStorage.setItem("qwenpaw_session_group_mode", "source");
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(await screen.findByText("New group")).toBeTruthy();
+  });
+
+  it("renders three date tiers and skips empty ones", async () => {
+    const weekSession = {
+      ...sessionA,
+      id: "sess-week",
+      name: "Week Chat",
+      updatedAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+    };
+    const oldSession = {
+      ...sessionA,
+      id: "sess-old",
+      name: "Older Chat",
+      updatedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+    };
+    // today + week present, month empty (must not render)
+    mockData([sessionA, weekSession, oldSession]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("date-header")).toHaveLength(3);
+    });
+    // the test i18n mock renders keys as labels; header text also
+    // carries the count, so match by prefix
+    expect(screen.getByText(/chat\.group\.today/)).toBeTruthy();
+    expect(screen.getByText(/chat\.group\.week/)).toBeTruthy();
+    expect(screen.getByText(/chat\.group\.older/)).toBeTruthy();
+    expect(screen.queryByText(/chat\.group\.month/)).toBeNull();
+  });
+
+  it("floats pinned conversations to the top of their date tier", async () => {
+    const pinnedOld = {
+      ...sessionA,
+      id: "sess-pinned-old",
+      name: "Pinned Old",
+      pinned: true,
+      updatedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+    };
+    const plainOld = {
+      ...sessionA,
+      id: "sess-old",
+      name: "Plain Old",
+      updatedAt: new Date(Date.now() - 41 * 86_400_000).toISOString(),
+    };
+    mockData([pinnedOld, plainOld]);
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("date-header")).toHaveLength(1);
+    });
+    const rows = Array.from(
+      document.querySelectorAll("[data-testid^='session-item-']"),
+    ).map((node) => node.getAttribute("data-testid"));
+    expect(rows).toEqual([
+      "session-item-sess-pinned-old",
+      "session-item-sess-old",
+    ]);
   });
 
   it("folds and unfolds date sections like group sections", async () => {

@@ -540,19 +540,37 @@ export default function SidebarSessionList({
       ];
     }
     if (groupMode === "date") {
-      return groupChatsByDate(sortedSessions).map((dateGroup) => ({
-        header: {
-          kind: "dateHeader" as const,
-          dateGroup: dateGroup.key,
-          label: t(`chat.group.${dateGroup.key}`),
-          count: dateGroup.sessions.length,
-          collapsed:
-            isSessionDragging || collapsedDateGroups.has(dateGroup.key),
-        },
-        sessions: dateGroup.sessions,
-        groupId: null,
-        collapsed: isSessionDragging || collapsedDateGroups.has(dateGroup.key),
-      }));
+      // Three tiers (today / this week / earlier); pinned conversations
+      // float to the top of their tier. Empty tiers render nothing.
+      const tierOfSession = (session: ExtendedChatSession): ChatDateGroup => {
+        const group = getDateGroup(session.updatedAt ?? session.createdAt);
+        return group === "today" || group === "week" ? group : "older";
+      };
+      const ordered = [
+        ...sortedSessions.filter((session) => session.pinned),
+        ...sortedSessions.filter((session) => !session.pinned),
+      ];
+      return (["today", "week", "older"] as const)
+        .map((tier) => {
+          const sessions = ordered.filter(
+            (session) => tierOfSession(session) === tier,
+          );
+          if (sessions.length === 0) return null;
+          const collapsed = isSessionDragging || collapsedDateGroups.has(tier);
+          return {
+            header: {
+              kind: "dateHeader" as const,
+              dateGroup: tier,
+              label: t(`chat.group.${tier}`),
+              count: sessions.length,
+              collapsed,
+            },
+            sessions,
+            groupId: null,
+            collapsed,
+          };
+        })
+        .filter((section): section is ListSection => section !== null);
     }
     if (groupMode === "none") {
       const ordered = groupChatsByDate(sortedSessions).flatMap(
@@ -569,28 +587,26 @@ export default function SidebarSessionList({
       ];
     }
     if (!groups) return [];
-    // Empty groups carry nothing to scan — hide them entirely; they
-    // reappear as soon as a session lands in them.
-    return groups
-      .filter(({ sessions }) => sessions.length > 0)
-      .map(({ group, sessions }) => {
-        const collapsed = isSessionDragging || collapsedGroups.has(group.id);
-        return {
-          header: {
-            kind: "groupHeader" as const,
-            group,
-            count: sessions.length,
-            collapsed,
-          },
-          // Keep the pinned-first, recency-second order the nested date
-          // headers used to provide, without rendering the date rows.
-          sessions: groupChatsByDate(sessions).flatMap(
-            (dateGroup) => dateGroup.sessions,
-          ),
-          groupId: group.id,
+    // Source mode lists every group, empty ones included: an empty
+    // group is still a drop target and a place to move conversations.
+    return groups.map(({ group, sessions }) => {
+      const collapsed = isSessionDragging || collapsedGroups.has(group.id);
+      return {
+        header: {
+          kind: "groupHeader" as const,
+          group,
+          count: sessions.length,
           collapsed,
-        };
-      });
+        },
+        // Keep the pinned-first, recency-second order the nested date
+        // headers used to provide, without rendering the date rows.
+        sessions: groupChatsByDate(sessions).flatMap(
+          (dateGroup) => dateGroup.sessions,
+        ),
+        groupId: group.id,
+        collapsed,
+      };
+    });
   }, [
     collapsedDateGroups,
     collapsedGroups,
@@ -681,10 +697,9 @@ export default function SidebarSessionList({
         item.id === currentSessionId || item.realId === currentSessionId,
     );
     if (!session) return;
-    const key = session.pinned
-      ? "pinned"
-      : getDateGroup(session.updatedAt ?? session.createdAt);
-    expandDateGroup(key);
+    const group = getDateGroup(session.updatedAt ?? session.createdAt);
+    const tier = group === "today" || group === "week" ? group : "older";
+    expandDateGroup(tier);
   }, [currentSessionId, expandDateGroup, sortedSessions]);
 
   /** Flatten sections into a single array of rows for virtual list */
@@ -872,12 +887,16 @@ export default function SidebarSessionList({
                     ),
                     onClick: handleOpenSearch,
                   },
-                  {
-                    key: "create-group",
-                    icon: <FolderPlus size={15} />,
-                    label: t("chat.groups.create", "New group"),
-                    onClick: handleOpenCreateGroup,
-                  },
+                  ...(groupMode === "source"
+                    ? [
+                        {
+                          key: "create-group",
+                          icon: <FolderPlus size={15} />,
+                          label: t("chat.groups.create", "New group"),
+                          onClick: handleOpenCreateGroup,
+                        },
+                      ]
+                    : []),
                   { type: "divider" as const },
                   {
                     key: "group-mode",
