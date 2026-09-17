@@ -1105,6 +1105,12 @@ class BaseChannel(ABC):
         except Exception:  # noqa: BLE001 - fall back to the unstripped data
             return fallback
 
+        # model_dump(mode="json") can yield None (or a primitive). Dumping
+        # that produces a bare ``null`` SSE frame; the console then crashes
+        # on ``data.object`` after JSON.parse.
+        if not isinstance(payload, (dict, list)):
+            return fallback
+
         # A content delta may split the protocol line over several events.
         # Track that state inside the current SSE request rather than on the
         # shared channel instance, where concurrent sessions could interfere.
@@ -1144,6 +1150,8 @@ class BaseChannel(ABC):
             return node
 
         payload = walk(payload)
+        if not isinstance(payload, (dict, list)):
+            return fallback
         return json.dumps(payload, ensure_ascii=False, default=str)
 
     def _serialize_event_for_sse(
@@ -1178,6 +1186,24 @@ class BaseChannel(ABC):
                     event,
                     data,
                     headline_stream_states,
+                )
+
+            # The console does JSON.parse then reads data.object; a bare
+            # null / empty / primitive payload freezes the chat.
+            stripped = data.strip() if isinstance(data, str) else ""
+            parsed: Any = None
+            if stripped and stripped != "null":
+                try:
+                    parsed = json.loads(stripped)
+                except (TypeError, ValueError):
+                    parsed = None
+            if not isinstance(parsed, (dict, list)):
+                data = json.dumps(
+                    {
+                        "object": "error",
+                        "error": "invalid SSE event payload",
+                    },
+                    ensure_ascii=True,
                 )
 
             return self._sanitize_surrogate_text(data)

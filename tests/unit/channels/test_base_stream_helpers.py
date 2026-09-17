@@ -253,3 +253,55 @@ class TestSerializeEventForSse:
         )
         result = channel._serialize_event_for_sse(event, {"k": {}})
         assert "no marker" in result
+
+
+# ---------------------------------------------------------------------------
+# Regression #7814: bare JSON null must never become an SSE payload
+# ---------------------------------------------------------------------------
+
+
+class TestSerializeEventRejectsBareNull:
+    """Console freezes when SSE frames carry a bare ``null`` payload.
+
+    ``JSON.parse('null')`` yields ``null``, and the vendored response builder
+    then crashes on ``data.object``. ``_strip_event_headlines`` / the
+    ``model_dump_json`` path previously allowed that shape onto the wire.
+    """
+
+    def test_model_dump_json_null_is_not_emitted(self, channel):
+        event = SimpleNamespace(
+            model_dump_json=lambda: "null",
+            model_dump=lambda mode="json": None,
+        )
+        result = channel._serialize_event_for_sse(event)
+        assert result != "null"
+        parsed = json.loads(result)
+        assert isinstance(parsed, dict)
+        assert parsed.get("object") != "null" or "object" in parsed
+
+    def test_strip_headlines_none_payload_falls_back(self, channel):
+        event = SimpleNamespace(
+            object="content",
+            delta=True,
+            text="",
+            model_dump=lambda mode="json": None,
+            model_dump_json=lambda: "null",
+        )
+        fallback = '{"object":"content","text":"fallback"}'
+        result = channel._strip_event_headlines(event, fallback, {})
+        assert result != "null"
+        assert json.loads(result) == json.loads(fallback)
+
+    def test_strip_with_tracked_delta_still_rejects_null(self, channel):
+        event = SimpleNamespace(
+            object="content",
+            delta=True,
+            msg_id="m1",
+            index=0,
+            text="⟦h⟧",
+            model_dump=lambda mode="json": None,
+            model_dump_json=lambda: "null",
+        )
+        result = channel._serialize_event_for_sse(event, {})
+        assert result != "null"
+        assert isinstance(json.loads(result), dict)
