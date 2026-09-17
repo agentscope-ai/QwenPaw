@@ -210,7 +210,7 @@ export function AgentTable({
           >
             {thirdParty
               ? `${name} · ${t("agent.backend.thirdPartyBadge")}`
-              : `QwenPaw · ${t("agent.backend.nativeBadge")}`}
+              : `WeldonAgent · ${t("agent.backend.nativeBadge")}`}
           </Tag>
         );
       },

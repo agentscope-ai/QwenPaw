@@ -120,6 +120,7 @@ import {
 } from "./headlineFilter";
 import FilesDrawer from "../../features/files-workspace/FilesDrawer";
 import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
+import { resolveAssistantDisplayName } from "./branding";
 import {
   sessionFilesScopeKey,
   type FilesWorkspaceScope,
@@ -4156,7 +4157,7 @@ export default function ChatPage() {
       },
       welcome: {
         ...i18nConfig.welcome,
-        nick: extNick ?? "QwenPaw",
+        nick: resolveAssistantDisplayName(extNick),
         avatar: extAvatar ?? "/qwenpaw.png",
         ...(extGreeting !== undefined ? { greeting: extGreeting } : {}),
         ...(extDescription !== undefined
@@ -4243,6 +4244,7 @@ export default function ChatPage() {
               <SessionProjectDirectory
                 scope={sessionScope}
                 compact={compactSender}
+                concealPath
               />
             )}
             {!chatReadOnly && usesQwenPawBackend ? (

@@ -57,6 +57,7 @@ providers.json
 envs.json
 !.env.example
 !.env.template
+!deploy/.env.production.example
 __pycache__/
 *.db
 *.rdb
@@ -156,6 +157,13 @@ docs/reviews/
 tmp/
 /data/
 /deploy/service.local.json
+/deploy/.env
+/deploy/.env.local
+*.dump
+*.bak
+playwright-report/
+test-results/
+/build/repository-artifact-audit.json
 
 # Local multi-user refactor review workspaces and browser snapshots
 /.superpowers/

@@ -12,6 +12,7 @@ it.each([
 });
 it("retains known provider labels and absent legacy origins", () => {
   expect(deriveInstalledFromLabel("github")).toBe("GitHub");
+  expect(deriveInstalledFromLabel("qwenpaw")).toBe("WeldonAgent");
   expect(deriveInstalledFromLabel("zip")).toBe("ZIP");
   expect(deriveInstalledFromLabel(undefined)).toBe("");
 });

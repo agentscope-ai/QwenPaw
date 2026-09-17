@@ -7,7 +7,6 @@ import {
   Select,
   InputNumber,
 } from "@agentscope-ai/design";
-import { LinkOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
 import { useTranslation } from "react-i18next";
 import {
@@ -15,9 +14,6 @@ import {
   type ACPAgentConfig,
   type ACPToolParseMode,
 } from "../../../../api/types";
-import { getWebsiteLang } from "../../../../layouts/constants";
-import styles from "../../../Control/Channels/index.module.less";
-import { openExternalLink } from "../../../../utils/openExternalLink";
 
 interface ACPDrawerProps {
   open: boolean;
@@ -38,18 +34,6 @@ const TOOL_PARSE_MODE_OPTIONS: { value: ACPToolParseMode; label: string }[] = [
   { value: "update_detail", label: "update_detail" },
   { value: "call_detail", label: "call_detail" },
 ];
-
-const ACP_DOC_SECTION_HASH = {
-  zh: "如何配置外部-runner",
-  en: "How-to-configure-external-runners",
-} as const;
-
-function getACPDocsUrl(lang: string): string {
-  const websiteLang = getWebsiteLang(lang);
-  const hash =
-    websiteLang === "zh" ? ACP_DOC_SECTION_HASH.zh : ACP_DOC_SECTION_HASH.en;
-  return `https://qwenpaw.agentscope.io/docs/acp-integration?lang=${websiteLang}#${hash}`;
-}
 
 export function parseArgsText(value: unknown): string[] {
   return String(value || "")
@@ -112,7 +96,7 @@ export function ACPDrawer({
   onSubmit,
   onDelete,
 }: ACPDrawerProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
 
   return (
     <Drawer
@@ -212,20 +196,6 @@ export function ACPDrawer({
         >
           <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} />
         </Form.Item>
-
-        <div className={styles.formTopActions}>
-          <Button
-            type="text"
-            size="small"
-            icon={<LinkOutlined />}
-            onClick={() => openExternalLink(getACPDocsUrl(i18n.language))}
-            title={t("acp.docsHelp")}
-            className={styles.dingtalkDocBtn}
-            style={{ color: "#FF7F16" }}
-          >
-            {t("acp.docs")}
-          </Button>
-        </div>
 
         <Form.Item
           name="trusted"

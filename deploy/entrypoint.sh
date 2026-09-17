@@ -20,10 +20,10 @@ warn_if_auth_off_container_bind() {
 
   cat >&2 <<EOF
 ============================================================
-SECURITY NOTICE: QwenPaw is running in Docker without authentication.
+SECURITY NOTICE: WeldonAgent is running in Docker without authentication.
 
-QwenPaw cannot verify whether access to the service is limited to a trusted
-network. Anyone who can reach the service may access QwenPaw APIs without login.
+WeldonAgent cannot verify whether access to the service is limited to a trusted
+network. Anyone who can reach the service may access WeldonAgent APIs without login.
 
 Recommended:
   - Restrict access to a trusted network or protected environment.

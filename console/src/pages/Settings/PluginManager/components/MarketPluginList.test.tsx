@@ -106,7 +106,7 @@ describe("MarketPluginList", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
-  it("shows the QwenPaw compatibility versions returned by the market", () => {
+  it("shows the public product compatibility versions returned by the market", () => {
     hoisted.plugins.push(
       makePlugin("https://platform.agentscope.io/plugins/agentscope/demo", [
         "1.x",
@@ -116,7 +116,7 @@ describe("MarketPluginList", () => {
 
     render(<MarketPluginList onInstalled={vi.fn()} />);
 
-    expect(screen.getByText("QwenPaw 1.x, 2.x")).toBeInTheDocument();
+    expect(screen.getByText("WeldonAgent 1.x, 2.x")).toBeInTheDocument();
   });
 
   it("changes the plugin market sort order", () => {

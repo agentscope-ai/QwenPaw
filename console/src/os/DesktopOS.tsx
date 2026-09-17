@@ -445,7 +445,7 @@ export default function DesktopOS() {
           backdrop behind icons and app windows rather than a card. */}
       <div className={styles.emptyHint}>
         <img src="/qwenpaw.png" alt="" />
-        <div className={styles.emptyBrandName}>QwenPaw OS</div>
+        <div className={styles.emptyBrandName}>WeldonAgent</div>
       </div>
 
       {/* Windows layer */}

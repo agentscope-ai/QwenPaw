@@ -15,6 +15,10 @@ _SENSITIVE_KEY = re.compile(
     re.IGNORECASE,
 )
 _MASKED_SECRET = re.compile(r"^[^*]*\*{3,}$")
+_PUBLIC_PROVIDER_NAMES = {
+    "qwenpaw-local": "WeldonAgent Local",
+    "copaw-local": "WeldonAgent Local",
+}
 
 
 class SensitiveListEditError(ValueError):
@@ -131,6 +135,7 @@ def preserve_sensitive_values(
 def project_provider_info(provider: ProviderInfo) -> ProviderInfo:
     """复制并脱敏供应商信息，不修改运行时供应商实例。"""
     payload = provider.model_dump()
+    payload["name"] = _PUBLIC_PROVIDER_NAMES.get(provider.id, provider.name)
     secrets = _collect_sensitive(payload)
     payload["api_key_configured"] = bool(provider.api_key)
     payload["api_key"] = ""

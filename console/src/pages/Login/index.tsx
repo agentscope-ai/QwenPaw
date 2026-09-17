@@ -9,6 +9,7 @@ import { setApiAuthMode } from "../../api/config";
 import { useAuthStore } from "../../stores/authStore";
 import { useTheme } from "../../contexts/ThemeContext";
 import { getPostLoginHref } from "../../utils/navigationMode";
+import { PRODUCT_NAME } from "../../config/brand";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -114,11 +115,18 @@ export default function LoginPage() {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <img
-            src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
-            alt="QwenPaw"
-            style={{ height: 48, marginBottom: 12 }}
-          />
+          <div
+            aria-label={PRODUCT_NAME}
+            style={{
+              marginBottom: 12,
+              color: isDark ? "#fff" : "#1f1f1f",
+              fontSize: 28,
+              fontWeight: 700,
+              letterSpacing: "0.01em",
+            }}
+          >
+            {PRODUCT_NAME}
+          </div>
           <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
             {isRegister ? t("login.registerTitle") : t("login.title")}
           </h2>

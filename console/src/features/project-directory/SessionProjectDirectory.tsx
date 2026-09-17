@@ -37,6 +37,7 @@ interface SessionProjectDirectoryProps {
   scope: FilesWorkspaceScope;
   compact?: boolean;
   showFullPath?: boolean;
+  concealPath?: boolean;
   beforeChange?: () => boolean | Promise<boolean>;
   onChanged?: () => void;
 }
@@ -45,6 +46,7 @@ export default function SessionProjectDirectory({
   scope,
   compact = false,
   showFullPath = false,
+  concealPath = false,
   beforeChange,
   onChanged,
 }: SessionProjectDirectoryProps) {
@@ -475,6 +477,26 @@ export default function SessionProjectDirectory({
       </div>
     </div>
   );
+
+  if (concealPath) {
+    return (
+      <span
+        className={`${styles.trigger} ${
+          compact ? styles.triggerCompact : ""
+        }`}
+        aria-label={t("files.workspace")}
+      >
+        {!info ? (
+          <LoaderCircle className={styles.spin} size={14} />
+        ) : info.exists ? (
+          <FolderOpen size={14} />
+        ) : (
+          <CircleAlert size={14} />
+        )}
+        {!compact && <span>{t("files.workspace")}</span>}
+      </span>
+    );
+  }
 
   return (
     <Popover

@@ -451,13 +451,10 @@ describe("long-term memory defaults", () => {
       screen.queryByText("agentConfig.dailyPaperTopics"),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByRole("link", {
+      screen.queryByRole("link", {
         name: "agentConfig.dailyPaperDocumentation",
       }),
-    ).toHaveAttribute(
-      "href",
-      "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md",
-    );
+    ).not.toBeInTheDocument();
 
     fireEvent.click(sourceToggle);
 

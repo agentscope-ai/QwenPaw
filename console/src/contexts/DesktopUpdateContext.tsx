@@ -19,6 +19,7 @@ import {
   type UpdateProgress,
 } from "../tauri/desktopUpdate";
 import { isDesktopApp } from "../tauri/backendRuntime";
+import { DESKTOP_UPDATE_CHECK_ENABLED } from "../config/brand";
 
 export type UpdatePhase =
   | "idle"
@@ -72,7 +73,7 @@ export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
 
   // Probe on mount: check remote update + check cached update on disk.
   useEffect(() => {
-    if (!isDesktopApp()) return;
+    if (!DESKTOP_UPDATE_CHECK_ENABLED || !isDesktopApp()) return;
     let cancelled = false;
 
     // Check if there's a cached (already downloaded) update on disk.
@@ -132,7 +133,7 @@ export function DesktopUpdateProvider({ children }: { children: ReactNode }) {
 
   // Subscribe to Rust-side update:* events.
   useEffect(() => {
-    if (!isDesktopApp()) return;
+    if (!DESKTOP_UPDATE_CHECK_ENABLED || !isDesktopApp()) return;
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     onUpdateEvent({

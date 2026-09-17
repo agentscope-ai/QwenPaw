@@ -143,7 +143,7 @@ describe("AgentTable", () => {
       />,
     );
 
-    expect(screen.getByText(/QwenPaw/)).toBeInTheDocument();
+    expect(screen.getByText(/WeldonAgent/)).toBeInTheDocument();
     expect(screen.getByText(/Codex/)).toBeInTheDocument();
     expect(screen.getByText(/Qoder/)).toBeInTheDocument();
   });

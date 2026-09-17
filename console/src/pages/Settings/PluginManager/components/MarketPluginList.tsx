@@ -223,7 +223,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                         color={isCompatible(entry) ? "green" : "orange"}
                         style={{ margin: 0, fontSize: 11 }}
                       >
-                        {`QwenPaw ${entry.qwenpaw_compat_labels.join(", ")}`}
+                        {`WeldonAgent ${entry.qwenpaw_compat_labels.join(", ")}`}
                       </Tag>
                     )}
                 </div>
@@ -260,9 +260,9 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                 <Tooltip
                   title={
                     !isCompatible(entry)
-                      ? `This plugin is labeled for QwenPaw ${
+                      ? `This plugin is labeled for WeldonAgent ${
                           entry.qwenpaw_compat_labels?.join(", ") ?? "unknown"
-                        }; compatibility with QwenPaw ${
+                        }; compatibility with WeldonAgent ${
                           qwenpawVersion ?? "unknown"
                         } is unverified.`
                       : undefined
@@ -285,7 +285,7 @@ export function MarketPluginList({ onInstalled }: MarketPluginListProps) {
                           ),
                           content: t("pluginManager.compatWarningContent", {
                             defaultValue:
-                              "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+                              "This plugin is labeled for WeldonAgent {{labels}}. Your WeldonAgent version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
                             labels:
                               entry.qwenpaw_compat_labels?.join(", ") ??
                               "unknown",

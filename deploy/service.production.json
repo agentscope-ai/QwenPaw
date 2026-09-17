@@ -1,0 +1,21 @@
+{
+  "python": "/usr/local/bin/python",
+  "project_dir": "/app",
+  "host": "0.0.0.0",
+  "port": 18089,
+  "timeout": 180,
+  "working_dir": "/data/working",
+  "secret_dir": "/data/secrets",
+  "backup_dir": "/data/backups",
+  "state_dir": "/data/run",
+  "log_dir": "/data/logs",
+  "environment": {
+    "QWENPAW_MULTI_USER_ENABLED": "${QWENPAW_MULTI_USER_ENABLED}",
+    "QWENPAW_STORAGE_MODE": "${QWENPAW_STORAGE_MODE}",
+    "QWENPAW_DATABASE_URL": "${QWENPAW_DATABASE_URL}",
+    "QWENPAW_DATABASE_SCHEMA": "${QWENPAW_DATABASE_SCHEMA}",
+    "QWENPAW_CUTOVER_VALIDATED_DOMAINS": "${QWENPAW_CUTOVER_VALIDATED_DOMAINS}",
+    "QWENPAW_CUTOVER_LEGACY_FROZEN_DOMAINS": "${QWENPAW_CUTOVER_LEGACY_FROZEN_DOMAINS}",
+    "QWENPAW_CUTOVER_POSTGRES_WRITES_DOMAINS": "${QWENPAW_CUTOVER_POSTGRES_WRITES_DOMAINS}"
+  }
+}

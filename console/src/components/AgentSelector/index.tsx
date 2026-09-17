@@ -340,7 +340,6 @@ export default function AgentSelector({
           agent.can_toggle !== false &&
           renderToggleButton(agent, !agent.enabled)}
       </div>
-      <div className={styles.agentOptionId}>{`ID: ${agent.id}`}</div>
     </div>
   );
 

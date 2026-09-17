@@ -7,7 +7,7 @@ import {
   Input,
   Button,
 } from "@agentscope-ai/design";
-import { AlertTriangle, ChevronRight, ExternalLink } from "lucide-react";
+import { AlertTriangle, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "@/api";
 import type { ReMeLightMemoryConfig } from "@/api/types/agent";
@@ -54,7 +54,7 @@ export function ReMeLightMemoryCard({
 }: {
   requestContext?: AgentRequestContext;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { message, modal } = useAppMessage();
   const form = Form.useFormInstance();
   const { selectedAgent } = useAgentStore();
@@ -161,12 +161,6 @@ export function ReMeLightMemoryCard({
   const dailyPaperCronEnabled = remeConfig?.daily_paper_cron_enabled ?? false;
   const autoSearchEnabled =
     remeConfig?.auto_memory_search_config?.enabled ?? false;
-  const dailyPaperDocsUrl = (i18n?.resolvedLanguage || i18n?.language || "en")
-    .toLowerCase()
-    .startsWith("zh")
-    ? "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README_ZH.md"
-    : "https://github.com/agentscope-ai/ReMe/blob/main/cookbook/daily_paper/README.md";
-
   const toggleAutoMemory = (enabled: boolean) => {
     form.setFieldValue(
       ["reme_light_memory_config", "auto_memory_interval"],
@@ -181,24 +175,6 @@ export function ReMeLightMemoryCard({
           <div>
             <h3>{t("agentConfig.memoryOverviewTitle")}</h3>
             <p>{t("agentConfig.memoryPageDescription")}</p>
-            <div className={styles.memoryReferences}>
-              <span>{t("agentConfig.memoryPoweredBy")}</span>
-              <a
-                href="https://github.com/agentscope-ai/ReMe"
-                target="_blank"
-                rel="noreferrer"
-              >
-                ReMe
-              </a>
-              <i />
-              <a
-                href="https://qwenpaw.agentscope.io/docs/memory"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t("agentConfig.memoryDocumentation")}
-              </a>
-            </div>
           </div>
         </div>
         <div className={styles.memoryOverviewGrid}>
@@ -364,10 +340,6 @@ export function ReMeLightMemoryCard({
                 </span>
               </button>
               <div className={styles.memorySourceActions}>
-                <a href={dailyPaperDocsUrl} target="_blank" rel="noreferrer">
-                  {t("agentConfig.dailyPaperDocumentation")}
-                  <ExternalLink size={14} aria-hidden="true" />
-                </a>
                 <code>daily-paper</code>
                 <Form.Item
                   name={[

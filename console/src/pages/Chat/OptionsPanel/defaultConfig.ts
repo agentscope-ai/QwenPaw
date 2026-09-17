@@ -1,4 +1,5 @@
 import type { TFunction } from "i18next";
+import { PRODUCT_NAME } from "../../../config/brand";
 
 const defaultConfig = {
   theme: {
@@ -7,7 +8,7 @@ const defaultConfig = {
     prefix: "qwenpaw",
     leftHeader: {
       logo: "",
-      title: "Work with QwenPaw",
+      title: `Work with ${PRODUCT_NAME}`,
     },
     bubbleList: {
       userMessageAnchors: {

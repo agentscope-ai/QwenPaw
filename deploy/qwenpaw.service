@@ -1,5 +1,5 @@
 [Unit]
-Description=QwenPaw multi-user agent platform
+Description=WeldonAgent multi-user agent platform
 After=network-online.target
 Wants=network-online.target
 

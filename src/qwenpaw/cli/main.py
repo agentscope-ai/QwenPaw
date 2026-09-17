@@ -182,6 +182,11 @@ def _looks_like_project_path(value: str) -> bool:
         "task": ("qwenpaw.cli.task_cmd", "task_cmd", ".task_cmd"),
         "doctor": ("qwenpaw.cli.doctor_cmd", "doctor_cmd", ".doctor_cmd"),
         "auto": ("qwenpaw.cli.auto", "auto_group", ".auto"),
+        "deployment-backup": (
+            "qwenpaw.cli.deployment_backup_cmd",
+            "deployment_backup_group",
+            ".deployment_backup_cmd",
+        ),
     },
 )
 @click.version_option(version=__version__, prog_name="QwenPaw")

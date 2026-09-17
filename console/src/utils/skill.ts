@@ -47,7 +47,7 @@ export const getPoolBuiltinStatusTone = (
 // ─── Install-origin helpers ────────────────────────────────────
 
 export const INSTALLED_FROM_LABELS: Record<string, string> = {
-  qwenpaw: "QwenPaw",
+  qwenpaw: "WeldonAgent",
   "skills-sh": "skills.sh",
   github: "GitHub",
   lobehub: "LobeHub",

@@ -4,7 +4,7 @@ COPY console/ ./
 RUN if [ -f package-lock.json ]; then npm ci --include=dev; else npm install --include=dev; fi && npm run build
 
 FROM python:3.11-slim-bookworm
-RUN apt-get update && apt-get install -y --no-install-recommends git build-essential curl fonts-noto-cjk && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends git build-essential curl fonts-noto-cjk postgresql-client && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY pyproject.toml setup.py README.md ./
 COPY src ./src
@@ -13,6 +13,8 @@ COPY alembic.ini ./
 COPY --from=frontend /build/console/dist ./src/qwenpaw/console
 RUN python -m pip install --no-cache-dir . && python -m playwright install --with-deps chromium
 COPY deploy/service.container.json /app/deploy/service.container.json
+COPY deploy/service.production.json /app/deploy/service.production.json
+COPY deploy/runtime_env.py /app/deploy/runtime_env.py
 ENV PYTHONUNBUFFERED=1 QWENPAW_RUNNING_IN_CONTAINER=1
 EXPOSE 18089
 CMD ["python", "-m", "qwenpaw", "service", "--config", "/app/deploy/service.container.json", "run"]

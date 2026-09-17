@@ -100,7 +100,7 @@ COPY --from=uv-src /uv /bin/uv
 RUN uv pip install --no-cache-dir . && rm -rf ./build
 
 
-# QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
+# WeldonAgent app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
 ENV QWENPAW_PORT=8088
 
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template

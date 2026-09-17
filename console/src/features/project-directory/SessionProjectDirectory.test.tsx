@@ -104,6 +104,22 @@ describe("SessionProjectDirectory", () => {
     );
   });
 
+  it("conceals the physical directory in the chat workspace indicator", async () => {
+    renderWithProviders(
+      <SessionProjectDirectory scope={scope} concealPath />,
+    );
+
+    expect(
+      await screen.findByLabelText("files.workspace"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("/projects/agentscope")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "projectDirectory.sessionTitle",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
   it("clears the recent selection when a browsed directory is chosen", async () => {
     const user = userEvent.setup();
     renderWithProviders(<SessionProjectDirectory scope={scope} />);

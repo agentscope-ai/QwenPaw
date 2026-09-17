@@ -19,6 +19,7 @@ import type { ChannelSchema } from "../../../../api/modules/channel";
 import styles from "../index.module.less";
 import { useAgentStore } from "../../../../stores/agentStore";
 import { openExternalLink } from "../../../../utils/openExternalLink";
+import { PUBLIC_MAINTENANCE_LINKS_ENABLED } from "../../../../config/brand";
 
 const CHANNELS_WITH_ACCESS_CONTROL: ChannelKey[] = [
   "telegram",
@@ -89,6 +90,13 @@ const CHANNEL_DOC_ZH_URLS: Partial<Record<ChannelKey, string>> = {
 };
 
 const TWILIO_CONSOLE_URL = "https://console.twilio.com";
+
+function isVisibleChannelDocument(url: string): boolean {
+  return (
+    PUBLIC_MAINTENANCE_LINKS_ENABLED ||
+    !url.includes("qwenpaw.agentscope.io/docs/")
+  );
+}
 
 const BASE_FIELDS = [
   "enabled",
@@ -1575,7 +1583,8 @@ export function ChannelDrawer({
       </span>
       {activeKey &&
         CHANNEL_DOC_EN_URLS[activeKey] &&
-        CHANNEL_DOC_ZH_URLS[activeKey] && (
+        CHANNEL_DOC_ZH_URLS[activeKey] &&
+        isVisibleChannelDocument(CHANNEL_DOC_EN_URLS[activeKey]!) && (
           <Button
             type="text"
             size="small"

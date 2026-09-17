@@ -255,7 +255,7 @@ export function AppMarket({
         ),
         content: tRef.current("pluginManager.compatWarningContent", {
           defaultValue:
-            "This plugin is labeled for QwenPaw {{labels}}. Your QwenPaw version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
+            "This plugin is labeled for WeldonAgent {{labels}}. Your WeldonAgent version is {{version}}. Installing it may cause errors. Are you sure you want to continue?",
           labels: entry.qwenpaw_compat_labels?.join(", ") ?? "unknown",
           version: qwenpawVersion ?? "unknown",
         }),
