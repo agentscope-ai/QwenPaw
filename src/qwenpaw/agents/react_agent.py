@@ -883,13 +883,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
             )
             return
 
-        # ── Proactive media stripping ──
-        from .model_factory import _supports_multimodal_for_current_model
-
-        should_strip_media = (
-            not _supports_multimodal_for_current_model()
-            or self._model_rejects_media()
-        )
+        # ModelInfo controls per-model request normalization. Only learned
+        # rejections belong here; a global lookup can misclassify fallbacks.
+        should_strip_media = self._model_rejects_media()
         should_strip_audio = (
             not should_strip_media and self._model_rejects_audio()
         )

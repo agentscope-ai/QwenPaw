@@ -573,27 +573,12 @@ def _prepared_task_result(
     return task.result()
 
 
-def _supports_multimodal_for_current_model() -> bool:
-    """Best-effort lookup of current model multimodal support."""
-    try:
-        from .prompt import get_active_model_supports_multimodal
-
-        return get_active_model_supports_multimodal()
-    except Exception:  # pragma: no cover - config lookup safety
-        logger.debug(
-            "Falling back to multimodal=True during request-time "
-            "message normalization",
-            exc_info=True,
-        )
-        return True
-
-
 def _normalize_messages_for_formatter(
     msgs: list,
     base_formatter_class: Type[FormatterBase],
     formatter_instance: FormatterBase | None = None,
     *,
-    supports_multimodal: bool | None = None,
+    supports_multimodal: bool = True,
 ) -> tuple[list, bool, bool, bool]:
     """Return normalized messages and formatter-family flags.
 
@@ -613,8 +598,6 @@ def _normalize_messages_for_formatter(
         base_formatter_class,
         OpenAIResponseFormatter,
     )
-    if supports_multimodal is None:
-        supports_multimodal = _supports_multimodal_for_current_model()
     if getattr(formatter_instance, "_qwenpaw_force_strip_media", False):
         supports_multimodal = False
     strip_audio = bool(
@@ -1501,7 +1484,7 @@ def _create_file_block_support_formatter(
     provider_id: str | None = None,
     model_id: str | None = None,
     *,
-    supports_multimodal: bool | None = None,
+    supports_multimodal: bool = True,
 ) -> Type[FormatterBase]:
     """Create a formatter class with file block support.
 
@@ -1516,16 +1499,12 @@ def _create_file_block_support_formatter(
         model_id: Model served by the provider. This is used together with
             ``provider_id`` for request-protocol capabilities that cannot be
             inferred from the shared formatter base class.
-        supports_multimodal: Capability of the selected model. Resolve it
-            once at construction when the caller has no model metadata.
+        supports_multimodal: Resolved capability of the selected model.
+            Unknown capability preserves media for provider-side handling.
 
     Returns:
         Enhanced formatter class with file block support
     """
-
-    # Snapshot capability at construction, never during async formatting.
-    if supports_multimodal is None:
-        supports_multimodal = _supports_multimodal_for_current_model()
 
     supports_reasoning_content_relay = not (
         (
@@ -2390,7 +2369,7 @@ def _create_formatter_instance(
     model: ChatModelBase,
     provider_id: str | None = None,
     *,
-    supports_multimodal: bool | None = None,
+    supports_multimodal: bool = True,
 ) -> FormatterBase:
     """Wrap the model's native formatter with file-block support.
 

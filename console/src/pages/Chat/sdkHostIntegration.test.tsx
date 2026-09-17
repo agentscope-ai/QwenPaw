@@ -1658,6 +1658,12 @@ describe("ChatPage coverage", () => {
   });
 
   it("leaves the query unchanged for a non-QwenPaw backend", async () => {
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    let acquireOwnership: (() => void) | undefined;
+    vi.mocked(holdOwnershipLock).mockImplementationOnce((_key, onAcquired) => {
+      acquireOwnership = onAcquired;
+      return Promise.resolve();
+    });
     mockRequiresQwenPawModel.mockReturnValue(false);
     mockBeginLoopModeSubmission.mockImplementation(
       (text: string) => `/goal ${text}`,
@@ -1666,6 +1672,8 @@ describe("ChatPage coverage", () => {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
+    await waitFor(() => expect(acquireOwnership).toBeTypeOf("function"));
+    await act(async () => acquireOwnership!());
 
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
     const result = await beforeSubmit({ query: "do the task" });
