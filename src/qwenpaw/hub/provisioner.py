@@ -21,6 +21,20 @@ class RuntimeProvisionerAvailability:
     reason: str | None = None
 
 
+@dataclass(frozen=True)
+class RuntimeModelNetwork:
+    """Describe one backend's host binding and runtime-visible address."""
+
+    bind_host: str
+    runtime_host: str
+
+    def url(self, port: int) -> str:
+        """Build the runtime endpoint after the listener has bound a port."""
+        if not port:
+            raise RuntimeError("Hub model listener is not running")
+        return f"http://{self.runtime_host}:{port}"
+
+
 class RuntimeProvisionerUnavailableError(RuntimeError):
     """Raised when a runtime provisioner cannot enforce safe execution."""
 
@@ -31,11 +45,12 @@ class RuntimeProvisioner(ABC):
     name: str
     security_level: str
 
-    def model_endpoint(self, port: int) -> str:
-        """Resolve the Hub model listener from this runtime's network."""
-        if not port:
-            raise RuntimeError("Hub model listener is not running")
-        return f"http://127.0.0.1:{port}"
+    def model_network(self) -> RuntimeModelNetwork:
+        """Resolve local model access; isolated backends override this."""
+        return RuntimeModelNetwork(
+            bind_host="127.0.0.1",
+            runtime_host="127.0.0.1",
+        )
 
     @staticmethod
     def verify_model_connection(

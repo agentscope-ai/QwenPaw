@@ -255,7 +255,6 @@ def governance_router(
         result["organization_blocked"] = organization["remaining"] == 0
         return result
 
-    router.include_router(runtime_model_router(catalog, gateway))
     return router
 
 

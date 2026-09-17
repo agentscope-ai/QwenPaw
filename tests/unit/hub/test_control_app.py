@@ -31,7 +31,11 @@ from qwenpaw.hub.config import (
 )
 from qwenpaw.hub.control_app import create_hub_app, run_hub_app
 from qwenpaw.hub.credentials import TenantCredentialVault
+from qwenpaw.hub.model_service.api_models import ConnectionBody
+from qwenpaw.hub.model_service.gateway import ModelGateway
+from qwenpaw.hub.model_service.listener import ModelListener
 from qwenpaw.hub.provisioner import (
+    RuntimeModelNetwork,
     RuntimeProvisioner,
     RuntimeProvisionerAvailability,
 )
@@ -812,6 +816,230 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert runtimes["items"][0]["state"] == "running"
         assert runtimes["items"][0]["owner_user_id"]
         assert runtimes["items"][0]["metadata"]["hub_default"] is True
+
+
+@pytest.mark.parametrize("path", ["runtime-probe", "models"])
+def test_personal_api_without_model_capability(
+    tmp_path: Path,
+    path: str,
+) -> None:
+    """An already-running runtime needs no model token for personal APIs."""
+    calls = []
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        token = _register(client, "owner")
+        assert (
+            client.get(
+                "/api/runtime-probe",
+                headers=_headers(token),
+            ).status_code
+            == 200
+        )
+        store = client.app.state.model_catalog.store
+        with store.connect() as db:
+            db.execute("DELETE FROM hub_model_runtime_tokens")
+        response = client.get(f"/api/{path}", headers=_headers(token))
+
+        assert response.status_code == 200
+        assert calls == ["/api/runtime-probe", f"/api/{path}"]
+        with store.connect() as db:
+            assert (
+                db.execute(
+                    "SELECT COUNT(*) FROM hub_model_runtime_tokens",
+                ).fetchone()[0]
+                == 0
+            )
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "catalog"),
+        ("POST", "v1/chat/completions"),
+    ],
+)
+def test_model_routes_only_exist_on_model_listener(
+    tmp_path: Path,
+    method: str,
+    path: str,
+) -> None:
+    """Model capabilities cannot reach control routes or bypass isolation."""
+    calls = []
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        token = _register(client, "owner")
+        client.get("/api/runtime-probe", headers=_headers(token))
+        state = client.app.state
+        record = state.runtime_service.registry.list()[0]
+        capability = state.model_catalog.issue_token(record)
+        calls.clear()
+        url = f"/api/hub/model-runtime/{path}"
+        for credential in (token, capability):
+            response = client.request(
+                method,
+                url,
+                headers=_headers(credential),
+                json={},
+            )
+            assert response.status_code in (401, 404)
+        assert not calls
+
+        with TestClient(state.model_listener.app) as model_client:
+            for credential in ("", token):
+                response = model_client.request(
+                    method,
+                    url,
+                    headers=_headers(credential),
+                    json={},
+                )
+                assert response.status_code == 401
+            response = model_client.request(
+                method,
+                url,
+                headers=_headers(capability),
+                json={},
+            )
+            assert response.status_code == (200 if method == "GET" else 422)
+            for control_path in ("admin/model-policy", "me/models"):
+                assert (
+                    model_client.get(
+                        f"/api/hub/{control_path}",
+                        headers=_headers(capability),
+                    ).status_code
+                    == 404
+                )
+
+
+def test_model_network_snapshot_is_reused_for_credentials(
+    tmp_path: Path,
+) -> None:
+    """Binding and runtime injection share one provisioner discovery."""
+    provisioner = _FakeProvisioner()
+    network = RuntimeModelNetwork("127.0.0.1", "runtime-host.example")
+
+    async def proxy_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with (
+        patch.object(
+            provisioner,
+            "model_network",
+            return_value=network,
+        ) as discover,
+        patch.object(provisioner, "start", wraps=provisioner.start) as start,
+        _client(
+            tmp_path,
+            httpx.MockTransport(proxy_handler),
+            runtime_provisioner=provisioner,
+        ) as client,
+    ):
+        token = _register(client, "owner")
+        assert (
+            client.get(
+                "/api/runtime-probe",
+                headers=_headers(token),
+            ).status_code
+            == 200
+        )
+        discover.assert_called_once_with()
+        credentials = start.call_args.args[1]
+        assert credentials["QWENPAW_HUB_MODEL_URL"] == network.url(
+            client.app.state.model_listener.port,
+        )
+
+
+def test_admin_model_test_keeps_shared_gateway(
+    admin_client: tuple[TestClient, str],
+) -> None:
+    """Listener separation preserves administrator model test requests."""
+    client, token = admin_client
+    with patch.object(
+        client.app.state.model_gateway,
+        "call",
+        return_value={"ok": True},
+    ) as call:
+        response = client.post(
+            "/api/hub/admin/models/model-a/test",
+            headers=_headers(token),
+        )
+    assert response.status_code == 200
+    call.assert_awaited_once()
+    identity, body = call.call_args.args
+    assert identity["runtime_id"] == "admin-test"
+    assert body["model"] == "model-a"
+
+
+def test_model_startup_io_runs_outside_event_loop(tmp_path: Path) -> None:
+    """Recovery and listener binding must not block the Hub event loop."""
+    checked = []
+    recover = ModelGateway.recover
+    bind = ModelListener._bind  # pylint: disable=protected-access
+    discover = _FakeProvisioner.model_network
+
+    def assert_worker(name: str) -> None:
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        checked.append(name)
+
+    def recover_off_loop(gateway: ModelGateway) -> None:
+        assert_worker("recover")
+        recover(gateway)
+
+    def bind_off_loop(listener: ModelListener, hosts):
+        assert_worker("bind")
+        return bind(listener, hosts)
+
+    def discover_off_loop(provisioner: _FakeProvisioner):
+        assert_worker("discover")
+        return discover(provisioner)
+
+    with (
+        patch.object(ModelGateway, "recover", recover_off_loop),
+        patch.object(ModelListener, "_bind", bind_off_loop),
+        patch.object(_FakeProvisioner, "model_network", discover_off_loop),
+        _client(tmp_path),
+    ):
+        assert checked == ["recover", "discover", "bind"]
+
+
+def test_model_secret_cleanup_log_is_redacted(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A cleanup failure cannot leak keys or vault references via errors."""
+    with _client(tmp_path) as client:
+        catalog = client.app.state.model_catalog
+        body = ConnectionBody(
+            name="Provider",
+            base_url="https://example.com/v1",
+            api_key="test-sensitive-key",
+            quota_scope="provider",
+        )
+        with (
+            patch.object(
+                catalog,
+                "_validate_default",
+                side_effect=ValueError("invalid default"),
+            ),
+            patch.object(
+                catalog.vault,
+                "delete",
+                side_effect=RuntimeError("MODEL_reference test-sensitive-key"),
+            ),
+            pytest.raises(ValueError, match="invalid default"),
+        ):
+            catalog.save_connection(body)
+        assert "Could not remove unused model secret" in caplog.text
+        assert "MODEL_" not in caplog.text
+        assert body.api_key not in caplog.text
 
 
 def test_runtime_create_rejects_endpoint_overrides(tmp_path: Path) -> None:

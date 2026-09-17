@@ -111,8 +111,8 @@ class ModelCatalog:
                         name=secret_name,
                     )
                 except Exception:
-                    logger.exception(
-                        f"Could not remove unused model secret: {secret_name}",
+                    logger.error(
+                        "Could not remove unused model secret",
                     )
             raise
         # Replaced secrets stay valid for already-admitted request snapshots.

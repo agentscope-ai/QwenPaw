@@ -49,7 +49,10 @@ from .auth import HubAuthService, HubDatabaseBusyError, HubUser
 from .bootstrap import get_hub_root
 from .config import HubConfig, HubConfigStore
 from .credentials import TenantCredentialVault
-from .provisioner import RuntimeProvisionerUnavailableError
+from .provisioner import (
+    RuntimeModelNetwork,
+    RuntimeProvisionerUnavailableError,
+)
 from .local_provisioner import LocalProcessRuntimeProvisioner
 from .docker_images import DockerImagePullStore
 from .docker_provisioner import (
@@ -85,10 +88,7 @@ from .model_service.budget import TokenBudgetService
 from .model_service.gateway import ModelGateway
 from .model_service.routes import governance_router
 from .model_service.listener import ModelListener
-from .model_service.runtime_policy import (
-    require_model_route,
-    require_model_runtime,
-)
+from .model_service.runtime_policy import require_model_route
 from . import websocket_proxy
 
 
@@ -166,14 +166,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
     model_gateway = ModelGateway(model_catalog, model_budgets, model_transport)
     invitations = InvitationService(governance, hub_auth)
     model_listener = ModelListener(governance, model_catalog, model_gateway)
+    model_networks: dict[str, RuntimeModelNetwork] = {}
     original_credentials = runtime_service.credential_provider
 
     def managed_credentials(record):
         values = dict(original_credentials(record))
-        provisioner = runtime_service.provisioners[record.provisioner]
-        values["QWENPAW_HUB_MODEL_URL"] = provisioner.model_endpoint(
-            model_listener.port,
-        )
+        network = model_networks[record.provisioner]
+        values["QWENPAW_HUB_MODEL_URL"] = network.url(model_listener.port)
         values["QWENPAW_HUB_MODEL_TOKEN"] = model_catalog.issue_token(record)
         return values
 
@@ -219,9 +218,16 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        model_gateway.recover()
         try:
-            async with model_listener.serve():
+            await run_in_threadpool(model_gateway.recover)
+            model_networks.clear()
+            for name, status in runtime_service.provisioner_statuses().items():
+                if status["available"]:
+                    model_networks[name] = await run_in_threadpool(
+                        runtime_service.provisioners[name].model_network,
+                    )
+            bind_hosts = {item.bind_host for item in model_networks.values()}
+            async with model_listener.serve(bind_hosts):
                 yield
         finally:
             if docker_pulls is not None:
@@ -1443,11 +1449,6 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> Response:
         require_model_route(path)
         record = await ensure_personal_runtime(user)
-        await run_in_threadpool(
-            require_model_runtime,
-            governance,
-            record.runtime_id,
-        )
         target = runtime_url(
             record,
             scheme="http",
