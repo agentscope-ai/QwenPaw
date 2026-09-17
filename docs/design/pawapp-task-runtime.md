@@ -461,6 +461,9 @@ P1b artifact publication, task-card preview/download, typed project handoff,
 Creator media ArtifactRefs, and the P2 no-model file-browser adapter are
 implemented. File Browser covers conditional AppLocal setup, canonical input
 resolution before scoped Host authorization, durable bounded listings, and
-Delegated/Direct registration. The remaining P2 validation is an explicitly
-authorized limited real provider run. Cross-App Exchange is not part of this
-implementation.
+Delegated/Direct registration. The remaining P2 validation is the billable
+step of an explicitly authorized limited real provider run. Its checked-in
+acceptance runner performs a free redacted preflight, uses an isolated Project
+copy, bounds the output to two seconds at 480P, pins the exact Host grant, and
+durably refuses a second provider submission. Cross-App Exchange is not part
+of this implementation.
