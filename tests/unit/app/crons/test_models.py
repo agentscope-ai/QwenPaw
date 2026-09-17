@@ -241,7 +241,9 @@ def test_jobs_file_loads_legacy_named_dow_range_with_step():
         mode="json",
     )
 
-    jobs_file = JobsFile.model_validate({"version": 2, "jobs": [legacy, other]})
+    jobs_file = JobsFile.model_validate(
+        {"version": 2, "jobs": [legacy, other]}
+    )
 
     assert len(jobs_file.jobs) == 2
     assert jobs_file.jobs[0].schedule.cron == "0 9 * * fri-sun/1"
