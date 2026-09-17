@@ -663,3 +663,66 @@ async def test_run_job_creates_background_task_for_known_job(
 
     mock_exec.assert_called_once()
     await manager.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("previous_value", [True, False])
+@pytest.mark.parametrize(
+    "incoming",
+    ["no_runtime", "no_share_session", True, False],
+)
+async def test_api_replace_preserves_omitted_share_session(
+    tmp_path,
+    previous_value,
+    incoming,
+):
+    """Legacy replacement JSON must not opt existing jobs out of sharing."""
+    from qwenpaw.app.crons.api import replace_job
+    from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
+
+    path = tmp_path / "jobs.json"
+    repo = JsonJobRepository(path)
+    manager = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    original = make_cron_job_spec(job_id="legacy")
+    original.runtime.share_session = previous_value
+    await manager.create_or_replace_job(original)
+    payload = original.model_dump(mode="json")
+    payload["name"] = "renamed"
+    if incoming == "no_runtime":
+        payload.pop("runtime")
+    elif incoming == "no_share_session":
+        payload["runtime"].pop("share_session")
+    else:
+        payload["runtime"]["share_session"] = incoming
+    response = await replace_job(
+        "legacy",
+        CronJobSpec.model_validate(payload),
+        manager,
+    )
+    expected = incoming if isinstance(incoming, bool) else previous_value
+    reloaded = await JsonJobRepository(path).get_job("legacy")
+    assert reloaded.name == "renamed"
+    assert reloaded.runtime.share_session is expected
+    assert response.runtime.share_session is expected
+
+
+@pytest.mark.asyncio
+async def test_api_create_defaults_to_unshared_session(tmp_path):
+    from qwenpaw.app.crons.api import create_job
+    from qwenpaw.app.crons.repo.json_repo import JsonJobRepository
+
+    repo = JsonJobRepository(tmp_path / "jobs.json")
+    manager = CronManager(
+        repo=repo,
+        workspace=MagicMock(),
+        channel_manager=AsyncMock(),
+    )
+    payload = make_cron_job_spec(job_id="new").model_dump(mode="json")
+    payload.pop("runtime")
+    created = await create_job(CronJobSpec.model_validate(payload), manager)
+    saved = await repo.get_job(created.id)
+    assert saved.runtime.share_session is False

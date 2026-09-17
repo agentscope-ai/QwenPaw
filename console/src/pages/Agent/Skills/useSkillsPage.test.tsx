@@ -7,12 +7,15 @@
  * and tags) and security scan verdicts surfacing.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 
 // ---- Hoisted mocks ---------------------------------------------------------
 
 const mocks = vi.hoisted(() => ({
+  selectedAgent: "agent-1",
   // api surface
+  listChannelTypes: vi.fn(),
+  listChannelSchemas: vi.fn(),
   getSkill: vi.fn(),
   saveSkill: vi.fn(),
   updateSkillChannels: vi.fn(),
@@ -66,13 +69,17 @@ vi.mock("@agentscope-ai/design", () => ({
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) =>
-      opts ? `${key}:${JSON.stringify(opts)}` : key,
+      typeof opts?.defaultValue === "string"
+        ? opts.defaultValue
+        : opts
+        ? `${key}:${JSON.stringify(opts)}`
+        : key,
     i18n: { language: "en" },
   }),
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
+  useAgentStore: () => ({ selectedAgent: mocks.selectedAgent }),
 }));
 
 vi.mock("../../../hooks/useAppMessage", () => ({
@@ -81,6 +88,8 @@ vi.mock("../../../hooks/useAppMessage", () => ({
 
 vi.mock("../../../api", () => ({
   default: {
+    listChannelTypes: () => mocks.listChannelTypes(),
+    listChannelSchemas: () => mocks.listChannelSchemas(),
     getSkill: (...a: unknown[]) => mocks.getSkill(...a),
     saveSkill: (...a: unknown[]) => mocks.saveSkill(...a),
     updateSkillChannels: (...a: unknown[]) => mocks.updateSkillChannels(...a),
@@ -183,6 +192,9 @@ function autoCancel() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.selectedAgent = "agent-1";
+  mocks.listChannelTypes.mockReset().mockResolvedValue([]);
+  mocks.listChannelSchemas.mockReset().mockResolvedValue({});
   mocks.refreshSkills.mockResolvedValue(undefined);
   mocks.listSkillPoolSkills.mockResolvedValue([]);
 });
@@ -611,7 +623,7 @@ describe("pool modal", () => {
   });
 
   it("does not load pool skills while closed", async () => {
-    const { result } = renderHook(() => useSkillsPage());
+    renderHook(() => useSkillsPage());
     await flush();
     expect(mocks.listSkillPoolSkills).not.toHaveBeenCalled();
   });
@@ -876,5 +888,99 @@ describe("batch enable/disable/delete", () => {
       await result.current.handleBatchDelete();
     });
     expect(mocks.modalConfirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("useSkillsPage — channel discovery", () => {
+  beforeEach(() => {
+    mocks.listChannelTypes.mockResolvedValue([
+      "console",
+      "slack",
+      "custom_bot",
+    ]);
+    mocks.listChannelSchemas.mockResolvedValue({
+      custom_bot: {
+        label: "Internal support",
+        description: "",
+        plugin_id: "support",
+        config_fields: [],
+      },
+    });
+  });
+
+  it("shares discovered channel names across the editor and skill summaries", async () => {
+    const { result } = renderHook(() => useSkillsPage());
+    await waitFor(() =>
+      expect(result.current.getChannelName("custom_bot")).toBe(
+        "Internal support",
+      ),
+    );
+    expect(result.current.channelOptions.options).toEqual([
+      { value: "console", label: "Console" },
+      { value: "slack", label: "Slack" },
+      { value: "custom_bot", label: "Internal support" },
+    ]);
+  });
+
+  it("keeps channels selectable while optional schema loading is pending or fails", async () => {
+    let rejectSchema!: (reason: Error) => void;
+    mocks.listChannelSchemas.mockReturnValue(
+      new Promise((_, reject) => {
+        rejectSchema = reject;
+      }),
+    );
+    const { result } = renderHook(() => useSkillsPage());
+    await waitFor(() =>
+      expect(result.current.channelOptions.loading).toBe(false),
+    );
+    expect(result.current.getChannelName("custom_bot")).toBe("Custom Bot");
+    await act(async () => rejectSchema(new Error("schema unavailable")));
+    expect(result.current.channelOptions.error).toBe(false);
+    expect(result.current.channelOptions.options).toHaveLength(3);
+  });
+
+  it("retains previous channel options on failure and discovers changes on retry", async () => {
+    const { result } = renderHook(() => useSkillsPage());
+    await waitFor(() =>
+      expect(result.current.channelOptions.loading).toBe(false),
+    );
+    mocks.listChannelTypes.mockRejectedValueOnce(new Error("offline"));
+    act(() => result.current.channelOptions.onRetry());
+    await waitFor(() => expect(result.current.channelOptions.error).toBe(true));
+    expect(result.current.channelOptions.options).toHaveLength(3);
+    mocks.listChannelTypes.mockResolvedValue(["console", "new_plugin"]);
+    act(() => result.current.channelOptions.onRetry());
+    await waitFor(() =>
+      expect(result.current.channelOptions.options.map((o) => o.value)).toEqual(
+        ["console", "new_plugin"],
+      ),
+    );
+    expect(result.current.channelOptions.error).toBe(false);
+  });
+
+  it("ignores responses from the previous agent and refreshes when opening the drawer", async () => {
+    let resolveOld!: (value: string[]) => void;
+    mocks.listChannelTypes.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveOld = resolve;
+      }),
+    );
+    const { result, rerender } = renderHook(() => useSkillsPage());
+    mocks.selectedAgent = "agent-2";
+    rerender();
+    await waitFor(() =>
+      expect(result.current.channelOptions.loading).toBe(false),
+    );
+    await act(async () => resolveOld(["obsolete"]));
+    expect(
+      result.current.channelOptions.options.some((o) => o.value === "obsolete"),
+    ).toBe(false);
+    mocks.listChannelTypes.mockResolvedValue(["new_plugin"]);
+    act(() => result.current.handleCreate());
+    await waitFor(() =>
+      expect(result.current.channelOptions.options.map((o) => o.value)).toEqual(
+        ["new_plugin"],
+      ),
+    );
   });
 });

@@ -18,6 +18,8 @@ import {
 } from "antd";
 import { CheckCircle2, CircleAlert, Download, PackageOpen } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
+import { useAgentStore } from "@/stores/agentStore";
+import { supportsPortabilityImport } from "@/utils/agentBackend";
 import type {
   ImportAssetResult,
   ImportAssetState,
@@ -152,6 +154,31 @@ function completion(providers: ImportProviderSnapshot[]) {
 }
 
 export default function ImportPage() {
+  const { t } = useTranslation();
+  const currentAgent = useAgentStore(({ selectedAgent, agents }) =>
+    agents.find((agent) => agent.id === selectedAgent),
+  );
+
+  if (supportsPortabilityImport(currentAgent)) {
+    return <ImportWorkflow key={currentAgent?.id} />;
+  }
+
+  return (
+    <div className={styles.content}>
+      {currentAgent ? (
+        <Alert
+          type="info"
+          showIcon
+          message={t("portabilityImport.qwenpawOnly")}
+        />
+      ) : (
+        <Spin />
+      )}
+    </div>
+  );
+}
+
+function ImportWorkflow() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const {

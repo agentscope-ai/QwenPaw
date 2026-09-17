@@ -12,16 +12,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable
+from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
-
-if TYPE_CHECKING:
-    from ..agents.context.visual_compression.runtime.recovery import (
-        TurnRecoveryStore,
-    )
 
 _logger = logging.getLogger(__name__)
 
@@ -425,11 +420,6 @@ class AgentBuilder:
             local_ws.set_governor(governor)
 
         # Toolkit.
-        from ..agents.context.visual_compression.runtime.recovery import (
-            TurnRecoveryStore,
-        )
-
-        visual_recovery_store = TurnRecoveryStore()
         extra_tools = self._collect_coding_mode_tools(
             agent_config,
             workspace_dir,
@@ -438,12 +428,11 @@ class AgentBuilder:
             governor,
         )
         extra_tools.extend(
-            self._collect_visual_compression_tools(
+            self._collect_context_recall_tools(
                 agent_config,
                 agent_id,
                 request_context,
                 governor,
-                visual_recovery_store,
             ),
         )
         (
@@ -536,7 +525,6 @@ class AgentBuilder:
         middlewares = self._build_middlewares(
             ctx,
             agent_config,
-            visual_recovery_store,
         )
 
         running_config = agent_config.running
@@ -955,37 +943,35 @@ class AgentBuilder:
         )
 
     @staticmethod
-    def _collect_visual_compression_tools(
+    def _collect_context_recall_tools(
         agent_config: Any,
         agent_id: str,
         request_context: dict[str, Any],
         governor: Any = None,
-        recovery_store: TurnRecoveryStore | None = None,
     ) -> list[Any]:
-        """Collect the optional visual-context recovery tool."""
-        config = (
-            agent_config.running.light_context_config.visual_compact_config
-        )
+        """Collect current-context recall under the existing opt-in."""
+        light_context = agent_config.running.light_context_config
+        config = light_context.visual_compact_config
         if not config.enabled:
             return []
 
-        from ..agents.context.visual_compression.runtime.recovery import (
-            TurnRecoveryStore,
-            make_recover_visual_context_tool,
+        from ..agents.context.visual_compression.runtime.recall_tool import (
+            configure_recall_tool,
+            make_recall_context_tool,
         )
 
-        store = (
-            recovery_store
-            if recovery_store is not None
-            else TurnRecoveryStore()
+        pruning = light_context.tool_result_pruning_config
+        recall_context = make_recall_context_tool(
+            pruning.pruning_recent_msg_max_bytes,
         )
-        recover_visual_context = make_recover_visual_context_tool(store)
         return [
-            AgentBuilder._wrap_tool(
-                recover_visual_context,
-                agent_id,
-                request_context,
-                governor,
+            configure_recall_tool(
+                AgentBuilder._wrap_tool(
+                    recall_context,
+                    agent_id,
+                    request_context,
+                    governor,
+                ),
             ),
         ]
 
@@ -1042,10 +1028,13 @@ class AgentBuilder:
             # block-scoped truncation metadata.  Make that second cap
             # non-binding while unified pruning is enabled; when pruning is
             # disabled, retain AgentScope's default safety net.
+            # Pylint misreads Pydantic's class-level model_fields mapping.
             tool_result_limit = (
                 non_binding_limit
                 if trc.enabled
-                else ContextConfig.model_fields["tool_result_limit"].default
+                else ContextConfig.model_fields[  # pylint: disable=E1136
+                    "tool_result_limit"
+                ].default
             )
             trigger_ratio = ccc.compact_threshold_ratio
             reserve_ratio = min(
@@ -1336,7 +1325,6 @@ class AgentBuilder:
     def _build_middlewares(
         ctx: Any,
         agent_config: Any,
-        visual_recovery_store: TurnRecoveryStore | None = None,
     ) -> list[Any]:
         """Build middleware list.
 
@@ -1441,12 +1429,7 @@ class AgentBuilder:
         visual_config = (
             agent_config.running.light_context_config.visual_compact_config
         )
-        mws.append(
-            VisualCompressionMiddleware(
-                visual_config,
-                visual_recovery_store,
-            ),
-        )
+        mws.append(VisualCompressionMiddleware(visual_config))
 
         return mws
 

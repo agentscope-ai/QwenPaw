@@ -18,8 +18,10 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   list: vi.fn(),
   get: vi.fn(),
+  getDirs: vi.fn(),
   set: vi.fn(),
   setProjectDir: vi.fn(),
+  sessionProjectDirectory: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -37,7 +39,28 @@ vi.mock("../../api/modules/projectDirectory", () => ({
     create: (...args: unknown[]) => mocks.create(...args),
     list: (...args: unknown[]) => mocks.list(...args),
     get: (...args: unknown[]) => mocks.get(...args),
+    getDirs: (...args: unknown[]) => mocks.getDirs(...args),
     set: (...args: unknown[]) => mocks.set(...args),
+  },
+}));
+
+vi.mock("../../features/project-directory/SessionProjectDirectory", () => ({
+  default: (props: {
+    scope: { kind: string; agentId: string };
+    multiAgentDefault?: boolean;
+    inline?: boolean;
+    onChanged?: () => void;
+  }) => {
+    mocks.sessionProjectDirectory(props);
+    return React.createElement(
+      "button",
+      {
+        type: "button",
+        "data-testid": "multi-folder-editor",
+        onClick: props.onChanged,
+      },
+      "multi-folder-editor",
+    );
   },
 }));
 
@@ -104,7 +127,12 @@ function renderModal(open = true) {
   const onConfirm = vi.fn();
   const onClose = vi.fn();
   renderWithProviders(
-    <ProjectSelectModal open={open} onClose={onClose} onConfirm={onConfirm} />,
+    <ProjectSelectModal
+      agentId="default"
+      open={open}
+      onClose={onClose}
+      onConfirm={onConfirm}
+    />,
   );
   return { onConfirm, onClose };
 }
@@ -162,8 +190,14 @@ beforeEach(() => {
     { name: "proj-b", path: "/proj-b", is_active: false },
   ]);
   mocks.get.mockReset().mockResolvedValue({ workspace_dir: "/ws" });
+  mocks.getDirs.mockReset().mockResolvedValue({
+    source: "agent_config",
+    workspace_dir: "/ws",
+    project_dirs: [{ path: "/default-primary" }],
+  });
   mocks.set.mockReset().mockResolvedValue({});
   mocks.setProjectDir.mockClear();
+  mocks.sessionProjectDirectory.mockClear();
 });
 
 // ---- Tests -----------------------------------------------------------------
@@ -174,6 +208,9 @@ describe("ProjectSelectModal", () => {
     await waitFor(() => {
       expect(screen.getByText("codingMode.selectProject")).toBeTruthy();
     });
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs[0]).toHaveTextContent("agentConfig.manageDefaultFolders");
+    expect(tabs[0]).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("codingMode.tabWorkspace")).toBeTruthy();
     expect(screen.getByText("codingMode.tabClone")).toBeTruthy();
   });
@@ -185,10 +222,11 @@ describe("ProjectSelectModal", () => {
 
   it("confirms the default workspace with a null path", async () => {
     const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
     await waitFor(() => {
-      expect(screen.getByText("codingMode.confirmBtn")).toBeTruthy();
+      expect(screen.getByText("common.apply")).toBeTruthy();
     });
-    fireEvent.click(screen.getByText("codingMode.confirmBtn"));
+    fireEvent.click(screen.getByText("common.apply"));
     await waitFor(() => {
       expect(mocks.set).toHaveBeenCalledWith(null);
       expect(onConfirm).toHaveBeenCalledWith(null);
@@ -198,6 +236,7 @@ describe("ProjectSelectModal", () => {
 
   it("shows the workspace directory when available", async () => {
     renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
     await waitFor(() => {
       expect(screen.getByText("/ws")).toBeTruthy();
     });
@@ -271,60 +310,44 @@ describe("ProjectSelectModal", () => {
     expect(btn?.disabled).toBe(true);
   });
 
-  it("browses directories in the open-dir tab", async () => {
+  it("opens the Agent multi-folder editor from the former open-dir tab", async () => {
     renderModal();
-    fireEvent.click(screen.getByText("codingMode.tabOpenDir"));
+    fireEvent.click(screen.getByText("agentConfig.manageDefaultFolders"));
     await waitFor(() => {
-      expect(mocks.browseDirs).toHaveBeenCalledWith("~", false);
-      expect(screen.getByText("projects")).toBeTruthy();
-      expect(screen.getByText("docs")).toBeTruthy();
+      expect(screen.getByTestId("multi-folder-editor")).toBeTruthy();
     });
+    expect(mocks.sessionProjectDirectory).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        scope: { kind: "agent", agentId: "default" },
+        multiAgentDefault: true,
+        inline: true,
+      }),
+    );
   });
 
-  it("navigates into a directory and selects it", async () => {
+  it("confirms the primary folder after the default folder list changes", async () => {
     const { onConfirm } = renderModal();
-    fireEvent.click(screen.getByText("codingMode.tabOpenDir"));
+    fireEvent.click(screen.getByText("agentConfig.manageDefaultFolders"));
+    fireEvent.click(await screen.findByTestId("multi-folder-editor"));
     await waitFor(() => {
-      expect(screen.getByText("projects")).toBeTruthy();
-    });
-    fireEvent.click(screen.getByText("projects"));
-    await waitFor(() => {
-      expect(mocks.browseDirs).toHaveBeenCalledWith(
-        "/home/user/projects",
-        false,
-      );
-    });
-    // Select the current directory
-    fireEvent.click(screen.getByText("codingMode.openDirBtn"));
-    await waitFor(() => {
-      expect(mocks.set).toHaveBeenCalled();
-      expect(onConfirm).toHaveBeenCalled();
+      expect(mocks.getDirs).toHaveBeenCalled();
+      expect(mocks.setProjectDir).toHaveBeenCalledWith("/default-primary");
+      expect(onConfirm).toHaveBeenCalledWith("/default-primary");
     });
   });
 
-  it("toggles hidden folders and re-fetches", async () => {
-    renderModal();
-    fireEvent.click(screen.getByText("codingMode.tabOpenDir"));
-    await waitFor(() => {
-      expect(screen.getByText("projects")).toBeTruthy();
+  it("confirms the workspace fallback when the default folder list is cleared", async () => {
+    mocks.getDirs.mockResolvedValue({
+      source: "workspace_fallback",
+      workspace_dir: "/ws",
+      project_dirs: [],
     });
-    // Reset the call log so only the re-fetch triggered by the toggle remains
-    mocks.browseDirs.mockClear();
-    fireEvent.click(screen.getByText("codingMode.openDirHiddenFolders"));
+    const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("agentConfig.manageDefaultFolders"));
+    fireEvent.click(await screen.findByTestId("multi-folder-editor"));
     await waitFor(() => {
-      // The toggle re-fetches the current directory with showHidden=true
-      expect(
-        mocks.browseDirs.mock.calls.some((call: unknown[]) => call[1] === true),
-      ).toBe(true);
-    });
-  });
-
-  it("shows a browse error from the API", async () => {
-    mocks.browseDirs.mockRejectedValue(new Error("permission denied"));
-    renderModal();
-    fireEvent.click(screen.getByText("codingMode.tabOpenDir"));
-    await waitFor(() => {
-      expect(screen.getByText("permission denied")).toBeTruthy();
+      expect(mocks.setProjectDir).toHaveBeenCalledWith(null);
+      expect(onConfirm).toHaveBeenCalledWith(null);
     });
   });
 
@@ -365,6 +388,7 @@ describe("ProjectSelectModal", () => {
 
   it("lists recent projects and selects one on click", async () => {
     const { onConfirm } = renderModal();
+    fireEvent.click(screen.getByText("codingMode.tabWorkspace"));
     await waitFor(() => {
       expect(screen.getByText("proj-a")).toBeTruthy();
     });

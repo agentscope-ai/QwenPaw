@@ -156,7 +156,7 @@ vi.mock("../components/SessionDateHeader", () => ({
   ),
 }));
 
-vi.mock("../pages/Control/Channels/components", () => ({
+vi.mock("../utils/channel", () => ({
   getChannelLabel: (key: string) => `channel:${key}`,
 }));
 

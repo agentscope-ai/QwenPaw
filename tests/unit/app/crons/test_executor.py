@@ -216,3 +216,150 @@ async def test_non_shared_job_reuses_its_dedicated_session(
         second_session,
     ]
     assert all(call.kwargs["source"] == "cron" for call in chat_calls)
+
+
+@pytest.mark.asyncio
+async def test_timeout_preserves_run_reference(monkeypatch):
+    import asyncio
+
+    from qwenpaw.app.crons.executor import CronExecutionTimeout
+
+    class SlowWorkspace(_Workspace):
+        async def stream_query(self, request):
+            await asyncio.Event().wait()
+            yield
+
+    job = make_cron_job_spec(job_id="timeout-job")
+    job.runtime.timeout_seconds = 0.01
+    finalize = _patch_trace_storage(monkeypatch)
+    executor = CronExecutor(
+        workspace=SlowWorkspace(),
+        channel_manager=AsyncMock(),
+    )
+    with pytest.raises(CronExecutionTimeout) as error:
+        await executor.execute(job)
+    assert error.value.run_id
+    finalize.assert_awaited_once_with(
+        error.value.run_id,
+        status="timeout",
+        error="timed out after 0.01s",
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "selection",
+    [None, {"provider_id": "p", "model": "chosen:v1"}],
+)
+async def test_execution_model_override_is_per_request(monkeypatch, selection):
+    from unittest.mock import MagicMock
+    from qwenpaw.providers import ProviderManager
+
+    workspace = _Workspace()
+    job = make_cron_job_spec(job_id="model-job")
+    job.request = job.request.model_copy(
+        update={"model_slot_override": selection},
+    )
+    provider = SimpleNamespace(
+        all_models=lambda: [SimpleNamespace(id="chosen:v1")],
+    )
+    manager = MagicMock()
+    manager.get_provider.return_value = provider
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    _patch_trace_storage(monkeypatch)
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+    ).execute(job)
+    assert workspace.requests[0]["model_slot_override"] == selection
+    manager.set_active_model.assert_not_called()
+    if selection is None:
+        manager.get_provider.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "selection,exists",
+    [
+        ({"provider_id": "p", "model": "gone"}, True),
+        ({"provider_id": "p", "model": "gone"}, False),
+        ("invalid", True),
+    ],
+)
+async def test_invalid_execution_model_fails_without_running(
+    monkeypatch,
+    selection,
+    exists,
+):
+    from unittest.mock import MagicMock
+    from qwenpaw.providers import ProviderManager
+
+    workspace = _Workspace()
+    job = make_cron_job_spec(job_id="model-job")
+    job.request = job.request.model_copy(
+        update={"model_slot_override": selection},
+    )
+    manager = MagicMock()
+    manager.get_provider.return_value = (
+        SimpleNamespace(all_models=lambda: []) if exists else None
+    )
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    finalize = _patch_trace_storage(monkeypatch)
+    with pytest.raises(ValueError, match="[Mm]odel"):
+        await CronExecutor(
+            workspace=workspace,
+            channel_manager=AsyncMock(),
+        ).execute(job)
+    assert not workspace.requests
+    assert finalize.call_args.kwargs["status"] == "error"
+
+
+@pytest.mark.asyncio
+async def test_default_clears_nested_override_without_changing_job(
+    monkeypatch,
+):
+    workspace = _Workspace()
+    job = make_cron_job_spec(job_id="default-job")
+    nested = {"model_slot_override": {"provider_id": "old", "model": "old"}}
+    job.request = job.request.model_copy(
+        update={
+            "model_slot_override": None,
+            "request_context": nested,
+        },
+    )
+    _patch_trace_storage(monkeypatch)
+    await CronExecutor(
+        workspace=workspace,
+        channel_manager=AsyncMock(),
+    ).execute(job)
+    assert (
+        "model_slot_override" not in workspace.requests[0]["request_context"]
+    )
+    assert job.request.request_context == nested
+
+
+@pytest.mark.asyncio
+async def test_external_backend_does_not_silently_ignore_model(monkeypatch):
+    from unittest.mock import MagicMock
+    from qwenpaw.providers import ProviderManager
+
+    workspace = _Workspace()
+    workspace.config = SimpleNamespace(backend="external")
+    job = make_cron_job_spec(job_id="external-job")
+    job.request = job.request.model_copy(
+        update={
+            "model_slot_override": {"provider_id": "p", "model": "m"},
+        },
+    )
+    manager = MagicMock()
+    manager.get_provider.return_value = SimpleNamespace(
+        all_models=lambda: [SimpleNamespace(id="m")],
+    )
+    monkeypatch.setattr(ProviderManager, "get_instance", lambda: manager)
+    _patch_trace_storage(monkeypatch)
+    with pytest.raises(ValueError, match="select Default"):
+        await CronExecutor(
+            workspace=workspace,
+            channel_manager=AsyncMock(),
+        ).execute(job)
+    assert not workspace.requests

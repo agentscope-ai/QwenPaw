@@ -13,7 +13,7 @@ import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
 import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
 import sessionApi from "./sessionApi";
@@ -63,6 +63,7 @@ import {
   CHAT_WIDE_MODE_CHANGE_EVENT,
   getChatWideModePreference,
 } from "@/utils/chatLayoutPreference";
+import { toChatThemeHex } from "@/utils/chatThemeColor";
 import ChatActionGroup from "./components/ChatActionGroup";
 import ContextUsageIndicator from "./components/ContextUsageIndicator";
 import {
@@ -1214,7 +1215,7 @@ export default function ChatPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
-  const { isDark } = useTheme();
+  const { isDark, previewTheme = {} } = useTheme();
   const { selectedAgent, agents } = useAgentStore();
   const chatId = useMemo(
     () => getSessionIdFromPath(location.pathname),
@@ -1680,7 +1681,6 @@ export default function ChatPage() {
     Map<string, ApprovalMessageData>
   >(new Map());
   const isMobile = useIsMobile();
-  const prefersReducedMotion = useReducedMotion();
   const [chatSkills, setChatSkills] = useState<SkillSpec[]>([]);
   const consoleSkills = useMemo(
     () => chatSkills.filter(isSkillAvailableInConsole),
@@ -3264,6 +3264,16 @@ export default function ChatPage() {
       locale,
     );
     const extColorPrimary = extScalar[ChatScalar.themeColorPrimary]?.value;
+    const configuredColorPrimary = toChatThemeHex(
+      isDark
+        ? previewTheme.dark?.accent ?? previewTheme.accent
+        : previewTheme.accent,
+      defaultConfig.theme.colorPrimary ?? "#FF7F16",
+    );
+    const colorPrimary = toChatThemeHex(
+      extColorPrimary,
+      configuredColorPrimary,
+    );
     const extPlaceholder = resolveLocalized(
       extScalar[ChatScalar.senderPlaceholder]?.value,
       locale,
@@ -3427,7 +3437,7 @@ export default function ChatPage() {
       theme: {
         ...defaultConfig.theme,
         darkMode: isDark,
-        ...(extColorPrimary ? { colorPrimary: extColorPrimary } : {}),
+        colorPrimary,
         bubbleList: {
           ...defaultConfig.theme.bubbleList,
           userMessageAnchors: userMessageAnchorsConfig,
@@ -3847,6 +3857,7 @@ export default function ChatPage() {
     t,
     i18n.language,
     isDark,
+    previewTheme,
     multimodalCaps,
     toolRenderConfig,
     extScalar,
@@ -3909,33 +3920,8 @@ export default function ChatPage() {
       className={`${styles.chatPageRoot} ${filesDrawerClass}`}
       onClickCapture={handleInternalFileLink}
     >
-      <AnimatePresence initial={false} mode="popLayout">
-        {filesDrawerState.kind !== "closed" ? (
-          <FilesDrawer
-            key="session-files-drawer"
-            state={filesDrawerState}
-            dispatch={dispatchFilesDrawer}
-            scope={sessionScope}
-          />
-        ) : null}
-      </AnimatePresence>
       {/* Main chat area */}
-      <motion.div
-        className={styles.chatMainArea}
-        layout={prefersReducedMotion ? false : "size"}
-        transition={
-          prefersReducedMotion
-            ? { duration: 0 }
-            : {
-                layout: {
-                  type: "spring",
-                  stiffness: 360,
-                  damping: 38,
-                  mass: 0.82,
-                },
-              }
-        }
-      >
+      <div className={styles.chatMainArea}>
         <div
           ref={chatMessagesAreaRef}
           className={
@@ -4101,7 +4087,7 @@ export default function ChatPage() {
           styles={{
             content: isDark
               ? {
-                  background: "#1f1f1f",
+                  background: "var(--app-surface)",
                   boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
                 }
               : undefined,
@@ -4141,8 +4127,18 @@ export default function ChatPage() {
             ]}
           />
         </Modal>
-      </motion.div>
+      </div>
       {/* End of main chat area */}
+      <AnimatePresence initial={false} mode="popLayout">
+        {filesDrawerState.kind !== "closed" ? (
+          <FilesDrawer
+            key="session-files-drawer"
+            state={filesDrawerState}
+            dispatch={dispatchFilesDrawer}
+            scope={sessionScope}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 }

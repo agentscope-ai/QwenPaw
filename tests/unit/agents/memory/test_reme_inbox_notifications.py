@@ -10,7 +10,7 @@ import pytest
 from qwenpaw.agents.memory.reme_light_memory_manager import (
     ReMeLightMemoryManager,
 )
-from qwenpaw.agents.memory.reme_inbox import build_payload
+from qwenpaw.agents.memory.reme_inbox import build_payload, emit_job_result
 
 
 def _manager() -> ReMeLightMemoryManager:
@@ -183,6 +183,52 @@ async def test_memory_inbox_only_suppresses_successful_noops(
 
     assert emitted is expected
     assert append_event.await_count == int(expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("success", "expected_status", "expected_body"),
+    [
+        (
+            True,
+            "success",
+            "Daily Paper completed with no returned content.",
+        ),
+        (
+            False,
+            "error",
+            (
+                "Daily Paper failed with no returned error details. "
+                "Check the application logs for more information."
+            ),
+        ),
+    ],
+)
+async def test_empty_result_body_matches_job_status(
+    success,
+    expected_status,
+    expected_body,
+) -> None:
+    append_event = AsyncMock(return_value={"id": "event-1"})
+
+    emitted = await emit_job_result(
+        agent_id="agent-1",
+        memory_config=SimpleNamespace(
+            daily_paper_inbox_push_enabled=True,
+        ),
+        name="daily_paper",
+        response=SimpleNamespace(
+            success=success,
+            answer="",
+            metadata={},
+        ),
+        kwargs={},
+        append_event=append_event,
+    )
+
+    assert emitted is True
+    assert append_event.await_args.kwargs["status"] == expected_status
+    assert append_event.await_args.kwargs["body"] == expected_body
 
 
 def test_auto_fin_payload_separates_requested_and_effective_topics() -> None:

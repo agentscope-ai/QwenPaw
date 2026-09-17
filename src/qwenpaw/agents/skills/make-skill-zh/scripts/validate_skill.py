@@ -14,9 +14,8 @@ from urllib.parse import unquote
 import yaml
 
 import create_plan
-import init_draft
 
-DRAFT_ID_PATTERN = re.compile(r"[a-f0-9]{24}")
+DRAFT_ID_PATTERN = create_plan.ARTIFACT_ID_PATTERN
 LINK_PATTERN = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
 PLACEHOLDER_PATTERN = re.compile(r"\$\{([^{}]+)\}")
 ARG_PATTERN = re.compile(r"args\.([A-Za-z0-9_.-]+)")
@@ -42,7 +41,7 @@ def _resolve_draft(
     draft_id: str,
 ) -> tuple[Path, Path, dict[str, Any]] | dict[str, Any]:
     try:
-        draft_base = init_draft.private_drafts_root(workspace, create=False)
+        draft_base = create_plan.private_root(workspace, "drafts", create=False)
     except RuntimeError as exc:
         return _failure(
             [create_plan.error("unsafe-draft-root", "draft_id", str(exc))],
@@ -59,45 +58,10 @@ def _resolve_draft(
             ],
         )
 
-    plan_path = draft_root / "plan.json"
-    if plan_path.is_symlink() or not plan_path.is_file():
-        return _failure(
-            [
-                create_plan.error(
-                    "missing-plan",
-                    "plan.json",
-                    "The approved plan snapshot is missing.",
-                ),
-            ],
-        )
     try:
-        raw_plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        plan = create_plan.normalize_plan(raw_plan)
-    except (OSError, json.JSONDecodeError) as exc:
-        return _failure(
-            [create_plan.error("invalid-plan", "plan.json", str(exc))],
-        )
+        plan = create_plan.read_plan_snapshot(draft_root / "plan.json")
     except create_plan.InputError as exc:
-        return _failure(
-            [
-                create_plan.error(
-                    item["code"],
-                    f"plan.{item['path']}" if item["path"] else "plan",
-                    item["message"],
-                )
-                for item in exc.errors
-            ],
-        )
-    if raw_plan != plan:
-        return _failure(
-            [
-                create_plan.error(
-                    "noncanonical-plan",
-                    "plan.json",
-                    "The approved plan snapshot is not canonical SkillPlan v2 JSON.",
-                ),
-            ],
-        )
+        return _failure(exc.errors)
 
     skill_dir = draft_root / plan["name"]
     if skill_dir.is_symlink() or not skill_dir.is_dir():
@@ -381,8 +345,12 @@ def _validate_batch(
                         "Nested run_tool_batch calls are not allowed.",
                     ),
                 )
-        arguments = action.get("arguments") or action.get("args") or {}
-        if not isinstance(arguments, dict):
+        # Check explicit fields before fallback: falsy non-objects are not
+        # omitted arguments, and a valid alias must not hide an invalid field.
+        if any(
+            field in action and not isinstance(action[field], dict)
+            for field in ("arguments", "args")
+        ):
             errors.append(
                 create_plan.error(
                     "invalid-tool-arguments",
@@ -391,6 +359,7 @@ def _validate_batch(
                 ),
             )
             continue
+        arguments = action.get("arguments") or action.get("args") or {}
         for value in _strings(arguments):
             _validate_placeholders(value, action_path, index, errors)
 
@@ -547,7 +516,7 @@ def main() -> int:
                     ),
                 ],
             )
-        workspace = init_draft.resolve_workspace(payload.get("workspace"))
+        workspace = create_plan.resolve_workspace(payload.get("workspace"))
         draft_id = payload.get("draft_id")
         if not isinstance(draft_id, str) or not DRAFT_ID_PATTERN.fullmatch(draft_id):
             raise create_plan.InputError(

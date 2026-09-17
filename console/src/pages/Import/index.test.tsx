@@ -1,6 +1,13 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
+import { useAgentStore } from "@/stores/agentStore";
 import { useImportJob } from "./useImportJob";
 import ImportPage from ".";
 
@@ -54,8 +61,39 @@ function renderPage() {
 describe("ImportPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useAgentStore.setState({
+      selectedAgent: "agent",
+      agents: ["qwenpaw", "codex", "qoder"].map((backend) => ({
+        id: backend === "qwenpaw" ? "agent" : backend,
+        name: backend,
+        description: "",
+        workspace_dir: "",
+        enabled: true,
+        backend,
+      })),
+    });
     vi.mocked(actions.detect).mockResolvedValue([]);
   });
+
+  it.each(["codex", "qoder"])(
+    "blocks direct access and unmounts the workflow when switching to %s",
+    (backend) => {
+      vi.mocked(useImportJob).mockReturnValue(state() as never);
+      useAgentStore.setState({ selectedAgent: backend });
+      renderPage();
+      expect(useImportJob).not.toHaveBeenCalled();
+      expect(screen.getByText("portabilityImport.qwenpawOnly")).toBeVisible();
+
+      act(() => useAgentStore.setState({ selectedAgent: "agent" }));
+      expect(actions.detect).toHaveBeenCalled();
+      const calls = vi.mocked(useImportJob).mock.calls.length;
+
+      act(() => useAgentStore.setState({ selectedAgent: backend }));
+      expect(useImportJob).toHaveBeenCalledTimes(calls);
+      expect(screen.getByText("portabilityImport.qwenpawOnly")).toBeVisible();
+      expect(screen.queryByRole("button")).toBeNull();
+    },
+  );
 
   it("detects applications and supports multi-source selection", () => {
     vi.mocked(useImportJob).mockReturnValue(state() as never);

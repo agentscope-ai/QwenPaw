@@ -1,4 +1,13 @@
-import { Button, Segmented, Select, Switch } from "antd";
+import {
+  App,
+  Button,
+  ColorPicker,
+  Input,
+  Segmented,
+  Select,
+  Slider,
+  Switch,
+} from "antd";
 import {
   BrainCircuit,
   Expand,
@@ -9,12 +18,13 @@ import {
   Rows3,
   Wrench,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { settingsApi } from "@/api/modules/language";
 import { LANGUAGE_LIST } from "@/constants/languageList";
 import { useTheme, type ThemeMode } from "@/contexts/ThemeContext";
+import type { ThemeConfig } from "@/api/modules/theme";
 import { isTauriRuntime } from "@/tauri/backendRuntime";
 import {
   clearRememberedCloseAction,
@@ -42,6 +52,13 @@ import {
   type AssistantMessageDisplayPreference,
   type ToolDisplayPreference,
 } from "@/utils/chatDisplayPreference";
+import {
+  applyThemePreset,
+  DEFAULT_THEME_PRESET,
+  getThemePresetId,
+  THEME_PRESETS,
+  type ThemePreset,
+} from "./themePresets";
 import styles from "./index.module.less";
 
 type CloseBehavior = "ask" | CloseAction;
@@ -52,9 +69,44 @@ const LANGUAGES = LANGUAGE_LIST.map(({ key, label }) => ({
   label,
 }));
 
+function ThemePresetLabel({ preset }: { preset: ThemePreset }) {
+  const { isDark } = useTheme();
+
+  return (
+    <span className={styles.themePresetOption}>
+      <span
+        aria-hidden="true"
+        className={styles.themePresetSwatch}
+        style={{
+          background: isDark
+            ? preset.theme.dark?.surface ?? "#1f1f1f"
+            : "#ffffff",
+          color: isDark
+            ? preset.theme.dark?.accent ?? preset.theme.accent
+            : preset.theme.accent,
+        }}
+      >
+        Aa
+      </span>
+      <span>{preset.name}</span>
+    </span>
+  );
+}
+
 export default function GeneralSettings() {
   const { t, i18n } = useTranslation();
-  const { themeMode, setThemeMode } = useTheme();
+  const {
+    themeMode,
+    setThemeMode,
+    userTheme,
+    previewTheme,
+    setThemePreview,
+    saveUserTheme,
+    resetUserTheme,
+  } = useTheme();
+  const { message } = App.useApp();
+  const [draftTheme, setDraftTheme] = useState<ThemeConfig>(previewTheme);
+  const [savingTheme, setSavingTheme] = useState(false);
   const [wideMode, setWideMode] = useState(getChatWideModePreference);
   const [sidebarDensity, setSidebarDensity] = useState(
     getSidebarDensityPreference,
@@ -75,6 +127,59 @@ export default function GeneralSettings() {
   const closeBehavior = isTauriRuntime()
     ? getRememberedCloseAction() ?? "ask"
     : "ask";
+
+  useEffect(() => {
+    setDraftTheme(previewTheme);
+  }, [previewTheme]);
+
+  const updateDraftTheme = (patch: Partial<ThemeConfig>) => {
+    const next = { ...draftTheme, ...patch };
+    setDraftTheme(next);
+    setThemePreview(next);
+  };
+
+  const updateDarkTheme = (patch: NonNullable<ThemeConfig["dark"]>) => {
+    updateDraftTheme({ dark: { ...draftTheme.dark, ...patch } });
+  };
+
+  const selectThemePreset = (presetId: string) => {
+    const next = applyThemePreset(draftTheme, presetId);
+    setDraftTheme(next);
+    setThemePreview(next);
+  };
+
+  const saveTheme = async () => {
+    setSavingTheme(true);
+    try {
+      await saveUserTheme(draftTheme);
+      message.success(t("settingsCenter.themeSaved", "Theme saved"));
+    } catch {
+      setThemePreview(userTheme);
+      setDraftTheme(userTheme);
+      message.error(
+        t("settingsCenter.themeSaveFailed", "Failed to save theme"),
+      );
+    } finally {
+      setSavingTheme(false);
+    }
+  };
+
+  const resetTheme = async () => {
+    setSavingTheme(true);
+    try {
+      await resetUserTheme();
+      setDraftTheme({});
+      message.success(t("settingsCenter.themeReset", "Theme reset"));
+    } catch {
+      setThemePreview(userTheme);
+      setDraftTheme(userTheme);
+      message.error(
+        t("settingsCenter.themeSaveFailed", "Failed to save theme"),
+      );
+    } finally {
+      setSavingTheme(false);
+    }
+  };
 
   const changeLanguage = (language: string) => {
     void i18n.changeLanguage(language);
@@ -230,6 +335,136 @@ export default function GeneralSettings() {
             >
               {t("settingsCenter.open", "Open")}
             </Button>
+          </div>
+          <div className={styles.themeEditor}>
+            <div className={styles.themeEditorHeader}>
+              <span className={styles.settingIcon}>
+                <Palette size={18} />
+              </span>
+              <span className={styles.settingCopy}>
+                <strong>
+                  {t("settingsCenter.customTheme", "Custom theme")}
+                </strong>
+                <small>
+                  {t(
+                    "settingsCenter.customThemeHint",
+                    "Choose a color palette or fine-tune it for the console.",
+                  )}
+                </small>
+              </span>
+              <div className={styles.themeActions}>
+                <Button
+                  onClick={() => void resetTheme()}
+                  disabled={savingTheme}
+                >
+                  {t("common.reset", "Reset")}
+                </Button>
+                <Button
+                  type="primary"
+                  onClick={() => void saveTheme()}
+                  loading={savingTheme}
+                >
+                  {t("common.save", "Save")}
+                </Button>
+              </div>
+            </div>
+            <div className={styles.themeFields}>
+              <label
+                className={`${styles.themeField} ${styles.themePresetField}`}
+              >
+                <span>{t("settingsCenter.themePalette", "Theme palette")}</span>
+                <Select
+                  aria-label={t("settingsCenter.themePalette", "Theme palette")}
+                  value={getThemePresetId(draftTheme)}
+                  placeholder={t("settingsCenter.customTheme", "Custom theme")}
+                  options={THEME_PRESETS.map((preset) => ({
+                    value: preset.id,
+                    label: <ThemePresetLabel preset={preset} />,
+                  }))}
+                  onChange={selectThemePreset}
+                />
+              </label>
+              <label className={styles.themeField}>
+                <span>{t("settingsCenter.accentColor", "Accent color")}</span>
+                <ColorPicker
+                  value={draftTheme.accent ?? DEFAULT_THEME_PRESET.theme.accent}
+                  showText
+                  onChange={(_, hex) => updateDraftTheme({ accent: hex })}
+                />
+              </label>
+              <label className={styles.themeField}>
+                <span>{t("settingsCenter.accentHover", "Accent hover")}</span>
+                <ColorPicker
+                  value={
+                    draftTheme.accent_hover ??
+                    DEFAULT_THEME_PRESET.theme.accent_hover
+                  }
+                  showText
+                  onChange={(_, hex) => updateDraftTheme({ accent_hover: hex })}
+                />
+              </label>
+              <label className={styles.themeField}>
+                <span>
+                  {t("settingsCenter.accentBackground", "Accent background")}
+                </span>
+                <Input
+                  value={
+                    draftTheme.accent_bg ??
+                    DEFAULT_THEME_PRESET.theme.accent_bg ??
+                    ""
+                  }
+                  placeholder="rgba(255, 127, 22, 0.1)"
+                  onChange={(event) =>
+                    updateDraftTheme({
+                      accent_bg: event.target.value || undefined,
+                    })
+                  }
+                />
+              </label>
+              <label className={styles.themeField}>
+                <span>
+                  {t("settingsCenter.cornerRadius", "Corner radius")}
+                  <output>{draftTheme.radius ?? "8px"}</output>
+                </span>
+                <Slider
+                  min={0}
+                  max={20}
+                  value={Number.parseFloat(draftTheme.radius ?? "8")}
+                  onChange={(value) =>
+                    updateDraftTheme({ radius: `${value}px` })
+                  }
+                />
+              </label>
+              <label className={styles.themeField}>
+                <span>
+                  {t("settingsCenter.darkAccentColor", "Dark accent")}
+                </span>
+                <ColorPicker
+                  value={
+                    draftTheme.dark?.accent ??
+                    DEFAULT_THEME_PRESET.theme.dark?.accent
+                  }
+                  showText
+                  onChange={(_, hex) => updateDarkTheme({ accent: hex })}
+                />
+              </label>
+              <label className={styles.themeField}>
+                <span>{t("settingsCenter.darkSurface", "Dark surface")}</span>
+                <Input
+                  value={
+                    draftTheme.dark?.surface ??
+                    DEFAULT_THEME_PRESET.theme.dark?.surface ??
+                    ""
+                  }
+                  placeholder="#1a1a1a"
+                  onChange={(event) =>
+                    updateDarkTheme({
+                      surface: event.target.value || undefined,
+                    })
+                  }
+                />
+              </label>
+            </div>
           </div>
         </div>
       </section>
