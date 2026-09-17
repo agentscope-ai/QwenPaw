@@ -16,6 +16,24 @@
 - [ ] 聊天输入区不展示宿主机绝对路径、内部智能体 ID 或 `default` 内部标识。
 - [ ] 内部兼容变量和存储协议保持可用。
 
+构建成功不能替代浏览器验收。部署后的登录页冒烟测试会检查 JavaScript
+运行时异常、登录表单、重载和标签切换，不会登录或修改业务数据。
+
+Linux（已安装测试依赖与 Playwright Chromium）：
+
+```bash
+WELDON_TEST_CONSOLE_URL=http://127.0.0.1:18089 .venv/bin/python -m pytest tests/integration/deploy/test_console_login_browser.py -q
+```
+
+Windows PowerShell：
+
+```powershell
+$env:WELDON_TEST_CONSOLE_URL = "http://127.0.0.1:18089"
+& ".venv/Scripts/python.exe" -m pytest "tests/integration/deploy/test_console_login_browser.py" -q
+```
+
+测试应对准实际部署的前端构建产物；可将地址替换为服务器的内网地址。
+
 ## 多用户功能
 
 - [ ] 管理员与普通用户登录正常。

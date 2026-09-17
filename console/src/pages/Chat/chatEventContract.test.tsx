@@ -40,19 +40,30 @@ vi.mock(
 );
 vi.mock(
   "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Tool",
-  () => ({
-    default: ({
-      data,
-      isApproval,
-    }: {
-      data: ContractMessage;
-      isApproval?: boolean;
-    }) => (
-      <div>{`${isApproval ? "approval" : "tool"}:${
-        data.contract_event_type
-      }`}</div>
-    ),
-  }),
+  async () => {
+    const { ToolResponseStatusContext } = await import(
+      "../../components/Chat/ToolCards/shared/ToolResponseContext"
+    );
+    const Status = () => (
+      <span data-testid="tool-status">
+        {React.useContext(ToolResponseStatusContext)}
+      </span>
+    );
+    return {
+      default: ({
+        data,
+        isApproval,
+      }: {
+        data: ContractMessage;
+        isApproval?: boolean;
+      }) => (
+        <div>
+          {`${isApproval ? "approval" : "tool"}:${data.contract_event_type}`}
+          <Status />
+        </div>
+      ),
+    };
+  },
 );
 vi.mock(
   "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error",
@@ -302,5 +313,63 @@ describe("rich chat event contract", () => {
     expect(registrySource).toMatch(/read_file:\s*ReadFileCard/);
     expect(registrySource).toMatch(/materialize_skill:\s*MaterializeSkillCard/);
     expect(registrySource).toMatch(/execute_shell_command:\s*ShellCard/);
+  });
+
+  it("stops orphan tool calls when their response ends, including history and cancellation", () => {
+    const data = {
+      id: "interrupted-profile-read",
+      object: "response",
+      status: "in_progress",
+      created_at: 0,
+      output: [
+        {
+          id: "profile-call",
+          type: "plugin_call",
+          role: "assistant",
+          // Delivery completed is NOT proof of tool completion.
+          status: "completed",
+          content: [
+            {
+              type: "data",
+              data: {
+                name: "read_file",
+                call_id: "call-profile",
+                arguments: '{"file_path":"PROFILE.md"}',
+              },
+            },
+          ],
+        },
+      ],
+    };
+    const { rerender } = render(<HostResponseCard data={data} />);
+    expect(screen.getByTestId("tool-status")).toHaveTextContent("in_progress");
+
+    for (const status of ["completed", "canceled", "failed"]) {
+      rerender(<HostResponseCard data={{ ...data, status }} />);
+      expect(screen.getByTestId("tool-status")).toHaveTextContent(status);
+    }
+
+    rerender(<HostResponseCard data={{ ...data, status: "in_progress" }} />);
+    expect(screen.getByTestId("tool-status")).toHaveTextContent("in_progress");
+  });
+
+  it("keeps only the current response active when restoring a running conversation", () => {
+    const call = {
+      role: "assistant",
+      type: "plugin_call",
+      status: "completed",
+      content: [],
+    };
+    const messages = [
+      { role: "user", content: "previous" },
+      call,
+      { role: "user", content: "current" },
+      { ...call },
+    ];
+    const cards = __test__.convertMessages(messages, true);
+    expect(cards[1].cards?.[0].data.status).toBe("completed");
+    expect(cards[3].cards?.[0].data.status).toBe("in_progress");
+    const idle = __test__.convertMessages(messages);
+    expect(idle[3].cards?.[0].data.status).toBe("completed");
   });
 });

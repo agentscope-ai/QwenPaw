@@ -4107,6 +4107,7 @@
     },
     "loading": "Loading...",
     "rawInputPreview": "Live raw input (last 4,096 characters)",
+    "endedWithoutResult": "Ended without a recorded result",
     "largeOutputOmitted": "{{count}} lines omitted — copy the available output or follow its recovery instructions",
     "largeOutputTruncated": "Output truncated for display — copy the available output or follow its recovery instructions",
     "browserAction": {

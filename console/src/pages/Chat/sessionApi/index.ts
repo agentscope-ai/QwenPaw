@@ -280,6 +280,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
  */
 const buildResponseCard = (
   outputMessages: OutputMessage[],
+  generating = false,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -307,7 +308,7 @@ const buildResponseCard = (
           id: `response_${generateId()}`,
           output: normalizedMessages,
           object: "response",
-          status: "completed",
+          status: generating ? "in_progress" : "completed",
           created_at: firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: null,
@@ -331,6 +332,7 @@ const buildResponseCard = (
  */
 const convertMessages = (
   messages: Message[],
+  generating = false,
 ): IAgentScopeRuntimeWebUIMessage[] => {
   const result: IAgentScopeRuntimeWebUIMessage[] = [];
   const len = messages.length;
@@ -344,7 +346,9 @@ const convertMessages = (
       const startIdx = i;
       while (i < len && messages[i].role !== ROLE_USER) i++;
       const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
-      if (outputMsgs.length) result.push(buildResponseCard(outputMsgs));
+      if (outputMsgs.length) {
+        result.push(buildResponseCard(outputMsgs, generating && i === len));
+      }
     }
   }
 
@@ -1511,7 +1515,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const chatHistory = await api.getChat(backendId, { signal });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
-    const messages = convertMessages(chatHistory.messages || []);
+    const messages = convertMessages(chatHistory.messages || [], generating);
     const patchedPending = this.patchLastUserMessage(
       messages,
       generating,

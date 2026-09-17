@@ -13,17 +13,19 @@
  * This adapter wraps each ChatV2 card so it can be used in ChatV1.
  */
 
-import React from "react";
+import React, { useContext } from "react";
 import type { ToolCallContent, ToolCallStatus } from "../shared/types";
 import type { BuiltinCardComponent } from "../cards";
 import GenericToolCard from "../cards/GenericToolCard";
+import { ToolResponseStatusContext } from "../shared/ToolResponseContext";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 const STREAM_INPUT_PREVIEW_CHARS = 4 * 1024;
-const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
+const ERROR_STATUSES = new Set(["failed", "rejected", "canceled", "cancelled"]);
+const TERMINAL_RESPONSE_STATUSES = new Set(["completed", ...ERROR_STATUSES]);
 const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
 
 /**
@@ -36,9 +38,8 @@ const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
 function deriveToolStatus(
   resultItem: Record<string, unknown> | undefined,
   data: Record<string, unknown>,
+  responseStatus?: string,
 ): ToolCallStatus {
-  if (!resultItem) return "calling";
-
   const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
   const toolState = resultData.state as string;
   if (toolState && TOOL_ERROR_STATES.has(toolState)) {
@@ -46,9 +47,14 @@ function deriveToolStatus(
   }
 
   const rawStatus =
-    (data.status as string) || (resultItem.status as string) || "";
-  if (rawStatus === "completed") return "done";
+    (data.status as string) || (resultItem?.status as string) || "";
   if (ERROR_STATUSES.has(rawStatus)) return "error";
+  if (resultItem && rawStatus === "completed") return "done";
+  // Call-message completion only confirms delivery. Without an outcome,
+  // an ended response is incomplete, not an executing or successful tool.
+  if (responseStatus && TERMINAL_RESPONSE_STATUSES.has(responseStatus)) {
+    return "incomplete";
+  }
   return "calling";
 }
 
@@ -73,7 +79,7 @@ function deriveToolStatus(
  *     status: "in_progress" | "completed" | "failed" | ...
  *   }
  */
-function parseV1Props(v1Props: Record<string, unknown>): {
+function parseV1Props(v1Props: Record<string, unknown>, responseStatus?: string): {
   content: ToolCallContent;
   isStreaming: boolean;
 } {
@@ -118,9 +124,7 @@ function parseV1Props(v1Props: Record<string, unknown>): {
   // Extract result from content[1].data.output
   const result = resultData.output;
 
-  // No output content → tool hasn't executed yet → always "calling".
-  // Message-level status on *_call messages reflects delivery, not execution.
-  const status = deriveToolStatus(resultItem, data);
+  const status = deriveToolStatus(resultItem, data, responseStatus);
 
   // Extract id — prefer call_id which carries the ToolCallBlock.id
   // (e.g. "toolu_…" / "call_…") from the AgentScope SSE stream.
@@ -164,7 +168,8 @@ export function adaptCardForV1(
   CardComponent: BuiltinCardComponent,
 ): React.FC<any> {
   const V1WrappedCard: React.FC<any> = (v1Props) => {
-    const { content, isStreaming } = parseV1Props(v1Props);
+    const responseStatus = useContext(ToolResponseStatusContext);
+    const { content, isStreaming } = parseV1Props(v1Props, responseStatus);
     return <CardComponent content={content} isStreaming={isStreaming} />;
   };
 

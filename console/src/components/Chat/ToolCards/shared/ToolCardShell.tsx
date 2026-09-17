@@ -74,6 +74,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
   );
   const isLoading = content.status === "calling" && isStreaming;
   const isError = content.status === "error";
+  const isIncomplete = content.status === "incomplete";
   const inputProgress = content.inputProgress;
   const inputPreview = inputProgress
     ? `${inputProgress.truncated ? "…\n" : ""}${inputProgress.preview}`
@@ -85,7 +86,7 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
     }
   }, [defaultExpanded]);
 
-  const isExecuting = content.status === "calling" && !inputProgress;
+  const isExecuting = isLoading && !inputProgress;
   const showGear = isExecuting && !!sessionId;
 
   const control = useToolCallControl(
@@ -158,9 +159,10 @@ const ToolCardShell: React.FC<ToolCardShellProps> = ({
           <span className={styles.toolCallLabel} title={title}>
             {title}
             {isLoading && ` ${t("tool.loading")}`}
+            {isIncomplete && ` · ${t("tool.endedWithoutResult")}`}
           </span>
           {summaryAction}
-          {!isLoading && !isError && badges}
+          {content.status === "done" && badges}
           {inlineResult && (
             <span className={styles.toolCallInlineResult} title={inlineResult}>
               {inlineResult}

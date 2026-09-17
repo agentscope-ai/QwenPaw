@@ -2,6 +2,8 @@
 
 本手册适用于 Linux Docker Engine 和 Windows Docker Desktop（Linux 容器模式）。两种平台使用同一镜像、同一 Compose 定义和同一初始化逻辑。
 
+如果只希望 PostgreSQL 运行在 Docker 中、应用服务直接运行在宿主机，请使用[数据库容器与本地服务部署手册](database-container-host-service.md)。该模式使用独立 Compose 文件，不会启动 `agent-app`。
+
 正式部署遵循两个目录分离原则：
 
 - 源码目录只存放 Git 跟踪的程序和构建文件；

@@ -17,6 +17,7 @@
 import React, { useMemo } from "react";
 import RequestActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Actions";
 import { TranscriptText } from "./TranscriptText";
+import { ToolResponseStatusContext } from "../../components/Chat/ToolCards/shared/ToolResponseContext";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
 import ResponseError from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error";
@@ -161,7 +162,7 @@ function DefaultHostResponseCard({
   }
 
   return (
-    <>
+    <ToolResponseStatusContext.Provider value={data.status}>
       {avatar ? (
         <Flex align="center" gap={8} style={{ marginBottom: 8 }}>
           <Avatar src={avatar} />
@@ -197,7 +198,7 @@ function DefaultHostResponseCard({
       {data.error ? <ResponseError data={data.error} /> : null}
       {contentAppend}
       <ResponseActions data={data} isLast={isLast} />
-    </>
+    </ToolResponseStatusContext.Provider>
   );
 }
 

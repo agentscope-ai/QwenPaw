@@ -1,0 +1,30 @@
+name: weldonagent-database
+
+services:
+  agent-pg:
+    image: postgres:16
+    container_name: agent-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${WELDON_DB_NAME:-weldonagent}
+      POSTGRES_USER: ${WELDON_DB_USER:-weldon}
+      POSTGRES_PASSWORD: ${WELDON_DB_PASSWORD:?Set WELDON_DB_PASSWORD in deploy/.env}
+      WELDON_DB_SCHEMA: ${WELDON_DB_SCHEMA:-weldonagent}
+      TZ: ${WELDON_TIMEZONE:-Asia/Shanghai}
+    ports:
+      - ${WELDON_DB_BIND_ADDRESS:-127.0.0.1}:${WELDON_DB_PORT:-5432}:5432
+    volumes:
+      - type: bind
+        source: ${WELDON_DATA_ROOT:?Set WELDON_DATA_ROOT in deploy/.env}/postgres
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ./postgres-init.sh
+        target: /docker-entrypoint-initdb.d/01-schema.sh
+        read_only: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 3s
+      retries: 30

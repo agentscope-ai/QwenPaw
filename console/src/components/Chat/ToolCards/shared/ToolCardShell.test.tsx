@@ -11,7 +11,7 @@ vi.mock("./ToolCallSessionContext", () => ({
 }));
 
 vi.mock("../../../../hooks/useToolCallControl", () => ({
-  useToolCallControl: () => ({
+  useToolCallControl: vi.fn(() => ({
     bannerVisible: false,
     offloadRemaining: 12,
     killRemaining: 30,
@@ -21,7 +21,7 @@ vi.mock("../../../../hooks/useToolCallControl", () => ({
     toggleBanner: vi.fn(),
     closeBanner: vi.fn(),
     updateRemaining: vi.fn(),
-  }),
+  })),
 }));
 
 vi.mock("./ToolCallControlPopover", () => ({
@@ -29,6 +29,7 @@ vi.mock("./ToolCallControlPopover", () => ({
 }));
 
 import ToolCardShell from "./ToolCardShell";
+import { useToolCallControl } from "../../../../hooks/useToolCallControl";
 import type { ToolCallContent } from "./types";
 
 const content: ToolCallContent = {
@@ -55,6 +56,38 @@ const streamingInputContent: ToolCallContent = {
 };
 
 describe("ToolCardShell lazy body", () => {
+  it("shows missing-result history without a spinner, success badge or runtime polling", () => {
+    const { container } = render(
+      <ToolCardShell
+        content={{ ...runningContent, status: "incomplete", result: undefined }}
+        icon={<span />}
+        title="Read PROFILE.md"
+        badges={<span>Success</span>}
+      />,
+    );
+    expect(screen.getByText(/tool.endedWithoutResult/)).toBeInTheDocument();
+    expect(container.querySelector('[class*="toolCallSpinner"]')).toBeNull();
+    expect(screen.queryByText("Success")).toBeNull();
+    expect(useToolCallControl).toHaveBeenLastCalledWith(
+      "",
+      "call-1",
+      false,
+      "execute_shell_command",
+    );
+  });
+
+  it("does not poll an inactive tool even if the stored status is calling", () => {
+    render(
+      <ToolCardShell content={runningContent} title="Read" icon={<span />} />,
+    );
+    expect(useToolCallControl).toHaveBeenLastCalledWith(
+      "",
+      "call-1",
+      false,
+      "execute_shell_command",
+    );
+  });
+
   it("opens file-facing results by default when requested", () => {
     render(
       <ToolCardShell
