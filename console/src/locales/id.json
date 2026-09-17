@@ -348,11 +348,6 @@
     "toggleAgentNavigation": "Buka atau tutup navigasi agen"
   },
   "settingsCenter": {
-    "sessionHeight": "Tinggi baris",
-    "sessionHeightHint": "Tinggi baris daftar percakapan di sidebar. Otomatis mengikuti tinggi jendela.",
-    "densityAuto": "Otomatis",
-    "densityStandard": "Standar",
-    "densityCompact": "Ringkas",
     "backToApp": "Kembali ke aplikasi",
     "searchPlaceholder": "Cari pengaturan",
     "noResults": "Tidak ada pengaturan yang cocok",

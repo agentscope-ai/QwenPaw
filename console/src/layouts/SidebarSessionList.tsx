@@ -49,7 +49,6 @@ import {
   type ChatDateGroup,
 } from "../utils/chatGroups";
 import { useCollapsedChatGroups } from "../hooks/useCollapsedChatGroups";
-import { useCompactDensity } from "../hooks/useCompactDensity";
 import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
@@ -67,21 +66,14 @@ import { useSessionAttention } from "../hooks/useSessionAttention";
 import { useAgentStore } from "../stores/agentStore";
 import styles from "./sidebarSessionList.module.less";
 
-/** Fixed height of each session item row */
-const SESSION_ROW_HEIGHT = 42;
-/** Fixed height of each group header row */
-const GROUP_HEADER_HEIGHT = 42;
-const DATE_HEADER_HEIGHT = 24;
-
 /**
- * Compact row metrics for short viewports (see useCompactDensity).
- * Each value must match the `@media (max-height: 850px)` rules in the
- * session list stylesheets so the virtualized allocation and the
- * rendered rows stay in lockstep.
+ * Fixed row metrics of the virtualized session list. The CSS in
+ * sessionItem / SessionGroupHeader / SessionDateHeader must render
+ * exactly these heights (row = padding + line-height + margin).
  */
-const SESSION_ROW_HEIGHT_COMPACT = 30;
-const GROUP_HEADER_HEIGHT_COMPACT = 32;
-const DATE_HEADER_HEIGHT_COMPACT = 20;
+const SESSION_ROW_HEIGHT = 36;
+const GROUP_HEADER_HEIGHT = 36;
+const DATE_HEADER_HEIGHT = 20;
 
 /** A flattened row rendered by the virtualized session list. */
 type FlatRow =
@@ -283,8 +275,6 @@ export default function SidebarSessionList({
   const [groupMode, setGroupMode] = useState<SessionGroupMode>(
     getSessionGroupModePreference,
   );
-  /** Compact row metrics on short viewports (small laptops). */
-  const compact = useCompactDensity();
 
   useEffect(() => {
     const syncGroupMode = () => {
@@ -686,18 +676,14 @@ export default function SidebarSessionList({
   const getRowHeight = useCallback(
     (index: number) => {
       const row = flatRows[index];
-      if (!row) {
-        return compact ? SESSION_ROW_HEIGHT_COMPACT : SESSION_ROW_HEIGHT;
-      }
-      if (row.kind === "groupHeader") {
-        return compact ? GROUP_HEADER_HEIGHT_COMPACT : GROUP_HEADER_HEIGHT;
-      }
-      if (row.kind === "dateHeader") {
-        return compact ? DATE_HEADER_HEIGHT_COMPACT : DATE_HEADER_HEIGHT;
-      }
-      return compact ? SESSION_ROW_HEIGHT_COMPACT : SESSION_ROW_HEIGHT;
+      if (!row) return SESSION_ROW_HEIGHT;
+      return row.kind === "groupHeader"
+        ? GROUP_HEADER_HEIGHT
+        : row.kind === "dateHeader"
+        ? DATE_HEADER_HEIGHT
+        : SESSION_ROW_HEIGHT;
     },
-    [compact, flatRows],
+    [flatRows],
   );
 
   /** Height of the virtual list container */
@@ -710,10 +696,10 @@ export default function SidebarSessionList({
     if (isSessionDragging) listRef.current?.scrollTo(0);
   }, [isSessionDragging]);
 
-  /** Reset virtual list cache when flatRows or row density change */
+  /** Reset virtual list cache when flatRows change */
   useEffect(() => {
     listRef.current?.resetAfterIndex(0);
-  }, [compact, flatRows]);
+  }, [flatRows]);
 
   // Bring the active conversation into view once its row is visible
   // (group expanded + list measured). Guarded by the last-scrolled id so

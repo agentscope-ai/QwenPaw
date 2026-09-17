@@ -319,11 +319,6 @@
     "toggleAgentNavigation": "Mở rộng hoặc thu gọn điều hướng tác tử"
   },
   "settingsCenter": {
-    "sessionHeight": "Chiều cao hội thoại",
-    "sessionHeightHint": "Chiều cao dòng của danh sách hội thoại trong thanh bên. Tự động theo chiều cao cửa sổ.",
-    "densityAuto": "Tự động",
-    "densityStandard": "Tiêu chuẩn",
-    "densityCompact": "Gọn",
     "backToApp": "Quay lại ứng dụng",
     "searchPlaceholder": "Tìm kiếm cài đặt",
     "noResults": "Không có cài đặt phù hợp",

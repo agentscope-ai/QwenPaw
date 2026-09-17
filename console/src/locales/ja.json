@@ -2755,11 +2755,6 @@
     "toggleAgentNavigation": "エージェントナビゲーションを展開または折りたたむ"
   },
   "settingsCenter": {
-    "sessionHeight": "会話の高さ",
-    "sessionHeightHint": "サイドバーの会話リストの行の高さ。「自動」はウィンドウの高さに追従します。",
-    "densityAuto": "自動",
-    "densityStandard": "標準",
-    "densityCompact": "コンパクト",
     "backToApp": "アプリに戻る",
     "searchPlaceholder": "設定を検索",
     "noResults": "一致する設定はありません",

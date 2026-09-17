@@ -3006,11 +3006,6 @@
     "toggleAgentNavigation": "Expandir ou recolher a navegação do agente"
   },
   "settingsCenter": {
-    "sessionHeight": "Altura das conversas",
-    "sessionHeightHint": "Altura das linhas da lista de conversas da barra lateral. Auto acompanha a altura da janela.",
-    "densityAuto": "Auto",
-    "densityStandard": "Padrão",
-    "densityCompact": "Compacto",
     "backToApp": "Voltar ao aplicativo",
     "searchPlaceholder": "Pesquisar configurações",
     "noResults": "Nenhuma configuração correspondente",

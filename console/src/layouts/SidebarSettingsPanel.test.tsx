@@ -190,29 +190,6 @@ describe("SidebarSettingsPanel", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("persists conversation height changes from quick settings", async () => {
-    const onClose = vi.fn();
-    renderWithProviders(
-      <ThemeProvider>
-        <SidebarSettingsPanel
-          onClose={onClose}
-          onOpenDesktopMode={vi.fn()}
-          onOpenSettings={vi.fn()}
-        />
-      </ThemeProvider>,
-    );
-
-    await userEvent.hover(screen.getByRole("button", { name: "Appearance" }));
-    const sessionHeight = last(
-      await screen.findAllByRole("button", { name: "Conversation height" }),
-    );
-    await userEvent.hover(sessionHeight);
-    await userEvent.click(last(await screen.findAllByText("Compact")));
-
-    expect(localStorage.getItem("qwenpaw_sidebar_density")).toBe("compact");
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
   it("shows the compact documentation links", () => {
     renderWithProviders(
       <ThemeProvider>

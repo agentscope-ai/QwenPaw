@@ -10,7 +10,7 @@
  * row-rendering logic (VirtualRow / GroupHeaderContent / date headers)
  * executes under test.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
@@ -749,20 +749,7 @@ describe("SidebarSessionList", () => {
     expect(screen.queryByTestId("group-header-default")).toBeNull();
   });
 
-  describe("compact density row heights", () => {
-    function setCompactViewport(compact: boolean) {
-      window.matchMedia = vi.fn().mockImplementation((query: string) => ({
-        matches: query.includes("max-height") ? compact : false,
-        media: query,
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      })) as unknown as typeof window.matchMedia;
-    }
-
+  describe("virtual row heights", () => {
     function conversationFixture(count: number) {
       return Array.from({ length: count }, (_, index) => ({
         ...sessionA,
@@ -772,11 +759,7 @@ describe("SidebarSessionList", () => {
       }));
     }
 
-    afterEach(() => {
-      setCompactViewport(false);
-    });
-
-    it("keeps full row metrics on tall viewports", async () => {
+    it("allocates 36px session rows and 36px group headers", async () => {
       localStorage.setItem("qwenpaw_session_group_mode", "source");
       mockData(conversationFixture(12));
       renderWithProviders(<SidebarSessionList />);
@@ -786,40 +769,12 @@ describe("SidebarSessionList", () => {
       const list = mockListProps.current;
       expect(list).toBeTruthy();
       // rows: groupHeader(default, 12) followed by all 12 sessions
-      expect(list!.itemSize(0)).toBe(42);
-      expect(list!.itemSize(1)).toBe(42);
-      expect(list!.itemSize(11)).toBe(42);
+      expect(list!.itemSize(0)).toBe(36);
+      expect(list!.itemSize(1)).toBe(36);
+      expect(list!.itemSize(11)).toBe(36);
     });
 
-    it("compacts group headers and sessions on short viewports", async () => {
-      setCompactViewport(true);
-      localStorage.setItem("qwenpaw_session_group_mode", "source");
-      mockData(conversationFixture(12));
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("virtual-list")).toBeTruthy();
-      });
-      const list = mockListProps.current!;
-      expect(list.itemSize(0)).toBe(32);
-      expect(list.itemSize(1)).toBe(30);
-      expect(list.itemSize(11)).toBe(30);
-    });
-
-    it("compacts session rows in none mode on short viewports", async () => {
-      setCompactViewport(true);
-      localStorage.setItem("qwenpaw_session_group_mode", "none");
-      mockData([sessionA]);
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("virtual-list")).toBeTruthy();
-      });
-      const list = mockListProps.current!;
-      // single flat section: the first row is already a session
-      expect(list.itemSize(0)).toBe(30);
-    });
-
-    it("compacts date headers in date mode on short viewports", async () => {
-      setCompactViewport(true);
+    it("allocates 20px date headers in date mode", async () => {
       mockData([sessionA]);
       renderWithProviders(<SidebarSessionList />);
       await waitFor(() => {
@@ -828,48 +783,42 @@ describe("SidebarSessionList", () => {
       const list = mockListProps.current!;
       // rows: dateHeader(today), session
       expect(list.itemSize(0)).toBe(20);
-      expect(list.itemSize(1)).toBe(30);
+      expect(list.itemSize(1)).toBe(36);
     });
+  });
 
-    function addEmptyCronGroup() {
-      mockChatGroups.mockReturnValue({
-        groups: [
-          {
-            id: "default",
-            name: "Uncategorized",
-            order: 0,
-            kind: "default",
-            pinned: false,
-          },
-          {
-            id: "cron",
-            name: "Scheduled tasks",
-            order: 1,
-            kind: "cron",
-            pinned: false,
-          },
-        ],
-        createGroup: vi.fn().mockResolvedValue({ id: "g-new" }),
-        renameGroup: vi.fn(),
-        pinGroup: vi.fn(),
-        deleteGroup: vi.fn(),
-        reorderGroups: vi.fn(),
-      });
-    }
-
-    it("hides empty groups in source mode", async () => {
-      localStorage.setItem("qwenpaw_session_group_mode", "source");
-      mockData([sessionA]);
-      addEmptyCronGroup();
-      renderWithProviders(<SidebarSessionList />);
-      await waitFor(() => {
-        expect(screen.getByTestId("group-header-default")).toBeTruthy();
-      });
-      // the empty cron group renders no header at all
-      expect(screen.queryByTestId("group-header-cron")).toBeNull();
-      const list = mockListProps.current!;
-      // rows: groupHeader(default, 1), session
-      expect(list.itemCount).toBe(2);
+  it("hides empty groups in source mode", async () => {
+    localStorage.setItem("qwenpaw_session_group_mode", "source");
+    mockData([sessionA]);
+    mockChatGroups.mockReturnValue({
+      groups: [
+        {
+          id: "default",
+          name: "Uncategorized",
+          order: 0,
+          kind: "default",
+          pinned: false,
+        },
+        {
+          id: "cron",
+          name: "Scheduled tasks",
+          order: 1,
+          kind: "cron",
+          pinned: false,
+        },
+      ],
+      createGroup: vi.fn().mockResolvedValue({ id: "g-new" }),
+      renameGroup: vi.fn(),
+      pinGroup: vi.fn(),
+      deleteGroup: vi.fn(),
+      reorderGroups: vi.fn(),
     });
+    renderWithProviders(<SidebarSessionList />);
+    await waitFor(() => {
+      expect(screen.getByTestId("group-header-default")).toBeTruthy();
+    });
+    // the empty cron group renders no header at all
+    expect(screen.queryByTestId("group-header-cron")).toBeNull();
+    expect(mockListProps.current!.itemCount).toBe(2);
   });
 });

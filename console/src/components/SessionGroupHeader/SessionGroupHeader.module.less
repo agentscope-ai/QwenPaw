@@ -2,7 +2,7 @@
   position: relative;
   display: flex;
   width: calc(100% - 12px);
-  height: 38px;
+  height: 32px;
   align-items: center;
   gap: 6px;
   margin: 2px 6px;
@@ -131,14 +131,5 @@
     .pinMark {
       opacity: 1;
     }
-  }
-}
-
-/* Compact density — driven by <html data-sidebar-compact> published
-   from useCompactDensity; keep in sync with GROUP_HEADER_HEIGHT_COMPACT
-   (32px = 28 + 2×2 margin) in layouts/SidebarSessionList.tsx. */
-:global(html[data-sidebar-compact="1"]) {
-  .header {
-    height: 28px;
   }
 }
