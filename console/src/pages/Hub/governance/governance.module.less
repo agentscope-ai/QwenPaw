@@ -1,8 +1,14 @@
 .panel {
   display: grid;
-  gap: 22px;
+  gap: 26px;
   min-width: 0;
   color: var(--app-text);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  button:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 3px;
+  }
 }
 .heading {
   display: flex;
@@ -10,9 +16,10 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
+  h1,
   h2 {
-    margin: 4px 0 0;
-    font-size: 25px;
+    margin: 0;
+    font-size: 30px;
     line-height: 1.3;
     font-weight: 650;
     letter-spacing: -0.035em;
@@ -22,24 +29,21 @@
     margin: 0;
   }
   p {
-    margin-top: 7px;
+    margin-top: 10px;
     color: var(--app-text-secondary);
-    font-size: 12px;
+    font-size: 13px;
     line-height: 1.7;
   }
   > svg {
     color: var(--app-accent-text);
   }
   small {
-    font-size: 11px;
+    font-size: 12px;
     color: var(--app-text-tertiary);
   }
 }
 .eyebrow {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  color: var(--app-text-tertiary);
+  display: none;
 }
 .grid {
   display: grid;
@@ -135,7 +139,7 @@
   }
   small {
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.6;
   }
 }
@@ -199,24 +203,21 @@
   text-align: center;
 }
 .tablePanel {
-  background: var(--app-surface);
-  border: 1px solid var(--app-border);
-  border-radius: 14px;
-  overflow: hidden;
+  min-width: 0;
 }
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--app-border);
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
   > :first-child {
-    max-width: 300px;
-    flex: 1;
-    min-width: 160px;
+    width: 310px;
+    max-width: 100%;
+    flex: 0 1 310px;
   }
   > :global(.qwenpaw-select) {
-    min-width: 120px;
+    width: 150px;
   }
 }
 .userHead,
@@ -227,25 +228,33 @@
     minmax(100px, 1fr) 16px;
   gap: 18px;
   align-items: center;
-  padding: 17px 22px;
+  padding: 16px 22px;
 }
 .userHead {
-  color: var(--app-text-tertiary);
-  font-size: 10px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
   background: var(--app-surface-subtle);
+  border-bottom: 1px solid var(--app-border);
 }
 .userRow {
   width: 100%;
+  min-height: 84px;
   text-align: left;
-  background: transparent;
+  background: var(--app-surface);
   border: 0;
   border-bottom: 1px solid var(--app-border);
   color: var(--app-text);
   cursor: pointer;
   font: inherit;
-  font-size: 12px;
+  font-size: 14px;
   &:hover {
     background: var(--app-surface-subtle);
+  }
+  &:last-child {
+    border-bottom: 0;
+  }
+  &:focus-visible {
+    outline-offset: -3px;
   }
 }
 .identity {
@@ -259,23 +268,23 @@
     overflow-wrap: anywhere;
   }
   small {
-    font-size: 10px;
+    font-size: 12px;
     color: var(--app-text-tertiary);
     display: block;
     margin-top: 4px;
   }
 }
 .avatar {
-  width: 34px;
-  height: 34px;
+  width: 38px;
+  height: 38px;
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border-radius: 50%;
   background: var(--app-accent-soft);
   color: var(--app-accent-text);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 550;
 }
 .cellValue {
   font-variant-numeric: tabular-nums;
@@ -284,7 +293,7 @@
   }
   em {
     display: block;
-    font-size: 10px;
+    font-size: 12px;
     font-style: normal;
     margin-top: 4px;
     color: var(--app-text-tertiary);
@@ -292,12 +301,16 @@
 }
 .tableFooter {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
-  font-size: 11px;
+  padding: 16px 20px;
+  font-size: 12px;
   color: var(--app-text-secondary);
+  border: 1px solid var(--app-border);
+  border-top: 0;
+  border-radius: 0 0 14px 14px;
+  background: var(--app-surface);
 }
 .accessRow {
   display: flex;
@@ -314,7 +327,7 @@
   small {
     display: block;
     color: var(--app-text-secondary);
-    font-size: 11px;
+    font-size: 12px;
     margin-top: 5px;
   }
 }
@@ -325,7 +338,7 @@
 }
 .help {
   color: var(--app-text-secondary);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.8;
   summary {
     cursor: pointer;
@@ -370,8 +383,9 @@
   .panel {
     gap: 16px;
   }
+  .heading h1,
   .heading h2 {
-    font-size: 23px;
+    font-size: 27px;
   }
   .card {
     padding: 18px;
@@ -394,11 +408,11 @@
   .cellValue small {
     display: block;
     color: var(--app-text-tertiary);
-    font-size: 10px;
+    font-size: 12px;
     margin-bottom: 5px;
   }
   .toolbar {
-    padding: 14px;
+    padding: 0;
   }
   .tableFooter {
     flex-wrap: wrap;
@@ -409,7 +423,7 @@
   display: block;
   margin-top: 5px;
   color: var(--app-text-tertiary);
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .formSection {
@@ -549,5 +563,51 @@
     :global(.ant-form-item) {
       width: 100%;
     }
+  }
+}
+
+.userList {
+  border: 1px solid var(--app-border);
+  border-radius: 14px 14px 0 0;
+  overflow: hidden;
+  background: var(--app-surface);
+}
+.defaultModelForm {
+  padding: 16px 20px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+}
+.modelTabs :global(.qwenpaw-tabs-content-holder) {
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .userHead {
+    display: none;
+  }
+  .userRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+  }
+  .userRow > svg {
+    display: none;
+  }
+  .cellValue small {
+    display: block;
+    margin-bottom: 5px;
+  }
+}
+@media (max-width: 767px) {
+  .toolbar > :first-child {
+    flex-basis: 100%;
+    width: 100%;
+  }
+  .toolbar > :global(.qwenpaw-select) {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+  .defaultModelForm {
+    padding: 16px;
   }
 }

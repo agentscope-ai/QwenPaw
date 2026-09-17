@@ -189,10 +189,7 @@ export default function OrganizationModels({
     <div className={styles.panel}>
       <div className={styles.heading}>
         <div>
-          <span className={styles.eyebrow}>
-            {t("hub.governance.models.eyebrow")}
-          </span>
-          <h2 className={styles.modelTitle}>
+          <h1 className={styles.modelTitle}>
             {t("hub.governance.models.title")}
             {policy && !error && (
               <Tooltip
@@ -218,7 +215,8 @@ export default function OrganizationModels({
                 </span>
               </Tooltip>
             )}
-          </h2>
+          </h1>
+          <p>{t("hub.governance.models.subtitle")}</p>
         </div>
         {tab !== "usage" && (
           <div className={styles.actions}>

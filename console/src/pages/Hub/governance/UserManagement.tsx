@@ -161,10 +161,8 @@ export default function UserManagement(props: Props) {
     <section className={styles.panel}>
       <div className={styles.heading}>
         <div>
-          <span className={styles.eyebrow}>
-            {t("hub.governance.models.eyebrow")}
-          </span>
-          <h2>{t("hub.navigation.users")}</h2>
+          <h1>{t("hub.navigation.users")}</h1>
+          <p>{t("hub.governance.users.description")}</p>
         </div>
         {tab === "members" && (
           <Button

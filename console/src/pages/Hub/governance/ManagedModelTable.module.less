@@ -1,21 +1,16 @@
 .catalog {
   min-width: 0;
-  border: 1px solid var(--app-border);
-  border-radius: 14px;
-  background: var(--app-surface);
-  overflow: hidden;
 }
 .filters {
   display: flex;
+  align-items: center;
   gap: 12px;
-  padding: 16px;
-  border-bottom: 1px solid var(--app-border);
+  margin-bottom: 20px;
   > :first-child {
     flex: 1;
     min-width: 140px;
   }
-  > :global(.qwenpaw-select),
-  > :global(.ant-select) {
+  > :global(.qwenpaw-select) {
     width: 180px;
   }
 }
@@ -24,7 +19,7 @@
   small {
     display: block;
     color: var(--app-text-tertiary);
-    font-size: 11px;
+    font-size: 12px;
   }
   > div {
     display: flex;
@@ -75,4 +70,51 @@
       width: auto;
     }
   }
+}
+
+.modelName {
+  min-height: 40px;
+}
+.modelName:focus-visible {
+  outline: 2px solid var(--app-accent);
+  outline-offset: 3px;
+}
+.actions :global(.qwenpaw-btn) {
+  min-height: 40px;
+  min-width: 40px;
+}
+@media (max-width: 767px) {
+  .modelName {
+    min-height: 44px;
+  }
+  .actions :global(.qwenpaw-btn) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+.catalog :global(.qwenpaw-table) {
+  font-size: 14px;
+}
+.catalog :global(.qwenpaw-table-thead) > tr > th {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.catalog :global(.qwenpaw-table-container) {
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.catalog :global(.qwenpaw-table-tbody) > tr > td {
+  padding-top: 18px;
+  padding-bottom: 18px;
+}
+.catalog :global(.qwenpaw-table-thead) > tr > th {
+  background: var(--app-surface-subtle);
+  color: var(--app-text-secondary);
+}
+.identity small {
+  margin-top: 4px;
+  font-size: 12px;
 }

@@ -5,7 +5,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { App } from "antd";
+import { App, Grid } from "antd";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -97,6 +97,7 @@ function renderHubPage() {
 describe("HubPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(Grid, "useBreakpoint").mockReturnValue({ md: true });
     vi.mocked(hubApi.me).mockResolvedValue(hubUser());
     vi.mocked(hubApi.getHealth).mockResolvedValue(hubHealth());
     vi.mocked(hubApi.getOverview).mockResolvedValue(hubOverview());
@@ -192,7 +193,99 @@ describe("HubPage", () => {
     renderHubPage();
     expect(
       await screen.findByRole("button", { name: /hub.overview.availability / }),
-    ).toHaveTextContent("100%");
+    ).toHaveTextContent("—");
+  });
+
+  it("opens failed runtimes from the overview attention action", async () => {
+    vi.mocked(hubApi.getOverview).mockResolvedValue(
+      hubOverview({
+        runtime_counts: {
+          created: 0,
+          starting: 0,
+          running: 1,
+          stopped: 0,
+          failed: 1,
+        },
+      }),
+    );
+    renderHubPage();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /^hub.overview.failedCount:/,
+      }),
+    );
+    await waitFor(() =>
+      expect(hubApi.listRuntimes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: "failed", query: "", owner: "" }),
+      ),
+    );
+  });
+
+  it("opens running runtimes from the real state distribution", async () => {
+    renderHubPage();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /^hub.runtimeStates.running/,
+      }),
+    );
+    await waitFor(() =>
+      expect(hubApi.listRuntimes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: "running" }),
+      ),
+    );
+  });
+
+  it("keeps account controls and navigation accessible on mobile", async () => {
+    vi.mocked(Grid.useBreakpoint).mockReturnValue({ md: false });
+    renderHubPage();
+    await screen.findByText("hub.overview.title");
+    expect(
+      screen.getByRole("button", { name: "common.refresh" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "hub.navigation.workspace" }),
+    );
+    const drawer = await screen.findByRole("dialog");
+    expect(
+      within(drawer).getByRole("button", { name: "login.logout" }),
+    ).toBeVisible();
+    expect(
+      within(drawer).getByRole("button", { name: "hub.actions.useDarkTheme" }),
+    ).toBeVisible();
+    fireEvent.click(
+      within(drawer).getByRole("button", { name: "hub.navigation.runtimes" }),
+    );
+    await waitFor(() => expect(hubApi.listRuntimes).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "hub.navigation.workspace" }),
+    );
+    const reopenedDrawer = await screen.findByRole("dialog");
+    within(reopenedDrawer)
+      .getByRole("button", { name: "login.logout" })
+      .focus();
+    fireEvent.keyDown(reopenedDrawer, {
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("shows refresh failures and lets administrators retry", async () => {
+    renderHubPage();
+    await screen.findByText("hub.overview.title");
+    vi.mocked(hubApi.getOverview).mockRejectedValueOnce(
+      new Error("Refresh unavailable"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
+    expect(await screen.findByText("Refresh unavailable")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
+    await waitFor(() => expect(hubApi.getOverview).toHaveBeenCalledTimes(3));
   });
 
   it("shows the backend reason when the runtime is unavailable", async () => {
