@@ -58,6 +58,11 @@ def _reject_unversioned_nonempty_schema(
 
 def _run_migrations(connection: Connection) -> None:
     schema = _target_schema()
+    # The explicit upgrade command also supports databases whose container
+    # initialization hook did not run. Existing schemas and data are preserved.
+    connection.execute(
+        text(f"CREATE SCHEMA IF NOT EXISTS {_quote_identifier(schema)}")
+    )
     _reject_unversioned_nonempty_schema(connection, schema)
     connection.execute(text(f"SET search_path TO {_quote_identifier(schema)}"))
     # The preflight SELECT and SET start SQLAlchemy's implicit transaction.

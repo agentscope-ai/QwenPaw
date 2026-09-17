@@ -48,27 +48,53 @@ def execute(fn, *args, **kwargs):
     except ServiceError as exc:
         raise click.ClickException(str(exc)) from None
     except (OSError, subprocess.SubprocessError):
-        raise click.ClickException(
-            "子进程执行失败或超时，请检查解释器、目录和日志"
-        ) from None
+        raise click.ClickException("子进程执行失败或超时，请检查解释器、目录和日志") from None
 
 
 @service_group.command("init")
+@click.option(
+    "--env-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="从数据库 Compose 的环境文件生成宿主机配置",
+)
+@click.option(
+    "--fresh",
+    is_flag=True,
+    help="确认全新 PostgreSQL 实例，无旧业务数据待迁移；声明全部领域使用 PostgreSQL",
+)
 @click.pass_context
-def init_cmd(ctx):
+def init_cmd(ctx, env_file, fresh):
     """生成实例配置模板；不覆盖配置或初始化数据库。"""
     path = ctx.obj["service_config_path"].resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    from ..service.template import example_config
+    from ..service.template import database_host_config, example_config
+
+    if path.exists():
+        raise click.ClickException("配置已存在，未覆盖")
+    try:
+        data = database_host_config(env_file) if env_file else example_config()
+    except ServiceError as exc:
+        raise click.ClickException(str(exc)) from None
+    if fresh:
+        for suffix in (
+            "VALIDATED_DOMAINS",
+            "LEGACY_FROZEN_DOMAINS",
+            "POSTGRES_WRITES_DOMAINS",
+        ):
+            data["environment"]["QWENPAW_CUTOVER_" + suffix] = "all"
 
     try:
         with path.open("x", encoding="utf-8") as handle:
-            json.dump(example_config(), handle, ensure_ascii=False, indent=2)
+            json.dump(data, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
         path.chmod(0o600)
     except FileExistsError:
         raise click.ClickException("配置已存在，未覆盖") from None
-    click.echo(f"已生成 {path}，请填写数据库和目录配置")
+    click.echo(
+        f"已生成 {path}，请核对数据库和目录配置；然后执行 database-upgrade --yes 和 service exec init"
+    )
+    if not fresh:
+        click.echo("切换声明保持为空；迁移已有数据时请先完成迁移核验，再填写 QWENPAW_CUTOVER_* 配置")
 
 
 @service_group.command("check")
@@ -119,13 +145,17 @@ def run_cmd():
     execute(run)
 
 
-@service_group.command("exec", context_settings={"ignore_unknown_options": True})
+@service_group.command(
+    "exec", context_settings={"ignore_unknown_options": True}
+)
 @click.argument("arguments", nargs=-1, required=True, type=click.UNPROCESSED)
 def exec_cmd(arguments):
     """在实例环境执行 QwenPaw 子命令，例如 exec init。"""
     c = config()
     result = subprocess.call(
-        [c.python, "-m", "qwenpaw", *arguments], cwd=c.project_dir, env=c.child_env()
+        [c.python, "-m", "qwenpaw", *arguments],
+        cwd=c.project_dir,
+        env=c.child_env(),
     )
     raise click.exceptions.Exit(result)
 
@@ -136,9 +166,7 @@ def database_upgrade_cmd(yes):
     """显式升级数据库；普通启动不会执行迁移。"""
     c = config()
     if not yes:
-        raise click.ClickException(
-            "请先停服、备份并确认目标，再使用 --yes 执行数据库升级"
-        )
+        raise click.ClickException("请先停服、备份并确认目标，再使用 --yes 执行数据库升级")
     with manager.instance_lock(c):
         if manager.managed_process(c):
             raise click.ClickException("请先停止服务再升级数据库")

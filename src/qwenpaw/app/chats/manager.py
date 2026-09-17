@@ -244,9 +244,9 @@ class ChatManager:
             )
             logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)
-            await self._repo.upsert_chat(spec)
             if self._on_chat_created is not None:
                 await self._on_chat_created(spec)
+            await self._repo.upsert_chat(spec)
             logger.info(
                 f"Auto-registered new chat: {spec.id} -> {session_id}",
             )
@@ -262,9 +262,9 @@ class ChatManager:
             Chat spec
         """
         async with self._lock:
-            await self._repo.upsert_chat(spec)
             if self._on_chat_created is not None:
                 await self._on_chat_created(spec)
+            await self._repo.upsert_chat(spec)
             return spec
 
     async def patch_chat(

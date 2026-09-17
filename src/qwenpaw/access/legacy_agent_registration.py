@@ -14,19 +14,40 @@ from .agent_repository import LegacyAgentRecord
 class LegacyAgentRegistrationRepository(Protocol):
     """旧智能体登记所需的最小 Repository 接口。"""
 
-    async def get_first_admin_id(self) -> UUID | None: ...
+    async def get_first_admin_id(self) -> UUID | None:
+        ...
 
-    async def list_registered_keys(self, agent_keys: list[str]) -> set[str]: ...
+    async def list_registered_keys(self, agent_keys: list[str]) -> set[str]:
+        ...
 
     async def register_owner(
         self,
         *,
         agent: LegacyAgentRecord,
         owner_user_id: UUID,
-    ) -> Any: ...
+    ) -> Any:
+        ...
 
 
 ProfileLoader = Callable[[str], AgentProfileConfig]
+
+
+async def initialize_admin_agents() -> int:
+    """Finish first-run metadata after an admin exists; also safe on login retry."""
+    from ..config import load_config
+    from ..identity.runtime import get_identity_schema
+    from ..migrations.agent_model_mode_migration import (
+        synchronize_agent_model_modes,
+    )
+    from .agent_repository import PostgresAgentRepository
+
+    config = load_config()
+    repository = PostgresAgentRepository(schema=get_identity_schema())
+    count = await synchronize_legacy_agent_governance(
+        config=config, repository=repository
+    )
+    await synchronize_agent_model_modes(config=config, repository=repository)
+    return count
 
 
 def _legacy_agent_records(
@@ -49,7 +70,9 @@ def _legacy_agent_records(
                 description=description,
                 workspace_key=agent_ref.workspace_dir,
                 status=(
-                    "active" if getattr(agent_ref, "enabled", True) else "disabled"
+                    "active"
+                    if getattr(agent_ref, "enabled", True)
+                    else "disabled"
                 ),
             )
         )

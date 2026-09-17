@@ -92,7 +92,11 @@ class FakeSessions:
 
     async def refresh(self, token):
         self.refresh_calls.append(token)
-        return issued("access-two", "refresh-two") if token == "refresh-one" else None
+        return (
+            issued("access-two", "refresh-two")
+            if token == "refresh-one"
+            else None
+        )
 
     async def revoke_current(self, token):
         return token == "refresh-one"
@@ -111,7 +115,9 @@ class FakePreferences:
         )
 
     async def update(self, user_id, *, language, timezone):
-        return UserPreferences(user_id=user_id, language=language, timezone=timezone)
+        return UserPreferences(
+            user_id=user_id, language=language, timezone=timezone
+        )
 
 
 class FakeRuntime:
@@ -127,6 +133,10 @@ class FakeAudit:
 
 
 def build_client(monkeypatch, runtime: FakeRuntime) -> TestClient:
+    async def initialized():
+        return 0
+
+    monkeypatch.setattr(auth_router, "initialize_admin_agents", initialized)
     monkeypatch.setattr(
         auth_router, "is_multi_user_enabled", lambda: True, raising=False
     )
@@ -150,6 +160,33 @@ def build_client(monkeypatch, runtime: FakeRuntime) -> TestClient:
     app.include_router(me_router.router, prefix="/api")
     app.dependency_overrides[me_router.get_user_audit_repository] = FakeAudit
     return TestClient(app)
+
+
+def test_incomplete_first_registration_can_recover_on_login(monkeypatch):
+    runtime = FakeRuntime()
+    runtime.users.has_users_value = False
+    client = build_client(monkeypatch, runtime)
+
+    async def fail():
+        raise RuntimeError("secret-dsn")
+
+    monkeypatch.setattr(auth_router, "initialize_admin_agents", fail)
+    response = client.post(
+        "/api/auth/register", json={"username": "admin", "password": "correct"}
+    )
+    assert response.status_code == 503
+    assert "secret-dsn" not in response.text
+    assert "set-cookie" not in response.headers
+
+    async def ready():
+        return 2
+
+    monkeypatch.setattr(auth_router, "initialize_admin_agents", ready)
+    response = client.post(
+        "/api/auth/login", json={"username": "admin", "password": "correct"}
+    )
+    assert response.status_code == 200
+    assert response.json()["token"]
 
 
 def test_multi_user_login_sets_http_only_refresh_cookie_and_returns_user(
@@ -199,16 +236,22 @@ def test_refresh_rotates_cookie_and_returns_new_memory_access_token(
     assert response.status_code == 200
     assert response.json()["token"] == "access-two"
     assert runtime.sessions.refresh_calls == ["refresh-one"]
-    assert "qwenpaw_refresh_token=refresh-two" in response.headers["set-cookie"]
+    assert (
+        "qwenpaw_refresh_token=refresh-two" in response.headers["set-cookie"]
+    )
 
 
-def test_multi_user_verify_uses_authenticated_database_session(monkeypatch) -> None:
+def test_multi_user_verify_uses_authenticated_database_session(
+    monkeypatch,
+) -> None:
     client = build_client(monkeypatch, FakeRuntime())
     monkeypatch.setattr(
         auth_router,
         "verify_token",
         lambda _token: (_ for _ in ()).throw(
-            AssertionError("multi-user verify must not call legacy JWT verification")
+            AssertionError(
+                "multi-user verify must not call legacy JWT verification"
+            )
         ),
     )
 

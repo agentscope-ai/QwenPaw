@@ -20,7 +20,10 @@ def preflight(c):
         raise ServiceError("配置的 Python 解释器不存在")
     if not shutil.which("git"):
         raise ServiceError("PATH 中未找到 Git，请安装 Git 并配置系统 PATH")
-    if not c.working_dir.is_dir() or not (c.working_dir / "config.json").is_file():
+    if (
+        not c.working_dir.is_dir()
+        or not (c.working_dir / "config.json").is_file()
+    ):
         raise ServiceError("工作目录尚未初始化，请先使用 service exec init")
     bundled = Path(__file__).resolve().parents[1] / "console"
     static = os.getenv("QWENPAW_CONSOLE_STATIC_DIR")
@@ -32,7 +35,9 @@ def preflight(c):
     if not any((p / "index.html").is_file() for p in candidates):
         raise ServiceError("前端资源不存在，请先构建 console")
     from qwenpaw.persistence.settings import load_database_settings
-    from qwenpaw.persistence.repository_provider import validate_runtime_cutover
+    from qwenpaw.persistence.repository_provider import (
+        validate_runtime_cutover,
+    )
 
     settings = load_database_settings()
     if not settings.multi_user_enabled:
@@ -59,7 +64,9 @@ def serve(c):
     # Windows venv 的 python.exe 可能是重定向父进程，登记真正的服务 PID。
     record_process(c, psutil.Process())
     from qwenpaw.app._app import app
-    from qwenpaw.browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
+    from qwenpaw.browser.control_link.chrome.protocol import (
+        NM_MAX_INBOUND_BYTES,
+    )
     from qwenpaw.config.utils import write_last_api
 
     write_last_api("127.0.0.1" if c.host == "0.0.0.0" else c.host, c.port)
@@ -79,7 +86,9 @@ def serve(c):
     def monitor():
         while not finished.wait(0.5):
             try:
-                if c.stop_file.read_text(encoding="utf-8").strip() == str(os.getpid()):
+                if c.stop_file.read_text(encoding="utf-8").strip() == str(
+                    os.getpid()
+                ):
                     server.should_exit = True
                     return
             except OSError:
@@ -89,7 +98,9 @@ def serve(c):
 
     async def run_server():
         async def heartbeat():
-            from qwenpaw.persistence.repository_provider import validate_runtime_cutover
+            from qwenpaw.persistence.repository_provider import (
+                validate_runtime_cutover,
+            )
 
             created = psutil.Process().create_time()
             while True:
@@ -97,7 +108,9 @@ def serve(c):
                 healthy = bool(server.started and event and event.is_set())
                 if healthy:
                     try:
-                        await asyncio.wait_for(validate_runtime_cutover(), timeout=10)
+                        await asyncio.wait_for(
+                            validate_runtime_cutover(), timeout=10
+                        )
                     except Exception:
                         healthy = False
                 c.state_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +158,9 @@ def upgrade(c):
     if not ini.is_file():
         raise ServiceError("升级要求源码部署目录包含 alembic.ini 和 migrations")
     config = Config(str(ini))
-    config.set_main_option("script_location", str(c.project_dir / "migrations"))
+    config.set_main_option(
+        "script_location", str(c.project_dir / "migrations")
+    )
     config.set_main_option("sqlalchemy.url", settings.dsn.replace("%", "%%"))
     config.attributes["target_schema"] = _database_schema()
     command.upgrade(config, "head")
@@ -166,11 +181,9 @@ def main():
             raise ServiceError("未知内部操作")
     except Exception as exc:
         # 数据库驱动异常可能包含 DSN，只展示已审核的错误码。
-        detail = (
-            str(exc)
-            if isinstance(exc, ServiceError)
-            else getattr(exc, "error_code", type(exc).__name__)
-        )
+        from .diagnostics import safe_error_detail
+
+        detail = safe_error_detail(exc)
         print(f"服务操作失败: {detail}", file=sys.stderr, flush=True)
         raise SystemExit(1) from None
 

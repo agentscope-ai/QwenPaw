@@ -7,9 +7,14 @@ from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from ...constant import EnvVarLoader
+from ...access.legacy_agent_registration import initialize_admin_agents
 from ...identity.models import PlatformRole, UserRecord
 from ...identity.runtime import get_identity_runtime, is_multi_user_enabled
-from ...identity.sessions import AuthenticatedSession, IssuedSession, SessionRecord
+from ...identity.sessions import (
+    AuthenticatedSession,
+    IssuedSession,
+    SessionRecord,
+)
 from ..auth import (
     authenticate,
     has_registered_users,
@@ -26,10 +31,26 @@ from ..rate_limiter import rate_limiter
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+async def _finish_admin_initialization(user: UserRecord) -> None:
+    if user.platform_role != PlatformRole.ADMIN:
+        return
+    try:
+        await initialize_admin_agents()
+    except Exception:
+        # The admin account is committed already. Login retries this idempotent
+        # step; never return a usable session before required metadata exists.
+        raise HTTPException(
+            status_code=503,
+            detail="admin_initialization_incomplete: 管理员已创建，智能体登记未完成；请检查数据库后重新登录，无需重复注册",
+        ) from None
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str
-    expires_in: int | None = None  # Token expiry in seconds, -1/0 for permanent
+    expires_in: int | None = (
+        None  # Token expiry in seconds, -1/0 for permanent
+    )
 
 
 class LoginResponse(BaseModel):
@@ -43,7 +64,9 @@ class LoginResponse(BaseModel):
 class RegisterRequest(BaseModel):
     username: str
     password: str
-    expires_in: int | None = None  # Token expiry in seconds, -1/0 for permanent
+    expires_in: int | None = (
+        None  # Token expiry in seconds, -1/0 for permanent
+    )
 
 
 class AuthStatusResponse(BaseModel):
@@ -73,7 +96,9 @@ def _user_payload(user: UserRecord) -> dict[str, object]:
         "remark": user.remark,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
+        "last_login_at": user.last_login_at.isoformat()
+        if user.last_login_at
+        else None,
     }
 
 
@@ -86,7 +111,9 @@ def _session_payload(session: SessionRecord) -> dict[str, object]:
             session.last_seen_at.isoformat() if session.last_seen_at else None
         ),
         "expires_at": session.refresh_expires_at.isoformat(),
-        "revoked_at": (session.revoked_at.isoformat() if session.revoked_at else None),
+        "revoked_at": (
+            session.revoked_at.isoformat() if session.revoked_at else None
+        ),
     }
 
 
@@ -198,6 +225,7 @@ async def login(request: Request, req: LoginRequest, response: Response):
     rate_limiter.record_login_attempt(client_ip, req.username, success=True)
 
     if user is not None:
+        await _finish_admin_initialization(user)
         issued = await get_identity_runtime().sessions.issue(
             user,
             _client_info(request),
@@ -219,7 +247,9 @@ async def register(req: RegisterRequest, request: Request, response: Response):
     if is_multi_user_enabled():
         runtime = get_identity_runtime()
         if await runtime.users.has_users():
-            raise HTTPException(status_code=403, detail="User already registered")
+            raise HTTPException(
+                status_code=403, detail="User already registered"
+            )
         if not req.username.strip() or not req.password.strip():
             raise HTTPException(
                 status_code=400,
@@ -230,6 +260,7 @@ async def register(req: RegisterRequest, request: Request, response: Response):
             req.password,
             PlatformRole.ADMIN,
         )
+        await _finish_admin_initialization(user)
         issued = await runtime.sessions.issue(user, _client_info(request))
         _set_refresh_cookie(response, issued)
         return _login_response(issued)
@@ -341,7 +372,9 @@ class UpdateProfileRequest(BaseModel):
     current_password: str
     new_username: str | None = None
     new_password: str | None = None
-    expires_in: int | None = None  # Token expiry in seconds, -1/0 for permanent
+    expires_in: int | None = (
+        None  # Token expiry in seconds, -1/0 for permanent
+    )
 
 
 @router.post("/update-profile")
@@ -400,7 +433,9 @@ async def update_profile(req: UpdateProfileRequest, request: Request):
 
 
 class RevokeTokenRequest(BaseModel):
-    token: str | None = None  # Optional: revoke specific token, or current if omitted
+    token: str | None = (
+        None  # Optional: revoke specific token, or current if omitted
+    )
 
 
 @router.post("/revoke-token")
@@ -464,7 +499,9 @@ async def revoke_all_sessions(request: Request):
     """
     if is_multi_user_enabled():
         authenticated = _authenticated(request)
-        count = await get_identity_runtime().sessions.revoke_all(authenticated.user.id)
+        count = await get_identity_runtime().sessions.revoke_all(
+            authenticated.user.id
+        )
         return {"revoked": True, "revoked_sessions": count}
 
     if not is_auth_enabled():
