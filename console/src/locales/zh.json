@@ -3861,6 +3861,7 @@
       "eyebrow": "运行状态",
       "title": "Hub 运行概览",
       "description": "基于真实运行状态、主机资源和审计事件掌握 Hub 当前情况。",
+      "viewAll": "查看全部",
       "availability": "实例在线率",
       "availabilityDetail": "{{running}} / {{total}} 个运行实例当前在线",
       "totalRuntimes": "全部运行实例",

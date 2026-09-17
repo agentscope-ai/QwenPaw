@@ -18,7 +18,8 @@ import {
 } from "antd";
 import type { FormInstance } from "antd";
 import {
-  BellRing,
+  Activity,
+  ArrowUpRight,
   Box,
   BrainCircuit,
   Boxes,
@@ -63,7 +64,7 @@ import {
 } from "../../api/modules/hub";
 import styles from "./index.module.less";
 import UserManagement from "./governance/UserManagement";
-import UsageDashboard from "./governance/UsageDashboard";
+import { motion, useReducedMotion } from "motion/react";
 import OrganizationBudget from "./governance/OrganizationBudget";
 import OrganizationModels from "./governance/OrganizationModels";
 import {
@@ -90,6 +91,10 @@ export default function HubPage() {
   const navigate = (next: Section, target?: string) => {
     setSectionTarget(target);
     if (next === "users") setUserQuery(target ?? "");
+    if (next === "audit") {
+      setAuditQuery(target ?? "");
+      setAuditAction(undefined);
+    }
     setSection(next);
   };
   const [runtimes, setRuntimes] = useState<PageData<HubRuntime>>(emptyPage);
@@ -1990,17 +1995,58 @@ function OverviewPanel({
   overview: HubOverview;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
+  const reduceMotion = useReducedMotion();
+  const running = overview.runtime_counts.running || 0;
+  const failed = overview.runtime_counts.failed || 0;
+  const availability = overview.total_runtimes
+    ? Math.round((running / overview.total_runtimes) * 1000) / 10
+    : 100;
   return (
     <section className={styles.overview}>
       <PageHeader
         eyebrow={t("hub.overview.eyebrow")}
         title={t("hub.overview.title")}
+        description={t("hub.overview.description")}
       />
-      <UsageDashboard overview={overview} onNavigate={onNavigate}>
+      <div className={styles.cockpit}>
+        <motion.button
+          type="button"
+          className={styles.heroMetric}
+          onClick={() => onNavigate("runtimes")}
+          whileTap={reduceMotion ? undefined : { scale: 0.99 }}
+        >
+          <span>{t("hub.overview.availability")}</span>
+          <strong>{availability}%</strong>
+          <p>
+            {t("hub.overview.availabilityDetail", {
+              running,
+              total: overview.total_runtimes,
+            })}
+          </p>
+          <Activity size={120} />
+        </motion.button>
+        <MetricCard
+          onClick={() => onNavigate("runtimes")}
+          icon={<Boxes size={18} />}
+          label={t("hub.overview.totalRuntimes")}
+          value={overview.total_runtimes}
+          detail={t("hub.overview.failedCount", { count: failed })}
+          warning={failed > 0}
+        />
+        <MetricCard
+          onClick={() => onNavigate("users")}
+          icon={<Users size={18} />}
+          label={t("hub.overview.totalUsers")}
+          value={overview.total_users}
+          detail={t("hub.overview.managedLocally")}
+        />
+      </div>
+      <div className={styles.overviewGrid}>
         <article className={styles.surfacePanel}>
           <div className={styles.surfaceHeader}>
             <div>
               <strong>{t("hub.overview.hostResources")}</strong>
+              <span>{t("hub.overview.liveSnapshot")}</span>
             </div>
             <Gauge size={18} />
           </div>
@@ -2024,12 +2070,25 @@ function OverviewPanel({
           <div className={styles.surfaceHeader}>
             <div>
               <strong>{t("hub.overview.recentActivity")}</strong>
+              <span>{t("hub.overview.auditBacked")}</span>
             </div>
-            <BellRing size={18} />
+            <Button
+              type="text"
+              size="small"
+              icon={<ArrowUpRight size={15} />}
+              onClick={() => onNavigate("audit")}
+            >
+              {t("hub.overview.viewAll")}
+            </Button>
           </div>
           <div className={styles.activityList}>
             {overview.recent_events.slice(0, 5).map((event) => (
-              <div className={styles.activityItem} key={event.event_id}>
+              <button
+                type="button"
+                className={styles.activityItem}
+                key={event.event_id}
+                onClick={() => onNavigate("audit", event.resource_id)}
+              >
                 <span>
                   {event.action.includes("user") ||
                   event.action.includes("auth") ? (
@@ -2042,17 +2101,52 @@ function OverviewPanel({
                 </span>
                 <div>
                   <strong>{t(`hub.auditActions.${event.action}`)}</strong>
+                  <small>{event.resource_id}</small>
                 </div>
                 <time>{formatDate(event.created_at)}</time>
-              </div>
+              </button>
             ))}
             {overview.recent_events.length === 0 && (
               <div className={styles.emptyCompact}>{t("hub.audit.empty")}</div>
             )}
           </div>
         </article>
-      </UsageDashboard>
+      </div>
     </section>
+  );
+}
+
+function MetricCard({
+  icon,
+  label,
+  value,
+  detail,
+  warning = false,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  detail: string;
+  warning?: boolean;
+  onClick: () => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  return (
+    <motion.button
+      type="button"
+      className={styles.metricCard}
+      onClick={onClick}
+      whileTap={reduceMotion ? undefined : { scale: 0.99 }}
+    >
+      <div>{icon}</div>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small className={warning ? styles.warningText : undefined}>
+        {detail}
+      </small>
+      <ArrowUpRight className={styles.cardArrow} size={16} />
+    </motion.button>
   );
 }
 
@@ -2066,7 +2160,10 @@ function ResourceMeter({
   value: number;
 }) {
   return (
-    <div className={styles.resourceMeter}>
+    <div
+      className={styles.resourceMeter}
+      title={`${label}: ${value.toFixed(1)}%`}
+    >
       <div>
         <span>{icon}</span>
         <strong>{label}</strong>
@@ -2075,7 +2172,7 @@ function ResourceMeter({
       <Progress
         percent={value}
         showInfo={false}
-        strokeColor="var(--app-text-tertiary)"
+        strokeColor="var(--hub-accent)"
         trailColor="var(--app-fill-subtle)"
         size="small"
       />
@@ -2086,10 +2183,12 @@ function ResourceMeter({
 function PageHeader({
   eyebrow,
   title,
+  description,
   action,
 }: {
   eyebrow: string;
   title: string;
+  description?: string;
   action?: React.ReactNode;
 }) {
   return (
@@ -2097,6 +2196,7 @@ function PageHeader({
       <div>
         <span>{eyebrow}</span>
         <h1>{title}</h1>
+        {description && <p>{description}</p>}
       </div>
       {action}
     </header>

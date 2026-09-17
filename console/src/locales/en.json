@@ -4004,6 +4004,7 @@
       "eyebrow": "System status",
       "title": "Hub system overview",
       "description": "Understand Hub health using real runtime state, host resources and audit events.",
+      "viewAll": "View all",
       "availability": "Runtime availability",
       "availabilityDetail": "{{running}} of {{total}} runtimes are currently online",
       "totalRuntimes": "Total runtimes",

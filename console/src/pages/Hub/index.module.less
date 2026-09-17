@@ -1372,51 +1372,104 @@
   max-width: 740px;
 }
 
+.overviewGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 14px;
+}
 .overview {
-  max-width: 1440px;
-  margin: 0 auto;
-  .pageHeader {
-    margin-bottom: 20px;
+  .heroMetric,
+  .metricCard {
+    min-width: 0;
+    position: relative;
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    &:hover {
+      border-color: var(--hub-accent);
+      box-shadow: var(--app-shadow-md);
+    }
   }
-  .pageHeader > div > span {
-    display: none;
+  .heroMetric {
+    color: #fff8f0;
+    background: #2f1e12;
+    > span {
+      color: #f5b77d;
+    }
+    p {
+      color: #cbbbac;
+    }
+    > svg {
+      color: #78421c;
+      pointer-events: none;
+    }
   }
-  .pageHeader h1 {
-    font-size: 22px;
-    margin: 0;
+  .metricCard {
+    color: var(--hub-text);
+    .cardArrow {
+      position: absolute;
+      top: 22px;
+      right: 18px;
+      color: var(--hub-muted);
+    }
+    &:hover .cardArrow {
+      color: var(--hub-accent-deep);
+    }
   }
-  .surfaceHeader {
-    margin-bottom: 12px;
-    min-height: 28px;
+  button:focus-visible {
+    outline: 2px solid var(--hub-accent);
+    outline-offset: 4px;
   }
-  .surfaceHeader strong {
-    font-size: 13px;
-  }
-  .resourceMeter {
-    margin-top: 16px;
-  }
-  .resourceMeter > div:first-child {
-    margin-bottom: 3px;
-  }
-  .resourceMeter > div:first-child small {
-    font-size: 11px;
+  .resourceMeter > div:first-child > span {
+    color: var(--hub-accent-deep);
   }
   .activityItem {
-    padding: 9px 0;
-    gap: 6px;
-    grid-template-columns: 20px minmax(0, 1fr);
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    border-bottom: 1px solid var(--hub-border);
+    background: transparent;
+    color: var(--hub-text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    border-radius: 6px;
+    padding: 10px 6px;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    &:last-child {
+      border-bottom: 0;
+    }
+    &:hover {
+      background: var(--hub-accent-soft);
+    }
+    > span {
+      color: var(--hub-accent-deep);
+      background: var(--hub-accent-soft);
+    }
+    > div {
+      min-width: 0;
+    }
+    small {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
   }
-  .activityItem > span {
-    grid-row: span 2;
-    width: 20px;
-    height: 20px;
+}
+@media (max-width: 1050px) {
+  .overviewGrid {
+    grid-template-columns: 1fr;
   }
-  .activityItem time {
-    grid-column: 2;
-    margin: 0;
-    font-size: 10px;
-  }
-  .emptyCompact {
-    min-height: 112px;
+}
+@media (max-width: 520px) {
+  .overview .activityItem {
+    grid-template-columns: 28px minmax(0, 1fr);
+    > span {
+      grid-row: span 2;
+    }
+    time {
+      grid-column: 2;
+      margin-top: 0;
+    }
   }
 }

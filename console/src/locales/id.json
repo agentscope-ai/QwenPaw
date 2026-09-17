@@ -543,6 +543,7 @@
       "eyebrow": "Status sistem",
       "title": "Ikhtisar sistem Hub",
       "description": "Pahami kesehatan Hub menggunakan status runtime nyata, sumber daya host, dan peristiwa audit.",
+      "viewAll": "Lihat semua",
       "availability": "Ketersediaan runtime",
       "availabilityDetail": "{{running}} dari {{total}} runtime sedang online",
       "totalRuntimes": "Total runtime",

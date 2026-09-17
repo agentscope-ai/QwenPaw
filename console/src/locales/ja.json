@@ -3283,6 +3283,7 @@
       "eyebrow": "システム状態",
       "title": "Hub の稼働状況",
       "description": "実際の実行時状態、ホスト リソース、監査イベントを使用してハブの健全性を理解します。",
+      "viewAll": "すべて表示",
       "availability": "ランタイムの可用性",
       "availabilityDetail": "{{total}} ランタイム中 {{running}} は現在オンラインです",
       "totalRuntimes": "ランタイム合計",

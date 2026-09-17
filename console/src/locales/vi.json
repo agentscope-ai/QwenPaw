@@ -529,6 +529,7 @@
       "eyebrow": "Trạng thái hệ thống",
       "title": "Tổng quan hệ thống Hub",
       "description": "Tìm hiểu tình trạng của Hub bằng cách sử dụng trạng thái thời gian chạy thực, tài nguyên máy chủ và sự kiện kiểm tra.",
+      "viewAll": "Xem tất cả",
       "availability": "Tính khả dụng của thời gian chạy",
       "availabilityDetail": "{{running}} của thời gian chạy {{total}} hiện đang trực tuyến",
       "totalRuntimes": "Tổng số môi trường",

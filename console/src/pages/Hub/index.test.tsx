@@ -6,6 +6,7 @@ import {
   within,
 } from "@testing-library/react";
 import { App } from "antd";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import HubPage from ".";
@@ -114,8 +115,84 @@ describe("HubPage", () => {
     expect(await screen.findByText("hub.overview.title")).toBeInTheDocument();
     expect(hubApi.getOverview).toHaveBeenCalledOnce();
     expect(
-      await screen.findByText("hub.governance.dashboard.requests"),
+      await screen.findByText("hub.overview.availability"),
     ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["hub.overview.availability", "runtimes"],
+    ["hub.overview.totalRuntimes", "runtimes"],
+    ["hub.overview.totalUsers", "users"],
+  ])("opens %s with the keyboard", async (label, destination) => {
+    const user = userEvent.setup();
+    renderHubPage();
+    const card = await screen.findByRole("button", {
+      name: new RegExp(label),
+    });
+    card.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(
+        destination === "users" ? hubApi.listUsers : hubApi.listRuntimes,
+      ).toHaveBeenCalled();
+    });
+  });
+
+  it("filters activity by resource and clears the filter for view all", async () => {
+    vi.mocked(hubApi.getOverview).mockResolvedValue(
+      hubOverview({
+        recent_events: [
+          {
+            event_id: "event-1",
+            actor_user_id: "admin",
+            actor_username: "admin",
+            action: "user.update",
+            resource_type: "user",
+            resource_id: "member-42",
+            outcome: "success",
+            detail: {},
+            created_at: "2026-09-16T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    renderHubPage();
+    fireEvent.click(await screen.findByRole("button", { name: /member-42/ }));
+    await waitFor(() =>
+      expect(hubApi.listAuditEvents).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "member-42", action: undefined }),
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "hub.navigation.overview" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "hub.overview.viewAll" }),
+    );
+    await waitFor(() =>
+      expect(hubApi.listAuditEvents).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "", action: undefined }),
+      ),
+    );
+  });
+
+  it("shows an empty runtime fleet without dividing by zero", async () => {
+    vi.mocked(hubApi.getOverview).mockResolvedValue(
+      hubOverview({
+        total_runtimes: 0,
+        runtime_counts: {
+          created: 0,
+          starting: 0,
+          running: 0,
+          stopped: 0,
+          failed: 0,
+        },
+      }),
+    );
+    renderHubPage();
+    expect(
+      await screen.findByRole("button", { name: /hub.overview.availability / }),
+    ).toHaveTextContent("100%");
   });
 
   it("shows the backend reason when the runtime is unavailable", async () => {

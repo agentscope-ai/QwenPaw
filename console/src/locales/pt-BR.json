@@ -3564,6 +3564,7 @@
       "eyebrow": "Status do sistema",
       "title": "Visão geral do sistema Hub",
       "description": "Entenda a integridade do Hub usando estado de tempo de execução real, recursos de host e eventos de auditoria.",
+      "viewAll": "Ver tudo",
       "availability": "Disponibilidade de tempo de execução",
       "availabilityDetail": "{{running}} dos tempos de execução {{total}} estão atualmente online",
       "totalRuntimes": "Total de ambientes",
