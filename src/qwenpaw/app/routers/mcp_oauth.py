@@ -23,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 
+from ..auth import desktop_route_auth
 from ..driver_config_service import DriverConfigService
 from ...drivers.adapters.mcp_console import (
     attach_mcp_oauth_credential,
@@ -692,6 +693,7 @@ async def _reload_driver_best_effort(workspace, client_key: str) -> None:
 
 
 @router.get("/oauth/callback", response_class=HTMLResponse)
+@desktop_route_auth
 async def oauth_callback(
     request: Request,
     code: Optional[str] = None,
@@ -713,7 +715,9 @@ async def oauth_callback(
     if not code or not state:
         return _make_error_page("Missing 'code' or 'state' parameter.")
 
-    session = _state_store.get(state)
+    # No await between lookup and removal: concurrent callbacks must not both
+    # exchange the same authorization code or write credentials twice.
+    session = _state_store.pop(state, None)
     if session is None or session.is_expired():
         return _make_error_page(
             "OAuth session expired or not found. Please try again.",
@@ -729,8 +733,6 @@ async def oauth_callback(
         )
         detail = getattr(exc, "detail", str(exc))
         return _make_error_page(str(detail))
-
-    _state_store.pop(state, None)
 
     success_body = (
         "<p style='color:#27ae60;font-size:1.8em;margin:0'>&#10003;</p>"

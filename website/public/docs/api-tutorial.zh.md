@@ -1,5 +1,7 @@
 # RESTful API 接口
 
+> Windows Desktop 自带的本地后端由桌面程序自动认证。外部浏览器或脚本不能匿名调用这些接口；应用内插件无需为此传递桌面凭据。外部 API 集成请使用独立启动的 Web 服务，并配置下文的 Web 登录认证。
+
 本文档将指导你如何使用 RESTful API 调用 QwenPaw 的 Agent。
 
 > **协议详情**：QwenPaw 的 API 基于 AgentScope Runtime 协议的拓展。更多详细信息请参考：

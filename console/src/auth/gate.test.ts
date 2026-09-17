@@ -99,6 +99,22 @@ describe("authentication gate", () => {
     expect(localStorage.getItem("qwenpaw_auth_token")).toBe("retry-token");
   });
 
+  it("preserves account login when Desktop authentication is unavailable", async () => {
+    localStorage.setItem("qwenpaw_auth_token", "valid-account-token");
+    getStatus.mockResolvedValueOnce({ enabled: true, has_users: true });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ code: "desktop_session_required" }), {
+        status: 401,
+      }),
+    );
+    await expect(resolveAuthGate()).rejects.toThrow(
+      "Desktop connection unavailable",
+    );
+    expect(localStorage.getItem("qwenpaw_auth_token")).toBe(
+      "valid-account-token",
+    );
+  });
+
   it("preserves the token when verification cannot reach the backend", async () => {
     localStorage.setItem("qwenpaw_auth_token", "window-b-token");
     getStatus.mockResolvedValueOnce({ enabled: true, has_users: true });

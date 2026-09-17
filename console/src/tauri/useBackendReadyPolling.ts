@@ -98,7 +98,7 @@ export default function useBackendReadyPolling(): BackendReadyPollingState {
             BACKEND_REQUEST_TIMEOUT_MS,
           );
           try {
-            const res = await fetch(`${apiBaseUrl}/api/version`, {
+            const res = await fetch(backendConsoleUrl(apiBaseUrl), {
               signal: controller.signal,
               cache: "no-store",
             });

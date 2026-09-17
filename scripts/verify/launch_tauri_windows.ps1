@@ -86,58 +86,93 @@ if ($wv2Files) {
 #    Playwright can connect_over_cdp() to the real embedded webview.
 $cdpPort = 9222
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = "--remote-debugging-port=$cdpPort"
-Start-Process -FilePath $tauriExe
-
-# 4. Wait for the sidecar to write the port file and respond.
-#    The sidecar writes desktop_port at WORKING_DIR root (~/.qwenpaw),
-#    not inside the workspace dir.
-$portFile = Join-Path $env:USERPROFILE ".qwenpaw\desktop_port"
-$port = $null
-$backendReady = $false
-$deadline = (Get-Date).AddSeconds(120)
-while ((Get-Date) -lt $deadline) {
-  if (Test-Path $portFile) {
-    $port = (Get-Content $portFile -ErrorAction SilentlyContinue).Trim()
-    if ($port) {
-      try {
-        $r = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/version" `
-          -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-        if ($r.StatusCode -eq 200) {
-          Write-Host "Tauri app ready on port $port"
-          $backendReady = $true
-          break
-        }
-      } catch {}
-    }
+$elevated = [Security.Principal.WindowsPrincipal]::new(
+  [Security.Principal.WindowsIdentity]::GetCurrent()
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+Write-Host "Desktop verification host elevated: $elevated"
+$policy = $null
+$previousArgs = $null
+$previousKind = $null
+$policyApp = [IO.Path]::GetFileName($tauriExe)
+try {
+  # Elevated WebView2 ignores environment overrides. Use a per-app,
+  # machine-scoped policy only on the disposable CI runner, then restore it.
+  if ($elevated -and $env:GITHUB_ACTIONS -eq "true") {
+    $policy = [Microsoft.Win32.Registry]::LocalMachine.CreateSubKey(
+      "SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments"
+    )
+    $previousArgs = $policy.GetValue($policyApp)
+    if ($null -ne $previousArgs) { $previousKind = $policy.GetValueKind($policyApp) }
+    $policy.SetValue($policyApp, "--remote-debugging-port=$cdpPort")
   }
-  Start-Sleep -Seconds 2
-}
-if (-not $backendReady) {
-  throw "Tauri app did not start within 120s"
-}
+  $desktop = Start-Process -FilePath $tauriExe -WindowStyle Hidden `
+    -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stdout.log") `
+    -RedirectStandardError (Join-Path $env:RUNNER_TEMP "qwenpaw-desktop-stderr.log") `
+    -PassThru
+  Write-Host "Desktop verification PID: $($desktop.Id)"
 
-# 5. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
-#    the verifier can drive the agent in normal QA mode.
-$bootstrapMd = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default\BOOTSTRAP.md"
-if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
-
-# 6. Wait for CDP endpoint to become available.
-$cdpUrl = "http://127.0.0.1:$cdpPort"
-$cdpReady = $false
-for ($i = 1; $i -le 30; $i++) {
-  try {
-    $r = Invoke-WebRequest -Uri "$cdpUrl/json/version" `
-      -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
-    if ($r.StatusCode -eq 200) {
-      Write-Host "CDP ready at $cdpUrl"
-      $cdpReady = $true
-      break
+  # 4. Wait for the sidecar to write the port file and respond.
+  #    The sidecar writes desktop_port at WORKING_DIR root (~/.qwenpaw),
+  #    not inside the workspace dir.
+  $portFile = Join-Path $env:USERPROFILE ".qwenpaw\desktop_port"
+  $port = $null
+  $backendReady = $false
+  $deadline = (Get-Date).AddSeconds(120)
+  while ((Get-Date) -lt $deadline) {
+    if ($desktop.HasExited) {
+      throw "Desktop exited before backend readiness (exit $($desktop.ExitCode))"
     }
-  } catch { Start-Sleep -Seconds 2 }
-}
-if (-not $cdpReady) {
-  Write-Host "::warning::CDP not available, falling back to standalone browser"
-  $cdpUrl = ""
+    if (Test-Path $portFile) {
+      $port = (Get-Content $portFile -ErrorAction SilentlyContinue).Trim()
+      if ($port) {
+        try {
+          $r = Invoke-WebRequest -Uri "http://127.0.0.1:$port/console" `
+            -NoProxy -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+          if ($r.StatusCode -eq 200) {
+            Write-Host "Tauri app ready on port $port"
+            $backendReady = $true
+            break
+          }
+        } catch {}
+      }
+    }
+    Start-Sleep -Seconds 2
+  }
+  if (-not $backendReady) {
+    throw "Tauri app did not start within 120s"
+  }
+
+  # 5. Auto-init creates BOOTSTRAP.md during startup. Remove it afterwards so
+  #    the verifier can drive the agent in normal QA mode.
+  $bootstrapMd = Join-Path $env:USERPROFILE ".qwenpaw\workspaces\default\BOOTSTRAP.md"
+  if (Test-Path $bootstrapMd) { Remove-Item -Force $bootstrapMd }
+
+  # 6. Wait for CDP endpoint to become available.
+  $cdpUrl = "http://127.0.0.1:$cdpPort"
+  $cdpReady = $false
+  for ($i = 1; $i -le 30; $i++) {
+    try {
+      $r = Invoke-WebRequest -Uri "$cdpUrl/json/version" `
+        -NoProxy -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+      if ($r.StatusCode -eq 200) {
+        Write-Host "CDP ready at $cdpUrl"
+        $cdpReady = $true
+        break
+      }
+    } catch { Start-Sleep -Seconds 2 }
+  }
+  if (-not $cdpReady) {
+    throw "CDP not available; Windows verification requires the native WebView"
+  }
+} finally {
+  if ($null -ne $policy) {
+    if ($null -eq $previousArgs) {
+      $policy.DeleteValue($policyApp, $false)
+    } else {
+      $policy.SetValue($policyApp, $previousArgs, $previousKind)
+    }
+    $policy.Close()
+  }
 }
 
 $baseUrl = "http://127.0.0.1:$port"

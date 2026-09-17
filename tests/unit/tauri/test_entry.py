@@ -14,6 +14,17 @@ from qwenpaw.tauri import entry
 from qwenpaw.tauri.env import DESKTOP_CORS_ORIGINS_ENV, DESKTOP_READY_PREFIX
 
 
+@pytest.fixture(autouse=True)
+def isolate_entry_process_environment(monkeypatch):
+    # Entry intentionally mutates os.environ. Each test models its own process;
+    # neither Desktop mode nor the fake CA bundle may leak to Web tests.
+    from qwenpaw.tauri import env
+
+    monkeypatch.setattr(os, "environ", os.environ.copy())
+    monkeypatch.setattr(env, "_desktop_token", "")
+    monkeypatch.setattr(env, "_desktop_origin", "")
+
+
 def test_install_desktop_runtime_preserves_existing_cors_values(monkeypatch):
     monkeypatch.delitem(sys.modules, "qwenpaw.app._app", raising=False)
     monkeypatch.setenv(
@@ -206,6 +217,9 @@ def test_main_supports_frozen_entry_without_package_context(
     )
     monkeypatch.delenv("QWENPAW_LOG_LEVEL", raising=False)
 
+    monkeypatch.setenv("QWENPAW_DESKTOP_APP", "1")
+    monkeypatch.setenv("QWENPAW_DESKTOP_AUTH", "1")
+    monkeypatch.setenv("QWENPAW_DESKTOP_SESSION", "a" * 43)
     entry.main()
 
     assert calls == ["freeze-support", "sandbox-check", "info"]

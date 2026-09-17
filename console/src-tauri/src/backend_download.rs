@@ -1,6 +1,6 @@
 //! Native downloads for files served by the bundled local backend.
 
-use std::{collections::HashMap, net::IpAddr, path::PathBuf, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use futures_util::TryStreamExt;
 use reqwest::{
@@ -13,10 +13,12 @@ use tokio::{
     io::{AsyncReadExt, AsyncWriteExt, BufWriter},
 };
 
+use crate::backend::{BackendScope, BackendSession, BackendState, DESKTOP_SESSION_HEADER};
+
 const BACKEND_DOWNLOAD_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 const BACKEND_DOWNLOAD_TOTAL_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct DownloadBackendFileRequest {
     url: String,
@@ -28,13 +30,31 @@ pub(crate) struct DownloadBackendFileRequest {
 #[tauri::command]
 pub(crate) async fn download_backend_file(
     request: DownloadBackendFileRequest,
+    state: tauri::State<'_, BackendState>,
+    webview: tauri::Webview,
+    scope: tauri::ipc::CommandScope<BackendScope>,
 ) -> Result<(), String> {
-    let url = parse_local_backend_url(&request.url)?;
+    let session = state.authorized_session(&webview, &scope)?;
+    download_to_file(request, &session).await
+}
+
+async fn download_to_file(
+    request: DownloadBackendFileRequest,
+    session: &BackendSession,
+) -> Result<(), String> {
+    let url = parse_local_backend_url(&request.url, &session.origin)?;
     let file_path = parse_file_path(&request.file_path)?;
-    let headers = parse_headers(request.headers.unwrap_or_default())?;
+    let mut headers = parse_headers(request.headers.unwrap_or_default())?;
+    // The caller cannot substitute a stale or foreign Desktop credential.
+    headers.insert(
+        DESKTOP_SESSION_HEADER,
+        HeaderValue::from_str(&session.token)
+            .map_err(|_| "invalid desktop session credential".to_string())?,
+    );
 
     let response = reqwest::Client::builder()
         .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(BACKEND_DOWNLOAD_CONNECT_TIMEOUT)
         .timeout(BACKEND_DOWNLOAD_TOTAL_TIMEOUT)
         .build()
@@ -43,7 +63,7 @@ pub(crate) async fn download_backend_file(
         .headers(headers)
         .send()
         .await
-        .map_err(|err| format!("download request failed: {err}"))?;
+        .map_err(|err| format!("download request failed: {}", err.without_url()))?;
 
     if !response.status().is_success() {
         return Err(format!(
@@ -74,27 +94,18 @@ pub(crate) async fn download_backend_file(
         .map_err(|err| format!("failed to flush file: {err}"))
 }
 
-fn parse_local_backend_url(url: &str) -> Result<Url, String> {
+fn parse_local_backend_url(url: &str, origin: &str) -> Result<Url, String> {
     let parsed = Url::parse(url).map_err(|err| format!("invalid download URL: {err}"))?;
     if parsed.scheme() != "http" {
         return Err("download URL protocol is not supported".into());
     }
-    if !is_loopback_host(&parsed) {
-        return Err("download URL must target the local backend".into());
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("download URL must not contain credentials".into());
+    }
+    if parsed.origin().ascii_serialization() != origin {
+        return Err("download URL must target the current backend origin".into());
     }
     Ok(parsed)
-}
-
-fn is_loopback_host(url: &Url) -> bool {
-    match url.host_str() {
-        Some(host) if host.eq_ignore_ascii_case("localhost") => true,
-        Some(host) => host
-            .trim_matches(['[', ']'])
-            .parse::<IpAddr>()
-            .map(|ip| ip.is_loopback())
-            .unwrap_or(false),
-        None => false,
-    }
 }
 
 fn parse_file_path(file_path: &str) -> Result<PathBuf, String> {
@@ -118,30 +129,190 @@ fn parse_headers(headers: HashMap<String, String>) -> Result<HeaderMap, String> 
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc, Mutex,
+        },
+        thread,
+        time::Duration,
+    };
 
-    use super::{get_coding_directory, parse_local_backend_url};
+    use super::{
+        download_to_file, get_coding_directory, parse_local_backend_url, BackendSession,
+        DownloadBackendFileRequest,
+    };
 
     /// Serialize tests that mutate process environment variables.
     static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-    #[test]
-    fn accepts_loopback_backend_urls() {
-        assert!(parse_local_backend_url("http://127.0.0.1:54377/api/backups/id/export").is_ok());
-        assert!(parse_local_backend_url("http://localhost:54377/api/workspace/download").is_ok());
-        assert!(parse_local_backend_url("http://[::1]:54377/api/workspace/download").is_ok());
+    struct HttpFixture {
+        origin: String,
+        requests: Arc<Mutex<Vec<String>>>,
+        stopped: Arc<AtomicBool>,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+
+    impl HttpFixture {
+        fn start(response: String) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let origin = format!("http://{}", listener.local_addr().unwrap());
+            listener.set_nonblocking(true).unwrap();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let stopped = Arc::new(AtomicBool::new(false));
+            let received = requests.clone();
+            let stop = stopped.clone();
+            let thread = thread::spawn(move || {
+                while !stop.load(Ordering::SeqCst) {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            stream.set_nonblocking(false).unwrap();
+                            stream
+                                .set_read_timeout(Some(Duration::from_secs(2)))
+                                .unwrap();
+                            let mut request = Vec::new();
+                            let mut byte = [0u8; 1];
+                            while request.len() < 16384 && !request.ends_with(b"\r\n\r\n") {
+                                match stream.read(&mut byte) {
+                                    Ok(1) => request.push(byte[0]),
+                                    _ => break,
+                                }
+                            }
+                            received
+                                .lock()
+                                .unwrap()
+                                .push(String::from_utf8_lossy(&request).into());
+                            stream.write_all(response.as_bytes()).unwrap();
+                        }
+                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(err) => panic!("fixture accept failed: {err}"),
+                    }
+                }
+            });
+            Self {
+                origin,
+                requests,
+                stopped,
+                thread: Some(thread),
+            }
+        }
+
+        fn session(&self) -> BackendSession {
+            BackendSession {
+                origin: self.origin.clone(),
+                generation: "1".into(),
+                token: "native-test-session".into(),
+            }
+        }
+    }
+
+    impl Drop for HttpFixture {
+        fn drop(&mut self) {
+            self.stopped.store(true, Ordering::SeqCst);
+            self.thread.take().unwrap().join().unwrap();
+        }
     }
 
     #[test]
-    fn rejects_remote_download_urls() {
-        assert!(parse_local_backend_url("https://example.com/file.zip").is_err());
-        assert!(parse_local_backend_url("http://192.168.1.20/file.zip").is_err());
+    fn native_download_streams_and_uses_current_identity_with_account_header() {
+        let backend = HttpFixture::start("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n".into());
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("download.txt");
+        let request = DownloadBackendFileRequest {
+            url: format!("{}/api/workspace/download", backend.origin),
+            file_path: output.to_string_lossy().into(),
+            headers: Some(
+                [
+                    ("Authorization".into(), "Bearer account-test".into()),
+                    ("X-Desktop-Session".into(), "caller-forged".into()),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+        };
+        tauri::async_runtime::block_on(download_to_file(request, &backend.session())).unwrap();
+        assert_eq!(std::fs::read(output).unwrap(), b"hello world");
+        let requests = backend.requests.lock().unwrap();
+        let received = requests[0].to_ascii_lowercase();
+        assert!(received.contains("authorization: bearer account-test\r\n"));
+        assert!(received.contains("x-desktop-session: native-test-session\r\n"));
+        assert!(!received.contains("caller-forged"));
     }
 
     #[test]
-    fn rejects_non_http_download_urls() {
-        assert!(parse_local_backend_url("file:///C:/tmp/backup.zip").is_err());
-        assert!(parse_local_backend_url("mailto:support@example.com").is_err());
+    fn native_download_rejects_redirect_without_forwarding_credentials_or_creating_file() {
+        let target = HttpFixture::start(
+            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok".into(),
+        );
+        let backend = HttpFixture::start(format!("HTTP/1.1 307 Temporary Redirect\r\nLocation: {}/receive\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", target.origin));
+        // Receiver positive control: reqwest's default redirect policy forwards
+        // this custom header across origins, which caused the original leak.
+        tauri::async_runtime::block_on(async {
+            reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .get(&backend.origin)
+                .header("x-desktop-session", "negative-control")
+                .send()
+                .await
+                .unwrap();
+        });
+        assert!(target.requests.lock().unwrap()[0].contains("negative-control"));
+        target.requests.lock().unwrap().clear();
+
+        let temp = tempfile::tempdir().unwrap();
+        let output = temp.path().join("redirect.txt");
+        let result = tauri::async_runtime::block_on(download_to_file(
+            DownloadBackendFileRequest {
+                url: backend.origin.clone(),
+                file_path: output.to_string_lossy().into(),
+                headers: None,
+            },
+            &backend.session(),
+        ));
+        assert!(result.unwrap_err().contains("307"));
+        assert!(target.requests.lock().unwrap().is_empty());
+        assert!(!output.exists());
+
+        let result = tauri::async_runtime::block_on(download_to_file(
+            DownloadBackendFileRequest {
+                url: target.origin.clone(),
+                file_path: output.to_string_lossy().into(),
+                headers: None,
+            },
+            &backend.session(),
+        ));
+        assert!(result.unwrap_err().contains("current backend origin"));
+        assert!(target.requests.lock().unwrap().is_empty());
+        assert!(!output.exists());
+    }
+
+    #[test]
+    fn accepts_only_the_current_backend_origin() {
+        let origin = "http://127.0.0.1:54377";
+        assert!(
+            parse_local_backend_url("http://127.0.0.1:54377/api/backups/id/export", origin).is_ok()
+        );
+        for url in [
+            "http://127.0.0.1:54378/api/workspace/download",
+            "http://localhost:54377/api/workspace/download",
+            "http://[::1]:54377/api/workspace/download",
+            "http://user:password@127.0.0.1:54377/api/workspace/download",
+            "https://example.com/file.zip",
+            "http://192.168.1.20/file.zip",
+            "file:///C:/tmp/backup.zip",
+            "mailto:support@example.com",
+        ] {
+            assert!(
+                parse_local_backend_url(url, origin).is_err(),
+                "accepted {url}"
+            );
+        }
     }
 
     #[test]

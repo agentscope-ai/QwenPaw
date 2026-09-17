@@ -11,11 +11,15 @@ import logging
 from fastapi import (
     APIRouter,
     Depends,
+    HTTPException,
     Request,
     Response,
     WebSocket,
     WebSocketDisconnect,
 )
+
+from ..auth import desktop_route_auth
+from ...tauri.env import desktop_auth_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -44,40 +48,55 @@ async def _validate_twilio_signature(request: Request) -> None:
 
     Uses Twilio's ``RequestValidator`` to verify the
     ``X-Twilio-Signature`` header.  If the voice channel has no
-    auth token configured the check is skipped (dev mode).
+    auth token configured the check is skipped only outside Desktop (dev mode).
     """
     voice_ch = _get_voice_channel(request)
+    desktop = desktop_auth_enabled()
     if not voice_ch:
+        if desktop:
+            raise HTTPException(
+                status_code=403,
+                detail="Voice channel unavailable",
+            )
         return
 
     auth_token = getattr(voice_ch.config, "twilio_auth_token", "")
     if not auth_token:
+        if desktop:
+            raise HTTPException(
+                status_code=403,
+                detail="Twilio authentication unavailable",
+            )
         # No token configured -- skip validation (local dev)
         return
 
     signature = request.headers.get("X-Twilio-Signature", "")
     if not signature:
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=403, detail="Missing Twilio signature")
 
     from twilio.request_validator import RequestValidator
 
     validator = RequestValidator(auth_token)
     form = await request.form()
-    # Behind a tunnel/reverse-proxy, request.url has the internal scheme
-    # and host.  Reconstruct the public URL that Twilio actually signed
-    # using forwarded headers so signature validation succeeds.
-    proto = request.headers.get("x-forwarded-proto", request.url.scheme)
-    host = request.headers.get("x-forwarded-host", request.url.netloc)
-    url = f"{proto}://{host}{request.url.path}"
+    # Twilio signs the public URL. Desktop owns its tunnel configuration and
+    # must not let a forwarded header choose the signature's target.
+    if desktop:
+        base_url = voice_ch.get_tunnel_url()
+        if not base_url:
+            raise HTTPException(
+                status_code=403,
+                detail="Voice tunnel unavailable",
+            )
+        url = f"{base_url.rstrip('/')}{request.url.path}"
+    else:
+        proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host", request.url.netloc)
+        url = f"{proto}://{host}{request.url.path}"
     if request.url.query:
         url = f"{url}?{request.url.query}"
     params = {k: str(v) for k, v in form.items()}
 
     if not validator.validate(url, params, signature):
-        from fastapi import HTTPException
-
         raise HTTPException(status_code=403, detail="Invalid Twilio signature")
 
 
@@ -85,6 +104,7 @@ async def _validate_twilio_signature(request: Request) -> None:
     "/voice/incoming",
     dependencies=[Depends(_validate_twilio_signature)],
 )
+@desktop_route_auth
 async def voice_incoming(request: Request) -> Response:
     """Twilio webhook: return TwiML for an incoming call."""
     from ..channels.voice.twiml import (
@@ -123,6 +143,7 @@ async def voice_incoming(request: Request) -> Response:
 
 
 @voice_router.websocket("/voice/ws")
+@desktop_route_auth
 async def voice_ws(websocket: WebSocket) -> None:
     """ConversationRelay WebSocket endpoint.
 
@@ -164,6 +185,7 @@ async def voice_ws(websocket: WebSocket) -> None:
     "/voice/status-callback",
     dependencies=[Depends(_validate_twilio_signature)],
 )
+@desktop_route_auth
 async def voice_status_callback(request: Request) -> Response:
     """Twilio call status change webhook."""
     form = await request.form()

@@ -40,6 +40,15 @@ function mockFetch(
 }
 
 describe("request", () => {
+  it("keeps account login when the Desktop connection is unavailable", async () => {
+    mockFetch(401, { code: "desktop_session_required" });
+    await expect(request("/models")).rejects.toThrow(
+      "Desktop connection unavailable",
+    );
+    expect(clearAuthToken).not.toHaveBeenCalled();
+    expect(window.location.href).toBe("");
+  });
+
   beforeEach(() => {
     vi.mocked(buildAuthHeaders).mockReturnValue({});
     Object.defineProperty(window, "location", {
