@@ -16,6 +16,7 @@ export interface ToolCallContent {
   id: string;
   name: string;
   serverLabel?: string;
+  rawInput?: unknown;
   params: Record<string, unknown>;
   inputProgress?: ToolInputProgress;
   result?: unknown;

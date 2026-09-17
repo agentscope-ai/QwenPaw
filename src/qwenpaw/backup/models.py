@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -78,6 +79,40 @@ class CreateBackupRequest(BaseModel):
         description="Agent IDs to include when scope.include_agents is True. "
         "Must be the explicit list (even for 'all agents').",
     )
+
+
+class BackupJobStatus(str, Enum):
+    """Lifecycle state for an application-owned backup creation job."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    CANCEL_REQUESTED = "cancel_requested"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class BackupJobPhase(str, Enum):
+    """Coarse backup phase used for reconnectable progress reporting."""
+
+    PREPARING = "preparing"
+    AGENTS = "agents"
+    FINALIZING = "finalizing"
+
+
+class BackupJobSnapshot(BaseModel):
+    """Serializable current state of a backup creation job."""
+
+    job_id: str
+    backup_id: str
+    status: BackupJobStatus = BackupJobStatus.PENDING
+    phase: BackupJobPhase = BackupJobPhase.PREPARING
+    percent: int = 0
+    current_agent: Optional[str] = None
+    agent_index: int = 0
+    total_agents: int = 0
+    result: Optional[BackupMeta] = None
+    error: Optional[str] = None
 
 
 class RestoreBackupRequest(BaseModel):

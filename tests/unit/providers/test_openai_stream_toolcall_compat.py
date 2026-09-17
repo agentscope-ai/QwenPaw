@@ -183,6 +183,31 @@ async def test_stream_parser_carries_extra_content_on_strict_block() -> None:
     }
 
 
+async def test_chat_model_call_emits_one_accumulated_final_response() -> None:
+    """Pin AgentScope 2.0.6's public streaming completion contract."""
+    model = CompatHarnessOpenAIChatModel(
+        credential=OpenAICredential(
+            api_key="sk-test",
+            base_url="https://api.openai.com/v1",
+        ),
+        model="dummy",
+        stream=True,
+    )
+
+    responses = await model.call_stream_for_test(
+        FakeAsyncStream(
+            [
+                _make_chunk(content="hel"),
+                _make_chunk(content="lo"),
+            ],
+        ),
+    )
+
+    finals = [response for response in responses if response.is_last]
+    assert len(finals) == 1
+    assert finals[0].content[0].text == "hello"
+
+
 @pytest.mark.parametrize("repeat_tool_id", [True, False])
 async def test_full_stream_preserves_extra_from_later_chunk(
     repeat_tool_id: bool,

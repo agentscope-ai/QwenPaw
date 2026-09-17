@@ -204,23 +204,30 @@ function TextOverlayLayer({
   layer,
   stageWidth,
   stageHeight,
+  contentType,
 }: {
   layer: ElementPlayback;
   stageWidth: number;
   stageHeight: number;
+  contentType: string | null | undefined;
 }) {
   const { element } = layer;
   if (element.creation.type !== "overlay") return null;
   // Deterministic copy rendering identical to the final compositor, so the
   // preview matches the final render.
+  // Pet-OS bubble (with animal emoji) is only used when the project
+  // content_type is "pets"; otherwise fall back to the plain card style.
+  const isPetOs =
+    element.creation.vibe !== "summary" &&
+    element.creation.overlay_kind !== "interview_summary" &&
+    contentType === "pets";
   return (
     <div
       data-live-text-overlay={element.element_id}
       className="absolute"
       style={locationBoxStyle(element.location)}
     >
-      {element.creation.vibe !== "summary" &&
-      element.creation.overlay_kind !== "interview_summary" ? (
+      {isPetOs ? (
         <PetOsBubble
           text={element.creation.text}
           vibe={element.creation.vibe}
@@ -999,6 +1006,7 @@ export default function TimelineLivePreview({
                 layer={layer}
                 stageWidth={stageWidth}
                 stageHeight={stageHeight}
+                contentType={project.settings.content_type}
               />
             );
           }

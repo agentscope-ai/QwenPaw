@@ -18,14 +18,16 @@ import os
 import subprocess
 import tempfile
 import wave
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping
 from uuid import NAMESPACE_URL, uuid5
 
 from domain.errors import ValidationError
+from models import config as model_config
 from models import tts_model
+from models.tts_capabilities import require_capability
 from services.project_files.assets import AssetAlreadyExists, AssetFileStore
 from services.project_files.commit import ProjectCommitError
 from services.project_files.facade import CreatorFileServices
@@ -311,6 +313,92 @@ def _register_audio_asset(
     )
 
 
+def _requested_tts_identity(
+    *,
+    voice: str,
+    voice_id: str | None,
+    voice_model: str,
+) -> tuple[str, str]:
+    """Resolve the provider-visible model and voice without making a call."""
+
+    capability = require_capability(model_config.get_tts_model_name())
+    if voice_id:
+        return (voice_model or capability.clone_model(), voice_id)
+    return (capability.model, voice or model_config.get_tts_voice())
+
+
+def _find_reusable_tts_asset(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    text: str,
+    model: str,
+    voice: str,
+    speech_rate: float,
+    character_entity_id: str,
+) -> FileTtsExecutionResult | None:
+    """Reuse an exact semantic TTS result before another paid provider call.
+
+    Agent retries do not necessarily preserve a tool-call idempotency key.  A
+    stale planning turn can therefore ask for the same narration again under a
+    new key.  TTS source versions carry enough immutable request metadata to
+    make that retry safe and free.  Older versions pre-dating ``textSha256``
+    are reusable only when their complete text fits in ``textPreview``.
+    """
+
+    snapshot = services.projects.read(project_id)
+    project = snapshot.project
+    expected_text_digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    for version in reversed(project.assets.source_versions_by_id.values()):
+        metadata = version.metadata
+        if metadata.get("sourceKind") != "tts_generation":
+            continue
+        stored_digest = str(metadata.get("textSha256") or "")
+        if stored_digest:
+            if stored_digest != expected_text_digest:
+                continue
+        elif len(text) > 120 or str(metadata.get("textPreview") or "") != text:
+            continue
+        try:
+            stored_rate = float(metadata.get("speechRate", 1.0))
+        except (TypeError, ValueError):
+            continue
+        stored_identity = (
+            str(metadata.get("model") or ""),
+            str(metadata.get("voice") or ""),
+            stored_rate,
+            str(metadata.get("characterEntityId") or ""),
+        )
+        requested_identity = (model, voice, speech_rate, character_entity_id)
+        if stored_identity != requested_identity:
+            continue
+        if version.media_kind != "audio" or version.file_id is None:
+            continue
+        indexed = project.assets.files_by_id.get(version.file_id)
+        if indexed is None:
+            continue
+        # Do not turn a missing/corrupt source into a successful semantic
+        # replay.  The verified read is small relative to a provider call and
+        # makes the returned exact version immediately consumable.
+        AssetFileStore(
+            services.projects.project_root(project_id),
+        ).read_verified(
+            indexed,
+        )
+        return FileTtsExecutionResult(
+            source_asset_version_id=version.version_id,
+            logical_asset_id=version.logical_asset_id,
+            file_id=version.file_id,
+            duration_seconds=version.duration_seconds,
+            voice=voice,
+            model=model,
+            project_etag=snapshot.etag,
+            project_generation=snapshot.generation,
+            replayed=True,
+        )
+    return None
+
+
 async def execute_file_tts_command(
     services: CreatorFileServices,
     *,
@@ -346,6 +434,32 @@ async def execute_file_tts_command(
             # A created voice only speaks through the model it is bound to.
             voice_model = entity.voice.target_model
 
+    requested_model, requested_voice = _requested_tts_identity(
+        voice=voice,
+        voice_id=voice_id,
+        voice_model=voice_model,
+    )
+    normalized_rate = 1.0 if speech_rate is None else speech_rate
+    reusable = await asyncio.to_thread(
+        _find_reusable_tts_asset,
+        services,
+        project_id=project_id,
+        text=text,
+        model=requested_model,
+        voice=requested_voice,
+        speech_rate=normalized_rate,
+        character_entity_id=character_entity_id,
+    )
+    if reusable is not None:
+        logger.info(
+            "TTS semantic replay: project=%s version=%s model=%s voice=%s",
+            project_id,
+            reusable.source_asset_version_id,
+            reusable.model,
+            reusable.voice,
+        )
+        return reusable
+
     synthesis = await tts_model.synthesize(
         text,
         voice=voice or None,
@@ -362,6 +476,7 @@ async def execute_file_tts_command(
         "model": synthesis.model,
         "voice": synthesis.voice,
         "textPreview": text[:120],
+        "textSha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "characters": synthesis.characters,
     }
     if speech_rate is not None and speech_rate != 1.0:
@@ -409,7 +524,52 @@ def _sample_bytes_for_version(
     return store.read_verified(indexed), indexed.media_type
 
 
-async def execute_file_voice_enrollment_command(
+def _attach_voice_sample(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    entity_id: str,
+    voice_id: str,
+    sample_version_id: str,
+    idempotency_key: str,
+):
+    """Write the audition sample onto the just-bound voice (second commit)."""
+
+    with services.projects.lifecycle_lock(project_id):
+        base = services.projects.read(project_id)
+        candidate = base.project.model_dump(mode="json")
+        voice_doc = (
+            candidate["visual"]["entities"]["items"]
+            .get(entity_id, {})
+            .get("voice")
+        )
+        if not voice_doc or voice_doc.get("voice_id") != voice_id:
+            return None
+        voice_doc["sample_source_version_id"] = sample_version_id
+        commit = services.commits.commit(
+            base=base,
+            candidate=candidate,
+            origin=ChangeOrigin.RUNTIME_TASK,
+            review_policy=ReviewPolicy.AUTO_FIX,
+            caused_by_request_id=f"{idempotency_key}:preview",
+            round_id=_stable_id(
+                "round",
+                project_id,
+                f"{idempotency_key}:preview",
+            ),
+            transaction_id=_stable_id(
+                "transaction",
+                project_id,
+                f"{idempotency_key}:preview",
+            ),
+            advance_accepted_baseline=True,
+            _lifecycle_lock_held=True,
+        )
+        services.poller.note_commit(commit.snapshot)
+        return commit.snapshot
+
+
+async def execute_file_voice_enrollment_command(  # pylint: disable=too-many-statements  # noqa: E501
     services: CreatorFileServices,
     *,
     project_id: str,
@@ -453,12 +613,14 @@ async def execute_file_voice_enrollment_command(
         str(arguments.get("preferredName") or "").strip() or entity.name
     )
 
+    design_preview_text = ""
     if voice_prompt:
         # Design path: no audio sample at all, the timbre comes from the
         # character's own description.
         preview_text = str(arguments.get("previewText") or "").strip()
         if len(preview_text) < tts_model.VOICE_PREVIEW_MIN_CHARS:
             preview_text = _default_preview_text(entity)
+        design_preview_text = preview_text
         enrollment = await tts_model.design_voice(
             voice_prompt=voice_prompt,
             preview_text=preview_text,
@@ -514,6 +676,7 @@ async def execute_file_voice_enrollment_command(
         target_model=enrollment.target_model,
         preferred_name=preferred_name,
         sample_source_version_id=sample_version_id or None,
+        voice_prompt=voice_prompt,
         enrollment_key=idempotency_key,
         created_at=datetime.now(UTC),
     )
@@ -556,6 +719,47 @@ async def execute_file_voice_enrollment_command(
         )
 
     result = await asyncio.to_thread(_commit_binding)
+    if design_preview_text and result.sample_source_version_id is None:
+        # 设计音色没有输入样本；用新音色朗读一遍试听文本落成音频资产，
+        # 资产库才有可播放的试听。失败只降级（绑定本身已成功）。
+        try:
+            audition = await execute_file_tts_command(
+                services,
+                project_id=project_id,
+                target_ref=target_ref,
+                arguments={
+                    "text": design_preview_text,
+                    "characterRef": f"asset:{entity_id}",
+                    "label": f"Voice preview: {entity.name}"[:60],
+                },
+                idempotency_key=f"{idempotency_key}:preview",
+            )
+            attached = await asyncio.to_thread(
+                _attach_voice_sample,
+                services,
+                project_id=project_id,
+                entity_id=entity_id,
+                voice_id=enrollment.voice_id,
+                sample_version_id=audition.source_asset_version_id,
+                idempotency_key=idempotency_key,
+            )
+            if attached is not None:
+                result = replace(
+                    result,
+                    sample_source_version_id=(
+                        audition.source_asset_version_id
+                    ),
+                    project_etag=attached.etag,
+                    project_generation=attached.generation,
+                )
+        except Exception:  # noqa: BLE001 - audition is a bonus, not a gate
+            logger.warning(
+                "voice design audition failed for %s/%s; binding kept "
+                "without a sample",
+                project_id,
+                entity_id,
+                exc_info=True,
+            )
     previous = (
         entity.voice
         if entity.voice is not None

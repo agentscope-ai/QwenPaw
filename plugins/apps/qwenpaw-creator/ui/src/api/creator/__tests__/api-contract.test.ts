@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { installMockFetch } from "@/test/mockFetch";
 import {
   createAssetImport,
@@ -10,19 +10,22 @@ import {
   testModelConnection,
 } from "@/api/creator";
 import type { DocumentMetadata } from "@/contracts/creator/assets";
+import { configuredModelConfig } from "@/test/agentFixtures";
+import { openCreatorEvents } from "@/api/creator/events";
 
 describe("new Creator API contract", () => {
   it("uses Project Patch and file Review routes with stable idempotency ids", async () => {
     const { calls } = installMockFetch([
       {
         match: "/projects/p1/runtime/reviews/review-1/decisions",
+        // The decision parser is fail-closed: every field below is required.
         response: {
           json: {
             review_id: "review-1",
             round_id: "round-1",
-            request_id: "request-1",
-            request_message_seq: 1,
-            interrupted_run_id: "run-1",
+            request_id: null,
+            request_message_seq: null,
+            interrupted_run_id: null,
             baseline_generation: 1,
             baseline_etag: "base",
             candidate_generation: 2,
@@ -34,13 +37,13 @@ describe("new Creator API contract", () => {
                 kind: "update",
                 json_pointer: "/name",
                 file_id: null,
-                target_ref: "project:p1",
+                target_ref: null,
                 before_hash: "before",
                 after_hash: "after",
                 before: "P",
                 after: "新名称",
                 operation_id: "operation-1",
-                ui_locator: { path: "/project/p1/plan" },
+                ui_locator: {},
                 decision: "ACCEPTED",
               },
             ],
@@ -188,103 +191,11 @@ describe("new Creator API contract", () => {
       },
     ]);
     await saveModelConfig({
+      ...configuredModelConfig,
       llm: {
-        enabled: true,
+        ...configuredModelConfig.llm,
         model_name: "configured-model",
         api_key: "new-secret",
-        base_url: "https://example.test/v1",
-        protocol: "OpenAI 协议",
-        custom_protocol: "",
-        multimodal: false,
-      },
-      vlm: {
-        enabled: false,
-        model_name: "",
-        api_key: "",
-        base_url: "",
-        protocol: "OpenAI 协议",
-        custom_protocol: "",
-        use_llm: false,
-        multimodal: false,
-      },
-      grounding: {
-        enabled: true,
-        model_name: "",
-        api_key: "",
-        base_url: "",
-        protocol: "OpenAI 协议",
-        custom_protocol: "",
-        reuse_llm: true,
-        validation_source: "llm",
-        tavily_api_key: "",
-        serper_api_key: "",
-        native_search_enabled: true,
-        search_provider: "dashscope_qwen",
-        search_reuse_llm: true,
-        search_model_name: "",
-        search_api_key: "",
-        search_base_url: "",
-        search_protocol: "DashScope（百炼）",
-      },
-      asr: {
-        enabled: false,
-        model_name: "fun-asr",
-        api_key: "",
-        base_url: "https://dashscope.aliyuncs.com/api/v1",
-        protocol: "DashScope Fun-ASR",
-        custom_protocol: "",
-        provider: "fun-asr",
-        language: "",
-        reuse_llm_key: true,
-      },
-      tts: {
-        enabled: false,
-        model_name: "qwen3-tts-flash",
-        api_key: "",
-        base_url: "https://dashscope.aliyuncs.com/api/v1",
-        protocol: "DashScope（百炼）",
-        custom_protocol: "",
-        voice: "",
-        reuse_llm_key: true,
-        vc_model_name: "",
-      },
-      s2v: {
-        enabled: false,
-        model_name: "",
-        api_key: "",
-        base_url: "",
-        protocol: "DashScope（百炼）",
-        custom_protocol: "",
-        detect_model_name: "",
-        reuse_llm_key: true,
-      },
-      embedding: {
-        enabled: false,
-        model_name: "qwen3-vl-embedding",
-        api_key: "",
-        base_url: "https://dashscope.aliyuncs.com/api/v1",
-        protocol: "DashScope（百炼）",
-        custom_protocol: "",
-        reuse_vlm_key: true,
-      },
-      image: {
-        enabled: false,
-        model_name: "",
-        api_key: "",
-        base_url: "",
-        protocol: "OpenAI 协议",
-        custom_protocol: "",
-        translate_model: "",
-        reuse_llm_key: true,
-      },
-      video: {
-        enabled: false,
-        model_name: "",
-        api_key: "",
-        base_url: "",
-        protocol: "Volcano Engine（火山引擎）",
-        custom_protocol: "",
-        reuse_llm_key: true,
       },
       oss: {
         enabled: false,
@@ -294,14 +205,6 @@ describe("new Creator API contract", () => {
         bucket: "creator-store",
         public_base_url: "",
         policy_api_key: "",
-      },
-      executionAuthorization: { mode: "required" },
-      creationCheckpoints: { mode: "required" },
-      mediaReview: { mode: "required" },
-      selfReview: {
-        sync_enabled: false,
-        media_enabled: false,
-        render_enabled: false,
       },
     });
     expect(calls).toHaveLength(1);
@@ -328,5 +231,51 @@ describe("new Creator API contract", () => {
     const document: DocumentMetadata = { format: "pdf", pageCount: 4 };
     expect(document).toEqual({ format: "pdf", pageCount: 4 });
     expect(Object.keys(document).sort()).toEqual(["format", "pageCount"]);
+  });
+});
+
+const FILE_RUNTIME_EVENT_TYPES = [
+  "command.queued",
+  "agent.run.started",
+  "agent.run.completed",
+  "agent.run.failed",
+  "agent.run.cancelled",
+  "agent.assistant_message",
+  "agent.tool.started",
+  "agent.tool.completed",
+  "agent.tool.failed",
+  "agent.review.resolved",
+  "agent.interrupt.idle",
+] as const;
+
+describe("Creator event stream", () => {
+  it("consumes every file-native Runtime event as a named SSE event", () => {
+    const onEvent = vi.fn();
+    const stream = openCreatorEvents("p1", 0, onEvent);
+    const sources = (
+      globalThis as unknown as {
+        __testEventSources: Array<{
+          emit: (type: string, value: unknown) => void;
+        }>;
+      }
+    ).__testEventSources;
+    const source = sources.at(-1)!;
+
+    FILE_RUNTIME_EVENT_TYPES.forEach((type, index) => {
+      source.emit(type, {
+        eventId: `file-event-${index + 1}`,
+        seq: index + 1,
+        type,
+        projectId: "p1",
+        creatorSessionId: "session-p1",
+        at: "now",
+        data: {},
+      });
+    });
+
+    expect(onEvent.mock.calls.map(([event]) => event.type)).toEqual(
+      FILE_RUNTIME_EVENT_TYPES,
+    );
+    stream.close();
   });
 });

@@ -137,7 +137,7 @@ QwenPaw 构建在 **AgentScope 2.0** 之上，把它当作一个库来用。Agen
 
 **工作区**是隔离的基本单位。一次安装可以跑多个智能体，每个智能体正好对应一个工作区：一个磁盘目录，加上一组在它之上运行的实时服务。某个智能体第一次被用到时，工作区才懒加载；服务停止时则干净退出。除非一个智能体主动给另一个发消息，否则谁也看不到对方的文件、记忆和对话。
 
-每个工作区打包两样东西：智能体运行时要用的**服务**（会话与历史、记忆、连接器、频道、聊天、定时任务），以及一组**扩展注册表**，用来登记工具、钩子、命令和提示词片段。第三方**插件**往这些注册表里添东西——模型提供商、工具、钩子、魔法命令、提示词区块、HTTP 路由，还有智能体中间件——这样不用改动核心就能扩展平台。参见[插件](./plugins)。
+每个工作区打包两样东西：智能体运行时要用的**服务**（会话与历史、记忆、连接器、频道、聊天、定时任务），以及一组**扩展注册表**，用来登记工具、钩子、命令、提示词片段和记忆后端。第三方**插件**往这些注册表里添东西——模型提供商、工具、记忆存储、钩子、魔法命令、提示词区块、HTTP 路由，还有智能体中间件——这样不用改动核心就能扩展平台。启动关键的 channel 和 memory 插件会在创建 workspace 前完成注册。参见[插件](./plugins)。
 
 <svg viewBox="0 0 860 420" width="100%" role="img" aria-label="工作区剖析：注册表持有多个相互隔离、各智能体专属的工作区；每个工作区都打包了服务以及一个磁盘目录。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
@@ -278,7 +278,7 @@ QwenPaw 的智能体跑的是一个 **ReAct（先推理后行动）循环**，�
 
 QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨对话记住的东西）和**上下文**（当下能塞进模型窗口的内容）。
 
-<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="记忆是构建在透明 Markdown 文件之上的可插拔后端；上下文管理要么采用总结式压缩，要么采用配备持久化存储和 recall 工具的 Scroll 策略。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+<svg viewBox="0 0 860 372" width="100%" role="img" aria-label="记忆可以选择内置 ReMe 后端或已安装的插件后端；ReMe 使用透明 Markdown 文件。上下文管理要么采用总结式压缩，要么采用配备持久化存储和 recall 工具的 Scroll 策略。" xmlns="http://www.w3.org/2000/svg" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
   <defs>
     <marker id="qpMemArrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
       <path d="M0,0 L6,3 L0,6 Z" fill="#ff9d4d"/>
@@ -291,7 +291,7 @@ QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨�
   <line x1="220" y1="94" x2="220" y2="108" stroke="#ff9d4d" stroke-width="1.4" marker-end="url(#qpMemArrow)"/>
   <rect x="40" y="110" width="360" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="220" y="129" text-anchor="middle" font-size="12" fill="currentColor">可插拔记忆后端</text>
   <rect x="40" y="152" width="174" height="30" rx="7" fill="#ff9d4d" fill-opacity="0.12" stroke="#ff9d4d" stroke-opacity="0.5"/><text x="127" y="171" text-anchor="middle" font-size="11.5" fill="currentColor">ReMe（默认）</text>
-  <rect x="226" y="152" width="174" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="313" y="171" text-anchor="middle" font-size="11.5" fill="currentColor">纯 Markdown</text>
+  <rect x="226" y="152" width="174" height="30" rx="7" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="313" y="171" text-anchor="middle" font-size="11.5" fill="currentColor">已安装插件后端</text>
   <text x="40" y="208" font-size="11" letter-spacing="1" font-weight="700" fill="currentColor" fill-opacity="0.75">工作区中的透明文件</text>
   <g font-size="11.5" fill="currentColor">
     <rect x="40" y="218" width="360" height="26" rx="6" fill="currentColor" fill-opacity="0.05" stroke="currentColor" stroke-opacity="0.25"/><text x="220" y="235" text-anchor="middle">MEMORY.md — 长期笔记</text>
@@ -314,7 +314,14 @@ QwenPaw 把两个容易混为一谈的概念分开：**记忆**（智能体跨�
   <text x="640" y="332" text-anchor="middle" font-size="10.5" fill="currentColor" fill-opacity="0.6">随时都能回放，而不是只剩摘要。</text>
 </svg>
 
-**记忆**是一个可插拔的后端。默认那套基于 [ReMe](https://github.com/agentscope-ai/ReMe) 记忆库，在工作区上用后台任务来做取回、写入和整合（“做梦”）；另一套更简单的则直接读写同一批文件。不管哪套，底层都是**人能读的 Markdown**——`MEMORY.md` 放长期笔记，再配上按日期分的每日文件——所以记忆你随时都能打开、查看、修改。参见[记忆](./memory)和[记忆演化与主动交互](./memory-evolving-and-proactive)。
+**记忆**通过带 owner 信息的 backend registry 选择。内置默认后端基于
+[ReMe](https://github.com/agentscope-ai/ReMe)，在透明的 workspace Markdown 文件上用后台
+任务执行召回、写入和整合（“做梦”）。也可以安装 ADBPG、PowerContext 等插件，由插件拥有
+远程存储、配置校验、工具和检索行为。每个 workspace 会向选中的 backend 传入稳定上下文，
+其中包含 Agent 身份、workspace、语言和该 Agent 的插件配置；backend 不可用时会明确失败，
+不会回退到其他记忆存储。参见[记忆](./memory)、
+[记忆演化与主动交互](./memory-evolving-and-proactive)和
+[插件](./plugins#memory-backend-插件)。
 
 **上下文**管理同样可插拔。默认情况下，窗口一满，QwenPaw 就把较早的对话轮次总结掉。可选的 **Scroll 策略**换了个思路：它把每一轮都存进持久化存储，给已经滚出窗口的内容留一份精简索引，再给智能体一个工具，按需就能回放早先的任意一段对话——长对话因此能完整找回。参见[上下文](./context)。
 

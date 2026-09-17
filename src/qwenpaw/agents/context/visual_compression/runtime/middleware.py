@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any, Callable
 from agentscope.middleware import MiddlewareBase
 
 from ..config import effort_preset
-from .recovery import TurnRecoveryStore
 
 logger = logging.getLogger(__name__)
 _TRANSFORM_EXECUTOR = ThreadPoolExecutor(
@@ -62,48 +61,15 @@ def _agent_will_strip_media(
         return False
 
 
-def _without_recovery_tool(
-    input_kwargs: dict[str, Any],
-) -> dict[str, Any]:
-    """Return a request without the visual-only recovery schema."""
-    tools = input_kwargs.get("tools")
-    if not isinstance(tools, list):
-        return input_kwargs
-
-    def is_recovery_tool(tool: Any) -> bool:
-        if not isinstance(tool, dict):
-            return False
-        function = tool.get("function")
-        function_name = (
-            function.get("name") if isinstance(function, dict) else None
-        )
-        return (
-            function_name == "recover_visual_context"
-            or tool.get("name") == "recover_visual_context"
-        )
-
-    if not any(is_recovery_tool(tool) for tool in tools):
-        return input_kwargs
-    request = dict(input_kwargs)
-    request["tools"] = [tool for tool in tools if not is_recovery_tool(tool)]
-    return request
-
-
 class VisualCompressionMiddleware(MiddlewareBase):
     """Rewrite one prepared request immediately before provider I/O."""
 
     def __init__(
         self,
         config: Any,
-        recovery_store: TurnRecoveryStore | None = None,
     ) -> None:
         self._enabled = bool(config.enabled)
         self._effort_preset = effort_preset(str(config.effort))
-        self._recovery_store = (
-            recovery_store
-            if recovery_store is not None
-            else TurnRecoveryStore()
-        )
 
     def _log_skipped(
         self,
@@ -127,7 +93,6 @@ class VisualCompressionMiddleware(MiddlewareBase):
         current_model = input_kwargs.get("current_model")
         model_key = _model_key(current_model)
         if not self._enabled:
-            self._recovery_store.clear()
             return await next_handler(**input_kwargs)
 
         from ....prompt import get_model_supports_image
@@ -137,23 +102,20 @@ class VisualCompressionMiddleware(MiddlewareBase):
                 model_key=model_key,
                 reason="media_stripped",
             )
-            self._recovery_store.clear()
             return await next_handler(
-                **_without_recovery_tool(input_kwargs),
+                **input_kwargs,
             )
         if not get_model_supports_image(current_model):
             self._log_skipped(
                 model_key=model_key,
                 reason="model_without_image_support",
             )
-            self._recovery_store.clear()
             return await next_handler(
-                **_without_recovery_tool(input_kwargs),
+                **input_kwargs,
             )
 
         request = dict(input_kwargs)
         messages = request.get("messages") or []
-        tools = request.get("tools")
         try:
             from ..pipeline.request import transform_model_request
             from ..rendering import render_cache_info
@@ -167,12 +129,13 @@ class VisualCompressionMiddleware(MiddlewareBase):
             transform = partial(
                 transform_model_request,
                 messages,
-                tools,
+                context_message_ids=frozenset(
+                    message.id for message in agent.state.context
+                ),
                 effort_preset=self._effort_preset,
             )
             (
                 transformed,
-                transformed_tools,
                 receipt,
             ) = await asyncio.get_running_loop().run_in_executor(
                 _TRANSFORM_EXECUTOR,
@@ -187,13 +150,10 @@ class VisualCompressionMiddleware(MiddlewareBase):
                 model_key or "-",
                 self._effort_preset.effort,
             )
-            self._recovery_store.clear()
             return await next_handler(
-                **_without_recovery_tool(request),
+                **request,
             )
-        self._recovery_store.replace(receipt.recoverable)
         request["messages"] = transformed
-        request["tools"] = transformed_tools
         saved_tokens = max(
             0,
             receipt.source_estimated_tokens
@@ -204,9 +164,7 @@ class VisualCompressionMiddleware(MiddlewareBase):
             if receipt.source_estimated_tokens
             else 0.0
         )
-        applied = bool(receipt.recoverable)
-        if not applied:
-            request = _without_recovery_tool(request)
+        applied = bool(receipt.regions)
         logger.debug(
             "Visual Compact transform: model=%s effort=%s "
             "applied=%s regions=%s "
@@ -218,7 +176,7 @@ class VisualCompressionMiddleware(MiddlewareBase):
             self._effort_preset.effort,
             applied,
             receipt.regions,
-            len(receipt.recoverable),
+            sum(receipt.regions.values()),
             receipt.image_count,
             receipt.compressed_chars,
             receipt.source_estimated_tokens,

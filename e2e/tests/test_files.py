@@ -19,7 +19,7 @@ from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
 
-WORKSPACE_URL = f"{config.base_url}/workspace"
+WORKSPACE_URL = f"{config.base_url}/files"
 FILE_ITEM_SELECTOR = 'div[class*="fileItem"]'
 FILE_NAME_SELECTOR = 'div[class*="fileItemName"]'
 FILE_META_SELECTOR = 'div[class*="fileItemMeta"]'
@@ -31,6 +31,22 @@ def navigate_to_workspace(page: Page):
     page.goto(WORKSPACE_URL)
     page.wait_for_load_state("domcontentloaded")
     page.wait_for_timeout(3000)
+
+
+def reset_project_binding(api_context) -> None:
+    """Defensive reset: coding cases may leave a project directory bound,
+    which makes the files page show the (possibly empty) project tree
+    instead of the workspace tree the cases seed files into."""
+    api_context.post(
+        "/api/coding-mode",
+        data={"enabled": False},
+        headers={"X-Agent-Id": "default"},
+    )
+    api_context.put(
+        "/api/workspace/project-directory",
+        data={"path": None},
+        headers={"X-Agent-Id": "default"},
+    )
 
 def get_file_items(page: Page):
     """Get the file list; skip the test if empty."""
@@ -470,64 +486,56 @@ class TestWorkspaceUploadDownload:
     """
     FILE-004: Workspace upload and download.
 
-    Combined coverage:
-    1. Visit the workspace page
-    2. Find the download-workspace button
-    3. Verify the download button is visible and enabled
-    4. Find the upload-workspace button
-    5. Verify the upload button is visible and enabled
-    6. Click the upload button to verify the file selector triggers (without actually uploading)
+    Combined coverage (post-#6504 workspace redesign):
+    1. Visit the files page (route moved from /workspace to /files)
+    2. Verify the upload button (aria-label "Upload files") is visible
+    3. Verify the hidden file input exists (multi-file, no accept filter)
+    4. Open a file and verify the per-file download button appears in the
+       editor toolbar (lucide Download icon)
 
-    Scenario:
-    Admin verifies that workspace upload/download buttons display and work correctly,
-    so users can conveniently manage workspace files.
+    The legacy whole-workspace zip download/upload was removed upstream by
+    #6504; the page now offers single-file upload plus per-file download.
     """
 
     @pytest.mark.test_id("FILE-004")
-    def test_workspace_download_and_upload_button(self, page: Page, request: pytest.FixtureRequest):
-        """Verify workspace upload and download buttons."""
+    def test_workspace_download_and_upload_button(self, page: Page, api_context, request: pytest.FixtureRequest):
+        """Verify workspace upload and per-file download buttons."""
         test_name = request.node.name
 
-        log_test_step("1. Visit the workspace page")
+        log_test_step("0. Seed a file so the tree has a row to open")
+        reset_project_binding(api_context)
+        seed = api_context.put(
+            "/api/workspace/files/e2e_files_seed.txt",
+            data={"content": "e2e seed for FILE-004\n"},
+            headers={"X-Agent-Id": "default"},
+        )
+        assert seed.ok, f"Seed failed [{seed.status}]: {seed.text()}"
+
+        log_test_step("1. Visit the files page")
         navigate_to_workspace(page)
 
-        log_test_step("2. Find the download-workspace button")
-        # Source: Button size="small" onClick={handleDownload} icon={<DownloadOutlined />}
-        # Button lives in PageHeader extra area inside actionButtons div
-        download_btn = page.locator(
-            '[class*="actionButtons"] button:has-text("Download")'
-        ).first
-        if not download_btn.is_visible():
-            # Fallback: locate by DownloadOutlined icon
-            download_btn = page.locator('button .anticon-download').first
-            if download_btn.is_visible():
-                download_btn = download_btn.locator('..')
-
-        log_test_step("3. Verify download button is visible and enabled")
-        expect(download_btn).to_be_visible(timeout=5000)
-        assert download_btn.is_enabled(), "Download button should be enabled"
-        logger.info("Download button visible and enabled")
-
-        log_test_step("4. Find the upload-workspace button")
-        # Source: Button size="small" onClick={handleUploadClick} icon={<UploadOutlined />}
+        log_test_step("2. Find the upload button")
         upload_btn = page.locator(
-            '[class*="actionButtons"] button:has-text("Upload")'
+            'button[aria-label*="Upload"], button[aria-label*="上传"], '
+            'button:has-text("Upload files"), button:has-text("上传文件")'
         ).first
-        if not upload_btn.is_visible():
-            upload_btn = page.locator('button .anticon-upload').first
-            if upload_btn.is_visible():
-                upload_btn = upload_btn.locator('..')
-
-        log_test_step("5. Verify upload button is visible and enabled")
         expect(upload_btn).to_be_visible(timeout=5000)
         assert upload_btn.is_enabled(), "Upload button should be enabled"
         logger.info("Upload button visible and enabled")
 
-        log_test_step("6. Verify the hidden file input exists (accept=.zip)")
-        # Source has a hidden <input type="file" accept=".zip">
-        file_input = page.locator('input[type="file"][accept=".zip"]').first
+        log_test_step("3. Verify the hidden file input exists")
+        file_input = page.locator('input[type="file"]').first
         assert file_input.count() > 0, "A hidden file upload input should exist"
-        logger.info("Hidden file input exists, accept=.zip")
+        logger.info("Hidden file input exists")
+
+        log_test_step("4. Open the first file and verify the download button")
+        first_row = page.locator('button[class*="treeRow"]:not([aria-expanded])').first
+        expect(first_row).to_be_visible(timeout=10000)
+        first_row.click()
+        download_btn = page.locator('button:has(svg.lucide-download)').first
+        expect(download_btn).to_be_visible(timeout=10000)
+        assert download_btn.is_enabled(), "Download button should be enabled"
+        logger.info("Per-file download button visible and enabled")
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - workspace upload/download buttons OK")
@@ -556,7 +564,7 @@ class TestDailyMemoryView:
         test_name = request.node.name
 
         log_test_step("Navigate to the workspace page")
-        page.goto(f"{config.base_url}/workspace")
+        page.goto(f"{config.base_url}/files")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
@@ -643,7 +651,7 @@ class TestMarkdownPreview:
         test_name = request.node.name
 
         log_test_step("Navigate to the workspace page")
-        page.goto(f"{config.base_url}/workspace")
+        page.goto(f"{config.base_url}/files")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
@@ -709,71 +717,93 @@ class TestMarkdownPreview:
 
 
 # ============================================================================
-# FILE-P2-001: Restore workspace via ZIP upload
+# FILE-P2-001: Upload files into the workspace
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.files
 class TestWorkspaceZipUpload:
-    """FILE-P2-001: Restore workspace via ZIP upload."""
+    """FILE-P2-001: Upload files into the workspace.
+
+    Upstream #6504 replaced the whole-workspace zip restore with
+    single/multi-file upload, so this case now verifies the new upload
+    entry (button + hidden input) on the files page.
+    """
 
     @pytest.mark.test_id("FILE-P2-001")
     def test_workspace_zip_upload(self, page: Page, request: pytest.FixtureRequest):
-        """Test restoring workspace via ZIP upload."""
+        """Test the workspace upload entry."""
         test_name = request.node.name
 
-        log_test_step("Navigate to the workspace page")
-        page.goto(f"{config.base_url}/workspace")
+        log_test_step("Navigate to the files page")
+        page.goto(f"{config.base_url}/files")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
         log_test_step("Find the upload button")
         upload_btn = page.locator(
-            'button:has-text("Upload"), '
-            'button:has(.anticon-upload)'
+            'button[aria-label*="Upload"], button[aria-label*="上传"], '
+            'button:has-text("Upload files"), button:has-text("上传文件")'
         ).first
-        assert upload_btn.count() > 0, "Workspace page should have an upload button"
+        assert upload_btn.count() > 0, "Files page should have an upload button"
         expect(upload_btn).to_be_visible(timeout=5000)
         logger.info("Upload button exists and visible")
 
-        log_test_step("Verify the hidden ZIP file input")
-        file_input = page.locator('input[type="file"][accept=".zip"], input[type="file"]').first
-        if file_input.count() > 0:
-            logger.info("ZIP file input exists")
-        else:
-            logger.info("ZIP file input not found (upload may be triggered differently)")
+        log_test_step("Verify the hidden file input")
+        file_input = page.locator('input[type="file"]').first
+        assert file_input.count() > 0, "A hidden file input should exist"
+        logger.info("Hidden file input exists")
 
         log_test_result(test_name, True, 0)
 
 
 # ============================================================================
-# FILE-P2-002: Download workspace as ZIP
+# FILE-P2-002: Download a workspace file
 # ============================================================================
 
 @pytest.mark.integration
 @pytest.mark.p2
 @pytest.mark.files
 class TestWorkspaceZipDownload:
-    """FILE-P2-002: Download workspace as ZIP."""
+    """FILE-P2-002: Download a workspace file.
+
+    Upstream #6504 replaced the whole-workspace zip download with a
+    per-file download button in the editor toolbar, so this case now
+    opens the first file and verifies that button.
+    """
 
     @pytest.mark.test_id("FILE-P2-002")
-    def test_workspace_zip_download(self, page: Page, request: pytest.FixtureRequest):
-        """Test downloading workspace as ZIP."""
+    def test_workspace_zip_download(self, page: Page, api_context, request: pytest.FixtureRequest):
+        """Test downloading a workspace file."""
         test_name = request.node.name
 
-        log_test_step("Navigate to the workspace page")
-        page.goto(f"{config.base_url}/workspace")
+        log_test_step("Seed a file so the tree has a row to open")
+        reset_project_binding(api_context)
+        seed = api_context.put(
+            "/api/workspace/files/e2e_zip_seed.txt",
+            data={"content": "e2e seed for FILE-P2-002\n"},
+            headers={"X-Agent-Id": "default"},
+        )
+        assert seed.ok, f"Seed failed [{seed.status}]: {seed.text()}"
+
+        log_test_step("Navigate to the files page")
+        page.goto(f"{config.base_url}/files")
         page.wait_for_load_state("domcontentloaded")
         page.wait_for_timeout(3000)
 
+        log_test_step("Open the first file")
+        first_row = page.locator('button[class*="treeRow"]:not([aria-expanded])').first
+        expect(first_row).to_be_visible(timeout=10000)
+        first_row.click()
+        # Wait for the editor tab to open before the toolbar renders.
+        expect(
+            page.locator('button:has(svg.lucide-download)').first
+        ).to_be_visible(timeout=10000)
+
         log_test_step("Find the download button")
-        download_btn = page.locator(
-            'button:has-text("Download"), '
-            'button:has(.anticon-download)'
-        ).first
-        assert download_btn.count() > 0, "Workspace page should have a download button"
-        expect(download_btn).to_be_visible(timeout=5000)
+        download_btn = page.locator('button:has(svg.lucide-download)').first
+        assert download_btn.count() > 0, "Editor toolbar should have a download button"
         assert download_btn.is_enabled(), "Download button should be enabled"
         logger.info("Download button exists and enabled")
 

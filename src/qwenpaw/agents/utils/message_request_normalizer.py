@@ -26,6 +26,7 @@ from .tool_message_utils import _sanitize_tool_messages
 # user-facing history; this one prepares retryable requests.
 _MEDIA_BLOCK_TYPES = {"image", "audio", "video", "file"}
 _MEDIA_MIME_PREFIXES = ("image/", "audio/", "video/")
+_DOCUMENT_MIME_TYPES = frozenset({"application/pdf"})
 
 # Fields that are provider-specific and should not leak across families.
 # Gemini: extra_content carries thought_signature.
@@ -122,26 +123,114 @@ def _clone_messages(msgs: list[Msg]) -> list[Msg]:
 
 
 def _is_media_block(block: Any) -> bool:
-    """Check if a block is a media block (dict or Pydantic DataBlock)."""
-    if isinstance(block, dict):
-        return block.get("type") in _MEDIA_BLOCK_TYPES
-    btype = getattr(block, "type", None)
+    """Check if a block carries media or a supported document payload."""
+    btype = (
+        block.get("type")
+        if isinstance(block, dict)
+        else getattr(block, "type", None)
+    )
     if btype in _MEDIA_BLOCK_TYPES:
         return True
     # 2.0 DataBlock: type="data", media type in source.media_type
     if btype == "data":
-        source = getattr(block, "source", None)
-        mt = getattr(source, "media_type", "") or ""
-        return mt.startswith(_MEDIA_MIME_PREFIXES)
+        source = (
+            block.get("source")
+            if isinstance(block, dict)
+            else getattr(block, "source", None)
+        )
+        mt = (
+            source.get("media_type", "")
+            if isinstance(source, dict)
+            else getattr(source, "media_type", "")
+        ) or ""
+        return (
+            mt.startswith(_MEDIA_MIME_PREFIXES) or mt in _DOCUMENT_MIME_TYPES
+        )
     return False
 
 
-def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
+def _is_audio_block(block: Any) -> bool:
+    """Check if a block carries audio content."""
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        if block_type == "audio":
+            return True
+        if block_type == "data":
+            source = block.get("source")
+            media_type = (
+                source.get("media_type", "")
+                if isinstance(source, dict)
+                else ""
+            )
+            return media_type.startswith("audio/")
+        return False
+
+    block_type = getattr(block, "type", None)
+    if block_type == "audio":
+        return True
+    if block_type == "data":
+        source = getattr(block, "source", None)
+        media_type = getattr(source, "media_type", "") or ""
+        return media_type.startswith("audio/")
+    return False
+
+
+def _is_document_block(block: Any) -> bool:
+    """Check if a block carries a PDF document payload.
+
+    ``application/pdf`` is rendered as an OpenAI ``file`` content part (or
+    ``input_file`` on the Responses API). OpenAI-compatible Chat Completions
+    servers (vLLM, DeepSeek, DashScope, ...) reject ``file`` parts, so
+    document blocks must be stripped at request time irrespective of the
+    model's multimodal support.
+    """
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        if block_type == "file":
+            return True
+        if block_type == "data":
+            source = block.get("source")
+            media_type = (
+                source.get("media_type", "")
+                if isinstance(source, dict)
+                else ""
+            )
+            return media_type == "application/pdf"
+        return False
+
+    block_type = getattr(block, "type", None)
+    if block_type == "file":
+        return True
+    if block_type == "data":
+        source = getattr(block, "source", None)
+        media_type = getattr(source, "media_type", "") or ""
+        return media_type == "application/pdf"
+    return False
+
+
+def _strip_media_blocks_in_place(
+    msgs: list[Msg],
+    *,
+    audio_only: bool = False,
+    document_only: bool = False,
+    tool_result_only: bool = False,
+) -> int:
     """Strip media blocks from copied messages only.
 
-    Handles both 1.x dict blocks and 2.0 Pydantic block objects.
+    Handles both 1.x dict blocks and 2.0 Pydantic block objects. When
+    ``audio_only`` is true, image, video, and file blocks are preserved.
+    When ``document_only`` is true, only PDF document blocks are removed
+    (image/audio/video blocks are preserved). With ``tool_result_only``,
+    stripping applies only to blocks nested inside tool results, so
+    user-supplied document blocks keep their upstream formatting path.
     """
     total_stripped = 0
+    if document_only:
+        should_strip = _is_document_block
+    elif audio_only:
+        should_strip = _is_audio_block
+    else:
+        should_strip = _is_media_block
 
     for msg in msgs:
         if not isinstance(msg.content, list):
@@ -150,7 +239,7 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
         new_content = []
         stripped_this_message = 0
         for block in msg.content:
-            if _is_media_block(block):
+            if should_strip(block) and not tool_result_only:
                 total_stripped += 1
                 stripped_this_message += 1
                 continue
@@ -168,9 +257,7 @@ def _strip_media_blocks_in_place(msgs: list[Msg]) -> int:
             )
             if btype == "tool_result" and isinstance(output, list):
                 original_len = len(output)
-                filtered = [
-                    item for item in output if not _is_media_block(item)
-                ]
+                filtered = [item for item in output if not should_strip(item)]
                 stripped_count = original_len - len(filtered)
                 total_stripped += stripped_count
                 stripped_this_message += stripped_count
@@ -242,6 +329,7 @@ def normalize_messages_for_model_request(
     *,
     supports_multimodal: bool,
     target_family: str = "openai",
+    strip_audio: bool = False,
 ) -> list[Msg]:
     """Return a normalized copy for provider request formatting.
 
@@ -251,6 +339,7 @@ def normalize_messages_for_model_request(
         target_family: Provider family of the *current* model
             (``"openai"`` | ``"anthropic"`` | ``"gemini"``).
             Used to strip fields that belong to other providers.
+        strip_audio: Whether to remove only audio blocks from the request copy.
     """
     normalized = _clone_messages(msgs)
     # Sanitize first: _repair_empty_tool_inputs needs raw_input to fix
@@ -264,6 +353,24 @@ def normalize_messages_for_model_request(
         _strip_unsigned_thinking_for_anthropic(normalized)
     if not supports_multimodal:
         _strip_media_blocks_in_place(normalized)
+    elif strip_audio:
+        _strip_media_blocks_in_place(normalized, audio_only=True)
+    elif target_family == "openai":
+        # OpenAI-compatible Chat Completions servers (vLLM, DeepSeek,
+        # DashScope, ...) reject ``file`` content parts (that shape exists
+        # only in the Responses API). PDF documents returned by tools would
+        # otherwise be serialized as ``{"type": "file"}`` and rejected with
+        # 400 even by multimodal servers, so strip tool-result document
+        # blocks for the OpenAI chat family regardless of multimodal
+        # support. User-supplied documents keep the upstream formatting
+        # path (formatters emit ``file`` parts from them). Images, audio
+        # and video are preserved: ``image_url`` / ``input_audio`` parts
+        # are accepted by these endpoints.
+        _strip_media_blocks_in_place(
+            normalized,
+            document_only=True,
+            tool_result_only=True,
+        )
     return normalized
 
 

@@ -1186,7 +1186,7 @@ export default function TimelineTracks({
                                     transition.element_id,
                                   ]);
                                 }}
-                                className={`pointer-events-auto absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-[7px] border bg-white transition ${
+                                className={`pointer-events-auto absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-[7px] border bg-white transition dark:bg-[var(--color-bg-elevated)] ${
                                   junctionSelected
                                     ? "border-[var(--color-accent)] text-[var(--color-accent)] shadow-[0_0_0_2px_rgba(255,127,22,0.18)]"
                                     : "border-[#6844bd] text-[#6844bd] shadow-[0_2px_7px_rgba(36,31,26,0.16)] hover:border-[var(--color-accent)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
@@ -1275,7 +1275,7 @@ export default function TimelineTracks({
             <div
               ref={toolbarRef}
               data-timeline-selection-toolbar
-              className="flex flex-col rounded-lg border border-[var(--color-border)] bg-white p-0.5 shadow-lg"
+              className="flex flex-col rounded-lg border border-[var(--color-border)] bg-white p-0.5 shadow-lg dark:bg-[var(--color-bg-elevated)]"
               style={{
                 position: "fixed",
                 top: toolbarPos?.top ?? -9999,

@@ -102,6 +102,41 @@ describe("AgentSelector", () => {
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
   });
 
+  it("switches agents from the collapsed menu and closes it", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector collapsed />);
+    const trigger = screen.getByRole("button", { name: "agent.selectAgent" });
+
+    await user.click(trigger);
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await user.click(await screen.findByRole("option", { name: /Agent One/ }));
+
+    expect(mocks.setSelectedAgent).toHaveBeenCalledWith("agent-1");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+
+  it("prevents selecting disabled agents and dismisses with Escape", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector collapsed />);
+    const trigger = screen.getByRole("button", { name: "agent.selectAgent" });
+    await user.click(trigger);
+
+    await user.click(
+      screen.getByRole("button", { name: "agent.disabledAgents" }),
+    );
+    const disabled = await screen.findByText("Agent Two");
+    await user.click(disabled);
+    expect(mocks.setSelectedAgent).not.toHaveBeenCalled();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+
+    screen.getByRole("option", { name: /Agent One/ }).focus();
+    await user.keyboard("{Escape}");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(trigger).toHaveFocus();
+  });
+
   it("shows disabled agents only after expanding the footer", async () => {
     const user = userEvent.setup();
     renderWithProviders(<AgentSelector />);
@@ -117,6 +152,53 @@ describe("AgentSelector", () => {
 
     expect(disabledHeader).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("Agent Two")).toBeInTheDocument();
+  });
+
+  it("does not expose app-managed execution profiles in Chat", async () => {
+    mocks.storeState.agents = [
+      ...agents,
+      {
+        id: "datapaw",
+        name: "QwenPaw-Data",
+        enabled: true,
+        pinned: true,
+        description: "",
+        workspace_dir: "",
+        startup_status: "running",
+        managed_by_app: "datapaw",
+        available_in_chat: false,
+      },
+    ];
+    const user = userEvent.setup();
+    renderWithProviders(<AgentSelector />);
+
+    await user.click(screen.getByRole("combobox"));
+
+    expect(screen.queryByText("QwenPaw-Data")).not.toBeInTheDocument();
+  });
+
+  it("leaves a persisted app-managed agent selection for default Chat", async () => {
+    mocks.storeState.selectedAgent = "datapaw";
+    mocks.storeState.agents = [
+      ...agents,
+      {
+        id: "datapaw",
+        name: "QwenPaw-Data",
+        enabled: true,
+        pinned: true,
+        description: "",
+        workspace_dir: "",
+        startup_status: "running",
+        managed_by_app: "datapaw",
+        available_in_chat: false,
+      },
+    ];
+
+    renderWithProviders(<AgentSelector />);
+
+    await waitFor(() =>
+      expect(mocks.setSelectedAgent).toHaveBeenCalledWith("default"),
+    );
   });
 
   it("keeps a pinned disabled agent visible and lets it be enabled", async () => {

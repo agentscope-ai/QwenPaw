@@ -23,6 +23,9 @@
   var React = host.React;
   var antd = host.antd;
   var h = React.createElement;
+  var useHostLocale = typeof host.useLocale === "function"
+    ? host.useLocale
+    : function () { return "en"; };
 
   var Button = antd.Button;
   var Select = antd.Select;
@@ -30,6 +33,56 @@
   var Input = antd.Input;
   var Empty = antd.Empty;
   var message = antd.message;
+
+  var MESSAGES = {
+    zh: {
+      backlog: "待规划", todo: "等待调度", inProgress: "进行中", review: "审核中", done: "已完成",
+      justNow: "刚刚", minutesAgo: "{count} 分钟前", hoursAgo: "{count} 小时前", daysAgo: "{count} 天前",
+      fetchResultFailed: "获取结果失败", executionFailed: "执行失败: {error}", toolCompleted: "调用 `{name}` 工具完成",
+      toolStarted: "调用 `{name}` 工具", unassigned: "未指派", dragHint: "拖动此处移动到其他列", awaitingApproval: "等待授权",
+      runningEllipsis: "运行中…", queued: "排队中 #{position}", edit: "编辑", collapse: "收起", expandAll: "展开全部",
+      assigneeLocked: "仅待办/待规划状态可切换智能体", updatedAt: "更新于 {time}", liveResult: "▾ 实时结果", hide: "▾ 隐藏",
+      viewLiveResult: "▸ 查看实时结果", viewAgentResult: "▸ 查看 agent 结果", waitingOutput: "等待 agent 输出...",
+      toolNeedsApproval: "工具需要授权", approve: "批准", deny: "拒绝", reopen: "重新打开", cancelSchedule: "取消调度",
+      running: "运行中", rerun: "重新运行", markDone: "标记完成", schedule: "调度", run: "运行", stop: "停止", delete: "删除",
+      issueBoard: "🗂 Issue 看板", agentView: "🤖 智能体视角", complete: "完成", tasks: "{count} 个任务", busy: "忙碌",
+      idle: "空闲", more: "+{count} 更多", noAgents: "暂无智能体", assignBeforeTodo: "请先为该 issue 指派一个 agent 才能移入待办",
+      onlyDoneToReview: "只允许从已完成状态拖动到审核中", assignBeforeRun: "请先为该 issue 指派一个 agent",
+      runFailed: "运行失败: {error}", stopped: "已停止运行", titleRequired: "请填写标题", createFailed: "创建失败: {error}",
+      editFailed: "编辑失败: {error}", refresh: "刷新", noIssues: "无 issue", approved: "已批准", approveFailed: "批准失败",
+      denied: "已拒绝", denyFailed: "拒绝失败", editIssue: "编辑 issue", newIssue: "新建 issue · {column}", save: "保存",
+      create: "创建", cancel: "取消", title: "标题", descriptionOptional: "描述（可选）", assigneeOptional: "指派 agent（可选）"
+    },
+    en: {
+      backlog: "Backlog", todo: "Queued", inProgress: "In Progress", review: "In Review", done: "Done",
+      justNow: "just now", minutesAgo: "{count} min ago", hoursAgo: "{count} hr ago", daysAgo: "{count} day(s) ago",
+      fetchResultFailed: "Failed to fetch result", executionFailed: "Execution failed: {error}", toolCompleted: "Completed tool `{name}`",
+      toolStarted: "Called tool `{name}`", unassigned: "Unassigned", dragHint: "Drag here to move to another column", awaitingApproval: "Awaiting approval",
+      runningEllipsis: "Running…", queued: "Queued #{position}", edit: "Edit", collapse: "Collapse", expandAll: "Show all",
+      assigneeLocked: "The agent can only be changed in Backlog or Queued", updatedAt: "Updated {time}", liveResult: "▾ Live result", hide: "▾ Hide",
+      viewLiveResult: "▸ View live result", viewAgentResult: "▸ View agent result", waitingOutput: "Waiting for agent output...",
+      toolNeedsApproval: "Tool approval required", approve: "Approve", deny: "Deny", reopen: "Reopen", cancelSchedule: "Cancel",
+      running: "Running", rerun: "Run again", markDone: "Mark done", schedule: "Queue", run: "Run", stop: "Stop", delete: "Delete",
+      issueBoard: "🗂 Issue Board", agentView: "🤖 Agent View", complete: "Complete", tasks: "{count} task(s)", busy: "Busy",
+      idle: "Idle", more: "+{count} more", noAgents: "No agents", assignBeforeTodo: "Assign an agent before moving this issue to Queued",
+      onlyDoneToReview: "Only Done issues can be moved to In Review", assignBeforeRun: "Assign an agent before running this issue",
+      runFailed: "Run failed: {error}", stopped: "Run stopped", titleRequired: "Enter a title", createFailed: "Create failed: {error}",
+      editFailed: "Edit failed: {error}", refresh: "Refresh", noIssues: "No issues", approved: "Approved", approveFailed: "Approval failed",
+      denied: "Denied", denyFailed: "Denial failed", editIssue: "Edit issue", newIssue: "New issue · {column}", save: "Save",
+      create: "Create", cancel: "Cancel", title: "Title", descriptionOptional: "Description (optional)", assigneeOptional: "Assign agent (optional)"
+    }
+  };
+
+  function normalizeLocale(value) {
+    return String(value || "").toLowerCase().split("-")[0] === "zh" ? "zh" : "en";
+  }
+
+  function tr(locale, key, values) {
+    var template = (MESSAGES[locale] && MESSAGES[locale][key]) || MESSAGES.en[key] || key;
+    return template.replace(/\{(\w+)\}/g, function (_, name) {
+      return values && values[name] !== undefined ? String(values[name]) : "{" + name + "}";
+    });
+  }
 
   // Light palette
   var C = {
@@ -42,16 +95,14 @@
   };
 
   var COLUMNS = [
-    { key: "backlog", label: "待规划", dot: "#9ca3af", tint: "rgba(148,163,184,0.20)" },
-    { key: "todo", label: "等待调度", dot: "#94a3b8", tint: "rgba(148,163,184,0.12)" },
-    { key: "in_progress", label: "进行中", dot: "#f59e0b", tint: "rgba(245,158,11,0.18)" },
-    { key: "review", label: "审核中", dot: "#22c55e", tint: "rgba(34,197,94,0.16)" },
-    { key: "done", label: "已完成", dot: "#3b82f6", tint: "rgba(59,130,246,0.16)" },
+    { key: "backlog", labelKey: "backlog", dot: "#9ca3af", tint: "rgba(148,163,184,0.20)" },
+    { key: "todo", labelKey: "todo", dot: "#94a3b8", tint: "rgba(148,163,184,0.12)" },
+    { key: "in_progress", labelKey: "inProgress", dot: "#f59e0b", tint: "rgba(245,158,11,0.18)" },
+    { key: "review", labelKey: "review", dot: "#22c55e", tint: "rgba(34,197,94,0.16)" },
+    { key: "done", labelKey: "done", dot: "#3b82f6", tint: "rgba(59,130,246,0.16)" },
   ];
-  var COLUMN_LABEL = {};
   var COLUMN_DOT = {};
   COLUMNS.forEach(function (c) {
-    COLUMN_LABEL[c.key] = c.label;
     COLUMN_DOT[c.key] = c.dot;
   });
 
@@ -118,13 +169,13 @@
     },
   };
 
-  function relTime(ts) {
+  function relTime(ts, locale) {
     if (!ts) return "";
     var diff = Date.now() / 1000 - ts;
-    if (diff < 60) return "刚刚";
-    if (diff < 3600) return Math.floor(diff / 60) + " 分钟前";
-    if (diff < 86400) return Math.floor(diff / 3600) + " 小时前";
-    return Math.floor(diff / 86400) + " 天前";
+    if (diff < 60) return tr(locale, "justNow");
+    if (diff < 3600) return tr(locale, "minutesAgo", { count: Math.floor(diff / 60) });
+    if (diff < 86400) return tr(locale, "hoursAgo", { count: Math.floor(diff / 3600) });
+    return tr(locale, "daysAgo", { count: Math.floor(diff / 86400) });
   }
 
   function agentName(agents, id) {
@@ -197,6 +248,7 @@
   function IssueCard(props) {
     var issue = props.issue;
     var agents = props.agents;
+    var t = props.t;
     var running = issue.status === "in_progress";
     var pendingApprovals = props.pendingApprovals || [];
     var waitingApproval = running && pendingApprovals.length > 0;
@@ -230,7 +282,7 @@
               setFetchedResult(data);
             })
             .catch(function () {
-              setFetchedResult({ error: "获取结果失败" });
+              setFetchedResult({ error: t("fetchResultFailed") });
             });
         }
       },
@@ -251,7 +303,7 @@
       displayResult = liveText;
     } else if (fetchedResult) {
       if (fetchedResult.error) {
-        displayResult = "执行失败: " + fetchedResult.error;
+        displayResult = t("executionFailed", { error: fetchedResult.error });
       } else if (fetchedResult.messages && Array.isArray(fetchedResult.messages)) {
         // Extract tool calls and text from all messages
         var summary = [];
@@ -288,9 +340,9 @@
               // Check if it's an output (completion) or call (start)
               // Wrap tool name in backticks to preserve underscores in markdown
               if (msgType.indexOf("_output") >= 0) {
-                summary.push("调用 `" + toolName + "` 工具完成");
+                summary.push(t("toolCompleted", { name: toolName }));
               } else {
-                summary.push("调用 `" + toolName + "` 工具");
+                summary.push(t("toolStarted", { name: toolName }));
               }
             }
           }
@@ -311,12 +363,12 @@
         displayResult = "";
       }
     } else if (issue.error) {
-      displayResult = "执行失败: " + issue.error;
+      displayResult = t("executionFailed", { error: issue.error });
     }
 
     var showBody = expanded;
 
-    var agentOptions = [{ label: "未指派", value: "" }].concat(
+    var agentOptions = [{ label: t("unassigned"), value: "" }].concat(
       agents.map(function (a) {
         return { label: a.name || a.id, value: a.id };
       }),
@@ -378,7 +430,7 @@
             // Reset dragging state
             setIsDragging(false);
           },
-          title: "拖动此处移动到其他列",
+          title: t("dragHint"),
           style: {
             display: "flex",
             justifyContent: "space-between",
@@ -402,11 +454,11 @@
           "PAW-" + issue.id,
         ),
         waitingApproval
-          ? h("span", { style: { fontSize: 12, color: "#dc2626", fontWeight: 600 } }, "等待授权")
+          ? h("span", { style: { fontSize: 12, color: "#dc2626", fontWeight: 600 } }, t("awaitingApproval"))
           : running
-            ? h("span", { style: { fontSize: 12, color: "#d97706" } }, "运行中…")
+            ? h("span", { style: { fontSize: 12, color: "#d97706" } }, t("runningEllipsis"))
             : props.queuePosition
-              ? h("span", { style: { fontSize: 12, color: "#6366f1" } }, "排队中 #" + props.queuePosition)
+              ? h("span", { style: { fontSize: 12, color: "#6366f1" } }, t("queued", { position: props.queuePosition }))
               : null,
       ),
       // Title + description
@@ -441,7 +493,7 @@
                   e.stopPropagation();
                   if (props.onEdit) props.onEdit(issue);
                 },
-                title: "编辑",
+                title: t("edit"),
               },
               "✏️",
             )
@@ -482,7 +534,7 @@
                       setDescExpanded(!descExpanded);
                     },
                   },
-                  descExpanded ? "收起" : "展开全部",
+                  descExpanded ? t("collapse") : t("expandAll"),
                 )
               : null,
           )
@@ -523,7 +575,7 @@
             variant: "borderless",
             bordered: false,
             disabled: lockAssignee,
-            title: lockAssignee ? "仅待办/待规划状态可切换智能体" : undefined,
+            title: lockAssignee ? t("assigneeLocked") : undefined,
             value: issue.assignee || "",
             style: { flex: 1, minWidth: 0, marginLeft: -4 },
             options: agentOptions,
@@ -535,7 +587,7 @@
         h(
           "span",
           { style: { fontSize: 11, color: C.muted, whiteSpace: "nowrap" } },
-          "更新于 " + relTime(issue.updated_at),
+          t("updatedAt", { time: relTime(issue.updated_at, props.locale) }),
         ),
       ),
       // Result (agent output) — show for running/review/done states
@@ -556,10 +608,10 @@
                 },
               },
               showBody
-                ? (hasLive ? "▾ 实时结果" : "▾ 隐藏")
+                ? (hasLive ? t("liveResult") : t("hide"))
                 : running
-                  ? "▸ 查看实时结果"
-                  : "▸ 查看 agent 结果",
+                  ? t("viewLiveResult")
+                  : t("viewAgentResult"),
             ),
             showBody
               ? h(
@@ -583,7 +635,7 @@
                       lineHeight: "1.6",
                     },
                     dangerouslySetInnerHTML: {
-                      __html: renderMarkdown(displayResult || (running ? "等待 agent 输出..." : ""))
+                      __html: renderMarkdown(displayResult || (running ? t("waitingOutput") : ""))
                         + (hasLive ? '<span class="ak-pulse" style="margin-left:2px;color:#f59e0b;font-weight:700">▋</span>' : ''),
                     },
                   },
@@ -620,7 +672,7 @@
                 h(
                   "div",
                   { style: { fontSize: 12, color: "#991b1b", flex: 1, minWidth: 0 } },
-                  h("div", { style: { fontWeight: 600 } }, "工具需要授权"),
+                  h("div", { style: { fontWeight: 600 } }, t("toolNeedsApproval")),
                   h("div", { style: { color: "#b91c1c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, ap.display_name || ap.tool_name),
                 ),
                 h(
@@ -635,7 +687,7 @@
                         props.onApprove(ap.request_id);
                       },
                     },
-                    "批准",
+                    t("approve"),
                   ),
                   h(
                     Button,
@@ -646,7 +698,7 @@
                         props.onDeny(ap.request_id);
                       },
                     },
-                    "拒绝",
+                    t("deny"),
                   ),
                 ),
               );
@@ -675,7 +727,7 @@
                   props.onMove(issue, "backlog");
                 },
               },
-              "重新打开",
+              t("reopen"),
             )
           : queued
             ? h(
@@ -687,7 +739,7 @@
                     props.onMove(issue, "backlog");
                   },
                 },
-                "取消调度",
+                t("cancelSchedule"),
               )
             : running
               ? h(
@@ -698,7 +750,7 @@
                     loading: true,
                     disabled: true,
                   },
-                  "运行中",
+                  t("running"),
                 )
               : reviewing
                 ? h(React.Fragment, null,
@@ -710,7 +762,7 @@
                           props.onRun(issue);
                         },
                       },
-                      "重新运行",
+                      t("rerun"),
                     ),
                     h(
                       Button,
@@ -721,7 +773,7 @@
                           props.onMove(issue, "done");
                         },
                       },
-                      "标记完成",
+                      t("markDone"),
                     ),
                   )
                 : h(
@@ -734,7 +786,7 @@
                         props.onRun(issue);
                       },
                     },
-                    props.agentBusy ? "调度" : "运行",
+                    props.agentBusy ? t("schedule") : t("run"),
                   ),
         running
           ? h(
@@ -746,7 +798,7 @@
                   props.onStop(issue);
                 },
               },
-              "停止",
+              t("stop"),
             )
           : null,
         h(
@@ -760,7 +812,7 @@
               props.onDelete(issue);
             },
           },
-          "删除",
+          t("delete"),
         ),
       ),
     );
@@ -769,8 +821,8 @@
   // ── View toggle + Agent office view ───────────────────────────────────
   function ViewToggle(props) {
     var opts = [
-      { key: "issues", label: "🗂 Issue 看板" },
-      { key: "agents", label: "🤖 智能体视角" },
+      { key: "issues", label: props.t("issueBoard") },
+      { key: "agents", label: props.t("agentView") },
     ];
     return h(
       "div",
@@ -801,11 +853,11 @@
   }
 
   var AGENT_BUCKETS = [
-    { key: "backlog", label: "待规划", statuses: ["backlog"], dot: "#9ca3af" },
-    { key: "todo", label: "等待调度", statuses: ["todo"], dot: "#94a3b8", showQueue: true },
-    { key: "running", label: "运行中", statuses: ["in_progress"], dot: "#f59e0b" },
-    { key: "review", label: "审核中", statuses: ["review"], dot: "#22c55e" },
-    { key: "done", label: "完成", statuses: ["done"], dot: "#3b82f6" },
+    { key: "backlog", labelKey: "backlog", statuses: ["backlog"], dot: "#9ca3af" },
+    { key: "todo", labelKey: "todo", statuses: ["todo"], dot: "#94a3b8", showQueue: true },
+    { key: "running", labelKey: "running", statuses: ["in_progress"], dot: "#f59e0b" },
+    { key: "review", labelKey: "review", statuses: ["review"], dot: "#22c55e" },
+    { key: "done", labelKey: "complete", statuses: ["done"], dot: "#3b82f6" },
   ];
 
   function agentColor(id) {
@@ -819,6 +871,7 @@
   function AgentLane(props) {
     var agent = props.agent;
     var items = props.items || [];
+    var t = props.t;
     var col = agentColor(agent.id);
     var busy = items.some(function (i) { return i.status === "in_progress"; });
     var initial = (agent.name || agent.id || "?").slice(0, 1).toUpperCase();
@@ -851,7 +904,7 @@
           "div",
           { style: { minWidth: 0, flex: 1 } },
           h("div", { style: { fontWeight: 600, color: C.text, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } }, agent.name || agent.id),
-          h("div", { style: { fontSize: 11, color: C.muted } }, items.length + " 个任务"),
+          h("div", { style: { fontSize: 11, color: C.muted } }, t("tasks", { count: items.length })),
         ),
         h(
           "span",
@@ -864,7 +917,7 @@
             },
           },
           h("span", { style: { width: 7, height: 7, borderRadius: "50%", background: busy ? "#22c55e" : "#cbd5e1", display: "inline-block" } }),
-          busy ? "忙碌" : "空闲",
+          busy ? t("busy") : t("idle"),
         ),
       ),
       h(
@@ -880,7 +933,7 @@
               "div",
               { style: { display: "flex", alignItems: "center", gap: 7, marginBottom: list.length ? 6 : 0 } },
               h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: b.dot, display: "inline-block" } }),
-              h("span", { style: { fontSize: 12, fontWeight: 600, color: C.text } }, b.label),
+              h("span", { style: { fontSize: 12, fontWeight: 600, color: C.text } }, t(b.labelKey)),
               h("span", { style: { marginLeft: "auto", fontSize: 11, color: C.sub, background: "#eef2f7", borderRadius: 999, padding: "1px 8px", fontWeight: 600 } }, list.length),
             ),
             list.length
@@ -899,7 +952,7 @@
                     );
                   }),
                   list.length > 5
-                    ? h("div", { style: { fontSize: 11, color: C.muted } }, "+" + (list.length - 5) + " 更多")
+                    ? h("div", { style: { fontSize: 11, color: C.muted } }, t("more", { count: list.length - 5 }))
                     : null,
                 )
               : null,
@@ -912,6 +965,7 @@
   function AgentBoard(props) {
     var agents = props.agents || [];
     var issues = props.issues || [];
+    var t = props.t;
     var byAgent = {};
     agents.forEach(function (a) { byAgent[a.id] = []; });
     var unassigned = [];
@@ -929,10 +983,10 @@
     });
     var idleCount = agents.length - busyCount;
     var lanes = agents.map(function (a) {
-      return h(AgentLane, { key: a.id, agent: a, items: byAgent[a.id] || [] });
+      return h(AgentLane, { key: a.id, agent: a, items: byAgent[a.id] || [], t: t });
     });
     if (unassigned.length) {
-      lanes.push(h(AgentLane, { key: "__unassigned__", agent: { id: "", name: "未指派" }, items: unassigned }));
+      lanes.push(h(AgentLane, { key: "__unassigned__", agent: { id: "", name: t("unassigned") }, items: unassigned, t: t }));
     }
     var css =
       ".ak-lane{transition:transform .15s ease,box-shadow .15s ease}" +
@@ -960,17 +1014,17 @@
           h(
             "div", { style: { display: "inline-flex", alignItems: "center", gap: 6, background: "rgba(34,197,94,0.12)", borderRadius: 999, padding: "6px 12px" } },
             h("span", { className: busyCount ? "ak-pulse" : null, style: { width: 8, height: 8, borderRadius: "50%", background: "#22c55e", display: "inline-block" } }),
-            h("span", { style: { fontSize: 13, fontWeight: 600, color: "#15803d" } }, "忙碌 " + busyCount),
+            h("span", { style: { fontSize: 13, fontWeight: 600, color: "#15803d" } }, t("busy") + " " + busyCount),
           ),
           h(
             "div", { style: { display: "inline-flex", alignItems: "center", gap: 6, background: "#f1f5f9", borderRadius: 999, padding: "6px 12px" } },
             h("span", { style: { width: 8, height: 8, borderRadius: "50%", background: "#cbd5e1", display: "inline-block" } }),
-            h("span", { style: { fontSize: 13, fontWeight: 600, color: C.sub } }, "空闲 " + idleCount),
+            h("span", { style: { fontSize: 13, fontWeight: 600, color: C.sub } }, t("idle") + " " + idleCount),
           ),
         ),
       ),
       lanes.length === 0
-        ? h(Empty, { description: h("span", { style: { color: C.muted } }, "暂无智能体") })
+        ? h(Empty, { description: h("span", { style: { color: C.muted } }, t("noAgents")) })
         : h(
             "div",
             { style: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: 14, overflowY: "auto", alignContent: "flex-start", alignItems: "start", flex: 1, paddingBottom: 4 } },
@@ -981,6 +1035,13 @@
 
   // ── Main board ───────────────────────────────────────
   function KanbanBoard() {
+    // Follow QwenPaw's live language setting. Unsupported host locales use
+    // English, matching the host's own i18n fallback policy.
+    var hostLocale = useHostLocale();
+    var locale = normalizeLocale(hostLocale);
+    function t(key, values) {
+      return tr(locale, key, values);
+    }
     var issuesState = React.useState([]);
     var issues = issuesState[0];
     var setIssues = issuesState[1];
@@ -1059,14 +1120,14 @@
 
       if (status === "todo") {
         if (!target.assignee) {
-          if (message) message.warning("请先为该 issue 指派一个 agent 才能移入待办");
+          if (message) message.warning(t("assignBeforeTodo"));
           return;
         }
       }
 
       // Only allow moving to review from done status
       if (status === "review" && target.status !== "done") {
-        if (message) message.warning("只允许从已完成状态拖动到审核中");
+        if (message) message.warning(t("onlyDoneToReview"));
         return;
       }
 
@@ -1075,11 +1136,11 @@
           return i.id === id ? Object.assign({}, i, { status: status }) : i;
         });
       });
-      api.patchIssue(id, { status: status }).then(load).catch(load);
+      api.patchIssue(id, { status: status, language: locale }).then(load).catch(load);
     }
 
     function onAssign(issue, assignee) {
-      var patch = { assignee: assignee };
+      var patch = { assignee: assignee, language: locale };
       // Backend auto-promotes backlog->todo when assignee is set,
       // but we optimistically update the UI as well.
       var optimisticStatus = issue.status;
@@ -1135,13 +1196,13 @@
           } else if (msg.type === "tool_start") {
             setStreams(function (prev) {
               var n = Object.assign({}, prev);
-              n[id] = (n[id] || "") + "调用 `" + msg.name + "` 工具\n";
+              n[id] = (n[id] || "") + t("toolStarted", { name: msg.name }) + "\n";
               return n;
             });
           } else if (msg.type === "tool_done") {
             setStreams(function (prev) {
               var n = Object.assign({}, prev);
-              n[id] = (n[id] || "") + "调用 `" + msg.name + "` 工具完成\n";
+              n[id] = (n[id] || "") + t("toolCompleted", { name: msg.name }) + "\n";
               return n;
             });
           } else if (msg.type === "done" || msg.type === "error") {
@@ -1158,10 +1219,10 @@
 
     function onRun(issue) {
       if (!issue.assignee) {
-        if (message) message.warning("请先为该 issue 指派一个 agent");
+        if (message) message.warning(t("assignBeforeRun"));
         return;
       }
-      var url = host.getApiUrl("/agent-kanban/issues/" + issue.id + "/run");
+      var url = host.getApiUrl("/agent-kanban/issues/" + issue.id + "/run?language=" + encodeURIComponent(locale));
       var token = host.getApiToken ? host.getApiToken() : "";
       var headers = { "Content-Type": "application/json" };
       if (token) headers["Authorization"] = "Bearer " + token;
@@ -1174,7 +1235,7 @@
           load();
         })
         .catch(function (err) {
-          if (message) message.error("运行失败: " + err.message);
+          if (message) message.error(t("runFailed", { error: err.message }));
           load();
         });
     }
@@ -1184,7 +1245,7 @@
       api
         .stopIssue(issue.id)
         .then(function () {
-          if (message) message.info("已停止运行");
+          if (message) message.info(t("stopped"));
           load();
         })
         .catch(function () {
@@ -1203,7 +1264,7 @@
 
     function submitCreate() {
       if (!form.title.trim()) {
-        if (message) message.warning("请填写标题");
+        if (message) message.warning(t("titleRequired"));
         return;
       }
       api
@@ -1212,6 +1273,7 @@
           description: form.description,
           assignee: form.assignee,
           status: modal.status,
+          language: locale,
         })
         .then(function () {
           setModal(null);
@@ -1219,19 +1281,20 @@
           load();
         })
         .catch(function (err) {
-          if (message) message.error("创建失败: " + err.message);
+          if (message) message.error(t("createFailed", { error: err.message }));
         });
     }
 
     function submitEdit() {
       if (!form.title.trim()) {
-        if (message) message.warning("请填写标题");
+        if (message) message.warning(t("titleRequired"));
         return;
       }
       api
         .patchIssue(modal.editIssueId, {
           title: form.title,
           description: form.description,
+          language: locale,
         })
         .then(function () {
           setModal(null);
@@ -1239,7 +1302,7 @@
           load();
         })
         .catch(function (err) {
-          if (message) message.error("编辑失败: " + err.message);
+          if (message) message.error(t("editFailed", { error: err.message }));
         });
     }
 
@@ -1271,7 +1334,7 @@
       }
     });
 
-    var agentOptions = [{ label: "未指派", value: "" }].concat(
+    var agentOptions = [{ label: t("unassigned"), value: "" }].concat(
       agents.map(function (a) {
         return { label: a.name || a.id, value: a.id };
       }),
@@ -1304,7 +1367,7 @@
           },
         },
         h("div", { style: { fontSize: 18, fontWeight: 700, color: C.text } }, "📋 Agent Kanban"),
-        h(ViewToggle, { view: view, onChange: setView }),
+        h(ViewToggle, { view: view, onChange: setView, t: t }),
         h(
           "span",
           {
@@ -1325,13 +1388,13 @@
               display: "inline-block",
             },
           }),
-          working + " 运行中",
+          working + " " + t("running"),
         ),
-        h(Button, { size: "small", onClick: load }, "刷新"),
+        h(Button, { size: "small", onClick: load }, t("refresh")),
       ),
       // Board area: issue columns or agent office
       view === "agents"
-        ? h(AgentBoard, { agents: agents, issues: issues })
+        ? h(AgentBoard, { agents: agents, issues: issues, t: t })
         : h(
         "div",
         {
@@ -1413,7 +1476,7 @@
                     display: "inline-block",
                   },
                 }),
-                col.label,
+                t(col.labelKey),
                 h("span", { style: { color: C.muted, marginLeft: 4, fontWeight: 400 } }, colIssues.length),
               ),
               col.key === "backlog"
@@ -1439,7 +1502,7 @@
               colIssues.length === 0
                 ? h(Empty, {
                     image: Empty.PRESENTED_IMAGE_SIMPLE,
-                    description: h("span", { style: { color: C.muted } }, "无 issue"),
+                    description: h("span", { style: { color: C.muted } }, t("noIssues")),
                     style: { margin: "40px 0", opacity: 0.6 },
                   })
                 : colIssues.map(function (issue) {
@@ -1447,6 +1510,8 @@
                       key: issue.id,
                       issue: issue,
                       agents: agents,
+                      locale: locale,
+                      t: t,
                       onAssign: onAssign,
                       onMove: function (iss, st) { moveIssue(iss.id, st); },
                       onRun: onRun,
@@ -1460,18 +1525,18 @@
                       pendingApprovals: approvals[issue.id] || [],
                       onApprove: function (reqId) {
                         api.approveRequest(reqId).then(function () {
-                          if (message) message.success("已批准");
+                          if (message) message.success(t("approved"));
                           loadApprovals();
                         }).catch(function () {
-                          if (message) message.error("批准失败");
+                          if (message) message.error(t("approveFailed"));
                         });
                       },
                       onDeny: function (reqId) {
                         api.denyRequest(reqId).then(function () {
-                          if (message) message.info("已拒绝");
+                          if (message) message.info(t("denied"));
                           loadApprovals();
                         }).catch(function () {
-                          if (message) message.error("拒绝失败");
+                          if (message) message.error(t("denyFailed"));
                         });
                       },
                     });
@@ -1487,10 +1552,12 @@
             {
               open: true,
               title: modal.editIssueId
-                ? "编辑 issue"
-                : "新建 issue · " + (COLUMN_LABEL[modal.status] || ""),
-              okText: modal.editIssueId ? "保存" : "创建",
-              cancelText: "取消",
+                ? t("editIssue")
+                : t("newIssue", {
+                    column: t((COLUMNS.find(function (column) { return column.key === modal.status; }) || {}).labelKey || ""),
+                  }),
+              okText: modal.editIssueId ? t("save") : t("create"),
+              cancelText: t("cancel"),
               onOk: modal.editIssueId ? submitEdit : submitCreate,
               onCancel: function () {
                 setModal(null);
@@ -1501,14 +1568,14 @@
               "div",
               { style: { display: "flex", flexDirection: "column", gap: 12, paddingTop: 8 } },
               h(Input, {
-                placeholder: "标题",
+                placeholder: t("title"),
                 value: form.title,
                 onChange: function (e) {
                   setForm(Object.assign({}, form, { title: e.target.value }));
                 },
               }),
               h(Input.TextArea, {
-                placeholder: "描述（可选）",
+                placeholder: t("descriptionOptional"),
                 rows: 3,
                 value: form.description,
                 onChange: function (e) {
@@ -1519,7 +1586,7 @@
               modal.editIssueId
                 ? null
                 : h(Select, {
-                    placeholder: "指派 agent（可选）",
+                    placeholder: t("assigneeOptional"),
                     style: { width: "100%" },
                     value: form.assignee || "",
                     options: agentOptions,

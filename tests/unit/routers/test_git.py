@@ -57,7 +57,12 @@ def _isolate_git_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home / ".gitconfig"))
-    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    # Use an empty temp file for GIT_CONFIG_SYSTEM instead of /dev/null:
+    # git ≥ 2.39 rejects /dev/null as "bad config line 1" because it
+    # expects a valid (possibly empty) config file, not a device node.
+    empty_system_config = tmp_path / "empty_git_system_config"
+    empty_system_config.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", str(empty_system_config))
     # Clear author/committer overrides that CI or the developer shell may set.
     for key in (
         "GIT_AUTHOR_NAME",
@@ -83,7 +88,7 @@ def _isolate_git_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
             **os.environ,
             "HOME": str(home),
             "GIT_CONFIG_GLOBAL": str(home / ".gitconfig"),
-            "GIT_CONFIG_SYSTEM": os.devnull,
+            "GIT_CONFIG_SYSTEM": str(empty_system_config),
         },
     )
     (repo / "a.txt").write_text("hello\n", encoding="utf-8")

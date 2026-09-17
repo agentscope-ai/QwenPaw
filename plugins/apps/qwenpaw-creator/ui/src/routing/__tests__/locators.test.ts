@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { pathForLocator, navigateToLocator } from "@/routing/locators";
 import { useNavigationStore } from "@/store/navigationStore";
 
@@ -22,6 +22,19 @@ describe("pathForLocator", () => {
     expect(pathForLocator("p1", { page: "assets" })).toBe("/project/p1/assets");
   });
 
+  it("maps blueprint locators to the project root", () => {
+    expect(pathForLocator("p1", { page: "blueprint" })).toBe("/project/p1");
+  });
+
+  it("carries the timelineId of a blueprint locator as a query parameter", () => {
+    expect(
+      pathForLocator("p1", {
+        page: "blueprint",
+        timelineId: "timeline:ep2",
+      }),
+    ).toBe("/project/p1?timeline=timeline%3Aep2");
+  });
+
   it("defaults unknown pages to plan", () => {
     expect(pathForLocator("p1", { page: "plan" })).toBe("/project/p1/plan");
   });
@@ -29,9 +42,15 @@ describe("pathForLocator", () => {
 
 describe("navigateToLocator", () => {
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.mocked(navigate).mockClear();
     useNavigationStore.getState().clear();
     window.location.hash = "#/project/p1/plan";
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it("passes artifactVersionId as version query for media reviews", () => {

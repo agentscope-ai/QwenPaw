@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from ..__version__ import __version__
+from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
@@ -40,9 +41,11 @@ from ..utils.startup_display import AgentStartupDisplay
 from ..utils.system_info import summarize_python_environment
 from .auth import (
     AuthMiddleware,
+    RuntimeBoundaryMiddleware,
     auto_register_from_env,
     check_proxy_config_sanity,
 )
+from .exception_handlers import register_exception_handlers
 from .migration import (
     ensure_default_agent_exists,
     ensure_qa_agent_exists,
@@ -177,6 +180,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
+    from ..config.utils import get_agent_dirs
+    from ..portability.transaction_journal import recover_import_transactions
+
+    try:
+        recovered_transactions = await recover_import_transactions(
+            get_agent_dirs(),
+        )
+    except Exception:
+        logger.exception(
+            "PawPort transaction recovery failed; continuing startup",
+        )
+        recovered_transactions = []
+    if recovered_transactions:
+        logger.warning(
+            "Recovered %d interrupted PawPort import transaction(s)",
+            len(recovered_transactions),
+        )
+
     # Migrate old conversations from sessions/*.json into each scroll agent's
     # history.db, so chats from before scroll existed stay recallable. This is
     # a one-off backfill, not core startup work: if it fails, we log and keep
@@ -188,9 +209,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     # boot path) to speed up startup.
     await _sync_scroll_history_on_startup()
 
-    # Create core managers (instant — no I/O)
-    provider_manager = ProviderManager.get_instance()
-    local_model_manager = LocalModelManager.get_instance()
+    # Provider initialization scans and may migrate persisted configuration.
+    provider_manager = await asyncio.to_thread(ProviderManager.get_instance)
+    local_model_manager = await asyncio.to_thread(
+        LocalModelManager.get_instance,
+    )
 
     # --- AppServiceManager + WorkspaceRegistry ---
     app_services = None
@@ -269,9 +292,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
-            extra_command_specs=_api_action_command_specs
-            if _api_action_command_specs
-            else None,
+            extra_command_specs=(
+                _api_action_command_specs
+                if _api_action_command_specs
+                else None
+            ),
         )
         # Merge factory output into workspace_registry._bootstrap_kwargs
         for key, value in factory_kwargs.items():
@@ -303,6 +328,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             exc_info=True,
         )
 
+    backup_manager = BackupManager()
+
     # Start token usage manager background tasks
     logger.debug("Starting TokenUsageManager background tasks...")
     from ..token_usage import get_token_usage_manager
@@ -316,6 +343,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.multi_agent_manager = workspace_registry
     app.state.provider_manager = provider_manager
     app.state.local_model_manager = local_model_manager
+    app.state.backup_manager = backup_manager
     app.state.plugin_loader = None
     app.state.plugin_registry = None
 
@@ -338,12 +366,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         get_default_kernel_manager(),
         max(0.1, browser_config.idle_ttl_seconds),
     )
-    if browser_config.experimental:
-        from ..browser.runtime.managed_playwright import (
-            start_managed_chromium_download,
-        )
-
-        start_managed_chromium_download()
     try:
         from ..browser.control_link.chrome.ws_handler import prime_bridge_token
 
@@ -368,10 +390,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
     async def _background_startup():  # pylint: disable=too-many-statements
         try:
-            # ---- Plugin System (phase 1: channel plugins) ----
-            # Load channel-type plugins *before* agents start so that
-            # ChannelManager discovers them via get_channel_registry()
-            # on first creation — no reload needed afterwards.
+            # ---- Plugin System (phase 1: startup-critical plugins) ----
+            # Channel and memory plugins must register before agents start.
             logger.debug("Initializing plugin system...")
 
             from ..config.utils import get_plugins_dir
@@ -396,12 +416,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 f"Loading plugins with {len(plugin_configs)} config(s)",
             )
 
-            # Phase 1: load channel plugins before agents start
+            # Phase 1: load startup-critical plugins before agents start
             await plugin_loader.load_all_plugins(
                 configs=plugin_configs,
-                types=["channel"],
+                types=["channel", "memory"],
             )
-            logger.debug("Phase 1: channel plugins loaded")
+            logger.debug("Phase 1: channel and memory plugins loaded")
 
             def _mark_core_agents_ready(_results: dict[str, bool]) -> None:
                 """Publish readiness after the core agent phase."""
@@ -423,6 +443,17 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 startup_display.mark_finalizing()
 
             provider_manager.start_local_model_resume(local_model_manager)
+            startup_provider_ids = provider_manager.startup_sync_provider_ids()
+            asyncio.create_task(
+                provider_manager.sync_startup_provider_models(
+                    startup_provider_ids,
+                ),
+                name="qwenpaw-provider-model-sync",
+            )
+            asyncio.create_task(
+                provider_manager.sync_remote_catalogs(),
+                name="qwenpaw-provider-catalog-sync",
+            )
 
             # Phase 2: load remaining plugins (channel plugins already
             # loaded — load_plugin skips them automatically)
@@ -443,7 +474,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 provider_id,
                 provider_reg,
             ) in plugin_loader.registry.get_all_providers().items():
-                provider_manager.register_plugin_provider(
+                await provider_manager.register_plugin_provider_async(
                     provider_id=provider_id,
                     provider_class=provider_reg.provider_class,
                     label=provider_reg.label,
@@ -532,16 +563,18 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.warning(f"Approval service setup skipped: {e}")
 
-            # ---- Skill pool auto-update sync ----
+            # ---- Skill Pool builtin update + workspace auto-sync ----
             try:
-                from ..agents.skill_system import run_pool_auto_update_sync
-                from .routers.skills import post_auto_update_inbox
+                from ..agents.skill_system import run_pool_automation_pipeline
+                from .routers.skills import post_pool_automation_inbox
 
-                au_result = await asyncio.to_thread(run_pool_auto_update_sync)
-                await post_auto_update_inbox(au_result)
+                result = await asyncio.to_thread(
+                    run_pool_automation_pipeline,
+                )
+                await post_pool_automation_inbox(result)
             except Exception:
                 logger.warning(
-                    "Skill pool auto-update sync skipped on startup",
+                    "Skill Pool automation skipped on startup",
                     exc_info=True,
                 )
 
@@ -569,6 +602,15 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             _bg_task.cancel()
             with suppress(asyncio.CancelledError):
                 await _bg_task
+
+        # Import jobs can write workspaces and install plugins. Stop them
+        # before closing the services they depend on.
+        from .routers.portability_imports import PORTABILITY_IMPORT_JOBS
+
+        await PORTABILITY_IMPORT_JOBS.shutdown()
+
+        logger.info("Stopping BackupManager...")
+        await backup_manager.shutdown()
 
         await _stop_browser_runtime(app)
         from ..agents.tools import shutdown_browser_runtime
@@ -636,6 +678,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
 
+        await PORTABILITY_IMPORT_JOBS.drain()
+
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client
 
@@ -684,11 +728,13 @@ app = FastAPI(
     redoc_url="/redoc" if DOCS_ENABLED else None,
     openapi_url="/openapi.json" if DOCS_ENABLED else None,
 )
+register_exception_handlers(app)
 
 # Add agent context middleware for agent-scoped routes
 app.add_middleware(AgentContextMiddleware)
 
 app.add_middleware(AuthMiddleware)
+app.add_middleware(RuntimeBoundaryMiddleware)
 
 # Apply CORS middleware if CORS_ORIGINS is set
 if CORS_ORIGINS:

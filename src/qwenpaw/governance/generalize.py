@@ -168,15 +168,15 @@ def _is_safe_generalization(
     return True
 
 
-def _build_model(agent_id: Optional[str]) -> Any:
+async def _build_model(agent_id: Optional[str]) -> Any:
     """Build a fresh chat-model instance for *agent_id*.
 
     Returns ``None`` if no model can be built — never raises.
     """
     try:
-        from ..agents.model_factory import create_model_and_formatter
+        from ..agents.model_factory import create_model_and_formatter_async
 
-        model, _ = create_model_and_formatter(agent_id=agent_id)
+        model, _ = await create_model_and_formatter_async(agent_id=agent_id)
         return model
     except Exception as exc:  # noqa: BLE001 - never block generalization
         logger.debug(
@@ -241,7 +241,7 @@ async def _llm_generalize_pattern(
     output) so the caller can fall back to the exact match. Never
     raises.
     """
-    model = _build_model(agent_id)
+    model = await _build_model(agent_id)
     if model is None:
         logger.debug(
             "rule generalization skipped: no model available for agent=%s",

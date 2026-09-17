@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import styles from "./ProviderIconComponent.module.less";
 import { providerIcon } from "./providerIcon";
 import {
   getProviderLetterColor,
@@ -33,9 +34,17 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
       <img
         src={imageUrl}
         alt={providerId}
+        className={styles.providerIcon}
+        data-provider-id={providerId}
         width={size}
         height={size}
-        style={{ borderRadius, objectFit: "cover", flexShrink: 0 }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius,
+          objectFit: "cover",
+          flexShrink: 0,
+        }}
         onError={() => setImageFailed(true)}
       />
     );
@@ -55,7 +64,7 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        color: "#fff",
+        color: "var(--app-text-inverse)",
         fontSize,
         fontWeight: 600,
         fontFamily: "Inter, sans-serif",

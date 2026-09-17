@@ -67,15 +67,15 @@ class ChatPage(BasePage):
     # ``chatSessionItem`` class is gone. Anchor on the drawer list wrapper +
     # role, keeping the old class as a fallback for older builds.
     SESSION_ITEM = (
-        '[class*=listWrapper] div[role="button"], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"], '
         '[class*=chatSessionItem]'
     )
     SESSION_ACTIVE = (
-        '[class*=listWrapper] div[role="button"][class*=active], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"][class*=active], '
         '[class*=chatSessionItem][class*=active]'
     )
     SESSION_NAME = (
-        '[class*=listWrapper] div[role="button"] [class*=name], '
+        '[class*=listWrapper] div[class*="sessionItem-module__item"] [class*=name], '
         '[class*=chatSessionItem] [class*=name]'
     )
     # SessionItem actions now live behind a "more" button (SparkMoreLine)
@@ -108,21 +108,31 @@ class ChatPage(BasePage):
     SESSION_DELETE_BTN = 'button:has(.spark-icon-spark-delete-line), button:has(.anticon-delete)'
 
     # --- Tool approval level toggle (composer / sender area) — upstream #5685 ---
-    # A single antd Tag whose text is one of the 4 levels; clicking it opens a
-    # dropdown of exactly 4 options. No CSS-module class or data-testid, so we
-    # anchor on the level texts (browser locale is en-US; ZH kept as fallback).
+    # Upstream #7334 rebuilt ApprovalLevelToggle from an antd Tag into a plain
+    # ``<button class="...trigger">`` (CSS-module hash class, not stable), so
+    # the old ``span.qwenpaw-tag`` anchor no longer exists. The button carries
+    # ``aria-label=<i18n toolExecutionLevelTitle>`` — the same handle upstream
+    # uses in its own unit test (ApprovalToggle.test.tsx) — so we anchor on it.
+    # Note: #7368 renamed that title from "Tool Execution Security" to
+    # "Tool Approval Mode" (zh: 工具审批模式). In non-compact desktop mode the
+    # button text also contains the current level label (e.g. "Strict Mode");
+    # in compact/mobile mode it is icon-only. Only one of ApprovalLevelToggle /
+    # HarnessApprovalToggle renders at a time (mutually exclusive in the
+    # composer), and the harness variant uses a different aria-label, so the
+    # locator below is unambiguous.
+    APPROVAL_TOGGLE = (
+        'button[aria-label="Tool Approval Mode"], '
+        'button[aria-label="工具审批模式"]'
+    )
     APPROVAL_LEVELS = {
         "STRICT": ("Strict Mode", "严格模式"),
         "SMART": ("Smart Mode", "智能模式"),
         "AUTO": ("Auto Mode", "自动模式"),
         "OFF": ("Off Mode", "关闭模式"),
     }
-    _APPROVAL_LABEL_RE = re.compile(
-        r"Strict Mode|Smart Mode|Auto Mode|Off Mode|"
-        r"严格模式|智能模式|自动模式|关闭模式"
-    )
     # Only items inside the currently-open dropdown (antd keeps closed menus in
-    # the DOM with a ``-hidden`` modifier).
+    # the DOM with a ``-hidden`` modifier). The #7334 rebuild kept the antd
+    # Dropdown for the menu itself, so this selector is unchanged.
     APPROVAL_MENU_ITEM = (
         '.qwenpaw-dropdown:not(.qwenpaw-dropdown-hidden) '
         '.qwenpaw-dropdown-menu-item'
@@ -159,7 +169,8 @@ class ChatPage(BasePage):
     # SidebarSessionList renders one <button class={styles.groupLabel}> per
     # non-empty bucket (Pinned / Today / Within 7 days / Within 30 days /
     # Earlier); clicking toggles collapse. "month" + "older" start collapsed.
-    SIDEBAR_GROUP_LABEL = 'button[class*="groupLabel"]'
+    SIDEBAR_GROUP_LABEL = 'div[role="button"][class*="SessionGroupHeader"]'
+    SIDEBAR_DATE_LABEL = '[data-date-group]'
     SIDEBAR_GROUP_CHEVRON = 'span[class*="groupChevron"]'
     SIDEBAR_GROUP_TEXTS = {
         "pinned": ("Pinned", "置顶"),
@@ -928,7 +939,10 @@ class ChatPage(BasePage):
         if not sessions or index >= len(sessions):
             logger.warning(f"Session at index {index} not found")
             return False
-        target = sessions[index]
+        # The sidebar is a virtual list: rows are recycled, so a locator
+        # captured via .all() can detach mid-interaction. Re-resolve by
+        # nth() right before each interaction attempt instead.
+        target = self.page.locator(self.SESSION_ITEM).nth(index)
 
         # antd keeps closed menus in the DOM with a ``-hidden`` modifier; the
         # open one is the menu WITHOUT it.
@@ -952,6 +966,20 @@ class ChatPage(BasePage):
                 self.page.mouse.move(0, 0)
             except Exception:
                 pass
+            # Virtual list: off-viewport rows are not in the DOM at all.
+            # Scroll the list container so the target row gets rendered
+            # before resolving it.
+            try:
+                if not target.is_visible():
+                    self.page.locator(
+                        '[class*="listWrapper"] [class*="scroll"], '
+                        '[class*="listWrapper"]'
+                    ).first.evaluate(
+                        "el => el.scrollTo({top: el.scrollHeight})"
+                    )
+                    self.wait(500)
+            except Exception as exc:
+                logger.warning(f"[_open_session_menu] scroll failed: {exc}")
             try:
                 target.scroll_into_view_if_needed(timeout=5000)
                 target.hover(timeout=8000)
@@ -1132,12 +1160,13 @@ class ChatPage(BasePage):
     # ========== Tool approval level toggle ==========
 
     def get_approval_toggle(self) -> Locator:
-        """Locate the approval-level Tag in the composer (matches any level)."""
-        return (
-            self.page.locator("span.qwenpaw-tag")
-            .filter(has_text=self._APPROVAL_LABEL_RE)
-            .first
-        )
+        """Locate the approval-level trigger button in the composer.
+
+        Upstream #7334 replaced the antd Tag with a ``<button>`` carrying an
+        ``aria-label`` (localized approval-mode title); we anchor on that
+        attribute, exactly like upstream's own ApprovalToggle.test.tsx.
+        """
+        return self.page.locator(self.APPROVAL_TOGGLE).first
 
     def open_approval_menu(self) -> "ChatPage":
         """Click the approval Tag and wait for its dropdown to render."""
@@ -1183,16 +1212,29 @@ class ChatPage(BasePage):
     # ========== Sidebar date groups (upstream #5643) ==========
 
     def get_sidebar_group_header(self, group: str) -> Locator:
-        """Locator for one sidebar date-group header button.
+        """Locator for one sidebar date-bucket header.
 
         Args:
             group: bucket key — pinned / today / week / month / older.
+
+        Upstream re-architected the sidebar: date buckets now render as
+        non-collapsible ``SessionDateHeader`` rows carrying a
+        ``data-date-group`` attribute, nested inside collapsible user
+        groups.
         """
         en, zh = self.SIDEBAR_GROUP_TEXTS[group]
         return self.page.locator(
-            f'{self.SIDEBAR_GROUP_LABEL}:has-text("{en}"), '
-            f'{self.SIDEBAR_GROUP_LABEL}:has-text("{zh}")'
+            f'{self.SIDEBAR_DATE_LABEL}[data-date-group="{group}"], '
+            f'{self.SIDEBAR_DATE_LABEL}:has-text("{en}"), '
+            f'{self.SIDEBAR_DATE_LABEL}:has-text("{zh}")'
         ).first
+
+    def toggle_sidebar_user_group(self) -> "ChatPage":
+        """Click the first collapsible user-group header."""
+        logger.info("Toggling the first sidebar user group")
+        self.page.locator(self.SIDEBAR_GROUP_LABEL).first.click()
+        self.wait(300)
+        return self
 
     def toggle_sidebar_group(self, group: str) -> "ChatPage":
         """Click a sidebar group header to collapse / expand it."""

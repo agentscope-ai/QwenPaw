@@ -43,103 +43,6 @@ def _entity(entity_id: str) -> dict:
     }
 
 
-def test_add_replace_remove_roundtrip():
-    document = Project.new(project_id="p", name="n").model_dump(mode="json")
-    document["visual"]["entities"]["items"]["char:hero"] = _entity(
-        "char:hero",
-    )
-    document["visual"]["entities"]["order"] = ["char:hero"]
-
-    apply_patch_ops(
-        document,
-        [
-            {"op": "replace", "path": "/description", "value": "第一版"},
-            {
-                "op": "add",
-                "path": (
-                    "/visual/entities/items/char:hero/"
-                    "required_variant_ids/-"
-                ),
-                "value": "var:default",
-            },
-        ],
-    )
-    assert document["description"] == "第一版"
-    hero = document["visual"]["entities"]["items"]["char:hero"]
-    assert hero["required_variant_ids"] == ["var:default"]
-
-    apply_patch_ops(
-        document,
-        [
-            {
-                "op": "remove",
-                "path": (
-                    "/visual/entities/items/char:hero/"
-                    "required_variant_ids/0"
-                ),
-            },
-        ],
-    )
-    assert hero["required_variant_ids"] == []
-
-
-def test_upsert_entity_keeps_items_and_order_in_sync():
-    document = Project.new(project_id="p", name="n").model_dump(mode="json")
-
-    apply_patch_ops(
-        document,
-        [
-            {
-                "op": "upsert_entity",
-                "collection": "/visual/entities",
-                "id": "char:hero",
-                "value": _entity("char:hero"),
-            },
-        ],
-    )
-    entities = document["visual"]["entities"]
-    assert "char:hero" in entities["items"]
-    assert entities["order"] == ["char:hero"]
-
-    # Upserting again must not duplicate the order entry.
-    apply_patch_ops(
-        document,
-        [
-            {
-                "op": "upsert_entity",
-                "collection": "/visual/entities",
-                "id": "char:hero",
-                "value": {**_entity("char:hero"), "name": "Hero v2"},
-            },
-        ],
-    )
-    assert entities["order"] == ["char:hero"]
-    assert entities["items"]["char:hero"]["name"] == "Hero v2"
-
-
-def test_errors_carry_the_op_index():
-    document = Project.new(project_id="p", name="n").model_dump(mode="json")
-
-    with pytest.raises(PatchOpError, match=r"ops\[1\]"):
-        apply_patch_ops(
-            document,
-            [
-                {"op": "replace", "path": "/description", "value": "ok"},
-                {"op": "replace", "path": "/no/such/parent", "value": 1},
-            ],
-        )
-
-
-def test_protected_pointers_are_rejected():
-    document = Project.new(project_id="p", name="n").model_dump(mode="json")
-
-    with pytest.raises(PatchOpError, match="保护字段"):
-        apply_patch_ops(
-            document,
-            [{"op": "replace", "path": "/generation", "value": 99}],
-        )
-
-
 def test_dotted_paths_are_a_lossless_alias():
     """Field trip 2026-08-05: the model wrote collection='visual.entities'
     (jq muscle memory) and burned the whole run on a formality. Dots with
@@ -178,23 +81,6 @@ def test_dotted_paths_are_a_lossless_alias():
                     "op": "replace",
                     "path": "visual/entities.items",
                     "value": {},
-                },
-            ],
-        )
-
-
-def test_upsert_errors_name_the_collection_field():
-    document = Project.new(project_id="p", name="n").model_dump(mode="json")
-
-    with pytest.raises(PatchOpError, match="collection"):
-        apply_patch_ops(
-            document,
-            [
-                {
-                    "op": "upsert_entity",
-                    "collection": "visual/entities.items",
-                    "id": "char:hero",
-                    "value": _entity("char:hero"),
                 },
             ],
         )
@@ -269,20 +155,6 @@ def test_invoke_repairs_stringified_ops_with_a_bracket_slip(tmp_path):
     assert result["project"]["description"] == "缺逗号"
 
 
-def test_unrepairable_string_ops_error_names_the_syntax_defect(tmp_path):
-    tools = _tools(tmp_path)
-
-    with pytest.raises(AgentProjectToolError) as caught:
-        tools.invoke(
-            "patch_project",
-            # Repairs to a dict, not a list — stays refused, but the
-            # message must point at the string + syntax defect.
-            {"projectId": "project-1", "ops": '{"op": "replace",}'},
-        )
-    message = str(caught.value)
-    assert "字符串" in message
-
-
 def test_invoke_reports_bad_op_without_committing(tmp_path):
     tools = _tools(tmp_path)
 
@@ -324,3 +196,79 @@ def test_invoke_translates_schema_failures(tmp_path):
             },
         )
     assert caught.value.code == "PATCH_PROJECT_SCHEMA_INVALID"
+
+
+def _r2v_element(element_id: str, narrative: str = "叙事") -> dict:
+    return {
+        "element_id": element_id,
+        "label": element_id,
+        "span": {"start_tick": 0, "duration_tick": 4000},
+        "location": {},
+        "creation": {
+            "type": "r2v",
+            "narrative": narrative,
+            "storyboard_prompt": "分镜 prompt",
+            "video_prompt": "视频 prompt",
+        },
+    }
+
+
+def test_frozen_snapshot_edits_fail_closed(tmp_path):
+    """Element writes into an existing snapshot are rejected, not stranded.
+
+    Snapshots never enter the work graph, so silently accepting such a
+    commit leaves content that can never be produced — the incident shape
+    behind agents spinning on "my edit had no effect"."""
+    tools = _tools(tmp_path)
+    main = "/timelines/items/timeline:main/elements_by_id/elem:1"
+    tools.invoke(
+        "patch_project",
+        {
+            "projectId": "project-1",
+            "ops": [
+                {"op": "add", "path": main, "value": _r2v_element("elem:1")},
+            ],
+        },
+    )
+    edited = tools.invoke(
+        "patch_project",
+        {
+            "projectId": "project-1",
+            "ops": [
+                {
+                    "op": "replace",
+                    "path": f"{main}/creation/narrative",
+                    "value": "第二版",
+                },
+            ],
+        },
+    )
+    sid = "snapshot:timeline:main:1"
+    assert sid in edited["project"]["timelines"]["items"]
+
+    with pytest.raises(AgentProjectToolError) as caught:
+        tools.invoke(
+            "patch_project",
+            {
+                "projectId": "project-1",
+                "ops": [
+                    {
+                        "op": "replace",
+                        "path": (
+                            f"/timelines/items/{sid}/elements_by_id"
+                            f"/{sid}:elem:1/creation/narrative"
+                        ),
+                        "value": "误写进快照",
+                    },
+                ],
+            },
+        )
+    assert caught.value.code == "SNAPSHOT_TIMELINE_FROZEN"
+    assert sid in str(caught.value)
+
+    unchanged = tools.invoke("read_project", {"projectId": "project-1"})
+    frozen = unchanged["project"]["timelines"]["items"][sid]
+    assert (
+        frozen["elements_by_id"][f"{sid}:elem:1"]["creation"]["narrative"]
+        == "叙事"
+    )

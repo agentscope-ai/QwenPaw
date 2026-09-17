@@ -4,10 +4,11 @@
  * Does NOT handle the silent pre-restore case — see SilentBackupModal for that.
  */
 import { useState } from "react";
-import { Modal, Input, Alert, Space } from "antd";
+import { Modal, Input, Alert, Button, Space } from "antd";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import type { AgentSummary } from "@/api/types/agents";
+import type { BackupJobSnapshot } from "@/api/types/backup";
 import { useBackupRunner } from "../shared/useBackupRunner";
 import { buildScope, defaultCreateScope } from "../shared/scope";
 import BackupProgress from "./BackupProgress";
@@ -20,6 +21,7 @@ interface Props {
   agents: AgentSummary[];
   onClose: () => void;
   onSuccess: () => void;
+  resumeJob?: BackupJobSnapshot | null;
 }
 
 export default function CreateBackupModal({
@@ -27,6 +29,7 @@ export default function CreateBackupModal({
   agents,
   onClose,
   onSuccess,
+  resumeJob,
 }: Props) {
   const { t } = useTranslation();
   const [name, setName] = useState("");
@@ -40,6 +43,10 @@ export default function CreateBackupModal({
   /** Resets form and runner state each time the modal opens for a fresh session. */
   const handleAfterOpenChange = (visible: boolean) => {
     if (visible) {
+      if (resumeJob) {
+        runner.resume(resumeJob);
+        return;
+      }
       setName(`Backup ${dayjs().format("YYYY-MM-DD HH:mm")}`);
       setDescription("");
       setScope(defaultCreateScope(agents.map((a) => a.id)));
@@ -79,6 +86,13 @@ export default function CreateBackupModal({
       }
       cancelText={t("common.cancel")}
       okText={t("common.confirm")}
+      footer={
+        runner.loading ? (
+          <Button danger onClick={runner.cancel}>
+            {t("common.cancel")}
+          </Button>
+        ) : undefined
+      }
       destroyOnHidden
       afterOpenChange={handleAfterOpenChange}
       centered

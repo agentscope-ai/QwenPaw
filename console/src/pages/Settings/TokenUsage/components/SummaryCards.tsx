@@ -1,22 +1,29 @@
 import { Card } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
+import { cacheHitRate, formatPercent } from "../../../../utils/cacheUsage";
 import styles from "../index.module.less";
 
 interface SummaryCardsProps {
   totalCalls: number;
   totalPromptTokens: number;
   totalCompletionTokens: number;
-  totalTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheEligibleInputTokens: number;
 }
 
 export function SummaryCards({
   totalCalls,
   totalPromptTokens,
   totalCompletionTokens,
-  totalTokens,
+  totalCacheReadTokens,
+  totalCacheEligibleInputTokens,
 }: SummaryCardsProps) {
   const { t } = useTranslation();
+  const hitRate = cacheHitRate(
+    totalCacheReadTokens,
+    totalCacheEligibleInputTokens,
+  );
 
   return (
     <div className={styles.summaryCards}>
@@ -32,15 +39,21 @@ export function SummaryCards({
       </Card>
       <Card className={styles.card}>
         <div className={styles.cardValue}>
+          {formatCompact(totalCacheReadTokens)}
+        </div>
+        <div className={styles.cardLabel}>{t("tokenUsage.cacheRead")}</div>
+      </Card>
+      <Card className={styles.card}>
+        <div className={styles.cardValue}>{formatPercent(hitRate)}</div>
+        <div className={styles.cardLabel}>{t("tokenUsage.cacheHitRate")}</div>
+      </Card>
+      <Card className={styles.card}>
+        <div className={styles.cardValue}>
           {formatCompact(totalCompletionTokens)}
         </div>
         <div className={styles.cardLabel}>
           {t("tokenUsage.completionTokens")}
         </div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>{formatCompact(totalTokens)}</div>
-        <div className={styles.cardLabel}>{t("tokenUsage.totalTokens")}</div>
       </Card>
     </div>
   );

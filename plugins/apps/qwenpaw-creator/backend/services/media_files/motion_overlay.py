@@ -72,6 +72,10 @@ _FRAME_RING_MARK = re.compile(
     r"""data-motion-frame\s*=\s*["']ring["']""",
     re.IGNORECASE,
 )
+_FRAME_WINDOW_MARK = re.compile(
+    r"""data-motion-window\s*=\s*["']([^"']+)["']""",
+    re.IGNORECASE,
+)
 _LOOP_SEAM_MAX_CHANGED_FRACTION = 0.05
 # Static detection compares every probe frame against t=0 and must stay far
 # below any real motion: a genuinely frozen document measures ~0.0002 mean
@@ -802,6 +806,59 @@ def _alpha_plane_stats(
     )
 
 
+def _declared_frame_window(
+    html: str,
+) -> tuple[float, float, float, float] | None:
+    """Parse the normalized transparent window declared by a ring blueprint.
+
+    Older documents carry only ``data-motion-frame=ring`` and keep the legacy
+    centered 44% truth gate. New asymmetric product frames declare their exact
+    window so the gate verifies the pixels that the wrapped footage uses.
+    """
+
+    match = _FRAME_WINDOW_MARK.search(html)
+    if match is None:
+        return None
+    try:
+        left, top, width, height = (
+            float(value.strip()) for value in match.group(1).split(",")
+        )
+    except (TypeError, ValueError):
+        return None
+    if left < 0.0 or top < 0.0 or width <= 0.0 or height <= 0.0:
+        return None
+    if left + width > 1.0 or top + height > 1.0:
+        return None
+    return left, top, width, height
+
+
+def _window_alpha_fraction(
+    plane: bytes,
+    width: int,
+    height: int,
+    window: tuple[float, float, float, float],
+) -> float:
+    """Visible alpha inside one declared window, excluding its border ring."""
+
+    left, top, window_width, window_height = window
+    x0 = round(width * left)
+    x1 = round(width * (left + window_width))
+    y0 = round(height * top)
+    y1 = round(height * (top + window_height))
+    inset_x = max(1, round((x1 - x0) * 0.04))
+    inset_y = max(1, round((y1 - y0) * 0.04))
+    x0, x1 = x0 + inset_x, x1 - inset_x
+    y0, y1 = y0 + inset_y, y1 - inset_y
+    total = max(1, (x1 - x0) * (y1 - y0))
+    visible = sum(
+        1
+        for row in range(y0, y1)
+        for byte in plane[row * width + x0 : row * width + x1]
+        if byte > 16
+    )
+    return visible / total
+
+
 def _frame_alpha_stats(
     frame: Path,
     ffmpeg_path: str,
@@ -1031,6 +1088,7 @@ def _verify_captured_frames(
     ffmpeg_path: str,
     full_canvas: bool = False,
     frame_ring: bool = False,
+    frame_window: tuple[float, float, float, float] | None = None,
     max_edge_contact: float | None = None,
 ) -> str | None:
     """Post-render truth gate over the captured output frames.
@@ -1097,6 +1155,36 @@ def _verify_captured_frames(
                 f"动效渲染真值自查失败: 第 {index} 帧可见内容越出透明盒边缘"
                 f"（边缘接触率 {edge:.0%}），拒绝入库"
             )
+        if frame_ring and frame_window is not None:
+            frame_path = frames_dir / f"{index:05d}.png"
+            try:
+                result = subprocess.run(
+                    [
+                        ffmpeg_path,
+                        "-v",
+                        "error",
+                        "-i",
+                        os.fspath(frame_path),
+                        "-vf",
+                        "alphaextract",
+                        "-f",
+                        "rawvideo",
+                        "-pix_fmt",
+                        "gray",
+                        "-",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    timeout=_FFMPEG_TIMEOUT_SECONDS,
+                )
+                center = _window_alpha_fraction(
+                    result.stdout,
+                    box_width,
+                    box_height,
+                    frame_window,
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
         if frame_ring and center > 0.05:
             return (
                 f"动效渲染真值自查失败: ring 框文档的中心窗口必须保持透明"
@@ -1644,6 +1732,7 @@ def prepare_motion_layer(
     # their root with data-motion-frame="ring" and the capture truth gate
     # swaps the edge rule for the transparent-center rule.
     frame_ring = bool(_FRAME_RING_MARK.search(html))
+    frame_window = _declared_frame_window(html) if frame_ring else None
     try:
         engine_fields = _engine_job_fields(html, doc_format)
         engine_salt = _engine_salt(html, doc_format)
@@ -1774,6 +1863,7 @@ def prepare_motion_layer(
             frame_identity
             + ("|full_canvas" if full_canvas else "")
             + ("|ring" if frame_ring else "")
+            + (f"|window{frame_window}" if frame_window is not None else "")
             + (
                 ""
                 if max_edge_contact is None
@@ -1831,6 +1921,7 @@ def prepare_motion_layer(
                 ffmpeg_path=ffmpeg_path,
                 full_canvas=full_canvas,
                 frame_ring=frame_ring,
+                frame_window=frame_window,
                 max_edge_contact=max_edge_contact,
             )
         if error is not None:

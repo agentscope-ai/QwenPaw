@@ -33,7 +33,7 @@ import secrets
 import stat
 import threading
 import weakref
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, ParamSpec, TextIO, TypeVar
 
@@ -92,6 +92,28 @@ def get_sync_path_lock(path: Path | str) -> threading.RLock:
         return lock
 
 
+async def _wait_for_task_completion(task: asyncio.Future[_R]) -> _R:
+    """Wait for a protected task before propagating cancellation."""
+    cancellation_requested = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancellation_requested = True
+        except BaseException:
+            if not cancellation_requested:
+                raise
+            break
+
+    if cancellation_requested:
+        try:
+            task.result()
+        except BaseException:
+            pass
+        raise asyncio.CancelledError
+    return task.result()
+
+
 async def run_sync_io(
     operation: Callable[_P, _R],
     /,
@@ -108,17 +130,16 @@ async def run_sync_io(
     task = asyncio.create_task(
         asyncio.to_thread(operation, *args, **kwargs),
     )
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        # A worker thread cannot be cancelled. Wait for it before allowing
-        # the caller to release a path or domain lock; otherwise another
-        # coroutine could overlap the still-running filesystem operation.
-        try:
-            await task
-        except BaseException:
-            pass
-        raise
+    # A worker thread cannot be cancelled. Wait for it before allowing the
+    # caller to release a path or domain lock; otherwise another coroutine
+    # could overlap the still-running filesystem operation.
+    return await _wait_for_task_completion(task)
+
+
+async def run_async_to_completion(operation: Awaitable[_R]) -> _R:
+    """Complete an async operation before propagating cancellation."""
+    task = asyncio.ensure_future(operation)
+    return await _wait_for_task_completion(task)
 
 
 def _read_text(
@@ -495,6 +516,7 @@ __all__ = [
     "read_json",
     "read_json_async",
     "read_text_async",
+    "run_async_to_completion",
     "run_sync_io",
     "unlink_async",
     "write_bytes_async",

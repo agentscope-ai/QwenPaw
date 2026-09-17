@@ -4,6 +4,7 @@ import type { AgentSummary } from "../api/types/agents";
 import { agentsApi } from "../api/modules/agents";
 import { menuRegistry } from "../plugins/registry/store";
 import { getAgentIdFromPath } from "../utils/sessionRoute";
+import { stripRouterBasename } from "../utils/navigationMode";
 
 /**
  * Storage key used by both sessionStorage (per-tab state) and localStorage
@@ -41,7 +42,7 @@ interface AgentStore {
 function getAgentIdFromWindowPath(): string | undefined {
   if (typeof window === "undefined") return undefined;
   try {
-    return getAgentIdFromPath(window.location.pathname);
+    return getAgentIdFromPath(stripRouterBasename(window.location.pathname));
   } catch {
     return undefined;
   }
@@ -55,14 +56,26 @@ function patchStoredSelectedAgent(agentId: string): void {
     /* ignore */
   }
   for (const storage of [sessionStorage, localStorage]) {
+    let parsed: { state?: Record<string, unknown>; version?: number };
     try {
       const raw = storage.getItem(STORAGE_KEY);
-      if (!raw) continue;
-      const parsed = JSON.parse(raw) as { state?: { selectedAgent?: string } };
-      if (parsed?.state) {
-        parsed.state.selectedAgent = agentId;
-        storage.setItem(STORAGE_KEY, JSON.stringify(parsed));
-      }
+      const value: unknown = raw ? JSON.parse(raw) : null;
+      parsed =
+        value && typeof value === "object" && !Array.isArray(value)
+          ? (value as { state?: Record<string, unknown>; version?: number })
+          : { state: {}, version: 0 };
+    } catch {
+      parsed = { state: {}, version: 0 };
+    }
+    const state =
+      parsed.state &&
+      typeof parsed.state === "object" &&
+      !Array.isArray(parsed.state)
+        ? parsed.state
+        : {};
+    parsed.state = { ...state, selectedAgent: agentId };
+    try {
+      storage.setItem(STORAGE_KEY, JSON.stringify(parsed));
     } catch {
       /* ignore */
     }

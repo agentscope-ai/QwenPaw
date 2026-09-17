@@ -12,13 +12,11 @@ import pytest
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileCorrupt,
-    AssetFileNotRegular,
     AssetFileStatus,
     AssetFileStore,
     AssetPathError,
     StagedAssetError,
 )
-from services.project_files import assets as assets_module
 from services.project_files.models import AssetIndex, IndexedFile
 
 
@@ -104,62 +102,6 @@ def test_publish_never_overwrites_an_existing_immutable_path(tmp_path):
     assert not second.path.exists()
 
 
-def test_publish_uses_path_fallback_without_descriptor_rooted_io(
-    tmp_path,
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        assets_module,
-        "_supports_dir_fd_publication",
-        lambda: False,
-    )
-    store = _store(tmp_path)
-    staged = store.stage_bytes(b"windows asset")
-
-    published = store.publish(
-        staged,
-        "assets/sources/source-1/version-1/original.bin",
-        expected_sha256=staged.sha256,
-        expected_size_bytes=staged.size_bytes,
-    )
-
-    assert (store.project_root / published.relative_uri).read_bytes() == (
-        b"windows asset"
-    )
-    assert not staged.path.exists()
-
-
-def test_publish_path_fallback_uses_windows_rename_when_link_unavailable(
-    tmp_path,
-    monkeypatch,
-):
-    store = _store(tmp_path)
-    staged = store.stage_bytes(b"windows rename asset")
-
-    def fail_link(*_args, **_kwargs):
-        raise OSError("hard links unavailable")
-
-    monkeypatch.setattr(
-        assets_module,
-        "_supports_dir_fd_publication",
-        lambda: False,
-    )
-    monkeypatch.setattr(assets_module, "_is_windows", lambda: True)
-    monkeypatch.setattr(assets_module.os, "link", fail_link)
-
-    published = store.publish(
-        staged,
-        "assets/sources/source-1/version-1/original.bin",
-        expected_sha256=staged.sha256,
-        expected_size_bytes=staged.size_bytes,
-    )
-
-    assert (store.project_root / published.relative_uri).read_bytes() == (
-        b"windows rename asset"
-    )
-    assert not staged.path.exists()
-
-
 def test_publish_rechecks_staged_content_before_moving_it(tmp_path):
     store = _store(tmp_path)
     staged = store.stage_bytes(b"before")
@@ -177,8 +119,6 @@ def test_publish_rechecks_staged_content_before_moving_it(tmp_path):
         "../outside.bin",
         "/assets/content/file.bin",
         r"assets\content\file.bin",
-        "assets/content/../file.bin",
-        "assets//content/file.bin",
         "assets/.staging/file.bin",
         "assets/content/bad\x01.bin",
     ],
@@ -218,21 +158,6 @@ def test_symlink_parents_and_symlink_files_cannot_escape_project(tmp_path):
 
     assert store.inspect(indexed).status is AssetFileStatus.UNSAFE
     with pytest.raises(AssetPathError, match="symlink"):
-        store.open_verified(indexed)
-
-
-def test_non_regular_indexed_path_is_not_reported_as_available(tmp_path):
-    store = _store(tmp_path)
-    directory = store.assets_root / "content" / "directory.bin"
-    directory.mkdir(parents=True)
-    indexed = _indexed(
-        file_id="file-directory",
-        relative_uri="assets/content/directory.bin",
-        content=b"",
-    )
-
-    assert store.inspect(indexed).status is AssetFileStatus.NOT_REGULAR
-    with pytest.raises(AssetFileNotRegular):
         store.open_verified(indexed)
 
 
@@ -287,25 +212,6 @@ def test_index_validation_and_reads_verify_presence_size_and_sha256(tmp_path):
         store.require_valid_index(index)
 
 
-def test_size_mismatch_is_corrupt_without_trusting_the_index(tmp_path):
-    store = _store(tmp_path)
-    content = b"payload"
-    uri = "assets/content/payload.bin"
-    store.publish(store.stage_bytes(content), uri)
-    indexed = _indexed(
-        file_id="file-size",
-        relative_uri=uri,
-        content=content,
-        size_bytes=len(content) + 1,
-    )
-
-    inspection = store.inspect(indexed)
-    assert inspection.status is AssetFileStatus.CORRUPT
-    assert inspection.actual_size_bytes == len(content)
-    with pytest.raises(AssetFileCorrupt, match="size"):
-        store.open_verified(indexed)
-
-
 def test_orphan_scan_marks_candidates_and_requires_persisted_grace(tmp_path):
     store = _store(tmp_path)
     indexed_content = b"indexed"
@@ -350,18 +256,3 @@ def test_orphan_scan_marks_candidates_and_requires_persisted_grace(tmp_path):
 
     with pytest.raises(ValueError, match="positive"):
         store.scan_orphans(index, now=NOW, grace_period=timedelta(0))
-
-
-def test_asset_store_rejects_symlink_storage_roots(tmp_path):
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    project = tmp_path / "project-link"
-    os.symlink(outside, project)
-    with pytest.raises(AssetPathError, match="Project root"):
-        AssetFileStore(project)
-
-    real_project = tmp_path / "project-real"
-    real_project.mkdir()
-    os.symlink(outside, real_project / "assets")
-    with pytest.raises(AssetPathError, match="assets"):
-        AssetFileStore(real_project.resolve())

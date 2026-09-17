@@ -9,17 +9,17 @@
  */
 import { hostFetch } from "../hostSdk/fetch";
 import type { PawTaskEventHandler, PawTaskHandle } from "./types";
-import { getApiUrl } from "../../api/config";
-import { buildAuthHeaders } from "../../api/authHeaders";
+import { normalizeAppId, normalizeAppRelativePath } from "./scope";
 
 /**
  * Create a PawTask — posts to backend to start task, then connects
  * to SSE stream for realtime events.
  */
-export function createPawTask(
+function createPawTaskWithScope(
   appId: string,
   path: string,
   params?: unknown,
+  strictScope = false,
 ): PawTaskHandle {
   const listeners = new Map<string, Set<PawTaskEventHandler>>();
   let taskId = "";
@@ -50,9 +50,14 @@ export function createPawTask(
   (async () => {
     try {
       // POST to create task
-      const normalized = path.startsWith("/") ? path : `/${path}`;
+      const normalizedAppId = strictScope ? normalizeAppId(appId) : appId;
+      const normalized = strictScope
+        ? normalizeAppRelativePath(path)
+        : path.startsWith("/")
+        ? path
+        : `/${path}`;
       // Use unified route: /{appId}/... -> /api/{appId}/... via getApiUrl
-      const createRes = await hostFetch(`/${appId}${normalized}`, {
+      const createRes = await hostFetch(`/${normalizedAppId}${normalized}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: params != null ? JSON.stringify(params) : undefined,
@@ -74,14 +79,15 @@ export function createPawTask(
 
       // Connect to SSE stream using fetch-based approach
       // (EventSource doesn't support custom auth headers)
-      const streamUrl = getApiUrl(`/${appId}/task/${taskId}/stream`);
-      const sseRes = await fetch(streamUrl, {
-        headers: {
-          ...buildAuthHeaders(),
-          Accept: "text/event-stream",
+      const sseRes = await hostFetch(
+        `/${normalizedAppId}/task/${encodeURIComponent(taskId)}/stream`,
+        {
+          headers: {
+            Accept: "text/event-stream",
+          },
+          signal: abortController?.signal,
         },
-        signal: abortController?.signal,
-      });
+      );
 
       if (!sseRes.ok || !sseRes.body) {
         throw new Error(`SSE connection failed: ${sseRes.status}`);
@@ -161,4 +167,22 @@ export function createPawTask(
   };
 
   return handle;
+}
+
+/** Legacy path-compatible task factory. */
+export function createPawTask(
+  appId: string,
+  path: string,
+  params?: unknown,
+): PawTaskHandle {
+  return createPawTaskWithScope(appId, path, params, false);
+}
+
+/** @internal Strict task factory used by permanent app-scoped handles. */
+export function createScopedPawTask(
+  appId: string,
+  path: string,
+  params?: unknown,
+): PawTaskHandle {
+  return createPawTaskWithScope(appId, path, params, true);
 }

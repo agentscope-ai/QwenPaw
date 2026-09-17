@@ -36,8 +36,41 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+from qwenpaw.schemas import FileContent
 
 from tests.fixtures.channels.mock_http import MockAiohttpSession
+
+
+@pytest.mark.parametrize("source_type", ["data", "path", "file_url"])
+async def test_file_display_name_survives_send_pipeline(
+    wechat_channel,
+    mock_ilink_client,
+    tmp_path,
+    source_type,
+):
+    """Data URLs use supplied names; local sources keep their basenames."""
+    local_file = tmp_path / "local.pdf"
+    local_file.write_bytes(b"pdf-data")
+    sources = {
+        "data": "data:application/pdf;base64,cGRmLWRhdGE=",
+        "path": str(local_file),
+        "file_url": local_file.as_uri(),
+    }
+    wechat_channel._client = mock_ilink_client
+    await wechat_channel._send_content_parts_immediate(
+        "recipient",
+        [FileContent(file_url=sources[source_type], filename="report.pdf")],
+        {
+            "wechat_from_user_id": "recipient",
+            "wechat_context_token": "context",
+        },
+    )
+
+    args = mock_ilink_client.send_file.call_args.args
+    expected = "report.pdf" if source_type == "data" else "local.pdf"
+    assert args[2] == expected
+    assert local_file.read_bytes() == b"pdf-data"
+    assert not list(wechat_channel._media_dir.iterdir())
 
 
 # =============================================================================

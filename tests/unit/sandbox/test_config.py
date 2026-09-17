@@ -4,8 +4,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from qwenpaw.sandbox import (
     MountSpec,
@@ -55,6 +56,34 @@ class TestSandboxConfigDefaults:
         assert rule.port == 8080
         assert rule.direction == "connect"
         assert rule.allow is True
+
+
+class TestMacOSSandboxExecution:
+    """Test macOS sandbox process configuration."""
+
+    def test_execute_redirects_stdin_to_devnull(self):
+        """Seatbelt commands must not inherit the parent console stdin."""
+        sandbox = MacOSSandbox(
+            SandboxConfig(
+                mode=SandboxMode.SEATBELT,
+                workspace_dir="/tmp/ws",
+            ),
+        )
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"ok", b""))
+
+        with patch(
+            "qwenpaw.sandbox.macos_sandbox.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ) as create_process:
+            result = asyncio.run(sandbox.execute("echo ok"))
+
+        assert result.exit_code == 0
+        assert (
+            create_process.call_args.kwargs["stdin"]
+            is asyncio.subprocess.DEVNULL
+        )
 
 
 # ============================================================================

@@ -19,6 +19,8 @@ import logging
 import uuid
 from typing import Any, AsyncGenerator
 
+from ..agents.acp.meta import ACP_EPHEMERAL_META_KEY
+from ..exceptions import ConfigurationException
 from .builder import AgentBuilder
 from .envelope import Envelope
 from .executor import AgentExecutor
@@ -164,6 +166,19 @@ class Runtime:
             async for ev in envelope.cancel_envelope():
                 yield ev
             raise
+        except ConfigurationException as e:
+            ctx.error = e
+            logger.info(
+                "runtime: configuration required session=%s code=%s",
+                getattr(ctx, "session_id", ""),
+                e.error_code or "CONFIGURATION_REQUIRED",
+            )
+            async for ev in envelope.error_envelope(
+                e.message or str(e),
+                e.error_code or "CONFIGURATION_REQUIRED",
+            ):
+                yield ev
+            raise
         except BaseException as e:
             await self._try_save_on_cancel(ctx)
 
@@ -240,19 +255,28 @@ class Runtime:
            This runs *outside* the ``try/except`` that wraps
            ``hooks.run(Phase.ON_ERROR)``, so it executes even when
            re-cancellation skips all ON_ERROR hooks.  The synchronous
-           parts (inject + state_dict) complete before any ``await``,
+           parts (inject + restore + state_dict) complete before any ``await``,
            and ``asyncio.shield`` protects the I/O — guarantees that a
            generic hook framework cannot provide.
 
-        TODO: Currently only ``SessionSaveHook`` has a cancel-path
-         equivalent here.  Other ``POST_RESPONSE`` hooks (e.g.
-         ``CronMemoryRestoreHook``) and plugin-registered hooks are
+        TODO: Session saving and cron history restoration have cancel-path
+         equivalents here. Other ``POST_RESPONSE`` and plugin hooks are
          skipped on /stop.  A future improvement should unify the
          cancel and normal paths — e.g. via a dedicated ``ON_CANCEL``
          phase with per-hook shield execution — so plugins can
          participate in the cancel lifecycle.  ``ctx._envelope`` should
          also be promoted to a first-class ``HookContext`` field.
         """
+        request = getattr(ctx, "request", None)
+        request_context = getattr(request, "request_context", None)
+        if isinstance(request_context, dict):
+            ephemeral = request_context.get(ACP_EPHEMERAL_META_KEY)
+            if ephemeral is True or (
+                isinstance(ephemeral, str)
+                and ephemeral.lower() in {"1", "true", "yes"}
+            ):
+                return
+
         agent = getattr(ctx, "agent", None)
         if agent is None:
             return
@@ -265,8 +289,10 @@ class Runtime:
             if envelope is not None:
                 self._inject_partial_response(agent, envelope)
 
+            from ..hooks.cron.cron_hook import restore_cron_context
             from ._state_utils import StateProxy
 
+            restore_cron_context(ctx)
             proxy = StateProxy()
             proxy.data = agent.state_dict()
             request = ctx.request

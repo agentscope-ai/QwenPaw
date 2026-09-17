@@ -19,7 +19,6 @@ import {
   Archive,
   Mic,
   Bug,
-  Package,
   SlidersHorizontal,
   type LucideIcon,
 } from "lucide-react";
@@ -92,12 +91,6 @@ const SETTINGS_ITEMS: SettingsItem[] = [
     labelKey: "nav.debug",
     fallback: "Debug",
     Icon: Bug,
-  },
-  {
-    routeId: "core.plugin-manager",
-    labelKey: "nav.pluginManager",
-    fallback: "Plugin Manager",
-    Icon: Package,
   },
 ];
 

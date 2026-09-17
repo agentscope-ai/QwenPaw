@@ -49,6 +49,7 @@ from .setup_utils import (
     copy_md_files,
     copy_template_md_files,
     copy_workspace_md_files,
+    ensure_workspace_md_file,
     normalize_agent_language,
 )
 
@@ -94,6 +95,7 @@ __all__ = [
     "copy_md_files",
     "copy_template_md_files",
     "copy_workspace_md_files",
+    "ensure_workspace_md_file",
     # Setup utilities
     "normalize_agent_language",
     # Context stats

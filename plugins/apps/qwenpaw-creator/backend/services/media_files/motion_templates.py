@@ -75,9 +75,14 @@ def render_caption_template(
 
     theme = theme if theme in SUPPORTED_THEMES else "comic_patrol"
     emotion = emotion if emotion in SUPPORTED_EMOTIONS else "chill"
-    safe_text = escape(text.strip())
-    text_length = len(text.strip())
-    font_size = _compute_caption_font_size(text_length, box_width, box_height)
+    safe_text = "<br>".join(escape(line) for line in text.strip().splitlines())
+    lines = [line for line in text.strip().splitlines() if line.strip()]
+    max_line_length = max((len(line) for line in lines), default=1)
+    font_size = _compute_caption_font_size(
+        max_line_length,
+        box_width,
+        box_height,
+    )
     palettes = {
         "comic_patrol": ("#fff8df", "#231f1a", "#ff9a2f"),
         "soft_journal": ("#fffaf2", "#55473d", "#e99e88"),
@@ -97,7 +102,7 @@ html,body{{width:100%;height:100%;margin:0;background:transparent;overflow:hidde
 .card{{position:relative;width:100%;height:88%;display:flex;align-items:center;justify-content:center;padding:7% 9%;background:{background};color:{ink};border:clamp(3px,1.8vh,8px) solid {ink};border-radius:24% 22% 24% 18%;box-shadow:1.8vh 2vh 0 color-mix(in srgb,{ink} 28%,transparent);animation:{ambient} 2.8s ease-in-out .45s infinite alternate;overflow:hidden}}
 .card:before{{content:'';position:absolute;left:9%;top:11%;width:18%;height:6%;border-radius:999px;background:{accent};transform:rotate(-8deg)}}
 .text{{position:relative;z-index:1;width:100%;max-height:100%;font-family:Impact,"Arial Black","PingFang SC",sans-serif;font-size:{font_size}vh;font-weight:900;line-height:1.08;text-align:center;overflow-wrap:anywhere;text-wrap:balance;text-shadow:.25vh .25vh 0 color-mix(in srgb,{accent} 65%,transparent)}}
-@keyframes enter{{0%{{opacity:0;transform:scale(.7) rotate(-4deg)}}70%{{opacity:1;transform:scale(1.04) rotate(1deg)}}100%{{transform:scale(1)}}}}
+@keyframes enter{{0%{{opacity:.25;transform:scale(.7) rotate(-4deg)}}70%{{opacity:1;transform:scale(1.04) rotate(1deg)}}100%{{transform:scale(1)}}}}
 @keyframes float{{to{{transform:translateY(-2%)}}}}
 @keyframes tilt{{to{{transform:rotate(2deg) translateY(-1%)}}}}
 @keyframes pulse{{to{{transform:scale(1.025)}}}}
@@ -144,10 +149,10 @@ html,body{{width:100%;height:100%;margin:0;background:transparent;overflow:hidde
 {motif_css}
 {_THEME_CSS[theme]}
 {_VARIANT_CSS[variant]}
-@keyframes enter-pop{{from{{opacity:0;transform:scale(.68)}}to{{opacity:1;transform:scale(1)}}}}
-@keyframes enter-stamp{{0%{{opacity:0;transform:scale(1.35) rotate(-7deg)}}70%{{opacity:1;transform:scale(.94) rotate(2deg)}}100%{{transform:scale(1)}}}}
-@keyframes enter-draw_in{{from{{opacity:0;clip-path:inset(0 100% 0 0)}}to{{opacity:1;clip-path:inset(0)}}}}
-@keyframes enter-slide{{from{{opacity:0;transform:translateX(-18%)}}to{{opacity:1;transform:translateX(0)}}}}
+@keyframes enter-pop{{from{{opacity:.25;transform:scale(.68)}}to{{opacity:1;transform:scale(1)}}}}
+@keyframes enter-stamp{{0%{{opacity:.25;transform:scale(1.35) rotate(-7deg)}}70%{{opacity:1;transform:scale(.94) rotate(2deg)}}100%{{transform:scale(1)}}}}
+@keyframes enter-draw_in{{from{{opacity:.25;clip-path:inset(0 100% 0 0)}}to{{opacity:1;clip-path:inset(0)}}}}
+@keyframes enter-slide{{from{{opacity:.25;transform:translateX(-18%)}}to{{opacity:1;transform:translateX(0)}}}}
 @keyframes ambient-chill{{to{{transform:translateY(-3px);opacity:.9}}}}
 @keyframes ambient-curious{{to{{transform:translateY(-2px) rotate(3deg)}}}}
 @keyframes ambient-surprise{{to{{transform:scale(calc(.96 + var(--intensity) * .04))}}}}
@@ -171,12 +176,12 @@ _VARIANT_CSS = {
 _MOTIFS: dict[str, tuple[str, str]] = {
     "paw_trail": (
         """
-.paw{width:23%;aspect-ratio:1;opacity:0;filter:drop-shadow(3px 3px 0 color-mix(in srgb,var(--secondary) 35%,transparent));animation:paw-appear .36s cubic-bezier(.2,.85,.2,1) forwards}
+.paw{width:23%;aspect-ratio:1;opacity:.25;filter:drop-shadow(3px 3px 0 color-mix(in srgb,var(--secondary) 35%,transparent));animation:paw-appear .36s cubic-bezier(.2,.85,.2,1) forwards}
 .pad,.toe{position:absolute;background:var(--primary)}
 .pad{left:20%;bottom:4%;width:60%;height:51%;border-radius:52% 52% 44% 44%}
 .toe{width:20%;height:20%;border-radius:50%}.t1{left:2%;top:28%}.t2{left:27%;top:7%}.t3{right:27%;top:3%}.t4{right:2%;top:24%}
-.p1{left:2%;bottom:2%;transform:rotate(-16deg);animation-delay:.08s}.p2{left:39%;top:31%;transform:rotate(6deg);animation-delay:.38s}.p3{right:1%;top:4%;transform:rotate(20deg);animation-delay:.68s}
-@keyframes paw-appear{0%{opacity:0;scale:.55}72%{opacity:1;scale:1.08}100%{opacity:1;scale:1}}
+.p1{left:2%;bottom:2%;transform:rotate(-16deg)}.p2{left:39%;top:31%;transform:rotate(6deg);animation-delay:.38s}.p3{right:1%;top:4%;transform:rotate(20deg);animation-delay:.68s}
+@keyframes paw-appear{0%{opacity:.25;scale:.55}72%{opacity:1;scale:1.08}100%{opacity:1;scale:1}}
 """,
         """<i class="shape paw p1"><b class="pad"></b><b class="toe t1"></b><b class="toe t2"></b><b class="toe t3"></b><b class="toe t4"></b></i><i class="shape paw p2"><b class="pad"></b><b class="toe t1"></b><b class="toe t2"></b><b class="toe t3"></b><b class="toe t4"></b></i><i class="shape paw p3"><b class="pad"></b><b class="toe t1"></b><b class="toe t2"></b><b class="toe t3"></b><b class="toe t4"></b></i>""",
     ),

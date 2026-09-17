@@ -18,14 +18,11 @@ Covers 13 P0 endpoints across five domains:
 from __future__ import annotations
 
 import io
-import time
 import zipfile
 
-import httpx
 import pytest
 
 from tests.integration.helpers import (
-    LOADER_READY_TIMEOUT,
     OFFICIAL_PLUGINS_DIR,
     PLUGIN_HTTP_TIMEOUT,
     clean_inbox,
@@ -147,18 +144,18 @@ def test_plugins_uninstall_unknown(app_server) -> None:
 @pytest.mark.p0
 def test_plugins_install_real_via_agentscoped(app_server) -> None:
     """Test purpose:
-    - Verify a real plugin (bundled ``cloudpaw``) can be installed and
-      uninstalled through the agent-scoped path. This is the happy-path
-      proof that the agent-scoped routing delivers to the full install
+    - Verify a real dependency-free plugin can be installed and uninstalled
+      through the agent-scoped path. This is the happy-path proof that the
+      agent-scoped routing delivers to the full install
       pipeline (hot-load → list → unload).
 
     Test flow:
     1. Wait for plugin loader readiness.
     2. POST /api/agents/default/plugins/install with the local
-       cloudpaw bundle source.
-    3. Assert 200, ``id == "cloudpaw"``, ``loaded == True``.
-    4. GET /api/agents/default/plugins — assert cloudpaw in list.
-    5. DELETE /api/agents/default/plugins/cloudpaw — assert 200.
+       thinking-log middleware source.
+    3. Assert 200, the expected plugin id, and ``loaded == True``.
+    4. GET /api/agents/default/plugins and assert the plugin is listed.
+    5. DELETE the plugin through the agent-scoped path and assert 200.
     6. finally: best-effort cleanup.
 
     API endpoints:
@@ -166,33 +163,23 @@ def test_plugins_install_real_via_agentscoped(app_server) -> None:
     - GET  /api/agents/{agentId}/plugins
     - DELETE /api/agents/{agentId}/plugins/{plugin_id}
     """
-    plugin_id = "cloudpaw"
-    source_path = OFFICIAL_PLUGINS_DIR / "bundle" / "cloudpaw"
+    plugin_id = "middleware-demo-thinking-log"
+    source_path = (
+        OFFICIAL_PLUGINS_DIR / "middleware-demo" / "thinking-log-middleware"
+    )
     assert source_path.is_dir(), f"missing source: {source_path}"
 
     try:
         wait_until_plugin_loader_ready(app_server)
-        deadline = time.time() + LOADER_READY_TIMEOUT
-        resp = None
-        while True:
-            try:
-                resp = app_server.api_request(
-                    "POST",
-                    scoped("default", "/plugins/install"),
-                    json={
-                        "source": str(source_path),
-                        "force": False,
-                    },
-                    timeout=PLUGIN_HTTP_TIMEOUT,
-                )
-            except httpx.TimeoutException:
-                if time.time() >= deadline:
-                    raise
-                time.sleep(0.5)
-                continue
-            if resp.status_code != 503 or time.time() >= deadline:
-                break
-            time.sleep(0.5)
+        resp = app_server.api_request(
+            "POST",
+            scoped("default", "/plugins/install"),
+            json={
+                "source": str(source_path),
+                "force": False,
+            },
+            timeout=PLUGIN_HTTP_TIMEOUT,
+        )
         assert resp.status_code == 200, (
             f"install via agent-scoped: {resp.status_code} | "
             f"{resp.text} | logs: {app_server.logs_tail()}"

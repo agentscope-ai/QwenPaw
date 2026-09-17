@@ -9,6 +9,7 @@ import shutil
 from pathlib import Path
 
 from ...constant import SUPPORTED_AGENT_LANGUAGES
+from ...utils.logging import sanitize_log_value
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,71 @@ def normalize_agent_language(language: str) -> str:
     if language in SUPPORTED_AGENT_LANGUAGES:
         return language
     return "en"
+
+
+def ensure_workspace_md_file(
+    workspace_dir: Path | str,
+    language: str,
+    filename: str,
+) -> None:
+    """Copy a single md_files template into the workspace if missing.
+
+    Idempotent: never overwrites an existing file.  Reuses the
+    md_files language layout (falling back to English) so the file
+    matches the agent language.  Failures are logged and never raised.
+    """
+    try:
+        if filename == "CONTACTS.md":
+            safe_filename = "CONTACTS.md"
+        elif filename == "MAIL_TRIAGE.md":
+            safe_filename = "MAIL_TRIAGE.md"
+        else:
+            log_filename = str(filename).replace("\r", "").replace("\n", "")
+            logger.warning(
+                "Unsupported workspace md template: %s",
+                log_filename,
+            )
+            return
+        workspace_dir = Path(workspace_dir).expanduser()
+        target = workspace_dir / safe_filename
+        if target.exists():
+            return
+        md_files_root = (
+            Path(__file__).resolve().parent.parent / "md_files"
+        ).resolve()
+        language = normalize_agent_language(language or "en")
+        log_language = language.replace("\r", "").replace("\n", "")
+        source_dir = md_files_root / "en"
+        if md_files_root.is_dir():
+            for candidate in md_files_root.iterdir():
+                if candidate.is_dir() and candidate.name == language:
+                    source_dir = candidate
+                    break
+        source = source_dir / safe_filename
+        if not source.is_file():
+            source = md_files_root / "en" / safe_filename
+        if not source.is_file():
+            logger.warning(
+                "%s template not found for language %s",
+                safe_filename,
+                log_language,
+            )
+            return
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        logger.debug(
+            "Copied %s [%s] to %s",
+            safe_filename,
+            log_language,
+            sanitize_log_value(target),
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to ensure %s for %s: %s",
+            sanitize_log_value(filename),
+            sanitize_log_value(workspace_dir),
+            sanitize_log_value(e),
+        )
 
 
 def copy_md_files(

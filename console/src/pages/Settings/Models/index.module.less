@@ -4,6 +4,405 @@
   gap: 4px;
 }
 
+/* ---- Provider visual refresh -------------------------------------------- */
+.settingsPage {
+  --models-bg: transparent;
+  --models-surface: var(--app-surface);
+  --models-surface-muted: var(--app-fill-faint);
+  --models-border: var(--app-border);
+  --models-border-strong: var(--app-border-strong);
+  --models-text: var(--app-text);
+  --models-text-muted: var(--app-text-secondary);
+  --models-text-faint: var(--app-text-tertiary);
+  --models-accent: var(--app-accent);
+  --models-accent-strong: var(--app-accent-text);
+  --models-accent-soft: var(--app-accent-soft);
+  --models-positive: var(--app-success-text);
+  --models-positive-soft: var(--app-success-bg);
+  background: var(--models-bg);
+  color: var(--models-text);
+}
+
+.settingsPage
+  :global(
+    .qwenpaw-table-wrapper
+      .qwenpaw-table-container
+      .qwenpaw-table-thead
+      > tr
+      > th
+  ) {
+  background: var(--app-fill-faint) !important;
+}
+
+.settingsPage .content {
+  background: var(--models-bg);
+}
+
+.settingsPage .pageHeader {
+  padding: 18px 24px;
+  border-bottom-color: var(--models-border);
+  background: var(--models-bg);
+}
+
+.settingsPage .breadcrumbParent {
+  color: var(--models-text-faint);
+}
+
+.settingsPage .breadcrumbSeparator {
+  color: var(--models-border-strong);
+}
+
+.settingsPage .breadcrumbCurrent {
+  color: var(--models-text);
+}
+
+.settingsPage .providersBlock {
+  margin-top: 0;
+}
+
+.settingsPage .sectionHeaderRow {
+  align-items: center;
+  padding: 18px 24px 14px;
+  background: var(--models-bg);
+}
+
+.settingsPage .providersPageHeader {
+  padding: 0;
+}
+
+.settingsPage .headerRight {
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.settingsPage .searchRow {
+  margin: 0;
+  gap: 8px;
+}
+
+.settingsPage .searchInput {
+  width: 230px;
+  max-width: 230px;
+}
+
+.settingsPage .searchBtn,
+.settingsPage .addProviderBtn {
+  margin: 0;
+}
+
+.settingsPage .llmPill {
+  min-height: 36px;
+  padding: 6px 11px;
+  border-radius: 9px;
+  background: var(--models-surface);
+  border: 1px solid var(--models-border);
+  box-shadow: none;
+}
+
+.settingsPage .llmPillOn {
+  border-color: var(--app-success-border);
+  background: var(--models-positive-soft);
+}
+
+.settingsPage .llmPillOff {
+  border-color: var(--models-border);
+  background: var(--models-surface);
+}
+
+.settingsPage .llmPillLabel {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .llmPillValue {
+  max-width: 240px;
+  overflow: hidden;
+  color: var(--models-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsPage .llmPillEdit {
+  color: var(--models-accent-strong);
+}
+
+.settingsPage .tabsNav {
+  margin: 0 24px 16px;
+  border-bottom: 1px solid var(--models-border);
+}
+
+.settingsPage .tabItem {
+  padding: 11px 14px;
+  color: var(--models-text-muted);
+}
+
+.settingsPage .tabItem:hover {
+  color: var(--models-text);
+}
+
+.settingsPage .tabItemActive {
+  color: var(--models-accent-strong);
+  border-bottom-color: var(--models-accent);
+}
+
+.settingsPage .panelSection,
+.settingsPage .panelSectionDashed {
+  margin: 0 24px 18px;
+  padding: 18px;
+  border-radius: 10px;
+}
+
+.settingsPage .panelSection {
+  background: var(--models-surface-muted);
+  border-color: var(--models-border);
+}
+
+.settingsPage .panelSectionDashed {
+  background: var(--models-surface);
+  border: 1px dashed var(--models-border-strong);
+}
+
+.settingsPage .panelTitle {
+  margin-bottom: 14px;
+  color: var(--models-text-muted);
+}
+
+.settingsPage .panelDotGreen {
+  background: var(--models-positive);
+}
+
+.settingsPage .panelDotGray {
+  background: var(--models-text-faint);
+}
+
+.settingsPage .panelCount {
+  color: var(--models-positive);
+}
+
+.settingsPage .providerCards {
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  margin-bottom: 0;
+}
+
+.settingsPage .groupCardGlass,
+.settingsPage .providerCard {
+  border: 1px solid var(--models-border);
+  border-radius: 10px;
+  background: var(--models-surface);
+  box-shadow: var(--app-shadow-sm);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.settingsPage .groupCardGlass:hover,
+.settingsPage .providerCard:hover {
+  border-color: var(--models-border-strong);
+  box-shadow: var(--app-shadow-md);
+}
+
+.settingsPage .groupCardName,
+.settingsPage .cardName {
+  color: var(--models-text);
+}
+
+.settingsPage .groupCardLiveBadge {
+  color: var(--models-positive);
+}
+
+.settingsPage .groupCardPulse {
+  background: var(--models-positive);
+}
+
+.settingsPage .groupSegmented {
+  background: var(--models-surface-muted);
+}
+
+.settingsPage .groupSegBtn {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .groupSegBtn:hover {
+  color: var(--models-text);
+}
+
+.settingsPage .groupSegBtnActive {
+  color: var(--models-accent-strong);
+  background: var(--models-surface);
+  box-shadow: var(--app-shadow-sm);
+}
+
+.settingsPage .groupSegDotOn {
+  background: var(--models-positive);
+}
+
+.settingsPage .groupSegDotOff {
+  background: var(--models-text-faint);
+}
+
+.settingsPage .groupCardFieldLabel,
+.settingsPage .infoLabel {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .groupCardFieldValue,
+.settingsPage .infoValue {
+  color: var(--models-text);
+}
+
+.settingsPage .groupCardMono {
+  color: var(--models-text-muted);
+  background: var(--models-surface-muted);
+  border-color: var(--models-border);
+}
+
+.settingsPage .groupCardChangeBtn,
+.settingsPage .availableItemAction {
+  color: var(--models-accent-strong);
+}
+
+.settingsPage .groupCardChangeBtn:hover,
+.settingsPage .availableItemAction:hover {
+  color: var(--models-accent);
+}
+
+.settingsPage .groupCardActions {
+  border-top-color: var(--models-border);
+}
+
+.settingsPage .groupCardActBtn {
+  min-height: 34px;
+  padding: 7px 12px;
+  border-color: var(--models-border);
+  color: var(--models-text-muted);
+  background: var(--models-surface);
+}
+
+.settingsPage .groupCardActBtn:hover {
+  border-color: var(--app-accent-border);
+  color: var(--models-accent-strong);
+  background: var(--models-accent-soft);
+}
+
+.settingsPage .groupCardActBtnDanger {
+  color: var(--app-error-text);
+  border-color: var(--app-error-border);
+}
+
+.settingsPage .groupCardActBtnDanger:hover {
+  color: var(--app-error-text);
+  border-color: var(--app-error-border);
+  background: var(--app-error-bg);
+}
+
+.settingsPage .builtinTag {
+  color: var(--models-text-muted);
+  background: var(--models-surface-muted);
+}
+
+.settingsPage .customTag {
+  color: var(--models-accent-strong);
+  background: var(--models-accent-soft);
+  border-color: var(--app-accent-border);
+}
+
+.settingsPage .freeTag {
+  color: var(--models-positive);
+  background: var(--models-positive-soft);
+  background-image: none;
+}
+
+.settingsPage .localTag {
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
+}
+
+.settingsPage .availableGrid {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.settingsPage .availableItem {
+  min-height: 50px;
+  padding: 10px 12px;
+  border-color: var(--models-border);
+  border-radius: 8px;
+  background: var(--models-surface);
+}
+
+.settingsPage .availableItem:hover {
+  border-color: var(--app-accent-border);
+  background: var(--models-accent-soft);
+  box-shadow: none;
+}
+
+.settingsPage .availableItemName {
+  color: var(--models-text);
+}
+
+.settingsPage .emptyConfigured {
+  padding: 40px 24px;
+  border-color: var(--models-border-strong);
+}
+
+.settingsPage .emptyConfigured p {
+  color: var(--models-text-muted);
+}
+
+.settingsPage .variantItem {
+  background: var(--models-surface-muted);
+}
+
+.settingsPage .variantItem:hover {
+  background: var(--models-accent-soft);
+}
+
+@media (max-width: 900px) {
+  .settingsPage .sectionHeaderRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .settingsPage .headerRight {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 768px) {
+  .settingsPage .pageHeader {
+    padding: 14px 16px;
+  }
+
+  .settingsPage .sectionHeaderRow {
+    padding: 14px 16px 12px;
+  }
+
+  .settingsPage .headerRight {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settingsPage .llmPill,
+  .settingsPage .searchRow,
+  .settingsPage .searchInput,
+  .settingsPage .addProviderBtn {
+    width: 100%;
+    max-width: none;
+  }
+
+  .settingsPage .tabsNav,
+  .settingsPage .panelSection,
+  .settingsPage .panelSectionDashed {
+    margin-right: 16px;
+    margin-left: 16px;
+  }
+
+  .settingsPage .providerCards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .localAdvancedConfigLabelRow {
   display: flex;
   align-items: center;
@@ -26,7 +425,7 @@
   align-items: center;
   position: relative;
   padding: 20px;
-  border-bottom: 1px solid #eae9e7;
+  border-bottom: 1px solid var(--app-border);
   margin-bottom: 0;
   flex-shrink: 0;
 }
@@ -47,17 +446,17 @@
 }
 
 .breadcrumbParent {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-weight: 400;
 }
 
 .breadcrumbSeparator {
-  color: #ccc;
+  color: var(--app-text-quaternary);
   margin: 0 4px;
 }
 
 .breadcrumbCurrent {
-  color: #333;
+  color: var(--app-text);
   font-weight: 600;
   font-size: 20px;
 }
@@ -68,7 +467,7 @@
 }
 
 .loadingText {
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 /* ---- Sections ---- */
@@ -89,7 +488,7 @@
 
 .sectionDesc {
   margin: 0 0 24px;
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 14px;
 }
 
@@ -112,7 +511,7 @@
 .providerGroupTitle {
   font-size: 14px;
   font-weight: 600;
-  color: #666;
+  color: var(--app-text-secondary);
   margin: 0 0 12px;
   letter-spacing: 0.02em;
 }
@@ -120,7 +519,7 @@
 .subSectionTitle {
   font-size: 12px;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   margin: 16px 0 10px;
   display: flex;
   align-items: center;
@@ -130,7 +529,7 @@
   content: "";
   flex: 1;
   height: 1px;
-  background: #e5e7eb;
+  background: var(--app-border-subtle);
 }
 
 /* ---- Provider Cards ---- */
@@ -145,14 +544,14 @@
 .configuredCount {
   font-size: 12px;
   font-weight: 400;
-  color: #10b981;
+  color: var(--app-success-text);
   margin-left: 8px;
 }
 
 .availableHint {
   font-size: 12px;
   font-weight: 400;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   margin-left: 8px;
 }
 
@@ -162,14 +561,14 @@
   align-items: center;
   justify-content: center;
   padding: 48px 24px;
-  border: 2px dashed #e5e7eb;
+  border: 2px dashed var(--app-border-strong);
   border-radius: 12px;
   margin-bottom: 24px;
   text-align: center;
 }
 .emptyConfigured p {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   margin-bottom: 16px;
 }
 
@@ -184,28 +583,28 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  border: 1px solid #f3f4f6;
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--app-surface-subtle);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 .availableItem:hover {
-  background: #fff;
-  border-color: #6366f1;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.1);
+  background: var(--models-surface);
+  border-color: var(--models-accent);
+  box-shadow: 0 2px 8px var(--app-accent-ring);
 }
 
 .availableItemName {
   font-size: 13px;
   font-weight: 500;
   flex: 1;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .availableItemAction {
   font-size: 11px;
-  color: #6366f1;
+  color: var(--models-accent-strong);
   font-weight: 500;
   white-space: nowrap;
 }
@@ -222,12 +621,12 @@
   gap: 10px;
   padding: 12px 16px;
   border-radius: 8px;
-  background: #f8f9fa;
+  background: var(--app-surface-subtle);
   cursor: pointer;
   transition: all 0.2s;
 
   &:hover {
-    background: #eef2ff;
+    background: var(--models-accent-soft);
     transform: translateX(4px);
   }
 }
@@ -235,16 +634,16 @@
 .variantItemName {
   font-size: 14px;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--app-text);
   flex: 1;
 }
 
 .providerCard {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--app-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border);
   transition: all 0.2s;
   cursor: pointer;
   position: relative;
@@ -256,7 +655,7 @@
   box-shadow: none;
 
   &:hover {
-    border-color: rgba(99, 102, 241, 0.15);
+    border-color: var(--app-accent-border);
   }
 
   :global(.ant-card-body) {
@@ -287,15 +686,15 @@
   font-weight: 500;
 
   &.enabled {
-    color: rgba(20, 184, 166, 1);
+    color: var(--app-success-text);
   }
 
   &.partial {
-    color: #faad14;
+    color: var(--app-warning-text);
   }
 
   &.disabled {
-    color: #999;
+    color: var(--app-text-tertiary);
   }
 }
 
@@ -305,15 +704,6 @@
   align-items: center;
   justify-content: space-between;
   margin-bottom: 12px;
-}
-
-/* Provider Icon */
-.providerIcon {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  object-fit: cover;
-  flex-shrink: 0;
 }
 
 /* Card Title Row */
@@ -327,7 +717,7 @@
 .cardName {
   font-size: 16px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 /* Tags */
@@ -338,8 +728,8 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  background-color: rgba(0, 0, 0, 0.06);
-  color: rgba(0, 0, 0, 0.65);
+  background-color: var(--app-fill);
+  color: var(--app-text-secondary);
 }
 
 .customTag {
@@ -349,9 +739,9 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  background-color: rgba(255, 247, 230, 0.8);
-  color: #ff7f16;
-  border: 1px solid rgba(255, 127, 22, 0.2);
+  background-color: var(--app-accent-soft);
+  color: var(--app-accent-text);
+  border: 1px solid var(--app-accent-border);
 }
 
 .freeTag {
@@ -362,8 +752,8 @@
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.5px;
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: #fff;
+  background: var(--app-success);
+  color: var(--app-text-inverse);
 }
 
 .localTag {
@@ -373,8 +763,8 @@
   border-radius: 4px;
   font-size: 11px;
   font-weight: 500;
-  background-color: rgba(29, 212, 215, 0.15);
-  color: rgba(29, 212, 215, 1);
+  background-color: var(--app-info-bg);
+  color: var(--app-info-text);
 }
 
 .statusContainer {
@@ -387,15 +777,15 @@
     font-weight: 500;
 
     &.enabled {
-      color: rgba(20, 184, 166, 1);
+      color: var(--app-success-text);
     }
 
     &.partial {
-      color: #faad14;
+      color: var(--app-warning-text);
     }
 
     &.disabled {
-      color: #999;
+      color: var(--app-text-tertiary);
     }
   }
 }
@@ -412,11 +802,11 @@
 
   :global {
     .ant-badge-status-success .ant-badge-status-text {
-      color: #52c41a !important;
+      color: var(--app-success-text) !important;
     }
 
     .ant-badge-status-error .ant-badge-status-text {
-      color: #ff4d4f !important;
+      color: var(--app-error-text) !important;
     }
   }
 }
@@ -424,7 +814,7 @@
 .cardName {
   font-size: 18px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .cardInfo {
@@ -442,14 +832,14 @@
 }
 
 .infoLabel {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--app-text-tertiary);
   min-width: 60px;
   flex-shrink: 0;
   font-weight: 400;
 }
 
 .infoValue {
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--app-text-secondary);
   font-family: "SF Mono", "Menlo", monospace;
   font-size: 12px;
   overflow: hidden;
@@ -460,7 +850,7 @@
 }
 
 .infoEmpty {
-  color: rgba(0, 0, 0, 0.25);
+  color: var(--app-text-quaternary);
   font-style: italic;
 }
 
@@ -482,7 +872,7 @@
   bottom: 16px;
   left: 16px;
   right: 16px;
-  background: #fff;
+  background: var(--app-surface);
   z-index: 10;
 }
 
@@ -496,17 +886,17 @@
 /* ---- Provider Group Card (Glass + Segmented) ---- */
 
 .groupCardGlass {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--app-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-radius: 14px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border);
   padding: 22px;
   transition: all 0.2s;
   cursor: default;
 
   &:hover {
-    border-color: rgba(99, 102, 241, 0.15);
+    border-color: var(--app-accent-border);
   }
 }
 
@@ -521,7 +911,7 @@
   font-size: 17px;
   font-weight: 600;
   flex: 1;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .groupCardLiveBadge {
@@ -529,7 +919,7 @@
   align-items: center;
   gap: 5px;
   font-size: 11px;
-  color: #14b8a6;
+  color: var(--app-success-text);
   font-weight: 500;
 }
 
@@ -537,7 +927,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #14b8a6;
+  background: var(--app-success);
   animation: groupPulse 2s infinite;
 }
 
@@ -555,7 +945,7 @@
 /* Segmented Control */
 .groupSegmented {
   display: flex;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--app-fill-subtle);
   border-radius: 10px;
   padding: 3px;
   gap: 2px;
@@ -569,7 +959,7 @@
   text-align: center;
   font-size: 11px;
   font-weight: 500;
-  color: #888;
+  color: var(--app-text-tertiary);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
@@ -580,13 +970,13 @@
   gap: 4px;
 
   &:hover {
-    color: #555;
+    color: var(--app-text-secondary);
   }
 }
 
 .groupSegBtnActive {
-  background: rgba(99, 102, 241, 0.12);
-  color: #6366f1;
+  background: var(--models-accent-soft);
+  color: var(--models-accent-strong);
 }
 
 .groupSegDot {
@@ -597,11 +987,11 @@
 }
 
 .groupSegDotOn {
-  background: #14b8a6;
+  background: var(--app-success);
 }
 
 .groupSegDotOff {
-  background: #ef4444;
+  background: var(--app-error);
 }
 
 /* Content */
@@ -620,24 +1010,24 @@
 
 .groupCardFieldLabel {
   font-size: 10px;
-  color: #888;
+  color: var(--app-text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
 .groupCardFieldValue {
   font-size: 13px;
-  color: #333;
+  color: var(--app-text);
 }
 
 .groupCardMono {
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 12px;
-  color: #666;
-  background: rgba(0, 0, 0, 0.03);
+  color: var(--app-text-secondary);
+  background: var(--app-fill-faint);
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--app-border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -648,7 +1038,7 @@
 
 .groupCardChangeBtn {
   font-size: 11px;
-  color: #6366f1;
+  color: var(--models-accent-strong);
   cursor: pointer;
   font-family:
     "Inter",
@@ -658,7 +1048,7 @@
   margin-left: 8px;
 
   &:hover {
-    color: #4f46e5;
+    color: var(--models-accent-strong);
   }
 }
 
@@ -672,34 +1062,34 @@
   display: flex;
   gap: 8px;
   padding-top: 14px;
-  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .groupCardActBtn {
   padding: 7px 14px;
-  background: rgba(0, 0, 0, 0.03);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--app-fill-faint);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  color: #666;
+  color: var(--app-text-secondary);
   font-size: 12px;
   cursor: pointer;
   transition: all 0.15s;
   font-family: inherit;
 
   &:hover {
-    border-color: rgba(99, 102, 241, 0.3);
-    color: #6366f1;
+    border-color: var(--app-accent-border);
+    color: var(--models-accent);
   }
 }
 
 .groupCardActBtnDanger {
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--app-error-text);
+  border-color: var(--app-error-border);
 
   &:hover {
-    border-color: rgba(239, 68, 68, 0.5);
-    color: #dc2626;
-    background: rgba(239, 68, 68, 0.04);
+    border-color: var(--app-error-border);
+    color: var(--app-error-text);
+    background: var(--app-error-bg);
   }
 }
 
@@ -725,7 +1115,7 @@
 
 .advancedConfigSection {
   margin-top: 4px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
   padding-top: 16px;
 }
 
@@ -738,7 +1128,7 @@
   background: transparent;
   padding: 0 0 12px;
   cursor: pointer;
-  color: #333;
+  color: var(--models-text);
 }
 
 .advancedConfigToggleLabel {
@@ -754,17 +1144,17 @@
   width: 100%;
   min-width: 0;
   flex: 1 1 auto;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--app-border-strong);
   border-radius: 8px;
   overflow: hidden;
-  background: #fafbfc;
+  background: var(--app-surface-subtle);
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease;
 
   &:focus-within {
-    border-color: #ff7f16;
-    box-shadow: 0 0 0 2px rgba(97, 92, 237, 0.12);
+    border-color: var(--app-accent);
+    box-shadow: 0 0 0 2px var(--app-accent-ring);
   }
 }
 
@@ -800,7 +1190,7 @@
 }
 
 .jsonEditorHighlight {
-  color: #6b7280;
+  color: var(--models-text-muted);
   pointer-events: none;
   overflow: auto;
 }
@@ -814,7 +1204,7 @@
   outline: 0;
   background: transparent;
   color: transparent;
-  caret-color: #1f2328;
+  caret-color: var(--models-text);
   overflow: auto;
   -webkit-text-fill-color: transparent;
 
@@ -825,27 +1215,27 @@
 }
 
 .jsonEditorTokenKey {
-  color: #8b5cf6;
+  color: var(--models-accent-strong);
 }
 
 .jsonEditorTokenString {
-  color: #16a34a;
+  color: var(--app-success-text);
 }
 
 .jsonEditorTokenNumber {
-  color: #2563eb;
+  color: var(--app-info-text);
 }
 
 .jsonEditorTokenBoolean {
-  color: #ea580c;
+  color: var(--app-warning-text);
 }
 
 .jsonEditorTokenNull {
-  color: #dc2626;
+  color: var(--app-error-text);
 }
 
 .jsonEditorTokenPunctuation {
-  color: #6b7280;
+  color: var(--models-text-muted);
 }
 
 /* ---- LLM Floating Pill ---- */
@@ -866,22 +1256,22 @@
 }
 
 .llmPillOn {
-  background: linear-gradient(135deg, #ecfdf5, #d1fae5, #fff);
-  border-color: #6ee7b7;
-  box-shadow: 0 1px 6px rgba(16, 185, 129, 0.12);
+  background: var(--app-success-bg);
+  border-color: var(--app-success-border);
+  box-shadow: var(--app-shadow-sm);
 
   &:hover {
-    box-shadow: 0 2px 10px rgba(16, 185, 129, 0.2);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
 .llmPillOff {
-  background: linear-gradient(135deg, #fef2f2, #fee2e2, #fff);
-  border-color: #fca5a5;
-  box-shadow: 0 1px 6px rgba(239, 68, 68, 0.12);
+  background: var(--app-error-bg);
+  border-color: var(--app-error-border);
+  box-shadow: var(--app-shadow-sm);
 
   &:hover {
-    box-shadow: 0 2px 10px rgba(239, 68, 68, 0.2);
+    box-shadow: var(--app-shadow-md);
   }
 }
 
@@ -889,7 +1279,7 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--app-success);
   flex-shrink: 0;
 }
 
@@ -897,26 +1287,26 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #ef4444;
+  background: var(--app-error);
   flex-shrink: 0;
 }
 
 .llmPillLabel {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   white-space: nowrap;
 }
 
 .llmPillValue {
   font-size: 13px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--app-text);
   white-space: nowrap;
 }
 
 .llmPillEdit {
   font-size: 12px;
-  color: #6366f1;
+  color: var(--models-accent-strong);
   font-weight: 500;
   margin-left: 4px;
   white-space: nowrap;
@@ -928,7 +1318,7 @@
 
 .llmDescription {
   font-size: 13px;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   margin: 0 0 16px;
   line-height: 1.5;
 }
@@ -936,16 +1326,16 @@
 /* ---- Panel Section (grouped containers) ---- */
 
 .panelSection {
-  background: #fafbfc;
-  border: 1px solid #f3f4f6;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border-subtle);
   border-radius: 12px;
   padding: 18px;
   margin: 0 16px 16px;
 }
 
 .panelSectionDashed {
-  background: #fff;
-  border: 1px dashed #e5e7eb;
+  background: var(--app-surface);
+  border: 1px dashed var(--app-border-strong);
   border-radius: 12px;
   padding: 18px;
   margin: 0 16px 16px;
@@ -954,7 +1344,7 @@
 .panelTitle {
   font-size: 13px;
   font-weight: 600;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   margin-bottom: 14px;
   display: flex;
   align-items: center;
@@ -965,7 +1355,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #10b981;
+  background: var(--app-success);
   flex-shrink: 0;
 }
 
@@ -973,13 +1363,13 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #d1d5db;
+  background: var(--app-status-idle);
   flex-shrink: 0;
 }
 
 .panelCount {
   font-size: 11px;
-  color: #10b981;
+  color: var(--app-success-text);
   font-weight: 400;
   margin-left: auto;
 }
@@ -989,7 +1379,7 @@
 .tabsNav {
   display: flex;
   gap: 0;
-  border-bottom: 2px solid #f3f4f6;
+  border-bottom: 2px solid var(--app-border-subtle);
   margin: 0 16px 16px;
 }
 
@@ -997,7 +1387,7 @@
   padding: 10px 20px;
   font-size: 13px;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--app-text-tertiary);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
@@ -1007,11 +1397,11 @@
   user-select: none;
 }
 .tabItem:hover {
-  color: #6b7280;
+  color: var(--app-text-secondary);
 }
 .tabItemActive {
-  color: #6366f1;
-  border-bottom-color: #6366f1;
+  color: var(--models-accent-strong);
+  border-bottom-color: var(--models-accent);
 }
 
 /* ---- Model Slot Sections ---- */
@@ -1019,15 +1409,15 @@
 .slotSection {
   padding: 24px;
   margin: 20px;
-  background: #ffffff;
+  background: var(--app-surface-raised);
   border-radius: 6px;
-  border: 1px solid #e8e8e8;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid var(--app-border);
+  box-shadow: var(--app-shadow-sm);
   transition: all 0.2s ease-in-out;
 
   &:hover {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
-    border-color: #d9d9d9;
+    box-shadow: var(--app-shadow-md);
+    border-color: var(--app-border-hover);
   }
 }
 
@@ -1037,30 +1427,30 @@
   align-items: center;
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--app-border-subtle);
 }
 
 .slotTitle {
   font-size: 18px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
 }
 
 .slotDescription {
   margin: 8px 0 0;
-  color: #6b7280;
+  color: var(--app-text-secondary);
   font-size: 13px;
   line-height: 1.6;
 }
 
 .slotCurrent {
   font-size: 13px;
-  color: #52c41a;
+  color: var(--app-success-text);
   font-family: "SF Mono", "Menlo", monospace;
-  background: #f6ffed;
+  background: var(--app-success-bg);
   padding: 4px 12px;
   border-radius: 20px;
-  border: 1px solid #b7eb8f;
+  border: 1px solid var(--app-success-border);
 }
 
 .slotForm {
@@ -1096,7 +1486,7 @@
 
 .slotLabel {
   font-size: 14px;
-  color: #666;
+  color: var(--app-text-secondary);
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -1112,7 +1502,7 @@
   justify-content: flex-end;
   margin-top: 24px;
   padding-top: 20px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 /* ---- Section Header Row (title + button) ---- */
@@ -1179,12 +1569,12 @@
 .localModalTitle {
   font-size: 18px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--models-text);
 }
 
 .localModalDescription {
   margin-top: 4px;
-  color: #6b7280;
+  color: var(--models-text-muted);
   font-size: 13px;
   line-height: 1.6;
   max-width: 420px;
@@ -1201,13 +1591,13 @@
   min-width: 120px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: #f7f8fc;
-  border: 1px solid #e6eaf2;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border);
 }
 
 .localSummaryLabel {
   display: block;
-  color: #8a90a2;
+  color: var(--models-text-faint);
   font-size: 11px;
   line-height: 1.4;
 }
@@ -1215,7 +1605,7 @@
 .localSummaryValue {
   display: block;
   margin-top: 2px;
-  color: #1f2937;
+  color: var(--models-text);
   font-size: 13px;
   font-weight: 600;
 }
@@ -1246,18 +1636,18 @@
 .localSectionTitle {
   font-size: 14px;
   font-weight: 600;
-  color: #111827;
+  color: var(--models-text);
 }
 
 .localSectionDescription {
   margin-top: 3px;
-  color: #6b7280;
+  color: var(--models-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .localSectionMeta {
-  color: #7a7f8f;
+  color: var(--models-text-faint);
   font-size: 12px;
   font-family: "SF Mono", "Menlo", monospace;
 }
@@ -1270,8 +1660,8 @@
   justify-content: space-between;
   gap: 12px;
   border-radius: 8px;
-  background: #fbfcfe;
-  border: 1px solid #edf1f7;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border-subtle);
 }
 
 .localSectionInfoContent {
@@ -1283,12 +1673,12 @@
 }
 
 .localSectionInfoLabel {
-  color: #6b7280;
+  color: var(--models-text-muted);
   font-size: 12px;
 }
 
 .localSectionInfoValue {
-  color: #111827;
+  color: var(--models-text);
   font-size: 12px;
   font-weight: 600;
   font-family: "SF Mono", "Menlo", monospace;
@@ -1300,7 +1690,7 @@
 }
 
 .localSectionInfoMeta {
-  color: #7a7f8f;
+  color: var(--models-text-faint);
   font-size: 12px;
   font-family: "SF Mono", "Menlo", monospace;
   line-height: 1.5;
@@ -1309,7 +1699,7 @@
 .localAdvancedConfigSection {
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .localAdvancedConfigHeader {
@@ -1332,21 +1722,21 @@
 }
 
 .localAdvancedConfigLabel {
-  color: #111827;
+  color: var(--models-text);
   font-size: 13px;
   font-weight: 600;
 }
 
 .localAdvancedConfigHint {
   margin-top: 4px;
-  color: #6b7280;
+  color: var(--models-text-muted);
   font-size: 12px;
   line-height: 1.5;
 }
 
 .localAdvancedConfigError {
   margin-top: 6px;
-  color: #dc2626;
+  color: var(--app-error-text);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1374,9 +1764,9 @@
   margin-top: 8px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: #fbfcfe;
-  border: 1px solid #edf1f7;
-  color: #6b7280;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border-subtle);
+  color: var(--models-text-muted);
   font-size: 12px;
   line-height: 1.6;
 }
@@ -1393,8 +1783,8 @@
   width: 100%;
   padding: 8px 10px;
   border-radius: 8px;
-  background: #f8fafc;
-  border: 1px solid #edf1f7;
+  background: var(--app-surface-subtle);
+  border: 1px solid var(--app-border-subtle);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1403,7 +1793,7 @@
 
 .localEngineMetricLabel {
   display: block;
-  color: #7a7f8f;
+  color: var(--models-text-faint);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.4;
@@ -1420,7 +1810,7 @@
 .localEngineStatusModelName {
   min-width: 0;
   max-width: 160px;
-  color: #111827;
+  color: var(--models-text);
   font-size: 12px;
   font-weight: 500;
   overflow: hidden;
@@ -1454,41 +1844,41 @@
 }
 
 .localStatusBadgeAction {
-  color: #1d4ed8;
-  background: #eff6ff;
-  border: 1px solid #60a5fa;
-  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-border);
+  box-shadow: 0 0 0 1px var(--app-info-border);
 }
 
 .localStatusBadgeInstalled,
 .localStatusBadgeRunning {
-  color: rgba(20, 184, 166, 1);
-  background: #ecfdf5;
-  border: 1px solid rgba(20, 184, 166, 1);
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
+  border: 1px solid var(--app-success-border);
 }
 
 .localStatusBadgeMuted {
-  color: #6b7280;
-  background: #f3f4f6;
-  border: 1px solid #e5e7eb;
+  color: var(--models-text-muted);
+  background: var(--app-fill-subtle);
+  border: 1px solid var(--app-border);
 }
 
 .localStatusBadgeDead {
-  color: #faad14;
-  background: #fff7ed;
-  border: 1px solid #faad14;
+  color: var(--app-warning-text);
+  background: var(--app-warning-bg);
+  border: 1px solid var(--app-warning-border);
 }
 
 .localStatusBadgeProgress {
-  color: rgba(29, 212, 215, 1);
-  background: rgba(29, 212, 215, 0.15);
-  border: 1px solid rgba(29, 212, 215, 1);
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
+  border: 1px solid var(--app-info-border);
 }
 
 .modelList {
   max-height: 480px;
   overflow-y: auto;
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--app-border);
   border-radius: 8px;
   margin-top: 8px;
 }
@@ -1496,7 +1886,7 @@
 .modelListEmpty {
   padding: 24px;
   text-align: center;
-  color: #999;
+  color: var(--models-text-faint);
   font-size: 13px;
 }
 
@@ -1506,12 +1896,12 @@
   justify-content: center;
   gap: 8px;
   padding: 10px 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .modelListCount {
   font-size: 12px;
-  color: #999;
+  color: var(--models-text-faint);
 }
 
 .modelListItem {
@@ -1519,7 +1909,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 10px 16px;
-  border-bottom: 1px solid #f5f5f5;
+  border-bottom: 1px solid var(--app-border-subtle);
   transition: background 0.15s;
   flex-wrap: wrap;
   gap: 8px;
@@ -1529,7 +1919,7 @@
   }
 
   &:hover {
-    background: #fafafa;
+    background: var(--app-fill-faint);
   }
 }
 
@@ -1553,8 +1943,20 @@
   flex-direction: column;
   align-items: stretch;
   gap: 10px;
-  background: linear-gradient(180deg, #fffaf3 0%, #fffdf8 100%);
-  border-left: 3px solid rgba(255, 127, 22, 0.35);
+  background: linear-gradient(
+    180deg,
+    var(--app-accent-faint) 0%,
+    var(--app-surface) 100%
+  );
+  border-left: 3px solid var(--app-accent-border);
+
+  &:hover {
+    background: linear-gradient(
+      180deg,
+      var(--app-accent-soft-hover) 0%,
+      var(--app-accent-faint) 100%
+    );
+  }
 }
 
 .customModelHeader {
@@ -1584,7 +1986,7 @@
 
 .customModelHint {
   font-size: 12px;
-  color: #999;
+  color: var(--models-text-faint);
   line-height: 1.4;
   white-space: normal;
 }
@@ -1592,7 +1994,7 @@
 .modelListItemName {
   font-size: 14px;
   font-weight: 500;
-  color: #1a1a1a;
+  color: var(--models-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1607,7 +2009,7 @@
 
 .modelListItemId {
   font-size: 12px;
-  color: #999;
+  color: var(--models-text-faint);
   font-family: "SF Mono", "Menlo", monospace;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1617,11 +2019,33 @@
 .modelListItemActions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.modelListActionButton {
+  width: 32px !important;
+  min-width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+
+  :global(.ant-btn-icon) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  :global(svg) {
+    width: 18px !important;
+    height: 18px !important;
+  }
 }
 
 .modelListItemStatusButton {
@@ -1631,8 +2055,8 @@
   height: 24px;
   padding: 0 11px;
   border-radius: 6px;
-  color: rgba(20, 184, 166, 1);
-  background: #ecfdf5;
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -1643,9 +2067,9 @@
 .modelAddForm {
   margin-top: 12px;
   padding: 16px;
-  background: #fafafa;
+  background: var(--app-surface-subtle);
   border-radius: 8px;
-  border: 1px dashed #d9d9d9;
+  border: 1px dashed var(--app-border-strong);
 }
 
 .modalActionRow {
@@ -1658,9 +2082,13 @@
 .localStatusCard {
   margin-top: 12px;
   padding: 16px;
-  background: linear-gradient(180deg, #fafafa 0%, #f7f8fc 100%);
+  background: linear-gradient(
+    180deg,
+    var(--app-surface-subtle) 0%,
+    var(--app-surface) 100%
+  );
   border-radius: 10px;
-  border: 1px solid #e8ebf2;
+  border: 1px solid var(--app-border);
 }
 
 .localStatusCardHeader {
@@ -1692,7 +2120,7 @@
 }
 
 .localStatusHint {
-  color: #7a7f8f;
+  color: var(--models-text-faint);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -1726,7 +2154,7 @@
   }
 
   :global(.ant-progress-inner) {
-    background: rgba(255, 127, 22, 0.14);
+    background: var(--app-accent-soft);
     border-radius: 999px;
   }
 
@@ -1738,14 +2166,14 @@
 .localRuntimeProgressMeta {
   display: block;
   margin-top: 6px;
-  color: #7a7f8f;
+  color: var(--models-text-faint);
   font-size: 11px;
   line-height: 1.4;
   font-family: "SF Mono", "Menlo", monospace;
 }
 
 .localInlineProgress {
-  color: #7a7f8f;
+  color: var(--models-text-faint);
   font-size: 12px;
   font-family: "SF Mono", "Menlo", monospace;
 }
@@ -1754,576 +2182,24 @@
   margin-top: 8px;
   padding: 10px 20px;
   border-radius: 10px;
-  border: 1px dashed #d7ddea;
+  border: 1px dashed var(--models-border-strong);
   background: linear-gradient(
     135deg,
-    rgba(245, 247, 251, 0.95),
-    rgba(250, 251, 255, 0.98)
+    var(--app-surface-subtle),
+    var(--app-surface)
   );
 }
 
 .localLockedPanelTitle {
-  color: #111827;
+  color: var(--models-text);
   font-size: 14px;
   font-weight: 600;
 }
 
 .localLockedPanelDescription {
-  color: #6b7280;
+  color: var(--models-text-muted);
   font-size: 14px;
   line-height: 1.6;
-}
-
-/* ─── Dark mode ─────────────────────────────────────────────────────────────── */
-:global(.dark-mode) {
-  .settingsPage {
-    :global {
-      .qwenpaw-table-wrapper
-        .qwenpaw-table-container
-        .qwenpaw-table-thead
-        > tr
-        > th {
-        background: rgba(255, 255, 255, 0.04) !important;
-      }
-    }
-  }
-
-  .pageHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .breadcrumbParent {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .breadcrumbSeparator {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .breadcrumbCurrent {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .loadingText {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .sectionDesc {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .providerGroupTitle {
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .subSectionTitle {
-    color: rgba(255, 255, 255, 0.35);
-  }
-  .subSectionTitle::after {
-    background: rgba(255, 255, 255, 0.08);
-  }
-
-  .localModalTitle,
-  .localSectionTitle,
-  .localSummaryValue,
-  .localSectionInfoValue,
-  .localSectionInfoMeta,
-  .localEngineStatusModelName,
-  .localLockedPanelTitle {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  .localModalDescription,
-  .localSectionDescription,
-  .localStatusHint,
-  .localSummaryLabel,
-  .localSectionMeta,
-  .localSectionInfoLabel,
-  .localInlineProgress,
-  .localSectionNotice,
-  .localLockedPanelDescription,
-  .localEngineMetricLabel {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .localSummaryPill,
-  .localSectionInfoRow,
-  .localSectionNotice,
-  .localLockedPanel,
-  .localStatusCard,
-  .localEngineStatusItem {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .localStatusBadgeInstalled,
-  .localStatusBadgeRunning {
-    color: #86efac;
-    background: rgba(34, 197, 94, 0.12);
-    border-color: rgba(34, 197, 94, 0.28);
-  }
-
-  .localStatusBadgeMuted {
-    color: rgba(255, 255, 255, 0.72);
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .localStatusBadgeDead {
-    color: #fdba74;
-    background: rgba(249, 115, 22, 0.12);
-    border-color: rgba(249, 115, 22, 0.28);
-  }
-
-  .localStatusBadgeProgress {
-    color: #93c5fd;
-    background: rgba(59, 130, 246, 0.12);
-    border-color: rgba(59, 130, 246, 0.28);
-  }
-
-  .localStatusBadgeAction {
-    color: #bfdbfe;
-    background: rgba(59, 130, 246, 0.18);
-    border-color: rgba(96, 165, 250, 0.4);
-    box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.12);
-  }
-
-  .localStatusActionPill {
-    color: #93c5fd;
-    background: rgba(59, 130, 246, 0.12);
-    border-color: rgba(59, 130, 246, 0.28);
-  }
-
-  .localRuntimeProgress {
-    :global(.ant-progress-inner) {
-      background: rgba(255, 127, 22, 0.18);
-    }
-  }
-
-  .localRuntimeProgressMeta {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .modelListItemStatusButton {
-    color: #5eead4;
-    background: rgba(20, 184, 166, 0.14);
-  }
-
-  /* Provider card */
-  .providerCard {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(255, 255, 255, 0.06);
-    box-shadow: none !important;
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.2);
-    }
-  }
-
-  .cardName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .builtinTag {
-    background-color: rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.6);
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  .customTag {
-    background-color: rgba(255, 127, 22, 0.15);
-    color: #ff9d4d;
-    border-color: rgba(255, 127, 22, 0.25);
-  }
-
-  .freeTag {
-    background: linear-gradient(135deg, #10b981, #059669);
-    color: #fff;
-  }
-
-  .configuredCount {
-    color: #34d399;
-  }
-
-  .availableHint {
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .emptyConfigured {
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-  .emptyConfigured p {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .availableItem {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-  .availableItem:hover {
-    background: rgba(255, 255, 255, 0.08);
-    border-color: rgba(99, 102, 241, 0.4);
-  }
-
-  .availableItemName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .availableItemAction {
-    color: #818cf8;
-  }
-
-  .variantItem {
-    background: rgba(255, 255, 255, 0.04);
-    &:hover {
-      background: rgba(99, 102, 241, 0.15);
-    }
-  }
-
-  .variantItemName {
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .localTag {
-    background-color: rgba(29, 212, 215, 0.15);
-    color: rgba(29, 212, 215, 1);
-  }
-
-  .infoRow {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .infoLabel {
-    color: rgba(255, 255, 255, 0.3);
-  }
-
-  .infoValue {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .infoEmpty {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .cardActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
-    background: #2a2a2a;
-  }
-
-  .groupCardGlass {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(255, 255, 255, 0.06);
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.2);
-    }
-  }
-
-  .groupCardName {
-    color: rgba(255, 255, 255, 0.9);
-  }
-
-  .groupSegmented {
-    background: rgba(255, 255, 255, 0.04);
-  }
-
-  .groupSegBtn {
-    color: #666;
-
-    &:hover {
-      color: #999;
-    }
-  }
-
-  .groupSegBtnActive {
-    background: rgba(99, 102, 241, 0.15);
-    color: #a5b4fc;
-  }
-
-  .groupSegDotOff {
-    background: #dc2626;
-  }
-
-  .groupCardFieldLabel {
-    color: #555;
-  }
-
-  .groupCardFieldValue {
-    color: rgba(255, 255, 255, 0.7);
-  }
-
-  .groupCardMono {
-    color: #888;
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .groupCardActions {
-    border-top-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .groupCardActBtn {
-    background: rgba(255, 255, 255, 0.04);
-    border-color: rgba(255, 255, 255, 0.06);
-    color: #888;
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.3);
-      color: #a5b4fc;
-    }
-  }
-
-  .groupCardActBtnDanger {
-    color: #f87171;
-    border-color: rgba(248, 113, 113, 0.2);
-
-    &:hover {
-      border-color: rgba(248, 113, 113, 0.5);
-      color: #ef4444;
-      background: rgba(248, 113, 113, 0.08);
-    }
-  }
-
-  .configBtn {
-    color: rgba(255, 255, 255, 0.65) !important;
-
-    &:hover {
-      color: #ff7f16 !important;
-    }
-  }
-
-  .statusContainer .statusText.disabled {
-    color: rgba(255, 255, 255, 0.3);
-  }
-
-  .llmPillOn {
-    background: linear-gradient(
-      135deg,
-      rgba(16, 185, 129, 0.1),
-      rgba(16, 185, 129, 0.05),
-      rgba(255, 255, 255, 0.03)
-    );
-    border-color: rgba(16, 185, 129, 0.4);
-    box-shadow: 0 1px 6px rgba(16, 185, 129, 0.15);
-
-    &:hover {
-      box-shadow: 0 2px 10px rgba(16, 185, 129, 0.25);
-    }
-  }
-  .llmPillOff {
-    background: linear-gradient(
-      135deg,
-      rgba(239, 68, 68, 0.1),
-      rgba(239, 68, 68, 0.05),
-      rgba(255, 255, 255, 0.03)
-    );
-    border-color: rgba(239, 68, 68, 0.4);
-    box-shadow: 0 1px 6px rgba(239, 68, 68, 0.15);
-
-    &:hover {
-      box-shadow: 0 2px 10px rgba(239, 68, 68, 0.25);
-    }
-  }
-  .llmPillLabel {
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .llmPillValue {
-    color: rgba(255, 255, 255, 0.85);
-  }
-  .llmPillEdit {
-    color: #a5b4fc;
-  }
-  .llmDescription {
-    color: rgba(255, 255, 255, 0.45);
-  }
-  .panelSection {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.06);
-  }
-  .panelSectionDashed {
-    background: transparent;
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-  .panelTitle {
-    color: rgba(255, 255, 255, 0.5);
-  }
-  .panelDotGreen {
-    background: #34d399;
-  }
-  .panelDotGray {
-    background: rgba(255, 255, 255, 0.2);
-  }
-  .panelCount {
-    color: #34d399;
-  }
-  .tabsNav {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-  .tabItem {
-    color: rgba(255, 255, 255, 0.4);
-
-    &:hover {
-      color: rgba(255, 255, 255, 0.6);
-    }
-  }
-  .tabItemActive {
-    color: #a5b4fc;
-    border-bottom-color: #a5b4fc;
-  }
-
-  /* Slot section (LLM 顶部选择区) */
-  .slotSection {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-
-    &:hover {
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-      border-color: rgba(255, 255, 255, 0.15);
-    }
-  }
-
-  .slotHeader {
-    border-bottom-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .slotTitle {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .slotCurrent {
-    color: #52c41a;
-    background: rgba(82, 196, 26, 0.1);
-    border-color: rgba(82, 196, 26, 0.3);
-  }
-
-  .slotLabel {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .slotActions {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  /* Advanced config */
-  .advancedConfigSection {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .localAdvancedConfigSection {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .advancedConfigToggle {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .localAdvancedConfigLabel {
-    color: rgba(255, 255, 255, 0.88);
-  }
-
-  /* JSON editor */
-  .jsonEditorContainer {
-    border-color: rgba(255, 255, 255, 0.15);
-    background: #1a1a1a;
-
-    &:focus-within {
-      border-color: #ff7f16;
-    }
-  }
-
-  .jsonEditorHighlight {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .jsonEditorTextarea {
-    caret-color: rgba(255, 255, 255, 0.85);
-  }
-
-  /* Model list (modal) */
-  .modelList {
-    border-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .modelListEmpty {
-    color: rgba(255, 255, 255, 0.3);
-  }
-
-  .modelListLoadMore {
-    border-top-color: rgba(255, 255, 255, 0.08);
-  }
-
-  .modelListCount {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .modelListItem {
-    border-bottom-color: rgba(255, 255, 255, 0.06);
-
-    &:hover {
-      background: rgba(255, 255, 255, 0.04);
-    }
-  }
-
-  .customModelListItem {
-    background: linear-gradient(
-      180deg,
-      rgba(255, 127, 22, 0.1) 0%,
-      rgba(255, 127, 22, 0.04) 100%
-    );
-    border-left-color: rgba(255, 127, 22, 0.55);
-
-    &:hover {
-      background: linear-gradient(
-        180deg,
-        rgba(255, 127, 22, 0.14) 0%,
-        rgba(255, 127, 22, 0.06) 100%
-      );
-    }
-  }
-
-  .modelListItemName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .modelListItemId {
-    color: rgba(255, 255, 255, 0.3);
-  }
-
-  .customModelHint {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .modelAddForm {
-    background: rgba(255, 255, 255, 0.03);
-    border-color: rgba(255, 255, 255, 0.12);
-  }
-
-  /* Provider cards */
-  .providerCard {
-    background: rgba(30, 30, 30, 0.8);
-    border-color: rgba(255, 255, 255, 0.06);
-
-    &:hover {
-      border-color: rgba(99, 102, 241, 0.2);
-    }
-  }
-
-  .cardName {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .infoLabel {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .infoValue {
-    color: rgba(255, 255, 255, 0.65);
-  }
-
-  .infoEmpty {
-    color: rgba(255, 255, 255, 0.3);
-  }
 }
 
 /* ---- Custom Headers Editor ---- */
@@ -2347,12 +2223,12 @@
 
   .customHeaderDelete {
     flex: 0 0 auto;
-    color: #999;
+    color: var(--app-text-tertiary);
     cursor: pointer;
     transition: color 0.2s;
 
     &:hover {
-      color: #ff4d4f;
+      color: var(--app-error-text);
     }
   }
 }
@@ -2364,7 +2240,7 @@
   padding: 0;
   height: auto;
   font-size: 13px;
-  color: var(--ant-color-primary, #1677ff);
+  color: var(--app-accent-text);
   background: transparent;
   border: none;
   cursor: pointer;
@@ -2584,7 +2460,7 @@
   .cardActions {
     position: static;
     padding-top: 12px;
-    border-top: 1px solid rgba(0, 0, 0, 0.06);
+    border-top: 1px solid var(--app-border-subtle);
     background: transparent;
   }
 
@@ -2693,10 +2569,24 @@
   }
 
   .modelListItemActions {
-    gap: 4px;
+    gap: 8px;
     flex-shrink: 0;
     margin-left: 0;
     justify-content: flex-start;
+  }
+
+  .modelListActionButton {
+    width: 44px !important;
+    min-width: 44px !important;
+    height: 44px !important;
+  }
+
+  .modelListItemActionDivider {
+    flex-basis: 100%;
+    width: 100% !important;
+    height: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
   }
 
   .modelListItemStatusButton {

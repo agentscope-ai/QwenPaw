@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,14 @@ import {
   useLoopStore,
 } from "../../stores/loopStore";
 import { LoopModeSelector } from "./LoopModeSelector";
+
+const { mockUseIsMobile } = vi.hoisted(() => ({
+  mockUseIsMobile: vi.fn(() => false),
+}));
+
+vi.mock("../../hooks/useIsMobile", () => ({
+  useIsMobile: mockUseIsMobile,
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -52,6 +60,7 @@ const ompUltraqa: LoopModeInfo = {
 
 describe("LoopModeSelector", () => {
   beforeEach(() => {
+    mockUseIsMobile.mockReturnValue(false);
     useLoopStore.setState({
       selectedModeId: "default",
       availableModes: [DEFAULT_LOOP_MODE, goal, custom, ompUltraqa],
@@ -100,6 +109,36 @@ describe("LoopModeSelector", () => {
     expect(useLoopStore.getState().selectedModeId).toBe("custom:quality");
   });
 
+  it("uses a bottom drawer for mode selection on mobile", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderWithProviders(<LoopModeSelector compact />);
+
+    const trigger = screen.getByRole("button", { name: "loop.selectorAria" });
+    await user.click(trigger);
+
+    expect(
+      await screen.findByRole("dialog", { name: "loop.selectorTitle" }),
+    ).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector(".ant-popover")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("loop.modes.goal.name"));
+
+    expect(useLoopStore.getState().selectedModeId).toBe("goal");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("renders only the mode icon in compact mode", () => {
+    renderWithProviders(<LoopModeSelector compact />);
+
+    const trigger = screen.getByRole("button", {
+      name: "loop.selectorAria",
+    });
+    expect(trigger.textContent).toBe("");
+    expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+  });
+
   it("shows starting before the first response event", () => {
     useLoopStore.getState().setStartingMode(custom);
 
@@ -110,6 +149,21 @@ describe("LoopModeSelector", () => {
     expect(
       screen.queryByRole("button", { name: "loop.selectorAria" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps an active mode icon-only in compact mode", () => {
+    useLoopStore.getState().setSessionMode(custom, "running");
+
+    const { container } = renderWithProviders(<LoopModeSelector compact />);
+
+    const activeMode = container.querySelector('[data-state="running"]');
+    expect(activeMode).not.toBeNull();
+    expect(activeMode?.textContent).toBe("");
+    expect(activeMode?.querySelectorAll("svg")).toHaveLength(1);
+    expect(activeMode).toHaveAttribute(
+      "aria-label",
+      "Quality Review loop.running",
+    );
   });
 
   it("shows running after the first response event", () => {
@@ -126,5 +180,86 @@ describe("LoopModeSelector", () => {
     renderWithProviders(<LoopModeSelector />);
 
     expect(screen.getByText("loop.awaiting_user")).toBeInTheDocument();
+  });
+
+  // ---------------------------------------------------------------------------
+  // A#85096690 — session events trigger the indicator update
+  // ---------------------------------------------------------------------------
+  describe("session event triggers indicator refresh (#85096690)", () => {
+    it("transitions from idle → starting → running and updates the indicator", () => {
+      const { rerender } = renderWithProviders(<LoopModeSelector />);
+
+      // Initially idle: selector trigger is visible
+      expect(
+        screen.getByRole("button", { name: "loop.selectorAria" }),
+      ).toBeInTheDocument();
+
+      // Session event: mode starting
+      act(() => {
+        useLoopStore.getState().setStartingMode(custom);
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.starting")).toBeInTheDocument();
+      expect(screen.getByText("Quality Review")).toBeInTheDocument();
+
+      // Session event: mode running
+      act(() => {
+        useLoopStore.getState().setRunningMode();
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+      expect(screen.getByText("Quality Review")).toBeInTheDocument();
+    });
+
+    it("resetSessionMode returns indicator to idle selector", () => {
+      // Start in running state
+      useLoopStore.getState().setSessionMode(custom, "running");
+      const { rerender } = renderWithProviders(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+
+      // Session ends → reset
+      act(() => {
+        useLoopStore.getState().resetSessionMode();
+      });
+      rerender(<LoopModeSelector />);
+
+      // Back to idle: selector trigger visible again, no session state text
+      expect(
+        screen.getByRole("button", { name: "loop.selectorAria" }),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("loop.running")).not.toBeInTheDocument();
+      expect(screen.queryByText("Quality Review")).not.toBeInTheDocument();
+    });
+
+    it("transitions running → awaiting_user → running correctly", () => {
+      useLoopStore.getState().setSessionMode(custom, "running");
+      const { rerender } = renderWithProviders(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+
+      // Switch to awaiting_user
+      act(() => {
+        useLoopStore.getState().setSessionMode(custom, "awaiting_user");
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.awaiting_user")).toBeInTheDocument();
+
+      // Back to running
+      act(() => {
+        useLoopStore.getState().setSessionMode(custom, "running");
+      });
+      rerender(<LoopModeSelector />);
+      expect(screen.getByText("loop.running")).toBeInTheDocument();
+    });
+
+    it("active mode indicator shows data-state attribute matching session state", () => {
+      useLoopStore.getState().setSessionMode(goal, "running");
+      renderWithProviders(<LoopModeSelector />);
+
+      const indicator = screen
+        .getByText("loop.running")
+        .closest("[data-state]");
+      expect(indicator).toBeTruthy();
+      expect(indicator!.getAttribute("data-state")).toBe("running");
+    });
   });
 });

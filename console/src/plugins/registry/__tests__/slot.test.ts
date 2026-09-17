@@ -89,6 +89,14 @@ describe("slotRegistry.replace", () => {
     const snap = slotRegistry.snapshot("x");
     expect(snap.map((e) => e.opts.id)).toEqual(["f"]);
   });
+
+  it("removes fills and replacements by source", () => {
+    slotRegistry.fill("plugin", "x", () => null, { id: "fill" });
+    slotRegistry.replace("plugin", "y", () => null, { id: "replace" });
+
+    slotRegistry.removeBySource("plugin");
+    expect(slotRegistry.snapshotAll()).toEqual([]);
+  });
 });
 
 describe("slotRegistry audit", () => {

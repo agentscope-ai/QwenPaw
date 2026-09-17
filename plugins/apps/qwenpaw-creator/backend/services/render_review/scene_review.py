@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
 from typing import Any
@@ -28,6 +29,7 @@ from uuid import NAMESPACE_URL, uuid5
 from domain.enums import TaskKind, TaskStatus
 from domain.errors import ValidationError
 from models import vlm_model
+from models.config import get_vlm_concurrency
 from models.vlm_model import multimodal_media_part
 from services.media_files.keyframe_cache import materialize_keyframe
 
@@ -58,6 +60,7 @@ FRAMES_PER_ELEMENT = 3
 _FRAME_FRACTIONS = (0.15, 0.5, 0.85)
 _KEYFRAME_WIDTH = 960
 SCENE_REVIEW_MAX_TOKENS = 4096
+
 
 # Checks that only make sense on the composed render; the scene pass
 # reviews them as far as frame evidence goes and the master-render
@@ -151,6 +154,7 @@ async def _collect_evidence(  # pylint: disable=too-many-branches
 
     Returns (frame paths, frame labels, degraded/fact notes).
     """
+    # pylint: disable=too-many-statements
     ffmpeg = resolve_ffmpeg()
     ticks = timeline.ticks_per_second
     frames: list[Path] = []
@@ -198,20 +202,30 @@ async def _collect_evidence(  # pylint: disable=too-many-branches
     if ffmpeg is None or not ffmpeg:
         notes.append("ffmpeg 不可用：无法抽取源素材帧，按事实与声明评审。")
         return frames, labels, notes
-    for element in edit_elements:
-        render_source = element.render_source
-        source_path = await asyncio.to_thread(
-            _source_local_path,
-            project=project,
-            project_root=project_root,
-            version_id=render_source.version_id,
-            executions=executions,
-        )
+    # Source lookups and keyframe seeks are independent ffmpeg/IO work:
+    # issue them concurrently and assemble in the planned order, because
+    # the prompt refers to frames by position (第 N 张图).
+    resolved_sources = await asyncio.gather(
+        *(
+            asyncio.to_thread(
+                _source_local_path,
+                project=project,
+                project_root=project_root,
+                version_id=element.render_source.version_id,
+                executions=executions,
+            )
+            for element in edit_elements
+        ),
+    )
+    planned: list[tuple[str, float]] = []
+    seek_calls: list[Any] = []
+    for element, source_path in zip(edit_elements, resolved_sources):
         if source_path is None:
             notes.append(
                 f"片段 {element.element_id} 源视频没有本地字节，" "该片段按素材理解事实评审。",
             )
             continue
+        render_source = element.render_source
         version = project.assets.source_versions_by_id.get(
             render_source.version_id,
         )
@@ -224,28 +238,40 @@ async def _collect_evidence(  # pylint: disable=too-many-branches
         end_sec = render_source.source_out_tick / ticks
         span = max(0.1, end_sec - start_sec)
         for fraction in _FRAME_FRACTIONS[:per_element]:
-            if len(frames) >= MAX_SCENE_FRAMES:
+            if len(planned) >= MAX_SCENE_FRAMES:
                 break
-            try:
-                cached = await asyncio.to_thread(
+            timestamp = start_sec + span * fraction
+            planned.append((element.element_id, timestamp))
+            seek_calls.append(
+                asyncio.to_thread(
                     materialize_keyframe,
                     project_root,
                     source_path=source_path,
                     source_identity=identity,
-                    timestamp_seconds=start_sec + span * fraction,
+                    timestamp_seconds=timestamp,
                     width=_KEYFRAME_WIDTH,
                     ffmpeg_path=ffmpeg,
-                )
-            except Exception as exc:  # pylint: disable=broad-except
-                notes.append(
-                    f"片段 {element.element_id} 抽帧失败（{exc}），" "该片段按事实评审。",
-                )
-                break
-            frames.append(cached.path)
-            labels.append(
-                f"第 {len(frames)} 张图 = 片段 {element.element_id} "
-                f"源时间 {start_sec + span * fraction:.1f}s",
+                ),
             )
+    if not seek_calls:
+        return frames, labels, notes
+    seeked = await asyncio.gather(*seek_calls, return_exceptions=True)
+    # One failing seek retires the whole element (same read as before:
+    # a broken source yields facts-only review for that clip).
+    broken: set[str] = set()
+    for (element_id, timestamp), cached in zip(planned, seeked):
+        if element_id in broken:
+            continue
+        if isinstance(cached, BaseException):
+            notes.append(
+                f"片段 {element_id} 抽帧失败（{cached}），" "该片段按事实评审。",
+            )
+            broken.add(element_id)
+            continue
+        frames.append(cached.path)
+        labels.append(
+            f"第 {len(frames)} 张图 = 片段 {element_id} " f"源时间 {timestamp:.1f}s",
+        )
     return frames, labels, notes
 
 
@@ -307,33 +333,45 @@ def _parse_checks(text: str) -> tuple[list[dict[str, Any]], str]:
     return checks, str(payload.get("impression") or "")
 
 
-async def review_scene(
+@dataclass(slots=True)
+class SceneEvaluation:
+    """Side-effect-free outcome of reviewing one scene.
+
+    Evaluation (evidence + VLM) is safe to run concurrently for many
+    scenes; the ledger write it implies is not, so it is returned as
+    data and committed by the caller in a defined order.
+    """
+
+    scene_id: str
+    fingerprint: str
+    # already_locked | rejected | passed (passed still needs the commit)
+    status: str
+    review_round: int = 0
+    checks: list[dict[str, Any]] = field(default_factory=list)
+    impression: str = ""
+    failed_checks: list[str] = field(default_factory=list)
+
+
+async def _evaluate_scene(
     services: Any,
     *,
     project_id: str,
     timeline_ref: str,
     scene_id: str,
-    idempotency_key: str,
-) -> dict[str, Any]:
-    """Review one scene against the vendored six checks and lock it.
-
-    Zero-render: evidence is source keyframes + motion facts. On pass the
-    ledger row is committed as ``locked`` with the content fingerprint;
-    on failure the findings come back for a targeted per-scene fix.
-    """
+) -> SceneEvaluation:
+    """Collect evidence and run the six checks without writing anything."""
     snapshot = services.projects.read(project_id)
     project = snapshot.project
     timeline = _target_timeline(project, timeline_ref)
     row = _ledger_row(timeline, scene_id)
     fingerprint = scene_content_fingerprint(timeline, row)
     if row.status == "locked" and row.locked_fingerprint == fingerprint:
-        return {
-            "ok": True,
-            "sceneId": scene_id,
-            "status": "already_locked",
-            "reviewRound": row.review_round,
-            "fingerprint": fingerprint,
-        }
+        return SceneEvaluation(
+            scene_id=scene_id,
+            fingerprint=fingerprint,
+            status="already_locked",
+            review_round=row.review_round,
+        )
     project_root = Path(services.projects.project_root(project_id))
     executions = ProjectExecutionStore(services.root)
     frames, labels, notes = await _collect_evidence(
@@ -375,72 +413,147 @@ async def review_scene(
         for item in checks
         if not item["passed"] and item["severity"] == "major"
     ]
-    if failed:
-        return {
-            "ok": True,
-            "sceneId": scene_id,
-            "status": "rejected",
-            "checks": checks,
-            "impression": impression,
-            "failedChecks": [item["key"] for item in failed],
-            "fingerprint": fingerprint,
-        }
+    return SceneEvaluation(
+        scene_id=scene_id,
+        fingerprint=fingerprint,
+        status="rejected" if failed else "passed",
+        review_round=row.review_round,
+        checks=checks,
+        impression=impression,
+        failed_checks=[item["key"] for item in failed],
+    )
 
-    def commit_sync() -> Any:
-        current = services.projects.read(project_id)
-        candidate = current.project.model_dump(mode="json")
-        stripped = timeline_ref.partition(":")[2] or timeline_ref
-        timelines = candidate["timelines"]["items"]
-        raw_timeline = timelines.get(stripped) or timelines.get(timeline_ref)
-        if raw_timeline is None:
-            raise ValidationError(f"Timeline 不存在: {timeline_ref}")
-        raw_plan = raw_timeline.get("edit_plan")
-        if not isinstance(raw_plan, dict):
-            raise ValidationError("edit_plan 在审阅期间被移除，无法锁定")
-        live_timeline = _target_timeline(current.project, timeline_ref)
-        live_row = _ledger_row(live_timeline, scene_id)
-        live_fingerprint = scene_content_fingerprint(live_timeline, live_row)
-        if live_fingerprint != fingerprint:
-            raise ValidationError(
-                "场景内容在审阅期间发生变化，请重新执行 review_scene",
-            )
-        for raw_row in raw_plan.get("scene_ledger", []):
-            if raw_row.get("scene_id") == scene_id:
-                raw_row["status"] = "locked"
-                raw_row["review_round"] = (
-                    int(
-                        raw_row.get("review_round", 0),
-                    )
-                    + 1
-                )
-                raw_row["locked_fingerprint"] = fingerprint
-                break
-        commit = services.commits.commit(
-            base=current,
-            candidate=candidate,
-            origin=ChangeOrigin.RUNTIME_TASK,
-            review_policy=ReviewPolicy.AUTO_FIX,
-            caused_by_request_id=idempotency_key,
+
+def _commit_scene_lock(
+    services: Any,
+    *,
+    project_id: str,
+    timeline_ref: str,
+    scene_id: str,
+    fingerprint: str,
+    idempotency_key: str,
+) -> Any:
+    """Lock one reviewed scene row (synchronous, run one at a time).
+
+    Re-reads the live Project inside the call and re-checks the scene
+    fingerprint, so a concurrent edit during the review is caught. The
+    fingerprint covers only this scene's elements, which is why locking
+    sibling scenes in the same pass never invalidates it.
+    """
+    current = services.projects.read(project_id)
+    candidate = current.project.model_dump(mode="json")
+    stripped = timeline_ref.partition(":")[2] or timeline_ref
+    timelines = candidate["timelines"]["items"]
+    raw_timeline = timelines.get(stripped) or timelines.get(timeline_ref)
+    if raw_timeline is None:
+        raise ValidationError(f"Timeline 不存在: {timeline_ref}")
+    raw_plan = raw_timeline.get("edit_plan")
+    if not isinstance(raw_plan, dict):
+        raise ValidationError("edit_plan 在审阅期间被移除，无法锁定")
+    live_timeline = _target_timeline(current.project, timeline_ref)
+    live_row = _ledger_row(live_timeline, scene_id)
+    live_fingerprint = scene_content_fingerprint(live_timeline, live_row)
+    if live_fingerprint != fingerprint:
+        raise ValidationError(
+            "场景内容在审阅期间发生变化，请重新执行 review_scene",
         )
-        return commit.snapshot
+    for raw_row in raw_plan.get("scene_ledger", []):
+        if raw_row.get("scene_id") == scene_id:
+            raw_row["status"] = "locked"
+            raw_row["review_round"] = int(raw_row.get("review_round", 0)) + 1
+            raw_row["locked_fingerprint"] = fingerprint
+            break
+    commit = services.commits.commit(
+        base=current,
+        candidate=candidate,
+        origin=ChangeOrigin.RUNTIME_TASK,
+        review_policy=ReviewPolicy.AUTO_FIX,
+        caused_by_request_id=idempotency_key,
+    )
+    return commit.snapshot
 
-    committed = await asyncio.to_thread(commit_sync)
+
+async def _lock_reviewed_scene(
+    services: Any,
+    *,
+    project_id: str,
+    timeline_ref: str,
+    evaluation: SceneEvaluation,
+    idempotency_key: str,
+) -> None:
+    """Persist one passing evaluation (write side of review_scene)."""
+    committed = await asyncio.to_thread(
+        _commit_scene_lock,
+        services,
+        project_id=project_id,
+        timeline_ref=timeline_ref,
+        scene_id=evaluation.scene_id,
+        fingerprint=evaluation.fingerprint,
+        idempotency_key=idempotency_key,
+    )
     await asyncio.to_thread(services.poller.note_commit, committed)
     logger.info(
         "scene locked: project=%s timeline=%s scene=%s round=%d",
         project_id,
         timeline_ref,
-        scene_id,
-        row.review_round + 1,
+        evaluation.scene_id,
+        evaluation.review_round + 1,
+    )
+
+
+async def review_scene(
+    services: Any,
+    *,
+    project_id: str,
+    timeline_ref: str,
+    scene_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Review one scene against the vendored six checks and lock it.
+
+    Zero-render: evidence is source keyframes + motion facts. On pass the
+    ledger row is committed as ``locked`` with the content fingerprint;
+    on failure the findings come back for a targeted per-scene fix.
+    """
+    evaluation = await _evaluate_scene(
+        services,
+        project_id=project_id,
+        timeline_ref=timeline_ref,
+        scene_id=scene_id,
+    )
+    if evaluation.status == "already_locked":
+        return {
+            "ok": True,
+            "sceneId": scene_id,
+            "status": "already_locked",
+            "reviewRound": evaluation.review_round,
+            "fingerprint": evaluation.fingerprint,
+        }
+    if evaluation.status == "rejected":
+        return {
+            "ok": True,
+            "sceneId": scene_id,
+            "status": "rejected",
+            "checks": evaluation.checks,
+            "impression": evaluation.impression,
+            "failedChecks": evaluation.failed_checks,
+            "fingerprint": evaluation.fingerprint,
+        }
+    await _lock_reviewed_scene(
+        services,
+        project_id=project_id,
+        timeline_ref=timeline_ref,
+        evaluation=evaluation,
+        idempotency_key=idempotency_key,
     )
     return {
         "ok": True,
         "sceneId": scene_id,
         "status": "locked",
-        "checks": checks,
-        "impression": impression,
-        "reviewRound": row.review_round + 1,
-        "fingerprint": fingerprint,
+        "checks": evaluation.checks,
+        "impression": evaluation.impression,
+        "reviewRound": evaluation.review_round + 1,
+        "fingerprint": evaluation.fingerprint,
     }
 
 
@@ -729,10 +842,21 @@ async def auto_review_stale_scenes(
     """Auto-rereview stale/draft scenes so compose can proceed.
 
     Already-locked scenes with fresh fingerprints are no-ops (the
-    ``review_scene`` idempotent short-circuit returns immediately).
-    When the VLM rejects a scene, the fingerprint is force-locked so
-    the compose gate passes — the post-compose self-review covers
-    quality. Only unexpected errors leave a scene blocked.
+    evaluation short-circuits immediately). When the VLM rejects a
+    scene, the fingerprint is force-locked so the compose gate passes —
+    the post-compose self-review covers quality. Only unexpected errors
+    leave a scene blocked.
+
+    Evidence collection and the VLM call run concurrently across scenes
+    because they share no state. The fan-out is capped by the *model's*
+    configured VLM concurrency rather than a review-owned setting: the
+    per-request ``model_slot("vlm")`` only wraps the HTTP call, while
+    frame upload / base64 packing happens before it, so an uncapped
+    gather would push N x MAX_SCENE_FRAMES transfers through the shared
+    thread pool at once. Raising the model's own limit still widens this
+    pass; nothing here adds a second knob.
+    Every Project write is then applied serially in scene order, which
+    keeps the commit lock uncontended and the ledger deterministic.
 
     Returns the list of scene IDs that still need attention after the
     auto-rereview pass.
@@ -741,29 +865,49 @@ async def auto_review_stale_scenes(
     targets = [*drafts, *stale]
     if not targets:
         return []
+    limit = max(1, get_vlm_concurrency())
     logger.info(
-        "auto-rereview: project=%s timeline=%s scenes=%d",
+        "auto-rereview: project=%s timeline=%s scenes=%d vlm_concurrency=%d",
         project_id,
         timeline_ref,
         len(targets),
+        limit,
     )
-    remaining: list[str] = []
-    for scene_id in targets:
-        idempotency_key = f"auto-rereview:{timeline_ref}:{scene_id}"
-        try:
-            result = await review_scene(
+    slots = asyncio.Semaphore(limit)
+
+    async def evaluate(scene_id: str) -> SceneEvaluation:
+        async with slots:
+            return await _evaluate_scene(
                 services,
                 project_id=project_id,
                 timeline_ref=timeline_ref,
                 scene_id=scene_id,
-                idempotency_key=idempotency_key,
             )
-            if result.get("status") == "rejected":
+
+    evaluations = await asyncio.gather(
+        *(evaluate(scene_id) for scene_id in targets),
+        return_exceptions=True,
+    )
+    remaining: list[str] = []
+    for scene_id, evaluation in zip(targets, evaluations):
+        idempotency_key = f"auto-rereview:{timeline_ref}:{scene_id}"
+        if isinstance(evaluation, BaseException):
+            logger.exception(
+                "auto-rereview failed: scene=%s",
+                scene_id,
+                exc_info=evaluation,
+            )
+            remaining.append(scene_id)
+            continue
+        try:
+            if evaluation.status == "already_locked":
+                continue
+            if evaluation.status == "rejected":
                 logger.warning(
                     "auto-rereview VLM rejected scene=%s checks=%s; "
                     "force-locking to unblock compose",
                     scene_id,
-                    result.get("failedChecks"),
+                    evaluation.failed_checks,
                 )
                 await asyncio.to_thread(
                     _force_lock_scene,
@@ -772,6 +916,14 @@ async def auto_review_stale_scenes(
                     timeline_ref=timeline_ref,
                     scene_id=scene_id,
                 )
+                continue
+            await _lock_reviewed_scene(
+                services,
+                project_id=project_id,
+                timeline_ref=timeline_ref,
+                evaluation=evaluation,
+                idempotency_key=idempotency_key,
+            )
         except Exception:
             logger.exception(
                 "auto-rereview failed: scene=%s",

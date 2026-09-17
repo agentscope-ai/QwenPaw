@@ -256,7 +256,7 @@ function RubricSection() {
       <p
         style={{
           fontSize: 12,
-          color: "var(--text-secondary, rgba(0,0,0,0.45))",
+          color: "var(--app-text-secondary)",
           marginBottom: 12,
           lineHeight: 1.6,
         }}

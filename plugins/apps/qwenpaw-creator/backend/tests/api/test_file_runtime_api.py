@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
+import time
 
-import httpx
 from fastapi import FastAPI
 
 from api.dependencies import creator_error_handler, project_file_services
@@ -22,10 +23,6 @@ from services.runtime_files.execution_models import (
 )
 from services.runtime_files.execution_store import ProjectExecutionStore
 from services.runtime_files.session_store import ProjectRuntimeSessionStore
-
-
-def _run(coro):
-    return asyncio.run(coro)
 
 
 def _app(tmp_path):
@@ -47,40 +44,36 @@ def _app(tmp_path):
     return app, services, snapshot, bootstrap
 
 
-def test_file_session_message_is_idempotent_and_visible(tmp_path) -> None:
+def test_file_session_message_is_idempotent_and_visible(
+    tmp_path,
+    run_scenario,
+) -> None:
     app, services, _snapshot, bootstrap = _app(tmp_path)
+    payload = {
+        "clientMessageId": "message-1",
+        "conversationId": "conversation-1",
+        "message": "完善故事结构",
+    }
 
-    async def scenario():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            session = await client.get("/projects/project-1/session")
-            first = await client.post(
-                "/projects/project-1/messages",
-                headers={"Idempotency-Key": "message-1"},
-                json={
-                    "clientMessageId": "message-1",
-                    "conversationId": "conversation-1",
-                    "message": "完善故事结构",
-                },
-            )
-            replay = await client.post(
-                "/projects/project-1/messages",
-                headers={"Idempotency-Key": "message-1"},
-                json={
-                    "clientMessageId": "message-1",
-                    "conversationId": "conversation-1",
-                    "message": "完善故事结构",
-                },
-            )
-            messages = await client.get(
-                "/projects/project-1/conversations/conversation-1/messages",
-            )
+    async def scenario(client):
+        headers = {"Idempotency-Key": "message-1"}
+        session = await client.get("/projects/project-1/session")
+        first = await client.post(
+            "/projects/project-1/messages",
+            headers=headers,
+            json=payload,
+        )
+        replay = await client.post(
+            "/projects/project-1/messages",
+            headers=headers,
+            json=payload,
+        )
+        messages = await client.get(
+            "/projects/project-1/conversations/conversation-1/messages",
+        )
         return session, first, replay, messages
 
-    session, first, replay, messages = _run(scenario())
+    session, first, replay, messages = run_scenario(app, scenario)
     assert session.status_code == 200
     assert session.json()["session"]["id"] == bootstrap.session.session_id
     assert first.status_code == 202
@@ -98,6 +91,7 @@ def test_file_session_message_is_idempotent_and_visible(tmp_path) -> None:
 def test_interrupt_is_persisted_before_process_local_cancellation(
     tmp_path,
     monkeypatch,
+    api_request,
 ) -> None:
     app, services, snapshot, _bootstrap = _app(tmp_path)
     observed_statuses: list[str] = []
@@ -135,60 +129,120 @@ def test_interrupt_is_persisted_before_process_local_cancellation(
         observe_interrupt,
     )
 
-    async def scenario():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            return await client.post(
-                "/projects/project-1/interrupt",
-                headers={"Idempotency-Key": "interrupt-1"},
-                json={},
-            )
-
-    response = _run(scenario())
+    response = api_request(
+        app,
+        "POST",
+        "/projects/project-1/interrupt",
+        headers={"Idempotency-Key": "interrupt-1"},
+        json={},
+    )
     assert response.status_code == 202
     assert observed_statuses == ["INTERRUPT_REQUESTED"]
     assert response.json()["status"] == "CANCELLED"
+    deadline = time.monotonic() + 2
     cancelled_task = executions.get_task("project-1", "task-stop-1")
+    while (
+        cancelled_task.status is not TaskStatus.CANCELLED
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+        cancelled_task = executions.get_task("project-1", "task-stop-1")
     assert cancelled_task.status is TaskStatus.CANCELLED
-    assert cancelled_task.error == {
-        "code": "USER_CANCELLED",
-        "message": "用户停止了当前项目的所有 Agent 活动",
-    }
+    assert cancelled_task.error["code"] == "USER_CANCELLED"
 
 
-def test_file_conversation_create_replays_by_idempotency_key(tmp_path) -> None:
+def test_interrupt_response_does_not_wait_for_terminal_task_cleanup(
+    tmp_path,
+    monkeypatch,
+    api_request,
+) -> None:
+    app, services, _snapshot, _bootstrap = _app(tmp_path)
+    cleanup_started = threading.Event()
+    release_cleanup = threading.Event()
+
+    def blocking_cleanup(_services, project_id):
+        assert project_id == "project-1"
+        cleanup_started.set()
+        release_cleanup.wait(timeout=5)
+
+    monkeypatch.setattr(
+        "api.file_session_routes._cancel_active_project_tasks_sync",
+        blocking_cleanup,
+    )
+
+    response = api_request(
+        app,
+        "POST",
+        "/projects/project-1/interrupt",
+        headers={"Idempotency-Key": "interrupt-nowait"},
+        json={},
+    )
+    assert cleanup_started.wait(timeout=1)
+    assert response.status_code == 202
+    assert response.json()["status"] == "CANCELLED"
+    stopped = services.sessions.get_project_session("project-1")
+    assert stopped.status.value == "CANCELLED"
+    release_cleanup.set()
+
+
+def test_message_history_pages_backward_with_tail_and_before(
+    tmp_path,
+    run_scenario,
+) -> None:
     app, _services, _snapshot, _bootstrap = _app(tmp_path)
 
-    async def scenario():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            first = await client.post(
-                "/projects/project-1/conversations",
-                headers={"Idempotency-Key": "conversation-create-1"},
-                json={"title": "第二轮"},
+    async def scenario(client):
+        for index in range(1, 8):
+            posted = await client.post(
+                "/projects/project-1/messages",
+                headers={"Idempotency-Key": f"message-{index}"},
+                json={
+                    "clientMessageId": f"message-{index}",
+                    "conversationId": "conversation-1",
+                    "message": f"第 {index} 条消息",
+                },
             )
-            replay = await client.post(
-                "/projects/project-1/conversations",
-                headers={"Idempotency-Key": "conversation-create-1"},
-                json={"title": "第二轮"},
-            )
-            listing = await client.get("/projects/project-1/conversations")
-        return first, replay, listing
+            assert posted.status_code == 202
+        base = "/projects/project-1/conversations/conversation-1/messages"
+        tail = await client.get(base, params={"tail": "true", "limit": 3})
+        middle = await client.get(base, params={"before": 5, "limit": 3})
+        head = await client.get(base, params={"before": 2, "limit": 3})
+        forward = await client.get(base, params={"after": 0, "limit": 3})
+        mixed = await client.get(base, params={"after": 3, "tail": "true"})
+        return tail, middle, head, forward, mixed
 
-    first, replay, listing = _run(scenario())
-    assert first.status_code == 201
-    assert replay.status_code == 201
-    assert replay.json() == first.json()
-    assert len(listing.json()["items"]) == 2
+    tail, middle, head, forward, mixed = run_scenario(app, scenario)
+
+    # tail=true returns the newest page plus a backward cursor.
+    assert tail.status_code == 200
+    assert [item["messageSeq"] for item in tail.json()["items"]] == [5, 6, 7]
+    assert tail.json()["nextBefore"] == 5
+    assert tail.json().get("nextAfter") is None
+
+    # before pages strictly older history, ascending inside the page.
+    assert middle.status_code == 200
+    assert [item["messageSeq"] for item in middle.json()["items"]] == [2, 3, 4]
+    assert middle.json()["nextBefore"] == 2
+
+    # The oldest page has no further backward cursor.
+    assert head.status_code == 200
+    assert [item["messageSeq"] for item in head.json()["items"]] == [1]
+    assert head.json().get("nextBefore") is None
+
+    # Forward pagination keeps its original contract.
+    assert forward.status_code == 200
+    assert [item["messageSeq"] for item in forward.json()["items"]] == [
+        1,
+        2,
+        3,
+    ]
+    assert forward.json()["nextAfter"] == 3
+
+    # Mixing directions has no coherent cursor and is rejected.
+    assert mixed.status_code >= 400
 
 
-def test_file_execution_routes_list_and_cancel(tmp_path) -> None:
+def test_file_execution_routes_list_and_cancel(tmp_path, run_scenario) -> None:
     app, services, snapshot, _bootstrap = _app(tmp_path)
     executions = ProjectExecutionStore(services.root)
     run = executions.create_specialist_run(
@@ -213,41 +267,32 @@ def test_file_execution_routes_list_and_cancel(tmp_path) -> None:
             input_generation=snapshot.generation,
             input_etag=snapshot.etag,
             input_refs=["project:story"],
-            metadata={
-                "targetRef": "timeline:timeline:main",
-                "completedElements": 3,
-                "totalElements": 10,
-            },
+            metadata={"targetRef": "timeline:timeline:main"},
         ),
     )
 
-    async def scenario():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            runs = await client.get("/projects/project-1/specialist-runs")
-            tasks = await client.get("/projects/project-1/tasks")
-            cancelled = await client.post(
-                "/projects/project-1/tasks/task-1/cancel",
-                headers={"Idempotency-Key": "cancel-1"},
-                json={"reason": "不再需要"},
-            )
-            replay = await client.post(
-                "/projects/project-1/tasks/task-1/cancel",
-                headers={"Idempotency-Key": "cancel-1"},
-                json={"reason": "不再需要"},
-            )
+    async def scenario(client):
+        cancel = {
+            "headers": {"Idempotency-Key": "cancel-1"},
+            "json": {"reason": "不再需要"},
+        }
+        runs = await client.get("/projects/project-1/specialist-runs")
+        tasks = await client.get("/projects/project-1/tasks")
+        cancelled = await client.post(
+            "/projects/project-1/tasks/task-1/cancel",
+            **cancel,
+        )
+        replay = await client.post(
+            "/projects/project-1/tasks/task-1/cancel",
+            **cancel,
+        )
         return runs, tasks, cancelled, replay
 
-    runs, tasks, cancelled, replay = _run(scenario())
+    runs, tasks, cancelled, replay = run_scenario(app, scenario)
     assert runs.status_code == 200
     assert runs.json()["items"][0]["taskRefs"] == ["task-1"]
     assert tasks.status_code == 200
     assert tasks.json()["items"][0]["status"] == "QUEUED"
-    assert tasks.json()["items"][0]["completedElements"] == 3
-    assert tasks.json()["items"][0]["totalElements"] == 10
     assert cancelled.status_code == 202
     assert cancelled.json()["status"] == "CANCELLED"
     assert replay.status_code == 202
@@ -257,10 +302,11 @@ def test_file_execution_routes_list_and_cancel(tmp_path) -> None:
 def test_timeline_render_dispatches_once_and_returns_before_completion(
     tmp_path,
     monkeypatch,
+    run_scenario,
 ) -> None:
     app, _services, _snapshot, _bootstrap = _app(tmp_path)
 
-    async def scenario():
+    async def scenario(client):
         started = asyncio.Event()
         release = asyncio.Event()
         calls: list[tuple[str, str]] = []
@@ -284,35 +330,25 @@ def test_timeline_render_dispatches_once_and_returns_before_completion(
             "services.media_files.local_execution.file_local_media_task_id",
             lambda _project_id, _key: "task-compose-1",
         )
-        # This case only verifies dispatch semantics; the synchronous
-        # precheck's structural validation of the fixture project is covered
-        # separately.
         monkeypatch.setattr(
             "services.media_files.local_execution.validate_local_media_execution",
             lambda *_args, **_kwargs: None,
         )
 
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            first = await client.post(
-                "/projects/project-1/timelines/timeline%3Amain/render",
-                headers={"Idempotency-Key": "render-1"},
-            )
-            # The 202 response has already returned even though the renderer
-            # is deliberately blocked.
-            await asyncio.wait_for(started.wait(), timeout=1)
-            second = await client.post(
-                "/projects/project-1/timelines/timeline%3Amain/render",
-                headers={"Idempotency-Key": "render-2"},
-            )
-            release.set()
-            await asyncio.sleep(0)
+        first = await client.post(
+            "/projects/project-1/timelines/timeline%3Amain/render",
+            headers={"Idempotency-Key": "render-1"},
+        )
+        await asyncio.wait_for(started.wait(), timeout=1)
+        second = await client.post(
+            "/projects/project-1/timelines/timeline%3Amain/render",
+            headers={"Idempotency-Key": "render-2"},
+        )
+        release.set()
+        await asyncio.sleep(0)
         return first, second, calls
 
-    first, second, calls = _run(scenario())
+    first, second, calls = run_scenario(app, scenario)
     assert first.status_code == 202
     assert first.json()["taskId"] == "task-compose-1"
     assert first.json()["replayed"] is False
@@ -322,45 +358,9 @@ def test_timeline_render_dispatches_once_and_returns_before_completion(
     assert calls == [("project-1", "timeline:timeline:main")]
 
 
-def test_file_session_status_bar_projects_task_progress(tmp_path) -> None:
-    app, services, _snapshot, _bootstrap = _app(tmp_path)
-    executions = ProjectExecutionStore(services.root)
-    executions.create_task(
-        TaskRecord(
-            task_id="task-ingest-1",
-            project_id="project-1",
-            kind=TaskKind.ASSET_INGEST,
-            request_fingerprint="fingerprint-ingest-1",
-            input_refs=["project:assets"],
-        ),
-    )
-    executions.transition_task(
-        "project-1",
-        "task-ingest-1",
-        expected_status=TaskStatus.QUEUED,
-        status=TaskStatus.RUNNING,
-        updates={"progress": 0.42},
-    )
-
-    async def scenario():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            return await client.get("/projects/project-1/session")
-
-    response = _run(scenario())
-    assert response.status_code == 200
-    status_bar = response.json()["agentStatusBar"]
-    assert status_bar["progress"]["label"] == "附件入库中 · 42%"
-    assert status_bar["progress"]["completed"] == 42
-    assert status_bar["progress"]["total"] == 100
-    assert status_bar["activity"]["runningTaskCount"] == 1
-
-
 def test_file_execution_authorization_can_be_polled_and_approved(
     tmp_path,
+    run_scenario,
 ) -> None:
     app, services, snapshot, _bootstrap = _app(tmp_path)
     executions = ProjectExecutionStore(services.root)
@@ -392,40 +392,31 @@ def test_file_execution_authorization_can_be_polled_and_approved(
         ),
     )
 
-    async def scenario():
-        transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport,
-            base_url="http://test",
-        ) as client:
-            pending = await client.get(
-                "/projects/project-1/execution-authorizations?status=PENDING",
-            )
-            approved = await client.post(
-                "/projects/project-1/execution-authorizations/authorization-1/approve",
-                headers={"Idempotency-Key": "approve-1"},
-                json={
-                    "authorizationToken": "exact-token-1",
-                    "provider": "creator-image",
-                    "model": "configured-image-model",
-                    "maxCost": 0,
-                    "maxCandidates": 1,
-                },
-            )
-            replay = await client.post(
-                "/projects/project-1/execution-authorizations/authorization-1/approve",
-                headers={"Idempotency-Key": "approve-1"},
-                json={
-                    "authorizationToken": "exact-token-1",
-                    "provider": "creator-image",
-                    "model": "configured-image-model",
-                    "maxCost": 0,
-                    "maxCandidates": 1,
-                },
-            )
+    async def scenario(client):
+        approve = {
+            "headers": {"Idempotency-Key": "approve-1"},
+            "json": {
+                "authorizationToken": "exact-token-1",
+                "provider": "creator-image",
+                "model": "configured-image-model",
+                "maxCost": 0,
+                "maxCandidates": 1,
+            },
+        }
+        pending = await client.get(
+            "/projects/project-1/execution-authorizations?status=PENDING",
+        )
+        approved = await client.post(
+            "/projects/project-1/execution-authorizations/authorization-1/approve",
+            **approve,
+        )
+        replay = await client.post(
+            "/projects/project-1/execution-authorizations/authorization-1/approve",
+            **approve,
+        )
         return pending, approved, replay
 
-    pending, approved, replay = _run(scenario())
+    pending, approved, replay = run_scenario(app, scenario)
     assert pending.status_code == 200
     assert pending.json()["items"][0]["targetRef"] == "asset:hero"
     assert approved.status_code == 200

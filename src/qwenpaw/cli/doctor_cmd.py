@@ -27,7 +27,7 @@ from ..utils.console_static import (
     CONSOLE_STATIC_ENV,
     resolve_console_static_dir,
 )
-from ..utils.http import trust_env_for_url
+from ..utils.runtime_api import api_client
 from ..utils.system_info import summarize_python_environment
 from .doctor_checks import (
     active_llm_local_failure_hint,
@@ -86,8 +86,8 @@ def _same_python_executable(a: str, b: str) -> bool:
 
 
 def _http_get(url: str, **kwargs) -> httpx.Response:
-    kwargs.setdefault("trust_env", trust_env_for_url(url))
-    return httpx.get(url, **kwargs)
+    with api_client(url) as client:
+        return client.get(url, **kwargs)
 
 
 def _check_api_health(
@@ -277,7 +277,7 @@ def _check_web_auth(base: str) -> tuple[bool, str]:
             "        2) Complete registration (single user) on the login "
             "page.\n"
             "        For automation, set QWENPAW_AUTH_USERNAME and "
-            "QWENPAW_AUTH_PASSWORD (legacy COPAW_* names still work) — the "
+            "QWENPAW_AUTH_PASSWORD — the "
             "server creates the user on startup.",
         )
     return (
@@ -712,8 +712,7 @@ def run_doctor_checks(
         failed = True
         click.echo(click.style("FAIL", fg="red") + f" — {detail}", err=True)
         _doctor_fix_hint(
-            "Fix: set `QWENPAW_WORKING_DIR` (or legacy `COPAW_WORKING_DIR`) "
-            "or run `qwenpaw init`. "
+            "Fix: set `QWENPAW_WORKING_DIR` or run `qwenpaw init`. "
             "Preview the plan (no writes): `qwenpaw doctor fix --dry-run "
             "--only ensure-working-dir` if the parent path exists and is "
             "writable. Apply: run the plan `without --dry-run` (add `-y` to "

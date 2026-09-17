@@ -75,6 +75,11 @@ class TestProcessSessionFileAgentTokens:
                     "context": [
                         {
                             "role": "user",
+                            "created_at": "2026-07-2aT10:00:00Z",
+                            "content": [{"type": "text", "text": "bad"}],
+                        },
+                        {
+                            "role": "user",
                             "created_at": "2026-07-23T10:00:00Z",
                             "content": [{"type": "text", "text": "q"}],
                         },
@@ -106,8 +111,8 @@ class TestProcessSessionFileAgentTokens:
             agent_llm_calls,
         ) = _process_session_file(
             session_data,
-            "2026-07-23",
-            "2026-07-24",
+            "2026-07-01",
+            "2026-07-31",
             daily_stats,
             channel_stats,
             "console",
@@ -475,3 +480,68 @@ class TestAgentStatsServiceAgentTokens:
         # Global fields stay identical (same mocked manager)
         assert summary_a.total_prompt_tokens == 999
         assert summary_b.total_prompt_tokens == 999
+
+
+def _write_trend_workspace(root: Path, n_turns: int, n_tools: int) -> Path:
+    sess_dir = root / "sessions" / "console"
+    sess_dir.mkdir(parents=True)
+    (root / "agent.json").write_text("{}", encoding="utf-8")
+    content: list[dict] = [{"type": "text", "text": "hi"}]
+    content.extend(
+        {"type": "tool_use", "id": f"t{i}", "name": "x", "input": {}}
+        for i in range(n_tools)
+    )
+    turns = []
+    for _ in range(n_turns):
+        msg = _assistant_with_usage(
+            created_at="2026-07-23T10:00:00Z",
+            prompt_tokens=10,
+            completion_tokens=1,
+        )
+        msg["content"] = list(content)
+        turns.append(msg)
+    (sess_dir / "s.json").write_text(
+        json.dumps({"agent": {"state": {"context": turns}}}),
+        encoding="utf-8",
+    )
+    return root
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_by_date_sums_skips_and_fills(tmp_path):
+    """Sum agents, skip dup, fill days; overlay must not run."""
+    ws_a = _write_trend_workspace(tmp_path / "a", 2, 2)
+    ws_b = _write_trend_workspace(tmp_path / "b", 1, 1)
+    with (
+        patch(
+            "qwenpaw.agent_stats.service.get_agent_dirs",
+            return_value=[ws_a, ws_a, ws_b],
+        ),
+        patch(
+            "qwenpaw.agent_stats.service.get_token_usage_manager",
+        ) as mock_overlay,
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2026, 7, 23),
+            end_date=date(2026, 7, 24),
+        )
+
+    mock_overlay.assert_not_called()
+    assert [row.date for row in rows] == ["2026-07-23", "2026-07-24"]
+    assert (rows[0].agent_llm_calls, rows[0].tool_calls) == (3, 5)
+    assert (rows[1].agent_llm_calls, rows[1].tool_calls) == (0, 0)
+
+
+@pytest.mark.asyncio
+async def test_get_global_llm_tool_by_date_clamps_to_365_days():
+    with patch(
+        "qwenpaw.agent_stats.service.get_agent_dirs",
+        return_value=[],
+    ):
+        rows = await AgentStatsService().get_global_llm_tool_by_date(
+            start_date=date(2025, 1, 1),
+            end_date=date(2026, 8, 1),
+        )
+    assert len(rows) == 365
+    assert rows[0].date == "2025-08-02"
+    assert rows[-1].date == "2026-08-01"

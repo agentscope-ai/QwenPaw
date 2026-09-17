@@ -1,0 +1,1715 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QwenPaw 会话分组 Mock</title>
+    <script src="https://unpkg.com/lucide@0.562.0/dist/umd/lucide.min.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --canvas: #f1efec;
+        --surface: #f9f8f4;
+        --surface-strong: #ffffff;
+        --ink: #1a1716;
+        --muted: rgba(26, 23, 22, 0.55);
+        --faint: rgba(26, 23, 22, 0.32);
+        --line: #dedbd8;
+        --line-soft: #ebe8e5;
+        --accent: #ff7f16;
+        --accent-deep: #d95d00;
+        --accent-soft: #fff0e4;
+        --sand: #ff7f16;
+        --danger: #a74b43;
+        --shadow: 0 24px 70px rgba(42, 43, 37, 0.1);
+        --radius-lg: 24px;
+        --radius-md: 14px;
+        --radius-sm: 10px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        min-height: 100vh;
+        background: linear-gradient(
+            rgba(255, 255, 255, 0.38),
+            rgba(255, 255, 255, 0)
+          ),
+          var(--canvas);
+        color: var(--ink);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        letter-spacing: -0.01em;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        color: inherit;
+      }
+
+      .app-shell {
+        display: grid;
+        grid-template-columns: 72px minmax(330px, 390px) minmax(0, 1fr);
+        width: min(1480px, calc(100vw - 40px));
+        height: min(920px, calc(100vh - 40px));
+        min-height: 680px;
+        margin: 20px auto;
+        overflow: hidden;
+        border: 1px solid rgba(95, 96, 87, 0.15);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .rail {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 20px 12px;
+        border-right: 1px solid var(--line);
+        background: #e8e7e1;
+      }
+
+      .brand {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        margin-bottom: 30px;
+        border-radius: 12px;
+        overflow: hidden;
+        background: #ff9d4d;
+        color: white;
+      }
+
+      .brand img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+
+      .rail-nav {
+        display: flex;
+        flex: 1;
+        flex-direction: column;
+        gap: 8px;
+      }
+
+      .rail-button,
+      .icon-button {
+        display: inline-grid;
+        place-items: center;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .rail-button {
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        color: #777a73;
+      }
+
+      .rail-button.active {
+        background: var(--surface-strong);
+        color: var(--accent-deep);
+        box-shadow: 0 5px 16px rgba(54, 56, 50, 0.08);
+      }
+
+      .library {
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        border-right: 1px solid var(--line);
+        background: var(--surface);
+      }
+
+      .library-header {
+        padding: 26px 22px 16px;
+      }
+
+      .eyebrow {
+        margin: 0 0 7px;
+        color: var(--accent);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .title-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+      }
+
+      h1,
+      h2,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 0;
+        font-size: 27px;
+        font-weight: 650;
+        letter-spacing: -0.035em;
+      }
+
+      .new-chat {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        flex: 0 0 auto;
+        border: 0;
+        border-radius: 11px;
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+      }
+
+      .search-wrap {
+        position: relative;
+        margin-top: 20px;
+      }
+
+      .search-wrap > svg {
+        position: absolute;
+        top: 50%;
+        left: 13px;
+        color: var(--faint);
+        transform: translateY(-50%);
+      }
+
+      .search {
+        width: 100%;
+        height: 40px;
+        padding: 0 14px 0 40px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        outline: 0;
+        background: rgba(255, 255, 255, 0.68);
+        color: var(--ink);
+      }
+
+      .search:focus {
+        border-color: #ffad6a;
+        box-shadow: 0 0 0 3px rgba(255, 127, 22, 0.1);
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 4px;
+        margin-top: 14px;
+        padding: 4px;
+        border-radius: 11px;
+        background: #ebeae5;
+      }
+
+      .tab {
+        height: 32px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      .tab.active {
+        background: var(--surface-strong);
+        color: var(--ink);
+        box-shadow: 0 2px 8px rgba(54, 56, 50, 0.06);
+      }
+
+      .session-scroll {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0 14px 18px;
+        scrollbar-width: thin;
+        scrollbar-color: #d0cfc8 transparent;
+      }
+
+      .section {
+        margin-top: 8px;
+      }
+
+      .group-toolbar {
+        display: flex;
+        height: 44px;
+        align-items: center;
+        justify-content: space-between;
+        margin-top: 2px;
+        padding: 0 8px;
+        color: var(--faint);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .create-group {
+        display: inline-flex;
+        height: 30px;
+        align-items: center;
+        gap: 6px;
+        padding: 0 11px;
+        border: 1px dashed #c7c3ba;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.58);
+        color: #55594f;
+        font-size: 12px;
+        font-weight: 650;
+        cursor: pointer;
+      }
+
+      .create-group:hover {
+        border-color: rgba(244, 124, 42, 0.54);
+        background: var(--accent-soft);
+        color: var(--accent);
+      }
+
+      .section-header {
+        display: flex;
+        width: 100%;
+        height: 40px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 8px;
+        border: 0;
+        border-radius: 10px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+        cursor: pointer;
+      }
+
+      .section-header:hover,
+      .pinned-group > .section-header {
+        background: rgba(44, 39, 28, 0.035);
+      }
+
+      .section-header .chevron {
+        display: inline-grid;
+        place-items: center;
+      }
+
+      .section-header.collapsed .chevron {
+        transform: rotate(-90deg);
+      }
+
+      .section-count {
+        display: inline-grid;
+        min-width: 21px;
+        height: 20px;
+        place-items: center;
+        margin-left: auto;
+        padding: 0 6px;
+        border-radius: 999px;
+        background: #e7e6e0;
+        color: #777a72;
+        font-size: 10px;
+        letter-spacing: 0;
+      }
+
+      .section-action {
+        display: inline-grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        margin-left: 2px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .section-action:hover {
+        background: #e4e3dd;
+      }
+
+      .date-divider {
+        display: flex;
+        height: 24px;
+        align-items: center;
+        gap: 9px;
+        padding: 2px 11px 0 18px;
+        color: var(--faint);
+        font-size: 10px;
+        font-weight: 600;
+      }
+
+      .date-divider i {
+        height: 1px;
+        flex: 1;
+        background: rgba(67, 62, 50, 0.08);
+      }
+
+      .section.drop-target > .section-header,
+      .section.drop-target > .section-body {
+        background: rgba(244, 124, 42, 0.08);
+        box-shadow: inset 0 0 0 1px rgba(244, 124, 42, 0.32);
+      }
+
+      .session-item.dragging,
+      .agent-run.dragging {
+        opacity: 0.35;
+      }
+
+      .section-body[hidden] {
+        display: none;
+      }
+
+      .session-item {
+        position: relative;
+        display: grid;
+        grid-template-columns: 30px minmax(0, 1fr) auto;
+        min-height: 62px;
+        align-items: center;
+        gap: 9px;
+        padding: 8px 8px;
+        border-radius: 13px;
+        cursor: pointer;
+      }
+
+      .session-item:hover {
+        background: #eeede8;
+      }
+
+      .session-item.active {
+        background: var(--accent-soft);
+      }
+
+      .session-symbol {
+        display: grid;
+        width: 30px;
+        height: 30px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.7);
+        color: var(--accent);
+      }
+
+      .session-copy {
+        min-width: 0;
+      }
+
+      .session-name {
+        overflow: hidden;
+        color: #343732;
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 19px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .session-meta {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 7px;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 16px;
+      }
+
+      .session-meta span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .dot {
+        width: 3px;
+        height: 3px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: #b4b5ae;
+      }
+
+      .item-actions {
+        display: flex;
+        align-items: center;
+      }
+
+      .pin-mark {
+        display: inline-grid;
+        width: 26px;
+        height: 26px;
+        place-items: center;
+        color: var(--sand);
+      }
+
+      .more {
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        color: var(--muted);
+        opacity: 0;
+      }
+
+      .session-item:hover .more,
+      .more:focus {
+        opacity: 1;
+      }
+
+      .agent-section {
+        margin-top: 18px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+      }
+
+      .agent-section .section-header {
+        height: 44px;
+        color: var(--accent-deep);
+      }
+
+      .agent-section .section-count {
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+      }
+
+      .agent-parent {
+        margin: 0 4px 8px;
+        overflow: hidden;
+        border: 1px solid var(--line-soft);
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .agent-parent-head {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .agent-parent-title {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .agent-parent-title strong,
+      .agent-parent-title span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .agent-parent-title strong {
+        font-size: 12px;
+        font-weight: 650;
+      }
+
+      .agent-parent-title span {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .agent-run {
+        display: grid;
+        grid-template-columns: 20px minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        min-height: 46px;
+        padding: 7px 11px;
+        cursor: pointer;
+      }
+
+      .agent-run + .agent-run {
+        border-top: 1px solid var(--line-soft);
+      }
+
+      .run-status {
+        display: grid;
+        place-items: center;
+        color: var(--accent);
+      }
+
+      .run-status.failed {
+        color: var(--danger);
+      }
+
+      .run-copy {
+        min-width: 0;
+      }
+
+      .run-copy strong,
+      .run-copy span {
+        display: block;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .run-copy strong {
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .run-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+
+      .run-more {
+        display: inline-grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .run-more:hover {
+        background: #eeece8;
+      }
+
+      .run-copy span,
+      .run-time {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .detail {
+        position: relative;
+        display: flex;
+        min-width: 0;
+        flex-direction: column;
+        background: radial-gradient(
+            circle at 83% 18%,
+            rgba(255, 127, 22, 0.07),
+            transparent 28%
+          ),
+          #fbfaf7;
+      }
+
+      .detail-header {
+        display: flex;
+        min-height: 78px;
+        align-items: center;
+        gap: 14px;
+        padding: 18px 28px;
+        border-bottom: 1px solid var(--line-soft);
+      }
+
+      .detail-title {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .detail-title h2 {
+        margin-bottom: 5px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .detail-subtitle {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .category-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent-deep);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .detail-actions {
+        display: flex;
+        gap: 7px;
+      }
+
+      .detail-action {
+        display: inline-flex;
+        height: 34px;
+        align-items: center;
+        gap: 7px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.76);
+        color: var(--muted);
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .conversation {
+        width: min(780px, calc(100% - 64px));
+        margin: auto;
+        padding: 44px 0 32px;
+      }
+
+      .date-rule {
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        margin-bottom: 28px;
+        color: var(--faint);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .date-rule::before,
+      .date-rule::after {
+        height: 1px;
+        flex: 1;
+        background: var(--line-soft);
+        content: "";
+      }
+
+      .message {
+        max-width: 78%;
+        margin-bottom: 22px;
+        padding: 15px 17px;
+        border: 1px solid var(--line-soft);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.82);
+        color: #3f423c;
+        font-size: 13px;
+        line-height: 1.65;
+      }
+
+      .message.user {
+        margin-left: auto;
+        border-color: #f0d8c6;
+        background: var(--accent-soft);
+      }
+
+      .runs-summary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        width: 100%;
+        margin: 6px 0 24px;
+        padding: 13px 15px;
+        border: 1px solid #f0d8c6;
+        border-radius: 14px;
+        background: rgba(255, 245, 237, 0.82);
+        color: #b54f00;
+        cursor: pointer;
+      }
+
+      .runs-summary-copy {
+        min-width: 0;
+        flex: 1;
+        text-align: left;
+      }
+
+      .runs-summary-copy strong,
+      .runs-summary-copy span {
+        display: block;
+      }
+
+      .runs-summary-copy strong {
+        font-size: 12px;
+      }
+
+      .runs-summary-copy span {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .composer {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: auto;
+        padding: 18px 28px 24px;
+      }
+
+      .composer-box {
+        display: flex;
+        width: min(780px, 100%);
+        min-height: 50px;
+        align-items: center;
+        gap: 10px;
+        margin: auto;
+        padding: 7px 8px 7px 16px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: white;
+        box-shadow: 0 10px 30px rgba(44, 45, 40, 0.06);
+      }
+
+      .composer-placeholder {
+        flex: 1;
+        color: var(--faint);
+        font-size: 13px;
+      }
+
+      .send {
+        width: 36px;
+        height: 36px;
+        border: 0;
+        border-radius: 11px;
+        background: var(--accent-deep);
+        color: white;
+        cursor: pointer;
+      }
+
+      .menu {
+        position: fixed;
+        z-index: 20;
+        display: none;
+        width: 190px;
+        padding: 6px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 16px 40px rgba(34, 36, 31, 0.16);
+      }
+
+      .menu.open {
+        display: block;
+      }
+
+      .menu button {
+        display: flex;
+        width: 100%;
+        height: 36px;
+        align-items: center;
+        gap: 10px;
+        padding: 0 9px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        font-size: 12px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .menu button:hover {
+        background: #f1f0eb;
+      }
+
+      .menu .danger {
+        color: var(--danger);
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        z-index: 30;
+        inset: 0;
+        display: none;
+        place-items: center;
+        padding: 20px;
+        background: rgba(34, 36, 31, 0.28);
+      }
+
+      .modal-backdrop.open {
+        display: grid;
+      }
+
+      .modal {
+        width: min(410px, 100%);
+        padding: 22px;
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        border-radius: 20px;
+        background: #fbfaf7;
+        box-shadow: 0 30px 90px rgba(35, 37, 32, 0.24);
+      }
+
+      .modal-head {
+        display: flex;
+        align-items: start;
+        gap: 14px;
+      }
+
+      .modal-title {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .modal-title h2 {
+        margin-bottom: 6px;
+        font-size: 19px;
+        font-weight: 600;
+      }
+
+      .modal-title p {
+        margin-bottom: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .group-options {
+        display: grid;
+        gap: 7px;
+        margin-top: 20px;
+      }
+
+      .group-option {
+        display: flex;
+        min-height: 46px;
+        align-items: center;
+        gap: 11px;
+        padding: 9px 11px;
+        border: 1px solid var(--line-soft);
+        border-radius: 12px;
+        background: white;
+        cursor: pointer;
+      }
+
+      .group-option:hover {
+        border-color: #ffc18d;
+        background: #fff6ef;
+      }
+
+      .group-swatch {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .group-option:nth-child(2) .group-swatch {
+        background: #9c7954;
+      }
+
+      .group-option:nth-child(3) .group-swatch {
+        background: #7b7598;
+      }
+
+      .group-option span:nth-child(2) {
+        flex: 1;
+        font-size: 12px;
+        font-weight: 600;
+      }
+
+      .toast {
+        position: fixed;
+        z-index: 40;
+        right: 24px;
+        bottom: 24px;
+        display: none;
+        align-items: center;
+        gap: 9px;
+        padding: 11px 14px;
+        border-radius: 12px;
+        background: var(--accent-deep);
+        color: white;
+        box-shadow: 0 14px 38px rgba(37, 49, 44, 0.22);
+        font-size: 12px;
+      }
+
+      .toast.show {
+        display: flex;
+      }
+
+      @media (max-width: 980px) {
+        .app-shell {
+          grid-template-columns: 64px minmax(310px, 360px) minmax(0, 1fr);
+          width: calc(100vw - 24px);
+          height: calc(100vh - 24px);
+          min-height: 600px;
+          margin: 12px auto;
+        }
+
+        .conversation {
+          width: calc(100% - 40px);
+        }
+
+        .detail-action span {
+          display: none;
+        }
+      }
+
+      @media (max-width: 760px) {
+        body {
+          background: var(--surface);
+        }
+
+        .app-shell {
+          display: block;
+          width: 100%;
+          height: 100vh;
+          min-height: 0;
+          margin: 0;
+          border: 0;
+          border-radius: 0;
+          box-shadow: none;
+        }
+
+        .rail,
+        .detail {
+          display: none;
+        }
+
+        .library {
+          height: 100vh;
+          border-right: 0;
+        }
+
+        .library-header {
+          padding: 22px 18px 14px;
+        }
+
+        .session-scroll {
+          padding-right: 10px;
+          padding-left: 10px;
+        }
+
+        .session-item {
+          min-height: 66px;
+          padding-right: 10px;
+          padding-left: 10px;
+        }
+
+        .more {
+          opacity: 1;
+        }
+
+        .toast {
+          right: 16px;
+          bottom: 16px;
+          left: 16px;
+          justify-content: center;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="rail" aria-label="主导航">
+        <div class="brand" title="QwenPaw">
+          <img src="../../public/qwenpaw.png" alt="QwenPaw" />
+        </div>
+        <nav class="rail-nav">
+          <button class="rail-button active" title="会话">
+            <i data-lucide="message-square" size="18"></i>
+          </button>
+          <button class="rail-button" title="文件">
+            <i data-lucide="folder" size="18"></i>
+          </button>
+          <button class="rail-button" title="自动化">
+            <i data-lucide="workflow" size="18"></i>
+          </button>
+          <button class="rail-button" title="统计">
+            <i data-lucide="chart-no-axes-column" size="18"></i>
+          </button>
+        </nav>
+        <button class="rail-button" title="设置">
+          <i data-lucide="settings-2" size="18"></i>
+        </button>
+      </aside>
+
+      <aside class="library" aria-label="会话列表">
+        <header class="library-header">
+          <p class="eyebrow">Workspace</p>
+          <div class="title-line">
+            <h1>会话</h1>
+            <button class="new-chat" title="新建会话">
+              <i data-lucide="plus" size="17"></i>
+            </button>
+          </div>
+          <label class="search-wrap">
+            <i data-lucide="search" size="15"></i>
+            <input
+              id="search"
+              class="search"
+              type="search"
+              placeholder="搜索会话"
+            />
+          </label>
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-view="active">进行中</button>
+            <button class="tab" data-view="archived">已归档</button>
+          </div>
+        </header>
+
+        <div class="session-scroll" id="sessionScroll">
+          <div class="group-toolbar">
+            <span>长按会话可移动分组</span>
+            <button class="create-group" id="createGroup">
+              <i data-lucide="folder-plus" size="13"></i>
+              <span>新建分组</span>
+            </button>
+          </div>
+          <section class="section pinned-group" data-group="work">
+            <button class="section-header" aria-expanded="true">
+              <span class="chevron"
+                ><i data-lucide="chevron-down" size="13"></i
+              ></span>
+              <span>工作</span>
+              <span class="section-count">3</span>
+              <span class="section-action pin-mark" title="已置顶分组"
+                ><i data-lucide="pin" size="12"></i
+              ></span>
+              <span class="section-action group-manage" title="编辑分组"
+                ><i data-lucide="more-horizontal" size="13"></i
+              ></span>
+              <span class="section-action add-group-item" title="新建会话"
+                ><i data-lucide="plus" size="13"></i
+              ></span>
+            </button>
+            <div class="section-body">
+              <div class="date-divider"><span>今天</span><i></i></div>
+              <article
+                class="session-item active"
+                data-name="定价页面信息架构"
+                data-session="pricing-ia"
+              >
+                <span class="session-symbol"
+                  ><i data-lucide="message-square" size="14"></i
+                ></span>
+                <div class="session-copy">
+                  <div class="session-name">定价页面信息架构</div>
+                  <div class="session-meta">
+                    <span>Web</span><span class="dot"></span
+                    ><span>2 小时前</span>
+                  </div>
+                </div>
+                <button class="icon-button more" title="更多操作">
+                  <i data-lucide="more-horizontal" size="15"></i>
+                </button>
+              </article>
+              <div class="date-divider"><span>近 7 天</span><i></i></div>
+              <article
+                class="session-item"
+                data-name="客户访谈问题"
+                data-session="interview-notes"
+              >
+                <span class="session-symbol"
+                  ><i data-lucide="message-square" size="14"></i
+                ></span>
+                <div class="session-copy">
+                  <div class="session-name">客户访谈问题</div>
+                  <div class="session-meta">
+                    <span>Console</span><span class="dot"></span
+                    ><span>周一</span>
+                  </div>
+                </div>
+                <button class="icon-button more" title="更多操作">
+                  <i data-lucide="more-horizontal" size="15"></i>
+                </button>
+              </article>
+              <div class="date-divider"><span>近 30 天</span><i></i></div>
+              <article
+                class="session-item"
+                data-name="API 迁移计划"
+                data-session="api-migration"
+              >
+                <span class="session-symbol"
+                  ><i data-lucide="message-square" size="14"></i
+                ></span>
+                <div class="session-copy">
+                  <div class="session-name">API 迁移计划</div>
+                  <div class="session-meta">
+                    <span>Console</span><span class="dot"></span
+                    ><span>8 月 8 日</span>
+                  </div>
+                </div>
+                <button class="icon-button more" title="更多操作">
+                  <i data-lucide="more-horizontal" size="15"></i>
+                </button>
+              </article>
+            </div>
+          </section>
+
+          <section class="section" data-group="research">
+            <button class="section-header" aria-expanded="true">
+              <span class="chevron"
+                ><i data-lucide="chevron-down" size="13"></i
+              ></span>
+              <span>研究</span>
+              <span class="section-count">2</span>
+              <span class="section-action group-manage" title="编辑分组"
+                ><i data-lucide="more-horizontal" size="13"></i
+              ></span>
+              <span class="section-action add-group-item" title="新建会话"
+                ><i data-lucide="plus" size="13"></i
+              ></span>
+            </button>
+            <div class="section-body">
+              <div class="date-divider"><span>近 30 天</span><i></i></div>
+              <article
+                class="session-item"
+                data-name="多 Agent 产品调研"
+                data-session="agent-research"
+              >
+                <span class="session-symbol"
+                  ><i data-lucide="message-square" size="14"></i
+                ></span>
+                <div class="session-copy">
+                  <div class="session-name">多 Agent 产品调研</div>
+                  <div class="session-meta">
+                    <span>Console</span><span class="dot"></span
+                    ><span>8 月 6 日</span>
+                  </div>
+                </div>
+                <button class="icon-button more" title="更多操作">
+                  <i data-lucide="more-horizontal" size="15"></i>
+                </button>
+              </article>
+              <div class="date-divider"><span>更早</span><i></i></div>
+              <article
+                class="session-item"
+                data-name="长上下文评测"
+                data-session="context-eval"
+              >
+                <span class="session-symbol"
+                  ><i data-lucide="message-square" size="14"></i
+                ></span>
+                <div class="session-copy">
+                  <div class="session-name">长上下文评测</div>
+                  <div class="session-meta">
+                    <span>Console</span><span class="dot"></span
+                    ><span>8 月 4 日</span>
+                  </div>
+                </div>
+                <button class="icon-button more" title="更多操作">
+                  <i data-lucide="more-horizontal" size="15"></i>
+                </button>
+              </article>
+            </div>
+          </section>
+
+          <section class="section" data-group="ungrouped">
+            <button class="section-header collapsed" aria-expanded="false">
+              <span class="chevron"
+                ><i data-lucide="chevron-down" size="13"></i
+              ></span>
+              <span>未分组</span>
+              <span class="section-count">4</span>
+              <span class="section-action group-manage" title="编辑分组"
+                ><i data-lucide="more-horizontal" size="13"></i
+              ></span>
+            </button>
+            <div class="section-body" hidden>
+              <div class="date-divider"><span>更早</span><i></i></div>
+              <article
+                class="session-item"
+                data-name="新的会话"
+                data-session="untitled"
+              >
+                <span class="session-symbol"
+                  ><i data-lucide="message-square" size="14"></i
+                ></span>
+                <div class="session-copy">
+                  <div class="session-name">新的会话</div>
+                  <div class="session-meta">
+                    <span>Console</span><span class="dot"></span
+                    ><span>8 月 2 日</span>
+                  </div>
+                </div>
+                <button class="icon-button more" title="更多操作">
+                  <i data-lucide="more-horizontal" size="15"></i>
+                </button>
+              </article>
+            </div>
+          </section>
+
+          <section class="section agent-section" data-group="subagents">
+            <button
+              class="section-header collapsed"
+              id="agentRunsToggle"
+              aria-expanded="false"
+            >
+              <span class="chevron"
+                ><i data-lucide="chevron-down" size="13"></i
+              ></span>
+              <i data-lucide="bot" size="14"></i>
+              <span>与子智能体的对话</span>
+              <span class="section-count">5</span>
+              <span class="section-action" title="固定在列表底部"
+                ><i data-lucide="lock-keyhole" size="12"></i
+              ></span>
+            </button>
+            <div class="section-body" id="agentRunsBody" hidden>
+              <div class="date-divider"><span>今天</span><i></i></div>
+              <div class="agent-parent">
+                <div class="agent-parent-head">
+                  <i data-lucide="corner-down-right" size="14"></i>
+                  <div class="agent-parent-title">
+                    <strong>季度战略复盘</strong>
+                    <span>来自父会话 · 3 个运行</span>
+                  </div>
+                  <i data-lucide="chevron-right" size="13"></i>
+                </div>
+                <div class="agent-run" data-name="竞品定价资料收集">
+                  <span class="run-status"
+                    ><i data-lucide="circle-check" size="14"></i
+                  ></span>
+                  <div class="run-copy">
+                    <strong>竞品定价资料收集</strong
+                    ><span>Research agent · 已完成</span>
+                  </div>
+                  <span class="run-actions"
+                    ><span class="run-time">4m 12s</span
+                    ><button class="run-more" title="移动或管理">
+                      <i data-lucide="more-horizontal" size="13"></i></button
+                  ></span>
+                </div>
+                <div class="agent-run" data-name="用户反馈主题归纳">
+                  <span class="run-status"
+                    ><i data-lucide="circle-check" size="14"></i
+                  ></span>
+                  <div class="run-copy">
+                    <strong>用户反馈主题归纳</strong
+                    ><span>Analysis agent · 已完成</span>
+                  </div>
+                  <span class="run-actions"
+                    ><span class="run-time">2m 48s</span
+                    ><button class="run-more" title="移动或管理">
+                      <i data-lucide="more-horizontal" size="13"></i></button
+                  ></span>
+                </div>
+                <div class="agent-run" data-name="生成董事会摘要">
+                  <span class="run-status failed"
+                    ><i data-lucide="circle-alert" size="14"></i
+                  ></span>
+                  <div class="run-copy">
+                    <strong>生成董事会摘要</strong
+                    ><span>Writing agent · 需要检查</span>
+                  </div>
+                  <span class="run-actions"
+                    ><span class="run-time">1m 03s</span
+                    ><button class="run-more" title="移动或管理">
+                      <i data-lucide="more-horizontal" size="13"></i></button
+                  ></span>
+                </div>
+              </div>
+              <div class="agent-parent">
+                <div class="agent-parent-head">
+                  <i data-lucide="corner-down-right" size="14"></i>
+                  <div class="agent-parent-title">
+                    <strong>API 迁移计划</strong>
+                    <span>来自父会话 · 2 个运行</span>
+                  </div>
+                  <i data-lucide="chevron-right" size="13"></i>
+                </div>
+                <div class="agent-run" data-name="扫描废弃接口">
+                  <span class="run-status"
+                    ><i data-lucide="circle-check" size="14"></i
+                  ></span>
+                  <div class="run-copy">
+                    <strong>扫描废弃接口</strong
+                    ><span>Code agent · 已完成</span>
+                  </div>
+                  <span class="run-actions"
+                    ><span class="run-time">3m 26s</span
+                    ><button class="run-more" title="移动或管理">
+                      <i data-lucide="more-horizontal" size="13"></i></button
+                  ></span>
+                </div>
+                <div class="agent-run" data-name="生成迁移测试矩阵">
+                  <span class="run-status"
+                    ><i data-lucide="circle-check" size="14"></i
+                  ></span>
+                  <div class="run-copy">
+                    <strong>生成迁移测试矩阵</strong
+                    ><span>Test agent · 已完成</span>
+                  </div>
+                  <span class="run-actions"
+                    ><span class="run-time">2m 09s</span
+                    ><button class="run-more" title="移动或管理">
+                      <i data-lucide="more-horizontal" size="13"></i></button
+                  ></span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <section class="detail">
+        <header class="detail-header">
+          <div class="detail-title">
+            <h2 id="detailTitle">季度战略复盘</h2>
+            <div class="detail-subtitle">
+              <span>今天 10:42 更新</span><span class="dot"></span
+              ><span>Console</span>
+            </div>
+          </div>
+          <span class="category-chip"
+            ><i data-lucide="folder" size="12"></i
+            ><span id="categoryLabel">研究</span></span
+          >
+          <div class="detail-actions">
+            <button class="detail-action" id="headerMove">
+              <i data-lucide="folder-input" size="14"></i><span>移动</span>
+            </button>
+            <button class="detail-action">
+              <i data-lucide="more-horizontal" size="14"></i>
+            </button>
+          </div>
+        </header>
+
+        <div class="conversation">
+          <div class="date-rule">Today</div>
+          <div class="message user">
+            帮我把本季度产品数据、客户反馈和竞品动态整理成一份战略复盘。
+          </div>
+          <div class="message">
+            我会先建立复盘框架，再把资料收集、反馈归纳和摘要撰写拆成独立的 Agent
+            运行。
+          </div>
+          <button class="runs-summary" id="showRunsFromConversation">
+            <i data-lucide="network" size="17"></i>
+            <span class="runs-summary-copy"
+              ><strong>3 个 Subagent 会话</strong
+              ><span>2 个已完成，1 个需要检查</span></span
+            >
+            <i data-lucide="arrow-up-right" size="14"></i>
+          </button>
+          <div class="message">
+            资料已经汇总。核心机会集中在企业协作场景；建议下一季度把可观测性和任务治理放在产品路线前列。
+          </div>
+        </div>
+
+        <footer class="composer">
+          <div class="composer-box">
+            <i data-lucide="paperclip" size="15"></i>
+            <span class="composer-placeholder">继续这个会话</span>
+            <button class="icon-button send">
+              <i data-lucide="arrow-up" size="16"></i>
+            </button>
+          </div>
+        </footer>
+      </section>
+    </main>
+
+    <div class="menu" id="sessionMenu" role="menu">
+      <button data-action="move">
+        <i data-lucide="folder-input" size="14"></i><span>移动到分组</span>
+      </button>
+      <button data-action="rename">
+        <i data-lucide="pencil" size="14"></i><span>重命名</span>
+      </button>
+      <button data-action="archive">
+        <i data-lucide="archive" size="14"></i><span>归档</span>
+      </button>
+      <button class="danger" data-action="delete">
+        <i data-lucide="trash-2" size="14"></i><span>删除</span>
+      </button>
+    </div>
+
+    <div
+      class="modal-backdrop"
+      id="moveModal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="moveTitle"
+    >
+      <div class="modal">
+        <div class="modal-head">
+          <div class="modal-title">
+            <h2 id="moveTitle">移动到分组</h2>
+            <p>分组只改变组织方式，不影响会话内容或归档状态。</p>
+          </div>
+          <button class="icon-button" id="closeModal" title="关闭">
+            <i data-lucide="x" size="17"></i>
+          </button>
+        </div>
+        <div class="group-options">
+          <button class="group-option" data-category="工作">
+            <span class="group-swatch"></span><span>工作</span
+            ><i data-lucide="chevron-right" size="14"></i>
+          </button>
+          <button class="group-option" data-category="研究">
+            <span class="group-swatch"></span><span>研究</span
+            ><i data-lucide="chevron-right" size="14"></i>
+          </button>
+          <button class="group-option" data-category="个人">
+            <span class="group-swatch"></span><span>个人</span
+            ><i data-lucide="chevron-right" size="14"></i>
+          </button>
+          <button class="group-option" data-category="未分组">
+            <span class="group-swatch" style="background: #aaa"></span
+            ><span>未分组</span><i data-lucide="chevron-right" size="14"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast">
+      <i data-lucide="circle-check" size="15"></i
+      ><span id="toastText">操作已完成</span>
+    </div>
+
+    <script>
+      lucide.createIcons();
+
+      const collapseStorageKey = "copaw_mock_subagents_collapsed";
+      const sections = document.querySelectorAll(".section");
+      const agentRunsToggle = document.getElementById("agentRunsToggle");
+      const agentRunsBody = document.getElementById("agentRunsBody");
+      const menu = document.getElementById("sessionMenu");
+      const moveModal = document.getElementById("moveModal");
+      const toast = document.getElementById("toast");
+      const toastText = document.getElementById("toastText");
+      const search = document.getElementById("search");
+      const detailTitle = document.getElementById("detailTitle");
+      let selectedSession = document.querySelector(".session-item.active");
+      let toastTimer;
+
+      function setSectionExpanded(section, expanded) {
+        const header = section.querySelector(":scope > .section-header");
+        const body = section.querySelector(":scope > .section-body");
+        header.classList.toggle("collapsed", !expanded);
+        header.setAttribute("aria-expanded", String(expanded));
+        body.hidden = !expanded;
+        if (section.dataset.group === "subagents") {
+          localStorage.setItem(collapseStorageKey, String(!expanded));
+        }
+      }
+
+      sections.forEach((section) => {
+        const header = section.querySelector(":scope > .section-header");
+        header.addEventListener("click", (event) => {
+          if (event.target.closest(".section-action")) return;
+          setSectionExpanded(
+            section,
+            header.getAttribute("aria-expanded") !== "true",
+          );
+        });
+      });
+
+      const savedAgentRunsState = localStorage.getItem(collapseStorageKey);
+      setSectionExpanded(
+        document.querySelector('[data-group="subagents"]'),
+        savedAgentRunsState === "false",
+      );
+
+      function showToast(text) {
+        toastText.textContent = text;
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), 1800);
+      }
+
+      function selectSession(item) {
+        document
+          .querySelectorAll(".session-item")
+          .forEach((row) => row.classList.remove("active"));
+        item.classList.add("active");
+        selectedSession = item;
+        detailTitle.textContent = item.dataset.name;
+      }
+
+      document.querySelectorAll(".session-item").forEach((item) => {
+        item.addEventListener("click", (event) => {
+          if (item.dataset.justDragged === "true") {
+            delete item.dataset.justDragged;
+            return;
+          }
+          if (event.target.closest(".more")) return;
+          selectSession(item);
+        });
+
+        item.querySelector(".more").addEventListener("click", (event) => {
+          event.stopPropagation();
+          selectedSession = item;
+          const rect = event.currentTarget.getBoundingClientRect();
+          menu.style.left = `${Math.min(
+            rect.right - 190,
+            window.innerWidth - 202,
+          )}px`;
+          menu.style.top = `${Math.min(
+            rect.bottom + 5,
+            window.innerHeight - 210,
+          )}px`;
+          menu.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".run-more").forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          selectedSession = button.closest(".agent-run");
+          const rect = button.getBoundingClientRect();
+          menu.style.left = `${Math.min(
+            rect.right - 190,
+            window.innerWidth - 202,
+          )}px`;
+          menu.style.top = `${Math.min(
+            rect.bottom + 5,
+            window.innerHeight - 210,
+          )}px`;
+          menu.classList.add("open");
+        });
+      });
+
+      document.querySelectorAll(".group-manage").forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          showToast("分组支持置顶、重命名、上移、下移和删除");
+        });
+      });
+
+      let dragTimer;
+      let draggingSession = null;
+      let dropSection = null;
+
+      document.querySelectorAll(".session-item, .agent-run").forEach((item) => {
+        item.addEventListener("pointerdown", (event) => {
+          if (event.target.closest("button")) return;
+          clearTimeout(dragTimer);
+          dragTimer = setTimeout(() => {
+            draggingSession = item;
+            item.classList.add("dragging");
+            showToast("拖到目标分组后松开");
+          }, 260);
+        });
+
+        item.addEventListener("pointerup", () => clearTimeout(dragTimer));
+        item.addEventListener("pointercancel", () => clearTimeout(dragTimer));
+      });
+
+      sections.forEach((section) => {
+        section.addEventListener("pointerenter", () => {
+          if (!draggingSession) return;
+          dropSection?.classList.remove("drop-target");
+          dropSection = section;
+          section.classList.add("drop-target");
+          setSectionExpanded(section, true);
+        });
+      });
+
+      document.addEventListener("pointerup", () => {
+        clearTimeout(dragTimer);
+        if (!draggingSession) return;
+        const sourceSection = draggingSession.closest(".section");
+        if (dropSection && dropSection !== sourceSection) {
+          dropSection
+            .querySelector(":scope > .section-body")
+            .append(draggingSession);
+          showToast(
+            `“${draggingSession.dataset.name}”已移动到“${dropSection.dataset.group}”`,
+          );
+        }
+        draggingSession.dataset.justDragged = "true";
+        draggingSession.classList.remove("dragging");
+        dropSection?.classList.remove("drop-target");
+        draggingSession = null;
+        dropSection = null;
+      });
+
+      document.addEventListener("click", (event) => {
+        if (
+          !event.target.closest("#sessionMenu") &&
+          !event.target.closest(".more") &&
+          !event.target.closest(".run-more")
+        ) {
+          menu.classList.remove("open");
+        }
+      });
+
+      menu.addEventListener("click", (event) => {
+        const action = event.target.closest("button")?.dataset.action;
+        if (!action) return;
+        menu.classList.remove("open");
+        if (action === "move") {
+          moveModal.classList.add("open");
+        } else if (action === "archive") {
+          showToast(`“${selectedSession.dataset.name}”已归档`);
+        } else if (action === "rename") {
+          showToast("Mock 中保留重命名入口");
+        } else if (action === "delete") {
+          showToast("Mock 中不执行删除");
+        }
+      });
+
+      document
+        .getElementById("headerMove")
+        .addEventListener("click", () => moveModal.classList.add("open"));
+      document
+        .getElementById("createGroup")
+        .addEventListener("click", () => showToast("新建分组入口已就绪"));
+      document
+        .getElementById("closeModal")
+        .addEventListener("click", () => moveModal.classList.remove("open"));
+      moveModal.addEventListener("click", (event) => {
+        if (event.target === moveModal) moveModal.classList.remove("open");
+      });
+
+      document.querySelectorAll(".group-option").forEach((option) => {
+        option.addEventListener("click", () => {
+          const category = option.dataset.category;
+          document.getElementById("categoryLabel").textContent = category;
+          moveModal.classList.remove("open");
+          showToast(`已移动到“${category}”`);
+        });
+      });
+
+      document
+        .getElementById("showRunsFromConversation")
+        .addEventListener("click", () => {
+          const section = document.querySelector('[data-group="subagents"]');
+          setSectionExpanded(section, true);
+          agentRunsToggle.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+        });
+
+      search.addEventListener("input", () => {
+        const query = search.value.trim().toLowerCase();
+        document
+          .querySelectorAll(".session-item, .agent-run")
+          .forEach((item) => {
+            const matches =
+              !query || item.dataset.name.toLowerCase().includes(query);
+            item.style.display = matches ? "" : "none";
+          });
+      });
+
+      document.querySelectorAll(".tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          document
+            .querySelectorAll(".tab")
+            .forEach((item) => item.classList.remove("active"));
+          tab.classList.add("active");
+          const archived = tab.dataset.view === "archived";
+          document.getElementById("sessionScroll").style.opacity = archived
+            ? "0.42"
+            : "1";
+          showToast(archived ? "归档视图示意" : "返回进行中会话");
+        });
+      });
+    </script>
+  </body>
+</html>

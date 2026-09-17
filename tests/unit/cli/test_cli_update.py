@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import json
 from pathlib import Path
+from functools import partial
 
 import httpx
 import pytest
@@ -237,39 +238,42 @@ def test_update_reports_up_to_date(monkeypatch) -> None:
     assert "QwenPaw is already up to date." in result.output
 
 
-def test_probe_service_ignores_proxy_env(monkeypatch) -> None:
-    captured: dict[str, object] = {}
+@pytest.mark.parametrize(
+    "base_url",
+    ["http://127.0.0.1:8088", "http://example.com:8088"],
+)
+def test_probe_service_ignores_proxy_env(monkeypatch, base_url) -> None:
+    captured = {}
+    real_client = httpx.Client
 
-    class _Response:
-        def raise_for_status(self) -> None:
-            return None
-
-        def json(self) -> dict[str, str]:
-            return {"version": "1.2.3"}
-
-    def _fake_get(url: str, **kwargs):
-        captured["url"] = url
+    def create_client(**kwargs):
         captured.update(kwargs)
-        return _Response()
+        return real_client(
+            **kwargs,
+            transport=httpx.MockTransport(
+                lambda _: httpx.Response(200, json={"version": "1.2.3"}),
+            ),
+        )
 
-    monkeypatch.setattr("qwenpaw.cli.update_cmd.httpx.get", _fake_get)
-
-    result = _probe_service("http://127.0.0.1:8088")
+    monkeypatch.setattr(httpx, "Client", create_client)
+    result = _probe_service(base_url)
 
     assert result.is_running is True
-    assert result.base_url == "http://127.0.0.1:8088"
+    assert result.base_url == base_url
     assert result.version == "1.2.3"
     assert captured["trust_env"] is False
 
 
 def test_probe_service_returns_not_running_on_http_error(monkeypatch) -> None:
-    def _fake_get(_url: str, **_kwargs):
+    def respond(_request):
         raise httpx.HTTPError("bad gateway")
 
-    monkeypatch.setattr("qwenpaw.cli.update_cmd.httpx.get", _fake_get)
-
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        partial(httpx.Client, transport=httpx.MockTransport(respond)),
+    )
     result = _probe_service("http://127.0.0.1:8088")
-
     assert result.is_running is False
 
 

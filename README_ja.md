@@ -35,7 +35,7 @@
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **忘れない**                               | 3 層メモリ — ライブな作業コンテキスト、完全な逐語履歴、そして [ReMe](https://github.com/agentscope-ai/ReMe) による自己進化型パーソナルナレッジベース。会話と資料を、読み取り・編集・検索が可能で相互にリンクされた Markdown メモリへ継続的に変換。 |
 | **ローカルもクラウドも、自由に動く**        | QwenPaw-Flash モデル（2B / 4B / 9B）— エージェントタスク向けに訓練。内蔵 QwenPaw Local ランタイム — API キー不要、クラウド依存なし。Ollama、LM Studio、14+ クラウドプロバイダーにも対応。                  |
-| **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner。危険なコマンドは実行前にブロック。                                                                                    |
+| **セキュリティ内蔵**                         | カーネルレベルの Sandbox、Tool Guard、File Guard、Skill Scanner、Access Policy。危険なコマンドは実行前にブロック。                                                                                    |
 | **マルチエージェント＆並列**                | 独自のメモリとスキルを持つ独立エージェントを生成。実行時のサブエージェント。Agent Communication Protocol（ACP）によるクロスシステム編成。                                                                         |
 | **ファイルワークスペース**                     | プロジェクトと Agent のファイルに共通するナビゲーション、プレビュー、編集、Diff、アップロード、ダウンロード。                                                                      |
 | **拡張可能**                                | スケジューリング、ドキュメント、ブラウザ、ニュースなどの Skills。マーケット付きプラグインアーキテクチャ。MCP で外部ツールを統合。目的別ワークフローに自由に組み合わせ可能。                                                                    |
@@ -60,6 +60,10 @@
 
 ## ニュース
 
+- [2026-09-10] **v2.2.1** | Creator 1.2 のブループリントワークベンチ、Agent ごとのモデルルーティング、統合環境管理。[v2.2.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
+
+- [2026-09-03] **v2.2.0** | セルフホスト型マルチユーザー QwenPaw Hub、QwenPaw Mail、ネイティブ QwenPaw Data、統合モデルルーティング、Creator 1.1 に加え、マーケット、Console、Skills、チャネル、信頼性を大幅に改善。[v2.2.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
+
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell、統合 Files ワークスペース、QwenPaw Creator、Codex/Qoder エージェント連携、Browser-use、Computer-use、ワークスペースチェックポイント、長時間の対話タスク継続など。[v2.1.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)
 
 - [2026-07-24] **v2.0.1** | PawApp ミニアプリプラットフォーム、ユーザー編集可能な Agent Mode、Oh-My-Paw plugins、[ReMe](https://github.com/agentscope-ai/ReMe) メモリ強化、デスクトップ UX 改善など。[v2.0.1 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.1)
@@ -76,12 +80,6 @@
   | **Terminal UI (TUI)** | フルスクリーンターミナルチャット — Console やチャネルと同一のエージェント・記憶・セッション。 |
 
   Agent OS をベースに、すぐに使える QwenPaw アプリケーション — **QwenPaw Creator**、**QwenPaw Insight** など — を順次リリース予定です。 [v2.0.0 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v2.0.0)
-
-- [2026-06-17] **v1.1.12 — モデルページ大刷新 & シンプルモード** | Provider 集約による新モデルページデザイン、フラットナビのシンプルモード追加。[v1.1.12 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.12)
-
-- [2026-06-11] **AgentScope プラットフォーム公開** — QwenPaw の無料デプロイ、プラグイン共有、Skill マーケットに対応。[今すぐ試す →](https://platform.agentscope.io/)
-
-- [2026-06-10] **v1.1.11** — 無料モデル OAuth、プラグインマーケット、MCP ツールホワイトリスト。[v1.1.11 リリースノート →](https://qwenpaw.agentscope.io/release-notes#v1.1.11)
 
 [すべてのリリースノート →](https://qwenpaw.agentscope.io/release-notes)
 
@@ -386,12 +384,13 @@ QwenPaw は **QwenPaw-Flash** シリーズも提供 — エージェントシナ
 
 ## セキュリティ機能
 
-QwenPaw には 4 つのコアセキュリティレイヤーが含まれています：
+QwenPaw には 5 つのコアセキュリティレイヤーが含まれています：
 
 - **Sandbox** — macOS では Seatbelt、Linux では Bubblewrap / Landlock、Windows では AppContainer によるカーネルレベルの実行分離。シェルコマンドは制限されたファイルシステムビュー内で実行されます。
 - **Tool Guard** — YAML ルールエンジンと `ShellEvasionGuardian` が実行前にすべてのツール呼び出しを検査し、コマンドインジェクション、パストラバーサル、リバースシェル、難読化攻撃を検出。承認レベル設定可能：STRICT / SMART / AUTO / OFF。
 - **File Guard** — Tool Guard とは独立；エージェントの機密ファイル・ディレクトリへのアクセスをブロック（デフォルトで `~/.qwenpaw.secret/`、`~/.ssh` などを保護）。
 - **Skill Scanner** — block / warn / off モードとホワイトリスト対応の事前アクティベーションスキャン。プロンプトインジェクション、ハードコードされた秘密情報、データ流出などを検出。
+- **Access Policy** — 宣言型アクセスポリシー：各機能呼び出しに対し許可(allow)、拒否(deny)、または承認要求(ask)を裁定。ツールレベルの粒度とリクエスト元に応じたマッチングに対応。
 詳細は [セキュリティ](https://qwenpaw.agentscope.io/docs/security) を参照してください。
 
 ---

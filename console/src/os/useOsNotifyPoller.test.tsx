@@ -69,7 +69,7 @@ describe("useOsNotifyPoller", () => {
     expect(mockGetInboxEvents).toHaveBeenCalledWith({
       unread_only: true,
       limit: 200,
-      source_types: ["cron", "heartbeat", "memory", "skill_autoupdate"],
+      source_types: ["cron", "heartbeat", "memory", "skill_autoupdate", "mail"],
     });
     expect(useOsNotify.getState().inboxCount).toBe(12);
 

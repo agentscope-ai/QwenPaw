@@ -1,4 +1,4 @@
-import {
+import type {
   IAgentScopeRuntimeWebUISession,
   IAgentScopeRuntimeWebUISessionAPI,
   IAgentScopeRuntimeWebUIMessage,
@@ -17,6 +17,7 @@ import {
 } from "../turnUsage";
 import { useTurnUsageStore } from "../turnUsageStore";
 import { QWENPAW_CLIENT_MESSAGE_ID_KEY } from "../../../utils/clientMessageId";
+import { syncSessionsGlobal } from "../../../stores/sessionListStore";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -34,6 +35,7 @@ const CARD_RESPONSE = "AgentScopeRuntimeResponseCard";
 function hydrateTurnUsageFromMessages(
   messages: IAgentScopeRuntimeWebUIMessage[],
 ): void {
+  useTurnUsageStore.getState().invalidateTurn();
   const snap = extractLatestSnapshotFromCards(messages);
   const activeMax = useTurnUsageStore.getState().activeMaxInputLength;
   if (snap?.context_usage && typeof activeMax === "number" && activeMax > 0) {
@@ -66,18 +68,6 @@ function hydrateTurnUsageFromMessages(
   }
   useTurnUsageStore.getState().setSnapshot(snap);
 }
-
-// ---------------------------------------------------------------------------
-// Window globals
-// ---------------------------------------------------------------------------
-
-interface CustomWindow extends Window {
-  currentSessionId?: string;
-  currentUserId?: string;
-  currentChannel?: string;
-}
-
-declare const window: CustomWindow;
 
 // ---------------------------------------------------------------------------
 // Local helper types
@@ -118,10 +108,28 @@ interface ExtendedSession extends IAgentScopeRuntimeWebUISession {
   createdAt?: string | null;
   /** ISO 8601 last-updated timestamp from backend. */
   updatedAt?: string | null;
+  /** ISO 8601 completion time of the most recent task. */
+  lastFinishedAt?: string | null;
   /** Whether the backend is still generating a response for this session. */
   generating?: boolean;
   /** Whether the chat is pinned to the top. */
   pinned?: boolean;
+  /** Whether the chat is archived. */
+  archived?: boolean;
+  /** ISO 8601 archive timestamp from backend. */
+  archivedAt?: string | null;
+  source?: ChatSpec["source"];
+  groupId?: string | null;
+  parentSessionId?: string | null;
+  rootSessionId?: string | null;
+}
+
+export interface SessionIdentity {
+  sdkSessionId: string;
+  chatId?: string;
+  sessionId: string;
+  userId: string;
+  channel: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -145,13 +153,28 @@ function generateId(): string {
   return `${Date.now()}-${randomBase36(9)}`;
 }
 
-/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
-const parseTimestamp = (msg: Record<string, unknown>): number => {
-  const ts = (msg.metadata as Record<string, unknown>)?.timestamp;
+/**
+ * Parse a metadata time string (e.g. "2026-05-27 10:44:53.362") to unix
+ * seconds; returns 0 when the value is absent or not parseable.
+ */
+const metadataTimeToSeconds = (ts: unknown): number => {
   if (!ts || typeof ts !== "string") return 0;
   const ms = new Date(ts.replace(" ", "T")).getTime();
   return Number.isNaN(ms) ? 0 : Math.floor(ms / 1000);
 };
+
+/** Parse metadata.timestamp string (e.g. "2026-05-27 10:44:53.362") to unix seconds. */
+const parseTimestamp = (msg: Record<string, unknown>): number =>
+  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.timestamp);
+
+/**
+ * Parse metadata.finished_at string to unix seconds (0 when absent).
+ * `finished_at` is stamped when the reply actually ended; `timestamp` is
+ * the created_at alias pinned at the first saved segment, which can be far
+ * earlier for turns with long tool calls.
+ */
+const parseFinishedAt = (msg: Record<string, unknown>): number =>
+  metadataTimeToSeconds((msg.metadata as Record<string, unknown>)?.finished_at);
 
 /** Extract plain text from a message's content array. */
 const extractTextFromContent = (content: unknown): string => {
@@ -283,6 +306,13 @@ const buildResponseCard = (
 
   const firstTs = parseTimestamp(outputMessages[0]);
   const lastTs = parseTimestamp(outputMessages[outputMessages.length - 1]);
+  // Prefer the real reply-end time (finished_at) over timestamp so turns
+  // with long tool calls show the true completion time (#6826). Falls
+  // back to timestamp for legacy sessions without the stamp.
+  const finishedAt = outputMessages.reduce(
+    (max, m) => Math.max(max, parseFinishedAt(m)),
+    0,
+  );
 
   const normalizedMessages = outputMessages.map((msg) => ({
     ...msg,
@@ -305,7 +335,7 @@ const buildResponseCard = (
           created_at: firstTs || fallbackNow,
           sequence_number: maxSeq + 1,
           error: null,
-          completed_at: lastTs || fallbackNow,
+          completed_at: finishedAt || lastTs || fallbackNow,
           usage: turnUsage?.usage ?? null,
           context_usage: turnUsage?.context_usage ?? null,
         },
@@ -357,7 +387,12 @@ const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
     status: chat.status ?? "idle",
     createdAt: chat.created_at ?? null,
     updatedAt: chat.updated_at ?? null,
+    lastFinishedAt: chat.last_finished_at ?? null,
     pinned: chat.pinned ?? false,
+    source: chat.source ?? "chat",
+    groupId: chat.group_id ?? null,
+    parentSessionId: chat.parent_session_id ?? null,
+    rootSessionId: chat.root_session_id ?? null,
     archived: chat.archived ?? false,
     archivedAt: chat.archived_at ?? null,
   }) as ExtendedSession;
@@ -753,17 +788,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   }
 
   /**
-   * Applies the view-facing side effects of a loaded session (window identity
-   * globals and the turn-usage store) only while the owner epoch that started
-   * the load is still active. A stale load must never rewrite the current
-   * agent's identity or usage view.
+   * Applies view-facing turn usage only while the owner epoch that started the
+   * load is still active.
    */
   private applySessionView(
     session: ExtendedSession,
     owner: SessionOwnerToken,
   ): void {
     if (!this.isActiveOwner(owner)) return;
-    this.updateWindowVariables(session);
     hydrateTurnUsageFromMessages(session.messages ?? []);
   }
 
@@ -919,6 +951,23 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       return false;
     }
 
+    // A request is confirmed as soon as its unique client id appears
+    // anywhere in history. This also prevents an already-persisted turn from
+    // being appended again while the backend still reports "running".
+    if (cached.clientMessageId) {
+      const persistenceConfirmed = messages.some((message) => {
+        if (message.role !== ROLE_USER) return false;
+        const input = message?.cards?.[0]?.data?.input?.[0];
+        return (
+          extractClientMessageId(input?.metadata) === cached.clientMessageId
+        );
+      });
+      if (persistenceConfirmed) {
+        clearPendingUserMessage(backendSessionId);
+        return false;
+      }
+    }
+
     // When the chat is idle, clear the cache only after the fetched
     // history actually contains the pending text. Clearing
     // unconditionally lost the last message in two windows: POST sent
@@ -926,17 +975,14 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     // generation completed but the memory flush not finished.
     if (!generating) {
       let lastUserText = "";
-      let lastUserClientMessageId: string | undefined;
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i].role !== ROLE_USER) continue;
         const input = messages[i]?.cards?.[0]?.data?.input?.[0];
         lastUserText = extractTextFromContent(input?.content);
-        lastUserClientMessageId = extractClientMessageId(input?.metadata);
         break;
       }
-      const persistenceConfirmed = cached.clientMessageId
-        ? lastUserClientMessageId === cached.clientMessageId
-        : lastUserText.trim() === cached.text.trim();
+      const persistenceConfirmed =
+        !cached.clientMessageId && lastUserText.trim() === cached.text.trim();
       if (persistenceConfirmed) {
         clearPendingUserMessage(backendSessionId);
         return false;
@@ -978,9 +1024,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     owner: SessionOwnerToken,
   ): ExtendedSession {
     if (this.isActiveOwner(owner)) {
-      window.currentSessionId = sessionId;
-      window.currentUserId = DEFAULT_USER_ID;
-      window.currentChannel = DEFAULT_CHANNEL;
       useTurnUsageStore.getState().setSnapshot(null);
     }
     return {
@@ -992,22 +1035,6 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       messages: [],
       meta: {},
     } as ExtendedSession;
-  }
-
-  private updateWindowVariables(session: ExtendedSession): void {
-    window.currentSessionId = session.sessionId || "";
-    window.currentUserId = session.userId || DEFAULT_USER_ID;
-    window.currentChannel = session.channel || DEFAULT_CHANNEL;
-  }
-
-  /** Resets window identity globals to their defaults. Called on agent
-   *  switch: the globals are otherwise only rewritten when another session
-   *  loads, so a new agent would inherit the previous agent's session and
-   *  channel (possibly one that has since been deleted). */
-  resetWindowIdentity(): void {
-    window.currentSessionId = "";
-    window.currentUserId = DEFAULT_USER_ID;
-    window.currentChannel = DEFAULT_CHANNEL;
   }
 
   private findSession(id: string): ExtendedSession | undefined {
@@ -1032,7 +1059,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   /**
    * Centralizes state tracking after navigating to a session.
    * Reduces repeated `lastActiveChatId + lastNavigatedChatId + persist` scattered
-   * across onSessionIdResolved, onSessionSelected, drawer, and initializer.
+   * across onSessionIdResolved, onSessionSelected, sidebar, and initializer.
    */
   trackNavigatedSession(
     effectiveId: string,
@@ -1066,53 +1093,32 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     return this.findSession(libraryId)?.sessionId || libraryId;
   }
 
-  /** Returns session identity from the session list (authoritative).
-   *  Uses lastActiveChatId (set only by intentional user actions) as the
-   *  primary lookup key, avoiding the stale window globals problem. */
-  getSessionIdentity(): {
-    sessionId: string;
-    userId: string;
-    channel: string;
-  } {
-    // lastActiveChatId is immune to stale updateWindowVariables overwrites
-    // because it is only set by onSessionSelected / onSessionCreated /
-    // handleSessionClick — all intentional user actions.
-    const session = this.lastActiveChatId
-      ? this.findSession(this.lastActiveChatId)
-      : undefined;
-    if (session?.userId) {
-      return {
-        sessionId: session.sessionId || "",
-        userId: session.userId,
-        channel: session.channel || DEFAULT_CHANNEL,
-      };
-    }
-    // Window globals can outlive the session they came from (they are only
-    // rewritten when another session loads), so trust them only when they
-    // still resolve to a session in the current list. After an agent switch
-    // the list is reloaded and a stale identity — including a channel that
-    // may no longer exist — fails this lookup and falls through to defaults.
-    const windowSessionId = window.currentSessionId || "";
-    const windowSession = windowSessionId
-      ? (this.sessionList.find(
-          (s) =>
-            (s as ExtendedSession).sessionId === windowSessionId ||
-            s.id === windowSessionId,
+  /** Resolve one immutable identity from an explicit SDK, chat, or runtime id. */
+  getSessionIdentity(referenceId?: string | null): SessionIdentity {
+    const explicitId = referenceId || "";
+    const session = explicitId
+      ? this.findSession(explicitId) ??
+        (this.sessionList.find(
+          (item) => (item as ExtendedSession).sessionId === explicitId,
         ) as ExtendedSession | undefined)
-      : undefined;
-    if (windowSession?.userId) {
-      return {
-        sessionId: windowSession.sessionId || "",
-        userId: windowSession.userId,
-        channel: windowSession.channel || DEFAULT_CHANNEL,
-      };
-    }
-    // A fresh local id is still safe to keep: blank chats are always
-    // created on the console channel.
+      : (this.sessionList.find(
+          (item) =>
+            isLocalTimestamp(item.id) && !(item as ExtendedSession).realId,
+        ) as ExtendedSession | undefined);
+    const sdkSessionId = session?.id || explicitId;
+    const chatId =
+      session?.realId ??
+      (session && sdkSessionId && !isLocalTimestamp(sdkSessionId)
+        ? sdkSessionId
+        : undefined);
     return {
-      sessionId: isLocalTimestamp(windowSessionId) ? windowSessionId : "",
-      userId: DEFAULT_USER_ID,
-      channel: DEFAULT_CHANNEL,
+      sdkSessionId,
+      chatId,
+      sessionId:
+        session?.sessionId ||
+        (isLocalTimestamp(sdkSessionId) ? sdkSessionId : ""),
+      userId: session?.userId || DEFAULT_USER_ID,
+      channel: session?.channel || DEFAULT_CHANNEL,
     };
   }
 
@@ -1243,9 +1249,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         a.name !== b.name ||
         a.status !== b.status ||
         a.updatedAt !== b.updatedAt ||
+        a.lastFinishedAt !== b.lastFinishedAt ||
+        a.createdAt !== b.createdAt ||
         a.pinned !== b.pinned ||
         a.generating !== b.generating ||
-        a.realId !== b.realId
+        a.realId !== b.realId ||
+        a.sessionId !== b.sessionId ||
+        a.userId !== b.userId ||
+        a.channel !== b.channel ||
+        a.archivedAt !== b.archivedAt ||
+        a.archived !== b.archived ||
+        a.source !== b.source ||
+        a.groupId !== b.groupId ||
+        a.parentSessionId !== b.parentSessionId ||
+        a.rootSessionId !== b.rootSessionId
       ) {
         return false;
       }
@@ -1270,7 +1287,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     };
     entry.promise = (async () => {
       try {
-        const chats = await api.listChats({ archived: false });
+        const chats = await api.listChats({
+          archived: false,
+          include_app_owned: false,
+        });
         // A result from a stale epoch must not replace the current agent's
         // session list; hand back the current list without mutation.
         if (!this.isActiveOwner(owner)) {
@@ -1342,7 +1362,7 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
    * Fetch chat history from backend and build an ExtendedSession.
    * Centralises the repeated fetch-convert-patch-build pattern used by
    * _doGetSession in multiple branches. Construction is applied to shared
-   * state (window identity, turn-usage store, converted cache) only while
+   * state (turn-usage store and converted cache) only while
    * the caller's owner epoch is still active.
    */
   private async fetchAndBuildSession(
@@ -1368,7 +1388,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       }
     }
 
-    const chatHistory = await api.getChat(backendId, { signal });
+    const chatHistory = await api.getChat(backendId, {
+      signal,
+      include_app_owned: false,
+    });
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
     const generating = isGenerating(chatHistory);
     const messages = convertMessages(chatHistory.messages || []);
@@ -1511,6 +1534,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     const { list, realId } = resolveRealId(this.sessionList, tempId);
     this.sessionList = list;
     if (realId) {
+      // Publish the resolved mapping immediately so the SDK can match a URL
+      // carrying the backend UUID while the response is still generating.
+      syncSessionsGlobal(this.sessionList as ExtendedSession[]);
       // Migrate the pending user message from the local timestamp key to
       // the backend UUID key so patchLastUserMessage can find it after
       // page refresh (where the URL — and therefore the lookup key — is
@@ -1674,6 +1700,7 @@ export const __test__ = {
   contentToRequestParts,
   extractTextFromContent,
   parseTimestamp,
+  parseFinishedAt,
   isLocalTimestamp,
   isGenerating,
   resolveRealId,

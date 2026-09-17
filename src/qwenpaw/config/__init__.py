@@ -14,6 +14,8 @@ from .config import (
     ACPConfig,
     ACPAgentConfig,
     VisualCompactConfig,
+    ThemeConfig,
+    ThemeDarkConfig,
 )
 from .utils import (
     get_available_channels,
@@ -24,6 +26,7 @@ from .utils import (
     get_system_default_browser,
     is_running_in_container,
     load_config,
+    read_last_dispatch,
     save_config,
     strict_validate_config_file,
     update_last_dispatch,
@@ -44,6 +47,8 @@ __all__ = [
     "ACPConfig",
     "ACPAgentConfig",
     "VisualCompactConfig",
+    "ThemeConfig",
+    "ThemeDarkConfig",
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",
@@ -52,6 +57,7 @@ __all__ = [
     "get_system_default_browser",
     "is_running_in_container",
     "load_config",
+    "read_last_dispatch",
     "save_config",
     "strict_validate_config_file",
     "update_last_dispatch",

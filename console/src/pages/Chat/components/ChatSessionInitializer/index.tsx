@@ -22,7 +22,7 @@ import { useCreateNewSession } from "../../hooks/useCreateNewSession";
  * to avoid triggering the effect when the context changes from the other direction
  * (context → URL via onSessionSelected), which would cause circular re-loads.
  *
- * IMPORTANT: sessions array reference changes (e.g. from polling in pinned drawer)
+ * IMPORTANT: sessions array reference changes (e.g. from sidebar polling)
  * must NOT re-trigger setCurrentSessionId when the chatId hasn't changed, otherwise
  * it causes an infinite loop of getSession calls bouncing between two chat IDs.
  *
@@ -45,7 +45,7 @@ const ChatSessionInitializer: React.FC = () => {
 
   // Sync library sessions → shared Zustand store whenever they change.
   // This makes the session list available to components outside the context tree
-  // (e.g. SidebarSessionList in simple-mode sidebar).
+  // (e.g. the shared SidebarSessionList).
   useEffect(() => {
     syncFromLibrary(
       sessions as ExtendedSession[],
@@ -67,7 +67,7 @@ const ChatSessionInitializer: React.FC = () => {
   const switchControllerRef = useRef<AbortController | null>(null);
 
   /** Track the last chatId for which we called setCurrentSessionId, so that
-   *  subsequent sessions array reference changes (from polling in pinned drawer)
+   *  subsequent sessions array reference changes (from sidebar polling)
    *  don't re-trigger setCurrentSessionId and cause infinite getSession loops. */
   const lastAppliedChatIdRef = useRef<string | undefined>(undefined);
 
@@ -90,13 +90,6 @@ const ChatSessionInitializer: React.FC = () => {
       return;
     }
 
-    // If we already applied this exact chatId and the context is in sync, skip.
-    // This prevents the polling-triggered sessions refresh (pinned drawer)
-    // from re-calling setCurrentSessionId and causing circular getSession loops.
-    if (chatId === lastAppliedChatIdRef.current) {
-      return;
-    }
-
     // Match by multiple criteria in order of specificity:
     // 1) Library id (localId or UUID)
     let matching = sessions.find((s) => s.id === chatId);
@@ -112,6 +105,17 @@ const ChatSessionInitializer: React.FC = () => {
       matching = sessions.find(
         (s) => (s as ExtendedSession).sessionId === chatId,
       );
+    }
+
+    // If we already applied this exact chatId and the context is in sync, skip.
+    // Comparing both values lets a blank new chat reopen the same URL later,
+    // while still ignoring polling-only session list updates.
+    if (
+      matching &&
+      chatId === lastAppliedChatIdRef.current &&
+      currentSessionIdRef.current === matching.id
+    ) {
+      return;
     }
 
     if (matching && currentSessionIdRef.current !== matching.id) {

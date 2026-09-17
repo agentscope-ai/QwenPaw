@@ -111,6 +111,15 @@ class TranscriptScroll(VerticalScroll):
         super().watch_scroll_y(old_value, new_value)
         self.sync_follow_end()
 
+    def scroll_down(self, **kwargs) -> None:
+        """Keep following when a downward scroll is clamped at the end."""
+        was_at_end = self.scroll_y >= self.max_scroll_y
+        super().scroll_down(**kwargs)
+        if was_at_end:
+            self._follow_end = True
+            self._anchor_released = False
+            self.sync_follow_end()
+
     def _sync_follow_end(self) -> None:
         if self.max_scroll_y <= 0:
             if self.is_anchored:

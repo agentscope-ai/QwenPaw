@@ -27,14 +27,16 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.crons import heartbeat
+from qwenpaw.app.exception_handlers import register_exception_handlers
 from qwenpaw.app.routers.config import router as config_router
-from qwenpaw.config import get_available_channels
+from qwenpaw.config import get_available_channels, load_config
 from qwenpaw.config.config import (
     ChannelConfig,
     ConsoleConfig,
     HeartbeatConfig,
     OneBotConfig,
     TelegramConfig,
+    ThemeConfig,
     ToolGuardConfig,
 )
 from qwenpaw.constant import (
@@ -42,12 +44,25 @@ from qwenpaw.constant import (
     HEARTBEAT_TARGET_INBOX,
     HEARTBEAT_TARGET_LAST,
 )
+from qwenpaw.exceptions import AgentConfigConflictError
 
 
 class _HeartbeatWorkspace:
     async def stream_query(self, _req):
         for event in ():
             yield event
+
+
+def _root_transaction(config, calls=None):
+    """Return a test transaction that applies one root-config mutator."""
+
+    def mutate(mutator):
+        mutator(config)
+        if calls is not None:
+            calls.append(config)
+        return config
+
+    return mutate
 
 
 @pytest.fixture
@@ -57,6 +72,7 @@ def app() -> FastAPI:
     # ``get_agent_for_request``, but keep state attribute populated to
     # avoid spurious 500s from the auth-context fallback.
     application.state.multi_agent_manager = MagicMock(name="ManagerStub")
+    register_exception_handlers(application)
     application.include_router(config_router, prefix="/api")
     return application
 
@@ -147,16 +163,47 @@ def test_put_channels_saves_and_triggers_reload(
             "qwenpaw.app.routers.config.schedule_agent_reload",
         ) as reload_mock,
     ):
-        payload = ChannelConfig(
-            console=ConsoleConfig(enabled=False),
-        ).model_dump()
-        response = client.put("/api/config/channels", json=payload)
+        response = client.put(
+            "/api/config/channels",
+            json={
+                "console": {"enabled": False},
+                "discord": {"enabled": True},
+            },
+        )
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["console"]["enabled"] is False
+    assert body["console"]["enabled"] is True
+    assert body["discord"]["enabled"] is True
+    assert fake_agent_workspace.config.channels.console.enabled is True
+    assert fake_agent_workspace.config.channels.discord.enabled is True
 
     # Side-effects fired exactly once.
+    save_mock.assert_called_once()
+    reload_mock.assert_called_once()
+
+
+def test_put_console_channel_keeps_it_enabled(
+    client,
+    fake_agent_workspace,
+    patch_get_agent,
+):
+    with (
+        patch(
+            "qwenpaw.config.config.save_agent_config",
+        ) as save_mock,
+        patch(
+            "qwenpaw.app.routers.config.schedule_agent_reload",
+        ) as reload_mock,
+    ):
+        response = client.put(
+            "/api/config/channels/console",
+            json={"enabled": False},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["enabled"] is True
+    assert fake_agent_workspace.config.channels.console.enabled is True
     save_mock.assert_called_once()
     reload_mock.assert_called_once()
 
@@ -170,6 +217,31 @@ def test_put_channels_422_on_invalid_payload(client, patch_get_agent):
     )
 
     assert response.status_code == 422
+
+
+def test_put_channels_returns_409_for_stale_agent_config(
+    client,
+    patch_get_agent,
+):
+    """A stale agent save returns a stable conflict response."""
+    with patch(
+        "qwenpaw.config.config.save_agent_config",
+        side_effect=AgentConfigConflictError("default"),
+    ):
+        response = client.put(
+            "/api/config/channels",
+            json={"console": {"enabled": False}},
+        )
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": {
+            "code": "AGENT_CONFIG_STALE",
+            "message": (
+                "Agent 'default' changed on disk; reload it and retry"
+            ),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -491,6 +563,60 @@ def test_put_heartbeat_rejects_timeout_above_max(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    ("non_finite_literal", "serialized_input"),
+    [
+        ("NaN", "NaN"),
+        ("Infinity", "Infinity"),
+        ("-Infinity", "-Infinity"),
+    ],
+)
+def test_put_heartbeat_serializes_non_finite_validation_input(
+    client,
+    patch_get_agent,
+    non_finite_literal,
+    serialized_input,
+):
+    """Non-finite rejected inputs remain observable in a valid 422 body."""
+    response = client.put(
+        "/api/config/heartbeat",
+        content=f'{{"timeoutSeconds": {non_finite_literal}}}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "timeoutSeconds"]
+    assert error["input"] == serialized_input
+
+
+@pytest.mark.parametrize(
+    ("timeout_seconds", "constraint", "limit"),
+    [
+        (0, "ge", 1),
+        (3601, "le", 3600),
+    ],
+)
+def test_put_heartbeat_preserves_finite_validation_error_details(
+    client,
+    patch_get_agent,
+    timeout_seconds,
+    constraint,
+    limit,
+):
+    """The global handler preserves ordinary Pydantic error details."""
+    response = client.put(
+        "/api/config/heartbeat",
+        json={"timeoutSeconds": timeout_seconds},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "timeoutSeconds"]
+    assert error["input"] == timeout_seconds
+    assert error["ctx"] == {constraint: limit}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("target", "last_dispatch"),
@@ -582,12 +708,12 @@ def test_put_tool_guard_saves_and_reloads_engine(client):
     fake_cfg.security.tool_guard = ToolGuardConfig(enabled=False)
     engine_mock = MagicMock(enabled=False)
 
+    calls = []
     with (
         patch(
-            "qwenpaw.app.routers.config.load_config",
-            return_value=fake_cfg,
+            "qwenpaw.app.routers.config.mutate_config",
+            side_effect=_root_transaction(fake_cfg, calls),
         ),
-        patch("qwenpaw.app.routers.config.save_config") as save_mock,
         patch(
             "qwenpaw.security.tool_guard.engine.get_guard_engine",
             return_value=engine_mock,
@@ -600,10 +726,108 @@ def test_put_tool_guard_saves_and_reloads_engine(client):
 
     assert response.status_code == 200
     assert response.json()["enabled"] is True
-    save_mock.assert_called_once()
+    assert calls == [fake_cfg]
     # The handler must flip the engine flag AND ask it to reload rules.
     assert engine_mock.enabled is True
     engine_mock.reload_rules.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /config/theme
+# ---------------------------------------------------------------------------
+
+
+def test_get_theme_returns_sparse_defaults(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = None
+    read_config = AsyncMock(return_value=fake_cfg)
+
+    with patch(
+        "qwenpaw.app.routers.config.run_sync_io",
+        new=read_config,
+    ):
+        response = client.get("/api/config/theme")
+
+    assert response.status_code == 200
+    assert response.json() == {}
+    read_config.assert_awaited_once_with(load_config)
+
+
+def test_put_theme_persists_without_agent_reload(client):
+    fake_cfg = MagicMock()
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.put(
+            "/api/config/theme",
+            json={
+                "accent": "#0b57d0",
+                "radius": "12px",
+                "dark": {"surface": "#1a1a1a"},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "accent": "#0b57d0",
+        "radius": "12px",
+        "dark": {"surface": "#1a1a1a"},
+    }
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme.accent == "#0b57d0"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "url(javascript:alert(1))",
+        "rgb(0,0,0) url(https://example.invalid/pixel)",
+        "rgb(not-a-color)",
+        "#12345",
+    ],
+)
+def test_put_theme_rejects_invalid_css_values(client, value):
+    response = client.put(
+        "/api/config/theme",
+        json={"accent_bg": value},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "#abc",
+        "#11223380",
+        "rgb(11, 87, 208)",
+        "rgb(11 87 208 / 50%)",
+        "rgba(11, 87, 208, 0.1)",
+        "hsl(210, 90%, 43%)",
+        "hsl(210deg 90% 43% / 50%)",
+    ],
+)
+def test_theme_config_accepts_supported_css_values(value):
+    assert ThemeConfig(accent=value).accent == value
+
+
+def test_delete_theme_clears_persisted_config(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = ThemeConfig(accent="#0b57d0")
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.delete("/api/config/theme")
+
+    assert response.status_code == 204
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme is None
 
 
 # ---------------------------------------------------------------------------
@@ -669,6 +893,7 @@ def test_put_sandbox_idempotent_same_value_no_save(client):
     fake_cfg = MagicMock()
     fake_cfg.security.sandbox_enabled = True
 
+    mutate = MagicMock()
     with (
         patch(
             "qwenpaw.app.routers.config.load_config",
@@ -678,7 +903,7 @@ def test_put_sandbox_idempotent_same_value_no_save(client):
             "qwenpaw.app.routers.config._sandbox_effective_status",
             return_value=(True, "unelevated"),
         ),
-        patch("qwenpaw.app.routers.config.save_config") as mock_save,
+        patch("qwenpaw.app.routers.config.mutate_config", mutate),
     ):
         response = client.put(
             "/api/config/security/sandbox",
@@ -691,7 +916,7 @@ def test_put_sandbox_idempotent_same_value_no_save(client):
     assert body["effective"] is True
     assert body["reason"] == "unelevated"
     # Must NOT have saved (value unchanged)
-    mock_save.assert_not_called()
+    mutate.assert_not_called()
 
 
 def test_put_sandbox_non_admin_enabling_saves_with_unelevated(client):
@@ -699,6 +924,7 @@ def test_put_sandbox_non_admin_enabling_saves_with_unelevated(client):
     fake_cfg = MagicMock()
     fake_cfg.security.sandbox_enabled = False
 
+    calls = []
     with (
         patch(
             "qwenpaw.app.routers.config.load_config",
@@ -708,7 +934,10 @@ def test_put_sandbox_non_admin_enabling_saves_with_unelevated(client):
             "qwenpaw.app.routers.config._sandbox_effective_status",
             return_value=(True, "unelevated"),
         ),
-        patch("qwenpaw.app.routers.config.save_config") as mock_save,
+        patch(
+            "qwenpaw.app.routers.config.mutate_config",
+            side_effect=_root_transaction(fake_cfg, calls),
+        ),
     ):
         response = client.put(
             "/api/config/security/sandbox",
@@ -720,7 +949,7 @@ def test_put_sandbox_non_admin_enabling_saves_with_unelevated(client):
     assert body["enabled"] is True
     assert body["effective"] is True
     assert body["reason"] == "unelevated"
-    mock_save.assert_called_once()
+    assert calls == [fake_cfg]
 
 
 def test_put_sandbox_admin_enabling_saves(client):
@@ -728,6 +957,7 @@ def test_put_sandbox_admin_enabling_saves(client):
     fake_cfg = MagicMock()
     fake_cfg.security.sandbox_enabled = False
 
+    calls = []
     with (
         patch(
             "qwenpaw.app.routers.config.load_config",
@@ -737,7 +967,10 @@ def test_put_sandbox_admin_enabling_saves(client):
             "qwenpaw.app.routers.config._sandbox_effective_status",
             return_value=(True, None),
         ),
-        patch("qwenpaw.app.routers.config.save_config") as mock_save,
+        patch(
+            "qwenpaw.app.routers.config.mutate_config",
+            side_effect=_root_transaction(fake_cfg, calls),
+        ),
     ):
         response = client.put(
             "/api/config/security/sandbox",
@@ -748,4 +981,4 @@ def test_put_sandbox_admin_enabling_saves(client):
     body = response.json()
     assert body["enabled"] is True
     assert body["effective"] is True
-    mock_save.assert_called_once()
+    assert calls == [fake_cfg]

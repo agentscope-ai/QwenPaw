@@ -27,9 +27,13 @@ from .file_source_intelligence_routes import (
 )
 from .model_routes import bind_creator_tool_config
 from .model_routes import router as model_router
+from .observability_routes import router as observability_router
 from .project_file_routes import router as project_files_router
 from .project_routes import router as projects_router
+from .video_template_routes import router as video_templates_router
+from .voice_routes import router as voice_router
 from .work_graph_routes import router as work_graph_router
+from .prompt_sync_routes import router as prompt_sync_router
 from .dependencies import (
     CreatorErrorRoute,
     bind_creator_trace_request,
@@ -52,7 +56,11 @@ router.include_router(file_sessions_router)
 router.include_router(file_execution_router)
 router.include_router(file_media_router)
 router.include_router(work_graph_router)
+router.include_router(prompt_sync_router)
 router.include_router(model_router)
+router.include_router(observability_router)
+router.include_router(video_templates_router)
+router.include_router(voice_router)
 
 
 @router.get("/health", tags=["infrastructure"])

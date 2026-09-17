@@ -278,6 +278,36 @@ The engine also runs **`ShellEvasionGuardian`** on `execute_shell_command`. It t
 
 ---
 
+## Mailbox Security
+
+A mailbox authorization code grants full IMAP/SMTP send and receive access. The
+public mailbox identity and automatic-processing settings live in the
+workspace's `agent.json`; the authorization code, app password, or login
+password is encrypted in `credentials.yaml`. `drivers/mcp/qwenpawmail.yaml`
+stores only a credential reference, which is resolved when the MCP subprocess
+starts. Neither the Agent API nor the agent returns these secrets. Passwords,
+phone numbers, and verification codes entered on a provider's registration page
+are not saved to QwenPaw configuration either. Restrict workspace access, do not
+commit these files, and do not share backups containing both the workspace and
+decryption material. Revoke and rotate the credential with the provider if
+exposure is suspected.
+
+Treat every message body as untrusted external input. Automatic processing must
+not follow instructions embedded in email and is barred from permanent deletion
+by default. Outbound mail is limited to the original sender or a known contact in
+`CONTACTS.md`; money, commitments, and sensitive relationships require a draft
+and confirmation. When a message cannot be classified, the exploration path
+raises every subsequent tool call to strict approval.
+
+When automation is enabled, also consider **Mail Access Control**. Unknown
+senders remain pending until allowed, at which point every message saved in the
+pending record is processed; denied senders' later messages are marked read and
+skipped. Among the tools, `delete_message` is permanent, while `delete_thread`
+moves messages to Trash; verify the target before either action. See
+[Mailbox Management and Automation](./mailbox#Mail-Access-Control).
+
+---
+
 ## File Guard
 
 The **File Guard** blocks agent tools from accessing sensitive files and directories. It runs automatically on **every tool call**, scanning all file-path-related parameters to enforce a deny list of protected paths.
@@ -431,6 +461,36 @@ Sandbox configuration is compiled automatically by the governance policy engine.
 | `path`       | string | —       | Filesystem path                       |
 | `writable`   | bool   | `false` | Allow write access                    |
 | `executable` | bool   | `true`  | Allow executing binaries (macOS only) |
+
+#### Granting a path outside the workspace
+
+There is no `mounts` field to edit directly. The list is derived from your
+`policy.yaml` rules: a `Write(...)` rule becomes a writable mount and a
+`Read(...)` rule a read-only one, with the workspace always writable. So the
+way to let a sandboxed command write outside the workspace is to add the
+rule, not to hand-write a mount.
+
+This matters for tools that keep a cache in the home directory. `uv`, `pip`
+and `npm` all fail under the sandbox until their cache directory is granted:
+
+```yaml
+# policy.yaml — let uv populate its cache
+user_rules:
+  - match: Write(~/.cache/uv/**)
+    action: allow
+    reason: uv build cache
+```
+
+The path may use `~` or `$VAR`; both are expanded when the mount is
+compiled. Two behaviours to keep in mind:
+
+- **A path is bound only if it exists when the sandbox starts.** An absent
+  path is skipped and reported at `WARNING` as not bound. A cache directory
+  usually does not exist before its tool first runs, so create it once
+  (`mkdir -p ~/.cache/uv`) if the very first sandboxed run must write there.
+- **`mode=none` ignores mounts entirely**, so inside a container without a
+  kernel backend the grant is irrelevant — nothing is restricted to begin
+  with.
 
 ### Violation detection
 

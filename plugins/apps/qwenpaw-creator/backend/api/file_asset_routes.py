@@ -97,6 +97,11 @@ from .dependencies import (
 logger = logging.getLogger("qwenpaw.creator.api.file_asset_routes")
 
 
+def _log_safe(value: Any) -> str:
+    """Neutralize CR/LF in user-provided values before logging."""
+    return str(value).replace("\r", "\\r").replace("\n", "\\n")
+
+
 router = APIRouter(
     prefix="/projects/{project_id}",
     tags=["asset-files"],
@@ -105,7 +110,7 @@ router = APIRouter(
 
 _DEFAULT_MAX_REMOTE_ASSET_BYTES = 2 * 1024 * 1024 * 1024
 _DEFAULT_REMOTE_ASSET_TIMEOUT_SECONDS = 60 * 60
-_MAX_LOCAL_VIDEO_UPLOAD_BYTES = 100 * 1024 * 1024
+_MAX_LOCAL_VIDEO_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 _DEFAULT_MAX_LOCAL_UPLOAD_BYTES = 100 * 1024 * 1024
 _DEFAULT_IMPORT_MAX_FILES = 200
 _DEFAULT_IMPORT_MAX_TOTAL_BYTES = 1024 * 1024 * 1024
@@ -256,7 +261,7 @@ def _validate_local_video_upload(
         and size_bytes is not None
         and size_bytes > _MAX_LOCAL_VIDEO_UPLOAD_BYTES
     ):
-        raise ValidationError("本地视频超过 100 MiB 上传限制")
+        raise ValidationError("Local video upload exceeds 2 GiB limit")
 
 
 def _positive_int_env(variable: str, default: int) -> int:
@@ -1669,7 +1674,7 @@ async def ingest_asset(
     item = result["items"][0]
     logger.info(
         "asset ingested: project=%s asset=%s status=%s",
-        project_id,
+        _log_safe(project_id),
         item["assetId"],
         result["status"],
     )
@@ -1795,7 +1800,7 @@ async def import_assets(
     )
     logger.info(
         "asset import started: project=%s import=%s files=%d",
-        project_id,
+        _log_safe(project_id),
         import_id,
         len(uploads),
     )

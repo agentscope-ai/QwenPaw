@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 
 from ..base import LifecycleHook
+from ..cron.cron_hook import restore_cron_context
 from ...agents.acp.meta import ACP_EPHEMERAL_META_KEY
 from ...runtime._state_utils import StateProxy
 from ...runtime.hooks import HookContext, HookResult
@@ -97,6 +98,7 @@ class SessionSaveHook(LifecycleHook):
             user_id = getattr(request, "user_id", "") or ctx.session_id
             channel = getattr(request, "channel", "") or ""
 
+            restore_cron_context(ctx)
             proxy = StateProxy()
             proxy.data = ctx.agent.state_dict()
             proxy.data["mode_state"] = ctx.mode_state

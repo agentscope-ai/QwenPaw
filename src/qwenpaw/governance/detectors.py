@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, List
 
+from ..utils.shell_normalization import normalize_posix_line_continuations
+
 logger = logging.getLogger(__name__)
 
 
@@ -81,6 +83,17 @@ def run_deep_scan(
     """
     findings: list[GuardFinding] = []
 
+    # Match the command spelling seen by a POSIX shell after lexical line
+    # continuation removal.  Apply this before every detector, not only the
+    # path detector, because continuations can split dangerous keywords too.
+    if tool_type == "shell" and os.name != "nt":
+        target = normalize_posix_line_continuations(target)
+        if raw_params and isinstance(raw_params.get("command"), str):
+            raw_params = dict(raw_params)
+            raw_params["command"] = normalize_posix_line_continuations(
+                raw_params["command"],
+            )
+
     # Detector 1: Sensitive path detection
     if sensitive_paths:
         findings.extend(
@@ -127,7 +140,11 @@ def _normalize_path(raw_path: str) -> str:
     raw = raw_path.strip()
     if not raw:
         return ""
-    p = Path(raw).expanduser()
+    # Match shell expansion for environment-backed paths such as $HOME and
+    # ${HOME}; otherwise a sensitive absolute path is incorrectly resolved as
+    # a harmless workspace-relative string.
+    expanded = os.path.expandvars(raw)
+    p = Path(expanded).expanduser()
     if not p.is_absolute():
         try:
             p = Path.cwd() / p
@@ -178,6 +195,8 @@ def _looks_like_path_token(token: str) -> bool:
 def _extract_paths_from_shell_command(command: str) -> list[str]:
     """Extract candidate file paths from a shell command string."""
     use_posix = os.name != "nt"
+    if use_posix:
+        command = normalize_posix_line_continuations(command)
     try:
         tokens = shlex.split(command, posix=use_posix)
     except ValueError:

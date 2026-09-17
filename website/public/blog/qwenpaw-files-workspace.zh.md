@@ -1,6 +1,6 @@
 ---
 title: "QwenPaw Files：一个地方看清 Agent 的工作、档案与记忆"
-date: 2026-08-07
+date: 2026-08-17
 author: QwenPaw Team
 tags: [Files, Workspace, Profile, Daily, Knowledge Base]
 cover: https://img.alicdn.com/imgextra/i4/O1CN01pEZk6a8g9lK3gjEp_!!6000000001665-2-tps-1817-866.png
@@ -47,9 +47,9 @@ Workspace 顶部还可以切换目录：
 - **Project Directory** 保存当前项目的代码、资料和任务产物；
 - **Agent Configuration Directory** 保存这个 Agent 自己的配置、记忆、技能和其他内部文件。
 
-两者的边界很清楚：Project Directory 决定 Files 当前展示哪个项目，也会成为当前 Chat 在普通任务中默认使用的项目目录；Agent Configuration Directory 则始终用于查看 Agent 自己的文件。
+两者的边界很清楚：Project Directory 决定哪个项目显示在 Files 中，也是当前 Chat 执行普通任务时的默认工作目录；Agent Configuration Directory 则始终用于查看 Agent 自己的文件。
 
-Project Directory 支持继承，也可以按对话切换。Agent 可以设置默认目录，单个 Chat 则可以选择自己的目录，并把选择保存在当前对话中。Files 始终展示这个 Chat 当前实际生效的目录。普通 Chat 没有另外指定文件路径或 Shell 工作目录时，文件读写与搜索、Shell、代码分析以及 Files 中的 Git 操作都会以它为默认根目录。清除 Chat 的目录选择后，便会重新继承 Agent 的默认设置；需要隔离运行的任务模式和 fork 工作区，则可以使用优先级更高的专用目录。
+Project Directory 支持继承，也可以按对话切换。Agent 可以设置默认目录，单个 Chat 则可以选择自己的目录，并把选择保存在当前对话中。Files 始终展示这个 Chat 当前实际生效的目录。普通 Chat 没有另外指定文件路径或 Shell 工作目录时，文件读写与搜索、Shell、代码分析和 Git 操作都会以它为默认根目录。清除 Chat 的目录选择后，便会重新继承 Agent 的默认设置；需要隔离运行的任务模式和 fork 工作区，则可以使用优先级更高的专用目录。
 
 ## Profile：告诉 Agent 自己是谁、应该怎样工作
 
@@ -68,7 +68,7 @@ Profile 不是个人头像或账号资料，而是一组会参与 Agent 工作�
 
 Profile 和后面的 Daily、Knowledge Base 有一个关键区别：Profile 更像你明确交给 Agent 的长期工作说明，而 Daily 和 Knowledge Base 会随着对话和任务不断积累、整理。
 
-## Daily：把今天值得记住的事整理下来
+## Daily：按日期整理值得记住的事
 
 一天的对话可能很长，但真正需要留下的通常只有少数内容：一个决定、一条偏好、某份资料的重要发现，或者下一步要做的事。
 
@@ -149,9 +149,9 @@ Files 同时连接任务的输入与输出：
 
 ## 文件可见，协作才真正可控
 
-Files 处理本地文件，因此文件接口会把访问限制在所选目录内，拒绝路径穿越以及指向目录外部的符号链接；上传文件重名时，也会要求你明确选择处理方式。对于无法确认仍位于当前 Project Directory 或 Agent Configuration Directory 的历史附件，Files 只提供只读预览，不会将其显示为可编辑文件。保存 Workspace 中的文本文件时，Files 还会核对打开文件时记录的版本：如果磁盘内容已经变化，就拒绝用旧版本覆盖；检查通过后，再以原子方式写入。
+Files 会把文件访问限制在所选目录内，防止旧版本覆盖更新后的内容，并在遇到同名文件时要求你明确选择处理方式。对于无法确认仍位于当前 Project Directory 或 Agent Configuration Directory 的历史附件，Files 只提供只读预览，不会将其显示为可编辑文件。
 
-当前 Files 更适合常规规模的工作区。目录内容支持分页，但文件树暂不支持搜索和长列表虚拟化。文本虽然由服务端分块读取，界面仍会等所有分块拼接完成后再开始预览或编辑。因此，超大文本文件或包含大量同级文件的目录可能需要更长的打开时间。
+当前 Files 更适合常规规模的工作区。超大文本文件或包含大量同级文件的目录可能需要更长的打开时间。
 
 更重要的是，记忆和配置没有藏在无法检查的黑盒里。它们以文件形式保存在 Agent Configuration Directory 中，你可以通过 Files 中的对应入口打开、阅读和修改。
 
@@ -161,7 +161,7 @@ Files 的价值不只是“多了一个文件树”，而是让你随时回答�
 - 它按照什么档案和规则工作？
 - 它从最近的任务中记住了什么？
 - 零散记录最终形成了哪些长期知识？
-- 哪些修改已经写入文件，哪些还在等待确认？
+- 哪些修改已经保存，哪些仍待检查并保存？
 
 当工作文件、档案、日记和知识都清晰可见，你和 Agent 才能围绕同一份状态持续协作。
 

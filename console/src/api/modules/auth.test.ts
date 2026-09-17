@@ -4,6 +4,7 @@ import { authApi } from "./auth";
 // auth.ts uses fetch directly (not the request wrapper), so mock global fetch
 vi.mock("../config", () => ({
   getApiUrl: (path: string) => `/api${path}`,
+  getApiToken: () => "current-token",
 }));
 
 function mockFetch(status: number, body: unknown) {
@@ -38,7 +39,8 @@ describe("authApi.login", () => {
   it("request body contains username and password", async () => {
     mockFetch(200, { token: "tok", username: "alice" });
     await authApi.login("alice", "secret");
-    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(init?.body));
     expect(body).toEqual({ username: "alice", password: "secret" });
   });
 
@@ -79,6 +81,21 @@ describe("authApi.register", () => {
     );
   });
 
+  it("formats FastAPI validation details for a short password", async () => {
+    mockFetch(422, {
+      detail: [
+        {
+          type: "string_too_short",
+          loc: ["body", "password"],
+          msg: "String should have at least 8 characters",
+        },
+      ],
+    });
+    await expect(authApi.register("bob", "short")).rejects.toThrow(
+      "password: String should have at least 8 characters",
+    );
+  });
+
   it('throws "Registration failed" when response has no detail', async () => {
     mockFetch(500, {});
     await expect(authApi.register("bob", "pass")).rejects.toThrow(
@@ -108,6 +125,22 @@ describe("authApi.getStatus", () => {
   });
 });
 
+describe("authApi.getCurrentUser", () => {
+  afterEach(() => vi.clearAllMocks());
+
+  it("returns the verified username", async () => {
+    mockFetch(200, { valid: true, username: "alice" });
+
+    await expect(authApi.getCurrentUser()).resolves.toEqual({
+      valid: true,
+      username: "alice",
+    });
+    expect(fetch).toHaveBeenCalledWith("/api/auth/verify", {
+      headers: { Authorization: "Bearer current-token" },
+    });
+  });
+});
+
 describe("authApi.updateProfile", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -126,7 +159,8 @@ describe("authApi.updateProfile", () => {
   it("request body contains current password and new username", async () => {
     mockFetch(200, { token: "t", username: "newname" });
     await authApi.updateProfile("oldpass", "newname");
-    const body = JSON.parse((fetch as any).mock.calls[0][1].body);
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    const body = JSON.parse(String(init?.body));
     expect(body.current_password).toBe("oldpass");
     expect(body.new_username).toBe("newname");
     expect(body.new_password).toBeNull();
@@ -136,8 +170,9 @@ describe("authApi.updateProfile", () => {
     localStorage.setItem("qwenpaw_auth_token", "my-token");
     mockFetch(200, { token: "t", username: "alice" });
     await authApi.updateProfile("oldpass");
-    const headers = (fetch as any).mock.calls[0][1].headers;
-    expect(headers.Authorization).toBe("Bearer my-token");
+    const [, init] = vi.mocked(fetch).mock.calls[0];
+    const headers = new Headers(init?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer my-token");
   });
 
   it("throws detail error on update failure", async () => {

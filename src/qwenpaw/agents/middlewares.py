@@ -33,6 +33,7 @@ from ..constant import (
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
+from ..utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
     from agentscope.agent import Agent
@@ -40,7 +41,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
-_AUTOMATION_MEMORY_SKIP_SOURCES = frozenset({"cron", "heartbeat"})
+_MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
 _MANUAL_COMPACT_MEMORY_BY_HANDLER: ContextVar[bool] = ContextVar(
     "manual_compact_memory_by_handler",
@@ -111,7 +112,9 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         current_prompt: str,
     ) -> str:
-        prompt = self._memory_manager.get_memory_prompt()
+        prompt = await run_sync_io(
+            self._memory_manager.get_memory_prompt,
+        )
         if not prompt or prompt in current_prompt:
             return current_prompt
         if current_prompt.strip():
@@ -196,7 +199,7 @@ class MemoryMiddleware(MiddlewareBase):
             seen_markers.pop(oldest_key)
         pending_markers.append(turn_marker)
 
-        interval = self._auto_memory_interval()
+        interval = await self._auto_memory_interval()
         if interval <= 0:
             pending_markers.clear()
             turn_state["snapshots"].clear()
@@ -272,7 +275,10 @@ class MemoryMiddleware(MiddlewareBase):
                         turn_markers=pending_markers,
                     )
                     if not automation_request:
-                        await self._flush_auto_memory(agent)
+                        await self._flush_auto_memory(
+                            agent,
+                            trigger="compact",
+                        )
             except Exception:
                 logger.exception(
                     "MemoryMiddleware post-compression auto-memory flush "
@@ -284,6 +290,7 @@ class MemoryMiddleware(MiddlewareBase):
         agent: "Agent",
         *,
         count: int | None = None,
+        trigger: str = "periodic",
     ) -> None:
         if self._is_automation_request(agent):
             logger.debug(
@@ -327,8 +334,9 @@ class MemoryMiddleware(MiddlewareBase):
             return
 
         try:
-            await self._memory_manager.auto_memory(
+            self._memory_manager.submit_auto_memory(
                 messages,
+                trigger=trigger,
                 session_id=self._agent_session_id(agent),
             )
         except Exception:
@@ -527,7 +535,7 @@ class MemoryMiddleware(MiddlewareBase):
         if not isinstance(request_context, dict):
             return False
         source = str(request_context.get("source") or "").strip().lower()
-        return source in _AUTOMATION_MEMORY_SKIP_SOURCES
+        return source in _MEMORY_SKIP_SOURCES
 
     @staticmethod
     def _compression_state(
@@ -590,8 +598,11 @@ class MemoryMiddleware(MiddlewareBase):
             )
         ]
 
-    def _auto_memory_interval(self) -> int:
-        return int(self._memory_manager.get_auto_memory_interval())
+    async def _auto_memory_interval(self) -> int:
+        interval = await run_sync_io(
+            self._memory_manager.get_auto_memory_interval,
+        )
+        return int(interval)
 
     def _auto_memory_turn_state(self, agent: "Agent") -> dict[str, Any]:
         return auto_memory_turn_state(agent.state)

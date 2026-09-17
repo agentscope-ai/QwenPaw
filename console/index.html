@@ -8,9 +8,60 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <title>QwenPaw Console</title>
+    <style>
+      .qwenpaw-boot {
+        align-items: center;
+        background: #f7f7f5;
+        color: #1f1f1f;
+        display: flex;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        inset: 0;
+        justify-content: center;
+        position: fixed;
+      }
+      .qwenpaw-boot__content {
+        align-items: center;
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+      }
+      .qwenpaw-boot__logo {
+        height: 68px;
+        object-fit: contain;
+        width: 68px;
+      }
+      .qwenpaw-boot__label {
+        color: #70706c;
+        font-size: 13px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      @media (prefers-color-scheme: dark) {
+        .qwenpaw-boot {
+          background: #141414;
+          color: #f4f4f1;
+        }
+        .qwenpaw-boot__label {
+          color: #a6a6a0;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="qwenpaw-boot" role="status" aria-live="polite">
+        <div class="qwenpaw-boot__content">
+          <img class="qwenpaw-boot__logo" src="/qwenpaw.png" alt="QwenPaw" />
+          <span class="qwenpaw-boot__label">Loading Console</span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

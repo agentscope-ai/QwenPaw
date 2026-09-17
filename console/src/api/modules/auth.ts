@@ -1,4 +1,5 @@
-import { getApiUrl } from "../config";
+import { getApiToken, getApiUrl } from "../config";
+import { responseErrorMessage } from "../error";
 
 export interface LoginResponse {
   token: string;
@@ -9,6 +10,14 @@ export interface LoginResponse {
 export interface AuthStatusResponse {
   enabled: boolean;
   has_users: boolean;
+  mode?: "hub";
+  bootstrap_required?: boolean;
+  registration_enabled?: boolean;
+}
+
+export interface AuthUserResponse {
+  valid: boolean;
+  username: string;
 }
 
 export const authApi = {
@@ -19,8 +28,7 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Login failed");
+      throw new Error(await responseErrorMessage(res, "Login failed"));
     }
     return res.json();
   },
@@ -35,8 +43,7 @@ export const authApi = {
       body: JSON.stringify({ username, password }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Registration failed");
+      throw new Error(await responseErrorMessage(res, "Registration failed"));
     }
     return res.json();
   },
@@ -44,6 +51,18 @@ export const authApi = {
   getStatus: async (): Promise<AuthStatusResponse> => {
     const res = await fetch(getApiUrl("/auth/status"));
     if (!res.ok) throw new Error("Failed to check auth status");
+    return res.json();
+  },
+
+  getCurrentUser: async (): Promise<AuthUserResponse> => {
+    const res = await fetch(getApiUrl("/auth/verify"), {
+      headers: { Authorization: `Bearer ${getApiToken()}` },
+    });
+    if (!res.ok) {
+      throw new Error(
+        await responseErrorMessage(res, "Failed to load current user"),
+      );
+    }
     return res.json();
   },
 
@@ -66,8 +85,7 @@ export const authApi = {
       }),
     });
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.detail || "Update failed");
+      throw new Error(await responseErrorMessage(res, "Update failed"));
     }
     return res.json();
   },

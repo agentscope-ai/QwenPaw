@@ -19,6 +19,7 @@ import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationSt
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { creatorTargetLabel } from "@/lib/creatorPresentation";
+import { pendingUserReviewOperations } from "@/lib/fileProjectReviewDecisions";
 import ExecutionAuthorizationCard from "./ExecutionAuthorizationCard";
 import FileProjectReviewPanel, {
   reviewPendingUnits,
@@ -176,9 +177,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
     setBatchBusy(true);
     try {
       for (const review of pendingReviews) {
-        const operations = review.operations.filter(
-          (operation) => operation.decision === "PENDING",
-        );
+        const operations = pendingUserReviewOperations(review);
         if (operations.length === 0) continue;
         await decide(
           projectId,
@@ -191,7 +190,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
       }
       message.success(t("decisionTray.allReviewChangesKept"));
     } catch (error) {
-      message.error(error instanceof Error ? error.message : String(error));
+      message.error(t("fileReview.public.decisionFailed"));
     } finally {
       setBatchBusy(false);
     }
@@ -247,7 +246,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
           {urgent ? t("decisionTray.needConfirm") : ""}
         </span>
         <span
-          className={`min-w-0 flex-1 truncate text-[10px] ${
+          className={`min-w-0 flex-1 truncate text-[11px] ${
             urgent && collapsed
               ? "text-[var(--color-warning)]/85"
               : "text-[var(--color-text-tertiary)]"
@@ -275,10 +274,9 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
           {authError && (
             <p
               role="alert"
-              className="mb-2 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-[10px] text-[var(--color-warning)]"
+              className="mb-2 rounded-md bg-[var(--color-warning-soft)] px-2 py-1 text-[11px] text-[var(--color-warning)]"
             >
               {t("decisionTray.loadFailed")}
-              {authError}
             </p>
           )}
           {items.length > 1 && (
@@ -313,7 +311,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                       setFilter(key);
                       setFocusKey(null);
                     }}
-                    className={`rounded-full border px-2 py-0.5 text-[10px] transition-colors ${
+                    className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
                       filter === key
                         ? "border-[var(--color-accent)] bg-[var(--color-accent-soft)] text-[var(--color-accent)]"
                         : "border-[var(--color-border)] bg-[var(--color-bg-card)] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
@@ -326,7 +324,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
               <button
                 type="button"
                 onClick={() => setListMode((mode) => !mode)}
-                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
+                className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
                 title={
                   listMode
                     ? t("decisionTray.switchToStack")
@@ -344,7 +342,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
           )}
 
           {listMode ? (
-            <div className="max-h-[45vh] space-y-2 overflow-y-auto pr-0.5">
+            <div className="agent-decision-scroll max-h-[28vh] space-y-2 overflow-y-auto pr-0.5">
               {visible.map((item) => (
                 <div key={item.key}>{renderCard(item)}</div>
               ))}
@@ -361,7 +359,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                   type="button"
                   onClick={() => setFocusKey(nextItems[0].key)}
                   title={`${t("decisionTray.next")}${nextItems[0].label}`}
-                  className="mx-2.5 block w-[calc(100%-20px)] truncate rounded-t-lg border border-b-0 border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-0.5 text-left text-[9px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
+                  className="mx-2.5 block w-[calc(100%-20px)] truncate rounded-t-lg border border-b-0 border-[var(--color-border)] bg-[var(--color-bg-card)] px-3 py-0.5 text-left text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-accent)]"
                 >
                   {nextItems[0].label}
                 </button>
@@ -369,7 +367,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
               {focused && (
                 <div
                   key={focused.key}
-                  className="decision-tray-card-in max-h-[45vh] overflow-y-auto"
+                  className="agent-decision-scroll decision-tray-card-in max-h-[28vh] overflow-y-auto"
                 >
                   {renderCard(focused)}
                 </div>
@@ -418,7 +416,7 @@ export default function DecisionTray({ projectId }: { projectId: string }) {
                       disabled={batchBusy}
                       onClick={() => void acceptAllReviews()}
                       title={t("decisionTray.keepAllReviewChanges")}
-                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-tertiary)] hover:text-[var(--color-success)] disabled:opacity-50"
+                      className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-tertiary)] hover:text-[var(--color-success)] disabled:opacity-50"
                     >
                       <Check className="h-3 w-3" />
                       {t("decisionTray.keepAll")}

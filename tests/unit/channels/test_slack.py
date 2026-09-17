@@ -19,6 +19,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+from qwenpaw.app.channels.slack import sender as slack_sender
 
 from qwenpaw.schemas import (
     AudioContent,
@@ -28,6 +29,27 @@ from qwenpaw.schemas import (
     TextContent,
     VideoContent,
 )
+
+
+@pytest.mark.parametrize("filename", [None, "report.pdf"])
+async def test_data_url_upload_has_stable_filename(
+    slack_channel,
+    mock_slack_client,
+    filename,
+):
+    """Unnamed data files use MIME-derived names rather than URL contents."""
+    sender = slack_sender.SlackSender(channel=slack_channel)
+    sender._upload_file_external = AsyncMock(return_value="uploaded")
+    part = FileContent(
+        file_url="data:application/pdf;base64,cGRmLWRhdGE=",
+        filename=filename,
+    )
+    await sender._send_file(mock_slack_client, "channel", part)
+
+    upload = sender._upload_file_external.call_args
+    assert upload.args[3] == (filename or "file.pdf")
+    assert upload.kwargs["title"] == (filename or "file.pdf")
+
 
 # =============================================================================
 # Fixtures

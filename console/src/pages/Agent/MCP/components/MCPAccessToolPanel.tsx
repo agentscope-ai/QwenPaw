@@ -17,6 +17,7 @@ import { MCPAccessRuleRows } from "./MCPAccessRuleRows";
 interface MCPAccessToolPanelProps {
   groups: MCPAccessToolGroup[];
   principalOptions: MCPAccessPrincipalOption[];
+  channelSourceValues: readonly string[];
   setToolDefaultEffect: (toolName: string, effect: MCPAccessEffect) => void;
   addRule: (toolName: string) => void;
   updateRule: (
@@ -31,6 +32,7 @@ interface MCPAccessToolPanelProps {
 export const MCPAccessToolPanel: React.FC<MCPAccessToolPanelProps> = ({
   groups,
   principalOptions,
+  channelSourceValues,
   setToolDefaultEffect,
   addRule,
   updateRule,
@@ -104,6 +106,7 @@ export const MCPAccessToolPanel: React.FC<MCPAccessToolPanelProps> = ({
             <MCPAccessRuleRows
               rules={group.rules}
               principalOptions={principalOptions}
+              channelSourceValues={channelSourceValues}
               getKey={toolRuleIdentityKey}
               updateRule={updateRule}
               setRuleEffect={setRuleEffect}

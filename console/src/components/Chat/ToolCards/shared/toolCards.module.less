@@ -32,13 +32,13 @@
 
   &.toolCallCompactLoading {
     .toolCallLabel {
-      color: var(--ant-color-primary, #1677ff);
+      color: var(--app-accent);
     }
   }
 
   &.toolCallCompactError {
     .toolCallLabel {
-      color: #ff4d4f;
+      color: var(--app-error);
     }
   }
 }
@@ -74,18 +74,18 @@
 }
 
 .toolCallIconSuccess {
-  color: var(--ant-color-text-secondary, #8c8c8c);
+  color: var(--app-text-secondary);
 }
 
 .toolCallIconError {
-  color: #ff4d4f;
+  color: var(--app-error);
 }
 
 .toolCallSpinner {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--ant-color-border, rgba(0, 0, 0, 0.1));
-  border-top-color: var(--ant-color-primary, #1677ff);
+  border: 2px solid var(--app-border);
+  border-top-color: var(--app-accent);
   border-radius: 50%;
   flex-shrink: 0;
   animation: toolSpin 0.8s linear infinite;
@@ -98,7 +98,7 @@
 }
 
 .toolCallLabel {
-  color: var(--ant-color-text, rgba(0, 0, 0, 0.88));
+  color: var(--app-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -107,7 +107,7 @@
   max-width: 100%;
 
   &:hover {
-    color: var(--ant-color-primary, #1677ff);
+    color: var(--app-accent);
     text-decoration: underline;
   }
 }
@@ -119,25 +119,25 @@
 // specificity battle while keeping !important.
 .diffAddBadge.diffAddBadge {
   font-size: 12px;
-  color: #52c41a !important;
+  color: var(--app-success) !important;
   font-weight: 500;
 }
 
 .diffDelBadge.diffDelBadge {
   font-size: 12px;
-  color: #ff4d4f !important;
+  color: var(--app-error) !important;
   font-weight: 500;
 }
 
 .lineReadBadge.lineReadBadge {
   font-size: 12px;
-  color: #4096ff !important;
+  color: var(--app-info-text) !important;
   font-weight: 500;
 }
 
 .lineSearchBadge.lineSearchBadge {
   font-size: 12px;
-  color: #faad14 !important;
+  color: var(--app-warning) !important;
   font-weight: 500;
 }
 
@@ -151,20 +151,20 @@
   max-height: 360px;
   overflow-y: auto;
   border-radius: 8px;
-  box-shadow: 0 1px 4px var(--ant-color-border, rgba(0, 0, 0, 0.08));
+  box-shadow: 0 1px 4px var(--app-border-subtle);
 }
 
 .diffLineDel {
-  background: rgba(255, 77, 79, 0.08);
-  color: #ff4d4f !important;
+  background: var(--app-error-bg);
+  color: var(--app-error) !important;
   white-space: pre-wrap;
   word-break: break-all;
   padding: 0 6px;
 }
 
 .diffLineAdd {
-  background: rgba(82, 196, 26, 0.08);
-  color: #52c41a !important;
+  background: var(--app-success-bg);
+  color: var(--app-success) !important;
   white-space: pre-wrap;
   word-break: break-all;
   padding: 0 6px;
@@ -179,7 +179,7 @@
   max-width: 256px;
   border-radius: 8px;
   overflow: hidden;
-  border: 1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--app-border);
 }
 
 // Bubble media (reused by MediaPreview)
@@ -187,13 +187,13 @@
   width: 256px;
   height: 144px;
   border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  border: 1px solid var(--app-border);
   overflow: hidden;
 }
 
 .bubbleAudio {
-  background-color: var(--ant-color-bg-base, #fff);
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background-color: var(--app-surface-raised);
+  border: 1px solid var(--app-border);
   padding-right: 4px;
   border-radius: 20px;
   width: fit-content;
@@ -201,13 +201,6 @@
 
   :global([class*="-media-progress-container"]) {
     display: none;
-  }
-}
-
-:global(.dark-mode) {
-  .bubbleAudio {
-    background-color: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.12);
   }
 }
 
@@ -219,7 +212,7 @@
 .filePreviewLink {
   flex: 0 0 auto;
   padding: 0;
-  color: var(--ant-color-link, #1677ff);
+  color: var(--app-info-text);
   font: inherit;
   font-size: 12px;
   line-height: 1;
@@ -228,31 +221,25 @@
   cursor: pointer;
 
   &:hover {
-    color: var(--ant-color-link-hover, #69b1ff);
+    color: var(--app-info-text);
     text-decoration: underline;
   }
 
   &:focus-visible {
-    outline: 2px solid var(--ant-color-primary-border, #91caff);
+    outline: 2px solid var(--app-accent-border);
     outline-offset: 2px;
     border-radius: 2px;
-  }
-}
-
-:global(.dark-mode) {
-  .filePreviewLink {
-    color: var(--ant-blue-4, #69b1ff);
   }
 }
 
 // Default block (input/output sections)
 .defaultBlock {
   margin: 4px 0 4px 0;
-  border: 1px solid var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  border: 1px solid var(--app-border);
   border-radius: 8px;
   overflow: hidden;
-  box-shadow: 0 1px 3px var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
-  background: var(--ant-color-bg-container, #fff);
+  box-shadow: 0 1px 3px var(--app-border);
+  background: var(--app-surface);
   max-width: 100%;
   box-sizing: border-box;
 }
@@ -262,9 +249,8 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.02));
-  border-bottom: 1px solid
-    var(--ant-color-border-secondary, rgba(0, 0, 0, 0.06));
+  background: var(--app-fill-faint);
+  border-bottom: 1px solid var(--app-border);
 }
 
 .defaultBlockTitle {
@@ -282,15 +268,15 @@
   border: none;
   border-radius: 4px;
   background: transparent;
-  color: var(--ant-color-text-quaternary, #bbb);
+  color: var(--app-text-quaternary);
   cursor: pointer;
   font-size: 13px;
   padding: 0;
   transition: all 0.15s;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.06);
-    color: var(--ant-color-text-secondary, #666);
+    background: var(--app-fill);
+    color: var(--app-text-secondary);
   }
 }
 
@@ -304,7 +290,7 @@
   word-break: break-all;
   max-height: 300px;
   overflow-y: auto;
-  color: var(--ant-color-text, #000) !important;
+  color: var(--app-text) !important;
 }
 
 .defaultBlockContentMd {
@@ -313,7 +299,7 @@
   line-height: 1.6;
   max-height: 360px;
   overflow-y: auto;
-  color: var(--ant-color-text, #000) !important;
+  color: var(--app-text) !important;
 
   :global(p),
   :global(ul),
@@ -328,12 +314,12 @@
   }
   :global(th),
   :global(td) {
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--app-border);
     padding: 6px 10px;
     text-align: left;
   }
   :global(th) {
-    background: rgba(0, 0, 0, 0.02);
+    background: var(--app-fill-faint);
     font-weight: 500;
   }
 }
@@ -341,7 +327,7 @@
 // Inline result (next to tool label)
 .toolCallInlineResult {
   font-size: 12px;
-  color: var(--ant-color-text-tertiary, #999);
+  color: var(--app-text-tertiary);
   margin-left: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -354,31 +340,16 @@
 // Double class selector + !important to beat the blanket
 // `color: rgba(255,255,255,0.85) !important` from chat-anywhere dark-mode.
 .jsonKey.jsonKey {
-  color: #cf1322 !important;
+  color: var(--app-error-text) !important;
 }
 .jsonStr.jsonStr {
-  color: #389e0d !important;
+  color: var(--app-success-text) !important;
 }
 .jsonNum.jsonNum {
-  color: #1677ff !important;
+  color: var(--app-info-text) !important;
 }
 .jsonNull.jsonNull {
-  color: #d4880f !important;
-}
-
-:global(.dark-mode) {
-  .jsonKey.jsonKey {
-    color: #f5827a !important;
-  }
-  .jsonStr.jsonStr {
-    color: #7ec87e !important;
-  }
-  .jsonNum.jsonNum {
-    color: #6cb6ff !important;
-  }
-  .jsonNull.jsonNull {
-    color: #f0b95f !important;
-  }
+  color: var(--app-warning-text) !important;
 }
 
 // Markdown result block
@@ -387,12 +358,12 @@
   line-height: 1.6;
   margin: 4px 0 2px 18px;
   padding: 8px 12px;
-  background: var(--ant-color-fill-quaternary, rgba(0, 0, 0, 0.03));
+  background: var(--app-fill-faint);
   border-radius: 8px;
   overflow-x: auto;
   max-height: 360px;
-  color: var(--ant-color-text, #000) !important;
-  box-shadow: 0 1px 4px var(--ant-color-border, rgba(0, 0, 0, 0.08));
+  color: var(--app-text) !important;
+  box-shadow: 0 1px 4px var(--app-border-subtle);
 
   :global(p),
   :global(ul),
@@ -402,7 +373,7 @@
   }
   :global(pre) {
     padding: 6px 10px;
-    background: rgba(0, 0, 0, 0.05);
+    background: var(--app-fill);
     border-radius: 4px;
     overflow-x: auto;
   }
@@ -417,12 +388,12 @@
   }
   :global(th),
   :global(td) {
-    border: 1px solid rgba(0, 0, 0, 0.06);
+    border: 1px solid var(--app-border);
     padding: 6px 10px;
     text-align: left;
   }
   :global(th) {
-    background: rgba(0, 0, 0, 0.02);
+    background: var(--app-fill-faint);
     font-weight: 500;
   }
 }

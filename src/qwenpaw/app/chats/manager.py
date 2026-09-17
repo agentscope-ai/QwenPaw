@@ -12,8 +12,11 @@ from typing import Optional
 from .models import (
     BatchArchiveResult,
     BatchFailure,
+    ChatGroup,
+    ChatGroupKind,
     ChatSpec,
     ChatUpdate,
+    SOURCE_CHAT_GROUP_IDS,
     SessionSource,
 )
 from .repo import BaseChatRepository
@@ -25,7 +28,39 @@ logger = logging.getLogger(__name__)
 MAX_BATCH_SIZE = 500
 
 
-class ChatManager:
+def _default_group_id(source: SessionSource) -> str:
+    """Return the built-in group for a chat source."""
+    return SOURCE_CHAT_GROUP_IDS[source]
+
+
+def _source_order(group: ChatGroup) -> int:
+    """Return a stable tail order for source-driven groups."""
+    if group.kind == ChatGroupKind.cron:
+        return list(SessionSource).index(SessionSource.cron)
+    if group.kind == ChatGroupKind.subagents:
+        return list(SessionSource).index(SessionSource.subagent)
+    return -1
+
+
+def _is_fixed_source_group(group: ChatGroup) -> bool:
+    """Return whether a group represents an automated session source."""
+    return group.kind in {ChatGroupKind.cron, ChatGroupKind.subagents}
+
+
+def _ordered_groups(groups: list[ChatGroup]) -> list[ChatGroup]:
+    """Sort pinned groups first and keep source groups at the end."""
+    return sorted(
+        groups,
+        key=lambda group: (
+            _is_fixed_source_group(group),
+            _source_order(group)
+            if _is_fixed_source_group(group)
+            else (not group.pinned, group.order),
+        ),
+    )
+
+
+class ChatManager:  # pylint: disable=too-many-public-methods
     """Manages chat specifications in repository.
 
     Only handles ChatSpec CRUD operations.
@@ -110,6 +145,9 @@ class ChatManager:
         channel: str = DEFAULT_CHANNEL,
         name: str = "New Chat",
         source: str | SessionSource = SessionSource.chat,
+        group_id: str | None = None,
+        parent_session_id: str | None = None,
+        root_session_id: str | None = None,
     ) -> ChatSpec:
         """Get existing chat or create new one.
 
@@ -125,6 +163,10 @@ class ChatManager:
             Chat specification (existing or newly created)
         """
         async with self._lock:
+            try:
+                resolved_source = SessionSource(source)
+            except ValueError:
+                resolved_source = SessionSource.chat
             # Try to find existing by session_id
             logger.debug(
                 f"get_or_create_chat: Searching for existing chat: "
@@ -147,16 +189,15 @@ class ChatManager:
                 f"get_or_create_chat: Creating new chat for "
                 f"session_id={session_id}, source={source}",
             )
-            try:
-                resolved_source = SessionSource(source)
-            except ValueError:
-                resolved_source = SessionSource.chat
             spec = ChatSpec(
                 session_id=session_id,
                 user_id=user_id,
                 channel=channel,
                 name=name,
                 source=resolved_source,
+                group_id=group_id or _default_group_id(resolved_source),
+                parent_session_id=parent_session_id,
+                root_session_id=root_session_id,
             )
             logger.debug(f"get_or_create_chat: created spec={spec.id}")
             # Call internal create without lock (already locked)
@@ -176,8 +217,127 @@ class ChatManager:
             Chat spec
         """
         async with self._lock:
+            if spec.group_id is None:
+                spec = spec.model_copy(
+                    update={"group_id": _default_group_id(spec.source)},
+                )
+            await self._validate_group_id_locked(spec.group_id)
             await self._repo.upsert_chat(spec)
             return spec
+
+    async def _validate_group_id_locked(self, group_id: str | None) -> None:
+        """Validate a group ID while the manager lock is held."""
+        chats_file = await self._repo.load()
+        if group_id not in {group.id for group in chats_file.groups}:
+            raise ValueError(f"Unknown chat group: {group_id}")
+
+    async def list_groups(self) -> list[ChatGroup]:
+        """List persisted groups in display order."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            return _ordered_groups(chats_file.groups)
+
+    async def create_group(self, name: str) -> ChatGroup:
+        """Create a custom group after the current final group."""
+        normalized_name = name.strip()
+        if not normalized_name:
+            raise ValueError("Group name cannot be empty")
+        async with self._lock:
+            chats_file = await self._repo.load()
+            next_order = (
+                max(
+                    (group.order for group in chats_file.groups),
+                    default=-1,
+                )
+                + 1
+            )
+            group = ChatGroup(name=normalized_name, order=next_order)
+            chats_file.groups.append(group)
+            await self._repo.save(chats_file)
+            return group
+
+    async def update_group(
+        self,
+        group_id: str,
+        *,
+        name: str | None = None,
+        pinned: bool | None = None,
+    ) -> ChatGroup | None:
+        """Rename or pin a mutable group."""
+        if name is None and pinned is None:
+            raise ValueError("At least one group field must be provided")
+        normalized_name = name.strip() if name is not None else None
+        if normalized_name == "":
+            raise ValueError("Group name cannot be empty")
+        async with self._lock:
+            chats_file = await self._repo.load()
+            for index, group in enumerate(chats_file.groups):
+                if group.id != group_id:
+                    continue
+                if _is_fixed_source_group(group):
+                    raise ValueError("Source groups cannot be changed")
+                updates = {}
+                if normalized_name is not None:
+                    updates["name"] = normalized_name
+                if pinned is not None:
+                    updates["pinned"] = pinned
+                updated = group.model_copy(update=updates)
+                chats_file.groups[index] = updated
+                await self._repo.save(chats_file)
+                return updated
+            return None
+
+    async def reorder_groups(self, group_ids: list[str]) -> list[ChatGroup]:
+        """Persist a complete, duplicate-free group order."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            current = {group.id: group for group in chats_file.groups}
+            if len(group_ids) != len(set(group_ids)):
+                raise ValueError("Group order contains duplicate IDs")
+            if set(group_ids) != set(current):
+                raise ValueError("Group order must contain every group ID")
+            fixed_ids = [
+                group.id
+                for group in _ordered_groups(list(current.values()))
+                if _is_fixed_source_group(group)
+            ]
+            if group_ids[-len(fixed_ids) :] != fixed_ids:
+                raise ValueError("Source groups must remain at the end")
+            chats_file.groups = [
+                current[group_id].model_copy(update={"order": index})
+                for index, group_id in enumerate(group_ids)
+            ]
+            await self._repo.save(chats_file)
+            return _ordered_groups(chats_file.groups)
+
+    async def delete_group(self, group_id: str) -> bool:
+        """Delete a custom group and return chats to their system group."""
+        async with self._lock:
+            chats_file = await self._repo.load()
+            target = next(
+                (group for group in chats_file.groups if group.id == group_id),
+                None,
+            )
+            if target is None:
+                return False
+            if target.kind != ChatGroupKind.custom:
+                raise ValueError("Built-in chat groups cannot be deleted")
+
+            chats_file.groups = [
+                group for group in chats_file.groups if group.id != group_id
+            ]
+            for index, chat in enumerate(chats_file.chats):
+                if chat.group_id != group_id:
+                    continue
+                chats_file.chats[index] = chat.model_copy(
+                    update={"group_id": _default_group_id(chat.source)},
+                )
+            for index, group in enumerate(
+                sorted(chats_file.groups, key=lambda item: item.order),
+            ):
+                group.order = index
+            await self._repo.save(chats_file)
+            return True
 
     async def patch_chat(
         self,
@@ -224,18 +384,46 @@ class ChatManager:
             if existing is None:
                 return None
 
+        if "group_id" in patch.model_fields_set:
+            await self._validate_group_id_locked(patch.group_id)
+
         updates = patch.model_dump(
             exclude_none=True,
             exclude_unset=True,
         )
         merged = existing.model_copy(update=updates)
-        merged.updated_at = datetime.now(timezone.utc)
+        if patch.model_fields_set != {"group_id"}:
+            merged.updated_at = datetime.now(timezone.utc)
         await self._repo.upsert_chat(merged)
         return merged
 
     async def touch_chat(self, chat_id: str) -> Optional[ChatSpec]:
         """Refresh updated_at without rewriting other chat fields."""
         return await self.patch_chat(chat_id, ChatUpdate())
+
+    async def mark_chat_finished(
+        self,
+        chat_id: str,
+        finished_at: datetime,
+    ) -> Optional[ChatSpec]:
+        """Persist the newest task completion marker for one chat."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            if (
+                existing.last_finished_at is not None
+                and existing.last_finished_at >= finished_at
+            ):
+                return existing
+            updated = existing.model_copy(
+                update={
+                    "last_finished_at": finished_at,
+                    "updated_at": max(existing.updated_at, finished_at),
+                },
+            )
+            await self._repo.upsert_chat(updated)
+            return updated
 
     async def set_project_dir(
         self,
@@ -261,6 +449,64 @@ class ChatManager:
             updated.updated_at = datetime.now(timezone.utc)
             await self._repo.upsert_chat(updated)
             return updated
+
+    async def set_session_project_dirs(
+        self,
+        chat_id: str,
+        project_dirs: Optional[list[dict]],
+    ) -> Optional[ChatSpec]:
+        """Set or clear this chat's project-directory list override.
+
+        ``project_dirs`` is the whole list, primary first (each entry
+        ``{"path": str, "label": str | None}``); the stored value
+        replaces whatever was there before. Passing ``None`` removes the
+        override so the chat goes back to inheriting the agent default.
+
+        The value lives in the controlled ``meta["runtime_context"]``
+        namespace, and the read-modify-write happens under the manager
+        lock to avoid losing a concurrent update to a sibling key.
+
+        Migration is deliberately **one-way**. Writing the list drops the
+        pre-multi-root scalar ``project_dir``, so a build that only knows
+        the scalar (i.e. before this feature) reads no override at all and
+        falls back to the agent default — the user has to pick the
+        directory again. Reading in the other direction is safe: a chat
+        still holding the scalar is understood as a one-entry list (see
+        ``session_project_dirs_from_meta``). Keep it one-way: writing both
+        keys would leave two sources of truth with no way to tell which
+        one is newer, and the stale list would silently win.
+
+        Returns the updated spec, or ``None`` if the chat does not exist.
+        """
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+
+            meta = dict(existing.meta or {})
+            runtime_context = dict(meta.get("runtime_context") or {})
+            if project_dirs:
+                runtime_context["project_dirs"] = project_dirs
+            else:
+                runtime_context.pop("project_dirs", None)
+            # Legacy single-value chats: the list supersedes the scalar.
+            runtime_context.pop("project_dir", None)
+            # Dropped feature: a chat written by an earlier build may still
+            # carry a display name nothing reads. Clear it rather than
+            # leaving a key that keeps the namespace alive forever.
+            runtime_context.pop("project_name", None)
+
+            if runtime_context:
+                meta["runtime_context"] = runtime_context
+            else:
+                # Drop the namespace entirely once it is empty, so a chat
+                # that never used an override has no leftover scaffolding.
+                meta.pop("runtime_context", None)
+
+            merged = existing.model_copy(update={"meta": meta})
+            merged.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(merged)
+            return merged
 
     async def delete_chats(self, chat_ids: list[str]) -> bool:
         """Delete a chat spec.

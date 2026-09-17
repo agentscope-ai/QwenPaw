@@ -21,6 +21,36 @@ const buttonLike = ({
     children as any,
   );
 
+const tabsLike = ({
+  items = [],
+  activeKey,
+  defaultActiveKey,
+  onChange,
+  className,
+}: Record<string, unknown>) =>
+  React.createElement(
+    "div",
+    { role: "tablist", className },
+    (items as Array<{ key?: React.Key; label?: React.ReactNode }>).map(
+      (item, index) => {
+        const key = String(item.key ?? index);
+        const selectedKey = activeKey ?? defaultActiveKey;
+        return React.createElement(
+          "button",
+          {
+            key,
+            type: "button",
+            role: "tab",
+            "aria-selected": selectedKey === item.key,
+            onClick: () =>
+              (onChange as ((value: string) => void) | undefined)?.(key),
+          },
+          item.label,
+        );
+      },
+    ),
+  );
+
 export const IconButton = buttonLike;
 export const Dropdown = passThrough;
 export const Button = buttonLike;
@@ -68,6 +98,7 @@ export const Form = Object.assign(passThrough, {
 export const InputNumber = (props: Record<string, unknown>) =>
   React.createElement("input", { type: "number", ...props } as any);
 export const Spin = passThrough;
+export const Tabs = Object.assign(tabsLike, { TabPane: passThrough });
 
 export default {
   IconButton,
@@ -81,4 +112,5 @@ export default {
   Form,
   InputNumber,
   Spin,
+  Tabs,
 };

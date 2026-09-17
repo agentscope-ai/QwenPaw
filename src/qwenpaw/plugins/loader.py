@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import tempfile
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -23,6 +24,13 @@ from packaging.requirements import Requirement
 
 from .architecture import PluginManifest, PluginRecord
 from .api import PluginApi
+from .module_isolation import (
+    build_plugin_builtins,
+    get_namespace_finder,
+    strip_plugin_sys_path,
+    sweep_bare_tree_modules,
+    unregister_namespace,
+)
 from .registry import PluginRegistry
 
 logger = logging.getLogger(__name__)
@@ -37,6 +45,7 @@ _IMPORT_NAME_OVERRIDES = {
     "scikit-learn": "sklearn",
     "protobuf": "google.protobuf",
 }
+_PAWPORT_MARKER = ".qwenpaw-pawport.json"
 
 
 def _is_frozen() -> bool:
@@ -138,7 +147,20 @@ def _is_disabled_plugin_dir(path: Path) -> bool:
     longer loads or installs its dependencies (issue #5550).
     """
     name = path.name
-    return name.startswith(".") or name.endswith(".disabled")
+    if name.startswith(".") or name.endswith(".disabled"):
+        return True
+    try:
+        marker = json.loads((path / _PAWPORT_MARKER).read_text())
+    except (OSError, ValueError, TypeError):
+        return False
+    return marker.get("state") == "prepared"
+
+
+def _marker_matches(marker: dict[str, Any], owner: dict[str, Any]) -> bool:
+    return all(
+        marker.get(key) == owner.get(key)
+        for key in ("owner", "provider", "source_id")
+    )
 
 
 # Re-entrancy token for PluginLoader.plugin_lifecycle.
@@ -509,23 +531,45 @@ class PluginLoader:
         """
         module_name = f"plugin_{plugin_id.replace('-', '_')}"
         plugin_dir_str = str(source_path)
+        # Plugins with a nested entry (e.g. ``backend/main.py``) resolve
+        # their bare imports against the entry file's directory, so it
+        # must be searchable alongside the plugin root.  The entry
+        # directory comes first: nested-entry plugins put it at
+        # ``sys.path[0]``, so it must win over a same-named module in
+        # the plugin root.
+        entry_dir_str = str(backend_entry_file.parent)
+        search_paths = [entry_dir_str]
+        if _norm_realpath(entry_dir_str) != _norm_realpath(plugin_dir_str):
+            search_paths.append(plugin_dir_str)
 
         spec = importlib.util.spec_from_file_location(
             module_name,
             backend_entry_file,
-            submodule_search_locations=[plugin_dir_str],
+            submodule_search_locations=search_paths,
         )
         if spec is None or spec.loader is None:
             raise ImportError(
                 f"Failed to load module spec for {backend_entry_file}",
             )
 
+        modules_before = dict(sys.modules)
         module = importlib.util.module_from_spec(spec)
+
+        # Redirect the plugin's bare absolute imports (``import utils``)
+        # into its private ``plugin_<id>`` namespace so plugins cannot
+        # collide with each other's top-level module names (#6683).
+        plugin_builtins = build_plugin_builtins(
+            module_name,
+            search_paths,
+            entry_file=backend_entry_file,
+        )
+        module.__dict__["__builtins__"] = plugin_builtins
+        get_namespace_finder().register(module_name, plugin_builtins)
 
         try:
             sys.modules[module_name] = module
             module.__package__ = module_name
-            module.__path__ = [plugin_dir_str]
+            module.__path__ = search_paths
             spec.loader.exec_module(module)
 
             plugin_def = getattr(module, "plugin", None)
@@ -569,13 +613,30 @@ class PluginLoader:
                 raise AttributeError(
                     "Plugin must implement 'register(api)' method",
                 )
-        except Exception:
+        except BaseException:
             self._cleanup_failed_load(
                 plugin_id,
                 module_name,
                 source_path,
             )
             raise
+        finally:
+            # A loaded plugin no longer needs the sys.path entries it
+            # inserted: its bare imports resolve through the private
+            # namespace (search_paths), not sys.path.  Sweeping here —
+            # on success, failure, AND BaseException (a cancelled
+            # startup) — keeps other plugins' non-local fallthrough
+            # imports from ever resolving into this plugin's source
+            # tree (data-dir fallthrough, uncached stdlib names, or
+            # plain bare imports would otherwise pick up the residue).
+            # Shared dependency locations (plugin site dir) are
+            # untouched — only paths under the plugin's own tree go.
+            strip_plugin_sys_path(source_path)
+            # sys.modules is the other residue channel: a bypass import
+            # or a data-directory fallthrough during load can cache a
+            # bare name rooted in this plugin's tree, which would keep
+            # serving later plugins even with sys.path clean.
+            sweep_bare_tree_modules(source_path, modules_before)
 
         return plugin_def
 
@@ -614,26 +675,18 @@ class PluginLoader:
         for k in stale:
             sys.modules.pop(k, None)
 
-        # 3. sys.modules — by __file__ path (catches bare imports that
-        #    bypassed the plugin_<id> namespace, e.g. ``import utils``
-        #    after the plugin inserted its dir into sys.path).
-        source_resolved = _norm_realpath(source_path)
-        if not source_resolved.endswith(os.sep):
-            source_resolved = source_resolved + os.sep
-        stale_by_file = [
-            k
-            for k, mod in list(sys.modules.items())
-            if (mod_file := getattr(mod, "__file__", None)) is not None
-            and _norm_realpath(mod_file).startswith(source_resolved)
-        ]
-        for k in stale_by_file:
-            sys.modules.pop(k, None)
+        # 3. Import redirection — after the sys.modules sweep, so a
+        #    concurrent lazy import cannot resolve a plugin submodule
+        #    without the plugin builtins in the window between the two.
+        #    Bare (non-namespaced) residue is swept by the caller's
+        #    finally, AFTER strip_plugin_sys_path — sweeping while the
+        #    plugin's sys.path entries are still present could merge
+        #    plugin-tree portions into a shared namespace package's
+        #    __path__ recalculation and evict a host package.
+        unregister_namespace(module_name)
 
-        # 4. sys.path — remove the plugin directory if it was added
-        plugin_dir_real = _norm_realpath(source_path)
-        sys.path[:] = [
-            p for p in sys.path if _norm_realpath(p) != plugin_dir_real
-        ]
+        # 4. sys.path — remove the plugin directory and its subdirs
+        strip_plugin_sys_path(source_path)
 
     async def load_plugin(
         self,
@@ -1047,6 +1100,8 @@ class PluginLoader:
         before_force_unload: Optional[Any] = None,
         after_force_unload: Optional[Any] = None,
         after_load: Optional[Any] = None,
+        pawport_owner: Optional[dict[str, Any]] = None,
+        recover_incomplete: bool = False,
     ) -> PluginRecord:
         """Copy plugin files, install deps, and load plugin at runtime.
 
@@ -1103,17 +1158,41 @@ class PluginLoader:
                     maybe_after = after_force_unload(plugin_id)
                     if inspect.isawaitable(maybe_after):
                         await maybe_after
-            record = await self._load_plugin_from_path_unlocked(
-                source_path,
-                manifest,
-                config,
-                install_dir,
-            )
-            if after_load is not None:
-                maybe_loaded = after_load(record)
-                if inspect.isawaitable(maybe_loaded):
-                    await maybe_loaded
-            return record
+            record = None
+            try:
+                record = await self._load_plugin_from_path_unlocked(
+                    source_path,
+                    manifest,
+                    config,
+                    install_dir,
+                    replace_files=force,
+                    pawport_owner=pawport_owner,
+                    recover_incomplete=recover_incomplete,
+                )
+                if after_load is not None:
+                    maybe_loaded = after_load(record)
+                    if inspect.isawaitable(maybe_loaded):
+                        await maybe_loaded
+                if pawport_owner is not None:
+                    await asyncio.to_thread(
+                        (record.source_path / _PAWPORT_MARKER).unlink,
+                        missing_ok=True,
+                    )
+                return record
+            except BaseException:
+                if record is not None and plugin_id in self._loaded_plugins:
+                    await self._unload_plugin_unlocked(
+                        plugin_id,
+                        delete_files=False,
+                    )
+                if pawport_owner is not None:
+                    await asyncio.to_thread(
+                        self._remove_incomplete_pawport_plugin,
+                        install_dir,
+                        plugin_id,
+                        pawport_owner,
+                    )
+                raise
 
     async def _load_plugin_from_path_unlocked(
         self,
@@ -1121,6 +1200,10 @@ class PluginLoader:
         manifest: PluginManifest,
         config: Optional[Dict] = None,
         install_dir: Optional[Path] = None,
+        *,
+        replace_files: bool = False,
+        pawport_owner: Optional[dict[str, Any]] = None,
+        recover_incomplete: bool = False,
     ) -> PluginRecord:
         """Install+load from path; caller must hold lifecycle for id."""
         plugin_id = manifest.id
@@ -1149,21 +1232,64 @@ class PluginLoader:
         )
 
         # Guard against path-traversal in plugin_id (e.g. "../../etc")
-        if not target_dir.is_relative_to(resolved_install_dir):
+        if (
+            target_dir == resolved_install_dir
+            or not target_dir.is_relative_to(resolved_install_dir)
+        ):
             raise ValueError(
-                f"Plugin id '{plugin_id}' resolves outside the plugin "
-                f"directory ({resolved_install_dir}). Refusing to install.",
+                f"Plugin id '{plugin_id}' does not resolve to a safe child "
+                f"of the plugin directory ({resolved_install_dir}). "
+                "Refusing to install.",
             )
 
         # Copy files when source is not already the target (off the loop).
         if source_path != target_dir:
 
-            def _replace_tree() -> None:
+            def _copy_tree() -> None:
                 if target_dir.exists():
-                    shutil.rmtree(target_dir)
-                shutil.copytree(source_path, target_dir)
+                    marker_path = target_dir / _PAWPORT_MARKER
+                    try:
+                        marker = json.loads(marker_path.read_text())
+                    except (OSError, ValueError, TypeError):
+                        marker = {}
+                    if (
+                        recover_incomplete
+                        and pawport_owner is not None
+                        and marker.get("state") == "prepared"
+                        and _marker_matches(marker, pawport_owner)
+                    ):
+                        shutil.rmtree(target_dir)
+                    if not replace_files:
+                        if target_dir.exists():
+                            raise ValueError(
+                                f"Plugin installation target already exists: "
+                                f"{target_dir}",
+                            )
+                    elif target_dir.exists():
+                        shutil.rmtree(target_dir)
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                stage_root = Path(
+                    tempfile.mkdtemp(
+                        prefix=f".{plugin_id}.install-",
+                        dir=target_dir.parent,
+                    ),
+                )
+                stage_dir = stage_root / plugin_id
+                try:
+                    shutil.copytree(source_path, stage_dir)
+                    if pawport_owner is not None:
+                        (stage_dir / _PAWPORT_MARKER).write_text(
+                            json.dumps(
+                                {**pawport_owner, "state": "prepared"},
+                                sort_keys=True,
+                            ),
+                            encoding="utf-8",
+                        )
+                    os.rename(stage_dir, target_dir)
+                finally:
+                    shutil.rmtree(stage_root, ignore_errors=True)
 
-            await asyncio.to_thread(_replace_tree)
+            await asyncio.to_thread(_copy_tree)
             logger.info(
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
@@ -1185,6 +1311,26 @@ class PluginLoader:
         )
         del _installed_path
         return await self.load_plugin(installed_manifest, target_dir, config)
+
+    def _remove_incomplete_pawport_plugin(
+        self,
+        install_dir: Optional[Path],
+        plugin_id: str,
+        owner: dict[str, Any],
+    ) -> None:
+        base = Path(install_dir or self.plugin_dirs[0]).resolve()
+        target = (base / plugin_id).resolve()
+        if target.parent != base or not target.is_dir():
+            return
+        try:
+            marker = json.loads((target / _PAWPORT_MARKER).read_text())
+        except (OSError, ValueError, TypeError):
+            return
+        if marker.get("state") == "prepared" and _marker_matches(
+            marker,
+            owner,
+        ):
+            shutil.rmtree(target)
 
     async def unload_plugin(
         self,
@@ -1213,12 +1359,28 @@ class PluginLoader:
         plugin_id: str,
         delete_files: bool = False,
     ) -> None:
+        """Unload a plugin and release a failed unload reservation."""
+        from qwenpaw.memory import memory_registry
+
+        try:
+            await self._unload_plugin_reserved(plugin_id, delete_files)
+        except BaseException:
+            memory_registry.cancel_owner_unload(plugin_id)
+            raise
+
+    async def _unload_plugin_reserved(
+        self,
+        plugin_id: str,
+        delete_files: bool = False,
+    ) -> None:
         """Unload a plugin; caller must hold :meth:`plugin_lifecycle`."""
         record = self._loaded_plugins.get(plugin_id)
         if record is None:
             raise KeyError(
                 f"Plugin '{plugin_id}' is not loaded",
             )
+
+        self.registry.assert_memory_backends_not_in_use(plugin_id)
 
         # Execute shutdown hooks registered by this plugin
         shutdown_hooks = [
@@ -1272,32 +1434,25 @@ class PluginLoader:
         for k in stale:
             sys.modules.pop(k, None)
 
-        # Plugins that manipulate ``sys.path`` (e.g. inserting their own
-        # directory) and use bare ``from sibling import …`` load sibling
-        # modules as top-level entries in ``sys.modules`` — the prefix
-        # cleanup above misses them.  Sweep any module whose ``__file__``
-        # lives inside the plugin directory so a reinstall always gets
-        # fresh code.  Use normcase so Windows drive/dir letter case
-        # differences do not leave stale modules behind.
-        source_resolved = _norm_realpath(record.source_path)
-        if not source_resolved.endswith(os.sep):
-            source_resolved = source_resolved + os.sep
-        stale_by_file = [
-            k
-            for k, mod in list(sys.modules.items())
-            if (mod_file := getattr(mod, "__file__", None)) is not None
-            and _norm_realpath(mod_file).startswith(source_resolved)
-        ]
-        for k in stale_by_file:
-            sys.modules.pop(k, None)
+        # Remove the plugin directory and its subdirectories from
+        # sys.path BEFORE the location-based sweep below: a namespace
+        # package's __path__ recalculation reads the live sys.path, and
+        # sweeping while the plugin's entries are still present could
+        # merge plugin-tree portions into a shared host package's
+        # portions and evict it.
+        strip_plugin_sys_path(record.source_path)
 
-        # Remove the plugin directory from sys.path (plugins add it at
-        # import time for sibling imports; leaving it leaks into later
-        # imports and prevents clean hot-reload).
-        plugin_dir_real = _norm_realpath(record.source_path)
-        sys.path[:] = [
-            p for p in sys.path if _norm_realpath(p) != plugin_dir_real
-        ]
+        # Bypass imports (e.g. importlib.import_module after the plugin
+        # inserted its dir into sys.path) land as top-level entries in
+        # ``sys.modules`` — the prefix cleanup above misses them.
+        # Sweep by module location (including __file__-less namespace
+        # packages) so a reinstall always gets fresh code.
+        sweep_bare_tree_modules(record.source_path)
+
+        # Drop the import redirection after the sys.modules sweeps, so
+        # a concurrent lazy import cannot resolve a plugin submodule
+        # without the plugin builtins in the window between the two.
+        unregister_namespace(module_name)
 
         # Remove tools from agents.tools + runtime registries while
         # ownership records still exist, then drop plugin registry state.

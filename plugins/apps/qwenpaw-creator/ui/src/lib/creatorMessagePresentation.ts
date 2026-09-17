@@ -2,8 +2,13 @@ import type {
   CreatorContentPart,
   CreatorEvent,
   CreatorMessage,
+  ProjectDocument,
 } from "@/contracts/creator";
 import i18n from "@/i18n";
+import {
+  creatorTargetLabel,
+  humanizeCreatorRefs,
+} from "@/lib/creatorPresentation";
 
 const USER_AUTHORITY_SOURCES = new Set([
   "user",
@@ -22,6 +27,13 @@ const RESERVED_RUNTIME_MARKER =
 const BARE_CONTROL_CODE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/u;
 const BARE_CONTROL_CODE_LINE =
   /(?:^|[\r\n])\s*[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\s*(?=$|[\r\n])/u;
+const RUNTIME_ACTIONS = new Set([
+  "plan",
+  "tool_call",
+  "final",
+  "yield_until_runtime_event",
+  "complete_current_change",
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -152,8 +164,18 @@ function withoutLegacyFileRuntimePlaceholder(
 
 export function conversationContent(
   message: CreatorMessage,
+  project?: ProjectDocument | null,
 ): CreatorContentPart[] {
-  return withoutLegacyFileRuntimePlaceholder(message);
+  const content = withoutLegacyFileRuntimePlaceholder(message);
+  if (message.role !== "assistant") return content;
+  return content.flatMap<CreatorContentPart>((part) => {
+    if (part.type !== "text") return [part];
+    const text = publicAssistantText(part.text, {
+      streaming: message.metadata?.streaming === true,
+      project,
+    });
+    return text ? [{ ...part, text }] : [];
+  });
 }
 
 export interface CreatorActionEnvelope {
@@ -252,15 +274,48 @@ function parsedFunctionArguments(raw: string): Record<string, unknown> {
   return arguments_;
 }
 
+/** Parse the first complete object; following public prose is not JSON. */
+function jsonObjectPrefix(raw: string): Record<string, unknown> | undefined {
+  let depth = 0;
+  let quoted = false;
+  let escaped = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const character = raw[index];
+    if (quoted) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quoted = false;
+      continue;
+    }
+    if (character === '"') quoted = true;
+    else if (character === "{" || character === "[") depth += 1;
+    else if (character === "}" || character === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          const value = JSON.parse(raw.slice(0, index + 1)) as unknown;
+          return isRecord(value) ? value : undefined;
+        } catch {
+          return undefined;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 function actionEnvelopeFromText(
   raw: string,
   partIndex: number,
   metadataPayload?: Record<string, unknown>,
 ): CreatorActionEnvelope | null {
-  const fencePattern = /```json\s*/giu;
+  const fencePattern = /```(?:json)?[ \t]*(?:\r?\n|(?=\{))/giu;
   const fences = [...raw.matchAll(fencePattern)];
-  const fence = fences.at(-1);
-  if (fence?.index !== undefined) {
+  for (const fence of fences) {
+    if (fence.index === undefined) continue;
+    // A closing fence followed by prose is not another pending action block.
+    if ((raw.slice(0, fence.index).match(/```/gu)?.length ?? 0) % 2 === 1)
+      continue;
     const payloadStart = fence.index + fence[0].length;
     const suffix = raw.slice(payloadStart);
     const closingIndex = suffix.indexOf("```");
@@ -272,14 +327,25 @@ function actionEnvelopeFromText(
       const candidate = JSON.parse(rawPayload) as unknown;
       if (isRecord(candidate)) parsedPayload = candidate;
     } catch {
-      // Partial JSON remains visible and keeps growing until it becomes valid.
+      // An incomplete action must never flash into the public conversation.
     }
     const payload = metadataPayload ?? parsedPayload;
     const action =
       typeof payload?.action === "string"
         ? payload.action
         : partialJsonString(rawPayload, "action");
-    if (!action) return null;
+    if (
+      parsedPayload &&
+      action &&
+      !RUNTIME_ACTIONS.has(action) &&
+      !parsedPayload.tool &&
+      !parsedPayload.arguments
+    )
+      continue;
+    if (!action && closingIndex >= 0) continue;
+    // Hold an unclosed JSON block until it can be distinguished from the
+    // runtime envelope. Completed ordinary JSON remains public model output.
+    if (!action && parsedPayload) continue;
     const tool =
       typeof payload?.tool === "string"
         ? payload.tool
@@ -289,7 +355,7 @@ function actionEnvelopeFromText(
       narration: raw.slice(0, fence.index).trimEnd(),
       rawPayload,
       payload,
-      action,
+      action: action ?? "",
       tool,
       complete:
         Boolean(payload) && (Boolean(metadataPayload) || closingIndex >= 0),
@@ -304,7 +370,10 @@ function actionEnvelopeFromText(
     const tool = functionMatch[1];
     return {
       partIndex,
-      narration: raw.slice(0, functionMatch.index).trimEnd(),
+      narration: raw
+        .slice(0, functionMatch.index)
+        .replace(/<tool_call>\s*$/u, "")
+        .trimEnd(),
       rawPayload,
       payload: complete
         ? {
@@ -317,6 +386,66 @@ function actionEnvelopeFromText(
       tool,
       complete,
       syntax: "function",
+    };
+  }
+
+  // Function/JSON markers can be split at any byte boundary by SSE.
+  const angleIndex = raw.lastIndexOf("<");
+  const angleSuffix = raw.slice(angleIndex);
+  const pendingFunction =
+    angleIndex >= 0 &&
+    ["<function=", "<tool_call>"].some(
+      (marker) =>
+        marker.startsWith(angleSuffix) || angleSuffix.startsWith(marker),
+    );
+  const lastLineIndex = raw.lastIndexOf("\n") + 1;
+  const lastLine = raw.slice(lastLineIndex).trimStart();
+  const precedingFences =
+    raw.slice(0, lastLineIndex).match(/```/gu)?.length ?? 0;
+  const pendingFence =
+    precedingFences % 2 === 0 &&
+    Boolean(lastLine) &&
+    "```json".startsWith(lastLine.toLowerCase());
+  const bareJson = /(?:^|\n)[ \t]*(\{[\s\S]*)$/u.exec(raw);
+  let barePayload: Record<string, unknown> | undefined;
+  let bareAction: string | undefined;
+  let pendingBare = false;
+  if (
+    bareJson &&
+    (raw.slice(0, bareJson.index).match(/```/gu)?.length ?? 0) % 2 === 0
+  ) {
+    barePayload = jsonObjectPrefix(bareJson[1]);
+    bareAction =
+      typeof barePayload?.action === "string"
+        ? barePayload.action
+        : partialJsonString(bareJson[1], "action");
+    // Field order is not guaranteed. Buffer an incomplete object rather than
+    // leaking arguments when the action key arrives later in the stream.
+    pendingBare = !barePayload || Boolean(bareAction);
+    if (
+      barePayload &&
+      bareAction &&
+      !RUNTIME_ACTIONS.has(bareAction) &&
+      !barePayload.tool &&
+      !barePayload.arguments
+    )
+      pendingBare = false;
+  }
+  const toolContainerIndex = raw.lastIndexOf("<tool_call>", angleIndex);
+  let pendingIndex = -1;
+  if (pendingFunction)
+    pendingIndex = toolContainerIndex >= 0 ? toolContainerIndex : angleIndex;
+  else if (pendingFence) pendingIndex = lastLineIndex;
+  else if (pendingBare) pendingIndex = bareJson!.index;
+  if (pendingIndex >= 0) {
+    return {
+      partIndex,
+      narration: raw.slice(0, pendingIndex).trimEnd(),
+      rawPayload: raw.slice(pendingIndex).trim(),
+      payload: pendingBare ? barePayload : undefined,
+      action: bareAction ?? "",
+      complete: Boolean(barePayload),
+      syntax: pendingFunction ? "function" : "json",
     };
   }
 
@@ -336,6 +465,257 @@ function actionEnvelopeFromText(
     };
   }
   return null;
+}
+
+export interface PublicAssistantTextOptions {
+  streaming?: boolean;
+  project?: ProjectDocument | null;
+}
+
+/** Raw version ids sometimes appear as a final answer's entire code span.
+ * Resolve only known project versions; URLs, fenced/indented code and larger
+ * code expressions keep their original meaning. This is assistant-only. */
+function publicVersionCodeNames(
+  text: string,
+  project?: ProjectDocument | null,
+): string {
+  if (!project) return text;
+  const names = new Map<string, string>();
+  for (const id of Object.keys(project.assets?.artifact_versions_by_id ?? {}))
+    names.set(id, creatorTargetLabel(`artifact-version:${id}`, project));
+  for (const id of Object.keys(project.assets?.source_versions_by_id ?? {}))
+    if (!names.has(id))
+      names.set(id, creatorTargetLabel(`asset-version:${id}`, project));
+  if (names.size === 0) return text;
+
+  let fence: { character: string; length: number } | null = null;
+  return text
+    .split("\n")
+    .map((line) => {
+      const marker =
+        /^(?:[ \t]*(?:>[ \t]*)+)?[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/u.exec(
+          line,
+        );
+      if (fence) {
+        if (
+          marker &&
+          marker[1][0] === fence.character &&
+          marker[1].length >= fence.length &&
+          !marker[2].trim()
+        )
+          fence = null;
+        return line;
+      }
+      if (marker && (marker[1][0] !== "`" || !marker[2].includes("`"))) {
+        fence = { character: marker[1][0], length: marker[1].length };
+        return line;
+      }
+      if (/^(?: {4}|\t)/u.test(line)) return line;
+      return line.replace(
+        /[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>]+|(?<![`\\])(`+)([^`\n]+)\1(?!`)/gu,
+        (token, _delimiter: string | undefined, id: string | undefined) =>
+          id === undefined ? token : names.get(id) ?? token,
+      );
+    })
+    .join("\n");
+}
+
+function publicDomainTerms(text: string): string {
+  const labels: Record<string, string> = {
+    "Edit Element": "editElement",
+    "Timeline Element": "timelineElement",
+    Timeline: "timeline",
+    WorkGraph: "workGraph",
+    SourceAssetVersion: "sourceAssetVersion",
+    ArtifactVersion: "artifactVersion",
+    "Runtime 通知": "runtimeNotification",
+  };
+  const translate = (term: string) =>
+    i18n.t(`presentation.publicTerms.${labels[term]}`);
+  let fenced = false;
+  return text
+    .split("\n")
+    .map((line) => {
+      if (/^\s*```/u.test(line)) {
+        fenced = !fenced;
+        return line;
+      }
+      // Authored copy is content, not runtime narration: keep exact titles,
+      // dialogue, subtitles and examples even when their words match a type.
+      if (
+        fenced ||
+        /^\s*(?:>\s*)?(?:\*\*)?(?:台词|对白|字幕|旁白|片名|标题|Dialogue|Caption|Narration|Title)(?:\*\*)?\s*[：:]/u.test(
+          line,
+        )
+      )
+        return line;
+      let publicLine = line.replace(
+        /《[^》]*》|“[^”]*”|https?:\/\/[^\s)]+|【系统自动消息\s*·\s*Runtime 通知】|`?(?:\b(?:Timeline Element|Edit Element|SourceAssetVersion|ArtifactVersion|WorkGraph|Timeline)\b|Runtime 通知)`?/gu,
+        (token) => {
+          if (
+            token.startsWith("《") ||
+            token.startsWith("“") ||
+            token.startsWith("http")
+          )
+            return token;
+          if (token.startsWith("【")) return translate("Runtime 通知");
+          return translate(token.replace(/^`|`$/gu, ""));
+        },
+      );
+      // English type names often have surrounding spaces in Chinese narration.
+      // Remove only those next to the translated phrase, preserving authored copy.
+      for (const term of Object.keys(labels).map(translate)) {
+        if (!/^[\p{Script=Han}]+$/u.test(term)) continue;
+        publicLine = publicLine
+          .replace(
+            new RegExp(`([\\p{Script=Han}])[ \\t]+(?=${term})`, "gu"),
+            "$1",
+          )
+          .replace(
+            new RegExp(`(${term})[ \\t]+(?=[\\p{Script=Han}])`, "gu"),
+            "$1",
+          );
+      }
+      return publicLine;
+    })
+    .join("\n");
+}
+
+const PROMPT_SYNC_CONTROL_FIELD =
+  /\b(?:prompt_sync|plan_fingerprint|storyboard_prompt_fingerprint|video_prompt_fingerprint)\b/u;
+const PROMPT_SYNC_CLEAR_ADVICE =
+  /(?:清除|删除|重置)[^。\n]*(?:同步记录|同步元数据|指纹)|(?:clear|delete|reset)[^.!?\n]*(?:sync (?:record|metadata)|fingerprint)/iu;
+
+/** Derived synchronization state is not an editing instruction. Keep authored
+ * copy/code intact, but omit ordinary paragraphs that expose it or advise
+ * deleting it. Never turn that implementation detail into a claimed status. */
+function withoutPromptSyncControlNarration(text: string): string {
+  let fence: { character: string; length: number } | null = null;
+  const chunks = text.split(/(\n\s*\n)/u).map((raw, index) => {
+    if (index % 2) return { raw, separator: true, lines: [], prose: "" };
+    const lines = raw.split("\n").map((line) => {
+      const marker =
+        /^(?:[ \t]*(?:>[ \t]*)+)?[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})(.*)$/u.exec(
+          line,
+        );
+      let protectedLine = Boolean(fence);
+      if (fence) {
+        if (
+          marker &&
+          marker[1][0] === fence.character &&
+          marker[1].length >= fence.length &&
+          !marker[2].trim()
+        )
+          fence = null;
+      } else if (marker && (marker[1][0] !== "`" || !marker[2].includes("`"))) {
+        fence = { character: marker[1][0], length: marker[1].length };
+        protectedLine = true;
+      }
+      protectedLine ||=
+        /^(?: {4}|\t)/u.test(line) ||
+        /^\s*(?:>\s*)?(?:\*\*)?(?:台词|对白|字幕|旁白|片名|标题|Dialogue|Caption|Narration|Title)(?:\*\*)?\s*[：:]/u.test(
+          line,
+        );
+      const prose = protectedLine
+        ? ""
+        : line.replace(
+            /《[^》]*》|“[^”]*”|「[^」]*」|『[^』]*』|[A-Za-z][A-Za-z0-9+.-]*:\/\/[^\s<>]+/gu,
+            "",
+          );
+      return { line, protectedLine, prose };
+    });
+    return {
+      raw,
+      separator: false,
+      lines,
+      prose: lines.map((line) => line.prose).join("\n"),
+    };
+  });
+  if (!chunks.some((chunk) => PROMPT_SYNC_CONTROL_FIELD.test(chunk.prose)))
+    return text;
+  return chunks
+    .map((chunk) => {
+      if (
+        chunk.separator ||
+        (!PROMPT_SYNC_CONTROL_FIELD.test(chunk.prose) &&
+          !PROMPT_SYNC_CLEAR_ADVICE.test(chunk.prose))
+      )
+        return chunk.raw;
+      return chunk.lines
+        .filter((line) => line.protectedLine)
+        .map((line) => line.line)
+        .join("\n");
+    })
+    .join("");
+}
+
+/**
+ * Only public prose belongs in assistant bubbles. This deliberately does not
+ * summarize thinking, argument JSON, results, or runtime feedback into prose.
+ */
+export function publicAssistantText(
+  raw: string,
+  { streaming = true, project }: PublicAssistantTextOptions = {},
+): string {
+  let text = raw
+    .replace(/^\s*\[(?:SUCCESS|BLOCKED|FAILED)\]\s*/u, "")
+    .replace(/<(think|thinking|analysis)>[\s\S]*?(?:<\/\1>|$)/giu, "");
+  if (streaming) {
+    const index = text.lastIndexOf("<");
+    if (
+      index >= 0 &&
+      ["<think>", "<thinking>", "<analysis>"].some((tag) =>
+        tag.startsWith(text.slice(index)),
+      )
+    )
+      text = text.slice(0, index);
+  }
+  // This exact backend review continuation template describes orchestration.
+  // Preserve the review decision while omitting internal delegation mechanics.
+  text = text.replace(
+    /[^。\n]*的产物已生成，后续步骤尚未开始。请先完成审阅；审阅通过后，?主线需重新委派同一目标以继续(?:后续步骤)?。|当前产物已生成，后续步骤尚未开始。请先完成审阅；审阅通过后主线需重新委派同一目标以继续。/gu,
+    i18n.t("agentActivity.reviewHint"),
+  );
+  const envelope = actionEnvelopeFromText(text, 0);
+  if (envelope) {
+    const finalMessage =
+      envelope.action === "final" &&
+      typeof envelope.payload?.message === "string"
+        ? envelope.payload.message
+        : "";
+    text = [
+      ...new Set([envelope.narration, finalMessage].filter(Boolean)),
+    ].join("\n\n");
+  }
+  const runtimeMarker = RESERVED_RUNTIME_MARKER.exec(text);
+  if (runtimeMarker?.index !== undefined) {
+    const paragraphStart = text.lastIndexOf("\n\n", runtimeMarker.index);
+    text = paragraphStart < 0 ? "" : text.slice(0, paragraphStart);
+  }
+  text = withoutPromptSyncControlNarration(text);
+  // Runtime feedback can accidentally be copied into assistant narration.
+  // Reject that paragraph, including its payload, rather than printing a
+  // marker-free machine result or inventing a user-facing summary.
+  text = text
+    .split(/\n\s*\n/u)
+    .filter(
+      (paragraph) =>
+        // These are model self-instructions observed during real creation.
+        // The actual tool activity already supplies the public progress row.
+        !/^\s*(?:Now (?:let me\b|I need to\b)|Let me (?:write|set up|add|update|fix)\b)/iu.test(
+          paragraph,
+        ) &&
+        !RESERVED_RUNTIME_MARKER.test(paragraph) &&
+        !BARE_CONTROL_CODE_LINE.test(paragraph) &&
+        !/(?:"(?:tool_call|toolCallId|actionId|runId|targetRefs|elements_by_id|artifact_versions_by_id)"\s*:|\b(?:elements_by_id|source_versions_by_id|artifact_versions_by_id|schema_version|min_dialogue_ratio|storyboard_prompt|video_prompt)\b)/u.test(
+          paragraph,
+        ),
+    )
+    .join("\n\n");
+  return publicVersionCodeNames(
+    publicDomainTerms(humanizeCreatorRefs(text, project)),
+    project,
+  ).trim();
 }
 
 /** Detect the final machine action while its SSE text is still incomplete. */
@@ -374,48 +754,48 @@ export function creatorActionEnvelope(
 export function actionAwareConversationContent(
   message: CreatorMessage,
   envelope: CreatorActionEnvelope | null = creatorActionEnvelope(message),
+  project?: ProjectDocument | null,
 ): CreatorContentPart[] {
-  const visibleContent = conversationContent(message);
-  if (!envelope) return visibleContent;
-  if (envelope.syntax === "native") {
-    const finalMessage =
-      envelope.action === "final" &&
-      typeof envelope.payload?.message === "string"
-        ? envelope.payload.message
-        : "";
-    const existingText = visibleContent
-      .filter(
-        (part): part is Extract<CreatorContentPart, { type: "text" }> =>
-          part.type === "text",
-      )
-      .map((part) => part.text.trim())
-      .filter(Boolean);
-    return finalMessage && !existingText.includes(finalMessage)
-      ? [...visibleContent, { type: "text", text: finalMessage }]
-      : visibleContent;
-  }
-  return visibleContent.flatMap((part, index) => {
-    if (index !== envelope.partIndex || part.type !== "text") return [part];
-    const finalMessage =
-      envelope.action === "final" &&
-      typeof envelope.payload?.message === "string"
-        ? envelope.payload.message
-        : "";
-    const text = [envelope.narration, finalMessage]
-      .filter(
-        (value, valueIndex, values) =>
-          Boolean(value) && values.indexOf(value) === valueIndex,
-      )
-      .join("\n\n");
-    return text ? [{ ...part, text }] : [];
-  });
+  const visibleContent = conversationContent(message, project);
+  const finalMessage =
+    envelope?.action === "final" &&
+    typeof envelope.payload?.message === "string"
+      ? publicAssistantText(envelope.payload.message, {
+          streaming: false,
+          project,
+        })
+      : "";
+  const existingText = visibleContent
+    .filter(
+      (part): part is Extract<CreatorContentPart, { type: "text" }> =>
+        part.type === "text",
+    )
+    .map((part) => part.text.trim());
+  return finalMessage &&
+    !existingText.some(
+      (part) => part === finalMessage || part.endsWith(`\n\n${finalMessage}`),
+    )
+    ? [...visibleContent, { type: "text", text: finalMessage }]
+    : visibleContent;
 }
 
 export interface ToolCallPresentation {
   actionId: string;
   anchorMessageId?: string;
   order: number;
-  status: "started" | "succeeded" | "failed";
+  status: "started" | "succeeded" | "failed" | "cancelled";
+  /** The owning run was explicitly replaced by a later request. */
+  superseded?: boolean;
+  /** A finished request may have started no media work. */
+  productionOutcome?:
+    | "waiting_review"
+    | "not_started"
+    | "unconfirmed"
+    | "incomplete";
+  /** True only after execution started, never inferred from argument bytes. */
+  executing?: boolean;
+  /** Outstanding persisted authorization events for this exact tool call. */
+  waitingAuthorization?: boolean;
   tool: string;
   arguments?: Record<string, unknown>;
   argumentsText?: string;
@@ -428,11 +808,13 @@ export interface ToolCallPresentation {
 
 interface MutableToolCall {
   actionId: string;
+  runId?: string;
   anchorMessageId?: string;
   order: number;
   tool?: string;
   arguments?: Record<string, unknown>;
   completed: boolean;
+  executing: boolean;
   failed: boolean;
   result?: unknown;
   error?: string;
@@ -469,12 +851,70 @@ function safeResult(message: CreatorMessage): unknown {
   }
 }
 
+const BEFORE_PRODUCTION_REASONS = new Set([
+  "TARGET_NOT_FOUND",
+  "WAITING_REVIEW",
+  "EDIT_IN_PROGRESS",
+  "GATED",
+  "READY",
+  "STALE",
+  "FAILED",
+  "UNSUPPORTED_EXECUTION_MODE",
+  "SCENE_REVIEW_REQUIRED",
+  "MOTION_DESIGN_REQUIRED",
+  "MODEL_RENDER_REVIEW_ENABLED",
+  "INPUTS_NOT_READY",
+  "APPROVED_INPUTS_CHANGED",
+]);
+
+function productionOutcome(
+  call: MutableToolCall,
+): ToolCallPresentation["productionOutcome"] {
+  if (
+    call.tool !== "request_workgraph_execution" ||
+    !call.completed ||
+    call.failed ||
+    !isRecord(call.result)
+  )
+    return undefined;
+  const { status, items } = call.result;
+  if (status === "PARTIAL") return "incomplete";
+  if (status !== "BLOCKED") return undefined;
+  if (!Array.isArray(items) || items.length === 0) return "unconfirmed";
+  if (
+    items.every(
+      (item) =>
+        isRecord(item) &&
+        item.status === "BLOCKED" &&
+        item.reason === "WAITING_REVIEW" &&
+        !item.taskId,
+    )
+  )
+    return "waiting_review";
+  return items.every(
+    (item) =>
+      isRecord(item) &&
+      item.status === "BLOCKED" &&
+      !item.taskId &&
+      typeof item.reason === "string" &&
+      BEFORE_PRODUCTION_REASONS.has(item.reason),
+  )
+    ? "not_started"
+    : "unconfirmed";
+}
+
 /** Merge durable envelopes, Runtime result rows, and SSE by actionId. */
 export function toolCallPresentations(
   messages: CreatorMessage[],
   events: CreatorEvent[],
 ): ToolCallPresentation[] {
   const calls = new Map<string, MutableToolCall>();
+  const pendingAuthorizations = new Map<string, Set<string>>();
+  const decidedAuthorizations = new Set<string>();
+  const terminalRuns = new Map<
+    string,
+    { failed: boolean; superseded: boolean }
+  >();
   const ensure = (actionId: string, order: number) => {
     const existing = calls.get(actionId);
     if (existing) {
@@ -485,6 +925,7 @@ export function toolCallPresentations(
       actionId,
       order,
       completed: false,
+      executing: false,
       failed: false,
     };
     calls.set(actionId, created);
@@ -503,6 +944,8 @@ export function toolCallPresentations(
             : undefined;
         if (!actionId) return;
         const call = ensure(actionId, message.messageSeq + index / 1_000);
+        if (typeof message.metadata?.runId === "string")
+          call.runId = message.metadata.runId;
         call.anchorMessageId = message.messageId;
         call.tool = toolCallName(toolCall) ?? call.tool;
         const function_ = isRecord(toolCall.function)
@@ -528,6 +971,8 @@ export function toolCallPresentations(
           : undefined;
       if (!actionId) return;
       const call = ensure(actionId, message.messageSeq);
+      if (typeof message.metadata?.runId === "string")
+        call.runId = message.metadata.runId;
       const parsedAction = isRecord(message.metadata?.parsedAction)
         ? message.metadata.parsedAction
         : undefined;
@@ -568,6 +1013,48 @@ export function toolCallPresentations(
     .sort((left, right) => left.seq - right.seq)
     .forEach((event) => {
       if (
+        event.type === "agent.run.cancelled" ||
+        event.type === "agent.run.failed"
+      ) {
+        if (typeof event.data.runId === "string") {
+          terminalRuns.set(event.data.runId, {
+            failed: event.type === "agent.run.failed",
+            superseded: event.data.superseded === true,
+          });
+        }
+        return;
+      }
+      if (
+        event.type === "execution.authorization_required" ||
+        event.type === "execution.authorization_decided" ||
+        event.type === "creation.checkpoint_required" ||
+        event.type === "creation.checkpoint_decided"
+      ) {
+        const callId = event.data.toolCallId;
+        const authorizationId = event.data.authorizationId;
+        if (
+          typeof authorizationId === "string" &&
+          event.type.endsWith("_decided")
+        ) {
+          // A replacement main run may reuse the same durable request with a
+          // new call id. Its decision settles every older reference too.
+          decidedAuthorizations.add(authorizationId);
+          pendingAuthorizations.forEach((pending) =>
+            pending.delete(authorizationId),
+          );
+        } else if (
+          typeof callId === "string" &&
+          typeof authorizationId === "string" &&
+          !decidedAuthorizations.has(authorizationId)
+        ) {
+          const pending =
+            pendingAuthorizations.get(callId) ?? new Set<string>();
+          pending.add(authorizationId);
+          pendingAuthorizations.set(callId, pending);
+        }
+        return;
+      }
+      if (
         event.type === "assistant.output_rejected" ||
         event.type === "session.error"
       ) {
@@ -607,6 +1094,7 @@ export function toolCallPresentations(
         actionId,
         Number.MAX_SAFE_INTEGER - 1_000_000 + event.seq,
       );
+      if (typeof event.data.runId === "string") call.runId = event.data.runId;
       if (typeof event.data.tool === "string") call.tool = event.data.tool;
       else if (typeof event.data.toolName === "string")
         call.tool = event.data.toolName;
@@ -618,6 +1106,13 @@ export function toolCallPresentations(
         (!dottedCompletion || !call.anchorMessageId)
       ) {
         call.anchorMessageId = event.data.messageId;
+      }
+      if (
+        (event.type === "agent.tool_started" ||
+          event.type === "agent.tool.started") &&
+        !call.completed
+      ) {
+        call.executing = true;
       }
       if (event.type === "agent.tool_progress") {
         if (typeof event.data.receivedBytes === "number")
@@ -664,24 +1159,47 @@ export function toolCallPresentations(
         ].includes(call.tool ?? ""),
     )
     .sort((left, right) => left.order - right.order)
-    .map((call) => ({
-      actionId: call.actionId,
-      anchorMessageId: call.anchorMessageId,
-      order: call.order,
-      status: call.failed ? "failed" : call.completed ? "succeeded" : "started",
-      tool: call.tool,
-      arguments: call.arguments,
-      ...(call.argumentsText ? { argumentsText: call.argumentsText } : {}),
-      result: call.result,
-      error: call.error,
-      ...(call.receivedBytes !== undefined
-        ? { receivedBytes: call.receivedBytes }
-        : {}),
-      ...(call.providerChunkCount !== undefined
-        ? { providerChunkCount: call.providerChunkCount }
-        : {}),
-      ...(call.argumentStreamComplete !== undefined
-        ? { argumentStreamComplete: call.argumentStreamComplete }
-        : {}),
-    }));
+    .map((call) => {
+      const terminalRun =
+        !call.completed && call.runId
+          ? terminalRuns.get(call.runId)
+          : undefined;
+      return {
+        actionId: call.actionId,
+        anchorMessageId: call.anchorMessageId,
+        order: call.order,
+        status:
+          call.failed || terminalRun?.failed
+            ? "failed"
+            : call.completed
+            ? "succeeded"
+            : terminalRun
+            ? "cancelled"
+            : "started",
+        ...(terminalRun?.superseded ? { superseded: true } : {}),
+        ...(productionOutcome(call)
+          ? { productionOutcome: productionOutcome(call) }
+          : {}),
+        executing: call.executing && !call.completed && !terminalRun,
+        ...(!call.completed &&
+        !terminalRun &&
+        pendingAuthorizations.get(call.actionId)?.size
+          ? { waitingAuthorization: true }
+          : {}),
+        tool: call.tool,
+        arguments: call.arguments,
+        ...(call.argumentsText ? { argumentsText: call.argumentsText } : {}),
+        result: call.result,
+        error: call.error,
+        ...(call.receivedBytes !== undefined
+          ? { receivedBytes: call.receivedBytes }
+          : {}),
+        ...(call.providerChunkCount !== undefined
+          ? { providerChunkCount: call.providerChunkCount }
+          : {}),
+        ...(call.argumentStreamComplete !== undefined
+          ? { argumentStreamComplete: call.argumentStreamComplete }
+          : {}),
+      };
+    });
 }

@@ -331,7 +331,7 @@ class TestSkillAutoSyncInbox:
 
     The auto-sync notification (upstream #5639) is emitted server-side with
     ``source_type='skill_autoupdate'``; the frontend maps that source to a
-    fixed card title via i18n (``inbox.skillAutoUpdateTitle``), so the visible
+    fixed card title via i18n (``inbox.skillAutoSyncTitle``), so the visible
     title is 'Skill auto-sync' / '技能自动同步' regardless of the stored title.
     """
 
@@ -350,10 +350,10 @@ class TestSkillAutoSyncInbox:
                 inbox_page.make_event(
                     event_id="evt-skillsync-1",
                     source_type="skill_autoupdate",
-                    event_type="auto_update",
+                    event_type="auto_sync",
                     status="success",
                     severity="info",
-                    title="Auto-update: 1 skill updated",
+                    title="Auto Sync: 1 skill synced",
                     body="e2e_sync_skill -> default",
                     payload={
                         "synced": [

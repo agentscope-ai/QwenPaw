@@ -10,15 +10,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Optional
 
 import click
+import httpx
 
-from qwenpaw.plugins.validation import (
+from ..config import utils as config_utils
+from ..utils.runtime_api import api_client, read_runtime_api
+
+from ..plugins.validation import (
     validate_plugin_module as _validate_plugin_module,
 )
 
@@ -35,9 +38,7 @@ def _get_api_base() -> Optional[str]:
         Base URL string such as ``http://127.0.0.1:8088/api`` if the
         app is running, otherwise ``None``.
     """
-    from ..config.utils import read_last_api
-
-    api_info = read_last_api()
+    api_info = read_runtime_api() or config_utils.read_last_api()
     if api_info is None:
         return None
     host, port = api_info
@@ -47,7 +48,7 @@ def _get_api_base() -> Optional[str]:
 def _api_install_plugin(source: str, force: bool = False) -> bool:
     """Send a hot-install request to the running QwenPaw API.
 
-    Uses the localhost auth-bypass so no credentials are required.
+    Authenticates to the current managed runtime when required.
 
     Args:
         source: Local directory path or HTTP(S) URL of the plugin
@@ -60,25 +61,23 @@ def _api_install_plugin(source: str, force: bool = False) -> bool:
     if base is None:
         return False
 
-    url = f"{base}/plugins/install"
-    payload = json.dumps({"source": source, "force": force}).encode()
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        method="POST",
-        headers={"Content-Type": "application/json"},
-    )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            body = json.loads(resp.read())
+        with api_client(base, timeout=120) as client:
+            response = client.post(
+                "plugins/install",
+                json={"source": source, "force": force},
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            body = response.json()
         name = body.get("name", source)
         click.echo(
             f"✅ Plugin '{name}' installed and loaded (hot reload).",
         )
         return True
-    except urllib.error.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         try:
-            detail = json.loads(exc.read()).get("detail", str(exc))
+            detail = exc.response.json().get("detail", str(exc))
         except Exception:
             detail = str(exc)
         click.echo(f"❌ API install failed: {detail}", err=True)
@@ -118,27 +117,29 @@ def _api_upload_plugin(zip_path: Path, force: bool = False) -> bool:
     )
 
     force_param = "true" if force else "false"
-    url = f"{base}/plugins/upload?force={force_param}"
-    req = urllib.request.Request(
-        url,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Content-Length": str(len(body)),
-        },
-    )
     try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            result = json.loads(resp.read())
+        with api_client(base, timeout=120) as client:
+            response = client.post(
+                "plugins/upload",
+                params={"force": force_param},
+                content=body,
+                follow_redirects=True,
+                headers={
+                    "Content-Type": (
+                        "multipart/form-data; " f"boundary={boundary}"
+                    ),
+                },
+            )
+            response.raise_for_status()
+            result = response.json()
         name = result.get("name", zip_path.name)
         click.echo(
             f"✅ Plugin '{name}' installed and loaded (hot reload).",
         )
         return True
-    except urllib.error.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         try:
-            detail = json.loads(exc.read()).get("detail", str(exc))
+            detail = exc.response.json().get("detail", str(exc))
         except Exception:
             detail = str(exc)
         click.echo(f"❌ API upload failed: {detail}", err=True)
@@ -161,11 +162,11 @@ def _api_uninstall_plugin(plugin_id: str) -> bool:
     if base is None:
         return False
 
-    url = f"{base}/plugins/{plugin_id}"
-    req = urllib.request.Request(url, method="DELETE")
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            body = json.loads(resp.read())
+        with api_client(base) as client:
+            response = client.delete(f"plugins/{plugin_id}")
+            response.raise_for_status()
+            body = response.json()
         click.echo(
             body.get(
                 "message",
@@ -173,9 +174,9 @@ def _api_uninstall_plugin(plugin_id: str) -> bool:
             ),
         )
         return True
-    except urllib.error.HTTPError as exc:
+    except httpx.HTTPStatusError as exc:
         try:
-            detail = json.loads(exc.read()).get("detail", str(exc))
+            detail = exc.response.json().get("detail", str(exc))
         except Exception:
             detail = str(exc)
         click.echo(f"❌ API uninstall failed: {detail}", err=True)

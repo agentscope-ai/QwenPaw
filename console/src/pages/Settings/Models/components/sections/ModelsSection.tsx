@@ -21,10 +21,10 @@ interface ModelsSectionProps {
     require_api_key?: boolean;
   }>;
   activeModels: {
-    active_llm?: {
+    active_llm: {
       provider_id?: string;
       model?: string;
-    };
+    } | null;
   } | null;
   onSaved: () => void;
 }

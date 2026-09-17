@@ -165,6 +165,55 @@ def _download_audio(url: str) -> tuple[bytes, str]:
     return content, media_type
 
 
+def _is_abnormal_websocket_close(exc: BaseException) -> bool:
+    """Exception shapes an abnormally closed synthesis websocket produces.
+
+    Sending into a dropped connection raises
+    ``WebSocketConnectionClosedException`` (every websocket-client
+    version). websocket-client 1.9.x additionally races in
+    ``WebSocketApp.close()`` — it reads ``self.sock.close_frame`` after
+    the reader thread nulled ``self.sock`` on an abnormal server close —
+    and the SDK's own sock-alive checks have the same TOCTOU on
+    ``connected``/``send``; all three surface as ``AttributeError`` on
+    ``None``. Handshake, protocol, address and timeout errors are NOT
+    normalized here: they are configuration or provider faults with
+    their own diagnosis and must not masquerade as transient closes.
+    """
+
+    import websocket  # noqa: PLC0415 - optional surface
+
+    if isinstance(exc, websocket.WebSocketConnectionClosedException):
+        return True
+    if isinstance(exc, AttributeError):
+        message = str(exc)
+        if "'NoneType' object has no attribute" not in message:
+            return False
+        return any(
+            f"'{name}'" in message
+            for name in ("close_frame", "connected", "send")
+        )
+    return False
+
+
+def _websocket_handshake_status(
+    exc: BaseException,
+) -> tuple[int, bool] | None:
+    """(status_code, retryable) for a failed websocket handshake.
+
+    401/403/404 mean a wrong API key, model permission or endpoint —
+    permanent configuration faults that retries can never fix; only
+    throttling (429) and provider-side 5xx are worth retrying.
+    """
+
+    import websocket  # noqa: PLC0415 - optional surface
+
+    if not isinstance(exc, websocket.WebSocketBadStatusException):
+        return None
+    status = int(getattr(exc, "status_code", 0) or 0)
+    retryable = status == 429 or status >= 500
+    return status, retryable
+
+
 def _synthesize_over_websocket(
     *,
     model: str,
@@ -189,6 +238,7 @@ def _synthesize_over_websocket(
     chunks: list[bytes] = []
     failure: list[str] = []
     finished = threading.Event()
+    completed = threading.Event()
 
     class _Collector(ResultCallback):
         def on_open(self) -> None:
@@ -198,6 +248,7 @@ def _synthesize_over_websocket(
             chunks.append(data)
 
         def on_complete(self) -> None:
+            completed.set()
             finished.set()
 
         def on_error(self, message: Any) -> None:
@@ -218,12 +269,44 @@ def _synthesize_over_websocket(
         speech_rate=speech_rate,
         callback=_Collector(),
     )
-    synthesizer.streaming_call(text)
-    synthesizer.streaming_complete()
+    try:
+        synthesizer.streaming_call(text)
+        synthesizer.streaming_complete()
+    except Exception as exc:  # noqa: BLE001 - normalized just below
+        handshake = _websocket_handshake_status(exc)
+        if handshake is not None:
+            status_code, retryable = handshake
+            detail = (
+                "the provider is throttling or unstable, retry later"
+                if retryable
+                else "check the API key, model permission and endpoint "
+                "configuration"
+            )
+            raise ModelError(
+                f"TTS websocket handshake failed with HTTP {status_code}: "
+                f"{detail}",
+                model_name=model,
+                retryable=retryable,
+            ) from exc
+        if not _is_abnormal_websocket_close(exc):
+            raise
+        failure.append(
+            "the provider closed the websocket abnormally before the "
+            f"synthesis finished ({exc}); the service is likely unstable, "
+            "retry later",
+        )
+        finished.set()
     finished.wait(timeout=config.get_tts_timeout_seconds())
     audio = b"".join(chunks)
-    if not audio:
-        detail = failure[0] if failure else "no audio was streamed"
+    # Audio counts only after on_complete: chunks that arrived before an
+    # abnormal close are a truncated narration, not a deliverable.
+    if not completed.is_set() or not audio:
+        if failure:
+            detail = failure[0]
+        elif audio:
+            detail = "the stream ended before the synthesis completed"
+        else:
+            detail = "no audio was streamed"
         raise ModelError(
             f"TTS websocket synthesis failed: {detail}",
             model_name=model,

@@ -22,7 +22,12 @@ logger = logging.getLogger(__name__)
 
 MCP_URL = f"{config.base_url}/mcp"
 MCP_CARD_SELECTOR = 'div[class*="mcpCard"]'
-TOGGLE_BTN_SELECTOR = 'button[class*="toggleButton"]'
+TOGGLE_BTN_SELECTOR = (
+    'button[class*="toggleButton"]:has-text("启用"), '
+    'button[class*="toggleButton"]:has-text("禁用"), '
+    'button[class*="toggleButton"]:has-text("Enable"), '
+    'button[class*="toggleButton"]:has-text("Disable")'
+)
 CREATE_BTN_SELECTOR = 'button.qwenpaw-btn-primary:has-text("创建客户端"), button.qwenpaw-btn-primary:has-text("Create Client"), button.qwenpaw-btn-primary:has-text("Create")'
 
 

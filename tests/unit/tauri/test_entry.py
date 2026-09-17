@@ -138,6 +138,41 @@ def test_socket_port_returns_bound_port():
         assert entry._socket_port(sock) == sock.getsockname()[1]
 
 
+def test_main_aborts_unhandled_frozen_multiprocessing_child(
+    monkeypatch,
+    capsys,
+):
+    calls = []
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "qwenpaw-backend",
+            "--multiprocessing-fork",
+            "tracker_fd=6",
+            "pipe_handle=8",
+        ],
+    )
+    monkeypatch.setattr(
+        entry.mp,
+        "freeze_support",
+        lambda: calls.append("freeze-support"),
+    )
+    monkeypatch.setattr(
+        entry,
+        "_install_desktop_runtime",
+        lambda: calls.append("desktop-runtime"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        entry.main()
+
+    assert exc_info.value.code == 2
+    assert calls == ["freeze-support"]
+    assert "multiprocessing runtime hook" in capsys.readouterr().err
+
+
 def test_main_supports_frozen_entry_without_package_context(
     monkeypatch,
     tmp_path,
@@ -150,6 +185,11 @@ def test_main_supports_frozen_entry_without_package_context(
     monkeypatch.setattr(entry, "__spec__", None)
     monkeypatch.setattr(entry, "__name__", "__main__")
     monkeypatch.setattr(entry, "_is_frozen_desktop", lambda: False)
+    monkeypatch.setattr(
+        entry.mp,
+        "freeze_support",
+        lambda: calls.append("freeze-support"),
+    )
     monkeypatch.setattr(entry, "_ensure_utf8_stdio", lambda: None)
     monkeypatch.setattr(entry, "_install_subprocess_guard", lambda: None)
     monkeypatch.setattr(entry, "_install_desktop_runtime", lambda: None)
@@ -165,4 +205,4 @@ def test_main_supports_frozen_entry_without_package_context(
 
     entry.main()
 
-    assert calls == ["sandbox-check", "info"]
+    assert calls == ["freeze-support", "sandbox-check", "info"]
