@@ -31,18 +31,18 @@ class GatewayRequest:
         """Return the durable identity after successful admission."""
         return self.reservation[0] if self.reservation else None
 
-    async def reserve(self, identity, body):
+    async def reserve(self, identity, body, *, admin_test=False):
         """Finish and retain admission before delivering cancellation."""
         limit = validate_request(body)
         with anyio.CancelScope(shield=True):
             await run_async_to_completion(
-                self._reserve(identity, body["model"], limit),
+                self._reserve(identity, body["model"], limit, admin_test),
             )
         # Deliver an enclosing AnyIO cancellation before dispatching anything.
         await anyio.lowlevel.checkpoint()
         return self.reservation
 
-    async def _reserve(self, identity, model_id, limit):
+    async def _reserve(self, identity, model_id, limit, admin_test):
         try:
             self.reservation = await run_sync_io(
                 self.budgets.reserve,
@@ -50,6 +50,7 @@ class GatewayRequest:
                 model_id,
                 self.catalog,
                 limit,
+                admin_test=admin_test,
             )
         except BudgetExceededError as exc:
             raise HTTPException(403, "hub_budget_exceeded") from exc

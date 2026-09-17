@@ -112,6 +112,7 @@ export interface MemberModelCatalog {
     name: string;
     description: string;
     supports_image: boolean | null;
+    supports_agent_thinking: boolean;
     input_token_limit: number;
     output_token_limit: number;
   }[];

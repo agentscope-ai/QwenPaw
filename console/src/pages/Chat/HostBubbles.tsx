@@ -1,21 +1,31 @@
 /**
- * pages/Chat/HostBubbles.tsx — host-side wrappers around the vendor's
- * AgentScopeRuntime{Request,Response}Card components.
+ * pages/Chat/HostBubbles.tsx — host-side response renderer for CoPaw-specific
+ * Markdown, media download, artifact, and plugin behavior.
  *
  * Why wrappers:
- * - Plugin extensions (chat.request.render / prepend / append and the
- *   response equivalents) need a render seam SDK doesn't expose.
- * - We register HostRequestCard / HostResponseCard into options.cards so the
- *   SDK Cards dispatcher invokes them instead of the vendor defaults.
+ * - We register HostResponseCard into options.cards so the SDK Cards
+ *   dispatcher invokes it instead of the vendor default.
  * - The wrapper itself subscribes to the chat extension registry via hooks,
  *   so it re-renders when plugins register/dispose — no need to rebuild the
  *   parent useMemo (and avoid re-mounting bubbles on every plugin change).
  *
- * Vendor response primitives are deep-imported because the SDK does not expose
- * a message-renderer seam. If their paths change, update the imports below.
+ * SDK 1.2 integrations use the public request.render/prepend/append seam.
+ * HostRequestCard retains the original vendor-card wrapper for callers that
+ * register it directly; do not also configure the same public request slots.
+ * Vendor response primitives remain private dependencies because CoPaw
+ * replaces individual Markdown/media/tool rendering rather than only framing
+ * the default response bubble.
  */
-import React, { useDeferredValue, useMemo, useSyncExternalStore } from "react";
-import VendorRequestCardOriginal from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
+import React, {
+  useContext,
+  useDeferredValue,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
+import { IconButton } from "@agentscope-ai/design";
+import { SparkReplaceLine } from "@agentscope-ai/icons";
+import { ChatRegenerateContext } from "./ChatRegenerateContext";
+import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
 import ResponseError from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Error";
@@ -25,20 +35,16 @@ import {
   AgentScopeRuntimeContentType,
   AgentScopeRuntimeMessageType,
   AgentScopeRuntimeRunStatus,
+  Bubble,
+  DefaultCards,
+  Markdown,
   type IAgentScopeRuntimeMessage,
   type IAgentScopeRuntimeResponse,
-} from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
+} from "@agentscope-ai/chat";
 import { useChatAnywhereOptions } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/Context/ChatAnywhereOptionsContext";
-import Images from "@agentscope-ai/chat/lib/DefaultCards/Images";
-import Videos from "@agentscope-ai/chat/lib/DefaultCards/Videos";
-import Files from "@agentscope-ai/chat/lib/DefaultCards/Files";
-import { Bubble, Markdown } from "@agentscope-ai/chat";
 import { Avatar, Flex } from "antd";
 import { useTranslation } from "react-i18next";
 import { renderableCodeComponents } from "../../components/RenderableCodeBlock";
-// Vendor `.d.ts` doesn't yet describe the request content slots.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const VendorRequestCard = VendorRequestCardOriginal as React.ComponentType<any>;
 import {
   useChatScalarSnapshot,
   useChatListSnapshot,
@@ -51,6 +57,7 @@ import type {
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
+import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 import {
   countCollapsedSteps,
   filterThinkingMessages,
@@ -76,9 +83,6 @@ function sortByOrder<T extends { item: { order?: number } }>(arr: T[]): T[] {
     .slice()
     .sort((a, b) => (a.item.order ?? 100) - (b.item.order ?? 100));
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyCardProps = any;
 
 function DeferredMarkdown({
   content,
@@ -133,14 +137,14 @@ const HostMessage = React.memo(function HostMessage({
             return <Markdown key={index} content={item.refusal} raw />;
           case AgentScopeRuntimeContentType.IMAGE:
             return (
-              <Images
+              <DefaultCards.Images
                 key={index}
                 data={[{ url: formatMediaURL(item.image_url) }]}
               />
             );
           case AgentScopeRuntimeContentType.VIDEO:
             return (
-              <Videos
+              <DefaultCards.Videos
                 key={index}
                 data={[
                   {
@@ -152,7 +156,7 @@ const HostMessage = React.memo(function HostMessage({
             );
           case AgentScopeRuntimeContentType.FILE:
             return (
-              <Files
+              <DefaultCards.Files
                 key={index}
                 data={[
                   {
@@ -182,16 +186,12 @@ const HostMessage = React.memo(function HostMessage({
 });
 
 function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
+  if (isToolLikeResponseMessageType(item.type)) {
+    return <ResponseTool key={item.id} data={item} />;
+  }
   switch (item.type) {
     case AgentScopeRuntimeMessageType.MESSAGE:
       return <HostMessage key={item.id} data={item} />;
-    case AgentScopeRuntimeMessageType.PLUGIN_CALL:
-    case AgentScopeRuntimeMessageType.PLUGIN_CALL_OUTPUT:
-    case AgentScopeRuntimeMessageType.TOOL_CALL:
-    case AgentScopeRuntimeMessageType.TOOL_CALL_OUTPUT:
-    case AgentScopeRuntimeMessageType.MCP_CALL:
-    case AgentScopeRuntimeMessageType.MCP_CALL_OUTPUT:
-      return <ResponseTool key={item.id} data={item} />;
     case AgentScopeRuntimeMessageType.MCP_APPROVAL_REQUEST:
       return <ResponseTool key={item.id} data={item} isApproval />;
     case AgentScopeRuntimeMessageType.REASONING:
@@ -208,18 +208,23 @@ function renderResponseMessage(item: IAgentScopeRuntimeMessage) {
 
 function DefaultHostResponseCard({
   data,
+  messageId,
   isLast,
   contentPrepend,
   contentAppend,
 }: {
   data: IAgentScopeRuntimeResponse;
+  messageId: string;
   isLast?: boolean;
   contentPrepend?: React.ReactNode;
   contentAppend?: React.ReactNode;
 }) {
   const { t } = useTranslation();
+  const regenerate = useContext(ChatRegenerateContext);
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
+  const nickNode =
+    typeof nick === "string" || React.isValidElement(nick) ? nick : null;
   const mergedMessages = useMemo(
     () => AgentScopeRuntimeResponseBuilder.mergeToolMessages(data.output),
     [data.output],
@@ -265,7 +270,7 @@ function DefaultHostResponseCard({
       {avatar ? (
         <Flex align="center" gap={8} style={{ marginBottom: 8 }}>
           <Avatar src={avatar} />
-          {nick ? <span>{nick}</span> : null}
+          {nickNode ? <span>{nickNode}</span> : null}
         </Flex>
       ) : null}
       {contentPrepend}
@@ -308,11 +313,25 @@ function DefaultHostResponseCard({
         );
       })}
       {data.error ? <ResponseError data={data.error} /> : null}
+      {!messages.length && data.status === "canceled" ? (
+        <Bubble.Interrupted title={t("chat.turnCanceled")} />
+      ) : null}
       {contentAppend}
       {AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
         <ResponseArtifactList messages={messages} />
       ) : null}
-      <ResponseActions data={data} isLast={isLast} />
+      <ResponseActions data={data} messageId={messageId} isLast={isLast} />
+      {regenerate &&
+      isLast &&
+      AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
+        <IconButton
+          aria-label={t("chat.regenerate")}
+          title={t("chat.regenerate")}
+          bordered={false}
+          icon={<SparkReplaceLine />}
+          onClick={() => regenerate(messageId)}
+        />
+      ) : null}
     </>
   );
 }
@@ -359,9 +378,13 @@ function HostRequestCardContent(props: { data: ChatRequestData }) {
 
   const fallback = () => (
     <VendorRequestCard
-      data={props.data as AnyCardProps}
-      contentPrepend={contentPrepend as AnyCardProps}
-      contentAppend={contentAppend as AnyCardProps}
+      data={
+        props.data as unknown as React.ComponentProps<
+          typeof VendorRequestCard
+        >["data"]
+      }
+      contentPrepend={contentPrepend}
+      contentAppend={contentAppend}
     />
   );
 
@@ -386,6 +409,7 @@ export function HostRequestCard(props: { data: ChatRequestData }) {
 }
 
 function HostResponseCardContent(props: {
+  id: string;
   data: ChatResponseData;
   isLast?: boolean;
 }) {
@@ -433,6 +457,7 @@ function HostResponseCardContent(props: {
   const fallback = () => (
     <DefaultHostResponseCard
       data={props.data as unknown as IAgentScopeRuntimeResponse}
+      messageId={props.id}
       isLast={props.isLast}
       contentPrepend={contentPrepend}
       contentAppend={contentAppend}
@@ -460,6 +485,7 @@ function HostResponseCardContent(props: {
 const MemoizedHostResponseCard = React.memo(HostResponseCardContent);
 
 export function HostResponseCard(props: {
+  id: string;
   data: ChatResponseData;
   isLast?: boolean;
 }) {

@@ -67,6 +67,7 @@
     "reload": "Recarregar"
   },
   "portabilityImport": {
+    "qwenpawOnly": "A importação está disponível apenas para agentes que usam o backend QwenPaw. Selecione um agente QwenPaw para continuar.",
     "title": "Importar",
     "description": "Traga conversas e configurações de ferramentas de outros aplicativos de IA para o QwenPaw.",
     "steps": {
@@ -965,7 +966,11 @@
     "zipOnly": "Only .zip files are supported for upload",
     "fileSizeExceeded": "File size exceeds {{limit}}MB limit. Current file: {{size}}MB",
     "channels": "Canais",
-    "allChannels": "Todos",
+    "allChannels": "Todos os canais",
+    "allChannelsHint": "“Todos os canais” inclui canais conectados no futuro.",
+    "selectChannels": "Selecione pelo menos um canal ou todos os canais",
+    "channelUnavailable": "Indisponível no momento",
+    "channelsLoadFailed": "Não foi possível carregar os canais.",
     "lastUpdated": "Atualizado",
     "searchPlaceholder": "Filtrar by Nome",
     "listView": "List Visualizar",
@@ -2391,15 +2396,17 @@
     "unavailable": "Ausente",
     "alreadyBound": "Já vinculado",
     "tooMany": "No máximo {{max}} diretórios podem ser vinculados.",
-    "countTitle": "Número de diretórios vinculados"
+    "countTitle": "Número de diretórios vinculados",
+    "syncAsAgentDefault": "Usar esta configuração de espaço de trabalho em novas tarefas"
   },
   "agentConfig": {
     "title": "Configuracao",
-    "projectDirectoryTitle": "Diretório de projeto padrão",
-    "projectDirectoryDescription": "Diretório padrão usado para arquivos e comandos.",
+    "projectDirectoryTitle": "Workspace padrão do Agent",
+    "projectDirectoryDescription": "Workspace padrão do Agent usado para arquivos e comandos.",
     "projectDirectoryDefault": "Padrão do agente",
-    "changeProjectDirectory": "Alterar diretório",
-    "projectDirectoryWorkspaceFallback": "Usando o workspace do agente",
+    "changeProjectDirectory": "Gerenciar",
+    "manageDefaultFolders": "Workspace padrão",
+    "projectDirectoryWorkspaceFallback": "Usando o diretório de configuração do Agent",
     "enhancedCodeCapability": "Aprimorar capacidade de código",
     "enhancedCodeCapabilityTooltip": "Adiciona ferramentas de código sem alterar o diretório do projeto.",
     "enhancedCodeCapabilityDescription": "Ative AST, LSP, prompts de código, contexto Git e controle de versão.",
@@ -2789,6 +2796,7 @@
     "embeddingHealthCheckTimeout": "Tempo limite de inicialização",
     "embeddingHealthCheckTimeoutTooltip": "Tempo limite por tentativa para o teste de conexão e a verificação de embedding na inicialização do ReMe",
     "embeddingHealthCheckTimeoutRequired": "O tempo limite de inicialização é obrigatório",
+    "embeddingHealthCheckTimeoutRange": "O tempo limite de inicialização deve ser maior que 0 e no máximo 300 segundos",
     "embeddingMaxBatchSizeTooltip": "Maximum number of items in a single batch embedding request",
     "embeddingMaxBatchSizeRequired": "Max batch Tamanho e obrigatorio",
     "toolExecutionLevelTitle": "Modo de Aprovação de Ferramentas",
@@ -3041,6 +3049,18 @@
     "desktopApplication": "Aplicativo desktop",
     "languageHint": "Altera o idioma da interface neste dispositivo.",
     "themeHint": "Use aparência clara, escura ou de acordo com o sistema.",
+    "customTheme": "Tema personalizado",
+    "customThemeHint": "Escolha uma paleta ou ajuste as cores e o raio dos cantos.",
+    "themePalette": "Paleta do tema",
+    "accentColor": "Cor de destaque",
+    "accentHover": "Destaque ao passar o mouse",
+    "accentBackground": "Fundo do destaque",
+    "cornerRadius": "Raio dos cantos",
+    "darkAccentColor": "Destaque escuro",
+    "darkSurface": "Superfície escura",
+    "themeSaved": "Tema salvo",
+    "themeReset": "Tema redefinido",
+    "themeSaveFailed": "Não foi possível salvar o tema",
     "contentWidth": "Largura da mensagem",
     "contentWidthHint": "Use a largura padrão ou expanda as conversas para a largura disponível.",
     "contentWidthStandard": "Padrão",
@@ -3074,8 +3094,7 @@
     "newTask": "Nova tarefa",
     "groups": {
       "cronShort": "Agendado",
-      "subagentShort": "Subagente",
-      "loadMore": "Carregar mais · {{count}} restantes"
+      "subagentShort": "Subagente"
     },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"
@@ -3215,9 +3234,25 @@
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
-      "noConversations": "Sem conversas"
+      "noConversations": "Sem conversas",
+      "noMatchingConversations": "Nenhuma conversa correspondente",
+      "groupBy": "Agrupar por",
+      "groupByTime": "Por tempo",
+      "groupBySource": "Por origem",
+      "groupByNone": "Sem agrupamento"
     },
-    "conversationHistory": "Histórico de conversas"
+    "conversationHistory": "Histórico de conversas",
+    "history": {
+      "empty": "Sem histórico de conversas"
+    },
+    "sessionGroup": {
+      "today": "Hoje",
+      "recent": "Últimos 7 dias",
+      "earlier": "Anteriores"
+    },
+    "regenerate": "Gerar novamente",
+    "regenerateUnavailable": "Esta interação antiga não tem ID de solicitação. Envie uma nova mensagem para continuar.",
+    "turnCanceled": "Interrompido"
   },
   "security": {
     "parent": "Configuracoes",
@@ -4325,13 +4360,13 @@
     "exitTooltip": "Sair do Modo de Codificação",
     "btnCode": "Código",
     "btnChat": "Chat",
-    "selectProject": "Selecionar Diretório do Projeto",
-    "selectProjectDesc": "Escolha um projeto para trabalhar ou use o workspace padrão",
-    "tabWorkspace": "Workspace Padrão",
+    "selectProject": "Selecionar Workspace do Projeto",
+    "selectProjectDesc": "Escolha um projeto para trabalhar ou use o diretório de configuração do Agent",
+    "tabWorkspace": "Diretório de Configuração do Agent",
     "tabClone": "Clonar Repositório",
     "tabLocal": "Importar Projeto Local",
     "tabNew": "Novo Projeto",
-    "workspaceDesc": "Usar o diretório de workspace do agente atual",
+    "workspaceDesc": "Usar o diretório de configuração do Agent atual",
     "cloneUrl": "URL do Repositório Git",
     "cloneUrlPlaceholder": "https://github.com/user/repo.git",
     "cloneName": "Nome do Projeto (opcional)",
@@ -4347,7 +4382,7 @@
     "createBtn": "Criar Projeto",
     "switchProject": "Trocar Projeto",
     "currentProject": "Projeto Atual",
-    "resetToWorkspace": "Redefinir para Workspace Padrão",
+    "resetToWorkspace": "Redefinir para o Diretório de Configuração do Agent",
     "dropPrimary": "Arraste uma pasta aqui ou clique para navegar",
     "dropSecondary": "Arraste do Finder ou cole um caminho abaixo",
     "pathHint": "Insira o caminho absoluto completo (começando com / ou ~)",
@@ -4355,14 +4390,8 @@
     "dropFailed": "Falha ao ler a pasta",
     "workingDir": "Diretório de trabalho",
     "importCopyNote": "A pasta será copiada para a biblioteca de projetos gerenciada do QwenPaw. Os arquivos originais não serão modificados.",
-    "importCopyDesc": "A importacao cria uma copia da pasta. O Agent trabalha na copia e seus arquivos originais nao sao alterados. Para trabalhar diretamente no original, use \"Abrir diretorio\".",
-    "tabOpenDir": "Abrir diretório",
-    "openDirDesc": "Abrir um diretório local existente — nenhum arquivo será copiado",
-    "openDirBtn": "Abrir este diretório",
-    "openDirLoading": "Carregando...",
+    "importCopyDesc": "A importacao cria uma copia da pasta. O Agent trabalha na copia e seus arquivos originais nao sao alterados. Para trabalhar diretamente no original, use \"Workspace padrão\".",
     "openDirEmpty": "Sem subdiretórios",
-    "openDirHome": "Início",
-    "openDirRefresh": "Atualizar",
     "openDirHiddenFolders": "Pastas Ocultas"
   },
   "market": {

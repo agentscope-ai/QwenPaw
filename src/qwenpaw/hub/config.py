@@ -283,21 +283,7 @@ class HubConfigStore:
     ) -> HubConfig:
         """Apply explicit YAML or return the database-owned settings."""
         with self._connect() as connection:
-            mode_row = connection.execute(
-                "SELECT value_json FROM hub_settings "
-                "WHERE key = 'registration_mode'",
-            ).fetchone()
-            overlay = (
-                load_hub_config(
-                    path,
-                    legacy_invitation_mode=(
-                        mode_row is not None
-                        and json.loads(mode_row["value_json"]) == "invite"
-                    ),
-                )
-                if path is not None
-                else None
-            )
+            overlay = load_hub_config(path) if path is not None else None
             if overlay is not None and available_provisioners is not None:
                 _validate_provisioners(overlay, available_provisioners)
             persisted = self._load_persisted(connection)
@@ -514,8 +500,6 @@ class HubConfigStore:
 
 def load_hub_config(
     path: Path | None,
-    *,
-    legacy_invitation_mode: bool = False,
 ) -> HubConfig:
     """Load one strict YAML file or return built-in defaults."""
     if path is None:
@@ -533,10 +517,7 @@ def load_hub_config(
         )
     if "version" not in raw:
         raise ValueError(f"Hub config is missing version: {resolved}")
-    raw, upgraded = upgrade_registration(
-        raw,
-        invitation_mode=legacy_invitation_mode,
-    )
+    raw, upgraded = upgrade_registration(raw)
     if upgraded:
         logging.getLogger(__name__).warning(
             "Hub config %s uses deprecated registration.enabled; "

@@ -67,6 +67,7 @@
     "reload": "Muat ulang"
   },
   "portabilityImport": {
+    "qwenpawOnly": "Impor hanya tersedia untuk agen yang menggunakan backend QwenPaw. Pilih agen QwenPaw untuk melanjutkan.",
     "title": "Impor",
     "description": "Pindahkan percakapan dan pengaturan alat dari aplikasi AI lain ke QwenPaw.",
     "steps": {
@@ -386,6 +387,18 @@
     "desktopApplication": "Aplikasi desktop",
     "languageHint": "Mengubah bahasa antarmuka di perangkat ini.",
     "themeHint": "Gunakan tampilan terang, gelap, atau ikuti sistem.",
+    "customTheme": "Tema khusus",
+    "customThemeHint": "Pilih palet tema atau sesuaikan warna dan radius sudut.",
+    "themePalette": "Palet tema",
+    "accentColor": "Warna aksen",
+    "accentHover": "Aksen saat diarahkan",
+    "accentBackground": "Latar aksen",
+    "cornerRadius": "Radius sudut",
+    "darkAccentColor": "Aksen gelap",
+    "darkSurface": "Permukaan gelap",
+    "themeSaved": "Tema disimpan",
+    "themeReset": "Tema diatur ulang",
+    "themeSaveFailed": "Gagal menyimpan tema",
     "contentWidth": "Lebar pesan",
     "contentWidthHint": "Gunakan lebar standar atau perluas percakapan ke ruang yang tersedia.",
     "contentWidthStandard": "Standar",
@@ -1059,8 +1072,7 @@
     "newTask": "Tugas baru",
     "groups": {
       "cronShort": "Terjadwal",
-      "subagentShort": "Subagen",
-      "loadMore": "Muat lebih banyak · {{count}} tersisa"
+      "subagentShort": "Subagen"
     },
     "fileReference": {
       "codeSnippet": "Cuplikan kode · {{count}} baris"
@@ -1202,7 +1214,18 @@
       "searchConversations": "Cari…",
       "noConversations": "Tidak ada percakapan"
     },
-    "conversationHistory": "Riwayat Percakapan"
+    "conversationHistory": "Riwayat Percakapan",
+    "history": {
+      "empty": "Tidak ada riwayat obrolan"
+    },
+    "sessionGroup": {
+      "today": "Hari ini",
+      "recent": "7 hari terakhir",
+      "earlier": "Sebelumnya"
+    },
+    "regenerate": "Buat ulang",
+    "regenerateUnavailable": "Giliran lama ini tidak memiliki ID permintaan. Kirim pesan baru untuk melanjutkan.",
+    "turnCanceled": "Dihentikan"
   },
   "modelSelector": {
     "selectModel": "Pilih model",
@@ -1518,7 +1541,11 @@
     "uploadZip": "Unggah via ZIP",
     "downloadFromPool": "Muat dari Kumpulan Skill",
     "channels": "Saluran",
-    "allChannels": "Semua",
+    "allChannels": "Semua kanal",
+    "allChannelsHint": "“Semua kanal” mencakup kanal yang terhubung di masa mendatang.",
+    "selectChannels": "Pilih setidaknya satu kanal atau semua kanal",
+    "channelUnavailable": "Saat ini tidak tersedia",
+    "channelsLoadFailed": "Gagal memuat kanal.",
     "lastUpdated": "Diperbarui",
     "searchPlaceholder": "Filter berdasarkan nama",
     "listView": "Tampilan daftar",
@@ -2253,13 +2280,13 @@
     "exitTooltip": "Keluar dari Mode Coding",
     "btnCode": "Kode",
     "btnChat": "Obrolan",
-    "selectProject": "Pilih Direktori Proyek",
-    "selectProjectDesc": "Pilih proyek untuk dikerjakan, atau gunakan workspace default",
-    "tabWorkspace": "Workspace Default",
+    "selectProject": "Pilih Workspace Proyek",
+    "selectProjectDesc": "Pilih proyek untuk dikerjakan, atau gunakan direktori konfigurasi Agent",
+    "tabWorkspace": "Direktori Konfigurasi Agent",
     "tabClone": "Clone Repositori",
     "tabLocal": "Impor Proyek Lokal",
     "tabNew": "Proyek Baru",
-    "workspaceDesc": "Gunakan direktori workspace agen saat ini",
+    "workspaceDesc": "Gunakan direktori konfigurasi Agent saat ini",
     "cloneUrl": "URL Repositori Git",
     "cloneUrlPlaceholder": "https://github.com/user/repo.git",
     "cloneName": "Nama Proyek (opsional)",
@@ -2275,7 +2302,7 @@
     "createBtn": "Buat Proyek",
     "switchProject": "Ganti Proyek",
     "currentProject": "Proyek Saat Ini",
-    "resetToWorkspace": "Reset ke Workspace Default",
+    "resetToWorkspace": "Reset ke Direktori Konfigurasi Agent",
     "dropPrimary": "Seret folder ke sini, atau klik untuk menjelajah",
     "dropSecondary": "Seret dari Finder atau tempel path di bawah",
     "pathHint": "Masukkan path absolut lengkap (dimulai dengan / atau ~)",
@@ -2283,14 +2310,8 @@
     "dropFailed": "Gagal membaca folder",
     "workingDir": "Direktori kerja",
     "importCopyNote": "Folder akan disalin ke pustaka proyek terkelola QwenPaw. File asli tidak akan diubah.",
-    "importCopyDesc": "Impor akan membuat salinan folder. Agent bekerja pada salinan, file asli tidak diubah. Untuk bekerja langsung pada aslinya, gunakan \"Buka Direktori\".",
-    "tabOpenDir": "Buka Direktori",
-    "openDirDesc": "Buka direktori lokal yang sudah ada — tidak ada file yang disalin",
-    "openDirBtn": "Buka Direktori Ini",
-    "openDirLoading": "Memuat...",
+    "importCopyDesc": "Impor akan membuat salinan folder. Agent bekerja pada salinan, file asli tidak diubah. Untuk bekerja langsung pada aslinya, gunakan \"Workspace Bawaan\".",
     "openDirEmpty": "Tidak ada subdirektori",
-    "openDirHome": "Beranda",
-    "openDirRefresh": "Segarkan",
     "openDirHiddenFolders": "Folder Tersembunyi"
   },
   "market": {
@@ -3353,15 +3374,17 @@
     "unavailable": "Hilang",
     "alreadyBound": "Sudah terikat",
     "tooMany": "Maksimal {{max}} direktori dapat diikat.",
-    "countTitle": "Jumlah direktori yang diikat"
+    "countTitle": "Jumlah direktori yang diikat",
+    "syncAsAgentDefault": "Gunakan pengaturan ruang kerja ini untuk tugas baru"
   },
   "agentConfig": {
     "title": "Konfigurasi",
-    "projectDirectoryTitle": "Direktori proyek default",
-    "projectDirectoryDescription": "Direktori default untuk file dan perintah.",
+    "projectDirectoryTitle": "Workspace Agent bawaan",
+    "projectDirectoryDescription": "Workspace Agent bawaan untuk file dan perintah.",
     "projectDirectoryDefault": "Default Agen",
-    "changeProjectDirectory": "Ubah direktori",
-    "projectDirectoryWorkspaceFallback": "Menggunakan workspace agen",
+    "changeProjectDirectory": "Kelola",
+    "manageDefaultFolders": "Workspace bawaan",
+    "projectDirectoryWorkspaceFallback": "Menggunakan direktori konfigurasi Agent",
     "enhancedCodeCapability": "Kemampuan kode lanjutan",
     "enhancedCodeCapabilityTooltip": "Menambahkan alat kode tanpa mengubah direktori proyek.",
     "enhancedCodeCapabilityDescription": "Aktifkan AST, LSP, prompt kode, konteks Git, dan kontrol sumber.",
@@ -3755,6 +3778,7 @@
     "embeddingHealthCheckTimeout": "Batas Waktu Inisialisasi",
     "embeddingHealthCheckTimeoutTooltip": "Batas waktu per percobaan untuk tes koneksi dan pemeriksaan embedding saat ReMe dimulai",
     "embeddingHealthCheckTimeoutRequired": "Batas waktu inisialisasi wajib diisi",
+    "embeddingHealthCheckTimeoutRange": "Batas waktu inisialisasi harus lebih besar dari 0 dan paling lama 300 detik",
     "embeddingMaxBatchSizeTooltip": "Jumlah item maksimum dalam satu permintaan embedding batch",
     "embeddingMaxBatchSizeRequired": "Ukuran batch maksimum wajib diisi",
     "toolExecutionLevelTitle": "Mode Persetujuan Alat",

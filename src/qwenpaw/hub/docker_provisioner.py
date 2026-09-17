@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import hashlib
 import importlib
+import ipaddress
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -17,7 +19,11 @@ from typing import Any
 
 from .credentials import runtime_credential_name_allowed
 from .models import RuntimeRecord, RuntimeState
-from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
+from .provisioner import (
+    RuntimeModelNetwork,
+    RuntimeProvisioner,
+    RuntimeProvisionerAvailability,
+)
 
 DOCKER_HUB_IMAGE = "docker.io/agentscope/qwenpaw"
 ALIYUN_ACR_IMAGE = (
@@ -91,25 +97,28 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         digest = hashlib.sha256(str(self._root_dir).encode("utf-8"))
         self._instance_id = digest.hexdigest()[:12]
 
-    def model_endpoint(self, port: int) -> str:
-        """Use Desktop DNS or the Engine host-gateway mapping."""
-        super().model_endpoint(port)
-        return f"http://host.docker.internal:{port}"
-
-    def _model_network(self, credentials: Mapping[str, str]) -> dict:
-        if not credentials.get("QWENPAW_HUB_MODEL_TOKEN"):
-            return {}
-        operating_system = (
-            self._get_client()
-            .info()
-            .get(
-                "OperatingSystem",
-                "",
-            )
-        )
+    def model_network(self) -> RuntimeModelNetwork:
+        """Use host forwarding on desktop OSes or the Engine bridge IP."""
+        if sys.platform in {"darwin", "win32"}:
+            return RuntimeModelNetwork("127.0.0.1", "host.docker.internal")
+        client = self._get_client()
+        operating_system = client.info().get("OperatingSystem", "")
         if "docker desktop" in operating_system.lower():
-            return {}
-        return {"extra_hosts": {"host.docker.internal": "host-gateway"}}
+            return RuntimeModelNetwork("127.0.0.1", "host.docker.internal")
+        network = client.networks.get("bridge")
+        for config in network.attrs.get("IPAM", {}).get("Config", []):
+            gateway = config.get("Gateway")
+            if not gateway:
+                continue
+            address = ipaddress.ip_address(gateway)
+            if address.version == 4 and not (
+                address.is_unspecified
+                or address.is_multicast
+                or address.is_loopback
+                or address.is_global
+            ):
+                return RuntimeModelNetwork(str(address), str(address))
+        raise RuntimeError("Docker bridge has no private IPv4 gateway")
 
     def configure(self, config: Mapping[str, object]) -> None:
         """Apply validated Docker defaults and resource limits."""
@@ -189,6 +198,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         }
         environment.update(
             {
+                "QWENPAW_RUNNING_IN_CONTAINER": "true",
                 "QWENPAW_WORKING_DIR": "/app/working",
                 "QWENPAW_SECRET_DIR": "/app/working.secret",
                 "QWENPAW_BACKUP_DIR": "/app/working.backups",
@@ -226,7 +236,6 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 },
             },
             **self._resource_limits(),
-            **self._model_network(credentials),
         )
         try:
             port = self._published_port(container)

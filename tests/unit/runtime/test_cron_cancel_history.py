@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Cron cancellation must preserve persisted history, not just the new turn."""
+
 # pylint: disable=protected-access
 
 import asyncio
@@ -161,6 +162,7 @@ async def test_restoration_is_not_duplicated_on_cancel(
     session = SafeJSONSession(save_dir=str(tmp_path))
     ctx = SimpleNamespace(
         extras={"is_cron": True},
+        error=asyncio.CancelledError(),
         agent=agent,
         session_id="cron:test",
         request=SimpleNamespace(user_id="user", channel="console"),

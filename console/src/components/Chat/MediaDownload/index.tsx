@@ -10,7 +10,7 @@ import { Tooltip } from "antd";
 import { Download, LoaderCircle } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
-import Audios from "@agentscope-ai/chat/lib/DefaultCards/Audios";
+import { DefaultCards } from "@agentscope-ai/chat";
 import { getApiUrl } from "../../../api/config";
 import { buildAuthHeaders } from "../../../api/authHeaders";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -141,7 +141,7 @@ export function DownloadableAudios({ data }: { data: AudioData[] }) {
           url={audio.src}
           filename={audio.name}
         >
-          <Audios data={[audio]} />
+          <DefaultCards.Audios data={[audio]} />
         </AudioDownload>
       ))}
     </div>

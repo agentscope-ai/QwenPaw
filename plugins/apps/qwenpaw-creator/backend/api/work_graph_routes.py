@@ -133,7 +133,9 @@ async def dispatch_work_graph_node(
         raise NotFoundError(f"work-graph 节点不存在: {node_id}")
     if node.command is None:
         raise ValidationError(f"节点 {node_id} 不支持直接派发")
-    if node.status.value in ("running", "done"):
+    if node.status.value == "running":
+        # An in-flight execution is provider spend already committed; the
+        # click races the run instead of authorizing a second one.
         return {
             "ok": True,
             "nodeId": node_id,
@@ -145,7 +147,12 @@ async def dispatch_work_graph_node(
             f"节点 {node_id} 的依赖未就绪：" + "、".join(node.missing[:5]),
         )
     scheduler = WorkGraphScheduler(services)
-    await scheduler.dispatch_node(project_id, node)
+    await scheduler.dispatch_node(
+        project_id,
+        node,
+        scheduler.manual_retry_fingerprint(node, tasks),
+        expected_object_versions=(f"project:{snapshot.etag}:work-graph",),
+    )
     return {
         "ok": True,
         "nodeId": node_id,

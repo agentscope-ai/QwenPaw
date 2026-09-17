@@ -17,6 +17,10 @@ from api import model_routes
 from domain.errors import CreatorError, ValidationError
 from models import config as model_config
 from schemas.models import ModelConfigData
+from services.file_agent_runtime import FileCreatorAgentRuntime
+from services.file_agent_runtime import registry as runtime_registry
+from services.project_files.facade import CreatorFileServices
+from services.project_files.models import Project
 
 router = model_routes.router
 
@@ -418,6 +422,109 @@ def test_persisted_only_load_ignores_grounding_env_overrides(
     # The runtime view still lets the environment win.
     with_environment = model_routes.load_model_config()
     assert with_environment.grounding.validation_source == "vlm"
+
+
+def test_config_saves_and_replays_never_scan_or_wake_projects(
+    config_path,
+    monkeypatch,
+    run_scenario,
+) -> None:
+    for env in _REVIEW_ENVS:
+        monkeypatch.delenv(env, raising=False)
+    _write(config_path, _config())
+    assert model_config.is_sync_review_enabled() is False
+    services = CreatorFileServices.create(config_path.parent.parent)
+    sessions = {}
+    for status in ("IDLE", "CANCELLED", "ERROR"):
+        project_id = f"project-config-{status.lower()}"
+
+        def initialize(root, pid=project_id):
+            services.sessions.initialize_staged_project(
+                root,
+                pid,
+                session_id="session-config",
+                conversation_id="conversation-config",
+            )
+
+        services.projects.create(
+            Project.new(project_id=project_id, name=status),
+            initialize_staged_project=initialize,
+        )
+        sessions[project_id] = services.sessions.set_session_status(
+            project_id,
+            "session-config",
+            status,
+        )
+    runtime = FileCreatorAgentRuntime(services)
+    blocked = {project_id: 1 for project_id in sessions}
+    runtime._blocked_heads.update(blocked)
+    monkeypatch.setattr(runtime_registry, "_runtime", runtime)
+    scans = []
+    original_list = services.projects.list
+
+    def list_projects(*args, **kwargs):
+        scans.append(True)
+        return original_list(*args, **kwargs)
+
+    monkeypatch.setattr(services.projects, "list", list_projects)
+
+    async def scenario(client):
+        runtime._loop = asyncio.get_running_loop()
+        try:
+            for method, path, body in (
+                ("PATCH", "self-review", {"sync_enabled": True}),
+                ("PATCH", "self-review", {"operators": {"ocr_text": True}}),
+                ("PATCH", "creation-checkpoints", {"mode": "skip"}),
+                ("PATCH", "media-review", {"mode": "auto_approve"}),
+                ("PATCH", "execution-authorization", {"mode": "allow_all"}),
+                (
+                    "PATCH",
+                    "permission-mode",
+                    {
+                        "execution_authorization": "required",
+                        "creation_checkpoints": "required",
+                        "media_review": "required",
+                    },
+                ),
+                ("PATCH", "llm", {"model_name": "updated-qwen"}),
+                ("POST", "", _config("updated-again")),
+            ):
+                url = "/models/config" + (f"/{path}" if path else "")
+                for attempt in range(2 if path in {"llm", ""} else 1):
+                    previous_mtime = config_path.stat().st_mtime_ns
+                    response = await client.request(
+                        method,
+                        url,
+                        json=body,
+                        headers={"Idempotency-Key": f"config-{path or 'all'}"},
+                    )
+                    assert response.status_code == 200, response.text
+                    if not path:
+                        assert response.headers["x-idempotent-replay"] == (
+                            "true" if attempt else "false"
+                        )
+                    if attempt:
+                        assert config_path.stat().st_mtime_ns == previous_mtime
+                    await asyncio.sleep(0)
+                    assert not scans, "saving settings scanned every Project"
+                    assert not runtime._wake.is_set()
+                    assert runtime._blocked_heads == blocked
+                if body.get("sync_enabled"):
+                    assert model_config.is_sync_review_enabled() is True
+            for project_id, before in sessions.items():
+                assert (
+                    services.sessions.get_project_session_snapshot(
+                        project_id,
+                    )
+                    == before
+                )
+                assert not runtime.runs.list(project_id)
+                assert not runtime.executions.list_tasks(project_id)
+        finally:
+            runtime._loop = None
+
+    run_scenario(_model_app(), scenario)
+    assert model_routes.load_model_config().llm.model_name == "updated-again"
 
 
 def test_model_config_is_single_file_native_and_idempotent(

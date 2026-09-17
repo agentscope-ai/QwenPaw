@@ -22,10 +22,13 @@ from __future__ import annotations
 from domain.enums import SpecialistRole
 from models import config as model_config
 from models.tts_capabilities import require_capability
+from models.video_capabilities import video_reference_voice_support
 
 _SCENARIO_USES = {
     "short_drama": (
-        "本项目是短剧：角色台词用该角色的专属音色合成，与画面在 Timeline 上" "合成；旁白仅在需要解说时使用。"
+        "本项目是短剧：已安排视频原生对白时保留角色台词、口型与原声，"
+        "不再叠加一份 TTS 台词。只有明确采用后期配音或需要画外解说的"
+        "区间才单独合成音频，并按说话者和对应画面分段。"
     ),
     "video_edit": ("本项目是剪辑：以旁白/解说为主，按镜头分段合成后混入成片。"),
     "general": "按项目需要选择旁白解说或角色台词配音。",
@@ -61,7 +64,7 @@ def delegator_guidance() -> str:
         )
     else:
         lines.append(
-            f"- 当前语音模型 {capability.model} 没有系统音色：任何配音都必须"
+            f"- 当前语音模型 {capability.model} 没有系统音色：通过 TTS 合成配音必须"
             "先有角色专属音色。先用 `create_character_voice` 按角色设定设计"
             "音色并绑定到 character 实体（该模型不支持系统音色试音，"
             "sampleText 不可用；只能用 voicePrompt 设计，或用已有音频 "
@@ -73,6 +76,19 @@ def delegator_guidance() -> str:
         "重新创建会替换旧绑定。创建后用 read_project 确认 voice 已绑定到"
         "目标实体；该角色的 tts_generation 传 characterRef 即自动沿用此音色。",
     )
+    if video_reference_voice_support(
+        model_config.get_video_model_name(),
+        model_config.get_video_backend(),
+    ):
+        lines.append(
+            "- 当前视频模型支持参考音色。需要跨镜头、跨集保持角色声音时，"
+            "先为说话角色创建并确认专属音色，确认 voice.sample_source_version_id "
+            "指向真实可用的音频样本；已有符合要求的音色直接复用。R2V 同时引用"
+            "该 character 和其形象参考图时，会自动携带绑定的音频样本。"
+            "在 narrative/video_prompt 中写清逐字台词、说话者和轮流开口的表演；"
+            "参考样本提供声音身份，不替代本段台词，也不需要把同一句台词再作为"
+            "独立 TTS 叠到原生对白上。演唱与说话分别说明，普通 TTS 不冒充演唱。",
+        )
     return "\n".join(lines) + "\n"
 
 

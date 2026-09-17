@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 import pytest
 
 from models import vlm_model
+from utils.exceptions import ModelError
 
 pytestmark = pytest.mark.unit
 
@@ -193,3 +194,39 @@ def test_invalid_media_payload_does_not_poison_capability_cache() -> None:
     assert vlm_model._is_media_related_error(
         "This model does not support multimodal input",
     )
+
+
+def test_anthropic_caller_rejects_video_before_io_or_http(
+    monkeypatch,
+) -> None:
+    def unexpected_inline(*_args, **_kwargs):
+        raise AssertionError("video bytes must not be read")
+
+    class UnexpectedClient:
+        def __init__(self, *_args, **_kwargs):
+            raise AssertionError("provider must not be called")
+
+    monkeypatch.setattr(vlm_model, "_inline_base64", unexpected_inline)
+    monkeypatch.setattr(vlm_model.httpx, "AsyncClient", UnexpectedClient)
+
+    with pytest.raises(ModelError, match="does not support video") as caught:
+        asyncio.run(
+            vlm_model._call_anthropic_vlm(
+                [
+                    {
+                        "type": "video_url",
+                        "video_url": {"url": "file:///tmp/clip.mp4"},
+                    },
+                    {"type": "text", "text": "What happens in this video?"},
+                ],
+                system_prompt="",
+                temperature=0.2,
+                max_tokens=100,
+                timeout=5.0,
+                api_key="test-key",
+                base_url="https://api.anthropic.com",
+                model_name="claude-test",
+            ),
+        )
+
+    assert caught.value.retryable is False

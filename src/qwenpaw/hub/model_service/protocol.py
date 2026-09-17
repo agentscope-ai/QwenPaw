@@ -3,6 +3,8 @@
 
 from fastapi import HTTPException
 
+from .provider_setup import model_provider
+
 _ALLOWED = {
     "model",
     "messages",
@@ -21,6 +23,7 @@ _ALLOWED = {
     "max_tokens",
     "max_completion_tokens",
     "n",
+    "hub_thinking_level",
 }
 
 
@@ -59,6 +62,14 @@ def validate_request(body):
     """Reject connection overrides and unbounded output parameters."""
     if not isinstance(body, dict) or set(body) - _ALLOWED:
         raise HTTPException(422, "Unsupported model request fields")
+    if "hub_thinking_level" in body and body["hub_thinking_level"] not in (
+        "inherit",
+        "off",
+        "low",
+        "medium",
+        "high",
+    ):
+        raise HTTPException(422, "Invalid Hub thinking level")
     if (
         not isinstance(body.get("model"), str)
         or not isinstance(body.get("messages"), list)
@@ -76,7 +87,7 @@ def validate_request(body):
     return min(limits) if limits else None
 
 
-def upstream_payload(body, model, cap):
+def upstream_payload(body, model, cap, connection):
     """Replace model routing and output bounds with server-owned values."""
     payload = {
         k: v
@@ -86,6 +97,7 @@ def upstream_payload(body, model, cap):
             "max_tokens",
             "max_completion_tokens",
             "stream_options",
+            "hub_thinking_level",
         }
     }
     payload.update(
@@ -94,6 +106,26 @@ def upstream_payload(body, model, cap):
             model["output_limit_field"]: cap,
         },
     )
+    level = body.get("hub_thinking_level", "inherit")
+    if level != "inherit":
+        provider = model_provider(model, connection)
+        if not provider.supports_agent_thinking(model["upstream_model"]):
+            raise HTTPException(422, "Model does not support thinking control")
+        controls = provider.get_agent_thinking_kwargs(
+            model["upstream_model"],
+            level,
+        )
+        payload.update(controls.pop("extra_body", {}))
+        if controls.pop("disable_thinking", False):
+            payload.update(
+                enable_thinking=False,
+                thinking={"type": "disabled"},
+            )
+        if "thinking_enable" in controls:
+            controls["enable_thinking"] = controls.pop("thinking_enable")
+        if "thinking_budget" in controls:
+            controls["thinking_budget"] = min(controls["thinking_budget"], cap)
+        payload.update(controls)
     if body.get("stream", False):
         payload["stream_options"] = {"include_usage": True}
     return payload

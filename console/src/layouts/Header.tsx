@@ -1,4 +1,4 @@
-import { Layout, Space, Tooltip, Dropdown } from "antd";
+import { Layout, message, Space, Tooltip, Dropdown } from "antd";
 import type { MenuProps } from "antd";
 import { Button } from "@agentscope-ai/design";
 import {
@@ -16,6 +16,7 @@ import LanguageSwitcher, {
 import ThemeToggleButton from "../components/ThemeToggleButton";
 import { useTheme } from "../contexts/ThemeContext";
 import { Slot } from "../plugins/registry/Slot";
+import { applyLanguagePreference } from "../utils/languagePreference";
 import { openExternalLink } from "../utils/openExternalLink";
 import AppBrand from "./AppBrand";
 import {
@@ -81,8 +82,10 @@ export default function Header({ showBrand = false }: { showBrand?: boolean }) {
         key,
         label,
         onClick: () => {
-          i18n.changeLanguage(key);
-          localStorage.setItem("language", key);
+          applyLanguagePreference(i18n, key, {
+            onPersistError: () =>
+              message.error(t("agentConfig.languageSaveFailed")),
+          });
         },
       })),
     },

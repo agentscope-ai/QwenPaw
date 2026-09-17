@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import { navigate, useParams, useSearchParams } from "@/routing/navigation";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
-import { useWorkGraphStore } from "@/store/workGraphStore";
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import {
   selectLiveTimelineIds,
@@ -28,9 +27,6 @@ import BlueprintPrepDrawer, {
 import PageLoadError from "@/components/PageLoadError";
 import PageSkeleton from "@/components/PageSkeleton";
 import WorkspaceEmptyState from "@/components/WorkspaceEmptyState";
-import AgentActivityIndicator from "@/components/agent/AgentActivityIndicator";
-import { useAgentWorkingState } from "@/selectors/agentWorkingSelectors";
-import { creatorWorkNodeLabel } from "@/lib/creatorPresentation";
 import { useReviewFieldFocus } from "@/routing/reviewFocus";
 
 /**
@@ -42,7 +38,6 @@ import { useReviewFieldFocus } from "@/routing/reviewFocus";
 export default function BlueprintPage() {
   const { t } = useTranslation();
   const { id = "" } = useParams();
-  const activity = useAgentWorkingState(id);
   const query = useSearchParams();
   const project = useProjectSnapshotStore((state) =>
     state.projectId === id ? state.project : null,
@@ -59,9 +54,6 @@ export default function BlueprintPage() {
   const syncStatus = useProjectSnapshotStore((state) => state.syncStatus);
   const syncError = useProjectSnapshotStore((state) => state.syncError);
   const pollOnce = useProjectSnapshotStore((state) => state.pollOnce);
-  const workGraph = useWorkGraphStore((state) =>
-    state.projectId === id ? state.graph : null,
-  );
 
   const shape = useMemo(() => selectNarrativeShape(project), [project]);
   const summaries = useMemo(
@@ -151,9 +143,6 @@ export default function BlueprintPage() {
     if (isVoiceOnlyVisualEntity(entity)) return false;
     return true;
   }).length;
-  const runningNodes = (workGraph?.nodes ?? []).filter(
-    (node) => node.status === "running",
-  );
 
   return (
     <div
@@ -259,50 +248,6 @@ export default function BlueprintPage() {
       )}
 
       <BlueprintRoughCutStrip project={project} onSelectTimeline={openScript} />
-
-      {/* Bottom: production task status bar (design 83:13383). */}
-      <footer className="flex shrink-0 flex-wrap items-center gap-2.5 border-t border-[var(--color-border)] bg-[var(--color-bg-primary)]/70 px-5 py-2.5 backdrop-blur">
-        {runningNodes.length > 0 ? (
-          runningNodes.slice(0, 3).map((node) => (
-            <span
-              key={node.id}
-              className="inline-flex items-center gap-2 rounded-full border border-[rgba(59,130,246,.3)] bg-[rgba(59,130,246,.06)] px-3 py-1 text-[11px] font-medium text-[var(--color-text-secondary)]"
-            >
-              {creatorWorkNodeLabel(node, project)}
-              {node.progress != null &&
-                Number.isFinite(node.progress) &&
-                node.progress >= 0 &&
-                node.progress <= 1 && (
-                  <>
-                    <span className="h-1 w-16 overflow-hidden rounded-full bg-[var(--color-bg-secondary)]">
-                      <span
-                        className="block h-full rounded-full bg-[var(--color-primary,#3b82f6)] transition-[width] duration-500"
-                        style={{
-                          width: `${Math.round(node.progress * 100)}%`,
-                        }}
-                      />
-                    </span>
-                    <span className="tabular-nums text-[var(--color-primary,#3b82f6)]">
-                      {Math.round(node.progress * 100)}%
-                    </span>
-                  </>
-                )}
-            </span>
-          ))
-        ) : activity.state !== "idle" ? (
-          <span
-            className="inline-flex min-w-0 items-center gap-2 text-xs text-[var(--color-text-secondary)]"
-            data-blueprint-activity
-          >
-            <AgentActivityIndicator phase={activity.indicatorPhase} />
-            <span>{activity.hint}</span>
-          </span>
-        ) : (
-          <span className="text-xs text-[var(--color-text-tertiary)]">
-            {t("blueprint.runningEmpty")}
-          </span>
-        )}
-      </footer>
 
       {/* Inline panels: only the workspace column, AgentDock stays visible. */}
       {shape !== "single" && (

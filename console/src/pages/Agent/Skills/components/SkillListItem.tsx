@@ -1,7 +1,7 @@
 import { Button, Checkbox, Switch } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { SkillSpec } from "../../../../api/types";
-import { isSkillBuiltin } from "@/utils/skill";
+import { isSkillBuiltin, normalizeSkillChannels } from "@/utils/skill";
 import { getSkillVisual } from "./SkillCard";
 import dayjs from "dayjs";
 import relativeTime from "dayjs/plugin/relativeTime";
@@ -11,6 +11,7 @@ dayjs.extend(relativeTime);
 
 interface SkillListItemProps {
   skill: SkillSpec;
+  getChannelName?: (key: string) => string;
   batchModeEnabled: boolean;
   isSelected: boolean;
   onSelect: () => void;
@@ -21,6 +22,7 @@ interface SkillListItemProps {
 
 export function SkillListItem({
   skill,
+  getChannelName,
   batchModeEnabled,
   isSelected,
   onSelect,
@@ -30,8 +32,14 @@ export function SkillListItem({
 }: SkillListItemProps) {
   const { t } = useTranslation();
   const isBuiltin = isSkillBuiltin(skill.source);
-  const channels = (skill.channels || ["all"])
-    .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+  const channels = normalizeSkillChannels(skill.channels)
+    .map((ch) =>
+      getChannelName
+        ? getChannelName(ch)
+        : ch === "all"
+        ? t("skills.allChannels")
+        : ch,
+    )
     .join(", ");
 
   return (

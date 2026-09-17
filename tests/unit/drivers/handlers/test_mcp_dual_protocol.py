@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import json
 import logging
 from typing import Any, Callable
@@ -39,6 +40,7 @@ from qwenpaw.drivers.handlers.mcp_streamable_http import (
     _oauth_required_message,
     _same_origin,
     _supported_versions_from_payload,
+    _unwrap_jsonrpc_result,
 )
 
 
@@ -314,6 +316,65 @@ async def test_auto_falls_back_once(monkeypatch, make):
     finally:
         await c.close()
     assert c._impl is None
+
+
+def test_unwrap_gzip_headers_on_decoded_4xx_body():
+    """Rebuilding a 4xx response must not re-decompress already-decoded bytes.
+
+    ``_rpc`` copies original ``Content-Encoding`` after ``aread()`` has
+    already gunzipped the body. Reconstructing ``httpx.Response`` with
+    those headers used to raise ``DecodingError`` and abort legacy fallback.
+    """
+    body = (
+        b"Bad Request: Unsupported protocol version "
+        b"(supported versions: 2025-11-25,2025-06-18,2025-03-26,2024-11-05)\n"
+    )
+    with pytest.raises(httpx.HTTPStatusError) as caught:
+        _unwrap_jsonrpc_result(
+            method="server/discover",
+            status=400,
+            data=None,
+            request=httpx.Request("POST", "http://mcp.test/mcp"),
+            request_id=1,
+            content=body,
+            headers={
+                "content-type": "text/plain; charset=utf-8",
+                "content-encoding": "gzip",
+                "content-length": str(len(body)),
+            },
+        )
+    assert caught.value.response.status_code == 400
+    assert caught.value.response.content == body
+
+
+async def test_auto_falls_back_on_gzip_plain_400(monkeypatch):
+    """Gzip-compressed HTTP 400 on discover is legacy evidence, not a crash."""
+    connected: list[str] = []
+    _fake_stateful(monkeypatch, connected)
+    compressed = gzip.compress(
+        b"Bad Request: Unsupported protocol version "
+        b"(supported versions: 2025-11-25)\n",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            400,
+            content=compressed,
+            headers={
+                "content-type": "text/plain; charset=utf-8",
+                "content-encoding": "gzip",
+            },
+        )
+
+    c = _cli(HttpAutoClient, "dagu", handler)
+    await c.connect()
+    try:
+        assert c.is_connected
+        assert c.is_stateful
+        assert connected == ["dagu"]
+    finally:
+        await c.close()
 
 
 @pytest.mark.parametrize(

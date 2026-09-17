@@ -31,6 +31,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
@@ -593,10 +594,12 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
 
     _bg_task = asyncio.create_task(_background_startup())
+    daily_telemetry = start_daily_telemetry()
 
     try:
         yield
     finally:
+        await daily_telemetry.close()
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()

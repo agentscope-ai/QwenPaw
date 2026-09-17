@@ -8,6 +8,7 @@ from ...providers.openai_provider import OpenAIProvider
 from ...providers.openrouter_provider import OpenRouterProvider
 from ...providers.provider_catalog import BUILTIN_PROVIDERS
 from ...providers.provider_discovery import merge_discovered_model
+from ...providers.provider import ModelInfo
 
 
 def supported_presets():
@@ -43,6 +44,20 @@ def provider_headers(connection: dict) -> dict:
     """Use the same packaged attribution headers as personal providers."""
     preset = supported_presets().get(connection.get("provider_id"))
     return preset.request_headers() if preset is not None else {}
+
+
+def model_provider(model: dict, connection: dict):
+    """Resolve model rules without credentials or personal data."""
+    preset = supported_presets().get(connection.get("provider_id"))
+    provider = (
+        preset.model_copy(deep=True)
+        if preset is not None
+        else OpenAIProvider(id=connection["id"], name=connection["name"])
+    )
+    model_id = model["upstream_model"]
+    if provider.get_model_info(model_id) is None:
+        provider.models.append(ModelInfo(id=model_id, name=model_id))
+    return provider
 
 
 def _discovery_provider(catalog, connection_id: str):

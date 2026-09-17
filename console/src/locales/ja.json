@@ -65,6 +65,7 @@
     "reload": "再読み込み"
   },
   "portabilityImport": {
+    "qwenpawOnly": "インポートは QwenPaw バックエンドを使用するエージェントでのみ利用できます。QwenPaw エージェントを選択して続行してください。",
     "title": "インポート",
     "description": "他の AI アプリの会話とツール設定を QwenPaw に移行します。",
     "steps": {
@@ -747,7 +748,11 @@
     "zipOnly": "アップロードは .zip ファイルのみ対応しています",
     "fileSizeExceeded": "ファイルサイズが{{limit}}MBの制限を超えています。現在のファイル: {{size}}MB",
     "channels": "適用チャンネル",
-    "allChannels": "すべて",
+    "allChannels": "すべてのチャネル",
+    "allChannelsHint": "「すべてのチャネル」には、今後接続するチャネルも含まれます。",
+    "selectChannels": "チャネルを1つ以上、またはすべて選択してください",
+    "channelUnavailable": "現在利用できません",
+    "channelsLoadFailed": "チャネルを読み込めませんでした。",
     "lastUpdated": "更新日時",
     "searchPlaceholder": "名前で絞り込み",
     "listView": "リスト表示",
@@ -2153,15 +2158,17 @@
     "unavailable": "見つかりません",
     "alreadyBound": "既にバインド済み",
     "tooMany": "バインドできるディレクトリは最大 {{max}} 件です。",
-    "countTitle": "設定済みディレクトリ数"
+    "countTitle": "設定済みディレクトリ数",
+    "syncAsAgentDefault": "今後の新しいタスクでこのワークスペース設定を既定にする"
   },
   "agentConfig": {
     "title": "設定",
-    "projectDirectoryTitle": "既定のプロジェクトディレクトリ",
-    "projectDirectoryDescription": "ファイルとコマンドで使用する既定ディレクトリです。",
+    "projectDirectoryTitle": "既定の Agent ワークスペース",
+    "projectDirectoryDescription": "ファイルとコマンドで使用する既定の Agent ワークスペースです。",
     "projectDirectoryDefault": "エージェントの既定値",
-    "changeProjectDirectory": "ディレクトリを変更",
-    "projectDirectoryWorkspaceFallback": "エージェントワークスペースを使用中",
+    "changeProjectDirectory": "管理",
+    "manageDefaultFolders": "既定のワークスペース",
+    "projectDirectoryWorkspaceFallback": "Agent の設定ディレクトリを使用中",
     "enhancedCodeCapability": "コード能力を強化",
     "enhancedCodeCapabilityTooltip": "プロジェクトディレクトリを変更せずにコードツールを追加します。",
     "enhancedCodeCapabilityDescription": "AST、LSP、コードプロンプト、Gitコンテキスト、ソース管理を有効にします。",
@@ -2560,6 +2567,7 @@
     "embeddingHealthCheckTimeout": "初期化タイムアウト",
     "embeddingHealthCheckTimeoutTooltip": "接続テストと ReMe 起動時の埋め込みヘルスチェックにおける各試行のタイムアウト",
     "embeddingHealthCheckTimeoutRequired": "初期化タイムアウトは必須です",
+    "embeddingHealthCheckTimeoutRange": "初期化タイムアウトは 0 秒より大きく 300 秒以下である必要があります",
     "embeddingMaxBatchSizeTooltip": "単一バッチ埋め込みリクエストの最大アイテム数",
     "embeddingMaxBatchSizeRequired": "最大バッチサイズは必須です",
     "maxContextLength": "最大コンテキスト長",
@@ -2790,6 +2798,18 @@
     "desktopApplication": "デスクトップアプリ",
     "languageHint": "このデバイスの表示言語を変更します。",
     "themeHint": "ライト、ダーク、またはシステムに合わせた外観を使用します。",
+    "customTheme": "カスタムテーマ",
+    "customThemeHint": "テーマパレットを選択するか、色と角の丸みを調整します。",
+    "themePalette": "テーマパレット",
+    "accentColor": "アクセントカラー",
+    "accentHover": "ホバー時のアクセント",
+    "accentBackground": "アクセント背景",
+    "cornerRadius": "角の丸み",
+    "darkAccentColor": "ダークアクセント",
+    "darkSurface": "ダークサーフェス",
+    "themeSaved": "テーマを保存しました",
+    "themeReset": "テーマをリセットしました",
+    "themeSaveFailed": "テーマを保存できませんでした",
     "contentWidth": "メッセージ幅",
     "contentWidthHint": "標準幅を使用するか、会話を利用可能な幅まで広げます。",
     "contentWidthStandard": "標準",
@@ -2823,8 +2843,7 @@
     "newTask": "新しいタスク",
     "groups": {
       "cronShort": "定期タスク",
-      "subagentShort": "サブエージェント",
-      "loadMore": "さらに読み込む · 残り {{count}} 件"
+      "subagentShort": "サブエージェント"
     },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"
@@ -2964,9 +2983,25 @@
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
-      "noConversations": "会話なし"
+      "noConversations": "会話なし",
+      "noMatchingConversations": "一致する会話がありません",
+      "groupBy": "グループ化",
+      "groupByTime": "時間順",
+      "groupBySource": "ソース順",
+      "groupByNone": "グループなし"
     },
-    "conversationHistory": "会話履歴"
+    "conversationHistory": "会話履歴",
+    "history": {
+      "empty": "チャット履歴なし"
+    },
+    "sessionGroup": {
+      "today": "今日",
+      "recent": "過去7日間",
+      "earlier": "それ以前"
+    },
+    "regenerate": "再生成",
+    "regenerateUnavailable": "この過去のターンにはリクエスト ID がありません。新しいメッセージを送信してください。",
+    "turnCanceled": "停止済み"
   },
   "security": {
     "parent": "設定",
@@ -4263,13 +4298,13 @@
     "exitTooltip": "コーディングモードを終了する",
     "btnCode": "コード",
     "btnChat": "チャット",
-    "selectProject": "プロジェクトディレクトリを選択",
-    "selectProjectDesc": "作業するプロジェクトを選択するか、デフォルトのワークスペースを使用してください",
-    "tabWorkspace": "デフォルトワークスペース",
+    "selectProject": "プロジェクトワークスペースを選択",
+    "selectProjectDesc": "作業するプロジェクトを選択するか、Agent の設定ディレクトリを使用してください",
+    "tabWorkspace": "Agent 設定ディレクトリ",
     "tabClone": "リポジトリをクローン",
     "tabLocal": "ローカルプロジェクトをインポート",
     "tabNew": "新規プロジェクト",
-    "workspaceDesc": "現在のエージェントのワークスペースディレクトリを使用",
+    "workspaceDesc": "現在の Agent の設定ディレクトリを使用",
     "cloneUrl": "GitリポジトリURL",
     "cloneUrlPlaceholder": "https://github.com/user/repo.git",
     "cloneName": "プロジェクト名（オプション）",
@@ -4285,7 +4320,7 @@
     "createBtn": "プロジェクト作成",
     "switchProject": "プロジェクト切替",
     "currentProject": "現在のプロジェクト",
-    "resetToWorkspace": "デフォルトワークスペースにリセット",
+    "resetToWorkspace": "Agent 設定ディレクトリにリセット",
     "dropPrimary": "フォルダをここにドラッグ、またはクリックして参照",
     "dropSecondary": "Finderからドラッグするか、下にパスを貼り付け",
     "pathHint": "絶対パスを入力してください（/ または ~ で始まる）",
@@ -4293,14 +4328,8 @@
     "dropFailed": "フォルダの読み取りに失敗",
     "workingDir": "作業ディレクトリ",
     "importCopyNote": "フォルダは QwenPaw の管理対象プロジェクトライブラリにコピーされます。元のファイルは変更されません。",
-    "importCopyDesc": "インポートするとフォルダのコピーが作成され、Agent はコピー上で作業します。元のファイルは変更されません。元のディレクトリで直接作業するには「ディレクトリを開く」を使用してください。",
-    "tabOpenDir": "ディレクトリを開く",
-    "openDirDesc": "ローカルの既存ディレクトリを直接開きます（ファイルはコピーされません）",
-    "openDirBtn": "このディレクトリを開く",
-    "openDirLoading": "読み込み中...",
+    "importCopyDesc": "インポートするとフォルダのコピーが作成され、Agent はコピー上で作業します。元のファイルは変更されません。元のディレクトリで直接作業するには「既定のワークスペース」を使用してください。",
     "openDirEmpty": "サブディレクトリがありません",
-    "openDirHome": "ホーム",
-    "openDirRefresh": "更新",
     "openDirHiddenFolders": "隠しフォルダ"
   },
   "market": {

@@ -31,7 +31,6 @@ from pydantic import (
     model_validator,
 )
 
-
 CURRENT_PROJECT_SCHEMA_VERSION = 9
 DEFAULT_TIMELINE_ID = "timeline:main"
 DEFAULT_TIMELINE_TICKS_PER_SECOND = 1_000
@@ -473,6 +472,12 @@ class VisualVariant(StrictModel):
     reference_asset_version_ids: list[EntityId] = Field(default_factory=list)
     reference_artifact_version_ids: list[EntityId] = Field(
         default_factory=list,
+        description=(
+            "参考图（ArtifactVersion id）。同一空间群/风格群的关联场景，"
+            "还接受跨实体风格锚点 visual:<entityId>:<variantId>：派发时"
+            "解析为该基准变体当前选中的图片；基准图未生成前本节点在工作图"
+            "中等待，因此可以在规划期就写好，无需等基准出图。"
+        ),
     )
     generated_artifact_version_ids: list[EntityId] = Field(
         default_factory=list,
@@ -484,6 +489,28 @@ class VisualVariant(StrictModel):
     # entity's continuity.
     derived_from_variant_id: EntityId | None = None
     consistency_tags: list[str] = Field(default_factory=list)
+
+
+VISUAL_ANCHOR_REF_PREFIX = "visual:"
+
+
+def visual_style_anchor(
+    entities: Any,
+    ref: str,
+) -> tuple[str, VisualVariant] | None:
+    """Resolve a style-anchor ref ``visual:<entityId>:<variantId>``.
+
+    Entity and variant ids may themselves contain colons, so the ref is
+    matched against constructed ids instead of being split apart. Returns
+    the owning entity id together with the variant.
+    """
+    if not ref.startswith(VISUAL_ANCHOR_REF_PREFIX):
+        return None
+    for entity_id, entity in entities.items.items():
+        for variant_id, variant in entity.variants.items.items():
+            if ref == f"{VISUAL_ANCHOR_REF_PREFIX}{entity_id}:{variant_id}":
+                return entity_id, variant
+    return None
 
 
 class CharacterVoice(StrictModel):
@@ -758,6 +785,8 @@ class R2VPromptSync(StrictModel):
     plan_fingerprint: Sha256
     storyboard_prompt_fingerprint: Sha256
     video_prompt_fingerprint: Sha256
+    storyboard_input_fingerprint: Sha256 | None = None
+    video_input_fingerprint: Sha256 | None = None
 
 
 class R2VCreation(StrictModel):
@@ -870,7 +899,7 @@ class S2VCreation(StrictModel):
 
 
 class EditCreation(StrictModel):
-    """Creative facts for one selected source range.
+    """Creative facts for one selected uploaded or generated media range.
 
     The exact source and range live in the Element's ``render_source``.  A
     multi-selection edit is represented by multiple Elements, never by a
@@ -1494,6 +1523,7 @@ class Project(StrictModel):
             "scene": set(),
             "prop": set(),
         }
+        anchor_edges: dict[str, list[str]] = {}
         for entity in self.visual.entities.items.values():
             visual_ids[entity.kind].add(entity.entity_id)
             _require_collection_identity(
@@ -1507,11 +1537,23 @@ class Project(StrictModel):
                     variant.reference_asset_version_ids,
                     "visual source",
                 )
-                _require_all(
-                    artifact_versions,
-                    variant.reference_artifact_version_ids,
-                    "visual artifact reference",
-                )
+                for ref in variant.reference_artifact_version_ids:
+                    anchor = visual_style_anchor(self.visual.entities, ref)
+                    if anchor is None:
+                        _require_key(
+                            artifact_versions,
+                            ref,
+                            "visual artifact reference",
+                        )
+                    elif anchor[1] is variant:
+                        raise ValueError(
+                            f"visual style anchor {ref} references itself",
+                        )
+                    else:
+                        anchor_edges.setdefault(
+                            f"visual:{entity.entity_id}:{variant.variant_id}",
+                            [],
+                        ).append(ref)
                 _require_all(
                     artifact_versions,
                     variant.generated_artifact_version_ids,
@@ -1568,6 +1610,7 @@ class Project(StrictModel):
                     entity.voice.sample_source_version_id,
                     "character voice sample version",
                 )
+        _reject_anchor_cycles(anchor_edges)
 
         _require_collection_identity(
             self.visual.cast_lineups,
@@ -1673,12 +1716,10 @@ class Project(StrictModel):
                 if not isinstance(
                     element.render_source,
                     SourceVersionRenderSource,
-                ) or isinstance(
-                    element.render_source,
-                    ArtifactVersionRenderSource,
                 ):
                     raise ValueError(
-                        "Edit Element render_source must select one source asset range",
+                        "Edit Element render_source must select one source "
+                        "or artifact version range",
                     )
                 if element.render_source.source_out_tick is None:
                     raise ValueError(
@@ -1941,6 +1982,40 @@ def _require_key(mapping: dict[str, T], key: str, label: str) -> T:
         return mapping[key]
     except KeyError as exc:
         raise ValueError(f"{label} references missing id {key}") from exc
+
+
+def _reject_anchor_cycles(edges: dict[str, list[str]]) -> None:
+    """A style-anchor cycle gates every member forever: with no image on
+    either side, nothing dispatches and no repair queue names the deadlock,
+    so the commit itself must refuse it."""
+
+    state: dict[str, int] = {}  # 1 = on the current path, 2 = settled
+    for start in edges:
+        if state.get(start):
+            continue
+        stack: list[tuple[str, int]] = [(start, 0)]
+        path: list[str] = []
+        while stack:
+            node, index = stack.pop()
+            if index == 0:
+                state[node] = 1
+                path.append(node)
+            targets = edges.get(node, [])
+            if index < len(targets):
+                stack.append((node, index + 1))
+                nxt = targets[index]
+                mark = state.get(nxt)
+                if mark == 1:
+                    cycle = [*path[path.index(nxt) :], nxt]
+                    raise ValueError(
+                        "visual style anchors form a cycle: "
+                        + " -> ".join(cycle),
+                    )
+                if not mark:
+                    stack.append((nxt, 0))
+            else:
+                state[node] = 2
+                path.pop()
 
 
 def _require_all(mapping: dict[str, Any], keys: list[str], label: str) -> None:

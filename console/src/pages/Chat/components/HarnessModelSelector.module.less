@@ -1,7 +1,7 @@
 .trigger {
   --hms-trigger-text: #201b17;
-  --hms-trigger-bg: rgba(255, 125, 18, 0.08);
-  --hms-trigger-border: rgba(255, 125, 18, 0.3);
+  --hms-trigger-bg: var(--app-accent-faint);
+  --hms-trigger-border: var(--app-accent-border);
   --hms-trigger-icon: var(--app-accent);
 
   display: inline-flex;
@@ -87,9 +87,9 @@
 
 :global(.dark-mode) .trigger {
   --hms-trigger-text: #f5eee8;
-  --hms-trigger-bg: rgba(255, 132, 31, 0.12);
-  --hms-trigger-border: rgba(255, 144, 54, 0.35);
-  --hms-trigger-icon: #ff9a47;
+  --hms-trigger-bg: var(--app-accent-soft);
+  --hms-trigger-border: var(--app-accent-border);
+  --hms-trigger-icon: var(--app-accent-text);
 }
 
 :global(.dark-mode) .panel {

@@ -121,6 +121,29 @@ def workgraph_waits_only_for_review(result: Mapping[str, Any]) -> bool:
     )
 
 
+def _summarize_unstarted(
+    review: int,
+    prompt_sync: int,
+    known_unstarted: int,
+) -> str:
+    """Public wording for a wholly unstarted, pre-dispatch-blocked batch."""
+    detail = []
+    if review:
+        detail.append(f"{review} 项需要先完成现有审阅")
+    if prompt_sync:
+        detail.append(
+            f"{prompt_sync} 项需要先同步分镜/提示词内容" "（可在制作工作台保留现有内容并生成，或重新同步后再制作）",
+        )
+    if other := known_unstarted - review - prompt_sync:
+        detail.append(f"{other} 项制作条件尚未满足")
+    return (
+        "尚未启动制作："
+        + "，".join(detail)
+        + "。本次未创建制作任务，也未加入等待队列。"
+        + "条件满足后需要重新提出制作请求。"
+    )
+
+
 def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
     """Public wording from actual per-target results, without internal refs."""
     if not items:
@@ -137,18 +160,29 @@ def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
         and not item.get("taskId")
         for item in items
     )
+    unauthorized = sum(
+        item.get("status") == "BLOCKED"
+        and item.get("reason")
+        in {"AUTHORIZATION_REJECTED", "AUTHORIZATION_EXPIRED"}
+        and not item.get("taskId")
+        for item in items
+    )
+    # The driver stamps promptSyncRequired on both the pre-dispatch BLOCKED
+    # item and the post-approval re-check item (#7720 finding #1). A pending
+    # creative review wins, so a WAITING_REVIEW item counts as review only;
+    # the sync gate is re-named on the next request once the review clears.
+    # The wording stays public: never echo ``missing`` here, it can carry
+    # internal refs like "visual:scene:home:var:day".
+    prompt_sync = sum(
+        item.get("status") == "BLOCKED"
+        and item.get("reason") in _PRE_DISPATCH_BLOCKERS
+        and item.get("reason") != "WAITING_REVIEW"
+        and item.get("promptSyncRequired") is True
+        and not item.get("taskId")
+        for item in items
+    )
     if known_unstarted == len(items):
-        detail = []
-        if review:
-            detail.append(f"{review} 项需要先完成现有审阅")
-        if other := known_unstarted - review:
-            detail.append(f"{other} 项制作条件尚未满足")
-        return (
-            "尚未启动制作："
-            + "，".join(detail)
-            + "。本次未创建制作任务，也未加入等待队列。"
-            + "条件满足后需要重新提出制作请求。"
-        )
+        return _summarize_unstarted(review, prompt_sync, known_unstarted)
     task_ids = {
         task_id
         for item in items
@@ -169,7 +203,9 @@ def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
         details.append(f"复用已有成果 {reused} 项")
     if review:
         details.append(f"{review} 项等待现有审阅，尚未开始")
-    if other := known_unstarted - review:
+    if prompt_sync:
+        details.append(f"{prompt_sync} 项需先同步分镜/提示词内容，尚未开始")
+    if other := known_unstarted - review - prompt_sync:
         details.append(f"{other} 项制作条件尚未满足，尚未开始")
     failed = sum(
         item.get("status") in {"FAILED", "CANCELLED", "QUARANTINED"}
@@ -177,7 +213,18 @@ def summarize_workgraph_results(items: list[dict[str, Any]]) -> str:
     )
     if failed:
         details.append(f"{failed} 项未能完成")
-    unresolved = len(items) - completed - reused - known_unstarted - failed
+    if unauthorized:
+        details.append(
+            f"{unauthorized} 项生成授权已取消或过期，未调用生成模型；" "不要自行重试，用户重新要求制作后才可再次请求授权",
+        )
+    unresolved = (
+        len(items)
+        - completed
+        - reused
+        - known_unstarted
+        - failed
+        - unauthorized
+    )
     if unresolved:
         details.append(f"{unresolved} 项执行结果尚未确认")
     return "；".join(details) + "。"
@@ -232,6 +279,11 @@ def _publication_artifacts(review: Any) -> tuple[ArtifactVersion, ...] | None:
     records identify the exact index entries and output-selection fields a
     publication can change. Every operation must belong to that whitelist.
     Unknown operations remain a project-wide creative review fence.
+
+    A review may carry several artifacts; accepting the image accepts the
+    whole review (every pending operation at once). That equivalence holds
+    under the current one-task-one-commit practice, where a publication
+    review owns exactly one generation's artifacts.
     """
     operations = getattr(review, "operations", ())
     artifacts = []
@@ -341,7 +393,7 @@ def workgraph_blocking_reviews(
 ) -> list:
     """Join the same review fences used by admission, scoped to this request.
 
-    Creative/mixed reviews and heavy production retain their project fence.
+    Creative/mixed reviews fence the affected production dependencies.
     Independent visual work waits only for its own outputs or input images.
     Run on a worker thread: both snapshot and review discovery read files.
     """
@@ -364,7 +416,13 @@ def workgraph_blocking_reviews(
         slots = frozenset(artifact.slot_id for artifact in artifacts)
         owners = frozenset(artifact.owner_ref for artifact in artifacts)
         for node in nodes:
-            if _blocked_by_active_media_review(node, slots, owners):
+            if _blocked_by_active_media_review(
+                node,
+                slots,
+                owners,
+                graph=graph,
+                project=project,
+            ):
                 joined.append(review)
                 break
             if node.kind in {"visual", "lineup"}:
@@ -582,7 +640,16 @@ async def ready_request_context(
         elif _blocked_by_active_sync_review(
             node,
             sync_review_pending=bool(fences),
-        ) or _blocked_by_active_media_review(node, slots, owners):
+            fences=fences,
+            graph=graph,
+            project=snapshot.project,
+        ) or _blocked_by_active_media_review(
+            node,
+            slots,
+            owners,
+            graph=graph,
+            project=snapshot.project,
+        ):
             blocked[node.node_id] = "WAITING_REVIEW"
         elif node.target_ref and node.target_ref.startswith("element:"):
             if (

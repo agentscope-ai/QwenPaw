@@ -59,6 +59,7 @@ from utils.logger import setup_logger
 from vendor.media_toolkit import frame_stats, review_gates
 
 if TYPE_CHECKING:
+    from schemas.project import Project
     from services.project_files.facade import CreatorFileServices
 
 logger = setup_logger("creator.run_review.media")
@@ -105,6 +106,7 @@ _VIDEO_CHECK_KEYS = (
 # final render (COMPOSE_FINAL_VIDEO) stays with the render_review module.
 REVIEWED_COMMANDS: dict[str, str] = {
     "GENERATE_ASSET": "image",
+    "GENERATE_CAST_LINEUP_IMAGE": "image",
     "GENERATE_STORYBOARD_IMAGE": "image",
     "GENERATE_R2V_VIDEO": "element_video",
     "GENERATE_S2V_VIDEO": "element_video",
@@ -141,7 +143,10 @@ def reserve_media_review(
     try:
         from models.config import is_media_review_enabled
 
-        if not is_media_review_enabled():
+        if (
+            published_result.get("selfReviewEnabled") is not True
+            or not is_media_review_enabled()
+        ):
             return None
         if (
             str(published_result.get("commandType") or "")
@@ -187,6 +192,62 @@ def _project_is_live(
     return root.is_dir() and (root / "project.json").is_file()
 
 
+def _visual_plan_context(
+    project: "Project",
+    published: Mapping[str, Any],
+    artifact: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Describe the particular reference being reviewed, not the whole film."""
+    context: dict[str, Any] = {}
+    target_ref = str(published.get("targetRef") or "")
+    if target_ref.startswith("asset:"):
+        entity = project.visual.entities.items.get(
+            target_ref.removeprefix("asset:"),
+        )
+        if entity is not None:
+            context["artifact_purpose"] = f"{entity.kind}_reference"
+            context["visual_identity"] = {
+                "name": entity.name,
+                "description": entity.description,
+                "continuity": entity.continuity,
+            }
+            metadata = (
+                artifact.get("metadata", {})
+                if isinstance(artifact, Mapping)
+                else {}
+            )
+            variant_id = published.get("variantId") or metadata.get(
+                "variantId",
+            )
+            variant = entity.variants.items.get(str(variant_id))
+            if variant is not None:
+                context["variant_requirements"] = variant.requirements
+                context["generation_prompt"] = variant.prompt
+    elif target_ref.startswith("lineup:"):
+        lineup = project.visual.cast_lineups.items.get(
+            target_ref.removeprefix("lineup:"),
+        )
+        if lineup is not None:
+            context["artifact_purpose"] = "cast_lineup_reference"
+            context["lineup"] = {
+                "name": lineup.name,
+                "description": lineup.description,
+                "relative_notes": lineup.relative_notes,
+                "expected_character_count": len(lineup.character_refs),
+                "characters": [
+                    {
+                        "name": entity.name,
+                        "description": entity.description,
+                        "continuity": entity.continuity,
+                    }
+                    for ref in lineup.character_refs
+                    if (entity := project.visual.entities.items.get(ref))
+                    is not None
+                ],
+            }
+    return context
+
+
 def _derive_plan_context(
     services: "CreatorFileServices",
     project_id: str,
@@ -211,6 +272,7 @@ def _derive_plan_context(
             # Declared frame shape feeds the machine-parameter check.
             context["aspect_ratio"] = aspect_ratio
         target_ref = context["target_ref"]
+        context.update(_visual_plan_context(project, published, artifact))
         planned_texts: list[str] = []
         for timeline in project.timelines.items.values():
             for element in timeline.elements_by_id.values():
@@ -227,7 +289,17 @@ def _derive_plan_context(
                     getattr(creation, "narrative", "") or "",
                 )
                 context["generation_prompt"] = str(
-                    getattr(creation, "video_prompt", "") or "",
+                    getattr(
+                        creation,
+                        (
+                            "storyboard_prompt"
+                            if context["command"]
+                            == "GENERATE_STORYBOARD_IMAGE"
+                            else "video_prompt"
+                        ),
+                        "",
+                    )
+                    or "",
                 )
                 context["expected_duration_seconds"] = (
                     element.span.duration_tick / timeline.ticks_per_second
@@ -755,7 +827,14 @@ async def review_media_artifact(
             _to_thread_or_join(frame_stats.image_stats, media_path),
             _image_objective_facts(media_path),
         )
-        stats = {**sampled, "judgment": frame_stats.judge_stats(sampled)}
+        stats = {
+            **sampled,
+            "metric_context": (
+                "全画面 signalstats 的 sat_mean 是 YUV 色度幅值经位深归一化，"
+                "不是主体的 HSV 饱和度。白底、米白留白、黑白服装和轮廓研究会"
+                "降低全图均值，不能据此要求设计板增饱和或自动判为质量缺陷。"
+            ),
+        }
         system_prompt = build_image_check_system_prompt()
         frame_lines = "- 第 1 张图 = 待审阅图像"
         image_paths = [str(media_path)]
@@ -1061,6 +1140,9 @@ def schedule_media_review(
     Single idempotent scheduling point: every successful convergence path
     (fresh generation, idempotent replay, crash recovery) may call it; the
     review-side admission dedups already-reviewed versions.
+
+    Eligibility is frozen in the durable result before publication. Old
+    results without that decision stay unreviewed when settings change.
     """
     # A reservation always names a non-empty slot, so the empty pair reads as
     # "nothing reserved" and keeps the release path free of optional unpacking.
@@ -1073,7 +1155,10 @@ def schedule_media_review(
     try:
         from models.config import is_media_review_enabled
 
-        if not is_media_review_enabled():
+        if (
+            published_result.get("selfReviewEnabled") is not True
+            or not is_media_review_enabled()
+        ):
             return
         kind = REVIEWED_COMMANDS.get(
             str(published_result.get("commandType") or ""),

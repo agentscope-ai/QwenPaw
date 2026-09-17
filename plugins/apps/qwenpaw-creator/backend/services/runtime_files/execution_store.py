@@ -725,10 +725,10 @@ class ProjectExecutionStore:
             task_id,
             child_label="task_id",
         )
-        with self._project_lock(
-            project_id,
-            _lifecycle_lock_held=_lifecycle_lock_held,
-        ):
+        # Like Run heads and Task lists, this is an atomic, read-only head
+        # lookup. Polling must not wait behind an unrelated Project commit;
+        # mutation callers still acquire the domain lock and perform CAS.
+        with self._project_lock_read(project_id):
             record = self._task_store(project_id, task_id).read()
             self._assert_task_identity(record, project_id, task_id)
             return record

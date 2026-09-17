@@ -84,73 +84,56 @@ def test_text_http_error_marks_5xx_retryable() -> None:
     assert "上游未返回响应体" in str(error)
 
 
-def test_text_model_missing_key_error_names_configuration(
+@pytest.mark.parametrize(
+    "module,prefix,protocol,model_name,base_url,payload,extra",
+    [
+        (
+            text_model,
+            "text",
+            "Anthropic Claude",
+            "claude-sonnet",
+            "https://api.anthropic.com",
+            "ping",
+            "https://api.anthropic.com",
+        ),
+        (
+            vlm_model,
+            "vlm",
+            "Google Gemini",
+            "gemini-2.5-pro",
+            "https://generativelanguage.googleapis.com",
+            [{"type": "text", "text": "hi"}],
+            "VLM_API_KEY",
+        ),
+    ],
+)
+def test_missing_key_error_names_configuration(
     monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        text_model.model_config,
-        "get_text_api_key",
-        lambda: "",
-    )
-    monkeypatch.setattr(
-        text_model.model_config,
-        "get_text_model_name",
-        lambda: "claude-sonnet",
-    )
-    monkeypatch.setattr(
-        text_model.model_config,
-        "get_text_protocol",
-        lambda: "Anthropic Claude",
-    )
-    monkeypatch.setattr(
-        text_model.model_config,
-        "get_text_base_url",
-        lambda: "https://api.anthropic.com",
-    )
-
-    with pytest.raises(ModelError) as excinfo:
-        asyncio.run(text_model.chat_completion("ping"))
-
-    message = str(excinfo.value)
-    assert "Anthropic Claude" in message
-    assert "claude-sonnet" in message
-    assert "https://api.anthropic.com" in message
-    assert not excinfo.value.retryable
-
-
-def test_vlm_missing_key_error_names_configuration(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        vlm_model.model_config,
-        "get_vlm_api_key",
-        lambda: "",
-    )
-    monkeypatch.setattr(
-        vlm_model.model_config,
-        "get_vlm_base_url",
-        lambda: "https://generativelanguage.googleapis.com",
-    )
-    monkeypatch.setattr(
-        vlm_model.model_config,
-        "get_vlm_model_name",
-        lambda: "gemini-2.5-pro",
-    )
-    monkeypatch.setattr(
-        vlm_model.model_config,
-        "get_vlm_protocol",
-        lambda: "Google Gemini",
-    )
-
-    with pytest.raises(ModelError) as excinfo:
-        asyncio.run(
-            vlm_model.chat_completion([{"type": "text", "text": "hi"}]),
+    module,
+    prefix,
+    protocol,
+    model_name,
+    base_url,
+    payload,
+    extra,
+):
+    for field, value in {
+        "api_key": "",
+        "model_name": model_name,
+        "protocol": protocol,
+        "base_url": base_url,
+    }.items():
+        monkeypatch.setattr(
+            module.model_config,
+            f"get_{prefix}_{field}",
+            lambda value=value: value,
         )
-
+    with pytest.raises(ModelError) as excinfo:
+        asyncio.run(module.chat_completion(payload))
     message = str(excinfo.value)
-    assert "Google Gemini" in message
-    assert "gemini-2.5-pro" in message
-    assert "VLM_API_KEY" in message
+    assert protocol in message
+    assert model_name in message
+    assert extra in message
     assert not excinfo.value.retryable
 
 
