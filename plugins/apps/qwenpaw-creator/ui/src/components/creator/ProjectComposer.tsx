@@ -231,6 +231,13 @@ export function ProjectComposer({ open, onClose }: ProjectComposerProps) {
           <TextArea
             value={projectDescription}
             onChange={(e) => setProjectDescription(e.target.value)}
+            onPaste={(e) => {
+              const files = Array.from(e.clipboardData?.files ?? []);
+              if (files.length > 0) {
+                e.preventDefault();
+                addFiles(files, "file");
+              }
+            }}
             autoSize={{ minRows: 5, maxRows: 12 }}
             placeholder={t(SCENARIO_TERMS[scenario].descriptionKey)}
             className="!border-none !bg-transparent !p-4 !text-sm !shadow-none focus:!shadow-none"

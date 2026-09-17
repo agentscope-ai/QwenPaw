@@ -1598,6 +1598,12 @@ describe("ChatPage coverage", () => {
 
   // ── handleBeforeSubmit: SDK query override ─────────────────────────────
   it("returns the prepared query after the SDK captures input data", async () => {
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    let acquireOwnership: (() => void) | undefined;
+    vi.mocked(holdOwnershipLock).mockImplementationOnce((_key, onAcquired) => {
+      acquireOwnership = onAcquired;
+      return Promise.resolve();
+    });
     mockBeginLoopModeSubmission.mockImplementation(
       (text: string) => `/goal ${text}`,
     );
@@ -1605,7 +1611,6 @@ describe("ChatPage coverage", () => {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
-    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
     await waitFor(() =>
       expect(holdOwnershipLock).toHaveBeenCalledWith(
         "test-session",
@@ -1613,6 +1618,10 @@ describe("ChatPage coverage", () => {
         expect.any(AbortSignal),
       ),
     );
+
+    // Rendering the SDK does not imply that this tab owns the send lock.
+    await waitFor(() => expect(acquireOwnership).toBeTypeOf("function"));
+    await act(async () => acquireOwnership!());
 
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
     expect(typeof beforeSubmit).toBe("function");
@@ -1645,9 +1654,16 @@ describe("ChatPage coverage", () => {
     expect(submitted.query).toBe("/goal do the task");
     expect(submitted.fileList).toEqual(inputData.fileList);
     expect(submitted.mentions).toEqual(inputData.mentions);
+    expect(mockQueueEnqueue).not.toHaveBeenCalled();
   });
 
   it("leaves the query unchanged for a non-QwenPaw backend", async () => {
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    let acquireOwnership: (() => void) | undefined;
+    vi.mocked(holdOwnershipLock).mockImplementationOnce((_key, onAcquired) => {
+      acquireOwnership = onAcquired;
+      return Promise.resolve();
+    });
     mockRequiresQwenPawModel.mockReturnValue(false);
     mockBeginLoopModeSubmission.mockImplementation(
       (text: string) => `/goal ${text}`,
@@ -1656,6 +1672,8 @@ describe("ChatPage coverage", () => {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
+    await waitFor(() => expect(acquireOwnership).toBeTypeOf("function"));
+    await act(async () => acquireOwnership!());
 
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
     const result = await beforeSubmit({ query: "do the task" });

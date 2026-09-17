@@ -121,7 +121,7 @@ version: 1
 control_plane:
   public_base_url: https://qwenpaw.example.com
   registration:
-    enabled: false
+    mode: closed
     default_role: user
 
 runtime:
@@ -159,6 +159,8 @@ The reverse proxy must:
 `public_base_url` also determines callback URLs for OpenRouter, MCP, and other OAuth integrations, so it must match the address users open in their browsers.
 
 ## Manage users
+
+Registration uses `control_plane.registration.mode`: `open`, `invite`, or `closed`. On the first startup after upgrading, Hub automatically migrates legacy database settings while preserving registration policy, users, runtimes, and credentials. YAML files using `registration.enabled` remain readable with a deprecation warning; Hub does not rewrite the file. If both fields appear in the same configuration, `mode` takes precedence.
 
 For an internal team, disable self-registration and create accounts in **User Management**. If trusted members need to register themselves, restrict access to the entry point and enable registration rate limiting. Do not open registration to unknown users.
 
@@ -252,4 +254,24 @@ Do not expose the current version to mutually untrusted users, high-risk code, o
 
 For long-running use within a trusted team, also configure HTTPS, host and network access controls, monitoring, and regular backups.
 
-Future releases are planned to add per-user quotas, resource-usage accounting, Kubernetes support, multi-node scheduling, autoscaling, and stronger tenant isolation. Stay tuned, or read the [contribution guide](/docs/contributing) and help build these capabilities directly.
+Future releases are planned to add resource-usage accounting, Kubernetes support, multi-node scheduling, autoscaling, and stronger tenant isolation. Stay tuned, or read the [contribution guide](/docs/contributing) and help build these capabilities directly.
+
+## Organization models, invitations, and token budgets
+
+Administrators save upstream connections and API keys in **Models**, then configure model display names, access grants, and the organization default. The gateway currently supports the OpenAI Chat Completions protocol. Members select authorized models through the **Hub** provider on the existing model settings page without configuring a key. Upstream addresses, connections, and keys remain private to Hub. Personal providers can coexist with organization models; their requests do not consume Hub budgets or appear in Hub usage reports.
+
+API keys can only be written or replaced; even administrator APIs never return their original values. Refresh before updating connections or models to avoid overwriting another administrator's changes. Key rotation, unpublishing, and access revocation apply to new requests; requests already admitted still settle normally.
+
+Hub supplies organization models without a separate managed-model toggle. Catalog and grant changes take effect on the next access without restarting runtimes. Each runtime receives a dedicated model endpoint and a runtime-specific credential. The endpoint exposes only the catalog and inference, not the management UI or administrator APIs. These model routes are not exposed on the control-plane port, and ordinary Hub login tokens cannot authenticate to the model endpoint.
+
+The model listener never binds to all interfaces. Local runtimes use `127.0.0.1`. Docker Desktop and macOS/Windows container VMs use `host.docker.internal` to reach the host's loopback listener. Native Linux Docker Engine adds a listener on the default Docker bridge's detected private IPv4 gateway, and containers use that exact address. Hub prepares the interfaces required by available runtime backends at startup and persists one shared port. If discovery or binding fails, Hub reports an error instead of falling back to `0.0.0.0`. Runtime startup verifies authenticated connectivity from inside the runtime. After changing Docker networking, restart Hub; configure host networking to allow the container-to-bridge connection without exposing the port externally. Colima deployments must ensure that container DNS resolves `host.docker.internal` through Colima's internal resolver.
+
+An existing runtime without a model credential can continue using personal providers and ordinary runtime APIs. Restart it through Hub to provision organization-model access. Upgrade runtime programs or container images through the normal deployment process; Hub does not retrofit credentials into a running process.
+
+In **Users → Invitation codes**, administrators can generate batches of up to 100 single-use codes, valid for seven days by default. First select invitation registration in **System settings → Access and registration**. Members then redeem a code to choose their username and password; each code creates one ordinary member. Models granted to everyone are inherited automatically, and invitations may add specific model grants and a personal budget. Codes are displayed only once: download them immediately and distribute them yourself. Revoking a batch affects only unredeemed codes.
+
+Administrators can reset ordinary members' passwords in **Users**. The old password and login credentials become invalid immediately; conversations, files, user identity, and the runtime are preserved. Resetting a password does not re-enable a disabled member.
+
+Use **System settings → Organization budget** to set the organization limit, default member limit, and settlement timezone. A member's details can inherit the default, use a custom limit, allow unlimited usage, or pause calls. The overview shows monthly usage, daily trends, and usage by member and model. Organization and member limits both apply to chat, multi-turn tool use, and background calls through the managed gateway. The monthly settlement timezone becomes fixed after the first call.
+
+Admission reserves the model's maximum input window plus its capped output tokens. On completion, Hub settles against upstream usage and returns the difference. A request is rejected when the remaining budget cannot cover the reservation, even if the budget is not exhausted. Before publishing a model with finite budgets, verify its actual input boundary and output-limit parameter. Stream cancellation, missing usage, or a Hub restart can result in conservative charging of the full reservation. Reports distinguish confirmed usage, conservative charges, and in-flight reservations. These statistics cover only Hub-managed calls and are not a provider invoice.

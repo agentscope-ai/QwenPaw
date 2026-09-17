@@ -505,7 +505,7 @@ async def _probe_multimodal_if_needed(
         from ..prompt import _get_active_model_info
         from ...providers.provider_manager import ProviderManager
 
-        model_info, _ = _get_active_model_info()
+        model_info, _ = await run_sync_io(_get_active_model_info)
         if model_info is None or model_info.supports_multimodal is not None:
             return None
 
@@ -523,7 +523,7 @@ async def _probe_multimodal_if_needed(
         except Exception:
             pass
         if not active:
-            active = manager.get_active_model()
+            active = await run_sync_io(manager.get_active_model)
         if not active:
             return None
 
@@ -695,10 +695,14 @@ async def view_image(image_path: str) -> ToolChunk:
     """
     # Determine whether we need a fallback hint
     fallback_hint: str | None = None
-    if not _check_multimodal_support("image"):
+    if not await run_sync_io(_check_multimodal_support, "image"):
         probe_result = await _probe_multimodal_if_needed("image")
         if probe_result is not True:
-            fallback_hint = _get_multimodal_fallback_hint("image", image_path)
+            fallback_hint = await run_sync_io(
+                _get_multimodal_fallback_hint,
+                "image",
+                image_path,
+            )
 
     if _is_url(image_path):
         err = _validate_url_extension(
@@ -825,10 +829,14 @@ async def view_video(video_path: str) -> ToolChunk:
             A VideoBlock the model can inspect, or an error message.
     """
     fallback_hint: str | None = None
-    if not _check_multimodal_support("video"):
+    if not await run_sync_io(_check_multimodal_support, "video"):
         probe_result = await _probe_multimodal_if_needed("video")
         if probe_result is not True:
-            fallback_hint = _get_multimodal_fallback_hint("video", video_path)
+            fallback_hint = await run_sync_io(
+                _get_multimodal_fallback_hint,
+                "video",
+                video_path,
+            )
 
     if _is_url(video_path):
         err = _validate_url_extension(

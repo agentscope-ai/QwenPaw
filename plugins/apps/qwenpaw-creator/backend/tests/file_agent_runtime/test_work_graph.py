@@ -11,6 +11,7 @@ identities, dependency edges and all seven states.
 
 from __future__ import annotations
 
+import hashlib
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,8 @@ from domain.enums import TaskStatus
 from services.file_agent_runtime.work_graph import (
     WorkNodeStatus,
     derive_work_graph,
+    dispatch_ledger_fingerprint,
+    dispatch_slot,
 )
 from services.project_files.models import (
     ArtifactSlot,
@@ -264,7 +267,7 @@ def test_element_lane_storyboard_then_video() -> None:
     project = _project()
     project.visual.entities.items["char:a"] = _entity(
         "char:a",
-        {"var:x": "art:a"},
+        {"var:x": "art:a", "var:later-state": None},
     )
     project.visual.entities.order.append("char:a")
     _add_element(
@@ -322,21 +325,36 @@ def test_missing_storyboard_prompt_is_a_model_required_gap() -> None:
     assert storyboard in graph.model_required_nodes()
 
 
-def test_missing_visual_prompt_is_a_model_required_gap() -> None:
+@pytest.mark.parametrize("base_state", ["none", "waiting", "selected"])
+def test_missing_visual_prompt_is_a_model_required_gap(base_state) -> None:
     project = _project()
-    entity = _entity("char:hero", {"var:default": None})
+    variants = {"var:default": None}
+    if base_state != "none":
+        variants["var:base"] = (
+            "artifact:base" if base_state == "selected" else None
+        )
+    entity = _entity("char:hero", variants)
     entity.variants.items["var:default"].prompt = ""
+    if base_state != "none":
+        entity.variants.items[
+            "var:default"
+        ].derived_from_variant_id = "var:base"
     project.visual.entities.items[entity.entity_id] = entity
     project.visual.entities.order.append(entity.entity_id)
 
     graph = derive_work_graph(project)
     visual = graph.by_id["visual:char:hero:var:default"]
     assert visual.status is WorkNodeStatus.GATED
-    assert visual.missing == ("visual_prompt 缺失",)
-    assert visual.authored_text_gap
+    if base_state == "waiting":
+        assert visual.missing == ("visual:char:hero:var:base",)
+        assert not visual.authored_text_gap
+        assert visual not in graph.model_required_nodes()
+    else:
+        assert visual.missing == ("visual_prompt 缺失",)
+        assert visual.authored_text_gap
+        assert visual in graph.model_required_nodes()
     # A one-line entity description fallback must never start a paid image
     # task before visual development has committed its production prompt.
-    assert visual in graph.model_required_nodes()
     assert visual not in graph.ready_media_nodes()
 
 
@@ -354,11 +372,8 @@ def _element_with_landed_storyboard(
     )
 
 
-def test_declared_pending_lineup_gates_every_storyboard() -> None:
-    """Field run 2026-08-12 (27dc): a single-character closing scene
-    derived READY while another element's declared lineup was pending;
-    the executor's project-wide gate rejected the dispatch and the node
-    stalled READY-but-undispatchable until a restart."""
+def test_pending_lineup_only_gates_storyboards_that_reference_it() -> None:
+    """The graph and executor both scope readiness to actual shot inputs."""
 
     project = _project()
     for ref in ("char:a", "char:b"):
@@ -394,10 +409,11 @@ def test_declared_pending_lineup_gates_every_storyboard() -> None:
 
     graph = derive_work_graph(project)
     solo = graph.by_id["storyboard:elem:solo"]
-    assert solo.status is WorkNodeStatus.GATED
-    assert "lineup:lineup:duo" in solo.missing
+    assert solo.status is WorkNodeStatus.READY
+    assert "lineup:lineup:duo" not in solo.deps
+    assert graph.by_id["storyboard:elem:pair"].status is WorkNodeStatus.GATED
 
-    # The lineup lands: every storyboard unblocks together.
+    # Its consuming pair opens only after the required group anchor lands.
     project.visual.cast_lineups.items[
         "lineup:duo"
     ].selected_artifact_version_id = "art:lineup"
@@ -462,21 +478,35 @@ def test_stale_manual_storyboard_is_visible_but_not_dispatched() -> None:
 
 
 @pytest.mark.parametrize(
-    "changed_input",
-    ["aspect_ratio", "storyboard_prompt"],
+    ("changed_input", "legacy", "expected"),
+    [
+        ("aspect_ratio", False, WorkNodeStatus.STALE),
+        ("storyboard_prompt", False, WorkNodeStatus.STALE),
+        ("media_models", False, WorkNodeStatus.DONE),
+        ("media_models", True, WorkNodeStatus.DONE),
+    ],
 )
-def test_completed_storyboard_stales_when_implicit_prompt_input_changes(
+def test_completed_storyboard_reacts_only_to_its_content_inputs(
     changed_input,
+    legacy,
+    expected,
 ) -> None:
     project = _project()
     _add_element(project, _element("elem:one"))
     node_id = "storyboard:elem:one"
     original = derive_work_graph(project).by_id[node_id].dispatch_fingerprint
+    models = ("old-image", "old-video")
+    ledger = dispatch_ledger_fingerprint(original, models)
+    slot = (
+        hashlib.sha256(ledger.encode()).hexdigest()[:16]
+        if legacy
+        else dispatch_slot(ledger)
+    )
     task = _task(
         "image_generation",
         "element:elem:one",
         TaskStatus.SUCCEEDED,
-        idempotency_key=f"dag-{node_id}-{original}",
+        idempotency_key=f"dag-{node_id}-{slot}",
     )
     _select_slot(
         project,
@@ -490,7 +520,7 @@ def test_completed_storyboard_stales_when_implicit_prompt_input_changes(
         derive_work_graph(
             project,
             tasks=[task],
-            media_models=("image", "video"),
+            media_models=models,
         )
         .by_id[node_id]
         .status
@@ -499,24 +529,28 @@ def test_completed_storyboard_stales_when_implicit_prompt_input_changes(
 
     if changed_input == "aspect_ratio":
         project.settings.aspect_ratio = "9:16"
-    else:
+    elif changed_input == "storyboard_prompt":
         creation = (
             project.timelines.items["timeline:main"]
             .elements_by_id["elem:one"]
             .creation
         )
         creation.storyboard_prompt += "主角挥手。"
+    else:
+        models = ("new-image", "new-video")
 
-    assert (
-        derive_work_graph(
-            project,
-            tasks=[task],
-            media_models=("image", "video"),
-        )
-        .by_id[node_id]
-        .status
-        is WorkNodeStatus.STALE
+    before = project.model_dump(mode="json")
+    graph = derive_work_graph(
+        project,
+        tasks=[task],
+        media_models=models,
     )
+    assert graph.by_id[node_id].status is expected
+    if expected is WorkNodeStatus.DONE:
+        assert node_id not in {
+            node.node_id for node in graph.regeneration_nodes()
+        }
+    assert project.model_dump(mode="json") == before
 
 
 def test_failed_storyboard_reopens_when_aspect_ratio_changes() -> None:
@@ -795,161 +829,63 @@ def test_upgrade_does_not_restale_artifacts_from_the_old_ledger() -> None:
     )
 
 
-def test_t2v_element_produces_only_video_node() -> None:
-    """T2V elements skip storyboard and produce only a video node."""
-    from services.project_files.models import T2VCreation
-
+@pytest.mark.parametrize(
+    "mode,inputs,command",
+    [
+        ("t2v", {"video_prompt": "A beautiful sunset"}, "GENERATE_R2V_VIDEO"),
+        (
+            "i2v",
+            {
+                "video_prompt": "A beautiful sunset",
+                "first_frame_version_id": "img:first-frame",
+            },
+            "GENERATE_R2V_VIDEO",
+        ),
+        (
+            "s2v",
+            {
+                "portrait_version_id": "img:portrait",
+                "audio_version_id": "aud:voice",
+            },
+            "GENERATE_S2V_VIDEO",
+        ),
+    ],
+)
+@pytest.mark.parametrize("ready", [True, False])
+def test_non_r2v_modes_schedule_video_only_when_inputs_ready(
+    mode,
+    inputs,
+    command,
+    ready,
+):
     project = _project()
-    element = TimelineElement(
-        element_id="elem:t2v",
-        label="T2V Element",
-        span=TimelineSpan(start_tick=0, duration_tick=4_000),
-        location=ElementLocation(),
-        creation=T2VCreation(
-            video_prompt="A beautiful sunset",
+    _add_element(
+        project,
+        TimelineElement.model_validate(
+            {
+                "element_id": "elem:video",
+                "label": "Video",
+                "span": {"start_tick": 0, "duration_tick": 4000},
+                "location": {},
+                "creation": {"type": mode, **(inputs if ready else {})},
+            },
         ),
     )
-    _add_element(project, element)
-
     graph = derive_work_graph(project)
-    by_id = graph.by_id
-
-    # No storyboard node for T2V
-    assert "storyboard:elem:t2v" not in by_id
-
-    # Video node exists and is READY (prompt is set)
-    video_node = by_id["video:elem:t2v"]
-    assert video_node.status is WorkNodeStatus.READY
-    assert video_node.command == "GENERATE_R2V_VIDEO"
-    assert video_node.dispatch_arguments == {"mode": "t2v"}
-
-
-def test_t2v_element_gated_without_prompt() -> None:
-    """T2V elements are GATED when video_prompt is missing."""
-    from services.project_files.models import T2VCreation
-
-    project = _project()
-    element = TimelineElement(
-        element_id="elem:t2v",
-        label="T2V Element",
-        span=TimelineSpan(start_tick=0, duration_tick=4_000),
-        location=ElementLocation(),
-        creation=T2VCreation(video_prompt=""),
-    )
-    _add_element(project, element)
-
-    graph = derive_work_graph(project)
-    video_node = graph.by_id["video:elem:t2v"]
-    assert video_node.status is WorkNodeStatus.GATED
-    assert "video_prompt 缺失" in video_node.missing
-
-
-def test_i2v_element_produces_only_video_node() -> None:
-    """I2V elements skip storyboard and depend on first_frame."""
-    from services.project_files.models import I2VCreation
-
-    project = _project()
-    element = TimelineElement(
-        element_id="elem:i2v",
-        label="I2V Element",
-        span=TimelineSpan(start_tick=0, duration_tick=4_000),
-        location=ElementLocation(),
-        creation=I2VCreation(
-            video_prompt="A beautiful sunset",
-            first_frame_version_id="img:first-frame",
-        ),
-    )
-    _add_element(project, element)
-
-    graph = derive_work_graph(project)
-    by_id = graph.by_id
-
-    # No storyboard node for I2V
-    assert "storyboard:elem:i2v" not in by_id
-
-    # Video node exists and is READY (prompt + first_frame are set)
-    video_node = by_id["video:elem:i2v"]
-    assert video_node.status is WorkNodeStatus.READY
-    assert video_node.command == "GENERATE_R2V_VIDEO"
-    assert video_node.dispatch_arguments == {"mode": "i2v"}
-
-
-def test_i2v_element_gated_without_first_frame() -> None:
-    """I2V elements are GATED when first_frame_version_id is missing."""
-    from services.project_files.models import I2VCreation
-
-    project = _project()
-    element = TimelineElement(
-        element_id="elem:i2v",
-        label="I2V Element",
-        span=TimelineSpan(start_tick=0, duration_tick=4_000),
-        location=ElementLocation(),
-        creation=I2VCreation(
-            video_prompt="A beautiful sunset",
-            first_frame_version_id=None,
-        ),
-    )
-    _add_element(project, element)
-
-    graph = derive_work_graph(project)
-    video_node = graph.by_id["video:elem:i2v"]
-    assert video_node.status is WorkNodeStatus.GATED
-    assert "first_frame_version_id 缺失" in video_node.missing
-
-
-def test_s2v_element_produces_only_video_node() -> None:
-    """S2V elements skip storyboard and depend on portrait + audio."""
-    from services.project_files.models import S2VCreation
-
-    project = _project()
-    element = TimelineElement(
-        element_id="elem:s2v",
-        label="S2V Element",
-        span=TimelineSpan(start_tick=0, duration_tick=4_000),
-        location=ElementLocation(),
-        creation=S2VCreation(
-            portrait_version_id="img:portrait",
-            audio_version_id="aud:voice",
-        ),
-    )
-    _add_element(project, element)
-
-    graph = derive_work_graph(project)
-    by_id = graph.by_id
-
-    # No storyboard node for S2V
-    assert "storyboard:elem:s2v" not in by_id
-
-    # Video node exists and is READY (portrait + audio are set)
-    video_node = by_id["video:elem:s2v"]
-    assert video_node.status is WorkNodeStatus.READY
-    assert video_node.command == "GENERATE_S2V_VIDEO"
-    assert video_node.dispatch_arguments == {}
-
-
-def test_s2v_element_gated_without_portrait_or_audio() -> None:
-    """S2V elements are GATED when portrait or audio is missing."""
-    from services.project_files.models import S2VCreation
-
-    project = _project()
-    # Missing both portrait and audio
-    element = TimelineElement(
-        element_id="elem:s2v",
-        label="S2V Element",
-        span=TimelineSpan(start_tick=0, duration_tick=4_000),
-        location=ElementLocation(),
-        creation=S2VCreation(
-            portrait_version_id=None,
-            audio_version_id=None,
-        ),
-    )
-    _add_element(project, element)
-
-    graph = derive_work_graph(project)
-    video_node = graph.by_id["video:elem:s2v"]
-    assert video_node.status is WorkNodeStatus.GATED
-    assert "portrait_version_id 缺失" in video_node.missing
-    assert "audio_version_id 缺失" in video_node.missing
+    assert "storyboard:elem:video" not in graph.by_id
+    node = graph.by_id["video:elem:video"]
+    if ready:
+        assert node.status is WorkNodeStatus.READY
+        assert node.command == command
+        assert node.dispatch_arguments == (
+            {} if mode == "s2v" else {"mode": mode}
+        )
+    else:
+        assert node.status is WorkNodeStatus.GATED
+        for field in inputs:
+            if mode == "i2v" and field == "video_prompt":
+                continue  # I2V can animate the first frame without extra text.
+            assert f"{field} 缺失" in node.missing
 
 
 def test_mixed_timeline_compose_includes_t2v_i2v_s2v() -> None:
@@ -1012,6 +948,99 @@ def test_mixed_timeline_compose_includes_t2v_i2v_s2v() -> None:
     assert "video:elem:t2v" in compose.deps
     assert "video:elem:i2v" in compose.deps
     assert "video:elem:s2v" in compose.deps
+
+
+@pytest.mark.parametrize(
+    "command_name",
+    ["COMPOSE_FINAL_VIDEO", "EXECUTE_EDIT"],
+)
+def test_episode_compilation_reuses_artifacts_with_original_audio(
+    command_name: str,
+) -> None:
+    """Saved Edit facts must reach a render recipe without new generation."""
+    from domain.enums import CreatorCommandType
+    from pydantic import ValidationError
+    from services.media_files.local_execution import _timeline_execution
+    from services.project_files.models import (
+        ArtifactVersionRenderSource,
+        EditCreation,
+    )
+
+    project = _project()
+    for episode in range(1, 7):
+        version_id = f"art:episode-{episode}"
+        _select_slot(
+            project,
+            slot_id=f"timeline:timeline:ep{episode}:render",
+            kind="final_video",
+            owner_ref=f"timeline:timeline:ep{episode}",
+            version_id=version_id,
+        )
+        project.assets.files_by_id[
+            f"file-{version_id}"
+        ].media_type = "video/mp4"
+        project.assets.artifact_versions_by_id[
+            version_id
+        ].duration_seconds = 10.0
+        _add_element(
+            project,
+            TimelineElement(
+                element_id=f"elem:episode-{episode}",
+                location=ElementLocation(),
+                span=TimelineSpan(
+                    start_tick=(episode - 1) * 3000,
+                    duration_tick=3000,
+                ),
+                creation=EditCreation(intent="按集序复用已有成片"),
+                render_source=ArtifactVersionRenderSource(
+                    version_id=version_id,
+                    source_in_tick=1000,
+                    source_out_tick=7000,
+                    playback_rate=2.0,
+                ),
+            ),
+        )
+    project = Project.model_validate(project.model_dump(mode="json"))
+    graph = derive_work_graph(project)
+    compose = graph.by_id["compose:timeline:main"]
+    assert compose.status is WorkNodeStatus.READY
+    assert compose.deps == ()
+    assert not any(
+        node.kind in {"storyboard", "video"} for node in graph.nodes
+    )
+
+    resolved = _timeline_execution(
+        project=project,
+        timeline=project.timelines.items["timeline:main"],
+        target_ref="timeline:timeline:main",
+        command=CreatorCommandType[command_name],
+    )
+    assert [item.version_id for item in resolved.inputs] == [
+        f"art:episode-{episode}" for episode in range(1, 7)
+    ]
+    for item in resolved.inputs:
+        assert (item.start_seconds, item.end_seconds) == (1.0, 7.0)
+        assert item.playback_rate == 2.0
+        assert item.original_sound == "preserve"
+    assert all(
+        item["ref"].startswith("artifact-version:")
+        for item in resolved.read_set
+    )
+    assert [item["startTick"] for item in resolved.source_selections] == list(
+        range(0, 18000, 3000),
+    )
+
+    # Allowing generated inputs must retain the exact trim/span contract.
+    raw = project.model_dump(mode="json")
+    source = raw["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        "elem:episode-1"
+    ]["render_source"]
+    source["source_out_tick"] = None
+    with pytest.raises(ValidationError, match="requires source_out_tick"):
+        Project.model_validate(raw)
+    source["source_out_tick"] = 5000
+    with pytest.raises(ValidationError, match="duration mismatch"):
+        Project.model_validate(raw)
 
 
 def test_stale_nodes_are_model_required() -> None:
@@ -1122,6 +1151,7 @@ def test_multi_timeline_project_derives_script_nodes_gating_elements() -> None:
 def test_stale_script_version_marks_script_node_stale() -> None:
     project = _project()
     _add_second_timeline(project)
+    project.timelines.items["timeline:ep2"].description = "已有旧正文"
     _select_slot(
         project,
         slot_id="script:timeline:ep2",
@@ -1136,6 +1166,33 @@ def test_stale_script_version_marks_script_node_stale() -> None:
     assert node.status is WorkNodeStatus.STALE
     # STALE is terminal for the scheduler: not READY, not dispatched.
     assert node not in graph.ready_media_nodes()
+
+
+@pytest.mark.parametrize("body", ["已发布正文：孙老四端茶，说完台词。", "", "  \n"])
+def test_authored_episode_body_satisfies_script_dependency(body: str) -> None:
+    project = _project()
+    _add_second_timeline(project)
+    project.timelines.items["timeline:main"].description = body
+    project.timelines.items["timeline:main"].synopsis = "仅梗概不足以制作"
+    _add_element(project, _element("elem:one"))
+
+    graph = derive_work_graph(project)
+    script = graph.by_id["script:timeline:main"]
+    storyboard = graph.by_id["storyboard:elem:one"]
+    assert (script.status is WorkNodeStatus.DONE) == bool(body.strip())
+    assert (storyboard.status is WorkNodeStatus.READY) == bool(body.strip())
+    assert graph.by_id["script:timeline:ep2"].status is WorkNodeStatus.READY
+
+    # Once artifact versioning is used, deselecting/rejecting its result
+    # must not silently fall back to an older inline body.
+    project.assets.artifact_slots_by_id["script:timeline:main"] = ArtifactSlot(
+        slot_id="script:timeline:main",
+        kind="timeline_script",
+        owner_ref="timeline:timeline:main",
+    )
+    graph = derive_work_graph(project)
+    assert graph.by_id["script:timeline:main"].status is WorkNodeStatus.READY
+    assert graph.by_id["storyboard:elem:one"].status is WorkNodeStatus.GATED
 
 
 def test_single_timeline_with_script_slot_opts_into_script_flow() -> None:
@@ -1230,3 +1287,255 @@ def test_snapshot_does_not_count_toward_script_flow() -> None:
         node.node_id for node in graph.nodes if node.kind == "script"
     )
     assert script_nodes == ["script:timeline:ep2", "script:timeline:main"]
+
+
+def test_style_anchor_gates_then_rides_the_base_selection() -> None:
+    """`visual:<entity>:<variant>` refs plan a spatial group up front.
+
+    Field run 2026-09-11 (卧室/家门口/电梯口): related scenes rendered in
+    parallel with zero cross references. The anchor gates the dependent
+    scene until the base image is selected, then resolves into the dispatch
+    fingerprint so a re-selected base re-identifies the node.
+    """
+
+    project = _project()
+    project.visual.entities.items["scene:bedroom"] = _entity(
+        "scene:bedroom",
+        {"var:base": None},
+    )
+    project.visual.entities.order.append("scene:bedroom")
+    project.visual.entities.items["scene:door"] = _entity(
+        "scene:door",
+        {"var:base": None},
+    )
+    project.visual.entities.order.append("scene:door")
+    anchor_ref = "visual:scene:bedroom:var:base"
+    door = project.visual.entities.items["scene:door"].variants.items[
+        "var:base"
+    ]
+    door.reference_artifact_version_ids = [anchor_ref]
+    node_id = "visual:scene:door:var:base"
+
+    gated = derive_work_graph(project).by_id[node_id]
+    assert gated.status is WorkNodeStatus.GATED
+    assert gated.missing == (anchor_ref,)
+    assert gated.deps == (anchor_ref,)
+
+    bedroom = project.visual.entities.items["scene:bedroom"].variants.items[
+        "var:base"
+    ]
+    bedroom.selected_artifact_version_id = "art:bed-1"
+    ready = derive_work_graph(project).by_id[node_id]
+    assert ready.status is WorkNodeStatus.READY
+    first = ready.dispatch_fingerprint
+
+    # The anchor resolves to the concrete base image: choosing another base
+    # version changes the dependent's input identity.
+    bedroom.selected_artifact_version_id = "art:bed-2"
+    second = derive_work_graph(project).by_id[node_id].dispatch_fingerprint
+    assert first != second
+
+    # A repaint in flight re-gates the dependent: rendering against the
+    # outgoing base image burns a paid call that the update quarantines.
+    repainting = derive_work_graph(
+        project,
+        tasks=[
+            _task(
+                "image_generation",
+                "asset:scene:bedroom",
+                TaskStatus.RUNNING,
+                metadata={"variantId": "var:base"},
+            ),
+        ],
+    ).by_id[node_id]
+    assert repainting.status is WorkNodeStatus.GATED
+    assert repainting.missing == (anchor_ref,)
+
+
+def test_completed_dependent_goes_stale_when_the_base_reselects() -> None:
+    """A finished related scene must surface as STALE once its anchor's
+    image changes — silently staying DONE hid the drift (CR 2026-09-11)."""
+
+    project = _project()
+    project.visual.entities.items["scene:bedroom"] = _entity(
+        "scene:bedroom",
+        {"var:base": "art:bed-1"},
+    )
+    project.visual.entities.order.append("scene:bedroom")
+    project.visual.entities.items["scene:door"] = _entity(
+        "scene:door",
+        {"var:door": "art:door-1"},
+    )
+    project.visual.entities.order.append("scene:door")
+    door = project.visual.entities.items["scene:door"].variants.items[
+        "var:door"
+    ]
+    door.reference_artifact_version_ids = ["visual:scene:bedroom:var:base"]
+    _select_slot(
+        project,
+        slot_id="asset:scene:door:variant:var:door:image",
+        kind="visual_asset_image",
+        owner_ref="asset:scene:door",
+        version_id="art:door-1",
+        provenance=["artifact-version:art:bed-1"],
+    )
+    node_id = "visual:scene:door:var:door"
+
+    assert derive_work_graph(project).by_id[node_id].status is (
+        WorkNodeStatus.DONE
+    )
+
+    repainting = _task(
+        "image_generation",
+        "asset:scene:bedroom",
+        TaskStatus.RUNNING,
+        metadata={"variantId": "var:base"},
+    )
+    held = derive_work_graph(project, tasks=[repainting]).by_id[node_id]
+    assert held.status is WorkNodeStatus.GATED
+    assert held.missing == ("visual:scene:bedroom:var:base",)
+
+    bedroom = project.visual.entities.items["scene:bedroom"].variants.items[
+        "var:base"
+    ]
+    bedroom.selected_artifact_version_id = "art:bed-2"
+    graph = derive_work_graph(project)
+    assert graph.by_id[node_id].status is WorkNodeStatus.STALE
+    assert graph.by_id[node_id].regeneration_of == "art:door-1"
+    assert node_id in {node.node_id for node in graph.regeneration_nodes()}
+
+    held = derive_work_graph(project, tasks=[repainting])
+    assert held.by_id[node_id].missing == ("visual:scene:bedroom:var:base",)
+    assert held.regeneration_nodes() == ()
+
+
+def test_failed_reroll_is_not_masked_by_the_old_success() -> None:
+    """A failure newer than the selected artifact surfaces as FAILED and
+    stays parked (reopening would replay the finished base slot forever);
+    an older, already-superseded failure keeps the node DONE."""
+
+    project = _project()
+    project.visual.entities.items["char:a"] = _entity(
+        "char:a",
+        {"var:x": "art:x"},
+    )
+    project.visual.entities.order.append("char:a")
+    _select_slot(
+        project,
+        slot_id="asset:char:a:variant:var:x:image",
+        kind="visual_asset_image",
+        owner_ref="asset:char:a",
+        version_id="art:x",
+    )
+    node_id = "visual:char:a:var:x"
+
+    def status_with_failure(updated_at: str) -> WorkNodeStatus:
+        return (
+            derive_work_graph(
+                project,
+                tasks=[
+                    _task(
+                        "image_generation",
+                        "asset:char:a",
+                        TaskStatus.FAILED,
+                        metadata={"variantId": "var:x"},
+                        error={"message": "orphaned before claim"},
+                        idempotency_key=f"dag-{node_id}-reroll-slot",
+                        updated_at=updated_at,
+                    ),
+                ],
+            )
+            .by_id[node_id]
+            .status
+        )
+
+    # The artifact fixture is created at 2026-08-05.
+    assert status_with_failure("2026-08-06T00:00:00Z") is (
+        WorkNodeStatus.FAILED
+    )
+    assert status_with_failure("2026-08-04T00:00:00Z") is WorkNodeStatus.DONE
+
+
+@pytest.mark.parametrize("reverse_tasks", [False, True])
+@pytest.mark.parametrize("status", [TaskStatus.RUNNING, TaskStatus.FAILED])
+def test_visual_tasks_keep_each_variant_and_anchor_isolated(
+    reverse_tasks: bool,
+    status: TaskStatus,
+) -> None:
+    project = _project()
+    entity = _entity("scene:room", {"var:base": "art:base", "var:alt": None})
+    dependent = _entity("scene:door", {"var:door": None})
+    anchor_ref = "visual:scene:room:var:base"
+    dependent.variants.items["var:door"].reference_artifact_version_ids = [
+        anchor_ref,
+    ]
+    project.visual.entities.items.update(
+        {entity.entity_id: entity, dependent.entity_id: dependent},
+    )
+    project.visual.entities.order.extend(
+        [entity.entity_id, dependent.entity_id],
+    )
+    tasks = [
+        _task(
+            "image_generation",
+            "asset:scene:room",
+            status,
+            metadata={"variantId": variant_id},
+            updated_at=f"2026-08-0{6 + index}T00:00:00Z",
+        )
+        for index, variant_id in enumerate(entity.variants.order)
+    ]
+    graph = derive_work_graph(
+        project,
+        list(reversed(tasks)) if reverse_tasks else tasks,
+    )
+    expected = (
+        WorkNodeStatus.RUNNING
+        if status is TaskStatus.RUNNING
+        else WorkNodeStatus.FAILED
+    )
+    assert graph.by_id[anchor_ref].status is expected
+    assert graph.by_id["visual:scene:room:var:alt"].status is expected
+    assert (
+        graph.by_id["visual:scene:door:var:door"].status
+        is WorkNodeStatus.GATED
+    )
+    assert graph.by_id["visual:scene:door:var:door"].missing == (anchor_ref,)
+
+
+@pytest.mark.parametrize("reverse_entities", [False, True])
+def test_anchor_chain_waits_for_stale_intermediate_before_initial_render(
+    reverse_entities: bool,
+) -> None:
+    project = _project()
+    ids = ["scene:base", "scene:middle", "scene:leaf"]
+    for entity_id, selected in zip(ids, ["art:base-2", "art:middle-1", None]):
+        project.visual.entities.items[entity_id] = _entity(
+            entity_id,
+            {"var:x": selected},
+        )
+    project.visual.entities.order.extend(
+        reversed(ids) if reverse_entities else ids,
+    )
+    middle_ref = "visual:scene:middle:var:x"
+    for entity_id, anchor in zip(ids[1:], ids):
+        project.visual.entities.items[entity_id].variants.items[
+            "var:x"
+        ].reference_artifact_version_ids = [f"visual:{anchor}:var:x"]
+    _select_slot(
+        project,
+        slot_id="asset:scene:middle:variant:var:x:image",
+        kind="visual_asset_image",
+        owner_ref="asset:scene:middle",
+        version_id="art:middle-1",
+        provenance=["artifact-version:art:base-1"],
+    )
+    graph = derive_work_graph(project)
+    assert graph.by_id[middle_ref].status is WorkNodeStatus.STALE
+    leaf = graph.by_id["visual:scene:leaf:var:x"]
+    assert leaf.status is WorkNodeStatus.GATED
+    assert leaf.missing == (middle_ref,)
+    assert graph.ready_media_nodes() == ()
+    assert [node.node_id for node in graph.regeneration_nodes()] == [
+        middle_ref,
+    ]

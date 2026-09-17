@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from qwenpaw.hub.docker_images import DockerImagePullStore
+from qwenpaw.hub import docker_provisioner as docker_module
 from qwenpaw.hub.docker_provisioner import DockerRuntimeProvisioner
 from tests.unit.hub.factories import runtime_record
 
@@ -95,6 +96,79 @@ class _FakeClient:
 
     def info(self) -> dict[str, str]:
         return {"OSType": "linux"}
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32", "linux"])
+def test_desktop_model_access_uses_loopback_forwarding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+) -> None:
+    client = SimpleNamespace(
+        info=lambda: {"OperatingSystem": "Docker Desktop"},
+    )
+    monkeypatch.setattr(
+        docker_module,
+        "sys",
+        SimpleNamespace(platform=platform),
+    )
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
+    assert provisioner.model_network().bind_host == "127.0.0.1"
+    assert provisioner.model_network().url(43123) == (
+        "http://host.docker.internal:43123"
+    )
+
+
+@pytest.mark.parametrize(
+    "gateway",
+    ["172.17.0.1", "192.168.40.1"],
+)
+def test_engine_model_access_uses_detected_bridge(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    gateway: str,
+) -> None:
+    network = SimpleNamespace(
+        attrs={"IPAM": {"Config": [{"Gateway": gateway}]}},
+    )
+    client = SimpleNamespace(
+        info=lambda: {"OperatingSystem": "Ubuntu"},
+        networks=SimpleNamespace(get=lambda name: network),
+    )
+    monkeypatch.setattr(
+        docker_module,
+        "sys",
+        SimpleNamespace(platform="linux"),
+    )
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
+    assert provisioner.model_network().bind_host == gateway
+    assert provisioner.model_network().url(43123) == f"http://{gateway}:43123"
+
+
+@pytest.mark.parametrize(
+    "gateway",
+    ["0.0.0.0", "8.8.8.8", "224.0.0.1", "", "fd00::1"],
+)
+def test_engine_model_access_rejects_unusable_gateway(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    gateway: str,
+) -> None:
+    network = SimpleNamespace(
+        attrs={"IPAM": {"Config": [{"Gateway": gateway}]}},
+    )
+    client = SimpleNamespace(
+        info=lambda: {},
+        networks=SimpleNamespace(get=lambda name: network),
+    )
+    monkeypatch.setattr(
+        docker_module,
+        "sys",
+        SimpleNamespace(platform="linux"),
+    )
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
+    with pytest.raises(RuntimeError, match="no private IPv4 gateway"):
+        provisioner.model_network().url(43123)
 
 
 def _configure(provisioner: DockerRuntimeProvisioner) -> None:

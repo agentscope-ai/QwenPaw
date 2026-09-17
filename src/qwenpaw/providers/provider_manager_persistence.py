@@ -72,7 +72,7 @@ class ProviderManagerPersistenceMixin(
             asyncio.Lock(),
         )
         async with lock:
-            provider = self.get_provider(provider_id)
+            provider = await run_sync_io(self.get_provider, provider_id)
             if provider is None:
                 return None
             candidate = provider.model_copy(deep=True)
@@ -280,7 +280,7 @@ class ProviderManagerPersistenceMixin(
         """Persist provider state without blocking the event loop."""
         provider_id = self._normalize_provider_id(provider_id)
         if provider is None:
-            provider = self.get_provider(provider_id)
+            provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             return
         lock = self._provider_save_locks.setdefault(
@@ -410,7 +410,7 @@ class ProviderManagerPersistenceMixin(
         write already resurrected its file -- delete it instead, or the
         removed provider would come back on the next startup glob.
         """
-        latest = self.get_provider(provider_id)
+        latest = await run_sync_io(self.get_provider, provider_id)
         if latest is None:
             await run_sync_io(
                 self._remove_orphan_snapshot,

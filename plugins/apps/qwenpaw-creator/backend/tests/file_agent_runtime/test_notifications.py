@@ -379,9 +379,11 @@ def test_outbox_survives_reopen_and_marks_injected_once(
     assert second == []
 
 
+@pytest.mark.parametrize("human_act", ["typed", "upload"])
 def test_hard_cap_parks_steer_until_human_resets_streak(
     tmp_path,
     monkeypatch,
+    human_act,
 ) -> None:
     services = _services(tmp_path, monkeypatch)
     bus, wakes = _bus(services)
@@ -407,14 +409,33 @@ def test_hard_cap_parks_steer_until_human_resets_streak(
         record.request_id for record in bus.store.pending_records(PROJECT_ID)
     ] == ["graphdone-g5"]
 
-    services.sessions.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="user",
-        content_parts=[{"type": "text", "text": "请继续"}],
-        source="user",
-    )
+    if human_act == "typed":
+        services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            content_parts=[{"type": "text", "text": "请继续"}],
+            source="user",
+        )
+    else:
+        # An upload is a human act carried by the bus (CR 2026-09-11): it
+        # must bypass the exhausted cap and reset the streak like a typed
+        # message, or a user who only uploads (never types) locks their own
+        # understanding pipeline out.
+        assert (
+            asyncio.run(
+                bus.steer(
+                    PROJECT_ID,
+                    kind=RuntimeEventKind.SOURCE_ASSETS_UPLOADED,
+                    request_id="assets-uploaded-task-1",
+                    text="用户刚上传了 1 个素材：lulu.png。",
+                    payload={"assetVersionRefs": ["asset-version:v1"]},
+                ),
+            )
+            is True
+        )
+        assert _user_messages(services)[-1].source == NOTIFICATION_SOURCE
 
     delivered = asyncio.run(
         bus.steer(
@@ -427,6 +448,7 @@ def test_hard_cap_parks_steer_until_human_resets_streak(
 
     assert delivered is True
     assert _user_messages(services)[-1].source == NOTIFICATION_SOURCE
+    assert len(wakes.calls) == (1 if human_act == "typed" else 2)
     # The earlier parked NEXT_STEP event keeps its own delivery identity
     # and must not be folded into the later steer.
     assert [
@@ -624,10 +646,12 @@ def test_idle_flush_lifecycle_delivers_parked_terminals(
     assert bus.store.undelivered_records(PROJECT_ID) == []
 
 
+@pytest.mark.parametrize("human_act", ["typed", "upload"])
 def test_idle_flush_budget_exhausts_and_resets_on_human(
     tmp_path,
     monkeypatch,
     caplog,
+    human_act,
 ) -> None:
     services = _services(tmp_path, monkeypatch)
     bus, _wakes = _bus(services)
@@ -668,14 +692,31 @@ def test_idle_flush_budget_exhausts_and_resets_on_human(
     )
     assert len(bus.store.pending_records(PROJECT_ID)) == 1
 
-    services.sessions.append_message(
-        PROJECT_ID,
-        SESSION_ID,
-        CONVERSATION_ID,
-        role="user",
-        content_parts=[{"type": "text", "text": "请继续"}],
-        source="user",
-    )
+    if human_act == "typed":
+        services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            content_parts=[{"type": "text", "text": "请继续"}],
+            source="user",
+        )
+    else:
+        # A delivered upload replenishes the budget like a typed message
+        # (CR 2026-09-11: it only reset the hard cap, so pending terminals
+        # stayed parked until the user happened to type).
+        assert (
+            asyncio.run(
+                bus.steer(
+                    PROJECT_ID,
+                    kind=RuntimeEventKind.SOURCE_ASSETS_UPLOADED,
+                    request_id="assets-uploaded-flush-1",
+                    text="用户刚上传了 1 个素材：budget.png。",
+                    payload={"assetVersionRefs": ["asset-version:v9"]},
+                ),
+            )
+            is True
+        )
 
     assert asyncio.run(bus.flush_pending_on_idle(PROJECT_ID)) is True
     assert bus.store.undelivered_records(PROJECT_ID) == []

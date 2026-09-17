@@ -780,7 +780,7 @@ class CommandHandler(ConversationCommandHandlerMixin):
         history_str = await format_history_str(
             self._state,
             get_token_counter(agent_config),
-            get_model_max_input_length(agent_config),
+            (await run_sync_io(get_model_max_input_length, agent_config)),
         )
 
         # Truncate if too long

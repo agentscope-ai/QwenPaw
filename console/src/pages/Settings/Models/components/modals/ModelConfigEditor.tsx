@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, InputNumber, Slider, Switch } from "@agentscope-ai/design";
 import { Segmented } from "antd";
-import { RotateCcw } from "lucide-react";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
+import { ContextLengthField, OutputTokenLimitField } from "./ModelTokenFields";
 import { JsonConfigEditor } from "./JsonConfigEditor";
 
 function requestMaxTokens(model: ModelInfo): number | null {
@@ -173,79 +173,23 @@ export function ModelConfigEditor({
 
   return (
     <div style={{ padding: "8px 0 4px" }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              ...labelStyle,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span>{t("models.maxTokensLabel", "Max Tokens")}</span>
-            {maxTokens !== null && (
-              <Button
-                type="text"
-                size="small"
-                icon={<RotateCcw size={14} />}
-                aria-label={t("models.resetMaxTokens", "Reset to auto")}
-                title={t("models.resetMaxTokens", "Reset to auto")}
-                onClick={() => handleMaxTokensChange(null)}
-              />
-            )}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
-            value={maxTokens}
-            placeholder={t("models.providerDefault", "Provider default")}
-            onChange={handleMaxTokensChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--app-text-quaternary)",
-              marginTop: 2,
-            }}
-          >
-            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
-            <br />
-            {t("models.maxOutputCapabilityLabel", "Model capability")}:{" "}
-            {model.max_output_length?.toLocaleString() ??
-              t("models.unknown", "Unknown")}
-            {model.max_output_length_source &&
-              model.max_output_length_source !== "unknown" && (
-                <> · {model.max_output_length_source}</>
-              )}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxInputLengthLabel", "Max Context Length")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1000}
-            step={1024}
-            value={maxInputLength}
-            placeholder="131072"
-            onChange={handleMaxInputLengthChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--app-text-quaternary)",
-              marginTop: 2,
-            }}
-          >
-            {t(
-              "models.maxInputLengthHint",
-              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
-            )}
-          </div>
-        </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: 16,
+          marginBottom: 12,
+        }}
+      >
+        <OutputTokenLimitField
+          value={maxTokens}
+          onChange={handleMaxTokensChange}
+          model={model}
+        />
+        <ContextLengthField
+          value={maxInputLength}
+          onChange={handleMaxInputLengthChange}
+        />
       </div>
       {/* Enable Thinking (only for providers that support thinking config) */}
       {thinkingParamStyle && (

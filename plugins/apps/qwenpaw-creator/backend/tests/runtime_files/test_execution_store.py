@@ -14,6 +14,7 @@ from domain.enums import (
     TaskStatus,
 )
 from services.runtime_files.errors import RuntimeFileValidationError
+from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.execution_models import (
     ContinuationState,
     ExecutionAuthorizationRecord,
@@ -382,6 +383,37 @@ def test_all_path_identifiers_reject_directory_traversal(
     )
     with pytest.raises(RuntimeFileValidationError):
         store.create_run(candidate)
+
+
+@pytest.mark.parametrize("domain", ["project", "execution"])
+def test_task_polling_reads_committed_head_while_a_writer_holds_lock(
+    tmp_path,
+    domain,
+) -> None:
+    store = _store(tmp_path)
+    store.create_run(_run())
+    store.create_task(_task())
+    store.lock_timeout_seconds = 0.05
+    path = (
+        tmp_path / ".locks" / f"project-{PROJECT_ID}.lock"
+        if domain == "project"
+        else tmp_path / PROJECT_ID / "runtime/locks/execution-runtime.lock"
+    )
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with CrossProcessFileLock(path):
+            head = pool.submit(store.get_task, PROJECT_ID, "task-1").result(
+                timeout=1,
+            )
+        assert head.status is TaskStatus.QUEUED
+        store.transition_task(
+            PROJECT_ID,
+            "task-1",
+            expected_status=TaskStatus.QUEUED,
+            status=TaskStatus.RUNNING,
+        )
+        assert (
+            store.get_task(PROJECT_ID, "task-1").status is TaskStatus.RUNNING
+        )
 
 
 def test_list_never_observes_a_headless_run_directory(tmp_path) -> None:

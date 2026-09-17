@@ -336,3 +336,43 @@ def test_fabricated_artifact_slots_are_rejected():
     ] = "element_video"
     with pytest.raises(ValidationError, match="no artifact"):
         Project.model_validate(raw)
+
+
+def test_visual_style_anchor_refs_validate_and_reject_self_reference():
+    """`visual:<entity>:<variant>` anchors commit before any base art exists;
+    only a real target passes and a self-anchor is refused outright."""
+
+    project = _variant_project()
+    hero = project.visual.entities.items["char:hero"]
+    anchor = "visual:char:hero:variant:peak"
+    fallen = hero.variants.items["variant:fallen"]
+
+    fallen.reference_artifact_version_ids = [anchor]
+    Project.model_validate(project.model_dump(mode="json"))
+
+    peak = hero.variants.items["variant:peak"]
+    peak.reference_artifact_version_ids = [anchor]
+    with pytest.raises(ValueError, match="references itself"):
+        Project.model_validate(project.model_dump(mode="json"))
+    peak.reference_artifact_version_ids = []
+
+    # An anchor at a nonexistent variant degrades to a concrete-id check.
+    fallen.reference_artifact_version_ids = ["visual:char:hero:variant:nope"]
+    with pytest.raises(ValueError, match="visual artifact reference"):
+        Project.model_validate(project.model_dump(mode="json"))
+
+
+def test_visual_style_anchor_cycles_are_rejected_at_commit():
+    """A→B→A gates both scenes forever with empty repair queues, so the
+    commit refuses the cycle outright (self-anchors are caught earlier)."""
+
+    project = _variant_project()
+    hero = project.visual.entities.items["char:hero"]
+    hero.variants.items["variant:peak"].reference_artifact_version_ids = [
+        "visual:char:hero:variant:fallen",
+    ]
+    hero.variants.items["variant:fallen"].reference_artifact_version_ids = [
+        "visual:char:hero:variant:peak",
+    ]
+    with pytest.raises(ValueError, match="form a cycle"):
+        Project.model_validate(project.model_dump(mode="json"))

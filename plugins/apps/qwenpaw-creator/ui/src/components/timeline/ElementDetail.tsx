@@ -31,14 +31,13 @@ import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
 import {
   TRANSITION_KIND_LABEL,
   classifyElementTrack,
-  resolveElementOutputs,
   resolveElementVisualMeta,
 } from "@/selectors/timelineElementSelectors";
-import { outputLabel } from "@/lib/creatorPresentation";
 import { presentPromptEntityNames } from "@/lib/promptEntityNames";
 import { projectJsonPointer } from "@/lib/projectJsonPointer";
 import { storyboardOfOwner } from "@/components/workbench/referenceThumbs";
 import InlineReviewDiff from "@/components/agent/InlineReviewDiff";
+import PreviewImage from "@/components/assets/PreviewImage";
 
 interface ElementDetailProps {
   project: ProjectDocument;
@@ -351,11 +350,15 @@ export default function ElementDetail({
         timeline.timeline_id,
         element.element_id,
       );
-      message.success(
-        result.rebound
-          ? t("elementDetail.narrationRegenerated")
-          : t("elementDetail.narrationUpToDate"),
-      );
+      if (result.stale) {
+        message.info(t("elementDetail.narrationResultOutdated"));
+      } else {
+        message.success(
+          result.rebound
+            ? t("elementDetail.narrationRegenerated")
+            : t("elementDetail.narrationUpToDate"),
+        );
+      }
       void pollProjectOnce(project.project_id);
       void refreshNarrationTasks(project.project_id);
     } catch (error) {
@@ -364,10 +367,6 @@ export default function ElementDetail({
       setNarrationBusy(false);
     }
   };
-  const outputs = useMemo(
-    () => (element ? resolveElementOutputs(project, element) : []),
-    [element, project],
-  );
   const storyboardVersionId = useMemo(
     () =>
       element && element.creation.type === "r2v"
@@ -602,12 +601,29 @@ export default function ElementDetail({
               </Pill>
             )}
           </div>
-          {(lead?.intent || lead?.continuity) && (
+          {(creation.type === "r2v" || lead?.intent || lead?.continuity) && (
             <div data-element-overview-lead className="space-y-0.5 pt-0.5">
-              {lead?.intent && (
-                <p className="text-xs leading-[1.7] text-[var(--color-text-primary)]">
-                  {presentPromptEntityNames(lead.intent, project)}
-                </p>
+              {creation.type === "r2v" ? (
+                <TextField
+                  label={t("elementDetail.intent")}
+                  value={creation.intent}
+                  multiline
+                  path={pointer("creation", "intent")}
+                  field={`element:${element.element_id}/creation/intent`}
+                  disabled={applying}
+                  onChange={(value) =>
+                    onChange((draft) => {
+                      if (draft.creation.type === "r2v")
+                        draft.creation.intent = value;
+                    })
+                  }
+                />
+              ) : (
+                lead?.intent && (
+                  <p className="text-xs leading-[1.7] text-[var(--color-text-primary)]">
+                    {presentPromptEntityNames(lead.intent, project)}
+                  </p>
+                )
               )}
               {lead?.continuity && (
                 <p
@@ -649,8 +665,7 @@ export default function ElementDetail({
           />
         )}
 
-        {/* 分镜图 (design 83:13383): thumb + status; edits live in the
-            制作台 / the rail's 分镜图预览 tab. */}
+        {/* Preview the storyboard here; edit its content in the workbench. */}
         {creation.type === "r2v" && (
           <div
             data-element-overview-storyboard
@@ -665,9 +680,9 @@ export default function ElementDetail({
             <div className="flex items-center gap-2.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/50 p-1.5">
               <span className="h-[42px] w-[71px] shrink-0 overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
                 {storyboardVersionId && (
-                  <img
+                  <PreviewImage
                     src={getArtifactVersionMediaUrl(storyboardVersionId)}
-                    alt=""
+                    alt={t("elementDetail.storyboardLabel")}
                     loading="lazy"
                     className="h-full w-full object-cover"
                   />
@@ -679,26 +694,31 @@ export default function ElementDetail({
                     ? t("elementDetail.storyboardReady")
                     : t("elementDetail.storyboardPending")}
                 </span>
-                <span className="block truncate text-xs text-[var(--color-text-tertiary)]">
-                  {t("elementDetail.storyboardHint")}
+                <span className="block text-xs leading-relaxed text-[var(--color-text-tertiary)]">
+                  {t("elementDetail.storyboardHint", {
+                    action: t("elementDetail.enterWorkbench"),
+                  })}
                 </span>
               </span>
             </div>
           </div>
         )}
 
-        {creation.type === "r2v" && creation.narrative && (
-          <div
-            data-creator-path={pointer("creation", "narrative")}
-            className="space-y-1.5"
-          >
-            <span className="text-sm text-[var(--color-text-primary)]">
-              {t("r2v.narrativeTitle")}
-            </span>
-            <p className="whitespace-pre-wrap text-xs leading-relaxed text-[var(--color-text-secondary)]">
-              {presentPromptEntityNames(creation.narrative, project)}
-            </p>
-          </div>
+        {creation.type === "r2v" && (
+          <TextField
+            label={t("elementDetail.narrative")}
+            value={creation.narrative}
+            multiline
+            path={pointer("creation", "narrative")}
+            field={`element:${element.element_id}/creation/narrative`}
+            disabled={applying}
+            onChange={(value) =>
+              onChange((draft) => {
+                if (draft.creation.type === "r2v")
+                  draft.creation.narrative = value;
+              })
+            }
+          />
         )}
         {creation.type === "r2v" && creation.video_prompt && (
           <div
@@ -1000,634 +1020,558 @@ export default function ElementDetail({
               </section>
             )}
 
-            <section className="rounded-xl border border-[var(--color-border)] p-3">
-              <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
-                <Sparkles className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-                {t("elementDetail.creationContent")}
-              </h4>
-              {creation.type === "r2v" && (
-                <div className="space-y-3">
-                  <TextField
-                    label={t("elementDetail.intent")}
-                    value={creation.intent}
-                    multiline
-                    path={pointer("creation", "intent")}
-                    field={`element:${element.element_id}/creation/intent`}
-                    disabled={applying}
-                    onChange={(value) =>
-                      onChange((draft) => {
-                        if (draft.creation.type === "r2v")
-                          draft.creation.intent = value;
-                      })
-                    }
-                  />
-                  <TextField
-                    label={t("elementDetail.narrative")}
-                    value={creation.narrative}
-                    multiline
-                    path={pointer("creation", "narrative")}
-                    field={`element:${element.element_id}/creation/narrative`}
-                    disabled={applying}
-                    onChange={(value) =>
-                      onChange((draft) => {
-                        if (draft.creation.type === "r2v")
-                          draft.creation.narrative = value;
-                      })
-                    }
-                  />
-                  <p className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
-                    {t("elementDetail.workbenchFullEditHint", {
-                      action: t("elementDetail.enterWorkbench", {
-                        mode: t("r2v.modeLabel.r2v"),
-                      }),
-                    })}
-                  </p>
-                </div>
-              )}
-              {creation.type === "edit" && (
-                <div className="space-y-3">
-                  <TextField
-                    label={t("elementDetail.editIntent")}
-                    value={creation.intent}
-                    multiline
-                    path={pointer("creation", "intent")}
-                    field={`element:${element.element_id}/creation/intent`}
-                    disabled={applying}
-                    onChange={(value) =>
-                      onChange((draft) => {
-                        if (draft.creation.type === "edit")
-                          draft.creation.intent = value;
-                      })
-                    }
-                  />
-                  <TextField
-                    label={t("elementDetail.reason")}
-                    value={creation.reason}
-                    multiline
-                    path={pointer("creation", "reason")}
-                    field={`element:${element.element_id}/creation/reason`}
-                    disabled={applying}
-                    onChange={(value) =>
-                      onChange((draft) => {
-                        if (draft.creation.type === "edit")
-                          draft.creation.reason = value;
-                      })
-                    }
-                  />
-                  {element.render_source?.type === "source_asset_version" && (
-                    <div className="rounded-lg bg-[var(--color-bg-secondary)] p-3 text-[11px] leading-5 text-[var(--color-text-secondary)]">
-                      <b
-                        className="block truncate text-[var(--color-text-primary)]"
-                        title={decodeURIComponent(
-                          project.assets.source_versions_by_id[
+            {creation.type !== "r2v" && (
+              <section className="rounded-xl border border-[var(--color-border)] p-3">
+                <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
+                  <Sparkles className="h-3.5 w-3.5 text-[var(--color-accent)]" />
+                  {t("elementDetail.creationContent")}
+                </h4>
+                {creation.type === "edit" && (
+                  <div className="space-y-3">
+                    <TextField
+                      label={t("elementDetail.editIntent")}
+                      value={creation.intent}
+                      multiline
+                      path={pointer("creation", "intent")}
+                      field={`element:${element.element_id}/creation/intent`}
+                      disabled={applying}
+                      onChange={(value) =>
+                        onChange((draft) => {
+                          if (draft.creation.type === "edit")
+                            draft.creation.intent = value;
+                        })
+                      }
+                    />
+                    <TextField
+                      label={t("elementDetail.reason")}
+                      value={creation.reason}
+                      multiline
+                      path={pointer("creation", "reason")}
+                      field={`element:${element.element_id}/creation/reason`}
+                      disabled={applying}
+                      onChange={(value) =>
+                        onChange((draft) => {
+                          if (draft.creation.type === "edit")
+                            draft.creation.reason = value;
+                        })
+                      }
+                    />
+                    {(element.render_source?.type === "source_asset_version" ||
+                      element.render_source?.type === "artifact_version") && (
+                      <div className="rounded-lg bg-[var(--color-bg-secondary)] p-3 text-[11px] leading-5 text-[var(--color-text-secondary)]">
+                        <b
+                          className="block truncate text-[var(--color-text-primary)]"
+                          title={
+                            (element.render_source.type === "artifact_version"
+                              ? project.assets.artifact_versions_by_id
+                              : project.assets.source_versions_by_id)[
+                              element.render_source.version_id
+                            ]?.name || t("elementDetail.currentSource")
+                          }
+                        >
+                          {(element.render_source.type === "artifact_version"
+                            ? project.assets.artifact_versions_by_id
+                            : project.assets.source_versions_by_id)[
                             element.render_source.version_id
-                          ]?.name || t("elementDetail.currentSource"),
+                          ]?.name || t("elementDetail.currentSource")}
+                        </b>
+                        <br />
+                        {t("elementDetail.using")}{" "}
+                        {sec(
+                          element.render_source.source_in_tick,
+                          timeline.ticks_per_second,
                         )}
-                      >
-                        {decodeURIComponent(
-                          project.assets.source_versions_by_id[
-                            element.render_source.version_id
-                          ]?.name || t("elementDetail.currentSource"),
-                        )}
-                      </b>
-                      <br />
-                      {t("elementDetail.using")}{" "}
-                      {sec(
-                        element.render_source.source_in_tick,
-                        timeline.ticks_per_second,
-                      )}
-                      s –{" "}
-                      {element.render_source.source_out_tick == null
-                        ? t("elementDetail.end")
-                        : `${sec(
-                            element.render_source.source_out_tick,
-                            timeline.ticks_per_second,
-                          )}s`}
-                      {" · "}
-                      {element.render_source.playback_rate}{" "}
-                      {t("elementDetail.speed")}
-                    </div>
-                  )}
-                </div>
-              )}
-              {creation.type === "overlay" && (
-                <div className="space-y-3">
-                  <TextField
-                    label={t("elementDetail.textLabel")}
-                    value={creation.text}
-                    multiline
-                    path={pointer("creation", "text")}
-                    field={`element:${element.element_id}/creation/text`}
-                    disabled={applying}
-                    onChange={(value) =>
-                      onChange((draft) => {
-                        if (draft.creation.type === "overlay")
-                          draft.creation.text = value;
-                      })
-                    }
-                  />
-                  <TextField
-                    label={t("elementDetail.effectDesc")}
-                    value={creation.prompt}
-                    multiline
-                    path={pointer("creation", "prompt")}
-                    field={`element:${element.element_id}/creation/prompt`}
-                    disabled={applying}
-                    onChange={(value) =>
-                      onChange((draft) => {
-                        if (draft.creation.type === "overlay")
-                          draft.creation.prompt = value;
-                      })
-                    }
-                  />
-                </div>
-              )}
-              {creation.type === "transition" && (
-                <div className="space-y-3">
-                  <div className="rounded-lg bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-secondary)]">
-                    {timeline.elements_by_id[creation.from_element_id]?.label ||
-                      t("elementDetail.previousFrame")}{" "}
-                    →{" "}
-                    {timeline.elements_by_id[creation.to_element_id]?.label ||
-                      t("elementDetail.nextFrame")}
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label
-                      data-creator-field={`element:${element.element_id}/creation/transition_kind`}
-                      data-creator-path={pointer("creation", "transition_kind")}
-                      className="block"
-                    >
-                      <FieldLabel>
-                        {t("elementDetail.transitionType")}
-                      </FieldLabel>
-                      <Select
-                        className="w-full"
-                        disabled={applying}
-                        value={creation.transition_kind}
-                        options={(() => {
-                          const opts = getTransitionKindOptions();
-                          return opts.some(
-                            (option) =>
-                              option.value === creation.transition_kind,
-                          )
-                            ? opts
-                            : [
-                                {
-                                  value: creation.transition_kind,
-                                  label: creation.transition_kind,
-                                },
-                                ...opts,
-                              ];
-                        })()}
-                        onChange={(value) =>
-                          onChange((draft) => {
-                            if (draft.creation.type === "transition")
-                              draft.creation.transition_kind = value;
-                          })
-                        }
-                      />
-                    </label>
-                    <label
-                      data-creator-field={`element:${element.element_id}/creation/easing`}
-                      data-creator-path={pointer("creation", "easing")}
-                      className="block"
-                    >
-                      <FieldLabel>{t("elementDetail.easing")}</FieldLabel>
-                      <Select
-                        className="w-full"
-                        disabled={applying}
-                        value={creation.easing}
-                        options={
-                          getTransitionEasingOptions(t).some(
-                            (option) => option.value === creation.easing,
-                          )
-                            ? getTransitionEasingOptions(t)
-                            : [
-                                {
-                                  value: creation.easing,
-                                  label: creation.easing,
-                                },
-                                ...getTransitionEasingOptions(t),
-                              ]
-                        }
-                        onChange={(value) =>
-                          onChange((draft) => {
-                            if (draft.creation.type === "transition")
-                              draft.creation.easing = value;
-                          })
-                        }
-                      />
-                    </label>
-                  </div>
-                  <p className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
-                    {t("elementDetail.transitionNote")}
-                  </p>
-                </div>
-              )}
-              {creation.type === "audio" &&
-                (() => {
-                  const audioVersion =
-                    project.assets.source_versions_by_id[
-                      creation.source_asset_version_id
-                    ];
-                  const audioMeta = (audioVersion?.metadata ?? {}) as Record<
-                    string,
-                    unknown
-                  >;
-                  const textPreview = String(audioMeta.textPreview ?? "");
-                  const voiceName = String(audioMeta.voice ?? "");
-                  const ttsModel = String(audioMeta.model ?? "");
-                  const characterEntityId = String(
-                    audioMeta.characterEntityId ?? "",
-                  );
-                  const characterVoiceEntity = characterEntityId
-                    ? project.visual.entities.items[characterEntityId] ?? null
-                    : null;
-                  const voiceSampleUrl = characterVoiceEntity?.voice
-                    ?.sample_source_version_id
-                    ? getAssetVersionMediaUrl(
-                        characterVoiceEntity.voice.sample_source_version_id,
-                      )
-                    : null;
-                  // Streaming WAV headers can claim absurd durations (hours); hide
-                  // anything implausible instead of showing a broken number.
-                  const plausibleDuration =
-                    audioVersion?.duration_seconds != null &&
-                    audioVersion.duration_seconds > 0 &&
-                    audioVersion.duration_seconds < 4 * 3600
-                      ? audioVersion.duration_seconds
-                      : null;
-                  const spanSec = sec(
-                    element.span.duration_tick,
-                    timeline.ticks_per_second,
-                  );
-                  // Synthesized narration has no explicit duration knob on the
-                  // provider: length follows the script, so the editable script
-                  // shows its time budget and overruns are flagged here.
-                  const overBudget =
-                    plausibleDuration != null &&
-                    plausibleDuration > spanSec + 0.05;
-                  const scriptText = creation.script || textPreview;
-                  // Only the CosyVoice family exposes a numeric speed knob;
-                  // qwen-tts length is controlled through the script alone.
-                  const supportsSpeechRate =
-                    ttsModel.startsWith("cosyvoice") ||
-                    ttsModel.includes("qwen-audio");
-                  return (
-                    <div className="space-y-3">
-                      <div className="rounded-lg bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-secondary)]">
-                        <div className="flex items-center justify-between gap-2">
-                          <b className="text-[var(--color-text-primary)]">
-                            {audioVersion?.name ||
-                              t("elementDetail.audioFallbackName")}
-                          </b>
-                          <span
-                            className={`text-[10px] ${
-                              overBudget
-                                ? "font-semibold text-[var(--color-warning)]"
-                                : "text-[var(--color-text-tertiary)]"
-                            }`}
-                          >
-                            {plausibleDuration != null
-                              ? t("elementDetail.audioBudget", {
-                                  actual: plausibleDuration.toFixed(1),
-                                  budget: spanSec,
-                                })
-                              : t("elementDetail.durationByPreview")}
-                          </span>
-                        </div>
-                        {overBudget && (
-                          <p className="mt-1 text-[10px] text-[var(--color-warning)]">
-                            {t("elementDetail.audioOverBudget")}
-                          </p>
-                        )}
-                        {scriptText && (
-                          <div
-                            data-creator-field={`element:${element.element_id}/creation/script`}
-                            data-creator-path={pointer("creation", "script")}
-                            className="mt-1.5 space-y-1"
-                          >
-                            <Input.TextArea
-                              value={scriptText}
-                              autoSize={{ minRows: 2, maxRows: 6 }}
-                              disabled={applying}
-                              onChange={(event) =>
-                                onChange((draft) => {
-                                  if (draft.creation.type === "audio")
-                                    draft.creation.script = event.target.value;
-                                })
-                              }
-                              className="!text-xs"
-                            />
-                            <InlineReviewDiff
-                              pointer={pointer("creation", "script")}
-                            />
-                            {supportsSpeechRate && (
-                              <label
-                                data-creator-field={`element:${element.element_id}/creation/speech_rate`}
-                                data-creator-path={pointer(
-                                  "creation",
-                                  "speech_rate",
-                                )}
-                                className="flex items-center gap-2"
-                              >
-                                <span className="text-[10px] text-[var(--color-text-tertiary)]">
-                                  {t("elementDetail.speechRate")}
-                                </span>
-                                <InputNumber
-                                  size="small"
-                                  value={creation.speech_rate ?? 1.0}
-                                  min={0.5}
-                                  max={2}
-                                  step={0.1}
-                                  disabled={applying}
-                                  className="!w-20"
-                                  onChange={(value) =>
-                                    onChange((draft) => {
-                                      if (draft.creation.type === "audio")
-                                        draft.creation.speech_rate =
-                                          typeof value === "number"
-                                            ? value
-                                            : 1.0;
-                                    })
-                                  }
-                                />
-                                <InlineReviewDiff
-                                  pointer={pointer("creation", "speech_rate")}
-                                />
-                              </label>
-                            )}
-                            <p className="text-[10px] text-[var(--color-text-tertiary)]">
-                              {t("elementDetail.ttsScriptHint")}
-                            </p>
-                          </div>
-                        )}
-                        {(voiceName || ttsModel || characterVoiceEntity) && (
-                          <div
-                            data-element-narration-voice
-                            className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2"
-                          >
-                            <p className="text-[10px] font-semibold text-[var(--color-text-secondary)]">
-                              {t("elementDetail.referencedVoice")}
-                            </p>
-                            <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
-                              {voiceName &&
-                                t("elementDetail.voiceLine", {
-                                  name: voiceName,
-                                })}
-                              {voiceName && ttsModel && " · "}
-                              {ttsModel &&
-                                t("elementDetail.ttsModelLine", {
-                                  name: ttsModel,
-                                })}
-                            </p>
-                            {voiceSampleUrl && (
-                              <audio
-                                src={voiceSampleUrl}
-                                controls
-                                preload="none"
-                                className="mt-1.5 h-7 w-full"
-                              />
-                            )}
-                          </div>
-                        )}
-                        {audioVersion && (
-                          <audio
-                            src={getAssetVersionMediaUrl(
-                              audioVersion.version_id,
-                            )}
-                            controls
-                            preload="metadata"
-                            className="mt-2 h-8 w-full"
-                          />
-                        )}
-                        {scriptText.trim() !== "" && (
-                          <div className="mt-2 flex justify-end">
-                            <button
-                              type="button"
-                              data-narration-regenerate={element.element_id}
-                              disabled={narrationBusy}
-                              onClick={() => void regenerateNarrationNow()}
-                              className="inline-flex h-8 items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 text-xs font-medium text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              {narrationBusy
-                                ? t("elementDetail.narrationRegenerating")
-                                : t("elementDetail.narrationRegenerate")}
-                            </button>
-                          </div>
-                        )}
+                        s –{" "}
+                        {element.render_source.source_out_tick == null
+                          ? t("elementDetail.end")
+                          : `${sec(
+                              element.render_source.source_out_tick,
+                              timeline.ticks_per_second,
+                            )}s`}
+                        {" · "}
+                        {element.render_source.playback_rate}{" "}
+                        {t("elementDetail.speed")}
                       </div>
+                    )}
+                  </div>
+                )}
+                {creation.type === "overlay" && (
+                  <div className="space-y-3">
+                    <TextField
+                      label={t("elementDetail.textLabel")}
+                      value={creation.text}
+                      multiline
+                      path={pointer("creation", "text")}
+                      field={`element:${element.element_id}/creation/text`}
+                      disabled={applying}
+                      onChange={(value) =>
+                        onChange((draft) => {
+                          if (draft.creation.type === "overlay")
+                            draft.creation.text = value;
+                        })
+                      }
+                    />
+                    <TextField
+                      label={t("elementDetail.effectDesc")}
+                      value={creation.prompt}
+                      multiline
+                      path={pointer("creation", "prompt")}
+                      field={`element:${element.element_id}/creation/prompt`}
+                      disabled={applying}
+                      onChange={(value) =>
+                        onChange((draft) => {
+                          if (draft.creation.type === "overlay")
+                            draft.creation.prompt = value;
+                        })
+                      }
+                    />
+                  </div>
+                )}
+                {creation.type === "transition" && (
+                  <div className="space-y-3">
+                    <div className="rounded-lg bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-secondary)]">
+                      {timeline.elements_by_id[creation.from_element_id]
+                        ?.label || t("elementDetail.previousFrame")}{" "}
+                      →{" "}
+                      {timeline.elements_by_id[creation.to_element_id]?.label ||
+                        t("elementDetail.nextFrame")}
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
                       <label
-                        data-creator-field={`element:${element.element_id}/creation/role`}
-                        data-creator-path={pointer("creation", "role")}
+                        data-creator-field={`element:${element.element_id}/creation/transition_kind`}
+                        data-creator-path={pointer(
+                          "creation",
+                          "transition_kind",
+                        )}
                         className="block"
                       >
-                        <FieldLabel>{t("elementDetail.audioRole")}</FieldLabel>
+                        <FieldLabel>
+                          {t("elementDetail.transitionType")}
+                        </FieldLabel>
                         <Select
-                          value={creation.role ?? "narration"}
-                          disabled={applying}
                           className="w-full"
-                          options={[
-                            {
-                              value: "narration",
-                              label: t("elementDetail.audioRoleNarration"),
-                            },
-                            {
-                              value: "bgm",
-                              label: t("elementDetail.audioRoleBgm"),
-                            },
-                            {
-                              value: "sfx",
-                              label: t("elementDetail.audioRoleSfx"),
-                            },
-                          ]}
+                          disabled={applying}
+                          value={creation.transition_kind}
+                          options={(() => {
+                            const opts = getTransitionKindOptions();
+                            return opts.some(
+                              (option) =>
+                                option.value === creation.transition_kind,
+                            )
+                              ? opts
+                              : [
+                                  {
+                                    value: creation.transition_kind,
+                                    label: creation.transition_kind,
+                                  },
+                                  ...opts,
+                                ];
+                          })()}
                           onChange={(value) =>
                             onChange((draft) => {
-                              if (draft.creation.type === "audio")
-                                draft.creation.role = value as
-                                  | "bgm"
-                                  | "narration"
-                                  | "sfx";
+                              if (draft.creation.type === "transition")
+                                draft.creation.transition_kind = value;
                             })
                           }
                         />
-                        <InlineReviewDiff
-                          pointer={pointer("creation", "role")}
+                      </label>
+                      <label
+                        data-creator-field={`element:${element.element_id}/creation/easing`}
+                        data-creator-path={pointer("creation", "easing")}
+                        className="block"
+                      >
+                        <FieldLabel>{t("elementDetail.easing")}</FieldLabel>
+                        <Select
+                          className="w-full"
+                          disabled={applying}
+                          value={creation.easing}
+                          options={
+                            getTransitionEasingOptions(t).some(
+                              (option) => option.value === creation.easing,
+                            )
+                              ? getTransitionEasingOptions(t)
+                              : [
+                                  {
+                                    value: creation.easing,
+                                    label: creation.easing,
+                                  },
+                                  ...getTransitionEasingOptions(t),
+                                ]
+                          }
+                          onChange={(value) =>
+                            onChange((draft) => {
+                              if (draft.creation.type === "transition")
+                                draft.creation.easing = value;
+                            })
+                          }
                         />
                       </label>
-                      <div className="grid grid-cols-2 gap-3">
-                        <label
-                          data-creator-field={`element:${element.element_id}/creation/fade_in_seconds`}
-                          data-creator-path={pointer(
-                            "creation",
-                            "fade_in_seconds",
-                          )}
-                          className="block"
-                        >
-                          <FieldLabel>
-                            {t("elementDetail.audioFadeIn")}
-                          </FieldLabel>
-                          <InputNumber
-                            value={creation.fade_in_seconds ?? undefined}
-                            placeholder={t("elementDetail.audioFadeAdaptive")}
-                            step={0.5}
-                            min={0}
-                            max={10}
-                            disabled={applying}
-                            className="w-full"
-                            onChange={(value) =>
-                              onChange((draft) => {
-                                if (draft.creation.type === "audio")
-                                  draft.creation.fade_in_seconds =
-                                    value === null || value === undefined
-                                      ? null
-                                      : Number(value);
-                              })
-                            }
-                          />
-                          <InlineReviewDiff
-                            pointer={pointer("creation", "fade_in_seconds")}
-                          />
-                        </label>
-                        <label
-                          data-creator-field={`element:${element.element_id}/creation/fade_out_seconds`}
-                          data-creator-path={pointer(
-                            "creation",
-                            "fade_out_seconds",
-                          )}
-                          className="block"
-                        >
-                          <FieldLabel>
-                            {t("elementDetail.audioFadeOut")}
-                          </FieldLabel>
-                          <InputNumber
-                            value={creation.fade_out_seconds ?? undefined}
-                            placeholder={t("elementDetail.audioFadeAdaptive")}
-                            step={0.5}
-                            min={0}
-                            max={10}
-                            disabled={applying}
-                            className="w-full"
-                            onChange={(value) =>
-                              onChange((draft) => {
-                                if (draft.creation.type === "audio")
-                                  draft.creation.fade_out_seconds =
-                                    value === null || value === undefined
-                                      ? null
-                                      : Number(value);
-                              })
-                            }
-                          />
-                          <InlineReviewDiff
-                            pointer={pointer("creation", "fade_out_seconds")}
-                          />
-                        </label>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <label
-                          data-creator-field={`element:${element.element_id}/creation/gain_db`}
-                          data-creator-path={pointer("creation", "gain_db")}
-                          className="block"
-                        >
-                          <FieldLabel>{t("elementDetail.gainDb")}</FieldLabel>
-                          <InputNumber
-                            value={creation.gain_db}
-                            step={1}
-                            min={-30}
-                            max={12}
-                            disabled={applying}
-                            className="w-full"
-                            onChange={(value) =>
-                              onChange((draft) => {
-                                if (draft.creation.type === "audio")
-                                  draft.creation.gain_db = Number(value ?? 0);
-                              })
-                            }
-                          />
-                          <InlineReviewDiff
-                            pointer={pointer("creation", "gain_db")}
-                          />
-                        </label>
-                        <label
-                          data-creator-field={`element:${element.element_id}/creation/pan`}
-                          data-creator-path={pointer("creation", "pan")}
-                          className="block"
-                        >
-                          <FieldLabel>{t("elementDetail.panRange")}</FieldLabel>
-                          <InputNumber
-                            value={creation.pan}
-                            step={0.1}
-                            min={-1}
-                            max={1}
-                            disabled={applying}
-                            className="w-full"
-                            onChange={(value) =>
-                              onChange((draft) => {
-                                if (draft.creation.type === "audio")
-                                  draft.creation.pan = Number(value ?? 0);
-                              })
-                            }
-                          />
-                          <InlineReviewDiff
-                            pointer={pointer("creation", "pan")}
-                          />
-                        </label>
-                      </div>
-                      <p className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
-                        {t("elementDetail.audioMixHint")}
-                      </p>
                     </div>
-                  );
-                })()}
-            </section>
-
-            {(creation.type === "r2v" ||
-              creation.type === "t2v" ||
-              creation.type === "i2v" ||
-              creation.type === "s2v") && (
-              <section className="rounded-xl border border-[var(--color-border)] p-3">
-                <h4 className="mb-3 flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text-primary)]">
-                  <Film className="h-3.5 w-3.5 text-[var(--color-accent)]" />
-                  {t("elementDetail.generationResult")}
-                </h4>
-                {outputs.length === 0 ? (
-                  <p className="rounded-lg bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-tertiary)]">
-                    {t("elementDetail.noResult")}
-                  </p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {outputs.map((output) => (
-                      <div
-                        key={output.name}
-                        className="flex items-center justify-between gap-2 rounded-lg bg-[var(--color-bg-secondary)]/60 px-3 py-2 text-[11px]"
-                      >
-                        <b className="text-[var(--color-text-primary)]">
-                          {outputLabel(output.name)}
-                        </b>
-                        <span
-                          className={
-                            output.selected?.stale
-                              ? "text-[var(--color-warning)]"
-                              : output.selected
-                              ? "text-[var(--color-success)]"
-                              : "text-[var(--color-text-tertiary)]"
-                          }
-                        >
-                          {output.selected?.stale
-                            ? `${t("elementDetail.generated")} · ${t(
-                                "elementDetail.resultStale",
-                              )}`
-                            : output.selected
-                            ? t("elementDetail.generated")
-                            : t("elementDetail.notGenerated")}
-                        </span>
-                      </div>
-                    ))}
+                    <p className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
+                      {t("elementDetail.transitionNote")}
+                    </p>
                   </div>
                 )}
-                <p className="mt-2 text-center text-[10px] text-[var(--color-text-tertiary)]">
-                  {t("elementDetail.outputsPreviewHint")}
-                </p>
+                {creation.type === "audio" &&
+                  (() => {
+                    const audioVersion =
+                      project.assets.source_versions_by_id[
+                        creation.source_asset_version_id
+                      ];
+                    const audioMeta = (audioVersion?.metadata ?? {}) as Record<
+                      string,
+                      unknown
+                    >;
+                    const textPreview = String(audioMeta.textPreview ?? "");
+                    const voiceName = String(audioMeta.voice ?? "");
+                    const ttsModel = String(audioMeta.model ?? "");
+                    const characterEntityId = String(
+                      audioMeta.characterEntityId ?? "",
+                    );
+                    const characterVoiceEntity = characterEntityId
+                      ? project.visual.entities.items[characterEntityId] ?? null
+                      : null;
+                    const voiceSampleUrl = characterVoiceEntity?.voice
+                      ?.sample_source_version_id
+                      ? getAssetVersionMediaUrl(
+                          characterVoiceEntity.voice.sample_source_version_id,
+                        )
+                      : null;
+                    // Streaming WAV headers can claim absurd durations (hours); hide
+                    // anything implausible instead of showing a broken number.
+                    const plausibleDuration =
+                      audioVersion?.duration_seconds != null &&
+                      audioVersion.duration_seconds > 0 &&
+                      audioVersion.duration_seconds < 4 * 3600
+                        ? audioVersion.duration_seconds
+                        : null;
+                    const spanSec = sec(
+                      element.span.duration_tick,
+                      timeline.ticks_per_second,
+                    );
+                    // Synthesized narration has no explicit duration knob on the
+                    // provider: length follows the script, so the editable script
+                    // shows its time budget and overruns are flagged here.
+                    const overBudget =
+                      plausibleDuration != null &&
+                      plausibleDuration > spanSec + 0.05;
+                    const scriptText = creation.script || textPreview;
+                    // Only the CosyVoice family exposes a numeric speed knob;
+                    // qwen-tts length is controlled through the script alone.
+                    const supportsSpeechRate =
+                      ttsModel.startsWith("cosyvoice") ||
+                      ttsModel.includes("qwen-audio");
+                    return (
+                      <div className="space-y-3">
+                        <div className="rounded-lg bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-secondary)]">
+                          <div className="flex items-center justify-between gap-2">
+                            <b className="text-[var(--color-text-primary)]">
+                              {audioVersion?.name ||
+                                t("elementDetail.audioFallbackName")}
+                            </b>
+                            <span
+                              className={`text-[10px] ${
+                                overBudget
+                                  ? "font-semibold text-[var(--color-warning)]"
+                                  : "text-[var(--color-text-tertiary)]"
+                              }`}
+                            >
+                              {plausibleDuration != null
+                                ? t("elementDetail.audioBudget", {
+                                    actual: plausibleDuration.toFixed(1),
+                                    budget: spanSec,
+                                  })
+                                : t("elementDetail.durationByPreview")}
+                            </span>
+                          </div>
+                          {overBudget && (
+                            <p className="mt-1 text-[10px] text-[var(--color-warning)]">
+                              {t("elementDetail.audioOverBudget")}
+                            </p>
+                          )}
+                          {scriptText && (
+                            <div
+                              data-creator-field={`element:${element.element_id}/creation/script`}
+                              data-creator-path={pointer("creation", "script")}
+                              className="mt-1.5 space-y-1"
+                            >
+                              <Input.TextArea
+                                value={scriptText}
+                                autoSize={{ minRows: 2, maxRows: 6 }}
+                                disabled={applying}
+                                onChange={(event) =>
+                                  onChange((draft) => {
+                                    if (draft.creation.type === "audio")
+                                      draft.creation.script =
+                                        event.target.value;
+                                  })
+                                }
+                                className="!text-xs"
+                              />
+                              <InlineReviewDiff
+                                pointer={pointer("creation", "script")}
+                              />
+                              {supportsSpeechRate && (
+                                <label
+                                  data-creator-field={`element:${element.element_id}/creation/speech_rate`}
+                                  data-creator-path={pointer(
+                                    "creation",
+                                    "speech_rate",
+                                  )}
+                                  className="flex items-center gap-2"
+                                >
+                                  <span className="text-[10px] text-[var(--color-text-tertiary)]">
+                                    {t("elementDetail.speechRate")}
+                                  </span>
+                                  <InputNumber
+                                    size="small"
+                                    value={creation.speech_rate ?? 1.0}
+                                    min={0.5}
+                                    max={2}
+                                    step={0.1}
+                                    disabled={applying}
+                                    className="!w-20"
+                                    onChange={(value) =>
+                                      onChange((draft) => {
+                                        if (draft.creation.type === "audio")
+                                          draft.creation.speech_rate =
+                                            typeof value === "number"
+                                              ? value
+                                              : 1.0;
+                                      })
+                                    }
+                                  />
+                                  <InlineReviewDiff
+                                    pointer={pointer("creation", "speech_rate")}
+                                  />
+                                </label>
+                              )}
+                              <p className="text-[10px] text-[var(--color-text-tertiary)]">
+                                {t("elementDetail.ttsScriptHint")}
+                              </p>
+                            </div>
+                          )}
+                          {(voiceName || ttsModel || characterVoiceEntity) && (
+                            <div
+                              data-element-narration-voice
+                              className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2"
+                            >
+                              <p className="text-[10px] font-semibold text-[var(--color-text-secondary)]">
+                                {t("elementDetail.referencedVoice")}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-[var(--color-text-tertiary)]">
+                                {voiceName &&
+                                  t("elementDetail.voiceLine", {
+                                    name: voiceName,
+                                  })}
+                                {voiceName && ttsModel && " · "}
+                                {ttsModel &&
+                                  t("elementDetail.ttsModelLine", {
+                                    name: ttsModel,
+                                  })}
+                              </p>
+                              {voiceSampleUrl && (
+                                <audio
+                                  src={voiceSampleUrl}
+                                  controls
+                                  preload="none"
+                                  className="mt-1.5 h-7 w-full"
+                                />
+                              )}
+                            </div>
+                          )}
+                          {audioVersion && (
+                            <audio
+                              src={getAssetVersionMediaUrl(
+                                audioVersion.version_id,
+                              )}
+                              controls
+                              preload="metadata"
+                              className="mt-2 h-8 w-full"
+                            />
+                          )}
+                          {scriptText.trim() !== "" && (
+                            <div className="mt-2 flex justify-end">
+                              <button
+                                type="button"
+                                data-narration-regenerate={element.element_id}
+                                disabled={narrationBusy}
+                                onClick={() => void regenerateNarrationNow()}
+                                className="inline-flex h-8 items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 text-xs font-medium text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {narrationBusy
+                                  ? t("elementDetail.narrationRegenerating")
+                                  : t("elementDetail.narrationRegenerate")}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                        <label
+                          data-creator-field={`element:${element.element_id}/creation/role`}
+                          data-creator-path={pointer("creation", "role")}
+                          className="block"
+                        >
+                          <FieldLabel>
+                            {t("elementDetail.audioRole")}
+                          </FieldLabel>
+                          <Select
+                            value={creation.role ?? "narration"}
+                            disabled={applying}
+                            className="w-full"
+                            options={[
+                              {
+                                value: "narration",
+                                label: t("elementDetail.audioRoleNarration"),
+                              },
+                              {
+                                value: "bgm",
+                                label: t("elementDetail.audioRoleBgm"),
+                              },
+                              {
+                                value: "sfx",
+                                label: t("elementDetail.audioRoleSfx"),
+                              },
+                            ]}
+                            onChange={(value) =>
+                              onChange((draft) => {
+                                if (draft.creation.type === "audio")
+                                  draft.creation.role = value as
+                                    | "bgm"
+                                    | "narration"
+                                    | "sfx";
+                              })
+                            }
+                          />
+                          <InlineReviewDiff
+                            pointer={pointer("creation", "role")}
+                          />
+                        </label>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label
+                            data-creator-field={`element:${element.element_id}/creation/fade_in_seconds`}
+                            data-creator-path={pointer(
+                              "creation",
+                              "fade_in_seconds",
+                            )}
+                            className="block"
+                          >
+                            <FieldLabel>
+                              {t("elementDetail.audioFadeIn")}
+                            </FieldLabel>
+                            <InputNumber
+                              value={creation.fade_in_seconds ?? undefined}
+                              placeholder={t("elementDetail.audioFadeAdaptive")}
+                              step={0.5}
+                              min={0}
+                              max={10}
+                              disabled={applying}
+                              className="w-full"
+                              onChange={(value) =>
+                                onChange((draft) => {
+                                  if (draft.creation.type === "audio")
+                                    draft.creation.fade_in_seconds =
+                                      value === null || value === undefined
+                                        ? null
+                                        : Number(value);
+                                })
+                              }
+                            />
+                            <InlineReviewDiff
+                              pointer={pointer("creation", "fade_in_seconds")}
+                            />
+                          </label>
+                          <label
+                            data-creator-field={`element:${element.element_id}/creation/fade_out_seconds`}
+                            data-creator-path={pointer(
+                              "creation",
+                              "fade_out_seconds",
+                            )}
+                            className="block"
+                          >
+                            <FieldLabel>
+                              {t("elementDetail.audioFadeOut")}
+                            </FieldLabel>
+                            <InputNumber
+                              value={creation.fade_out_seconds ?? undefined}
+                              placeholder={t("elementDetail.audioFadeAdaptive")}
+                              step={0.5}
+                              min={0}
+                              max={10}
+                              disabled={applying}
+                              className="w-full"
+                              onChange={(value) =>
+                                onChange((draft) => {
+                                  if (draft.creation.type === "audio")
+                                    draft.creation.fade_out_seconds =
+                                      value === null || value === undefined
+                                        ? null
+                                        : Number(value);
+                                })
+                              }
+                            />
+                            <InlineReviewDiff
+                              pointer={pointer("creation", "fade_out_seconds")}
+                            />
+                          </label>
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <label
+                            data-creator-field={`element:${element.element_id}/creation/gain_db`}
+                            data-creator-path={pointer("creation", "gain_db")}
+                            className="block"
+                          >
+                            <FieldLabel>{t("elementDetail.gainDb")}</FieldLabel>
+                            <InputNumber
+                              value={creation.gain_db}
+                              step={1}
+                              min={-30}
+                              max={12}
+                              disabled={applying}
+                              className="w-full"
+                              onChange={(value) =>
+                                onChange((draft) => {
+                                  if (draft.creation.type === "audio")
+                                    draft.creation.gain_db = Number(value ?? 0);
+                                })
+                              }
+                            />
+                            <InlineReviewDiff
+                              pointer={pointer("creation", "gain_db")}
+                            />
+                          </label>
+                          <label
+                            data-creator-field={`element:${element.element_id}/creation/pan`}
+                            data-creator-path={pointer("creation", "pan")}
+                            className="block"
+                          >
+                            <FieldLabel>
+                              {t("elementDetail.panRange")}
+                            </FieldLabel>
+                            <InputNumber
+                              value={creation.pan}
+                              step={0.1}
+                              min={-1}
+                              max={1}
+                              disabled={applying}
+                              className="w-full"
+                              onChange={(value) =>
+                                onChange((draft) => {
+                                  if (draft.creation.type === "audio")
+                                    draft.creation.pan = Number(value ?? 0);
+                                })
+                              }
+                            />
+                            <InlineReviewDiff
+                              pointer={pointer("creation", "pan")}
+                            />
+                          </label>
+                        </div>
+                        <p className="text-[10px] leading-4 text-[var(--color-text-tertiary)]">
+                          {t("elementDetail.audioMixHint")}
+                        </p>
+                      </div>
+                    );
+                  })()}
               </section>
             )}
           </div>
@@ -1639,15 +1583,15 @@ export default function ElementDetail({
         creation.type === "i2v" ||
         creation.type === "s2v") && (
         <footer className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-bg-primary)] px-4 py-3">
-          <Button
-            block
-            size="small"
-            icon={<ArrowUpRight className="h-3 w-3" />}
+          <button
+            type="button"
+            className="creator-view-switch w-full"
             disabled={dirtyCount > 0 || applying}
             onClick={() => onOpenWorkbench(element)}
           >
+            <ArrowUpRight />
             {t("elementDetail.enterWorkbench")}
-          </Button>
+          </button>
         </footer>
       )}
     </section>

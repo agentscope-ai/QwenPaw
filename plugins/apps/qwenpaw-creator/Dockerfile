@@ -13,7 +13,8 @@
 #   Stage 1: creator-ui-builder — builds Creator UI SPA
 #   Final stage: runtime — adds Creator plugin on top of official QwenPaw image
 
-# Global ARGs: must be declared before first FROM to be available in all stages.
+# Image ARGs must be declared before the first FROM; RUN arguments are
+# redeclared in the stage that consumes them.
 # Use ACR registry for users in China; override with --build-arg for Docker Hub.
 ARG QWENPAW_BASE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/qwenpaw:latest
 ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
@@ -25,7 +26,7 @@ ARG PYPI_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 # -----------------------------------------------------------------------------
 # Stage 1: build Creator UI frontend.
 # -----------------------------------------------------------------------------
-FROM ${NODE_IMAGE} AS creator-ui-builder
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS creator-ui-builder
 WORKDIR /app
 COPY plugins/apps/qwenpaw-creator/ui /app/creator-ui
 RUN cd /app/creator-ui && npm ci --include=dev && npm run build
@@ -35,11 +36,14 @@ RUN cd /app/creator-ui && npm ci --include=dev && npm run build
 # -----------------------------------------------------------------------------
 FROM ${QWENPAW_BASE_IMAGE}
 
-# Install geopandas system dependency (not included in official QwenPaw image).
+ARG PYPI_INDEX_URL
+
+# Install Creator's editing, media-probing, and GIS system dependencies.
+# These are not included in the official QwenPaw image.
 # Replace default Debian mirror with Aliyun mirror for faster downloads in China.
 RUN sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
     sed -i 's|http://deb.debian.org|https://mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null; \
-    apt-get update && apt-get install -y --fix-missing libgeos-dev \
+    apt-get update && apt-get install -y --fix-missing jq ffmpeg libgeos-dev \
   && rm -rf /var/lib/apt/lists/* \
   && apt-get clean
 
