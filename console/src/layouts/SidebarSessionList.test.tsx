@@ -153,10 +153,12 @@ vi.mock("../components/SessionGroupHeader", () => ({
 vi.mock("../components/SessionDateHeader", () => ({
   default: ({
     label,
+    count,
     collapsed,
     onToggle,
   }: {
     label: string;
+    count: number;
     collapsed?: boolean;
     onToggle?: () => void;
   }) => (
@@ -166,7 +168,7 @@ vi.mock("../components/SessionDateHeader", () => ({
       aria-expanded={collapsed === undefined ? undefined : !collapsed}
       onClick={onToggle}
     >
-      {label}
+      {label} {count}
     </button>
   ),
 }));
@@ -790,15 +792,16 @@ describe("SidebarSessionList", () => {
       expect(list!.itemSize(11)).toBe(38);
     });
 
-    it("allocates 20px date headers in date mode", async () => {
+    it("allocates 36px date headers in date mode", async () => {
       mockData([sessionA]);
       renderWithProviders(<SidebarSessionList />);
       await waitFor(() => {
         expect(screen.getByTestId("virtual-list")).toBeTruthy();
       });
       const list = mockListProps.current!;
-      // rows: dateHeader(today), session
-      expect(list.itemSize(0)).toBe(20);
+      // rows: dateHeader(today), session — headers share the group
+      // header row height now that both are collapsible chips
+      expect(list.itemSize(0)).toBe(36);
       expect(list.itemSize(1)).toBe(38);
     });
   });

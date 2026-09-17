@@ -6,49 +6,45 @@ import styles from "./SessionDateHeader.module.less";
 interface SessionDateHeaderProps {
   dateGroup: ChatDateGroup;
   label: string;
-  /** Present in the sidebar list, where headers fold their section. */
+  count: number;
   collapsed?: boolean;
-  onToggle?: () => void;
+  onToggle: () => void;
 }
 
+/**
+ * Collapsible section header for date groups. Mirrors the group
+ * header chip (geometry, hover, chevron, label and count pill) so
+ * both grouping modes read as the same control family.
+ */
 export default function SessionDateHeader({
   dateGroup,
   label,
+  count,
   collapsed = false,
   onToggle,
 }: SessionDateHeaderProps) {
-  const interactive = typeof onToggle === "function";
-
   return (
     <div
-      className={`${styles.header} ${interactive ? styles.interactive : ""}`}
+      className={styles.header}
       data-date-group={dateGroup}
-      role={interactive ? "button" : undefined}
-      tabIndex={interactive ? 0 : undefined}
-      aria-expanded={interactive ? !collapsed : undefined}
-      onClick={interactive ? onToggle : undefined}
-      onKeyDown={
-        interactive
-          ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onToggle?.();
-              }
-            }
-          : undefined
-      }
+      role="button"
+      tabIndex={0}
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onToggle();
+        }
+      }}
     >
-      {interactive && (
-        <span
-          className={`${styles.chevron} ${
-            collapsed ? styles.chevronCollapsed : ""
-          }`}
-        >
-          <ChevronDown size={12} />
-        </span>
-      )}
+      <span
+        className={`${styles.chevron} ${collapsed ? styles.collapsed : ""}`}
+      >
+        <ChevronDown size={13} />
+      </span>
       <span className={styles.label}>{label}</span>
-      <span className={styles.line} />
+      <span className={styles.count}>{count}</span>
     </div>
   );
 }

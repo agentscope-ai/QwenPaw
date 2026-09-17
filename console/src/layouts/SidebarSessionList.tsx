@@ -76,7 +76,7 @@ import styles from "./sidebarSessionList.module.less";
  */
 const SESSION_ROW_HEIGHT = 38;
 const GROUP_HEADER_HEIGHT = 36;
-const DATE_HEADER_HEIGHT = 20;
+const DATE_HEADER_HEIGHT = 36;
 
 /** A flattened row rendered by the virtualized session list. */
 type FlatRow =
@@ -90,6 +90,7 @@ type FlatRow =
       kind: "dateHeader";
       dateGroup: ChatDateGroup;
       label: string;
+      count: number;
       collapsed: boolean;
     }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
@@ -199,6 +200,7 @@ const VirtualRow = React.memo(function VirtualRow({
         <SessionDateHeader
           dateGroup={row.dateGroup}
           label={row.label}
+          count={row.count}
           collapsed={row.collapsed}
           onToggle={() => data.toggleDateGroup(row.dateGroup)}
         />
@@ -543,6 +545,7 @@ export default function SidebarSessionList({
           kind: "dateHeader" as const,
           dateGroup: dateGroup.key,
           label: t(`chat.group.${dateGroup.key}`),
+          count: dateGroup.sessions.length,
           collapsed:
             isSessionDragging || collapsedDateGroups.has(dateGroup.key),
         },

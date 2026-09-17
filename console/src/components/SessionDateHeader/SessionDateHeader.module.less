@@ -1,40 +1,60 @@
+/* Mirrors SessionGroupHeader chip geometry so both section header
+   families read identically (32px content + 2×2 margin = 36px row). */
 .header {
+  position: relative;
   display: flex;
-  height: 20px;
+  width: calc(100% - 12px);
+  height: 32px;
   align-items: center;
-  gap: 8px;
-  padding: 0 14px 0 20px;
+  gap: 6px;
+  margin: 2px 6px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
   color: var(--app-text-tertiary);
-  font-size: 10px;
-  font-weight: 520;
-  letter-spacing: 0.025em;
-  white-space: nowrap;
+  cursor: pointer;
 }
 
-.interactive {
-  cursor: pointer;
-
-  &:hover {
-    color: var(--app-text-secondary);
-  }
+.header:hover {
+  background: var(--app-fill-faint);
+  color: var(--app-text);
 }
 
 .chevron {
   display: inline-flex;
   flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
   transition: transform 0.16s ease;
 }
 
-.chevronCollapsed {
+.collapsed {
   transform: rotate(-90deg);
 }
 
 .label {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  flex: 1;
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.01em;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.line {
-  height: 1px;
-  flex: 1;
-  background: var(--app-border-subtle);
+.count {
+  display: inline-flex;
+  min-width: 20px;
+  height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--app-fill-subtle);
+  color: var(--app-text-secondary);
+  font-size: 10px;
+  transition: opacity 0.15s ease;
 }
