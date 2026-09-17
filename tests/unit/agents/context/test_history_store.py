@@ -620,6 +620,55 @@ def test_corrupt_db_is_quarantined_and_recreated(tmp_path: Path):
         store.close()
 
 
+@pytest.mark.parametrize("replace_before", ["open", "connect"])
+def test_cache_hit_replacement_is_checked_before_constructor_returns(
+    tmp_path,
+    monkeypatch,
+    replace_before,
+):
+    path = tmp_path / "history.db"
+    replacement = tmp_path / "replacement.db"
+    HistoryStore(path).close()
+    HistoryStore(replacement).close()
+    original_open = HistoryStore._open_and_init
+    original_connect = sqlite3.connect
+    original_check = HistoryStore._run_integrity_check
+    checks = 0
+
+    def check(store):
+        nonlocal checks
+        checks += 1
+        original_check(store)
+
+    def open_store(store, **kwargs):
+        if replace_before == "open":
+            replacement.replace(path)
+        original_open(store, **kwargs)
+
+    def connect(*args, **kwargs):
+        if replace_before == "connect":
+            replacement.replace(path)
+        return original_connect(*args, **kwargs)
+
+    monkeypatch.setattr(HistoryStore, "_run_integrity_check", check)
+    with monkeypatch.context() as patch:
+        patch.setattr(HistoryStore, "_open_and_init", open_store)
+        patch.setattr(sqlite3, "connect", connect)
+        store = HistoryStore(path)
+        try:
+            assert checks == 1
+            assert store.quarantined_to is None
+        finally:
+            store.close()
+
+    # A stable replacement can be cached; an ambiguous open is checked again.
+    HistoryStore(path).close()
+    expected_checks = 1 if replace_before == "open" else 2
+    assert checks == expected_checks
+    HistoryStore(path).close()
+    assert checks == expected_checks
+
+
 @pytest.mark.parametrize("replace_during", ["check", "schema"])
 def test_replacement_during_open_is_not_cached(
     tmp_path,
