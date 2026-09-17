@@ -27,6 +27,7 @@ _BOOTSTRAP_WORKING_DIR = WORKING_DIR
 _BOOTSTRAP_SECRET_DIR = SECRET_DIR
 
 _ENVS_JSON = _BOOTSTRAP_SECRET_DIR / "envs.json"
+STORAGE_AUTHORITY = "encrypted_deployment_file"
 _LEGACY_ENVS_JSON_CANDIDATES = (
     Path(__file__).resolve().parent / "envs.json",
     _BOOTSTRAP_WORKING_DIR / "envs.json",
@@ -251,7 +252,14 @@ def load_envs_into_environ() -> dict[str, str]:
         Full persisted mapping from envs.json, including protected keys
         that are intentionally not injected into ``os.environ``.
     """
-    envs = load_envs()
+    from qwenpaw.backup._utils.safe_swap import (
+        cleanup_stale_restore_artifacts,
+        restore_process_lock,
+    )
+
+    with restore_process_lock():
+        cleanup_stale_restore_artifacts(_BOOTSTRAP_SECRET_DIR)
+        envs = load_envs()
     bootstrap_envs = {
         key: value
         for key, value in envs.items()

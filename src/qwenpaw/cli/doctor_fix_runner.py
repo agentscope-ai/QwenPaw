@@ -33,10 +33,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..__version__ import __version__
-from ..agents.skills_manager import (
-    get_workspace_skill_manifest_path,
-    reconcile_workspace_manifest,
-)
+from ..agents.skill_system.registry import reconcile_workspace_manifest
+from ..agents.skill_system.store import get_workspace_skill_manifest_path
 from ..app.crons.models import JobsFile, ScheduleSpec
 from ..config import load_config
 from ..config.config import (

@@ -10,8 +10,28 @@
 
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { pluginSystem } from "./hostExternals";
-import { loadAllPlugins } from "./usePluginLoader";
+import { loadAllPlugins, resetLoadedPlugins } from "./usePluginLoader";
 import type { PluginRouteDeclaration } from "./hostExternals";
+import {
+  routeRegistry,
+  subscribe as registrySubscribe,
+} from "./registry/store";
+import { useAuthStore } from "@/stores/authStore";
+
+/** Derive the legacy PluginRouteDeclaration[] shape from routeRegistry. */
+function derivePluginRoutes(): PluginRouteDeclaration[] {
+  // Include both legacy (registerRoutes shim) routes and any new route.add
+  // registrations from a plugin source. Built-in `core.*` routes are excluded.
+  return routeRegistry
+    .snapshot()
+    .filter((r) => r.source !== "core")
+    .map((r) => ({
+      path: r.path,
+      component: r.Component,
+      label: r.id,
+      icon: "",
+    }));
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Context shape
@@ -45,30 +65,52 @@ const PluginContext = createContext<PluginContextValue>({
  * routes and tool renderers.
  */
 export function PluginProvider({ children }: { children: React.ReactNode }) {
+  const authMode = useAuthStore((state) => state.mode);
+  const authPhase = useAuthStore((state) => state.phase);
+  const authenticatedUserId = useAuthStore((state) => state.user?.id);
   const [toolRenderConfig, setToolRenderConfig] = useState<
     Record<string, React.FC<any>>
   >(pluginSystem.getToolRenderConfig());
   const [pluginRoutes, setPluginRoutes] = useState<PluginRouteDeclaration[]>(
-    pluginSystem.getRoutes(),
+    derivePluginRoutes(),
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Re-sync state whenever any plugin registers new capabilities
-    const unsub = pluginSystem.subscribe(() => {
+    // Re-sync state whenever any plugin registers new capabilities — both
+    // the legacy pluginSystem (toolRenderers) and the new registry
+    // (routes via shim + direct route.add) notify on change.
+    const unsubA = pluginSystem.subscribe(() => {
       setToolRenderConfig(pluginSystem.getToolRenderConfig());
-      setPluginRoutes(pluginSystem.getRoutes());
+    });
+    const unsubB = registrySubscribe(() => {
+      setPluginRoutes(derivePluginRoutes());
     });
 
-    // Load all installed plugins (non-fatal: one bad plugin won’t block others)
+    return () => {
+      unsubA();
+      unsubB();
+    };
+  }, []);
+
+  useEffect(() => {
+    resetLoadedPlugins();
+    const mayLoad =
+      authMode === "legacy" ||
+      authPhase === "disabled" ||
+      (authPhase === "authenticated" && Boolean(authenticatedUserId));
+    if (!mayLoad) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
     loadAllPlugins().then(({ failed }) => {
       if (failed.length > 0) setError(failed.join("; "));
       setLoading(false);
     });
-
-    return unsub;
-  }, []);
+  }, [authMode, authPhase, authenticatedUserId]);
 
   return (
     <PluginContext.Provider

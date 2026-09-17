@@ -24,13 +24,31 @@ proactive_configs: Dict[str, ProactiveConfig] = {}
 proactive_tasks: Dict[str, asyncio.Task] = {}
 
 
+# Store workspace references to avoid creating duplicate Workspaces
+proactive_workspaces: Dict[str, Any] = {}
+
+
 def enable_proactive_for_session(
     session_id: str,
     idle_minutes: int = 30,
+    workspace: Optional["Workspace"] = None,
 ) -> str:
-    """Enable proactive for the given session and start monitoring."""
-    # Removed unused global declaration.
-    # We are only writing to the dict, not reassigning the variable itself.
+    """Enable proactive for the given session and start monitoring.
+
+    Args:
+        session_id: Session identifier.
+        idle_minutes: Idle threshold in minutes before triggering proactive.
+        workspace: Current running Workspace to reuse. Must be provided
+            to avoid creating duplicate Workspace instances.
+    """
+    if workspace is None:
+        raise ValueError(
+            "workspace must be provided to enable_proactive_for_session. "
+            "Pass the current HookContext.workspace from the command handler.",
+        )
+
+    # Store the workspace reference for the trigger loop to use
+    proactive_workspaces[session_id] = workspace
 
     config = ProactiveConfig(
         enabled=True,
@@ -48,6 +66,35 @@ def enable_proactive_for_session(
     return f"Proactive mode enabled with {idle_minutes} minute idle threshold."
 
 
+async def disable_proactive_for_session(
+    session_id: str,
+) -> str:
+    """Disable proactive for the given session and clean up resources.
+
+    Cancels the background trigger loop task, removes the session
+    entry from both ``proactive_tasks`` and ``proactive_configs``,
+    and returns a human-readable confirmation message.
+    """
+    # Cancel the running task if it exists
+    if session_id in proactive_tasks:
+        task = proactive_tasks[session_id]
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        del proactive_tasks[session_id]
+
+    # Remove config to free memory and signal the loop to exit
+    proactive_configs.pop(session_id, None)
+
+    # Clean up workspace reference
+    proactive_workspaces.pop(session_id, None)
+
+    return "Proactive mode disabled."
+
+
 async def _run_trigger_loop(
     session_id: str,
 ) -> None:
@@ -60,8 +107,11 @@ async def _run_trigger_loop(
 
 async def is_last_message_proactive(workspace: Any) -> bool:
     """Check if the last message in session was a proactive message."""
-    from agentscope.memory import InMemoryMemory
-    from ....app.runner.utils import agentscope_msg_to_message
+    from agentscope.state import AgentState
+    from ....app.chats.utils import (
+        agentscope_msg_to_message,
+        parse_legacy_memory_state,
+    )
 
     try:
         chats = await workspace.chat_manager.list_chats()
@@ -72,17 +122,29 @@ async def is_last_message_proactive(workspace: Any) -> bool:
 
         session_id = latest_session.session_id
         user_id = latest_session.user_id
+        channel = latest_session.channel
 
-        state = await workspace.runner.session.get_session_state_dict(
+        state = await workspace.session.get_session_state_dict(
             session_id,
             user_id,
+            channel,
         )
 
-        memories_data = state.get("agent", {}).get("memory", [])
+        agent_raw = state.get("agent", {})
+        messages = []
 
-        memory = InMemoryMemory()
-        memory.load_state_dict(memories_data)
-        messages = await memory.get_memory()
+        state_raw = agent_raw.get("state")
+        if isinstance(state_raw, dict):
+            try:
+                agent_state = AgentState.model_validate(state_raw)
+                messages = list(agent_state.context)
+            except Exception:
+                pass
+
+        if not messages:
+            memories_data = agent_raw.get("memory", [])
+            if memories_data:
+                messages, _summary = parse_legacy_memory_state(memories_data)
 
         serializable_messages = agentscope_msg_to_message(messages)
 
@@ -208,15 +270,14 @@ async def proactive_trigger_loop(
 
     last_trigger_attempt: Optional[datetime] = None
 
-    try:
-        from ....app.agent_context import get_current_agent_id
-        from ....app.multi_agent_manager import MultiAgentManager
-
-        active_agent_id = get_current_agent_id()
-        multi_agent_manager = MultiAgentManager()
-        workspace = await multi_agent_manager.get_agent(active_agent_id)
-    except Exception as e:
-        logger.error(f"Failed to initialize workspace for proactive loop: {e}")
+    # Get the workspace that was stored when proactive was enabled
+    workspace = proactive_workspaces.get(session_id)
+    if workspace is None:
+        logger.error(
+            "No workspace found for session %s in proactive_workspaces. "
+            "Proactive was likely enabled without passing a workspace.",
+            session_id,
+        )
         return
 
     while True:

@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+import sys
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncGenerator, Coroutine
 
-import frontmatter as fm
 from agentscope.message import Msg, TextBlock
 from agentscope_runtime.engine.runner import Runner
 from agentscope_runtime.engine.schemas.agent_schemas import AgentRequest
@@ -33,11 +35,24 @@ from .utils import build_env_context
 from ..channels.schema import DEFAULT_CHANNEL
 from ...agents.react_agent import QwenPawAgent
 from ...exceptions import convert_model_exception
-from ...agents.utils.file_handling import (
-    read_text_file_with_encoding_fallback,
+from ...agents.skill_runtime import (
+    SkillIntentRouter,
+    SkillRoute,
+    discover_enabled_skills,
+    render_skill_info,
+    render_skill_list,
+    route_to_prompt,
+)
+from ...agents.slash_runtime import (
+    SlashRoute,
+    resolve_slash_route,
+    route_to_prompt as slash_route_to_prompt,
 )
 from ...config.config import load_agent_config
 from ...constant import WORKING_DIR
+from ...plan.intent_router import PlanIntentRouter
+from ...runtime_status.broadcast import broadcast_runtime_status
+from ...runtime_status.stream_events import stream_with_runtime_status
 
 if TYPE_CHECKING:
     from ...agents.memory import BaseMemoryManager
@@ -123,6 +138,22 @@ class AgentRunner(Runner):
         self.memory_manager: BaseMemoryManager | None = None
         self.context_manager: BaseContextManager | None = None
         self._task_tracker = task_tracker  # Task tracker for background tasks
+        self._agent_name: str | None = None
+
+    @property
+    def agent_name(self) -> str:
+        """Agent display name from config, cached after first access."""
+        if self._agent_name is None:
+            try:
+                cfg = load_agent_config(self.agent_id)
+                self._agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
+            except Exception:
+                self._agent_name = "QwenPaw"
+        return self._agent_name
+
+    def invalidate_agent_name_cache(self) -> None:
+        """Clear cached agent_name so next access re-reads config."""
+        self._agent_name = None
 
     def set_chat_manager(self, chat_manager):
         """Set chat manager for auto-registration.
@@ -147,6 +178,30 @@ class AgentRunner(Runner):
             workspace: Workspace instance
         """
         self._workspace = workspace
+
+    def _emit_runtime_status(
+        self,
+        *,
+        session_id: str,
+        root_session_id: str | None = None,
+        chat_id: str | None = None,
+        stage: str,
+        status: str = "running",
+        message: str = "",
+        detail: dict[str, Any] | None = None,
+        user_id: str | None = None,
+    ) -> None:
+        broadcast_runtime_status(
+            self.agent_id,
+            session_id=session_id,
+            root_session_id=root_session_id or session_id,
+            chat_id=chat_id,
+            stage=stage,
+            status=status,
+            message=message,
+            detail=detail,
+            user_id=user_id,
+        )
 
     @staticmethod
     def _parse_skill_query(
@@ -182,81 +237,283 @@ class AgentRunner(Runner):
         user_input = parts[1] if len(parts) > 1 else ""
         return (name, user_input) if name else None
 
-    @staticmethod
     def _maybe_inject_skill(
+        self,
         query: str | None,
         msgs: list,
-        skills: dict,
+        route: SkillRoute | None,
     ) -> Msg | None:
-        """Handle ``/<skill_name> [input]`` or ``/[skill name] [input]``.
-
-        *skills* is ``agent.toolkit.skills`` — already resolved for
-        the current channel during agent init.  Hot-reload safe because
-        the agent is recreated on every query.
+        """Apply a resolved skill route to the current turn.
 
         Returns a ``Msg`` to short-circuit (skill info), or ``None``
         to continue to the LLM with rewritten ``msgs``.
         """
-        if not query or not query.startswith("/") or not msgs:
+        if route is None:
             return None
 
-        parsed = AgentRunner._parse_skill_query(query)
-        if not parsed:
-            return None
-        name, user_input = parsed
+        if route.kind == "list":
+            return Msg(
+                name=self.agent_name,
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text=render_skill_list(list(route.skills)),
+                    ),
+                ],
+            )
 
-        # Lookup by folder name
-        skill = next(
-            (
-                s
-                for s in skills.values()
-                if Path(s["dir"]).name.lower() == name
-            ),
-            None,
-        )
-        if not skill:
-            return None
-
-        skill_dir = Path(skill["dir"])
-        skill_md = skill_dir / "SKILL.md"
-        if not skill_md.exists():
-            return None
-
-        raw = read_text_file_with_encoding_fallback(skill_md)
-        post = fm.loads(raw)
-        display_name = post.get("name") or name
-
-        # /<name> without input → return skill info.
-        if not user_input:
-            desc = post.get("description") or "No description."
-            logger.info("Skill info: %s", name)
+        if route.kind == "info" and route.skill is not None:
+            logger.info("Skill info: %s", route.skill.name)
             return Msg(
                 name="Friday",
                 role="assistant",
                 content=[
                     TextBlock(
                         type="text",
+                        text=render_skill_info(route.skill),
+                    ),
+                ],
+            )
+
+        if route.kind == "invoke" and msgs:
+            original = query or ""
+            prompt = route_to_prompt(route)
+            if prompt:
+                AgentRunner._rewrite_last_message_text(
+                    msgs,
+                    prompt + original,
+                )
+                logger.info(
+                    "Skill invocation routed: skill=%s reason=%s "
+                    "candidates=%s",
+                    route.skill.name if route.skill else "",
+                    route.reason,
+                    route.candidates,
+                )
+        return None
+
+    @staticmethod
+    def _maybe_inject_slash_route(
+        query: str | None,
+        msgs: list,
+        route: SlashRoute | None,
+    ) -> Msg | None:
+        """Apply explicit `/tool` or `/mcp` routing."""
+        if route is None:
+            return None
+        if route.error:
+            return Msg(
+                name="Friday",
+                role="assistant",
+                content=[TextBlock(type="text", text=route.error)],
+            )
+        if msgs:
+            prompt = slash_route_to_prompt(route)
+            AgentRunner._rewrite_last_message_text(
+                msgs,
+                prompt + (route.args or query or ""),
+            )
+            logger.info(
+                "Slash invocation routed: kind=%s tool=%s client=%s "
+                "mcp_tool=%s",
+                route.kind,
+                route.tool_name,
+                route.client_key,
+                route.mcp_tool_name,
+            )
+        return None
+
+    async def _validate_slash_route(
+        self,
+        route: SlashRoute | None,
+    ) -> SlashRoute | None:
+        """Best-effort validation for explicit MCP tool slash routes."""
+        if route is None or route.error or route.kind != "mcp_tool":
+            return route
+        if self._mcp_manager is None:
+            return SlashRoute(
+                kind=route.kind,
+                client_key=route.client_key,
+                mcp_tool_name=route.mcp_tool_name,
+                args=route.args,
+                error="MCP 管理器尚未就绪，请稍后重试。",
+            )
+        client = await self._mcp_manager.get_client(route.client_key)
+        if client is None or not getattr(client, "is_connected", False):
+            return SlashRoute(
+                kind=route.kind,
+                client_key=route.client_key,
+                mcp_tool_name=route.mcp_tool_name,
+                args=route.args,
+                error=f"MCP client `{route.client_key}` 尚未连接。",
+            )
+        try:
+            tools = await client.list_tools()
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning(
+                "Slash MCP tool validation failed: client=%s error=%s",
+                route.client_key,
+                exc,
+            )
+            return SlashRoute(
+                kind=route.kind,
+                client_key=route.client_key,
+                mcp_tool_name=route.mcp_tool_name,
+                args=route.args,
+                error=f"无法查询 MCP client `{route.client_key}` 的工具列表。",
+            )
+        available = {getattr(tool, "name", "") for tool in tools}
+        if route.mcp_tool_name not in available:
+            return SlashRoute(
+                kind=route.kind,
+                client_key=route.client_key,
+                mcp_tool_name=route.mcp_tool_name,
+                args=route.args,
+                error=(
+                    f"MCP tool `{route.client_key}.{route.mcp_tool_name}` "
+                    "不存在或当前不可用。"
+                ),
+            )
+        return route
+
+    async def _maybe_resolve_skill_clarification(
+        self,
+        *,
+        route: SkillRoute | None,
+        query: str | None,
+        session_id: str,
+        root_session_id: str,
+        user_id: str,
+        channel: str,
+        recipient_user_id: str | None = None,
+    ) -> tuple[SkillRoute | None, Msg | None]:
+        """Ask the user to choose a skill when routing is ambiguous."""
+        if route is None or route.kind != "clarify":
+            return route, None
+
+        from ...user_input.schemas import UserInputOption, UserInputQuestion
+        from ...user_input.service import get_user_input_service
+
+        options = [
+            UserInputOption(
+                label=skill.name,
+                value=skill.name,
+                description=skill.description or skill.display_name,
+            )
+            for skill in route.skills
+        ]
+        if not options:
+            return None, Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="检测到多个可能的技能，但没有可展示的候选项。",
+                    ),
+                ],
+            )
+
+        service = get_user_input_service()
+        pending = await service.create_pending(
+            session_id=session_id,
+            root_session_id=root_session_id,
+            user_id=user_id,
+            channel=channel,
+            agent_id=self.agent_id,
+            title="选择要使用的技能",
+            recipient_user_id=recipient_user_id,
+            questions=[
+                UserInputQuestion(
+                    id="skill",
+                    question=(
+                        "这个请求匹配到多个已启用技能，"
+                        "请选择本次要使用哪一个。"
+                    ),
+                    kind="single_choice",
+                    options=options,
+                    required=True,
+                ),
+            ],
+            timeout_seconds=300.0,
+        )
+        result = await service.wait_for_result(
+            pending.request_id,
+            pending.timeout_seconds,
+        )
+
+        if result.status != "answered":
+            logger.info(
+                "Skill clarification not answered: status=%s candidates=%s",
+                result.status,
+                route.candidates,
+            )
+            return None, Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
                         text=(
-                            f"**{name}**\n\n"
-                            f"- **command**: `/{name} <input>` to invoke\n"
-                            f"- **name**: {display_name}\n"
-                            f"- **description**: {desc}\n"
-                            f"- **path**: `{skill_dir}`"
+                            "我检测到多个可用技能都可能处理这个请求，"
+                            "但本次没有选择具体技能，已暂停执行。"
                         ),
                     ),
                 ],
             )
 
-        # /<name> <input> → rewrite user message with skill body.
-        merged = (
-            f"Use the [{display_name}] skill in "
-            f"`{skill_dir}` to fulfill "
-            f"user's task: {user_input}\n\n"
-            f"{post.content}"
+        selected_name = str(result.answers.get("skill") or "").strip()
+        selected = next(
+            (
+                skill
+                for skill in route.skills
+                if skill.name.lower() == selected_name.lower()
+            ),
+            None,
         )
-        AgentRunner._rewrite_last_message_text(msgs, merged)
-        logger.info("Skill invocation: %s", name)
-        return None
+        if selected is None:
+            logger.info(
+                "Skill clarification selected invalid skill: %s",
+                selected_name,
+            )
+            return None, Msg(
+                name="Friday",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="选择的技能无效，请重新发起请求并选择可用技能。",
+                    ),
+                ],
+            )
+
+        logger.info(
+            "Skill clarification selected: skill=%s candidates=%s",
+            selected.name,
+            route.candidates,
+        )
+        return SkillRoute(
+            kind="invoke",
+            skill=selected,
+            args=query or "",
+            reason="semantic_user_selected",
+            candidates=route.candidates,
+        ), None
+
+    @staticmethod
+    def _extract_text_content(msg) -> str:
+        """Return the concatenated text of a Msg's content."""
+        content = getattr(msg, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "\n".join(
+                block.get("text") or ""
+                for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+        return ""
 
     @staticmethod
     def _rewrite_last_message_text(
@@ -283,6 +540,68 @@ class AgentRunner(Runner):
         elif isinstance(content, str):
             last.content = new_text
 
+    async def _persist_exchange_to_session(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+        msgs: list,
+        response_msg: "Msg",
+    ) -> None:
+        """Persist a user-message + response to session memory.
+
+        Used by early-exit paths (/mission info, /skill info) that bypass
+        the full agent pipeline and would otherwise leave session memory
+        unsaved — causing the response to vanish when the frontend
+        reloads the session from the backend.
+        """
+        if not session_id or not user_id:
+            return
+        try:
+            context_manager = self.context_manager
+            if context_manager is None:
+                return
+            memory = context_manager.get_agent_context()
+            if memory is None:
+                return
+            state = await self.session.get_session_state_dict(
+                session_id,
+                user_id,
+                channel,
+                allow_not_exist=True,
+            )
+            memory_state = (state or {}).get("agent", {}).get("memory", {})
+            memory.load_state_dict(memory_state, strict=False)
+            if msgs:
+                await memory.add(msgs[-1])
+            await memory.add(response_msg)
+            await self.session.update_session_state(
+                session_id=session_id,
+                key="agent.memory",
+                value=memory.state_dict(),
+                user_id=user_id,
+                channel=channel,
+            )
+            preview = session_id[:12] if len(session_id) >= 12 else session_id
+            logger.debug("Persisted exchange to session %s", preview)
+        except Exception:
+            logger.debug(
+                "Failed to persist exchange to session",
+                exc_info=True,
+            )
+
+    async def stream_query(self, request, **kwargs):
+        """Override to set created_at to current time on response events."""
+        from datetime import datetime, timezone
+
+        created_at = int(
+            datetime.now(timezone.utc).timestamp(),
+        )
+        async for event in super().stream_query(request, **kwargs):
+            if getattr(event, "object", None) == "response":
+                event.created_at = created_at
+            yield event
+
     async def query_handler(
         self,
         msgs,
@@ -296,6 +615,13 @@ class AgentRunner(Runner):
             f"AgentRunner.query_handler called: agent_id={self.agent_id}, "
             f"msgs={msgs}, request={request}",
         )
+        from functools import partial
+        from ...runtime_status.scope import execution_user_id
+
+        recipient_user_id = execution_user_id(
+            getattr(request, "request_context", None),
+        )
+        emit_status = partial(self._emit_runtime_status, user_id=recipient_user_id)
         query = _get_last_user_text(msgs)
         session_id = getattr(request, "session_id", "") or ""
 
@@ -317,6 +643,8 @@ class AgentRunner(Runner):
             set_current_agent_id,
             set_current_session_id,
             set_current_root_session_id,
+            set_current_user_id,
+            set_current_channel,
         )
 
         set_current_agent_id(self.agent_id)
@@ -327,10 +655,13 @@ class AgentRunner(Runner):
         agent = None
         chat = None
         session_state_loaded = False
+        _cron_memory_snapshot = None
         try:
             session_id = request.session_id
             user_id = request.user_id
             channel = getattr(request, "channel", DEFAULT_CHANNEL)
+            set_current_user_id(user_id)
+            set_current_channel(channel)
 
             logger.info(
                 "Handle agent query:\n%s",
@@ -347,24 +678,90 @@ class AgentRunner(Runner):
                 ),
             )
 
+            # Optional sender display name from channel_meta.user_name.
+            channel_meta = getattr(request, "channel_meta", None)
+            if not isinstance(channel_meta, dict):
+                channel_meta = {}
+            user_name = channel_meta.get("user_name")
+
+            # Load agent-specific configuration
+            agent_config = load_agent_config(self.agent_id)
+
+            _configured_shell = (
+                agent_config.running.shell_command_executable or None
+            )
+            _default_shell = (
+                _configured_shell
+                or os.environ.get("SHELL")
+                or ("cmd.exe" if sys.platform == "win32" else "/bin/sh")
+            )
+            # In Coding Mode with a concrete project_dir, surface the
+            # project as the env_context's primary location so the LLM
+            # stops treating the agent workspace as "home".
+            _cm = getattr(agent_config, "coding_mode", None)
+            _coding_project_dir = (
+                _cm.project_dir
+                if _cm
+                and getattr(_cm, "enabled", False)
+                and getattr(_cm, "project_dir", None)
+                else None
+            )
+
+            # Fork subagent: override project_dir with worktree path.
+            _payload_ctx = getattr(request, "request_context", None)
+            _fork_project = (
+                _payload_ctx.get("fork_project_dir", "")
+                if isinstance(_payload_ctx, dict)
+                else ""
+            )
+            if _fork_project:
+                _resolved_fork = Path(_fork_project).expanduser().resolve()
+                _project_base = (
+                    Path(
+                        _coding_project_dir
+                        or (
+                            str(self.workspace_dir)
+                            if self.workspace_dir
+                            else str(WORKING_DIR)
+                        ),
+                    )
+                    .expanduser()
+                    .resolve()
+                )
+                _allowed_base = _project_base / ".qwenpaw" / "worktrees"
+                try:
+                    _resolved_fork.relative_to(_allowed_base)
+                    _is_allowed = _resolved_fork.is_dir()
+                except ValueError:
+                    _is_allowed = False
+                if _is_allowed:
+                    _coding_project_dir = str(_resolved_fork)
+                else:
+                    logger.warning(
+                        "Rejected fork_project_dir outside "
+                        "allowed subtree: %s",
+                        _fork_project,
+                    )
+
             env_context = build_env_context(
+                agent_id=self.agent_id,
                 session_id=session_id,
                 user_id=user_id,
+                user_name=user_name,
                 channel=channel,
                 working_dir=(
                     str(self.workspace_dir)
                     if self.workspace_dir
                     else str(WORKING_DIR)
                 ),
+                default_shell=_default_shell,
+                project_dir=_coding_project_dir,
             )
 
             # Get MCP clients from manager (hot-reloadable)
             mcp_clients = []
             if self._mcp_manager is not None:
                 mcp_clients = await self._mcp_manager.get_clients()
-
-            # Load agent-specific configuration
-            agent_config = load_agent_config(self.agent_id)
 
             logger.debug(f"Enabled MCP: {mcp_clients}")
 
@@ -374,7 +771,11 @@ class AgentRunner(Runner):
                 "user_id": user_id,
                 "channel": channel,
                 "agent_id": self.agent_id,
+                "root_agent_id": self.agent_id,
             }
+            payload_context = getattr(request, "request_context", None)
+            if isinstance(payload_context, dict):
+                base_request_context.update(payload_context)
 
             # Extract root_session_id from request payload (agent chat)
             payload_root_session = getattr(request, "root_session_id", "")
@@ -402,6 +803,13 @@ class AgentRunner(Runner):
                     session_preview,
                 )
 
+            emit_status(
+                session_id=session_id,
+                root_session_id=base_request_context["root_session_id"],
+                stage="agent_starting",
+                message="智能体正在启动…",
+            )
+
             # Mission Mode: /mission
             _ws = self.workspace_dir or WORKING_DIR
             mission_info: dict | None = None
@@ -413,8 +821,16 @@ class AgentRunner(Runner):
                 agent_id=self.agent_id,
                 rewrite_fn=self._rewrite_last_message_text,
                 session_id=session_id,
+                agent_name=self.agent_name,
             )
             if isinstance(mission_result, Msg):
+                await self._persist_exchange_to_session(
+                    session_id,
+                    user_id,
+                    channel,
+                    msgs,
+                    mission_result,
+                )
                 yield mission_result, True
                 return
             if isinstance(mission_result, dict):
@@ -461,20 +877,106 @@ class AgentRunner(Runner):
                     refresher + original,
                 )
 
+            slash_route: SlashRoute | None = None
+            if mission_info is None:
+                try:
+                    slash_route = resolve_slash_route(query, agent_config)
+                    slash_route = await self._validate_slash_route(
+                        slash_route,
+                    )
+                    slash_response = self._maybe_inject_slash_route(
+                        query,
+                        msgs,
+                        slash_route,
+                    )
+                    if slash_response is not None:
+                        yield slash_response, True
+                        return
+                except Exception:
+                    logger.warning("Slash routing failed", exc_info=True)
+
+            # Skill routing: explicit slash/name, bare skill name, or
+            # high-confidence description intent match.
+            skill_route: SkillRoute | None = None
+            skill_response: Msg | None = None
+            if mission_info is None and slash_route is None:
+                try:
+                    enabled_skills = discover_enabled_skills(_ws, channel)
+                    skill_route = SkillIntentRouter(enabled_skills).route(
+                        query,
+                    )
+                    if skill_route is not None:
+                        logger.info(
+                            "Skill router result: kind=%s skill=%s "
+                            "reason=%s candidates=%s",
+                            skill_route.kind,
+                            (
+                                skill_route.skill.name
+                                if skill_route.skill is not None
+                                else ""
+                            ),
+                            skill_route.reason,
+                            skill_route.candidates,
+                        )
+                        if skill_route.kind in {"list", "info"}:
+                            skill_response = self._maybe_inject_skill(
+                                query,
+                                msgs,
+                                skill_route,
+                            )
+                            if skill_response is not None:
+                                await self._persist_exchange_to_session(
+                                    session_id,
+                                    user_id,
+                                    channel,
+                                    msgs,
+                                    skill_response,
+                                )
+                                yield skill_response, True
+                                return
+                        if skill_route.kind == "clarify":
+                            (
+                                skill_route,
+                                skill_response,
+                            ) = await self._maybe_resolve_skill_clarification(
+                                route=skill_route,
+                                recipient_user_id=recipient_user_id,
+                                query=query,
+                                session_id=session_id,
+                                root_session_id=base_request_context[
+                                    "root_session_id"
+                                ],
+                                user_id=user_id,
+                                channel=channel,
+                            )
+                            if skill_response is not None:
+                                await self._persist_exchange_to_session(
+                                    session_id,
+                                    user_id,
+                                    channel,
+                                    msgs,
+                                    skill_response,
+                                )
+                                yield skill_response, True
+                                return
+                except Exception:
+                    logger.warning("Skill routing failed", exc_info=True)
+
             # --- Plan Mode ------------------------------------------
             plan_notebook = None
-            plan_enabled = getattr(
-                getattr(agent_config, "plan", None),
-                "enabled",
-                False,
-            )
+            plan_cfg = getattr(agent_config, "plan", None)
+            plan_enabled = getattr(plan_cfg, "enabled", False)
             if plan_enabled:
                 try:
                     from agentscope.plan import (
                         PlanNotebook,
                         InMemoryPlanStorage,
                     )
-                    from ...plan.hints import SimplePlanToHint, set_plan_gate
+                    from ...plan.hints import (
+                        SimplePlanToHint,
+                        set_plan_auto_execute,
+                        set_plan_gate,
+                    )
 
                     hint_gen = SimplePlanToHint()
                     plan_notebook = PlanNotebook(
@@ -488,6 +990,10 @@ class AgentRunner(Runner):
                         plan_desc = query.strip()[6:].strip()
                         if plan_desc:
                             set_plan_gate(plan_notebook, enabled=True)
+                            set_plan_auto_execute(
+                                plan_notebook,
+                                enabled=False,
+                            )
                             self._rewrite_last_message_text(
                                 msgs,
                                 plan_desc,
@@ -496,6 +1002,46 @@ class AgentRunner(Runner):
                                 "Plan mode: /plan gate set, desc=%s",
                                 plan_desc[:60],
                             )
+                    elif (
+                        mission_info is None
+                        and slash_route is None
+                        and (
+                            skill_route is None
+                            or skill_route.reason == "semantic_description"
+                        )
+                    ):
+                        route = PlanIntentRouter(
+                            threshold=getattr(
+                                plan_cfg,
+                                "complexity_threshold",
+                                "medium",
+                            ),
+                            auto_enabled=getattr(
+                                plan_cfg,
+                                "auto_enabled",
+                                True,
+                            ),
+                        ).route(query)
+                        if route is not None:
+                            set_plan_gate(plan_notebook, enabled=True)
+                            set_plan_auto_execute(
+                                plan_notebook,
+                                enabled=getattr(
+                                    plan_cfg,
+                                    "auto_execute",
+                                    False,
+                                ),
+                            )
+                            logger.info(
+                                "Plan router result: reason=%s score=%s "
+                                "matched=%s auto_execute=%s",
+                                route.reason,
+                                route.score,
+                                route.matched,
+                                getattr(plan_cfg, "auto_execute", False),
+                            )
+                            if query:
+                                self._rewrite_last_message_text(msgs, query)
 
                     # Register SSE broadcast hook + state tracking
                     from ...plan.broadcast import broadcast_plan_update
@@ -505,6 +1051,13 @@ class AgentRunner(Runner):
                         nb,
                         plan,
                     ):
+                        if getattr(nb, "_loading_from_state", False):
+                            nb._qp_had_plan = plan is not None
+                            nb._qp_prev_plan_id = (
+                                plan.id if plan is not None else None
+                            )
+                            return
+
                         had_plan = getattr(nb, "_qp_had_plan", False)
                         prev_id = getattr(nb, "_qp_prev_plan_id", None)
 
@@ -516,6 +1069,7 @@ class AgentRunner(Runner):
                         else:
                             if had_plan:
                                 nb._plan_recently_finished = True
+                                nb._plan_awaiting_user_confirm = False
                             nb._qp_prev_plan_id = None
                         nb._qp_had_plan = plan is not None
 
@@ -543,6 +1097,20 @@ class AgentRunner(Runner):
                         exc_info=True,
                     )
                     plan_notebook = None
+
+            if (
+                skill_route is not None
+                and skill_route.kind == "invoke"
+                and not getattr(plan_notebook, "_plan_tool_gate", False)
+            ):
+                skill_response = self._maybe_inject_skill(
+                    query,
+                    msgs,
+                    skill_route,
+                )
+                if skill_response is not None:
+                    yield skill_response, True
+                    return
 
             agent = QwenPawAgent(
                 agent_config=agent_config,
@@ -578,34 +1146,28 @@ class AgentRunner(Runner):
             )
 
             if self._chat_manager is not None:
+                _req_extra = getattr(request, "model_extra", None) or {}
+                _session_source = _req_extra.get("session_source", "chat")
                 logger.debug(
                     f"Runner: Calling get_or_create_chat for "
                     f"session_id={session_id}, user_id={user_id}, "
-                    f"channel={channel}, name={name}",
+                    f"channel={channel}, name={name}, "
+                    f"source={_session_source}",
                 )
                 chat = await self._chat_manager.get_or_create_chat(
                     session_id,
                     user_id,
                     channel,
                     name=name,
+                    source=_session_source,
                 )
+                base_request_context["chat_id"] = chat.id
                 logger.debug(f"Runner: Got chat: {chat.id}")
             else:
                 logger.warning(
                     f"ChatManager is None! Cannot auto-register chat for "
                     f"session_id={session_id}",
                 )
-
-            # Skill info (/<name> without input) is display-only
-            if mission_info is None:
-                skill_response = self._maybe_inject_skill(
-                    query,
-                    msgs,
-                    agent.toolkit.skills,
-                )
-                if skill_response is not None:
-                    yield skill_response, True
-                    return
 
             # Ensure session file has a valid plan_notebook dict
             # to prevent TypeError/KeyError during load_state_dict
@@ -614,6 +1176,7 @@ class AgentRunner(Runner):
                     _states = await self.session.get_session_state_dict(
                         session_id=session_id,
                         user_id=user_id,
+                        channel=channel,
                         allow_not_exist=True,
                     )
                     _agent_st = _states.get("agent", {})
@@ -627,6 +1190,7 @@ class AgentRunner(Runner):
                             key="agent.plan_notebook",
                             value=plan_notebook.state_dict(),
                             user_id=user_id,
+                            channel=channel,
                             create_if_not_exist=False,
                         )
                 except Exception:
@@ -635,10 +1199,17 @@ class AgentRunner(Runner):
                         exc_info=True,
                     )
 
+            if plan_notebook is not None:
+                setattr(
+                    plan_notebook,
+                    "_loading_from_state",
+                    True,  # pylint: disable=protected-access
+                )
             try:
                 await self.session.load_session_state(
                     session_id=session_id,
                     user_id=user_id,
+                    channel=channel,
                     agent=agent,
                 )
             except KeyError as e:
@@ -647,51 +1218,133 @@ class AgentRunner(Runner):
                     "will save fresh state on completion to recover file",
                     e,
                 )
+            finally:
+                if plan_notebook is not None:
+                    setattr(
+                        plan_notebook,
+                        "_loading_from_state",
+                        False,  # pylint: disable=protected-access
+                    )
             session_state_loaded = True
+
+            if plan_notebook is not None:
+                from ...plan.hints import clear_plan_awaiting_user_confirm
+
+                clear_plan_awaiting_user_confirm(plan_notebook)
+
+            # Isolated cron: run without any prior context so each execution
+            # is independent (saves tokens, avoids stale-context interference).
+            _extra = getattr(request, "model_extra", None) or {}
+            if (
+                _extra.get("session_source") == "cron"
+                and agent.memory is not None
+            ):
+                # Snapshot the full history before clearing
+                _cron_memory_snapshot = agent.memory.state_dict()
+                await agent.memory.clear()
+                logger.debug(
+                    "Isolated cron execution: snapshotted and cleared agent "
+                    "memory (%d items) for session_id=%s",
+                    len(_cron_memory_snapshot.get("memory", [])),
+                    session_id,
+                )
 
             # Rebuild system prompt so it always reflects the latest
             # AGENTS.md / SOUL.md / PROFILE.md, not the stale one saved
             # in the session state.
             agent.rebuild_sys_prompt()
 
+            emit_status(
+                session_id=session_id,
+                root_session_id=base_request_context["root_session_id"],
+                chat_id=(chat.id if chat is not None else None),
+                stage="waiting_model_first_event",
+                message="正在等待模型响应…",
+            )
+
             # --- Execution: Mission Mode (phased) or standard -----
-            if mission_info is not None:
-                from ...agents.mission.mission_runner import (
-                    run_mission_phase1,
-                    run_mission_phase2,
-                )
+            from ...observability.langfuse import agent_trace_scope
 
-                phase = mission_info["mission_phase"]
-                loop_dir = Path(mission_info["loop_dir"])
-                max_iters = mission_info.get(
-                    "max_iterations",
-                    20,
-                )
+            root_session_id = base_request_context.get(
+                "root_session_id",
+                session_id,
+            )
+            trace_metadata = {
+                "session_id": session_id,
+                "root_session_id": root_session_id,
+                "user_id": user_id,
+                "channel": channel,
+                "agent_id": self.agent_id,
+                "root_agent_id": base_request_context.get("root_agent_id"),
+                "source": base_request_context.get("source"),
+            }
+            async with agent_trace_scope(
+                trace_id=uuid.uuid4().hex,
+                name="qwenpaw.agent.react_loop",
+                metadata=trace_metadata,
+                input={
+                    "query": query,
+                    "messages_count": len(msgs) if msgs else 0,
+                },
+            ):
+                if mission_info is not None:
+                    from ...agents.mission.mission_runner import (
+                        run_mission_phase1,
+                        run_mission_phase2,
+                    )
 
-                if phase == 1:
-                    async for msg, last in run_mission_phase1(
-                        agent=agent,
-                        msgs=msgs,
-                        loop_dir=loop_dir,
-                        max_iterations=max_iters,
-                        agent_id=self.agent_id,
-                    ):
-                        yield msg, last
+                    phase = mission_info["mission_phase"]
+                    loop_dir = Path(mission_info["loop_dir"])
+                    max_iters = mission_info.get(
+                        "max_iterations",
+                        20,
+                    )
+
+                    if phase == 1:
+                        phase_stream = run_mission_phase1(
+                            agent=agent,
+                            msgs=msgs,
+                            loop_dir=loop_dir,
+                            max_iterations=max_iters,
+                            agent_id=self.agent_id,
+                        )
+                        async for msg, last in stream_with_runtime_status(
+                            phase_stream,
+                            emit_status,
+                            session_id=session_id,
+                            root_session_id=root_session_id,
+                            chat_id=(chat.id if chat is not None else None),
+                        ):
+                            yield msg, last
+                    else:
+                        phase_stream = run_mission_phase2(
+                            agent=agent,
+                            msgs=msgs,
+                            loop_dir=loop_dir,
+                            max_iterations=max_iters,
+                            agent_id=self.agent_id,
+                        )
+                        async for msg, last in stream_with_runtime_status(
+                            phase_stream,
+                            emit_status,
+                            session_id=session_id,
+                            root_session_id=root_session_id,
+                            chat_id=(chat.id if chat is not None else None),
+                        ):
+                            yield msg, last
                 else:
-                    async for msg, last in run_mission_phase2(
-                        agent=agent,
-                        msgs=msgs,
-                        loop_dir=loop_dir,
-                        max_iterations=max_iters,
-                        agent_id=self.agent_id,
+                    response_stream = _stream_printing_messages_interruptible(
+                        agents=[agent],
+                        coroutine_task=agent(msgs),
+                    )
+                    async for msg, last in stream_with_runtime_status(
+                        response_stream,
+                        emit_status,
+                        session_id=session_id,
+                        root_session_id=root_session_id,
+                        chat_id=(chat.id if chat is not None else None),
                     ):
                         yield msg, last
-            else:
-                async for msg, last in _stream_printing_messages_interruptible(
-                    agents=[agent],
-                    coroutine_task=agent(msgs),
-                ):
-                    yield msg, last
 
         except asyncio.CancelledError as exc:
             logger.info(f"query_handler: {session_id} cancelled!")
@@ -711,15 +1364,29 @@ class AgentRunner(Runner):
             )
             if cancelled_count > 0:
                 logger.info(
-                    "Auto-denied %d pending approval(s) for root session %s",
+                    "Auto-denied %d pending approval(s) for root "
+                    "session %s",
                     cancelled_count,
-                    root_session_id[:8]
-                    if len(root_session_id) >= 8
-                    else root_session_id,
+                    (
+                        root_session_id[:8]
+                        if len(root_session_id) >= 8
+                        else root_session_id
+                    ),
                 )
 
             if agent is not None:
                 await agent.interrupt()
+            emit_status(
+                session_id=session_id,
+                root_session_id=base_request_context.get(
+                    "root_session_id",
+                    session_id,
+                ),
+                chat_id=(chat.id if chat is not None else None),
+                stage="cancelled",
+                status="failed",
+                message="任务已取消。",
+            )
             raise AgentException("Task has been cancelled!") from exc
         except AppBaseException:
             raise
@@ -740,28 +1407,44 @@ class AgentRunner(Runner):
                 f"\n(Details:  {debug_dump_path})" if debug_dump_path else ""
             )
             logger.exception(f"Error in query handler: {converted}{path_hint}")
+            emit_status(
+                session_id=session_id,
+                root_session_id=base_request_context.get(
+                    "root_session_id",
+                    session_id,
+                ),
+                chat_id=(chat.id if chat is not None else None),
+                stage="failed",
+                status="failed",
+                message=str(converted)[:180],
+            )
             if debug_dump_path:
                 setattr(converted, "debug_dump_path", debug_dump_path)
-                if hasattr(converted, "add_note"):
-                    converted.add_note(
-                        f"(Details:  {debug_dump_path})",
-                    )
-                suffix = f"\n(Details:  {debug_dump_path})"
-                if hasattr(converted, "message") and isinstance(
-                    converted.message,
-                    str,
-                ):
-                    converted.message += suffix
-                elif converted.args:
-                    converted.args = (
-                        f"{converted.args[0]}{suffix}",
-                    ) + converted.args[1:]
             raise converted from e
         finally:
             if agent is not None and session_state_loaded:
+                # For isolated cron: restore the full history (snapshot) plus
+                # the new messages produced by this execution
+                if (
+                    _cron_memory_snapshot is not None
+                    and agent.memory is not None
+                ):
+                    new_messages = await agent.memory.get_memory()
+                    agent.memory.load_state_dict(_cron_memory_snapshot)
+                    if new_messages:
+                        await agent.memory.add(new_messages)
+                    logger.debug(
+                        "Isolated cron: restored %d historical + %d new "
+                        "messages for session_id=%s",
+                        len(_cron_memory_snapshot.get("memory", [])),
+                        len(new_messages) if new_messages else 0,
+                        session_id,
+                    )
+
                 await self.session.save_session_state(
                     session_id=session_id,
                     user_id=user_id,
+                    channel=channel,
                     agent=agent,
                 )
 

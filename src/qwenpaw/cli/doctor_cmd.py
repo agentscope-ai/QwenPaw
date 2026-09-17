@@ -3,6 +3,7 @@
 
 `qwenpaw doctor fix` — conservative repairs with backup.
 """
+
 from __future__ import annotations
 
 # pylint: disable=too-many-branches,too-many-statements
@@ -26,15 +27,16 @@ from ..utils.console_static import (
     CONSOLE_STATIC_ENV,
     resolve_console_static_dir,
 )
+from ..utils.http import trust_env_for_url
 from ..utils.system_info import summarize_python_environment
 from .doctor_checks import (
     active_llm_local_failure_hint,
     api_target_mismatch_note,
-    browser_automation_notes,
     check_agent_json_profiles,
     check_agent_profile_workspaces,
     check_agent_workspace_writable,
     check_app_log_writable,
+    check_browser_readiness,
     check_cron_jobs_files,
     check_enabled_agents_load_agent_config,
     check_enabled_agents_model_connections,
@@ -52,6 +54,7 @@ from .doctor_checks import (
     qwenpaw_local_llm_deep_notes,
     startup_extra_volume_disk_notes,
     workspace_hygiene_notes,
+    windows_environment_lines,
 )
 from .doctor_connectivity import collect_deep_channel_connectivity_notes
 from .doctor_registry import DoctorRunContext, run_extension_contributions
@@ -80,6 +83,68 @@ def _same_python_executable(a: str, b: str) -> bool:
             return Path(a).resolve() == Path(b).resolve()
         except OSError:
             return a == b
+
+
+def _http_get(url: str, **kwargs) -> httpx.Response:
+    kwargs.setdefault("trust_env", trust_env_for_url(url))
+    return httpx.get(url, **kwargs)
+
+
+def _check_api_health(
+    base: str,
+    timeout: float,
+) -> tuple[bool, httpx.Response | None]:
+    """Probe the application readiness endpoint and report its status."""
+    health_url = f"{base.rstrip('/')}/api/healthz"
+    try:
+        response = _http_get(health_url, timeout=timeout)
+    except httpx.RequestError as exc:
+        click.echo(
+            click.style("FAIL", fg="red")
+            + f" — health not reachable ({health_url})\n{exc}",
+            err=True,
+        )
+        click.echo(
+            f"Hint: start the server with `qwenpaw app` (default {base}).",
+            err=True,
+        )
+        return False, None
+
+    if response.status_code == 200:
+        click.echo(
+            click.style("OK", fg="green")
+            + f" — health ({health_url}, HTTP 200)",
+        )
+        return True, response
+
+    if response.status_code == 503:
+        detail = "Background startup in progress"
+        try:
+            body = response.json()
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            response_detail = body.get("detail")
+            if isinstance(response_detail, str) and response_detail.strip():
+                detail = response_detail.strip()
+        click.echo(
+            click.style("FAIL", fg="red")
+            + f" — health not ready ({health_url}, HTTP 503)\n{detail}",
+            err=True,
+        )
+        click.echo(
+            "Hint: wait for background startup to complete, then rerun "
+            "`qwenpaw doctor`.",
+            err=True,
+        )
+        return False, response
+
+    click.echo(
+        click.style("FAIL", fg="red")
+        + f" — health HTTP {response.status_code} ({health_url})",
+        err=True,
+    )
+    return False, response
 
 
 def _fetch_running_server_python(
@@ -113,7 +178,7 @@ def _fetch_running_server_python(
         )
 
     try:
-        runtime_resp = httpx.get(runtime_url, timeout=timeout)
+        runtime_resp = _http_get(runtime_url, timeout=timeout)
     except httpx.RequestError as exc:
         return None, None, f"(not available: {exc})"
     if runtime_resp.status_code == 200:
@@ -394,6 +459,12 @@ def run_doctor_checks(
     if mismatch:
         click.echo(click.style("Note:", fg="yellow") + f" {mismatch}")
 
+    win_lines = windows_environment_lines()
+    if win_lines:
+        click.echo("\n=== Windows environment ===")
+        for line in win_lines:
+            click.echo(f"  {line}")
+
     click.echo("\n=== Config ===")
     config_ok, detail = strict_validate_config_file()
     if config_ok:
@@ -557,17 +628,6 @@ def run_doctor_checks(
                 click.style("OK", fg="green") + " — no skill layout warnings",
             )
 
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
-        br_notes = browser_automation_notes(cfg)
-        if br_notes:
-            for line in br_notes:
-                click.echo(click.style("Note:", fg="yellow") + f" {line}")
-        else:
-            click.echo(
-                click.style("OK", fg="green")
-                + " — no browser automation warnings",
-            )
-
         click.echo("\n=== Security (baseline) ===")
         sec_notes = security_baseline_notes(cfg)
         if sec_notes:
@@ -644,17 +704,6 @@ def run_doctor_checks(
             + _skipped_when_cfg_invalid
             + ". Fix the config file, then re-run `qwenpaw doctor`.",
         )
-        click.echo("\n=== Browser (browser_use / Playwright) ===")
-        br_skip = browser_automation_notes(None)
-        if br_skip:
-            for line in br_skip:
-                click.echo(click.style("Note:", fg="yellow") + f" {line}")
-        else:
-            click.echo(
-                click.style("OK", fg="green")
-                + " — no browser automation warnings",
-            )
-
     click.echo("\n=== Working directory ===")
     wd_ok, detail = _check_working_dir()
     if wd_ok:
@@ -698,6 +747,15 @@ def run_doctor_checks(
             )
         if config_ok:
             cfg_sp = load_config()
+            browser_ok, browser_detail = check_browser_readiness(cfg_sp)
+            click.echo(
+                click.style(
+                    "OK" if browser_ok else "FAIL",
+                    fg="green" if browser_ok else "red",
+                )
+                + f" — browser: {browser_detail}",
+            )
+            failed = failed or not browser_ok
             ws_w_ok, ws_w_detail = check_agent_workspace_writable(cfg_sp)
             if ws_w_ok:
                 click.echo(
@@ -830,37 +888,13 @@ def run_doctor_checks(
             click.echo(click.style("Note:", fg="yellow") + f" {mismatch}")
 
     click.echo("\n=== API ===")
-    health_url = f"{base}/api/agent/health"
     version_url = f"{base}/api/version"
-    try:
-        health_resp = httpx.get(health_url, timeout=timeout)
-    except httpx.RequestError as exc:
+    health_ok, health_resp = _check_api_health(base, timeout)
+    if not health_ok:
         failed = True
-        click.echo(
-            click.style("FAIL", fg="red")
-            + f" — health not reachable ({health_url})\n{exc}",
-            err=True,
-        )
-        click.echo(
-            f"Hint: start the server with `qwenpaw app` (default {base}).",
-            err=True,
-        )
-    else:
-        if health_resp.status_code == 200:
-            click.echo(
-                click.style("OK", fg="green")
-                + f" — health ({health_url}, HTTP 200)",
-            )
-        else:
-            failed = True
-            click.echo(
-                click.style("FAIL", fg="red")
-                + f" — health HTTP {health_resp.status_code} ({health_url})",
-                err=True,
-            )
-
+    if health_resp is not None:
         try:
-            version_resp = httpx.get(version_url, timeout=timeout)
+            version_resp = _http_get(version_url, timeout=timeout)
         except httpx.RequestError as exc:
             failed = True
             click.echo(
@@ -902,9 +936,9 @@ def run_doctor_checks(
                         ),
                     )
 
-        if health_resp.status_code == 200:
+        if health_ok:
             try:
-                root_resp = httpx.get(
+                root_resp = _http_get(
                     f"{base}/",
                     timeout=timeout,
                     follow_redirects=True,

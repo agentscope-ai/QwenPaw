@@ -1,0 +1,566 @@
+.page {
+  --checkpoint-surface: #fff;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #242424;
+}
+
+.pageHeader {
+  padding: 20px;
+}
+
+.workspacePath {
+  min-width: 0;
+  max-width: min(42vw, 520px);
+  margin-left: 10px;
+  padding: 1px 5px;
+  overflow: hidden;
+  color: #666;
+  background: #f2f3f5;
+  border-radius: 3px;
+  font:
+    11px/20px ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions,
+.autoControl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.autoControl {
+  margin-right: 4px;
+  color: #555;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 20px;
+}
+
+.summaryBar {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  border-bottom: 1px solid #ececec;
+  color: #686868;
+  font-size: 12px;
+}
+
+.summaryBar strong {
+  color: #222;
+  font-size: 14px;
+}
+
+.summaryBar span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.summaryBar i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.autoDot {
+  background: #3178c6;
+}
+.snapshotDot {
+  background: #2d8a68;
+}
+.safetyDot {
+  background: #b26a1b;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.searchInput {
+  width: min(360px, 42vw);
+}
+.sessionFilter {
+  width: min(240px, 26vw);
+}
+
+.mainArea {
+  flex: 1;
+  min-height: 260px;
+  overflow: hidden;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  background: var(--checkpoint-surface);
+}
+
+.centerState {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: #777;
+}
+
+.graphPanel {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.graphHeader,
+.graphRow {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.graphHeader {
+  height: 38px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #e8e8e8;
+  background: #fafafa;
+  color: #777;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.graphHeader > span {
+  flex-shrink: 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
+
+.graphHeader > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.graphHeader .messageHeader {
+  flex: 1;
+  min-width: 120px;
+}
+.graphHeader > span:nth-child(3) {
+  width: 164px;
+}
+.graphHeader > span:nth-child(4) {
+  width: 102px;
+}
+.graphHeader > span:nth-child(5) {
+  width: 142px;
+}
+
+.graphBody {
+  flex: 1;
+  min-height: 0;
+}
+
+.graphRow {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid #f0f0f0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.graphRow:hover {
+  background: #f8f9fa;
+}
+.graphRow:focus-visible {
+  outline: 2px solid #3178c6;
+  outline-offset: -2px;
+}
+.selectedRow {
+  background: #f0f5fb;
+}
+.selectedRow:hover {
+  background: #edf3fa;
+}
+
+.graphCell {
+  height: 58px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.graphSvg {
+  display: block;
+}
+.graphSvg line,
+.graphSvg path {
+  stroke-width: 1.7;
+  vector-effect: non-scaling-stroke;
+}
+.headHalo {
+  stroke-width: 2.2;
+  opacity: 0.34;
+}
+.snapshotNode {
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: rotate(45deg);
+}
+
+.messageCell {
+  min-width: 120px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 0 12px;
+  overflow: hidden;
+}
+
+.messageTitle,
+.messageMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.messageTitle {
+  color: #252525;
+  font-size: 13px;
+  font-weight: 500;
+}
+.messageMeta {
+  color: #939393;
+  font-size: 11px;
+}
+
+.kindCell {
+  width: 164px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+}
+
+.kindTag,
+.headTag {
+  margin: 0;
+  font-size: 10px;
+  line-height: 19px;
+}
+.kind_auto {
+  color: #2768a8;
+  background: #edf5fc;
+}
+.kind_snap {
+  color: #247458;
+  background: #eaf7f1;
+}
+.kind_pre_restore {
+  color: #985b16;
+  background: #fff5e8;
+}
+.headTag {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 7px;
+  border-radius: 3px;
+  color: #fff;
+  background: #6754ad;
+  box-shadow: 0 1px 3px rgba(78, 57, 148, 0.22);
+  font-weight: 700;
+}
+
+.shaCell,
+.timeCell {
+  flex-shrink: 0;
+  color: #777;
+  font-size: 11px;
+}
+
+.shaCell {
+  width: 102px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+.timeCell {
+  width: 142px;
+}
+.emptyState {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.detailTitle {
+  color: #222;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.commitValue {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.commitValue code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.snapshotForm,
+.restoreBody,
+.scopeOptions {
+  display: flex;
+  flex-direction: column;
+}
+
+.snapshotForm {
+  gap: 9px;
+}
+.snapshotForm label {
+  margin-top: 7px;
+  color: #555;
+  font-size: 12px;
+  font-weight: 600;
+}
+.restoreBody {
+  gap: 16px;
+}
+.restoreTarget {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.restoreTarget span {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.restoreTarget code {
+  color: #777;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.scopeOptions {
+  gap: 13px;
+  padding: 4px 0;
+}
+.previewSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: #555;
+  font-size: 12px;
+}
+.previewSummary span::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: #2d8a68;
+  vertical-align: 1px;
+}
+.fileSelection {
+  max-height: 260px;
+  margin-top: 10px;
+  overflow: auto;
+  border-top: 1px solid #eee;
+}
+.fileSelection :global(.ant-checkbox-wrapper) {
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  margin: 0;
+  border-bottom: 1px solid #f1f1f1;
+}
+.fileSelection :global(.ant-checkbox-wrapper > span:last-child) {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.fileSelection code {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deleteStatus {
+  color: #b33e3e;
+  font-size: 11px;
+}
+.restoreStatus {
+  color: #247458;
+  font-size: 11px;
+}
+.muted {
+  display: block;
+  padding: 18px 0;
+  color: #888;
+}
+
+:global(.dark-mode) {
+  .page {
+    --checkpoint-surface: #202020;
+    color: rgba(255, 255, 255, 0.86);
+  }
+  .workspacePath {
+    color: rgba(255, 255, 255, 0.58);
+    background: rgba(255, 255, 255, 0.08);
+  }
+  .autoControl,
+  .summaryBar,
+  .shaCell,
+  .timeCell {
+    color: rgba(255, 255, 255, 0.55);
+  }
+  .summaryBar {
+    border-bottom-color: rgba(255, 255, 255, 0.09);
+  }
+  .summaryBar strong,
+  .messageTitle,
+  .detailTitle {
+    color: rgba(255, 255, 255, 0.88);
+  }
+  .mainArea {
+    border-color: rgba(255, 255, 255, 0.11);
+  }
+  .graphHeader {
+    border-bottom-color: rgba(255, 255, 255, 0.1);
+    background: #252525;
+    color: rgba(255, 255, 255, 0.48);
+  }
+  .graphRow {
+    border-bottom-color: rgba(255, 255, 255, 0.07);
+  }
+  .graphRow:hover {
+    background: rgba(255, 255, 255, 0.035);
+  }
+  .selectedRow,
+  .selectedRow:hover {
+    background: rgba(49, 120, 198, 0.16);
+  }
+  .messageMeta {
+    color: rgba(255, 255, 255, 0.36);
+  }
+  .kind_auto {
+    color: #83b9e8;
+    background: rgba(49, 120, 198, 0.17);
+  }
+  .kind_snap {
+    color: #78c5a7;
+    background: rgba(45, 138, 104, 0.17);
+  }
+  .kind_pre_restore {
+    color: #e1ab69;
+    background: rgba(178, 106, 27, 0.17);
+  }
+  .headTag {
+    color: #fff;
+    background: #8068cc;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.28);
+  }
+  .snapshotForm label,
+  .previewSummary {
+    color: rgba(255, 255, 255, 0.66);
+  }
+  .restoreTarget code,
+  .muted {
+    color: rgba(255, 255, 255, 0.48);
+  }
+  .fileSelection,
+  .fileSelection :global(.ant-checkbox-wrapper) {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+}
+
+@media (max-width: 900px) {
+  .graphHeader > span:nth-child(3),
+  .kindCell {
+    width: 132px;
+  }
+  .graphHeader > span:nth-child(4),
+  .shaCell {
+    display: none;
+  }
+  .workspacePath {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .pageHeader {
+    padding: 12px 16px;
+  }
+  .headerActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .content {
+    padding: 0 12px 12px;
+  }
+  .summaryBar {
+    gap: 13px;
+    overflow-x: auto;
+  }
+  .toolbar {
+    flex-wrap: wrap;
+  }
+  .searchInput {
+    width: 100%;
+  }
+  .sessionFilter {
+    flex: 1;
+    min-width: 150px;
+  }
+  .graphHeader > span:nth-child(3),
+  .kindCell {
+    display: none;
+  }
+  .graphHeader > span:nth-child(5),
+  .timeCell {
+    width: 98px;
+    padding-right: 8px;
+    font-size: 10px;
+  }
+  .messageCell {
+    padding: 0 8px;
+  }
+}

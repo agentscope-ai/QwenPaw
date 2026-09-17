@@ -2,53 +2,96 @@
 """Workspace: Encapsulates a complete independent agent runtime.
 
 Each Workspace represents a standalone agent workspace with its own:
-- Runner (request processing)
 - ChannelManager (communication channels)
 - BaseMemoryManager (conversation memory)
-- MCPClientManager (MCP tool clients)
+- DriverManager (external capability runtime, currently MCP)
 - CronManager (scheduled tasks)
+- WorkspacePlugins (tool/hook/command/prompt registries)
 
-All existing single-agent components are reused without modification.
+Request processing is handled by ``Runtime`` (see ``stream_query``).
 """
+
+from contextlib import aclosing
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Any, AsyncGenerator, Iterable, Optional
 
-from qwenpaw.config.timezone import normalize_tz
-from qwenpaw.config.utils import load_config
+from ...platform_ops.maintenance_lifecycle import admitted_stream
+from ...config.timezone import normalize_tz
+from ...config.utils import load_config
 
 from .service_manager import ServiceDescriptor, ServiceManager
+from .workspace_plugins import WorkspacePlugins
 from .service_factories import (
-    create_mcp_service,
+    create_driver_service,
+    create_driver_config_watcher,
     create_chat_service,
     create_channel_service,
     create_agent_config_watcher,
-    create_mcp_config_watcher,
 )
-from ..runner import AgentRunner
-from ..runner.task_tracker import TaskTracker
-from ..mcp import MCPClientManager
+from .local_workspace import QwenPawLocalWorkspace
+from ..task_tracker import TaskTracker
+from ..chats.session import SafeJSONSession
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
+from ..crons.repo.postgres_repo import PostgresJobRepository
 from ...config.config import load_agent_config
+from ...identity.runtime import is_multi_user_enabled
+from ...workspaces.resolver import (
+    ResolvedWorkspace,
+    WorkspaceKind,
+    WorkspaceResolver,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _cron_service_args(ws) -> dict[str, Any]:
+    """Select one persistence model for the current identity mode."""
+    if is_multi_user_enabled():
+        from ...automation.grants import build_automation_authorization_service
+        from ...identity.runtime import get_identity_schema
+
+        repository = PostgresJobRepository(
+            agent_key=ws.agent_id,
+            schema=get_identity_schema(),
+        )
+        authorization_service = build_automation_authorization_service(
+            repository,
+            ws.agent_id,
+        )
+    else:
+        repository = JsonJobRepository(str(ws.workspace_dir / "jobs.json"))
+        authorization_service = None
+    return {
+        "repo": repository,
+        "workspace": ws,
+        "channel_manager": ws._service_manager.services.get("channel_manager"),
+        "timezone": normalize_tz(load_config().user_timezone or "UTC") or "UTC",
+        "agent_id": ws.agent_id,
+        "authorization_service": authorization_service,
+    }
 
 
 class Workspace:
     """Single agent workspace with complete runtime components.
 
     Each Workspace is an independent agent instance with its own:
-    - Runner: Processes agent requests
     - ChannelManager: Manages communication channels
     - BaseMemoryManager: Manages conversation memory
-    - MCPClientManager: Manages MCP tool clients
+    - DriverManager: Manages external capabilities exposed through Drivers
     - CronManager: Manages scheduled tasks
+    - WorkspacePlugins: Per-workspace pluggable registries
 
-    All components use existing single-agent code without modification.
+    Request processing goes through ``stream_query`` which delegates
+    to ``Runtime.run()``.
     """
 
-    def __init__(self, agent_id: str, workspace_dir: str):
+    def __init__(
+        self,
+        agent_id: str,
+        workspace_dir: str | Path | ResolvedWorkspace,
+    ):
         """Initialize agent instance.
 
         Args:
@@ -56,8 +99,38 @@ class Workspace:
             workspace_dir: Path to agent's workspace directory
         """
         self.agent_id = agent_id
-        self.workspace_dir = Path(workspace_dir).expanduser()
-        self.workspace_dir.mkdir(parents=True, exist_ok=True)
+        if isinstance(workspace_dir, ResolvedWorkspace):
+            resolved_workspace = workspace_dir
+        else:
+            legacy_path = Path(workspace_dir).expanduser()
+            if not legacy_path.is_absolute():
+                legacy_path = legacy_path.resolve()
+            resolved_workspace = WorkspaceResolver(
+                legacy_workspaces={agent_id: legacy_path},
+            ).resolve(
+                kind=WorkspaceKind.LEGACY,
+                resource_id=agent_id,
+                workspace_key=str(legacy_path),
+            )
+        self.workspace_dir = resolved_workspace.path
+        self.workspace_kind = resolved_workspace.kind.value
+        self.workspace_key = resolved_workspace.workspace_key
+        self.workspace_read_only = resolved_workspace.read_only
+        if self.workspace_read_only:
+            if not self.workspace_dir.is_dir():
+                raise FileNotFoundError(str(self.workspace_dir))
+        else:
+            self.workspace_dir.mkdir(parents=True, exist_ok=True)
+
+        # Per-workspace pluggable registries (tools, hooks, commands, prompts)
+        self.plugins = WorkspacePlugins()
+        self._local_workspace = QwenPawLocalWorkspace(
+            tool_registry=self.plugins.tool_registry,
+            workdir=str(self.workspace_dir),
+            workspace_id=agent_id,
+            default_mcps=[],
+            skill_paths=[],
+        )
 
         # Service manager (unified component management)
         self._service_manager = ServiceManager(self)
@@ -67,6 +140,8 @@ class Workspace:
         self._started = False
         self._manager = None  # Reference to MultiAgentManager
         self._task_tracker = TaskTracker()
+        self._app_services: Any = None
+        self._harness_runtime = None
 
         # Register all services
         self._register_services()
@@ -77,9 +152,9 @@ class Workspace:
 
     # Service access via properties (delegates to ServiceManager)
     @property
-    def runner(self) -> Optional[AgentRunner]:
-        """Get runner instance from ServiceManager."""
-        return self._service_manager.services.get("runner")
+    def session(self) -> Optional[SafeJSONSession]:
+        """Get session instance from ServiceManager."""
+        return self._service_manager.services.get("session")
 
     @property
     def memory_manager(self):
@@ -87,14 +162,9 @@ class Workspace:
         return self._service_manager.services.get("memory_manager")
 
     @property
-    def context_manager(self):
-        """Get context manager instance from ServiceManager."""
-        return self._service_manager.services.get("context_manager")
-
-    @property
-    def mcp_manager(self):
-        """Get MCP manager instance from ServiceManager."""
-        return self._service_manager.services.get("mcp_manager")
+    def driver_manager(self):
+        """Get DriverManager instance from ServiceManager."""
+        return self._service_manager.services.get("driver_manager")
 
     @property
     def chat_manager(self):
@@ -117,11 +187,153 @@ class Workspace:
         """Get task tracker for background chat and reconnect."""
         return self._task_tracker
 
+    def set_task_tracker(self, task_tracker: TaskTracker) -> None:
+        """Reuse an agent task tracker before this workspace starts."""
+        if self._started:
+            raise RuntimeError(
+                f"Cannot replace task tracker for started workspace "
+                f"'{self.agent_id}'",
+            )
+        self._task_tracker = task_tracker
+
     @property
     def config(self):
         """Get agent configuration."""
         self._config = load_agent_config(self.agent_id)
         return self._config
+
+    @property
+    def local_workspace(self) -> QwenPawLocalWorkspace:
+        """AgentScope LocalWorkspace routing tools to ToolRegistry."""
+        return self._local_workspace
+
+    @property
+    def harness_runtime(self):
+        """Return the lazily-created third-party agent runtime."""
+        if self._harness_runtime is None:
+            from ...harnesses import HarnessRuntime
+
+            self._harness_runtime = HarnessRuntime(
+                self.workspace_dir,
+                self.session,
+                self.agent_id,
+                self,
+            )
+        return self._harness_runtime
+
+    def bootstrap_plugins(  # pylint: disable=too-many-branches
+        self,
+        *,
+        builtin_tool_funcs: Iterable[Any] | None = None,
+        builtin_contributor_clses: Iterable[type] | None = None,
+        builtin_mode_clses: Iterable[type] | None = None,
+        builtin_hook_clses: Iterable[type] | None = None,
+        builtin_command_specs: Iterable[Any] | None = None,
+        builtin_fallback_handler: Any | None = None,
+    ) -> None:
+        """Populate per-workspace registries with built-in classes.
+
+        Called once by ``WorkspaceRegistry`` immediately after creation.
+        """
+        if builtin_tool_funcs:
+            tr = self.plugins.tool_registry
+            for func in builtin_tool_funcs:
+                try:
+                    desc = getattr(func, "_tool_descriptor", None)
+                    if desc is not None:
+                        tr.register(desc)
+                    else:
+                        logger.debug(
+                            "bootstrap: %s has no _tool_descriptor, skipped",
+                            getattr(func, "__name__", func),
+                        )
+                except Exception:
+                    logger.debug(
+                        "bootstrap: tool register failed for %s",
+                        getattr(func, "__name__", func),
+                        exc_info=True,
+                    )
+
+        if builtin_contributor_clses:
+            for cls in builtin_contributor_clses:
+                try:
+                    self.plugins.prompt_manager.register(cls())
+                except Exception:
+                    logger.debug(
+                        "bootstrap: contributor register failed for %s",
+                        cls,
+                        exc_info=True,
+                    )
+
+        if builtin_hook_clses:
+            for cls in builtin_hook_clses:
+                try:
+                    self.plugins.hook_registry.register(cls())
+                except Exception:
+                    logger.debug(
+                        "bootstrap: hook register failed for %s",
+                        cls,
+                        exc_info=True,
+                    )
+
+        if builtin_command_specs:
+            for spec in builtin_command_specs:
+                try:
+                    self.plugins.slash_command_registry.register(spec)
+                except Exception:
+                    logger.debug(
+                        "bootstrap: command register failed for %s",
+                        getattr(spec, "name", spec),
+                        exc_info=True,
+                    )
+
+        if builtin_fallback_handler is not None:
+            try:
+                self.plugins.slash_command_registry.register_fallback(
+                    builtin_fallback_handler,
+                )
+            except Exception:
+                logger.debug(
+                    "bootstrap: fallback handler register failed",
+                    exc_info=True,
+                )
+
+        if builtin_mode_clses:
+            for cls in builtin_mode_clses:
+                try:
+                    mode = cls()
+                    self.plugins.register_mode(mode, self)
+                except Exception:
+                    logger.debug(
+                        "bootstrap: mode register failed for %s",
+                        cls,
+                        exc_info=True,
+                    )
+
+        try:
+            from ...modes.custom_loop import load_custom_loop_modes
+
+            load_custom_loop_modes(self)
+        except Exception:
+            logger.warning(
+                "bootstrap: custom loop modes could not be loaded",
+                exc_info=True,
+            )
+
+        # pylint: disable=protected-access
+        n_hooks = len(self.plugins.hook_registry._by_phase)
+        n_cmds = len(
+            self.plugins.slash_command_registry._by_name,
+        )
+        # pylint: enable=protected-access
+        logger.info(
+            "workspace %s: bootstrap_plugins complete "
+            "(hooks=%d commands=%d modes=%d)",
+            self.agent_id,
+            n_hooks,
+            n_cmds,
+            len(self.plugins.modes),
+        )
 
     def set_manager(self, manager) -> None:
         """Set reference to MultiAgentManager for /daemon restart.
@@ -130,9 +342,58 @@ class Workspace:
             manager: MultiAgentManager instance
         """
         self._manager = manager
-        # Pass to runner for /daemon restart command
-        if self.runner is not None:
-            self.runner._manager = manager  # pylint: disable=protected-access
+
+    def set_app_services(self, app_services: Any) -> None:
+        """Inject the cross-workspace AppServiceManager reference."""
+        self._app_services = app_services
+
+    @admitted_stream
+    async def stream_query(
+        self,
+        request: Any,
+    ) -> AsyncGenerator[Any, None]:
+        """Process a request through the Runtime pipeline.
+
+        Drop-in replacement for the old ``Runner.stream_query()``.
+        """
+        config = load_agent_config(self.agent_id)
+        backend = config.backend
+        if backend != "qwenpaw":
+            settings = dict(getattr(config, "backend_settings", {}))
+            request_context = dict(
+                getattr(request, "request_context", None) or {},
+            )
+            backend_controls = request_context.pop(
+                "backend_controls",
+                {},
+            )
+            if isinstance(backend_controls, dict):
+                settings.update(backend_controls)
+            settings["_request_context"] = {
+                **request_context,
+                "agent_id": self.agent_id,
+                "session_id": getattr(request, "session_id", None),
+                "user_id": getattr(request, "user_id", None),
+                "channel": getattr(request, "channel", None) or "console",
+            }
+            async with aclosing(
+                self.harness_runtime.stream(
+                    backend=backend,
+                    request=request,
+                    cwd=self.workspace_dir.resolve(),
+                    settings=settings,
+                ),
+            ) as stream:
+                async for item in stream:
+                    yield item
+            return
+
+        from ...runtime import Runtime
+
+        rt = Runtime(workspace=self, app_services=self._app_services)
+        async with aclosing(rt.run(request)) as stream:
+            async for item in stream:
+                yield item
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -146,23 +407,36 @@ class Workspace:
         from ...agents.memory.base_memory_manager import (
             get_memory_manager_backend,
         )
-        from ...agents.context.base_context_manager import (
-            get_context_manager_backend,
-        )
 
         sm = self._service_manager
 
-        # Priority 10: Runner
+        # Priority 5: LocalWorkspace (tool routing)
+        def _init_local_workspace(
+            ws: "Workspace",
+            _service: Any,
+        ) -> "QwenPawLocalWorkspace":
+            return ws._local_workspace  # pylint: disable=protected-access
+
         sm.register(
             ServiceDescriptor(
-                name="runner",
-                service_class=AgentRunner,
+                name="local_workspace",
+                service_class=None,
+                post_init=_init_local_workspace,
+                start_method="initialize",
+                stop_method="close",
+                priority=5,
+                concurrent_init=False,
+            ),
+        )
+
+        # Priority 10: Session (replaces old Runner init)
+        sm.register(
+            ServiceDescriptor(
+                name="session",
+                service_class=SafeJSONSession,
                 init_args=lambda ws: {
-                    "agent_id": ws.agent_id,
-                    "workspace_dir": ws.workspace_dir,
-                    "task_tracker": ws._task_tracker,
+                    "save_dir": str(ws.workspace_dir / "sessions"),
                 },
-                stop_method="stop",
                 priority=10,
                 concurrent_init=False,
             ),
@@ -179,50 +453,27 @@ class Workspace:
                     "working_dir": str(ws.workspace_dir),
                     "agent_id": ws.agent_id,
                 },
-                post_init=lambda ws, mm: setattr(
-                    ws._service_manager.services["runner"],
-                    "memory_manager",
-                    mm,
-                ),
                 start_method="start",
                 stop_method="close",
                 reusable=True,
                 priority=20,
                 concurrent_init=True,
+                # reme depends on `agentscope.token`, which agentscope no
+                # longer ships; let the workspace boot without
+                # memory_manager when its import fails.
+                optional=True,
             ),
         )
 
         sm.register(
             ServiceDescriptor(
-                name="context_manager",
-                service_class=lambda ws: get_context_manager_backend(
-                    ws._config.running.context_manager_backend,
-                ),
-                init_args=lambda ws: {
-                    "working_dir": str(ws.workspace_dir),
-                    "agent_id": ws.agent_id,
-                },
-                post_init=lambda ws, cm: setattr(
-                    ws._service_manager.services["runner"],
-                    "context_manager",
-                    cm,
-                ),
-                start_method="start",
-                stop_method="close",
-                reusable=True,
+                name="driver_manager",
+                service_class=None,
+                post_init=create_driver_service,
+                stop_method="shutdown_all",
                 priority=20,
                 concurrent_init=True,
-            ),
-        )
-
-        sm.register(
-            ServiceDescriptor(
-                name="mcp_manager",
-                service_class=MCPClientManager,
-                post_init=create_mcp_service,
-                stop_method="close_all",
-                priority=20,
-                concurrent_init=True,
+                optional=True,
             ),
         )
 
@@ -234,19 +485,6 @@ class Workspace:
                 reusable=True,
                 priority=20,
                 concurrent_init=True,
-            ),
-        )
-
-        # Priority 25: Runner start
-        sm.register(
-            ServiceDescriptor(
-                name="runner_start",
-                service_class=None,
-                post_init=lambda ws, _: ws._service_manager.services[
-                    "runner"
-                ].start(),
-                priority=25,
-                concurrent_init=False,
             ),
         )
 
@@ -268,20 +506,7 @@ class Workspace:
             ServiceDescriptor(
                 name="cron_manager",
                 service_class=CronManager,
-                init_args=lambda ws: {  # pylint: disable=protected-access
-                    "repo": JsonJobRepository(
-                        str(ws.workspace_dir / "jobs.json"),
-                    ),
-                    "runner": ws._service_manager.services["runner"],
-                    "channel_manager": ws._service_manager.services.get(
-                        "channel_manager",
-                    ),
-                    "timezone": normalize_tz(
-                        load_config().user_timezone or "UTC",
-                    )
-                    or "UTC",
-                    "agent_id": ws.agent_id,
-                },
+                init_args=_cron_service_args,
                 start_method="start",
                 stop_method="stop",
                 priority=40,
@@ -302,12 +527,12 @@ class Workspace:
             ),
         )
 
-        # Priority 51: MCP Config Watcher (conditional)
+        # Priority 51: Driver Card Watcher (conditional)
         sm.register(
             ServiceDescriptor(
-                name="mcp_config_watcher",
+                name="driver_config_watcher",
                 service_class=None,
-                post_init=create_mcp_config_watcher,
+                post_init=create_driver_config_watcher,
                 start_method="start",
                 stop_method="stop",
                 priority=51,
@@ -326,7 +551,6 @@ class Workspace:
             components: Dict mapping component name to instance.
                 Supported keys:
                 - 'memory_manager': BaseMemoryManager instance
-                - 'context_manager': BaseContextManager instance
                 - 'chat_manager': ChatManager instance
 
         Example:
@@ -356,7 +580,7 @@ class Workspace:
 
         logger.info(f"Starting workspace: {self.agent_id}")
 
-        from ...agents.skills_manager import (
+        from ...agents.skill_system import (
             ensure_skill_pool_initialized,
         )
 
@@ -372,7 +596,36 @@ class Workspace:
             self._config = load_agent_config(self.agent_id)
             logger.debug(f"Loaded config for agent: {self.agent_id}")
 
-            # 2. Start all services via ServiceManager
+            if is_multi_user_enabled():
+                from ...drivers.credentials.postgres_store import (
+                    PostgresCredentialStore,
+                )
+                from ...identity.runtime import get_identity_schema
+                from ..tools.credentials import (
+                    ToolCredentialService,
+                    declared_tool_password_fields,
+                    load_agent_tool_credentials,
+                )
+
+                tool_names = [
+                    tool.name
+                    for tool in self._config.tools.builtin_tools.values()
+                ] if self._config.tools else []
+                await load_agent_tool_credentials(
+                    agent_key=self.agent_id,
+                    tool_fields=declared_tool_password_fields(tool_names),
+                    service=ToolCredentialService(
+                        store=PostgresCredentialStore(
+                            schema=get_identity_schema(),
+                        ),
+                    ),
+                )
+
+            # 2. Run legacy weixin -> wechat data migrations BEFORE services
+            # start so ChatManager / Runner see the canonical layout.
+            self._migrate_legacy_weixin_data()
+
+            # 3. Start all services via ServiceManager
             await self._service_manager.start_all()
 
             self._started = True
@@ -385,6 +638,68 @@ class Workspace:
             # Clean up partially started components
             await self.stop()
             raise
+
+    def _migrate_legacy_weixin_data(self) -> None:
+        """Eagerly migrate legacy weixin -> wechat data on workspace start.
+
+        Each step is guarded so a failure logs a warning instead of
+        blocking startup; affected files stay in their legacy state.
+        """
+        if is_multi_user_enabled():
+            return
+
+        from ..crons.repo.json_repo import (
+            migrate_final_mode_to_stream,
+            migrate_legacy_weixin_jobs_file,
+        )
+        from ..chats.repo.json_repo import migrate_legacy_weixin_chats_file
+        from ..chats.session import migrate_legacy_weixin_session_files
+
+        try:
+            migrate_legacy_weixin_chats_file(
+                self.workspace_dir / "chats.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "weixin->wechat chats.json migration failed for "
+                "agent %s: %s",
+                self.agent_id,
+                exc,
+            )
+
+        try:
+            migrate_legacy_weixin_jobs_file(
+                self.workspace_dir / "jobs.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "weixin->wechat jobs.json migration failed for "
+                "agent %s: %s",
+                self.agent_id,
+                exc,
+            )
+
+        try:
+            migrate_legacy_weixin_session_files(
+                str(self.workspace_dir / "sessions"),
+            )
+        except Exception as exc:
+            logger.warning(
+                "weixin->wechat sessions migration failed for agent %s: %s",
+                self.agent_id,
+                exc,
+            )
+
+        try:
+            migrate_final_mode_to_stream(
+                self.workspace_dir / "jobs.json",
+            )
+        except Exception as exc:
+            logger.warning(
+                "final->stream jobs.json migration failed for agent %s: %s",
+                self.agent_id,
+                exc,
+            )
 
     async def stop(self, final: bool = True):
         """Stop agent instance and clean up all resources.
@@ -403,6 +718,10 @@ class Workspace:
 
         # Stop all services via ServiceManager (handles reuse automatically)
         await self._service_manager.stop_all(final=final)
+
+        if self._harness_runtime is not None:
+            await self._harness_runtime.stop()
+            self._harness_runtime = None
 
         self._started = False
         logger.info(f"Workspace stopped: {self.agent_id}")

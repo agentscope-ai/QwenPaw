@@ -1,4 +1,14 @@
+# Reme local data
+.reme/
+
+# Local issue tracking (not committed)
+.scratch/
+
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# AI agent / copilot local config
+.aone_copilot/
+.agents/
 
 # dependencies
 /.pnp
@@ -12,6 +22,9 @@ sessions_mount_dir/
 coverage.xml
 htmlcov/
 htmlcov.zip
+htmlcov-integration/
+.integration_coverage/
+**/.creator-dev-runtime/
 
 # cookbook
 cookbook/_build
@@ -22,8 +35,12 @@ dist/
 .wheelshim/
 # Console frontend build (generated in Docker/CI, do not commit)
 console/.cursor/
+console/.wiki/
 src/qwenpaw/console/dist/
 src/qwenpaw/console/
+
+# Docs bundled at build time (copied from website/public/docs/)
+src/qwenpaw/docs/
 
 # frontend (website)
 website/node_modules/
@@ -40,6 +57,7 @@ providers.json
 envs.json
 !.env.example
 !.env.template
+!deploy/.env.production.example
 __pycache__/
 *.db
 *.rdb
@@ -109,5 +127,52 @@ src/.hypothesis/
 # Qoder IDE
 .qoder/
 
+# Cursor IDE
+.cursor/
+
+# Codex IDE
+.codex/
+
 # Worktrees
 .worktrees/
+.qwenpaw/worktrees/
+
+# Local File
+/localfile/
+local-docs/
+
+# E2E test artifacts
+e2e/reports/
+e2e/data/
+e2e/.pytest_cache/
+e2e/__pycache__/
+
+# knowledge-base related
+graphify-out/
+local-docs/
+docs-site/
+
+# Local review notes
+docs/reviews/
+tmp/
+/data/
+/deploy/service.local.json
+/deploy/.env
+/deploy/.env.local
+*.dump
+*.bak
+playwright-report/
+test-results/
+/build/repository-artifact-audit.json
+
+# Local multi-user refactor review workspaces and browser snapshots
+/.superpowers/
+/.playwright-mcp/
+
+# Local acceptance outputs kept outside version control
+/backend-unit-contract-*.xml
+/qwenpaw-login.png
+/task-*-migration-preview*.png
+
+# Local account handover file (contains deployment-specific credentials)
+/docs/accoun.md

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import sys
 import tempfile
 import time
@@ -19,6 +20,19 @@ logger = logging.getLogger(__name__)
 _SKILL_FS_NAMES = {"skills", "skill", "skill.json", ".skill.json.lock"}
 
 
+def _link_overlay_entry(source: Path, target: Path) -> None:
+    """Use links when available, otherwise copy into the disposable overlay."""
+    try:
+        target.symlink_to(source, target_is_directory=source.is_dir())
+    except OSError as exc:
+        if getattr(exc, "winerror", None) != 1314:
+            raise
+        if source.is_dir():
+            shutil.copytree(source, target)
+        else:
+            shutil.copy2(source, target)
+
+
 @contextmanager
 def _isolated_skills_workspace(
     skills_dir: str | None,
@@ -29,7 +43,8 @@ def _isolated_skills_workspace(
     The overlay symlinks the external skills directory as ``skills/`` and
     pre-populates a manifest with every discovered skill enabled.  Non-skill
     files from *base_workspace* are symlinked so that prompt/bootstrap files
-    remain accessible.  All manifest writes land in the temporary directory,
+    remain accessible. Windows without symlink privilege uses temporary
+    copies instead. All manifest writes land in the temporary directory,
     keeping the real workspace untouched.
     """
     if not skills_dir:
@@ -39,7 +54,7 @@ def _isolated_skills_workspace(
     with tempfile.TemporaryDirectory(prefix="qwenpaw_headless_") as tmp:
         tmp_path = Path(tmp)
         resolved = Path(skills_dir).resolve()
-        (tmp_path / "skills").symlink_to(resolved)
+        _link_overlay_entry(resolved, tmp_path / "skills")
 
         skill_entries: dict = {}
         if resolved.is_dir():
@@ -71,7 +86,7 @@ def _isolated_skills_workspace(
                     continue
                 target = tmp_path / item.name
                 if not target.exists():
-                    target.symlink_to(item)
+                    _link_overlay_entry(item.resolve(), target)
 
         yield tmp_path
 
@@ -93,8 +108,12 @@ async def _run_task(
     output_dir: str | None,
     skills_dir: str | None = None,
 ) -> dict:
-    from agentscope.message import Msg
-    from ..agents.react_agent import QwenPawAgent
+    from types import SimpleNamespace
+
+    from agentscope.message import UserMsg
+
+    from ..runtime.builder import AgentBuilder
+    from ..schemas import AgentRequest
 
     agent_config.running.max_iters = max_iters
 
@@ -103,17 +122,37 @@ async def _run_task(
         base_workspace = Path(agent_config.workspace_dir).expanduser()
 
     with _isolated_skills_workspace(skills_dir, base_workspace) as workspace:
-        agent = QwenPawAgent(
-            agent_config=agent_config,
-            request_context=request_context,
-            workspace_dir=workspace,
+        req = AgentRequest(
+            input=[
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": instruction}],
+                },
+            ],
+            session_id=request_context.get("session_id", "headless-task"),
+            user_id=request_context.get("user_id", "headless"),
+            channel=request_context.get("channel", "console"),
         )
+        ctx = SimpleNamespace(
+            request=req,
+            session_id=req.session_id,
+            agent_id=request_context.get("agent_id", "default"),
+            root_session_id=req.session_id,
+            root_agent_id=request_context.get("agent_id", "default"),
+            workspace_dir=workspace,
+            workspace=None,
+            app_services=None,
+            agent_config=None,
+            session_state=None,
+        )
+        builder = AgentBuilder()
+        agent = await builder.build(ctx)
 
         t0 = time.monotonic()
         try:
             response = await asyncio.wait_for(
                 agent.reply(
-                    [Msg(name="user", role="user", content=instruction)],
+                    [UserMsg(name="user", content=instruction)],
                 ),
                 timeout=timeout,
             )
@@ -234,6 +273,7 @@ def task_cmd(
     """Run a single task instruction headlessly (no web server)."""
     from ..config.config import load_agent_config
     from ..config.config import ModelSlotConfig
+    from ..exceptions import ConfigurationException
     from ..utils.logging import setup_logger
 
     setup_logger("info")
@@ -245,7 +285,7 @@ def task_cmd(
 
     try:
         agent_config = load_agent_config(agent_id)
-    except ValueError as exc:
+    except (ConfigurationException, ValueError) as exc:
         click.echo(f"Error loading agent config: {exc}", err=True)
         sys.exit(1)
 

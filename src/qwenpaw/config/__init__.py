@@ -13,12 +13,14 @@ from .config import (
     ActiveModelsInfo,
     ACPConfig,
     ACPAgentConfig,
+    VisualCompactConfig,
 )
 from .utils import (
     get_available_channels,
     get_config_path,
     get_heartbeat_config,
     get_heartbeat_query_path,
+    get_last_dispatch_for_user,
     get_playwright_chromium_executable_path,
     get_system_default_browser,
     is_running_in_container,
@@ -26,7 +28,6 @@ from .utils import (
     save_config,
     strict_validate_config_file,
     update_last_dispatch,
-    get_dream_cron,
 )
 
 __all__ = [
@@ -43,11 +44,12 @@ __all__ = [
     "ActiveModelsInfo",
     "ACPConfig",
     "ACPAgentConfig",
+    "VisualCompactConfig",
     "get_available_channels",
     "get_config_path",
     "get_heartbeat_config",
-    "get_dream_cron",
     "get_heartbeat_query_path",
+    "get_last_dispatch_for_user",
     "get_playwright_chromium_executable_path",
     "get_system_default_browser",
     "is_running_in_container",

@@ -1,6 +1,8 @@
 import type { ComponentType } from "react";
 import { LightContextCard } from "../pages/Agent/Config/components/LightContextCard";
 import { ReMeLightMemoryCard } from "../pages/Agent/Config/components/ReMeLightMemoryCard";
+import { ADBPGConfigCard } from "../pages/Agent/Config/components/ADBPGConfigCard";
+import type { AgentRequestContext } from "../api/modules/agentRequestContext";
 
 interface BackendMapping<T> {
   configField: string;
@@ -23,7 +25,7 @@ export const CONTEXT_MANAGER_BACKEND_MAPPINGS: Record<
 
 export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
   string,
-  BackendMapping<object>
+  BackendMapping<{ requestContext?: AgentRequestContext }>
 > = {
   remelight: {
     configField: "reme_light_memory_config",
@@ -31,12 +33,22 @@ export const MEMORY_MANAGER_BACKEND_MAPPINGS: Record<
     label: "remelight",
     tabKey: "remeLightMemory",
   },
+  adbpg: {
+    configField: "adbpg_memory_config",
+    component: ADBPGConfigCard,
+    label: "adbpg",
+    tabKey: "adbpgMemory",
+  },
 };
+
+/** Valid memory backend keys (includes "none" which disables memory). */
+export const MEMORY_MANAGER_BACKEND_OPTIONS = [
+  ...Object.entries(MEMORY_MANAGER_BACKEND_MAPPINGS).map(
+    ([value, { label }]) => ({ value, label }),
+  ),
+  { value: "none", label: "none (disabled)" },
+];
 
 export const CONTEXT_MANAGER_BACKEND_OPTIONS = Object.entries(
   CONTEXT_MANAGER_BACKEND_MAPPINGS,
-).map(([value, { label }]) => ({ value, label }));
-
-export const MEMORY_MANAGER_BACKEND_OPTIONS = Object.entries(
-  MEMORY_MANAGER_BACKEND_MAPPINGS,
 ).map(([value, { label }]) => ({ value, label }));

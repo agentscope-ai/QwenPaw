@@ -1,309 +1,545 @@
-# Long-term Memory
+# Long-Term Memory
 
-**Long-term Memory** gives QwenPaw persistent memory across conversations: writes key information to Markdown files for
-long-term storage, with semantic search for recall at any time.
+QwenPaw's long-term memory is powered by [ReMe](https://github.com/agentscope-ai/ReMe). Instead of putting the entire conversation history back into context, it continuously turns conversations and Daily Paper readings into **readable, editable, searchable, and interconnected Markdown memories**. Over time, those files become a self-evolving personal knowledge base maintained jointly by the user and the Agent.
 
-> The long-term memory mechanism is inspired by [OpenClaw](https://github.com/openclaw/openclaw) and implemented via **ReMeLight** from [ReMe](https://github.com/agentscope-ai/ReMe) — a file-based memory backend where memories are plain Markdown files that can be read, edited, and migrated directly.
+The default `remelight` backend embeds ReMe in the QwenPaw process and reuses the current Agent's model for memory extraction and consolidation. The system follows a capture, consolidation, retrieval, and discovery loop:
 
----
+![QwenPaw long-term memory architecture from capture to retrieval and discovery](https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg)
 
-## Architecture Overview
+Conversations and external resources first become traceable daily memory, which Auto-Dream consolidates into `digest/`. Indexing and search retrieve only the relevant passages instead of reloading the entire history.
 
-```mermaid
-graph TB
-    User[User / Agent] --> MM[MemoryManager]
-    MM --> MemoryMgmt[Long-term Memory Management]
-    MemoryMgmt --> FileTools[Memory Update]
-    MemoryMgmt --> Watcher[Memory Index Update]
-    MemoryMgmt --> SearchLayer[Hybrid Memory Search]
-    FileTools --> LTM[MEMORY.md]
-    FileTools --> DailyLog[memory/YYYY-MM-DD.md]
-    Watcher --> Index[Async DB Update]
-    SearchLayer --> VectorSearch[Vector Semantic Search]
-    SearchLayer --> BM25[BM25 Full-text Search]
-```
+The framework has four core capabilities:
 
-Long-term memory management includes the following capabilities:
+| Capability         | Purpose                                                                                                                     |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| **Memory as File** | Stores memory as Markdown with frontmatter and `[[wikilinks]]`; these user-owned files are the source of truth              |
+| **Auto-Memory**    | Extracts durable facts, preferences, decisions, and progress from conversations into daily memory                           |
+| **Daily Paper**    | Selects papers, stores their PDFs, and writes detailed readings plus a daily brief into daily memory                        |
+| **Auto-Dream**     | Distills stable knowledge from recent daily memory, merges or corrects long-term nodes, and creates links through Auto-Link |
+| **Memory Search**  | Retrieves chunks with BM25 and optional vector search, fuses rankings with RRF, then expands Wikilink context               |
 
-| Capability             | Description                                                                                                        |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Memory Persistence** | Writes key information to Markdown files via file tools (`read` / `write` / `edit`); files are the source of truth |
-| **File Watching**      | Monitors file changes via `watchfile`, asynchronously updating the local database (semantic index & vector index)  |
-| **Semantic Search**    | Recalls relevant memories by semantics using vector embeddings + BM25 hybrid search                                |
-| **File Reading**       | Reads the corresponding Memory Markdown files directly via file tools, loading on demand to keep the context lean  |
-| **Dream Optimization** | Automatically optimizes MEMORY.md at scheduled intervals, removing redundancy and preserving high-quality memories |
+Auto-Memory is the prerequisite for building the knowledge base: it first turns conversations into reliable material. Auto-Dream is the key to its evolution: it consolidates scattered material into stable, connected long-term knowledge.
+
+The Console brings these capabilities together on the long-term memory page:
+
+![QwenPaw long-term memory Console overview](https://img.alicdn.com/imgextra/i2/O1CN019aX2sCLIZvB6wGdo_!!6000000005818-0-tps-3418-1594.jpg)
+
+Memory capture, scheduled organization, Daily Paper, search, and maintenance status are shown in one place; the sections below explain how each area behaves at runtime.
 
 ---
 
-## Memory File Structure
+## Memory as File
 
-Memories are stored as plain Markdown files, operated directly by the Agent via file tools. The default workspace uses the following hierarchical structure:
+ReMe follows the principle **Memory as File, File as Memory**:
 
-```
+- For users, memories are ordinary workspace files that can be read, edited, moved, deleted, backed up, and migrated directly.
+- For Agents, each Markdown file is also a memory node that can be chunked, indexed, linked, and evolved.
+- Search indexes, graphs, and caches are derived state that can be rebuilt from the source files; users retain control of the actual memory.
+
+The following view condenses that model into a readable, editable, traceable, and connected Markdown network:
+
+![Markdown files as readable, editable, and connected memory nodes](https://img.alicdn.com/imgextra/i4/O1CN01wj1PUE1a2d5QtEyUv_!!6000000003272-55-tps-1200-640.svg)
+
+The body carries knowledge, frontmatter provides a summary, and Wikilinks connect durable nodes with their workflows and daily evidence.
+
+### File Structure
+
+By default, each Agent workspace is located at `~/.qwenpaw/workspaces/{agent_id}/` and uses this memory layout:
+
+```text
 {workspace}/
-├── MEMORY.md              ← Auto-Dream optimized long-term memory (crystallized)
-│   Contains: Core decisions, user preferences, reusable experiences
-│
-├── memory/                ← Auto-Memory written daily memories (raw records)
-│   ├── 2026-04-20.md
-│   ├── 2026-04-21.md      ← Auto-Dream reads today's log
-│   └── ...
-│
-└── backup/                ← Auto-Dream created backups
-    ├── memory_backup_20260421_230000.md
-    └── ...                ← Can be used to restore historical versions
+├── memory/                              # Daily memory: conversation facts and paper readings
+│   ├── 2026-08-06.md                    # Index page for the day
+│   └── 2026-08-06/
+│       ├── project-plan.md              # Memory card created or updated by Auto-Memory
+│       ├── paper-reading.md             # Detailed reading produced by Daily Paper
+│       └── interests.yaml               # Interest topics produced by Auto-Dream
+├── mem_session/
+│   └── dialog/
+│       └── qpsid_sha256_<64-hex>.jsonl  # Hashed source conversation for Auto-Memory
+├── digest/                              # Long-term personal knowledge base
+│   ├── personal/                        # User, team, and project facts and preferences
+│   ├── procedure/                       # Processes, runbooks, and reusable experience
+│   └── wiki/                            # Concepts, principles, observations, and decision precedents
+├── resource/                            # Raw assets produced by knowledge workflows
+│   └── papers/
+│       └── <arxiv_id>.pdf               # PDF downloaded by Daily Paper
+└── mem_metadata/                        # Derived indexes, graph, catalogs, and caches
 ```
 
-### MEMORY.md (Long-term Memory, Optional)
+The four user-visible directories have distinct responsibilities:
 
-Stores long-lasting, rarely changing key information.
+| Directory                    | Content                                                                      | Directly indexed by QwenPaw memory search |
+| ---------------------------- | ---------------------------------------------------------------------------- | ----------------------------------------- |
+| `memory/YYYY-MM-DD/*.md`     | Daily facts, conversation summaries, decisions, progress, and paper readings | Yes                                       |
+| `mem_session/dialog/*.jsonl` | Sanitized source conversations for traceability and later extraction         | No                                        |
+| `digest/`                    | The long-term personal knowledge base consolidated by Auto-Dream             | Yes                                       |
+| `resource/`                  | Raw assets produced by Daily Paper and future knowledge workflows            | No                                        |
 
-- **Location**: `{working_dir}/MEMORY.md`
-- **Purpose**: Stores decisions, preferences, persistent facts and reusable experiences
-- **Updates**: Written by the Agent via `write` / `edit` file tools, or automatically optimized by **Auto-Dream**
+> QwenPaw's embedded ReMe indexes only `.md` files under `memory/` and `digest/`. Raw conversations are queried by the context system. Daily Paper writes searchable Markdown readings under `memory/`; arbitrary files under `resource/` are not watched.
 
-### memory/YYYY-MM-DD.md (Daily Log)
+### Markdown, Frontmatter, and Wikilinks
 
-One page per day, appended with the day's work and interactions.
+A memory typically combines YAML frontmatter, body text, and Wikilinks:
 
-- **Location**: `{working_dir}/memory/YYYY-MM-DD.md`
-- **Purpose**: Records daily notes and runtime context
-- **Updates**: Appended by the Agent via `write` / `edit` file tools; automatically triggered when conversations become
-  too long and need summarization
-- **Role**: Serves as input source for **Auto-Dream** optimization
+```markdown
+---
+name: User's release workflow preference
+description: The user wants staging validation before every production release.
+source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
+---
 
-### backup/ (Backup Directory)
+# Release preference
 
-Stores backups of MEMORY.md created before each Auto-Dream optimization.
+Every production release must first run [[digest/procedure/staging-verification.md]].
 
-- **Location**: `{working_dir}/backup/`
-- **Purpose**: Automatic backup before each Auto-Dream execution, enabling historical version recovery
-- **Naming format**: `memory_backup_YYYYMMDD_HHMMSS.md`
+## Sources
 
-> For a complete walkthrough of Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive, see [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md). The sections below cover technical implementation details and configuration only.
+- [[memory/2026-08-06/release-discussion.md]]
+```
+
+Frontmatter provides a node-level summary and source metadata. The body stores facts, conditions, and explanations. `[[...]]` uses workspace-relative paths to create file relationships. After search hits a file, ReMe can expand its incoming and outgoing links from the graph index, giving the Agent related long-term nodes and sources together with the matching text.
 
 ---
 
-## Searching Memory
+## Auto-Memory: Turning Conversations into Daily Memory
 
-The Agent has two ways to retrieve past memories:
+Auto-Memory is the entry point to the personal knowledge base. It does not preserve a chat transcript as a summary. It extracts information that may still be useful later, including:
 
-| Method          | Tool            | Use Case                                                    | Example                                        |
-| --------------- | --------------- | ----------------------------------------------------------- | ---------------------------------------------- |
-| Semantic search | `memory_search` | Unsure which file contains the info; fuzzy recall by intent | "Previous discussion about deployment process" |
-| Direct read     | `read_file`     | Known specific date or file path; precise lookup            | Read `memory/2025-02-13.md`                    |
+- stable preferences and long-term agreements;
+- project context, important facts, and constraints;
+- confirmed decisions and their rationale;
+- current progress, blockers, and next steps;
+- reusable commands, procedures, and troubleshooting experience.
 
-### Hybrid Search Explained
-
-Memory search uses **Vector + BM25 hybrid search** by default. The two search methods complement each other's strengths.
-
-#### Vector Semantic Search
-
-Maps text into a high-dimensional vector space and measures semantic distance via cosine similarity, capturing content
-with similar meaning but different wording:
-
-| Query                                   | Recalled Memory                                           | Why It Matches                                                  |
-| --------------------------------------- | --------------------------------------------------------- | --------------------------------------------------------------- |
-| "Database choice for the project"       | "Finally decided to replace MySQL with PostgreSQL"        | Semantically related: both discuss database technology choices  |
-| "How to reduce unnecessary rebuilds"    | "Configured incremental compilation to avoid full builds" | Semantic equivalence: reduce rebuilds ≈ incremental compilation |
-| "Performance issue discussed last time" | "Optimized P99 latency from 800ms to 200ms"               | Semantic association: performance issue ≈ latency optimization  |
-
-However, vector search is weaker on **precise, high-signal tokens**, as embedding models tend to capture overall
-semantics rather than exact matches of individual tokens.
-
-#### BM25 Full-text Search
-
-Based on term frequency statistics for substring matching, excellent for precise token hits, but weaker on semantic
-understanding (synonyms, paraphrasing).
-
-| Query                      | BM25 Hits                                      | BM25 Misses                                           |
-| -------------------------- | ---------------------------------------------- | ----------------------------------------------------- |
-| `handleWebSocketReconnect` | Memory fragments containing that function name | "WebSocket disconnection reconnection handling logic" |
-| `ECONNREFUSED`             | Log entries containing that error code         | "Database connection refused"                         |
-
-**Scoring logic**: Splits the query into terms, counts the hit ratio of each term in the target text, and awards a bonus
-for complete phrase matches:
-
-```
-base_score = hit_terms / total_query_terms           # range [0, 1]
-phrase_bonus = 0.2 (only when multi-word query matches the complete phrase)
-score = min(1.0, base_score + phrase_bonus)           # capped at 1.0
-```
-
-Example: Query `"database connection timeout"` hits a passage containing only "database" and "timeout" →
-`base_score = 2/3 ≈ 0.67`, no complete phrase match → `score = 0.67`
-
-> To handle ChromaDB's case-sensitive `$contains` behavior, the search automatically generates multiple case variants
-> for each term (original, lowercase, capitalized, uppercase) to improve recall.
-
-#### Hybrid Search Fusion
-
-Uses both vector and BM25 recall signals simultaneously, performing **weighted fusion** on results (default vector
-weight `0.7`, BM25 weight `0.3`):
-
-1. **Expand candidate pool**: Multiply the desired result count by `candidate_multiplier` (default 3×, capped at 200);
-   each path retrieves more candidates independently
-2. **Independent scoring**: Vector and BM25 each return scored result lists
-3. **Weighted merging**: Deduplicate and fuse by chunk's unique identifier (`path + start_line + end_line`)
-   - Recalled by vector only → `final_score = vector_score × 0.7`
-   - Recalled by BM25 only → `final_score = bm25_score × 0.3`
-   - **Recalled by both** → `final_score = vector_score × 0.7 + bm25_score × 0.3`
-4. **Sort and truncate**: Sort by `final_score` descending, return top-N results
-
-**Example**: Query `"handleWebSocketReconnect disconnection reconnect"`
-
-| Memory Fragment                                                               | Vector Score | BM25 Score | Fused Score                    | Rank |
-| ----------------------------------------------------------------------------- | ------------ | ---------- | ------------------------------ | ---- |
-| "handleWebSocketReconnect function handles WebSocket disconnection reconnect" | 0.85         | 1.0        | 0.85×0.7 + 1.0×0.3 = **0.895** | 1    |
-| "Logic for automatic retry after network disconnection"                       | 0.78         | 0.0        | 0.78×0.7 = **0.546**           | 2    |
-| "Fixed null pointer exception in handleWebSocketReconnect"                    | 0.40         | 0.5        | 0.40×0.7 + 0.5×0.3 = **0.430** | 3    |
+### How It Works
 
 ```mermaid
-graph LR
-    Query[Search Query] --> Vector[Vector Semantic Search x0.7]
-    Query --> BM25[BM25 Full-text Search x0.3]
-    Vector --> Merge[Deduplicate by chunk + Weighted sum]
-    BM25 --> Merge
-    Merge --> Sort[Sort by fused score descending]
-    Sort --> Results[Return top-N results]
+flowchart LR
+    A[Accumulate N user turns] --> B[Select messages from the batch]
+    B --> C[Remove tool results and large Base64 blocks]
+    C --> D[Hash session id and append to<br/>mem_session/dialog/qpsid_sha256_HASH.jsonl]
+    D --> E[LLM identifies durable information]
+    E --> F[Create or update memory/date/note.md]
+    F --> G[Refresh day index and incrementally update search]
 ```
 
-> **Summary**: Using any single search method alone has blind spots. Hybrid search lets the two signals complement each
-> other, delivering reliable recall whether you're asking in natural language or searching for exact terms.
+By default, QwenPaw triggers Auto-Memory after every five user turns. Before calling ReMe, QwenPaw converts the exact
+session ID bytes to `qpsid_sha256_<64-hex>` so the filename is fixed-length and remains distinct across
+case-insensitive and Unicode-normalizing filesystems. ReMe saves the source conversation under that identifier, then
+looks for an existing note for the hashed session and date. It updates the existing card when one exists and creates at
+most one new card otherwise. Automatically recalled memory is removed before extraction so old search results cannot be
+mistaken for facts newly supplied by the user.
+
+The hash mapping is one-way and legacy unhashed dialog files are not migrated. After an upgrade, an existing session
+starts a new hashed dialog; previously extracted Markdown memory remains available.
+
+When context is actually evicted or folded, pending turns are flushed through the same Auto-Memory pipeline even if the normal interval has not yet been reached. Searched-turn and pending-turn state is retained across middleware rebuilds and restored sessions. Automatically recalled results are injected only into model input for the active user turn and are not written to formal or persisted conversation history.
+
+### Configuration
+
+Configure Auto-Memory under `running.reme_light_memory_config` in `agent.json`:
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "remelight",
+    "reme_light_memory_config": {
+      "auto_memory_interval": 5,
+      "auto_memory_inbox_push_enabled": true
+    }
+  }
+}
+```
+
+| Field                            | Default | Description                                                                     |
+| -------------------------------- | ------- | ------------------------------------------------------------------------------- |
+| `auto_memory_interval`           | `5`     | Trigger after every N user turns; `null` or `<= 0` disables periodic triggering |
+| `auto_memory_inbox_push_enabled` | `true`  | Push the job result to Inbox when Auto-Memory actually changes memory           |
+
+A smaller interval updates memory sooner, but increases model calls, token usage, and background work.
+
+### Inbox
+
+When `auto_memory_inbox_push_enabled` is on, Auto-Memory results appear in QwenPaw's Inbox. If the run finds nothing worth creating or updating, ReMe reports `modified=false` and QwenPaw does not create an Inbox event for that no-op.
+
+When a run makes a real change, Inbox shows its status, updated files, and extracted result so the user can quickly see what Auto-Memory did:
+
+![Auto-Memory result delivered to Inbox](https://img.alicdn.com/imgextra/i3/O1CN01q1761gvctQB49nzS_!!6000000007099-0-tps-2048-414.jpg)
+
+Inbox is only the notification surface. The reusable, editable memory remains the Markdown stored in the workspace.
+
+### Example
+
+Suppose the user says in a QwenPaw session:
+
+```text
+For every production release, validate staging first. Write the release notes in Chinese and include risks and rollback steps.
+```
+
+After the configured interval, Auto-Memory preserves the source and creates or updates files such as:
+
+```text
+mem_session/dialog/qpsid_sha256_<64-hex>.jsonl
+memory/2026-08-06/release-discussion.md
+```
+
+```markdown
+---
+name: Production release agreement
+description: Validate staging first; Chinese release notes must include risks and rollback steps.
+source_conversation: "[[mem_session/dialog/qpsid_sha256_<64-hex>.jsonl]]"
+---
+
+- Complete staging validation before a production release.
+- Write release notes in Chinese and include risks and rollback steps.
+```
+
+This is still daily material. When the same preference appears in more conversations, Auto-Dream can consolidate it into a stable `digest/` node.
 
 ---
 
-## Backup & Restore
+## Daily Paper
 
-Backup & Restore is QwenPaw's backup and recovery capability, enabling safe saving and restoration of the entire agent environment for scenarios like version upgrades, cross-device migration, or undoing mistakes. Access: Console → Settings → Backup.
+Daily Paper collects Hugging Face weekly and monthly rankings, excludes yesterday's list and arXiv IDs found in the
+previous 30 days of daily-note frontmatter, and applies weighted RRF to build a pool of at most 20 candidates. The memory
+Agent must select exactly three unique in-pool papers. ReMe downloads their PDFs, analyzes up to 20 pages and 300,000
+characters per PDF (maximum file size 50 MiB), and produces three detailed readings plus a daily brief. PDFs are stored
+under `resource/papers/`; Markdown is written under `memory/YYYY-MM-DD/`, enters the normal memory index, and can be
+delivered through QwenPaw's Inbox.
 
-### Creating Backups
+The Console exposes Daily Paper scheduling, topic, mirror, and completion-notification settings together:
 
-**Backup Storage**
+![Daily Paper schedule and topic settings](https://img.alicdn.com/imgextra/i4/O1CN01P4HuDOo3HjE3MD24_!!6000000007223-0-tps-1654-670.jpg)
 
-All backups are saved as independent zip packages in `~/.qwenpaw/backups` (alongside the working directory `~/.qwenpaw`). Each backup contains `meta.json` metadata and packaged content files. The zip file is exported for easy migration. Note that backups do not include local model files; re-download is required for cross-device migration.
+These options control automatic execution only. Generated PDFs, readings, and the daily brief still enter the `resource/` and `memory/` directories described above.
 
-**Backup Scope**
+If a daily brief already exists for the run date, the normal scheduled call reports a successful skip. The underlying
+job accepts `force=true` for callers that intentionally regenerate it; this switch is not exposed by the scheduled
+configuration form.
 
-- **Agent workspaces**: Selectable per Agent
-- **Global settings**: `config.json` and other global configurations
-- **Skill pool**: Shared skills directory
-- **Secrets**: Model API Keys, environment variables, etc.
-
-**Backup Modes**
-
-- **Full backup**: One-click package of all the above content
-- **Partial backup**: Backup selected modules and specific agent workspaces
-
-### Restoring Backups
-
-**Restore Modes**
-
-- **Full restore**: Completely replaces the current instance with the backup — current content is deleted and replaced with backup content. Requires the backup to contain all modules (agent workspaces, global settings, skill pool, secrets).
-- **Custom restore**: Restore by module or by Agent with fine-grained control. Local Agents not included in the restore scope remain unchanged.
-
-**Pre-restore Prompt**
-
-Before restoring, the system prompts to create a snapshot of the current state. If the restore goes wrong, you can roll back with one click.
-
-**Notes**
-
-- Backup files may contain sensitive credentials — store them safely and do not share with others
-- Service restart is required after restore for new configuration to take effect
+Daily Paper is disabled by default. Enable it with `daily_paper_cron_enabled`; `daily_paper_cron` controls the schedule and defaults to `"0 9 * * *"`. `daily_paper_use_hf_mirror` selects the Hugging Face mirror, and `daily_paper_topics` supplies preferred topics.
 
 ---
 
-## Memory Configuration
+## Auto-Dream: Evolving the Personal Knowledge Base
 
-### Configuration Structure
+Auto-Dream consolidates daily memory into long-term knowledge. It normally runs on a schedule, scans recently changed daily notes, extracts reusable memory units, updates `digest/`, and produces interest topics for proactive interaction.
 
-Memory configuration is located in `agent.json` under `running.reme_light_memory_config`:
+### How It Works
 
-| Field                           | Description                                                                        | Default        |
-| ------------------------------- | ---------------------------------------------------------------------------------- | -------------- |
-| `summarize_when_compact`        | Whether to save long-term memory in background during context compaction           | `true`         |
-| `auto_memory_interval`          | Auto memory every N user queries. null disables periodic auto memory               | `null`         |
-| `dream_cron`                    | Cron expression for dream-based memory optimization job (empty string to disable)  | `"0 23 * * *"` |
-| `rebuild_memory_index_on_start` | Whether to clear and rebuild memory search index on startup; false to skip rebuild | `false`        |
-| `recursive_file_watcher`        | Whether to watch memory directory recursively (includes subdirectories)            | `false`        |
+QwenPaw's Auto-Dream scans the target date and the previous day by default (`scan_days=2`) and extracts at most five memory units. It runs in four stages:
 
-### Auto Memory Search Configuration
+```mermaid
+flowchart LR
+    A[Extract<br/>Find changes and extract units/topics] --> B[Integrate + Auto-Link<br/>Create, merge, correct, and link]
+    B --> C[Topics<br/>Select non-repetitive interests]
+    C --> D[Finish<br/>Persist processing state]
+```
 
-Configure in `running.reme_light_memory_config.auto_memory_search_config`:
+1. **Extract** refreshes the day indexes, compares files with the dream catalog, and sends only added or modified daily memory to the LLM. It extracts `personal`, `procedure`, and `wiki` units plus candidate interest topics.
+2. **Integrate + Auto-Link** runs `node_search` for every unit to find possibly identical or related digest nodes, then chooses `CREATE`, `CORROBORATE`, `REFINE`, or `CORRECT`.
+3. **Topics** deduplicates candidates against the previous seven days and writes up to three topics to `memory/<date>/interests.yaml`.
+4. **Finish** checkpoints successfully processed inputs in the dream catalog. Failed paths are not checkpointed, so a later run can retry them.
 
-| Field         | Description                                                   | Default |
-| ------------- | ------------------------------------------------------------- | ------- |
-| `enabled`     | Whether to auto search memory on every conversation turn      | `false` |
-| `max_results` | Maximum results for auto memory search                        | `1`     |
-| `min_score`   | Minimum relevance score threshold for auto search (0.0 ~ 1.0) | `0.1`   |
-| `timeout`     | Timeout in seconds for auto memory search                     | `10.0`  |
+Auto-Dream does not rewrite daily memory. `memory/` preserves what happened at the time; `digest/` stores abstractions that remain useful across time.
 
-### Embedding Configuration (Optional)
+### Where Auto-Link Happens
 
-Embedding configuration for vector semantic search, located in `running.reme_light_memory_config.embedding_model_config`:
+Auto-Link is not a separate scheduled job. It is part of Auto-Dream's **Integrate** stage:
 
-| Field              | Description                                  | Default  |
-| ------------------ | -------------------------------------------- | -------- |
-| `backend`          | Embedding backend type                       | `openai` |
-| `api_key`          | API Key for the Embedding service            | ``       |
-| `base_url`         | URL of the Embedding service                 | ``       |
-| `model_name`       | Embedding model name                         | ``       |
-| `dimensions`       | Vector dimensions for initializing vector DB | `1024`   |
-| `enable_cache`     | Whether to enable Embedding cache            | `true`   |
-| `use_dimensions`   | Whether to pass dimensions parameter in API  | `false`  |
-| `max_cache_size`   | Maximum Embedding cache entries              | `3000`   |
-| `max_input_length` | Maximum input length per Embedding request   | `8192`   |
-| `max_batch_size`   | Maximum batch size for Embedding requests    | `10`     |
+- `node_search` recalls only digest-node names, descriptions, and paths for deduplication and relationship discovery;
+- the same abstraction updates an existing node instead of creating a duplicate;
+- a digest node's `## Sources` section links back to evidence under `memory/`;
+- related digest nodes are connected through `[[digest/...]]` links in the body;
+- updates preserve existing sources and Wikilinks, allowing the knowledge graph to grow over time.
 
-> `use_dimensions` is for cases where some vLLM models don't support the dimensions parameter. Set to `false` to skip it.
+The four integration actions mean:
 
-#### Via Environment Variables (Fallback)
+| Action        | Meaning                                                                          |
+| ------------- | -------------------------------------------------------------------------------- |
+| `CREATE`      | No equivalent abstraction exists; create a new long-term node                    |
+| `CORROBORATE` | New material confirms an existing memory; add evidence or strengthen its wording |
+| `REFINE`      | New material adds steps, boundaries, conditions, or detail                       |
+| `CORRECT`     | New material fixes an error, omission, or conflict in an existing node           |
 
-When not set in config file, these environment variables serve as fallback:
+### Configuration
 
-| Environment Variable   | Description                       | Default |
-| ---------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`    | API Key for the Embedding service | ``      |
-| `EMBEDDING_BASE_URL`   | URL of the Embedding service      | ``      |
-| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
+```json
+{
+  "running": {
+    "reme_light_memory_config": {
+      "dream_cron_enabled": true,
+      "dream_cron": "0 23 * * *",
+      "auto_dream_inbox_push_enabled": true
+    }
+  }
+}
+```
 
-> `base_url` and `model_name` must both be non-empty to enable vector search in hybrid retrieval (`api_key` is not required).
+| Field                           | Default        | Description                                                                   |
+| ------------------------------- | -------------- | ----------------------------------------------------------------------------- |
+| `dream_cron_enabled`            | `true`         | Enable scheduled Auto-Dream                                                   |
+| `dream_cron`                    | `"0 23 * * *"` | Five-field cron expression; a run starts after a random delay of 0–60 seconds |
+| `auto_dream_inbox_push_enabled` | `true`         | Push Auto-Dream job results to Inbox                                          |
 
-### Full-text Search Configuration
+### Inbox
 
-Control BM25 full-text search via the `FTS_ENABLED` environment variable:
+With Inbox delivery enabled, each successful or failed Auto-Dream summary becomes a memory event so that you can inspect scanning, integration, and topic-generation results. Inbox is only the notification surface. The actual long-term knowledge remains in Markdown under `digest/`.
 
-| Environment Variable | Description                        | Default |
-| -------------------- | ---------------------------------- | ------- |
-| `FTS_ENABLED`        | Whether to enable full-text search | `true`  |
+After a run, Inbox summarizes the processing date, integration actions, updated nodes, and generated interest topics:
 
-> Even without Embedding configured, enabling full-text search allows keyword search via BM25.
+![Auto-Dream run summary delivered to Inbox](https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg)
 
-### Underlying Database
+This summary is useful for checking the outcome. To audit a conclusion and its evidence, open the corresponding files under `digest/` and `memory/`.
 
-Configure the memory storage backend via the `MEMORY_STORE_BACKEND` environment variable:
+### Example
 
-| Environment Variable   | Description                                                    | Default |
-| ---------------------- | -------------------------------------------------------------- | ------- |
-| `MEMORY_STORE_BACKEND` | Memory storage backend: `auto`, `local`, `chroma`, or `sqlite` | `auto`  |
+Suppose recent daily notes repeatedly mention staging validation and rollback steps before production releases. Auto-Dream may:
 
-**Storage backend options:**
+1. use `node_search` to find `digest/procedure/production-release.md`;
+2. choose `REFINE` and add Chinese release notes, a risk list, and rollback steps to the procedure;
+3. add the new daily memory to `## Sources`;
+4. link `[[digest/personal/release-communication-preference.md]]`;
+5. add “Check whether the release process covers rollback drills” as a candidate topic in that day's `interests.yaml`.
 
-| Backend  | Description                                                                                     |
-| -------- | ----------------------------------------------------------------------------------------------- |
-| `auto`   | Auto-select: uses `local` on Windows, `chroma` on other systems                                 |
-| `local`  | Local file storage, no extra dependencies, best compatibility                                   |
-| `chroma` | Chroma vector database, supports efficient vector retrieval; may core dump on some Windows envs |
-| `sqlite` | SQLite database + vector extension; may freeze or crash on macOS 14 and below                   |
+The result is not another copy of the chat summary. Existing long-term knowledge has been strengthened by evidence and connected to related knowledge.
 
-> **Recommended**: Use the default `auto` mode, which automatically selects the most stable backend for your platform.
+---
+
+## Memory Index and Memory Search
+
+The background `index_update_loop` keeps files searchable, while `memory_search` retrieves the most relevant content when needed. The index is derived state and can be rebuilt from Markdown in `memory/` and `digest/`.
+
+### Index Capabilities and Scope
+
+After QwenPaw starts embedded ReMe, the background `index_update_loop`:
+
+- scans `daily_dir` (default `memory`) and `digest_dir` (default `digest`) at startup;
+- watches new, modified, and deleted `.md` files in those directories while running;
+- splits Markdown by headings and content blocks while retaining file paths and line numbers;
+- updates the BM25 index for every chunk and generates vectors when Embedding is enabled;
+- parses Wikilinks into file nodes and bidirectional graph relationships;
+- persists derived state under `mem_metadata/`.
+
+Each indexed file is limited to 10 MiB. `resource/` and `mem_session/` are outside this indexing scope.
+
+### How the BM25 + Vector Index Is Built
+
+```mermaid
+flowchart LR
+    A[memory/**/*.md<br/>digest/**/*.md] --> B[Watch file changes]
+    B --> C[Structure-aware Markdown chunking]
+    C --> D[FileChunk<br/>text + path + line range]
+    D --> E[BM25 inverted index]
+    D --> F[Embedding vector<br/>optional]
+    C --> G[Wikilink graph]
+    E --> H[mem_metadata]
+    F --> H
+    G --> H
+```
+
+BM25 treats each chunk as a document and records tokens, term frequencies, and posting lists. It is well suited to exact identifiers such as function names, error codes, and product terms. With Embedding enabled, the same chunk also receives a vector, allowing semantically similar text to match even when the wording differs.
+
+For supported providers, enablement conditions, field definitions, cache behavior, and troubleshooting, see [Embedding Models](./embedding). Without Embedding, BM25 and Wikilink expansion continue to work.
+
+### How BM25 + Vector Hybrid Search Works
+
+`memory_search(query, max_results, min_score)` runs ReMe's `search` job:
+
+![BM25 and vector retrieval fused before related memory is expanded on demand](https://img.alicdn.com/imgextra/i2/O1CN01Zln7TK1TJOGqP84hk_!!6000000002361-55-tps-1200-640.svg)
+
+The query uses both exact keywords and semantic similarity, then applies RRF to produce relevant chunks. Paths, line numbers, and Wikilink neighbors let the Agent expand supporting evidence only when needed.
+
+When both branches return results, ReMe uses weighted Reciprocal Rank Fusion (RRF) by default:
+
+```text
+score = 0.7 / (60 + vector_rank)
+      + 0.3 / (60 + keyword_rank)
+```
+
+RRF compares positions in the two ranked lists instead of directly comparing cosine similarity and BM25 scores, whose numeric scales are unrelated. A chunk found by both branches receives both contributions. A chunk found by only one branch can still appear. If Embedding is disabled or vector retrieval produces no results, the BM25 ranking is used directly.
+
+After fusion, ReMe expands up to ten outgoing and ten incoming links for each hit file from the graph index. Results therefore include both the most relevant text and connected sources, procedures, and neighboring knowledge nodes.
+
+> `min_score` defaults to `0`. Keep it at the default for normal use because raw single-branch scores and fused RRF scores have different scales; increasing the threshold indiscriminately may hide valid results.
+
+### Manual Search and Auto-Memory-Search
+
+The Agent can call `memory_search` whenever an answer depends on past information. To recall memory before every normal user request, enable Auto-Memory-Search:
+
+```json
+{
+  "running": {
+    "reme_light_memory_config": {
+      "auto_memory_search_config": {
+        "enabled": true,
+        "max_results": 2
+      }
+    }
+  }
+}
+```
+
+When enabled, QwenPaw builds a query from the current user request and runs the same ReMe `search` job before the model handles it. The results are injected into the live context as a completed `memory_search` interaction and remain available to subsequent model calls in that turn. Automation-originated requests do not trigger this behavior. Injected results are also excluded from persistent conversation history and Auto-Memory, preventing memory from copying itself.
+
+| Field         | Default | Description                                               |
+| ------------- | ------- | --------------------------------------------------------- |
+| `enabled`     | `false` | Automatically search memory for every normal user request |
+| `max_results` | `2`     | Maximum number of results injected per automatic search   |
+
+### Search Example
+
+Assume these memories already exist:
+
+```text
+memory/2026-08-06/release-discussion.md
+digest/procedure/production-release.md
+```
+
+When the user asks, “What checks do we run before going live?”, `memory_search` can combine:
+
+- **Vector** matching between “checks before going live” and “staging validation before production release”;
+- **BM25** exact matches for terms such as `staging` and `rollback`;
+- **Wikilinks** from the daily discussion to the long-term procedure and related preferences.
+
+The result looks like:
+
+```text
+========== digest/procedure/production-release.md:1-18 [score=0.0162 vector=0.84 keyword=3.71] ==========
+...Complete staging validation and prepare risks and rollback steps before production release...
+  outlinks (1):
+    -> digest/personal/release-communication-preference.md
+  inlinks (1):
+    <- memory/2026-08-06/release-discussion.md
+```
+
+The Agent can then use the returned path and line range to read the source file precisely.
+
+### Complete ReMeLight Configuration
+
+The main user-facing fields live under `running.reme_light_memory_config`:
+
+| Field                            | Default             | Description                                                               |
+| -------------------------------- | ------------------- | ------------------------------------------------------------------------- |
+| `metadata_dir`                   | `"mem_metadata"`    | Directory for indexes, graph data, catalogs, and caches                   |
+| `session_dir`                    | `"mem_session"`     | Auto-Memory source conversation directory                                 |
+| `mem_session_dir`                | `"mem_agent"`       | ReMe internal memory-agent session directory                              |
+| `resource_dir`                   | `"resource"`        | Raw resource directory used by Daily Paper and future knowledge workflows |
+| `daily_dir`                      | `"memory"`          | Daily memory directory                                                    |
+| `digest_dir`                     | `"digest"`          | Long-term knowledge base directory                                        |
+| `auto_memory_inbox_push_enabled` | `true`              | Push Auto-Memory results to Inbox                                         |
+| `auto_dream_inbox_push_enabled`  | `true`              | Push Auto-Dream results to Inbox                                          |
+| `daily_paper_inbox_push_enabled` | `true`              | Push Daily Paper results to Inbox                                         |
+| `auto_memory_interval`           | `5`                 | Auto-Memory interval in user turns                                        |
+| `dream_cron_enabled`             | `true`              | Enable scheduled Auto-Dream                                               |
+| `dream_cron`                     | `"0 23 * * *"`      | Five-field Auto-Dream cron expression                                     |
+| `daily_paper_cron_enabled`       | `false`             | Enable scheduled Daily Paper                                              |
+| `daily_paper_cron`               | `"0 9 * * *"`       | Five-field Daily Paper cron expression                                    |
+| `daily_paper_use_hf_mirror`      | `false`             | Fetch paper information through the Hugging Face mirror                   |
+| `daily_paper_topics`             | `""`                | Topics to prioritize when selecting papers                                |
+| `memory_search_enabled`          | `true`              | Expose the `memory_search` tool independently of automatic search         |
+| `auto_memory_search_config`      | See above           | Automatic memory search configuration                                     |
+| `embedding_model_config`         | Disabled by default | Optional vector model configuration; see [Embedding Models](./embedding)  |
+| `needs_reindex`                  | `false`             | Runtime-maintained flag for a pending vector-space index rebuild          |
+
+Legacy `inbox_push_enabled` is accepted only as a migration input: it initializes any of the three per-job Inbox
+switches that are absent, and is excluded when the validated configuration is serialized.
+
+To inspect background jobs, the waiting queue, or resource usage by index components, open the ReMe runtime status from the long-term memory page:
+
+![ReMe background activity, resource usage, and index component status](https://img.alicdn.com/imgextra/i3/O1CN01hrPfLUAdE1C2Fz5c_!!6000000006909-0-tps-1112-1312.jpg)
+
+This is runtime and derived-component status rather than memory content. The Markdown files in the workspace remain the source of truth during troubleshooting.
+
+### Rebuilding the Index
+
+The background loop normally maintains the index incrementally. Use **Rebuild Memory Index** when the Console reports
+that an Embedding vector-space change requires it, when the index is damaged, or when search results are clearly
+abnormal. You can also call:
+
+```http
+POST /api/agents/{agentId}/memory/reindex
+```
+
+Rebuilding clears the derived index and recreates it from existing Markdown under `memory/` and `digest/`. CPU and
+memory usage may increase while it runs. Only one rebuild can run for an Agent at a time, and an Embedding config change
+during the rebuild is rejected. A successful rebuild clears `needs_reindex` only when the persisted and active
+vector-space fingerprints still match the rebuild target. `rebuild_memory_index_on_start` is no longer supported.
+
+The Console therefore asks for confirmation before it clears and regenerates the derived index:
+
+![Resource-usage confirmation shown before rebuilding the memory index](https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg)
+
+Use this operation only to repair the index or change vector spaces. Ordinary Markdown additions and edits are maintained incrementally in the background.
+
+---
+
+## Other Memory Backends
+
+QwenPaw's memory system uses a pluggable backend architecture. In addition to the default ReMeLight (local file storage), you can switch to other backends via `memory_manager_backend`.
+
+### ADBPG (AnalyticDB for PostgreSQL)
+
+A long-term memory backend backed by a cloud vector database. It is suitable for scenarios that need cross-device sharing or large-scale semantic retrieval. QwenPaw connects through the ADBPG memory service REST API, so no additional database driver is required.
+
+**Key features:**
+
+- **Cross-session persistence** — Memories are stored in a cloud database, retained across restarts, and shareable across devices.
+- **Server-side fact extraction** — Fact extraction is handled by the ADBPG memory service, with no extra client-side overhead.
+- **REST API access** — Calls the ADBPG memory service over HTTP.
+- **Graceful degradation** — When ADBPG is unreachable, the agent keeps running normally; only the long-term memory feature is temporarily disabled.
+
+**How to configure:**
+
+Open the agent's "Running Config" tab in the Console, locate the "Long-term Memory Management Backend" dropdown, choose `adbpg`, and fill in `REST Base URL` and `REST API Key` under the "ADBPG Long-term Memory" tab.
+
+![adbpg-backend](https://img.alicdn.com/imgextra/i3/O1CN01bH1Rj41wwQs3v04U6_!!6000000006372-2-tps-2954-1484.png)
+
+> ⚠️ Switching the backend does not support hot reload. After saving, restart QwenPaw for the change to take effect (the page also shows a yellow banner reminder).
+
+> Migration note: ADBPG direct SQL mode has been removed. Old fields such as
+> `api_mode: "sql"`, `host`, `port`, `user`, `password`, `dbname`, and LLM /
+> Embedding settings are ignored; configure `rest_base_url` and `rest_api_key`
+> instead, then restart QwenPaw.
+
+| Field                       | Description                                                                              | Default                               |
+| --------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------- |
+| `rest_base_url`             | REST API URL of the ADBPG memory service                                                 | `""`                                  |
+| `rest_api_key`              | Access key for the REST API                                                              | `""`                                  |
+| `memory_isolation`          | Memory isolation mode: `true` for per-agent, `false` for shared                          | `true`                                |
+| `search_timeout`            | Memory search timeout (seconds)                                                          | `10.0`                                |
+| `auto_memory_search_config` | Auto memory search configuration; same shape as ReMe Light's `auto_memory_search_config` | `{"enabled": true, "max_results": 3}` |
+
+**Configuration example:**
+
+The full configuration can be written into `running.adbpg_memory_config` of `agent.json`:
+
+```json
+{
+  "running": {
+    "memory_manager_backend": "adbpg",
+    "adbpg_memory_config": {
+      "rest_base_url": "https://your-adbpg-memory-api.example.com",
+      "rest_api_key": "your-rest-api-key",
+      "memory_isolation": true,
+      "search_timeout": 10.0,
+      "auto_memory_search_config": {
+        "enabled": true,
+        "max_results": 3
+      }
+    }
+  }
+}
+```
+
+> 💡 When you fill these fields in the Console "Running Config" page, the framework writes them into `agent.json` automatically — no need to edit the file by hand.
 
 ---
 
 ## Related Pages
 
-- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive.en.md) — Auto-Memory, Auto-Dream, Auto-Memory-Search, Proactive complete workflow
-- [Introduction](./intro.en.md) — What this project can do
-- [Console](./console.en.md) — Manage memory and configuration in the console
-- [Skills](./skills.en.md) — Built-in and custom capabilities
-- [Configuration & Working Directory](./config.en.md) — Working directory and config
+- [Memory-Evolving & Proactive Interaction](./memory-evolving-and-proactive) — Auto-Memory, Auto-Dream, Auto-Memory-Search, and Proactive workflows
+- [Embedding Models](./embedding) — Vector model capabilities, backends, configuration, and troubleshooting
+- [Console](./console) — Manage memory and configuration in the Console
+- [Configuration & Working Directory](./config) — Workspace and Agent configuration

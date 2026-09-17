@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { SaveOutlined } from "@ant-design/icons";
-import { Select, Button, Card } from "@agentscope-ai/design";
+import { Select, Button } from "@agentscope-ai/design";
 import type { ModelSlotRequest } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -16,6 +16,7 @@ interface ModelsSectionProps {
     extra_models?: Array<{ id: string; name: string; is_free?: boolean }>;
     base_url?: string;
     api_key?: string;
+    api_key_configured?: boolean;
     is_custom: boolean;
     is_local?: boolean;
     require_api_key?: boolean;
@@ -29,7 +30,7 @@ interface ModelsSectionProps {
   onSaved: () => void;
 }
 
-export function ModelsSection({
+export const ModelsSection = React.memo(function ModelsSection({
   providers,
   activeModels,
   onSaved,
@@ -55,7 +56,8 @@ export function ModelsSection({
         if (!hasModels) return false;
         if (p.require_api_key === false) return !!p.base_url;
         if (p.is_custom) return !!p.base_url;
-        if (p.require_api_key ?? true) return !!p.api_key;
+        if (p.require_api_key ?? true)
+          return !!(p.api_key_configured || p.api_key);
         return true;
       }),
     [providers],
@@ -133,7 +135,8 @@ export function ModelsSection({
   const canSave = dirty && !!selectedProviderId && !!selectedModel;
 
   return (
-    <Card className={styles.slotSection} title={t("models.defaultLlm")}>
+    <div className={styles.defaultLlmBody}>
+      <p className={styles.llmDescription}>{t("models.llmDescription")}</p>
       <div className={styles.slotForm}>
         <div className={styles.slotField}>
           <label className={styles.slotLabel}>{t("models.provider")}</label>
@@ -186,7 +189,6 @@ export function ModelsSection({
           </Button>
         </div>
       </div>
-      <p className={styles.slotDescription}>{t("models.llmDescription")}</p>
-    </Card>
+    </div>
   );
-}
+});

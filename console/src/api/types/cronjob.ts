@@ -1,8 +1,20 @@
-export interface CronJobSchedule {
+export interface CronJobScheduleCron {
   type: "cron";
   cron: string;
   timezone?: string;
 }
+
+export interface CronJobScheduleOnce {
+  type: "once";
+  run_at: string;
+  timezone?: string;
+  repeat_every_days?: number;
+  repeat_end_type?: "never" | "until" | "count";
+  repeat_until?: string;
+  repeat_count?: number;
+}
+
+export type CronJobSchedule = CronJobScheduleCron | CronJobScheduleOnce;
 
 export interface CronJobTarget {
   user_id: string;
@@ -14,6 +26,7 @@ export interface CronJobDispatch {
   channel?: string;
   target: CronJobTarget;
   mode?: "stream" | "final";
+  silent?: boolean;
   meta?: Record<string, unknown>;
 }
 
@@ -21,6 +34,7 @@ export interface CronJobRuntime {
   max_concurrency?: number;
   timeout_seconds?: number;
   misfire_grace_seconds?: number;
+  tool_safety?: boolean;
 }
 
 export interface CronJobRequest {
@@ -34,6 +48,7 @@ export interface CronJobSpecInput {
   id: string;
   name: string;
   enabled?: boolean;
+  save_result_to_inbox?: boolean;
   schedule: CronJobSchedule;
   task_type?: "text" | "agent";
   text?: string;
@@ -41,6 +56,15 @@ export interface CronJobSpecInput {
   dispatch: CronJobDispatch;
   runtime?: CronJobRuntime;
   meta?: Record<string, unknown>;
+  created_by_user_id?: string | null;
+  automation_owner_user_id?: string | null;
+  status?:
+    | "pending_authorization"
+    | "active"
+    | "paused"
+    | "authorization_revoked"
+    | "failed";
+  config_version?: number;
 }
 
 export type CronJobSpecOutput = CronJobSpecInput;
@@ -50,6 +74,35 @@ export interface CronJobView extends CronJobSpecOutput {
   state?: unknown;
   next_run_time?: number;
   last_run_time?: number;
+}
+
+export interface CronJobExecutionRecord {
+  run_at: string;
+  status: "success" | "error" | "running" | "skipped" | "cancelled";
+  error?: string | null;
+  trigger?: "scheduled" | "manual";
+}
+
+export interface CronDispatchTargetItem {
+  channel: string;
+  user_id: string;
+  session_id: string;
+}
+
+export interface CronDispatchTargetsResponse {
+  channels: string[];
+  items: CronDispatchTargetItem[];
+}
+
+export interface AutomationAuthorizationPreview {
+  schedule_id: string;
+  config_version: number;
+  authorization_digest: string;
+  agent_key: string;
+  target_user_id: string;
+  target_channel: string;
+  target_session_id: string;
+  tool_names: string[];
 }
 
 export type CronJobSpecInputLegacy = Record<string, unknown>;

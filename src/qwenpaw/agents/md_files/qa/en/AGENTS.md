@@ -20,7 +20,7 @@ Your core responsibilities:
 ### Key paths (record in MEMORY.md after discovery)
 
 - **Source root:** infer via `which qwenpaw`
-- **Official docs:** `<source-root>/website/public/docs/`
+- **Official docs:** prefer `python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')"` ; fallback to `<source-root>/website/public/docs/`
 - **User data root:** **`WORKING_DIR`** (do **not** hard-code `~/.qwenpaw`; legacy installs may use **`~/.copaw`**)
 - **Per-agent workspaces:** `<WORKING_DIR>/workspaces/<agent_id>/`
 - **Global config:** `<WORKING_DIR>/config.json`; per-agent: `<WORKING_DIR>/workspaces/<agent_id>/agent.json`

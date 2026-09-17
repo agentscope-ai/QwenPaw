@@ -38,6 +38,10 @@ def test_initialize_agent_workspace_creates_runtime_compatible_files(
     assert (tmp_path / "sessions").is_dir()
     assert (tmp_path / "memory").is_dir()
     assert (tmp_path / "skills").is_dir()
+    assert (tmp_path / "media").is_dir()
+    assert (tmp_path / "artifacts").is_dir()
+    assert not (tmp_path / "资料").exists()
+    assert not (tmp_path / "产物").exists()
     assert not (tmp_path / "active_skills").exists()
     assert not (tmp_path / "customized_skills").exists()
     assert json.loads(
@@ -89,3 +93,59 @@ def test_initialize_agent_workspace_applies_md_template_with_language(
     )
 
     assert recorded_calls == [("ru", tmp_path, "qa")]
+
+
+def test_backfill_agent_workspace_md_files_only_adds_missing_files(
+    monkeypatch,
+    tmp_path,
+):
+    """切换工作目录后应补齐旧 Agent 档案，但不得覆盖现有内容。"""
+    existing = tmp_path / "SOUL.md"
+    existing.write_text("custom soul", encoding="utf-8")
+
+    monkeypatch.setattr(
+        agents_router,
+        "load_agent_config",
+        lambda _agent_id: SimpleNamespace(language="zh"),
+    )
+
+    copied = agents_router.ensure_agent_workspace_md_files(
+        "legacy-agent",
+        tmp_path,
+    )
+
+    assert existing.read_text(encoding="utf-8") == "custom soul"
+    assert set(copied) == {
+        "AGENTS.md",
+        "HEARTBEAT.md",
+        "MEMORY.md",
+        "PROFILE.md",
+    }
+    assert not (tmp_path / "BOOTSTRAP.md").exists()
+
+
+def test_backfill_all_agent_workspaces_uses_configured_directories(
+    monkeypatch,
+    tmp_path,
+):
+    first = tmp_path / "first"
+    second = tmp_path / "second"
+    config = SimpleNamespace(
+        agents=SimpleNamespace(
+            profiles={
+                "a": SimpleNamespace(workspace_dir=str(first)),
+                "b": SimpleNamespace(workspace_dir=str(second)),
+            },
+        ),
+    )
+    calls: list[tuple[str, Path]] = []
+    monkeypatch.setattr(agents_router, "load_config", lambda: config)
+    monkeypatch.setattr(
+        agents_router,
+        "ensure_agent_workspace_md_files",
+        lambda agent_id, workspace: calls.append((agent_id, Path(workspace)))
+        or ["MEMORY.md"],
+    )
+
+    assert agents_router.ensure_all_agent_workspace_md_files() == 2
+    assert calls == [("a", first), ("b", second)]

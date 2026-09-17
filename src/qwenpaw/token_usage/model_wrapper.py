@@ -2,12 +2,11 @@
 """Model wrapper that records token usage from LLM responses."""
 
 from datetime import date, datetime, timezone
-from typing import Any, AsyncGenerator, Literal, Type
+from typing import Any, AsyncGenerator, Literal
 
 from agentscope.model import ChatModelBase
 from agentscope.model._model_response import ChatResponse
 from agentscope.model._model_usage import ChatUsage
-from pydantic import BaseModel
 
 from .buffer import _UsageEvent
 from .manager import get_token_usage_manager
@@ -18,13 +17,28 @@ class TokenRecordingModelWrapper(ChatModelBase):
 
     _usage_by_session: dict[str, dict[str, Any]] = {}
 
-    def __init__(self, provider_id: str, model: ChatModelBase) -> None:
+    def __init__(
+        self,
+        provider_id: str,
+        model: ChatModelBase,
+        compact_threshold: float | None = None,
+    ) -> None:
+        # agentscope 2.0 ChatModelBase requires credential/model/parameters.
+        # Forward the wrapped model's own values so the base attributes stay
+        # consistent (some downstream code reads ``self.model`` for logging).
         super().__init__(
-            model_name=getattr(model, "model_name", "unknown"),
+            credential=getattr(model, "credential", None),
+            model=getattr(model, "model", "unknown"),
+            parameters=getattr(model, "parameters", None)
+            or ChatModelBase.Parameters(),
             stream=getattr(model, "stream", True),
+            context_size=getattr(model, "context_size", 32768),
         )
         self._model = model
         self._provider_id = provider_id
+        # Auto-compaction threshold (fraction of the window) for the UI, or
+        # None when compaction is disabled/unknown.
+        self._compact_threshold = compact_threshold
 
     def _record_usage(self, usage: ChatUsage | None) -> None:
         """Enqueue a usage event synchronously — never blocks the caller."""
@@ -35,25 +49,59 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if pt <= 0 and ct <= 0:
             return
 
+        from ..app.agent_context import (
+            get_current_agent_id,
+            get_current_channel,
+            get_current_user_id,
+        )
+        from ..config.context import get_current_request_context
+
+        request_context = get_current_request_context() or {}
+        authorization = request_context.get("automation_authorization")
+        schedule_id = (
+            authorization.get("schedule_id")
+            if isinstance(authorization, dict)
+            else None
+        )
+        channel = get_current_channel()
+        actor_type = request_context.get("actor_type")
+        if not actor_type:
+            actor_type = "external" if channel and channel != "console" else "user"
         event = _UsageEvent(
             provider_id=self._provider_id,
-            model_name=self.model_name,
+            model_name=self.model,
             prompt_tokens=pt,
             completion_tokens=ct,
             date_str=date.today().isoformat(),
             now_iso=datetime.now(tz=timezone.utc).isoformat(
                 timespec="seconds",
             ),
+            user_id=get_current_user_id(),
+            actor_type=str(actor_type),
+            agent_key=get_current_agent_id(),
+            conversation_id=(
+                request_context.get("conversation_id")
+                or request_context.get("chat_id")
+            ),
+            run_id=request_context.get("run_id"),
+            automation_schedule_id=schedule_id,
         )
         # Fire-and-forget: synchronous put_nowait, ~100 ns, no await needed.
         get_token_usage_manager().enqueue(event)
 
         usage_data = {
             "provider_id": self._provider_id,
-            "model_name": self.model_name,
+            "model_name": self.model,
             "prompt_tokens": pt,
             "completion_tokens": ct,
             "total_tokens": pt + ct,
+            # Context window of the wrapped model, so the UI can show how full
+            # the *current* context is (prompt_tokens / context_size), distinct
+            # from the cumulative session totals. 0 = unknown.
+            "context_size": int(getattr(self._model, "context_size", 0) or 0),
+            # Auto-compaction threshold (fraction of the window) so the UI can
+            # mark where context gets evicted. None = disabled/unknown.
+            "compact_threshold": self._compact_threshold,
         }
         self._store_usage(usage_data)
 
@@ -68,14 +116,28 @@ class TokenRecordingModelWrapper(ChatModelBase):
         if session_id and usage:
             TokenRecordingModelWrapper._usage_by_session[session_id] = usage
 
+    async def generate_structured_output(
+        self,
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        result = await self._model.generate_structured_output(*args, **kwargs)
+        self._record_usage(getattr(result, "usage", None))
+        return result
+
     async def __call__(
         self,
         messages: list[dict],
         tools: list[dict] | None = None,
         tool_choice: Literal["auto", "none", "required"] | str | None = None,
-        structured_model: Type[BaseModel] | None = None,
         **kwargs: Any,
     ) -> ChatResponse | AsyncGenerator[ChatResponse, None]:
+        # agentscope 2.0 routes structured output through
+        # ``generate_structured_output`` instead of a ``__call__`` kwarg, and
+        # provider SDKs (anthropic, openai) reject unknown kwargs. Drop the
+        # 1.x ``structured_model`` if a caller still passes it.
+        kwargs.pop("structured_model", None)
+
         # Fix: Omit tool_choice="auto" for vLLM compatibility
         # vLLM without --enable-auto-tool-choice will reject requests when
         # tool_choice="auto" is present, even if tools are provided.
@@ -88,7 +150,6 @@ class TokenRecordingModelWrapper(ChatModelBase):
             messages=messages,
             tools=tools,
             tool_choice=tool_choice,
-            structured_model=structured_model,
             **kwargs,
         )
 

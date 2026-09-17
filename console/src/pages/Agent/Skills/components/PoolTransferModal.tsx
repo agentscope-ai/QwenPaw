@@ -1,15 +1,23 @@
 import { useEffect, useState } from "react";
-import { Button, Modal, Tooltip } from "@agentscope-ai/design";
+import { Button, Modal, Select, Tooltip } from "@agentscope-ai/design";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
-import type { PoolSkillSpec, SkillSpec } from "../../../../api/types";
-import { isSkillBuiltin } from "@/utils/skill";
+import type { SkillSpec, PoolSkillSpec } from "../../../../api/types";
+import type { SkillCatalogItem } from "@/api/types/skillGovernance";
+import { Alert } from "antd";
+import { useSkillFilter } from "../useSkillFilter";
+import { SkillFilterDropdown } from "./SkillFilterDropdown";
 import styles from "../index.module.less";
 
 interface PoolTransferModalProps {
   mode: "upload" | "download" | null;
   skills: SkillSpec[];
-  poolSkills: PoolSkillSpec[];
+  poolSkills: Array<SkillCatalogItem | PoolSkillSpec>;
+  error?: string;
+  loading?: boolean;
+  busy?: boolean;
+  canSubmit?: boolean;
+  multiUser?: boolean;
   onCancel: () => void;
   onUpload: (skillNames: string[]) => Promise<void>;
   onDownload: (poolSkillNames: string[]) => Promise<void>;
@@ -17,6 +25,11 @@ interface PoolTransferModalProps {
 
 export function PoolTransferModal({
   mode,
+  error,
+  loading,
+  busy,
+  canSubmit,
+  multiUser = true,
   skills,
   poolSkills,
   onCancel,
@@ -26,19 +39,24 @@ export function PoolTransferModal({
   const { t } = useTranslation();
   const [workspaceSkillNames, setWorkspaceSkillNames] = useState<string[]>([]);
   const [poolSkillNames, setPoolSkillNames] = useState<string[]>([]);
+  const [filterOpen, setFilterOpen] = useState(false);
+  const { searchTags, setSearchTags, allTags, filteredSkills } =
+    useSkillFilter(poolSkills);
 
   useEffect(() => {
     if (mode !== null) {
       setWorkspaceSkillNames([]);
       setPoolSkillNames([]);
+      setSearchTags([]);
     }
-  }, [mode]);
+  }, [mode, setSearchTags]);
 
   const handleCancel = () => {
     onCancel();
   };
 
   const handleOk = async () => {
+    if (busy || loading || error || (mode === "upload" && !canSubmit)) return;
     if (mode === "upload") {
       await onUpload(workspaceSkillNames);
     } else {
@@ -51,17 +69,20 @@ export function PoolTransferModal({
   const setSelectedNames = isUpload
     ? setWorkspaceSkillNames
     : setPoolSkillNames;
-  const items = isUpload ? skills : poolSkills;
+  const items = isUpload
+    ? skills.filter((skill) => !multiUser || !skill.source_pool_version_id)
+    : filteredSkills;
   const hasSelection = selectedNames.length > 0;
-  const builtinNames = items
-    .filter((item) => isSkillBuiltin(item.source))
-    .map((item) => item.name);
 
   return (
     <Modal
-      open={mode !== null}
+      open={mode !== null && (!isUpload || !!canSubmit)}
       onCancel={handleCancel}
-      title={isUpload ? t("skills.uploadToPool") : t("skills.downloadFromPool")}
+      title={
+        isUpload
+          ? t(multiUser ? "skillGovernance.submit" : "skills.uploadToPool")
+          : t("skills.downloadFromPool")
+      }
       footer={
         <div className={styles.modalFooter}>
           <Button onClick={handleCancel} className={styles.modalCancelButton}>
@@ -70,7 +91,10 @@ export function PoolTransferModal({
           <Button
             type="primary"
             onClick={handleOk}
-            disabled={!hasSelection}
+            loading={busy}
+            disabled={
+              !hasSelection || loading || !!error || (isUpload && !canSubmit)
+            }
             className={styles.modalOkButton}
           >
             {t("common.confirm")}
@@ -80,6 +104,21 @@ export function PoolTransferModal({
       width={600}
       className={styles.poolTransferModal}
     >
+      {error && <Alert type="error" showIcon message={error} />}
+      {loading && <p>{t("skillGovernance.loading")}</p>}
+      {isUpload && multiUser && (
+        <Alert
+          type="info"
+          showIcon
+          message={t("skillGovernance.submitDescription")}
+        />
+      )}
+      {isUpload && !loading && !error && items.length === 0 && (
+        <Alert type="info" message={t("skillGovernance.emptySubmission")} />
+      )}
+      {!isUpload && !loading && !error && poolSkills.length === 0 && (
+        <Alert type="info" message={t("skillGovernance.emptyCatalog")} />
+      )}
       <div className={styles.pickerSection}>
         <div className={styles.pickerHeader}>
           <div className={styles.pickerLabel}>
@@ -96,16 +135,7 @@ export function PoolTransferModal({
             >
               {t("skills.selectAll")}
             </Button>
-            {!isUpload && (
-              <Button
-                size="small"
-                onClick={() => setSelectedNames(builtinNames)}
-                disabled={builtinNames.length === 0}
-                className={styles.bulkActionButton}
-              >
-                {t("agent.selectBuiltin")}
-              </Button>
-            )}
+
             <Button
               size="small"
               onClick={() => setSelectedNames([])}
@@ -115,6 +145,35 @@ export function PoolTransferModal({
             </Button>
           </div>
         </div>
+
+        {!isUpload && (
+          <Select
+            mode="multiple"
+            className={styles.tagSelect}
+            placeholder={t("skills.filterByTag")}
+            value={searchTags}
+            onChange={setSearchTags}
+            open={filterOpen}
+            onOpenChange={setFilterOpen}
+            allowClear
+            maxTagCount="responsive"
+            notFoundContent={<></>}
+            popupRender={() =>
+              allTags.length > 0 ? (
+                <SkillFilterDropdown
+                  allTags={allTags}
+                  searchTags={searchTags}
+                  setSearchTags={setSearchTags}
+                  styles={styles}
+                />
+              ) : (
+                <div className={styles.tagSelectEmpty}>
+                  {t("skills.noTags")}
+                </div>
+              )
+            }
+          />
+        )}
 
         <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
           {items.map((skill) => {

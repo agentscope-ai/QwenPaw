@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button, Card, Checkbox, Tooltip } from "@agentscope-ai/design";
+import { SyncOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import dayjs from "dayjs";
 import type { PoolSkillSpec } from "../../../../api/types";
@@ -8,7 +9,7 @@ import {
   getPoolBuiltinStatusTone,
   isSkillBuiltin,
 } from "@/utils/skill";
-import { getSkillVisual } from "../../../Agent/Skills/components";
+import { SkillVisual } from "@/components/SkillVisual";
 import styles from "../index.module.less";
 
 interface PoolSkillCardProps {
@@ -19,6 +20,13 @@ interface PoolSkillCardProps {
   onEdit: (skill: PoolSkillSpec) => void;
   onBroadcast: (skill: PoolSkillSpec) => void;
   onDelete: (skill: PoolSkillSpec) => void;
+  publicationState: "unpublished" | "outdated" | "current";
+  onPublish: (skill: PoolSkillSpec) => void | Promise<void>;
+  onToggleAutoUpdate: (
+    skill: PoolSkillSpec,
+    enabled: boolean,
+    targets?: string[] | null,
+  ) => void | Promise<void>;
 }
 
 export function PoolSkillCard({
@@ -29,11 +37,27 @@ export function PoolSkillCard({
   onEdit,
   onBroadcast,
   onDelete,
+  publicationState,
+  onPublish,
+  onToggleAutoUpdate,
 }: PoolSkillCardProps) {
   const { t } = useTranslation();
   const [isHover, setIsHover] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const syncTone = getPoolBuiltinStatusTone(skill.sync_status);
   const isBuiltin = isSkillBuiltin(skill.source);
+
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 768px)");
+    const handleChange = (event: MediaQueryListEvent | MediaQueryList) => {
+      setIsMobile(event.matches);
+    };
+    handleChange(mql);
+    mql.addEventListener("change", handleChange);
+    return () => {
+      mql.removeEventListener("change", handleChange);
+    };
+  }, []);
 
   return (
     <Card
@@ -53,7 +77,11 @@ export function PoolSkillCard({
       {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
       <div className={styles.cardTopRow}>
         <span className={styles.fileIcon}>
-          {getSkillVisual(skill.name, skill.emoji)}
+          <SkillVisual
+            name={skill.name}
+            emoji={skill.emoji}
+            emojiClassName={styles.skillEmoji}
+          />
         </span>
         <div className={styles.cardTopRight}>
           <span
@@ -85,6 +113,13 @@ export function PoolSkillCard({
               </span>
             ) : (
               <span className={styles.customTag}>{t("skillPool.custom")}</span>
+            )}
+            {skill.auto_update && (
+              <Tooltip title={t("skillPool.autoUpdateOnHint")}>
+                <span className={styles.autoUpdateTag}>
+                  {t("skillPool.autoUpdate")}
+                </span>
+              </Tooltip>
             )}
           </h3>
         </Tooltip>
@@ -120,15 +155,52 @@ export function PoolSkillCard({
 
       {/* Description */}
       <div className={styles.descriptionSection}>
-        <span className={styles.descriptionSectionLabel}>
-          {t("skills.skillDescription")}
-        </span>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer - only show on hover or batch mode */}
-      {(isHover || batchModeEnabled) && (
+      <div
+        style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}
+      >
+        <Button
+          size="small"
+          type={publicationState === "current" ? "default" : "primary"}
+          disabled={batchModeEnabled || publicationState === "current"}
+          onClick={(e) => {
+            e.stopPropagation();
+            void onPublish(skill);
+          }}
+        >
+          {t(
+            publicationState === "current"
+              ? "skillGovernance.publishCurrent"
+              : publicationState === "outdated"
+              ? "skillGovernance.publishNewVersion"
+              : "skillGovernance.publish",
+          )}
+        </Button>
+      </div>
+
+      {/* Footer - show on hover, batch mode, or mobile (no hover) */}
+      {(isHover || batchModeEnabled || isMobile) && (
         <div className={styles.cardFooter}>
+          <Tooltip
+            title={
+              skill.auto_update
+                ? t("skillPool.autoUpdateDisableHint")
+                : t("skillPool.autoUpdateEnableHint")
+            }
+          >
+            <Button
+              className={styles.autoUpdateButton}
+              type={skill.auto_update ? "primary" : "default"}
+              icon={<SyncOutlined />}
+              disabled={batchModeEnabled}
+              onClick={(e) => {
+                e.stopPropagation();
+                void onToggleAutoUpdate(skill, !skill.auto_update, null);
+              }}
+            />
+          </Tooltip>
           <Button
             className={styles.actionButton}
             disabled={batchModeEnabled}

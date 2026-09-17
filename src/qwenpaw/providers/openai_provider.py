@@ -7,21 +7,153 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import time
 from typing import TYPE_CHECKING, Any, List
+from urllib.parse import urlparse
 
+import httpx
 from agentscope.model import ChatModelBase
 from openai import APIError
+from pydantic import Field
 
 from qwenpaw.providers.provider import ModelInfo, Provider
+
+from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
+from .multimodal_prober import evaluate_video_probe_answer
 
 if TYPE_CHECKING:
     from qwenpaw.providers.multimodal_prober import ProbeResult
 
 logger = logging.getLogger(__name__)
 
-DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DASHSCOPE_BASE_URLS = (
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+    "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+)
 CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
+TOKEN_PLAN_BASE_URL = (
+    "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+)
+
+# Exact hostnames of the DashScope OpenAI-compatible endpoints (mainland,
+# international and US), matched against the parsed URL hostname so
+# lookalike domains cannot select the DashScope probe.
+_DASHSCOPE_HOSTNAMES = frozenset(
+    {
+        "dashscope.aliyuncs.com",
+        "dashscope-intl.aliyuncs.com",
+        "dashscope-us.aliyuncs.com",
+    },
+)
+
+
+def _uses_max_completion_tokens(model_id: str) -> bool:
+    """Return whether an OpenAI model requires max_completion_tokens."""
+    model_name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+    return model_name.startswith("gpt-5") or (
+        len(model_name) > 1
+        and model_name[0] == "o"
+        and model_name[1].isdigit()
+    )
+
+
+def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
+    """Build the model-specific output token limit argument."""
+    if _uses_max_completion_tokens(model_id):
+        return {"max_completion_tokens": limit}
+    return {"max_tokens": limit}
+
+
+# Model families that cannot be probed via a chat-completions "ping":
+# speech (ASR/TTS), embedding/rerank and image/video generation models
+# either require dedicated endpoints (e.g. DashScope async task APIs,
+# which reject chat calls with "current user api does not support
+# asynchronous calls") or reject text-only chat input.
+_NON_CHAT_TOKEN_KEYWORDS = frozenset(
+    {
+        "asr",
+        "tts",
+        "t2v",
+        "i2v",
+        "s2v",
+        "kf2v",
+        "r2v",
+        "t2i",
+        "i2i",
+        "sora",
+    },
+)
+_NON_CHAT_SUBSTRINGS = (
+    "paraformer",
+    "sensevoice",
+    "gummy",
+    "cosyvoice",
+    "sambert",
+    "whisper",
+    "wanx",
+    "embedding",
+    "rerank",
+    "qwen-image",
+    "z-image",
+    "gpt-image",
+    "dall-e",
+    "video-synthesis",
+    "image-synthesis",
+    "seedance",
+    "seedream",
+    "seededit",
+)
+
+# DashScope rejects chat calls to task-API models with these messages;
+# receiving one proves the endpoint recognised both the key and the model.
+_API_TYPE_MISMATCH_MARKERS = (
+    "does not support asynchronous calls",
+    "does not support synchronous calls",
+)
+
+# Official zero-cost validation endpoints for non-chat models.  Neither
+# probe issues a billable inference/task request: the DashScope
+# upload-policy API only returns model-bound OSS credentials, and the
+# Ark task-list API only reads task history.
+_DASHSCOPE_UPLOAD_POLICY_PATH = "/api/v1/uploads"
+_ARK_TASK_LIST_PATH = "/api/v3/contents/generations/tasks"
+
+# Markers in a DashScope upload-policy error proving the model id is
+# unknown to the platform (vs. a model that merely lacks file input).
+_DASHSCOPE_UNKNOWN_MODEL_MARKERS = (
+    "not exist",
+    "not found",
+    "invalid model",
+)
+
+
+def _is_non_chat_model(model_id: str) -> bool:
+    """Return whether a model id looks like a non-chat model."""
+    name = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
+    if any(sub in name for sub in _NON_CHAT_SUBSTRINGS):
+        return True
+    tokens = set(re.split(r"[^a-z0-9]+", name))
+    return not tokens.isdisjoint(_NON_CHAT_TOKEN_KEYWORDS)
+
+
+def _http_error_detail(resp: httpx.Response) -> str:
+    """Extract a short human-readable error message from a response."""
+    try:
+        payload = resp.json()
+    except Exception:
+        return (resp.text or "")[:300]
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            payload = error
+        message = payload.get("message") or payload.get("msg")
+        code = payload.get("code")
+        if message:
+            return f"{code}: {message}" if code else str(message)
+    return str(payload)[:300]
+
 
 if os.environ.get("LANGFUSE_SECRET_KEY") and importlib.util.find_spec(
     "langfuse",
@@ -39,12 +171,31 @@ else:
 class OpenAIProvider(Provider):
     """Provider implementation for OpenAI API and compatible endpoints."""
 
+    max_inline_media_bytes: int = Field(
+        default=MAX_INLINE_MEDIA_BYTES,
+        ge=0,
+        description=(
+            "Maximum size (in bytes) of a local media file inlined as "
+            "base64 into the model request body. Media above this is "
+            "replaced with a text placeholder to avoid oversized requests "
+            "when large files (e.g. generated videos) persist in "
+            "conversation history. 0 disables capping."
+        ),
+    )
+
+    def _build_default_headers(self) -> dict:
+        return dict(self.custom_headers) if self.custom_headers else {}
+
     def _client(self, timeout: float = 5) -> AsyncOpenAI:
-        return AsyncOpenAI(
-            base_url=self.base_url,
-            api_key=self.api_key,
-            timeout=timeout,
-        )
+        kwargs: dict = {
+            "base_url": self.base_url,
+            "api_key": self.api_key,
+            "timeout": timeout,
+        }
+        headers = self._build_default_headers()
+        if headers:
+            kwargs["default_headers"] = headers
+        return AsyncOpenAI(**kwargs)
 
     @staticmethod
     def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
@@ -74,12 +225,19 @@ class OpenAIProvider(Provider):
         try:
             await client.models.list(timeout=timeout)
             return True, ""
-        except APIError:
-            return False, f"API error when connecting to `{self.base_url}`"
-        except Exception:
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
             return (
                 False,
-                f"Unknown exception when connecting to `{self.base_url}`",
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
             )
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
@@ -104,6 +262,16 @@ class OpenAIProvider(Provider):
         if not model_id:
             return False, "Empty model ID"
 
+        if _is_non_chat_model(model_id):
+            # Non-chat models (ASR/TTS/embedding/media generation) cannot
+            # answer a chat "ping", and issuing a real task against them
+            # is expensive, so use the official zero-cost validation
+            # endpoints instead.
+            return await self._check_non_chat_model_connection(
+                model_id,
+                timeout,
+            )
+
         try:
             client = self._client(timeout=timeout)
             res = await client.chat.completions.create(
@@ -120,64 +288,246 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                max_tokens=1,
                 stream=True,
+                **_token_limit_kwargs(model_id, 20),
             )
             # consume the stream to ensure the model is actually responsive
             async for _ in res:
                 break
             return True, ""
-        except APIError:
-            return False, f"API error when connecting to model '{model_id}'"
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            if any(
+                marker in detail.lower()
+                for marker in _API_TYPE_MISMATCH_MARKERS
+            ):
+                # The endpoint recognised the key and the model but the
+                # model must be invoked through its dedicated task API
+                # (e.g. DashScope video generation), so connectivity is OK.
+                return (
+                    True,
+                    f"Model '{model_id}' requires a dedicated non-chat "
+                    "API; endpoint and credentials verified",
+                )
+            status = getattr(exc, "status_code", "unknown")
+            return (
+                False,
+                f"API error when connecting to model '{model_id}' "
+                f"(status={status}): {detail}",
+            )
         except Exception:
             return (
                 False,
                 f"Unknown exception when connecting to model '{model_id}'",
             )
 
+    async def _check_non_chat_model_connection(
+        self,
+        model_id: str,
+        timeout: float,
+    ) -> tuple[bool, str]:
+        """Validate a non-chat model without issuing a billable request.
+
+        * DashScope: the model-bound upload-policy API
+          (``GET /api/v1/uploads?action=getPolicy&model=...``) verifies
+          the endpoint, the API key and the model name at zero cost.
+        * Volcano Ark: the content-generation task-list API
+          (``GET /api/v3/contents/generations/tasks``) verifies the
+          endpoint and the API key at zero cost.
+        * Other providers: fall back to provider-level reachability.
+        """
+        host = (urlparse(self.base_url).hostname or "").lower()
+        if host in _DASHSCOPE_HOSTNAMES or host.endswith(
+            ".dashscope.aliyuncs.com",
+        ):
+            return await self._check_dashscope_non_chat_model(
+                model_id,
+                timeout,
+            )
+        if host == "volces.com" or host.endswith(".volces.com"):
+            return await self._check_ark_non_chat_credentials(
+                model_id,
+                timeout,
+            )
+        ok, msg = await self.check_connection(timeout=timeout)
+        if not ok:
+            return False, msg
+        return (
+            True,
+            f"Model '{model_id}' is not a chat model; verified "
+            "provider connectivity instead of a chat probe",
+        )
+
+    async def _check_dashscope_non_chat_model(
+        self,
+        model_id: str,
+        timeout: float,
+    ) -> tuple[bool, str]:
+        """Probe a DashScope task-API model via the upload-policy API."""
+        parsed = urlparse(self.base_url)
+        policy_url = (
+            f"{parsed.scheme}://{parsed.netloc}"
+            f"{_DASHSCOPE_UPLOAD_POLICY_PATH}"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(
+                    policy_url,
+                    params={"action": "getPolicy", "model": model_id},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+        except Exception as exc:
+            return False, f"Failed to reach `{policy_url}`: {exc}"
+        if resp.status_code == 200:
+            return (
+                True,
+                f"Model '{model_id}' verified via the DashScope "
+                "upload-policy API (endpoint, API key and model binding "
+                "checked without a billable request)",
+            )
+        detail = _http_error_detail(resp)
+        if resp.status_code in (401, 403):
+            return (
+                False,
+                f"DashScope rejected the API key "
+                f"(status={resp.status_code}): {detail}",
+            )
+        lowered = detail.lower()
+        if "model" in lowered and any(
+            marker in lowered for marker in _DASHSCOPE_UNKNOWN_MODEL_MARKERS
+        ):
+            return (
+                False,
+                f"DashScope does not recognise model '{model_id}' "
+                f"(status={resp.status_code}): {detail}",
+            )
+        if resp.status_code in (404, 408, 429) or resp.status_code >= 500:
+            # These statuses prove nothing about the key: wrong base URL,
+            # rate limiting or provider failure must surface as failures.
+            return (
+                False,
+                f"DashScope upload-policy probe failed "
+                f"(status={resp.status_code}): {detail}",
+            )
+        # Remaining 4xx: auth passed but the model cannot be probed via the
+        # upload-policy API (e.g. TTS models without file input); the
+        # endpoint and key are verified, which is the best zero-cost
+        # signal available.
+        return (
+            True,
+            f"DashScope endpoint and API key verified; model "
+            f"'{model_id}' was not invoked to avoid charges ({detail})",
+        )
+
+    async def _check_ark_non_chat_credentials(
+        self,
+        model_id: str,
+        timeout: float,
+    ) -> tuple[bool, str]:
+        """Verify Ark endpoint and key via the free task-list API."""
+        parsed = urlparse(self.base_url)
+        tasks_url = f"{parsed.scheme}://{parsed.netloc}{_ARK_TASK_LIST_PATH}"
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.get(
+                    tasks_url,
+                    params={"page_size": 1},
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                )
+        except Exception as exc:
+            return False, f"Failed to reach `{tasks_url}`: {exc}"
+        if resp.status_code == 200:
+            return (
+                True,
+                "Ark endpoint and API key verified via the task-list "
+                f"API; model '{model_id}' was not invoked to avoid "
+                "charges",
+            )
+        detail = _http_error_detail(resp)
+        if resp.status_code in (401, 403):
+            return (
+                False,
+                f"Volcano Ark rejected the API key "
+                f"(status={resp.status_code}): {detail}",
+            )
+        # Endpoint variants (e.g. the coding plan) may not expose the
+        # task-list API; fall back to provider-level reachability.
+        ok, msg = await self.check_connection(timeout=timeout)
+        if not ok:
+            return False, msg
+        return (
+            True,
+            f"Model '{model_id}' is not a chat model; verified "
+            "provider connectivity instead of a chat probe",
+        )
+
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        from agentscope.credential._openai import OpenAICredential
+        from agentscope.model import OpenAIChatModel
+
         from .openai_chat_model_compat import OpenAIChatModelCompat
 
-        client_kwargs = {"base_url": self.base_url}
+        credential = OpenAICredential(
+            id=f"qwenpaw-{self.id}",
+            api_key=self.api_key,
+            base_url=self.base_url,
+        )
 
-        if self.base_url == DASHSCOPE_BASE_URL:
-            client_kwargs["default_headers"] = {
-                "x-dashscope-agentapp": json.dumps(
-                    {
-                        "agentType": "QwenPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
-        elif self.base_url == CODING_DASHSCOPE_BASE_URL:
-            client_kwargs["default_headers"] = {
-                "X-DashScope-Cdpl": json.dumps(
-                    {
-                        "agentType": "QwenPaw",
-                        "deployType": "UnKnown",
-                        "moduleCode": "model",
-                        "agentCode": "UnKnown",
-                    },
-                    ensure_ascii=False,
-                ),
-            }
+        # Platform-specific headers injected per-request via extra_headers.
+        merged_headers = self._build_default_headers()
+        dashscope_meta = json.dumps(
+            {
+                "agentType": "QwenPaw",
+                "deployType": "UnKnown",
+                "moduleCode": "model",
+                "agentCode": "UnKnown",
+            },
+            ensure_ascii=False,
+        )
+        if self.base_url in DASHSCOPE_BASE_URLS:
+            merged_headers["x-dashscope-agentapp"] = dashscope_meta
+        elif self.base_url in (CODING_DASHSCOPE_BASE_URL, TOKEN_PLAN_BASE_URL):
+            merged_headers["X-DashScope-Cdpl"] = dashscope_meta
+
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
+        max_tokens = gen_kwargs.pop("max_tokens", None)
+        if _uses_max_completion_tokens(model_id):
+            if max_tokens is not None:
+                gen_kwargs.setdefault(
+                    "max_completion_tokens",
+                    max_tokens,
+                )
+            max_tokens = None
+        parameters = OpenAIChatModel.Parameters(
+            max_tokens=max_tokens,
+            temperature=gen_kwargs.pop("temperature", None),
+            top_p=gen_kwargs.pop("top_p", None),
+        )
 
         return OpenAIChatModelCompat(
-            model_name=model_id,
+            credential=credential,
+            provider_id=self.id,
+            model=model_id,
+            parameters=parameters,
             stream=True,
-            api_key=self.api_key,
-            stream_tool_parsing=False,
-            client_kwargs=client_kwargs,
-            generate_kwargs=self.get_effective_generate_kwargs(model_id),
+            default_headers=merged_headers or None,
+            extra_generate_kwargs=gen_kwargs or None,
+            output_token_param=(
+                "max_completion_tokens"
+                if _uses_max_completion_tokens(model_id)
+                else "max_tokens"
+            ),
+            context_size=self._get_context_size(model_id),
+            formatter=_CappingOpenAIFormatter(
+                max_bytes=self.max_inline_media_bytes,
+                relay_reasoning_content=self._get_relay_reasoning(model_id),
+            ),
         )
 
     async def probe_model_multimodal(
         self,
         model_id: str,
-        timeout: float = 10,
+        timeout: float = 60,
         image_only: bool = False,
     ) -> ProbeResult:
         """Probe multimodal support via OpenAI-compatible API."""
@@ -240,8 +590,8 @@ class OpenAIProvider(Provider):
             this class of silent failures.
         """
         from .multimodal_prober import (
-            _PROBE_IMAGE_B64,
             _IMAGE_PROBE_PROMPT,
+            _PROBE_IMAGE_B64,
             _is_media_keyword_error,
             evaluate_image_probe_answer,
         )
@@ -276,8 +626,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             answer = (res.choices[0].message.content or "").lower().strip()
             reasoning = ""
@@ -323,10 +673,7 @@ class OpenAIProvider(Provider):
         timeout: float = 30,
     ) -> tuple[bool, str]:
         """Probe video support with automatic format fallback."""
-        from .multimodal_prober import (
-            _PROBE_VIDEO_B64,
-            _PROBE_VIDEO_URL,
-        )
+        from .multimodal_prober import _PROBE_VIDEO_B64, _PROBE_VIDEO_URL
 
         logger.info(
             "Video probe start: model=%s url=%s",
@@ -397,8 +744,8 @@ class OpenAIProvider(Provider):
                         ],
                     },
                 ],
-                max_tokens=200,
                 timeout=req_timeout,
+                **_token_limit_kwargs(model_id, 200),
             )
             return self._evaluate_video_response(
                 res,
@@ -450,68 +797,140 @@ class OpenAIProvider(Provider):
     ) -> tuple[bool, str]:
         """Evaluate video probe response.
 
-        Detection criteria:
-            The probe video is a solid-blue 64×64 H.264 MP4.  We ask
-            "What is the single dominant color?" and check for "blue"
-            or "蓝" in the reply or reasoning_content.
-
-            Special case for HTTP URL probes: if the model returns any
-            non-empty answer (even without "blue"), we accept it as
-            supported.  The HTTP URL points to an external video whose
-            content we do not control (not the blue probe video), so
-            colour-matching is impossible.  This relaxed check is safe
-            because ``probe_model_multimodal`` only reaches the video
-            probe after the image probe has already passed, which
-            filters out text-only models that silently accept media
-            payloads (e.g. qwen3-max).
+        Delegates to the shared
+        ``evaluate_video_probe_answer`` in
+        ``multimodal_prober`` so all providers use the same
+        colour-keyword list and logging.
         """
-        answer = (res.choices[0].message.content or "").lower().strip()
-        # Primary check: answer contains a blue-family color keyword.
-        # Models may describe the solid-blue video as "blue", "navy",
-        # "azure", "cobalt", "cyan", "indigo", "蓝" etc.
-        _BLUE_KW = ("blue", "navy", "azure", "cobalt", "cyan", "indigo", "蓝")
-        if any(kw in answer for kw in _BLUE_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return True, f"Video supported (answer={answer!r})"
-        # Fallback: reasoning models may put analysis in reasoning_content.
+        answer = res.choices[0].message.content or ""
         reasoning = ""
         msg = res.choices[0].message
         if hasattr(msg, "reasoning_content") and msg.reasoning_content:
-            reasoning = msg.reasoning_content.lower()
-        if reasoning and any(kw in reasoning for kw in _BLUE_KW):
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True %.2fs",
-                model_id,
-                elapsed,
-            )
-            return (
-                True,
-                f"Video supported (reasoning, answer={answer!r})",
-            )
-        # HTTP URL fallback: accept any non-empty response as evidence
-        # of video support (see docstring for safety rationale).
-        if is_http and answer:
-            elapsed = time.monotonic() - start_time
-            logger.info(
-                "Video probe done: model=%s result=True (http) %.2fs",
-                model_id,
-                elapsed,
-            )
-            return True, f"Video supported (http, answer={answer!r})"
-        elapsed = time.monotonic() - start_time
-        logger.info(
-            "Video probe done: model=%s result=False answer=%r %.2fs",
-            model_id,
+            reasoning = msg.reasoning_content
+        return evaluate_video_probe_answer(
             answer,
-            elapsed,
+            model_id,
+            start_time,
+            reasoning=reasoning,
+            is_http=is_http,
         )
-        return (
-            False,
-            f"Model did not recognise video (answer={answer!r})",
-        )
+
+
+class _FreeSuffixProviderMixin:
+    """Mixin for providers that mark models as free by suffix."""
+
+    _FREE_SUFFIX = "-free"
+
+    async def fetch_models(
+        self,
+        timeout: float = 5,
+    ) -> List[ModelInfo]:
+        """Fetch models and mark free ones by suffix."""
+        try:
+            client = self._client(timeout=timeout)
+            payload = await client.models.list(timeout=timeout)
+        except Exception:
+            return []
+
+        suffix = self._FREE_SUFFIX
+        models: List[ModelInfo] = []
+        seen: set[str] = set()
+        for row in getattr(payload, "data", []) or []:
+            model_id = str(
+                getattr(row, "id", "") or "",
+            ).strip()
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            is_free = model_id.endswith(suffix)
+            display_name = (
+                model_id.removesuffix(suffix)
+                .replace("-", " ")
+                .replace("/", " - ")
+                .title()
+            )
+            models.append(
+                ModelInfo(
+                    id=model_id,
+                    name=display_name,
+                    is_free=is_free,
+                ),
+            )
+        return models
+
+
+class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
+    """OpenCode provider with dynamic free model detection."""
+
+    _FREE_SUFFIX = "-free"
+
+
+class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
+    """Kilo Code provider with dynamic free model detection."""
+
+    _FREE_SUFFIX = ":free"
+
+
+class GitHubModelsProvider(OpenAIProvider):
+    """GitHub Models provider.
+
+    GitHub Models exposes an OpenAI-compatible chat completions endpoint at
+    ``https://models.github.ai/inference``.  Unlike many OpenAI-compatible
+    providers it does **not** implement the ``/models`` listing endpoint, so
+    the generic ``OpenAIProvider.check_connection`` (which calls
+    ``client.models.list()``) receives a 404 response.  This override checks
+    connectivity by issuing a minimal chat completion request instead.
+    """
+
+    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
+        """Check connectivity via a tiny chat completion request."""
+        # Prefer a built-in model; fall back to a well-known GitHub Models id.
+        model_id = ""
+        for candidate in ("openai/gpt-4o-mini", "gpt-4o-mini"):
+            if any(m.id == candidate for m in self.models):
+                model_id = candidate
+                break
+        if not model_id:
+            model_id = (
+                self.models[0].id if self.models else "openai/gpt-4o-mini"
+            )
+
+        try:
+            client = self._client(timeout=timeout)
+            res = await client.chat.completions.create(
+                model=model_id,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "ping",
+                            },
+                        ],
+                    },
+                ],
+                timeout=timeout,
+                stream=True,
+                **_token_limit_kwargs(model_id, 5),
+            )
+            try:
+                async for _ in res:
+                    break
+            finally:
+                await res.response.aclose()
+            return True, ""
+        except APIError as exc:
+            detail = str(exc) or getattr(exc, "message", "")
+            status = getattr(exc, "status_code", "unknown")
+            return (
+                False,
+                f"API error when connecting to `{self.base_url}` "
+                f"(status={status}): {detail}",
+            )
+        except Exception as exc:
+            return (
+                False,
+                f"Unknown exception when connecting to `{self.base_url}`: "
+                f"{exc}",
+            )

@@ -1,0 +1,285 @@
+name: AI Code Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions: {}
+
+jobs:
+  # Maintainer must approve before AI review runs
+  review-gate:
+    name: AI Review Approval
+    runs-on: ubuntu-latest
+    environment: ai-review-approved
+    permissions: {}
+    steps:
+      - run: |
+          echo "Maintainer approved AI review for PR #${{ github.event.pull_request.number }}"
+
+  ai-review:
+    name: QwenPaw AI Review
+    needs: review-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      verdict: ${{ steps.review.outputs.verdict }}
+      high_count: ${{ steps.review.outputs.high_count }}
+      medium_count: ${{ steps.review.outputs.medium_count }}
+
+    env:
+      REVIEW_PROVIDER: dashscope
+      REVIEW_MODEL: ${{ vars.REVIEW_MODEL || 'qwen3.6-plus' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_REPO: ${{ github.event.pull_request.base.repo.full_name }}
+      QWENPAW_TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install QwenPaw and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          pip install httpx
+
+      - name: Verify gh CLI and authentication
+        run: |
+          gh --version
+          gh auth status
+          echo "Verifying PR access..."
+          gh pr view ${{ env.PR_NUMBER }} --repo ${{ env.PR_REPO }} --json number,title --jq '.title'
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Initialize QwenPaw workspace
+        run: |
+          qwenpaw init --defaults --accept-security
+          python scripts/review-bot/setup_review_workspace.py
+        env:
+          DASHSCOPE_API_KEY: ${{ secrets.REVIEW_DASHSCOPE_API_KEY }}
+
+      - name: Start QwenPaw server
+        run: |
+          QWENPAW_AUTH_ENABLED=false \
+          GH_TOKEN=${{ github.token }} \
+          GITHUB_TOKEN=${{ github.token }} \
+          python -m qwenpaw app --host 127.0.0.1 --port 8088 &
+          echo $! > /tmp/qwenpaw.pid
+
+      - name: Wait for QwenPaw to be ready
+        run: |
+          for i in $(seq 1 90); do
+            if curl -sf http://localhost:8088/api/version > /dev/null 2>&1; then
+              echo "QwenPaw is ready (took ${i}s)"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "QwenPaw failed to start within 90 seconds"
+          exit 1
+
+      - name: Verify review model is configured
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.request
+
+          expected_provider = os.environ.get("REVIEW_PROVIDER", "dashscope")
+          expected_model = os.environ.get("REVIEW_MODEL", "qwen3.6-plus")
+
+          with urllib.request.urlopen("http://localhost:8088/api/models/active?scope=global") as resp:
+              data = json.load(resp)
+
+          active = data.get("active_llm") or {}
+          provider = active.get("provider_id")
+          model = active.get("model")
+          print(f"Active model: {provider}/{model}")
+
+          if provider != expected_provider or model != expected_model:
+              print(f"ERROR: expected {expected_provider}/{expected_model}")
+              sys.exit(1)
+          PY
+
+      - name: Remove secrets from disk
+        run: |
+          rm -f ~/.qwenpaw.secret/.master_key
+          rm -rf ~/.qwenpaw.secret/providers
+          echo "Secrets removed from disk (cached in server memory)"
+
+      - name: Run AI Review
+        id: review
+        run: python scripts/review-bot/review_runner.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Upload AI review result
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-ai-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/review_result.md
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Stop QwenPaw
+        if: always()
+        run: |
+          if [ -f /tmp/qwenpaw.pid ]; then
+            kill $(cat /tmp/qwenpaw.pid) 2>/dev/null || true
+          fi
+
+  publish-review:
+    name: Publish QwenPaw AI Review
+    needs: [review-gate, ai-review]
+    if: >-
+      ${{ always() && needs.review-gate.result == 'success' &&
+          needs.ai-review.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      pull-requests: write
+    steps:
+      - name: Download AI review result
+        if: needs.ai-review.result == 'success'
+        uses: actions/download-artifact@v4
+        with:
+          name: pr-ai-review-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/ai-review
+
+      - name: Post review comment and manage labels
+        if: needs.ai-review.result == 'success'
+        uses: actions/github-script@v7
+        env:
+          REVIEW_VERDICT: ${{ needs.ai-review.outputs.verdict }}
+        with:
+          script: |
+            const fs = require('fs');
+            const prNumber = context.payload.pull_request.number;
+            const expectedHeadSha = context.payload.pull_request.head.sha;
+            const currentPull = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            if (currentPull.data.head.sha !== expectedHeadSha) {
+              core.notice(
+                `Skipping stale AI review for ${expectedHeadSha}; ` +
+                `current head is ${currentPull.data.head.sha}`,
+              );
+              return;
+            }
+
+            const verdict = process.env.REVIEW_VERDICT;
+            if (!['APPROVE', 'REQUEST_CHANGES'].includes(verdict)) {
+              core.setFailed(`Invalid AI review verdict: ${verdict}`);
+              return;
+            }
+
+            const reviewBody = fs.readFileSync(
+              '/tmp/ai-review/review_result.md',
+              'utf8',
+            );
+            if (!reviewBody.trim()) {
+              core.setFailed('AI review result is empty');
+              return;
+            }
+
+            const readyForHumanReview = verdict === 'APPROVE';
+
+            const icon = readyForHumanReview ? '✅' : '⚠️';
+            const title = readyForHumanReview
+              ? 'Passed AI Review — Awaiting Human Review'
+              : 'Changes Requested';
+            const header = `## ${icon} QwenPaw AI Review: ${title}\n\n`;
+            const footer = '\n\n---\n' +
+              `*Auto-generated by QwenPaw Review Agent | ` +
+              `Triggered by maintainer approval*`;
+
+            const fullBody = `${header}${reviewBody}${footer}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: fullBody,
+            });
+
+            // Label logic:
+            // APPROVE (high=0, medium<=2) → add ready-for-human-review
+            // REQUEST_CHANGES → remove ready-for-human-review
+            if (readyForHumanReview) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: ['ready-for-human-review'],
+              });
+            } else {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  name: 'ready-for-human-review',
+                });
+              } catch (e) {}
+            }
+
+      - name: Post fallback on review failure
+        if: needs.ai-review.result == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.pull_request.number;
+            const expectedHeadSha = context.payload.pull_request.head.sha;
+            const currentPull = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+
+            if (currentPull.data.head.sha !== expectedHeadSha) {
+              core.notice(
+                `Skipping stale failure notice for ${expectedHeadSha}; ` +
+                `current head is ${currentPull.data.head.sha}`,
+              );
+              return;
+            }
+
+            const body = [
+              '## ⚠️ QwenPaw AI Review: Review Failed\n',
+              'The AI Review Bot encountered an error and could not ',
+              'generate a review.\n',
+              'Possible causes:',
+              '- LLM API unavailable or timed out',
+              '- `gh` CLI authentication failure',
+              '- QwenPaw internal service error\n',
+              '**Please have a maintainer review this PR manually.**\n',
+              '---',
+              '*🤖 Auto-generated by QwenPaw Review Agent | ',
+              'Review failed — manual review required*',
+            ].join('\n');
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: body,
+            });

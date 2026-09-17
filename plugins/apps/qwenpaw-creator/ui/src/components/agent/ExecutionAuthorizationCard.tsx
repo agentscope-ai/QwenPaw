@@ -1,0 +1,300 @@
+import { useState } from "react";
+import { message } from "antd";
+import { Eye, PlayCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import type {
+  ExecutionAuthorizationApproval,
+  ExecutionAuthorizationView,
+  ProjectDocument,
+} from "@/contracts/creator";
+import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
+import { creatorTargetLabel, taskKindLabel } from "@/lib/creatorPresentation";
+import OnboardingHint from "@/components/onboarding/OnboardingHint";
+import { navigateToLocator } from "@/routing/locators";
+import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
+import i18n from "@/i18n";
+
+const BUTTON_BASE =
+  "rounded-md px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-50";
+const BUTTON_PRIMARY = `${BUTTON_BASE} bg-[var(--color-accent)] text-white hover:opacity-90`;
+const BUTTON_GHOST = `${BUTTON_BASE} border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[var(--color-text-secondary)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]`;
+
+export function authorizationApprovalPayload(
+  authorization: ExecutionAuthorizationView,
+): ExecutionAuthorizationApproval {
+  return {
+    authorizationToken: authorization.authorizationToken,
+    provider: authorization.provider,
+    model: authorization.model,
+    // Local price estimation was removed (stale price tables mislead);
+    // the backend treats 0 as "no client-side cost bound".
+    maxCost: 0,
+    maxCandidates: authorization.maxCandidates,
+  };
+}
+
+function authorizationOperation(
+  authorization: ExecutionAuthorizationView,
+): string {
+  return typeof authorization.scope.operation === "string"
+    ? taskKindLabel(authorization.scope.operation)
+    : i18n.t("executionAuth.title");
+}
+
+function authorizationParameterSummary(
+  authorization: ExecutionAuthorizationView,
+): string {
+  const raw = authorization.scope.parameters;
+  if (!raw || typeof raw !== "object") return "";
+  const parameters = raw as Record<string, unknown>;
+  const parts: string[] = [];
+  if (parameters.durationSeconds) {
+    parts.push(
+      i18n.t("executionAuth.duration", {
+        duration: parameters.durationSeconds,
+      }),
+    );
+  }
+  if (typeof parameters.resolution === "string") {
+    parts.push(
+      i18n.t("executionAuth.resolutionLabel", {
+        resolution: parameters.resolution.toUpperCase(),
+      }),
+    );
+  }
+  if (typeof parameters.ratio === "string") {
+    parts.push(i18n.t("executionAuth.ratio", { ratio: parameters.ratio }));
+  }
+  if (typeof parameters.aspectRatio === "string") {
+    parts.push(
+      i18n.t("executionAuth.frameSize", { size: parameters.aspectRatio }),
+    );
+  }
+  if (typeof parameters.generateAudio === "boolean") {
+    parts.push(
+      parameters.generateAudio
+        ? i18n.t("executionAuth.withAudio")
+        : i18n.t("executionAuth.withoutAudio"),
+    );
+  }
+  return parts.join(" · ");
+}
+
+/** Replace ref tokens in backend copy (asset:char:fox / element:xxx etc.) with real names. */
+function humanizeRefTokens(
+  text: string,
+  project?: ProjectDocument | null,
+): string {
+  return text.replace(
+    /(?:visual-entity|artifact-version|asset-version|element|asset|source):[\w.-]+(?::[\w.-]+)*/g,
+    (token) => {
+      const label = creatorTargetLabel(token, project);
+      return label && label !== i18n.t("executionAuth.currentProject")
+        ? `「${label}」`
+        : token;
+    },
+  );
+}
+
+export function authorizationDetail(
+  authorization: ExecutionAuthorizationView,
+  project?: ProjectDocument | null,
+): string {
+  const messageText = authorization.scope.message;
+  if (typeof messageText === "string" && messageText.trim())
+    return humanizeRefTokens(messageText, project);
+  return `${authorizationOperation(authorization)} · ${creatorTargetLabel(
+    authorization.targetRef,
+    project,
+  )} · ${authorization.provider}/${authorization.model}`;
+}
+
+/**
+ * Jump target for a production confirmation's "查看" (view) button: locate the
+ * prompt-editing spot that is about to feed generation, so users can actually
+ * inspect the generation input before confirming the spend.
+ */
+export function authorizationJumpTarget(
+  authorization: ExecutionAuthorizationView,
+  project?: ProjectDocument | null,
+): { locator: Record<string, string>; field?: string } | null {
+  const targetRef = authorization.targetRef ?? "";
+  if (targetRef.startsWith("element:")) {
+    const elementId = targetRef.slice("element:".length);
+    const timeline = selectPrimaryTimeline(project ?? null);
+    const operation =
+      typeof authorization.scope.operation === "string"
+        ? authorization.scope.operation.toLowerCase()
+        : "";
+    const promptField = operation.includes("video")
+      ? "video_prompt"
+      : "storyboard_prompt";
+    const field = timeline
+      ? `/timelines/items/${timeline.timeline_id}/elements_by_id/${elementId}/creation/${promptField}`
+      : undefined;
+    return {
+      locator: {
+        page: "element",
+        elementId,
+        ...(field ? { field } : {}),
+      },
+      field,
+    };
+  }
+  if (targetRef.startsWith("asset:")) {
+    return {
+      locator: { page: "assets", assetId: targetRef.slice("asset:".length) },
+    };
+  }
+  if (targetRef.startsWith("visual-entity:")) {
+    return {
+      locator: {
+        page: "assets",
+        assetId: targetRef.slice("visual-entity:".length),
+      },
+    };
+  }
+  if (targetRef.startsWith("timeline:")) {
+    return { locator: { page: "plan" } };
+  }
+  return null;
+}
+
+export default function ExecutionAuthorizationCard({
+  authorization,
+  project,
+}: {
+  authorization: ExecutionAuthorizationView;
+  project?: ProjectDocument | null;
+}) {
+  const { t } = useTranslation();
+  const approve = useExecutionAuthorizationStore((state) => state.approve);
+  const decline = useExecutionAuthorizationStore((state) => state.decline);
+  const projectId = useExecutionAuthorizationStore((state) => state.projectId);
+  const [busy, setBusy] = useState(false);
+  if (authorization.status !== "PENDING") return null;
+
+  const parameterSummary = authorizationParameterSummary(authorization);
+  const jumpTarget = authorizationJumpTarget(authorization, project);
+
+  const openTarget = () => {
+    if (!jumpTarget || !projectId) return;
+    navigateToLocator(projectId, jumpTarget.locator, {
+      review: true,
+      field: jumpTarget.field,
+      description: t("executionAuth.productionConfirm"),
+    });
+  };
+
+  const continueRun = async () => {
+    setBusy(true);
+    try {
+      await approve(
+        authorization.id,
+        authorizationApprovalPayload(authorization),
+      );
+      message.success(t("executionAuth.confirmed"));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const cancelRun = async () => {
+    setBusy(true);
+    try {
+      await decline(authorization.id, authorization.authorizationToken);
+      message.success(t("executionAuth.cancelled"));
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <article
+      data-execution-authorization-card={authorization.id}
+      className="rounded-xl border border-[var(--color-warning)]/50 bg-[var(--color-warning-soft)]/40 p-2.5"
+    >
+      <OnboardingHint hintKey="executionAuthorization" className="mb-2">
+        {t("executionAuth.firstTimeDesc")}
+      </OnboardingHint>
+      <div className="flex items-start gap-2.5">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-flex items-center gap-1 rounded bg-[var(--color-warning-soft)] px-1.5 py-0.5 text-[9px] font-bold text-[var(--color-warning)]">
+              <PlayCircle className="h-3 w-3" />
+              {t("executionAuth.productionConfirm")}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs font-semibold text-[var(--color-text-primary)]">
+              {authorizationOperation(authorization)}
+              {t("executionAuth.waitingConfirm")}
+            </span>
+            {jumpTarget && projectId && (
+              <button
+                type="button"
+                onClick={openTarget}
+                aria-label={t("executionAuth.view")}
+                title={t("executionAuth.jumpToPrompt")}
+                className="flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-accent-soft)] hover:text-[var(--color-accent)]"
+              >
+                <Eye className="h-3 w-3" />
+                {t("executionAuth.view")}
+              </button>
+            )}
+          </div>
+          <dl className="mt-1.5 space-y-0.5 text-[11px] leading-4">
+            <div className="flex gap-1">
+              <dt className="shrink-0 text-[var(--color-text-tertiary)]">
+                {t("executionAuth.object")}
+              </dt>
+              <dd className="min-w-0 truncate text-[var(--color-text-secondary)]">
+                {creatorTargetLabel(authorization.targetRef, project)}
+              </dd>
+            </div>
+            <div className="flex gap-1">
+              <dt className="shrink-0 text-[var(--color-text-tertiary)]">
+                {t("executionAuth.model")}
+              </dt>
+              <dd className="min-w-0 truncate text-[var(--color-text-secondary)]">
+                {authorization.provider} / {authorization.model}
+              </dd>
+            </div>
+            {parameterSummary && (
+              <div className="flex gap-1">
+                <dt className="shrink-0 text-[var(--color-text-tertiary)]">
+                  {t("executionAuth.parameter")}
+                </dt>
+                <dd className="min-w-0 text-[var(--color-text-secondary)]">
+                  {parameterSummary}
+                </dd>
+              </div>
+            )}
+          </dl>
+          <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-[var(--color-text-tertiary)]">
+            {authorizationDetail(authorization, project)}
+          </p>
+        </div>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void continueRun()}
+          className={`flex-1 ${BUTTON_PRIMARY}`}
+        >
+          {t("executionAuth.continue")}
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void cancelRun()}
+          className={`flex-1 ${BUTTON_GHOST}`}
+        >
+          {t("executionAuth.cancel")}
+        </button>
+      </div>
+    </article>
+  );
+}

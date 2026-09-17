@@ -1,0 +1,2 @@
+dashscope>=1.25.16
+httpx>=0.24.0

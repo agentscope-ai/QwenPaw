@@ -1,0 +1,449 @@
+import React, { useState, useCallback, useEffect, useRef } from "react";
+import { Button, Input, Tooltip } from "@agentscope-ai/design";
+import { Switch } from "antd";
+import {
+  ShieldCheck,
+  ShieldX,
+  ShieldAlert,
+  KeyRound,
+  Unlink,
+  ExternalLink,
+  Info,
+} from "lucide-react";
+import { useTranslation } from "react-i18next";
+import api from "../../../../api";
+import type { MCPClientOAuthStatus } from "../../../../api/types";
+import { openExternalLink } from "../../../../utils/openExternalLink";
+import { useSkillScope } from "../../../../api/skillScope";
+import { getOAuthSessionTerminal, matchesOAuthMessage } from "../oauthMessage";
+
+interface MCPOAuthSectionProps {
+  /** MCP server URL — used for OAuth discovery */
+  url: string;
+  /** Client key (must already exist for re-auth; leave blank for new client) */
+  clientKey?: string;
+  /** Called when OAuth auth state changes (authorized or revoked) */
+  onAuthChanged?: () => void;
+  /** Whether this section is inside the "create" modal (no clientKey yet) */
+  isNewClient?: boolean;
+  /** Current OAuth status from the server (for existing clients) */
+  currentOAuthStatus?: MCPClientOAuthStatus | null;
+  /** Whether OAuth is toggled on */
+  oauthEnabled?: boolean;
+  /** External OAuth params controlled by parent */
+  clientId?: string;
+  scope?: string;
+  authEndpoint?: string;
+  tokenEndpoint?: string;
+  revision?: number;
+  onClientIdChange?: (v: string) => void;
+  onScopeChange?: (v: string) => void;
+  onAuthEndpointChange?: (v: string) => void;
+  onTokenEndpointChange?: (v: string) => void;
+}
+
+type OAuthPhase =
+  | "idle"
+  | "starting"
+  | "waiting"
+  | "success"
+  | "expired"
+  | "error"
+  | "revoking";
+
+export const MCPOAuthSection: React.FC<MCPOAuthSectionProps> = ({
+  url,
+  clientKey,
+  onAuthChanged,
+  isNewClient = false,
+  currentOAuthStatus,
+  oauthEnabled = false,
+  clientId = "",
+  scope = "",
+  authEndpoint = "",
+  tokenEndpoint = "",
+  revision,
+  onClientIdChange,
+  onScopeChange,
+  onAuthEndpointChange,
+  onTokenEndpointChange,
+}) => {
+  const { t } = useTranslation();
+  const requestScope = useSkillScope();
+  const apiContext = {
+    agentId: requestScope.agentId,
+    signal: requestScope.signal,
+  };
+
+  const [phase, setPhase] = useState<OAuthPhase>("idle");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [activeSessionId, setActiveSessionId] = useState("");
+  const clearMessageListenerRef = useRef<() => void>(() => undefined);
+
+  useEffect(
+    () => () => {
+      clearMessageListenerRef.current();
+    },
+    [],
+  );
+
+  // Poll backend every 2s when waiting, for existing clients
+  useEffect(() => {
+    if (phase !== "waiting" || !clientKey || !activeSessionId) return;
+    const timer = setInterval(async () => {
+      try {
+        const st = await api.getOAuthStatus(clientKey, activeSessionId, apiContext);
+        if (!requestScope.current()) return;
+        const terminal = getOAuthSessionTerminal(st, activeSessionId);
+        if (terminal === "success") {
+          clearMessageListenerRef.current();
+          setPhase("success");
+          onAuthChanged?.();
+        } else if (terminal === "failed" || terminal === "expired") {
+          clearMessageListenerRef.current();
+          setPhase(terminal === "expired" ? "expired" : "error");
+          setErrorMsg(
+            t(
+              terminal === "expired"
+                ? "mcp.oauth.sessionExpired"
+                : "mcp.oauth.authFailed",
+            ),
+          );
+        }
+      } catch {
+        // ignore
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [phase, clientKey, activeSessionId, onAuthChanged, requestScope]);
+
+  // Determine combined authorized state
+  const isAuthorized =
+    phase === "success" ||
+    (!isNewClient &&
+      phase === "idle" &&
+      currentOAuthStatus?.authorized === true);
+
+  const isExpired =
+    phase === "expired" ||
+    (!isNewClient &&
+      phase === "idle" &&
+      currentOAuthStatus?.authorized &&
+      currentOAuthStatus.expires_at > 0 &&
+      currentOAuthStatus.expires_at < Date.now() / 1000);
+
+  // Capture before any type narrowing caused by isAuthorized/isExpired guards
+  const isRevoking = phase === "revoking";
+
+  const handleStartOAuth = useCallback(async () => {
+    if (!url.trim()) {
+      setErrorMsg(t("mcp.oauth.noUrl"));
+      return;
+    }
+    if (!clientKey) {
+      setErrorMsg(t("mcp.oauth.noClientKey"));
+      return;
+    }
+
+    setPhase("starting");
+    setErrorMsg("");
+
+    try {
+      const resp = await api.startOAuth(clientKey, {
+        url,
+        scope,
+        client_id: clientId,
+        auth_endpoint: authEndpoint,
+        token_endpoint: tokenEndpoint,
+        expected_revision: revision,
+      }, apiContext);
+
+      setActiveSessionId(resp.session_id);
+      setPhase("waiting");
+      const captured = {
+        origin: window.location.origin,
+        sessionId: resp.session_id,
+        clientKey,
+        agentId: requestScope.agentId,
+      };
+      const onMessage = (event: MessageEvent) => {
+        if (!matchesOAuthMessage(event, captured) || !requestScope.current()) return;
+        clearMessageListenerRef.current();
+        if (event.data.type === "mcp-oauth-success") {
+          setPhase("success");
+          onAuthChanged?.();
+        } else {
+          setPhase("error");
+          setErrorMsg(t("mcp.oauth.authFailed"));
+        }
+      };
+      clearMessageListenerRef.current();
+      clearMessageListenerRef.current = () =>
+        window.removeEventListener("message", onMessage);
+      window.addEventListener("message", onMessage, { once: false });
+      requestScope.signal.addEventListener(
+        "abort",
+        clearMessageListenerRef.current,
+        { once: true },
+      );
+      openExternalLink(resp.auth_url, "_blank", "popup,width=600,height=700");
+      // The existing useEffect polls backend every 2s while phase === "waiting"
+    } catch (err: unknown) {
+      const msg =
+        err instanceof Error ? err.message : t("mcp.oauth.startFailed");
+      setPhase("error");
+      setErrorMsg(msg);
+    }
+  }, [url, clientKey, scope, clientId, authEndpoint, tokenEndpoint, revision, t, requestScope, onAuthChanged]);
+
+  const handleRevoke = useCallback(async () => {
+    if (!clientKey) return;
+    setPhase("revoking");
+    try {
+      await api.revokeOAuth(clientKey, revision, apiContext);
+      setPhase("idle");
+      onAuthChanged?.();
+    } catch (error: unknown) {
+      setPhase("idle");
+      setErrorMsg(
+        error instanceof Error ? error.message : t("mcp.oauth.authFailed"),
+      );
+    }
+  }, [clientKey, revision, onAuthChanged, requestScope, t]);
+
+  if (!oauthEnabled) {
+    return null;
+  }
+
+  return (
+    <div style={sectionStyle}>
+      {/* Status badge */}
+      <div style={statusRowStyle}>
+        {isExpired ? (
+          <OAuthBadge
+            icon={<ShieldAlert size={14} />}
+            label={t("mcp.oauth.expired")}
+            color="#e67e22"
+          />
+        ) : isAuthorized ? (
+          <OAuthBadge
+            icon={<ShieldCheck size={14} />}
+            label={t("mcp.oauth.authorized")}
+            color="#27ae60"
+          />
+        ) : phase === "waiting" ? (
+          <OAuthBadge
+            icon={<KeyRound size={14} />}
+            label={t("mcp.oauth.waiting")}
+            color="#2980b9"
+          />
+        ) : phase === "error" ? (
+          <OAuthBadge
+            icon={<ShieldX size={14} />}
+            label={t("mcp.oauth.failed")}
+            color="#c0392b"
+          />
+        ) : (
+          <OAuthBadge
+            icon={<ShieldX size={14} />}
+            label={t("mcp.oauth.notAuthorized")}
+            color="#7f8c8d"
+          />
+        )}
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          {(isAuthorized || isExpired) && clientKey && (
+            <Button size="small" onClick={handleRevoke} loading={isRevoking}>
+              <span
+                style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+              >
+                <Unlink size={12} />
+                {t("mcp.oauth.revoke")}
+              </span>
+            </Button>
+          )}
+          <Button
+            data-testid={`mcp-oauth-start-${clientKey ?? "new"}`}
+            size="small"
+            type={isAuthorized && !isExpired ? "default" : "primary"}
+            onClick={handleStartOAuth}
+            loading={phase === "starting" || phase === "waiting"}
+            disabled={!url.trim()}
+          >
+            <span
+              style={{ display: "inline-flex", alignItems: "center", gap: 4 }}
+            >
+              <ExternalLink size={12} />
+              {isAuthorized && !isExpired
+                ? t("mcp.oauth.reauthorize")
+                : t("mcp.oauth.authorize")}
+            </span>
+          </Button>
+        </div>
+      </div>
+
+      {errorMsg && <p style={errorStyle}>{errorMsg}</p>}
+
+      {/* Advanced fields (client_id, scope, manual endpoints) */}
+      <div
+        style={{ marginTop: 8, cursor: "pointer", color: "#888", fontSize: 12 }}
+        onClick={() => setShowAdvanced((v) => !v)}
+      >
+        <Info size={11} style={{ verticalAlign: "middle", marginRight: 4 }} />
+        {showAdvanced
+          ? t("mcp.oauth.hideAdvanced")
+          : t("mcp.oauth.showAdvanced")}
+      </div>
+
+      {showAdvanced && (
+        <div style={advancedStyle}>
+          <label style={labelStyle}>{t("mcp.oauth.clientId")}</label>
+          <Input
+            size="small"
+            placeholder={t("mcp.oauth.clientIdPlaceholder")}
+            value={clientId}
+            onChange={(e) => onClientIdChange?.(e.target.value)}
+          />
+
+          <label style={{ ...labelStyle, marginTop: 8 }}>
+            {t("mcp.oauth.scope")}
+          </label>
+          <Input
+            size="small"
+            placeholder={t("mcp.oauth.scopePlaceholder")}
+            value={scope}
+            onChange={(e) => onScopeChange?.(e.target.value)}
+          />
+
+          <Tooltip title={t("mcp.oauth.endpointHint")}>
+            <label style={{ ...labelStyle, marginTop: 8 }}>
+              {t("mcp.oauth.authEndpoint")}
+            </label>
+          </Tooltip>
+          <Input
+            size="small"
+            placeholder="https://auth.example.com/authorize"
+            value={authEndpoint}
+            onChange={(e) => onAuthEndpointChange?.(e.target.value)}
+          />
+
+          <label style={{ ...labelStyle, marginTop: 8 }}>
+            {t("mcp.oauth.tokenEndpoint")}
+          </label>
+          <Input
+            size="small"
+            placeholder="https://auth.example.com/token"
+            value={tokenEndpoint}
+            onChange={(e) => onTokenEndpointChange?.(e.target.value)}
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+interface OAuthBadgeProps {
+  icon: React.ReactNode;
+  label: string;
+  color: string;
+}
+
+const OAuthBadge: React.FC<OAuthBadgeProps> = ({ icon, label, color }) => (
+  <span style={{ ...badgeStyle, color, borderColor: color }}>
+    {icon}
+    <span style={{ marginLeft: 4 }}>{label}</span>
+  </span>
+);
+
+// Toggle row shown in the parent form to enable/disable OAuth
+interface OAuthToggleRowProps {
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+  label?: string;
+}
+
+export const OAuthToggleRow: React.FC<OAuthToggleRowProps> = ({
+  enabled,
+  onChange,
+  label,
+}) => {
+  const { t } = useTranslation();
+  return (
+    <div style={toggleRowStyle}>
+      <KeyRound size={14} style={{ color: "#888" }} />
+      <span style={{ marginLeft: 6, fontSize: 13, color: "#555" }}>
+        {label ?? t("mcp.oauth.enableOAuth")}
+      </span>
+      <Switch
+        size="small"
+        checked={enabled}
+        onChange={onChange}
+        style={{ marginLeft: "auto" }}
+      />
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Inline styles (keeps JSX concise, avoids extra CSS module entries)
+// ---------------------------------------------------------------------------
+
+const sectionStyle: React.CSSProperties = {
+  background: "#f8f9fa",
+  border: "1px solid #e9ecef",
+  borderRadius: 8,
+  padding: "12px 14px",
+  marginTop: 8,
+};
+
+const statusRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 8,
+};
+
+const badgeStyle: React.CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  fontSize: 12,
+  padding: "2px 8px",
+  borderRadius: 12,
+  border: "1px solid",
+  background: "white",
+};
+
+const errorStyle: React.CSSProperties = {
+  color: "#c0392b",
+  fontSize: 12,
+  marginTop: 6,
+  marginBottom: 0,
+};
+
+const advancedStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+  marginTop: 10,
+  padding: "10px 12px",
+  background: "white",
+  borderRadius: 6,
+  border: "1px solid #e9ecef",
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: "#888",
+  marginBottom: 2,
+};
+
+const toggleRowStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  padding: "6px 0",
+};

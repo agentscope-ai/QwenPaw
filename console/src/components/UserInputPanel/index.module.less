@@ -1,0 +1,230 @@
+.panel {
+  flex: 0 0 auto;
+  margin: 0 0 8px;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+.header,
+.heading,
+.footer,
+.actions {
+  display: flex;
+  align-items: center;
+}
+
+.header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.heading {
+  min-width: 0;
+  gap: 8px;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.counter {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.progressTrack {
+  position: relative;
+  height: 3px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.progressFill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: #4f46e5;
+  transition: width 160ms ease;
+}
+
+.iconButton {
+  color: #475569;
+}
+
+.question {
+  margin-top: 8px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.options {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.option {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: #ffffff;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    background 120ms ease;
+}
+
+.option:hover {
+  border-color: rgba(79, 70, 229, 0.35);
+  background: #fbfbff;
+}
+
+.optionActive {
+  border-color: rgba(79, 70, 229, 0.62);
+  background: #f8f8ff;
+  box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.08);
+}
+
+.radio {
+  display: inline-flex;
+  flex: 0 0 18px;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 22px;
+  color: #4f46e5;
+}
+
+.optionBody {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.optionTitle {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.optionDescription {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.recommended {
+  display: inline-flex;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  vertical-align: 1px;
+  white-space: nowrap;
+}
+
+.textarea {
+  margin-top: 10px;
+}
+
+.footer {
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.meta {
+  min-width: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  gap: 8px;
+}
+
+:global(.dark-mode) {
+  .panel {
+    border-color: rgba(148, 163, 184, 0.22);
+    background: linear-gradient(180deg, #18181b 0%, #111113 100%);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .counter,
+  .optionDescription,
+  .meta {
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .progressTrack {
+    background: rgba(148, 163, 184, 0.16);
+  }
+
+  .question,
+  .iconButton {
+    color: rgba(255, 255, 255, 0.68);
+  }
+
+  .option {
+    border-color: rgba(148, 163, 184, 0.18);
+    background: rgba(255, 255, 255, 0.04);
+  }
+
+  .option:hover,
+  .optionActive {
+    border-color: rgba(129, 140, 248, 0.45);
+    background: rgba(79, 70, 229, 0.16);
+  }
+
+  .optionTitle {
+    color: rgba(255, 255, 255, 0.84);
+  }
+}
+
+@media (max-width: 640px) {
+  .footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions {
+    justify-content: flex-end;
+  }
+}

@@ -1,0 +1,431 @@
+// ---------------------------------------------------------------------------
+// FilePreview styles
+// ---------------------------------------------------------------------------
+
+.previewStatus {
+  height: 100%;
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.52));
+  background: var(--layout-body-background, #f7f8f7);
+  font-size: 13px;
+}
+
+.spinning {
+  display: inline-flex;
+  animation: preview-spin 900ms linear infinite;
+}
+
+@keyframes preview-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+// ---- Image ----------------------------------------------------------------
+
+.imageWrap {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--layout-body-background, #f0f2f5);
+  padding: 24px;
+  overflow: auto;
+}
+
+.image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+
+// ---- PDF ------------------------------------------------------------------
+
+.pdfEmbed {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+// ---- HTML -----------------------------------------------------------------
+
+.htmlWrap {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+
+.htmlToolbar {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  background: var(--header-background, #fafafa);
+  flex-shrink: 0;
+}
+
+.htmlOpenButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+  border-radius: 6px;
+  padding: 5px 9px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.65));
+  background: var(--body-background, #fff);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--files-accent, #f36b21);
+    border-color: var(--files-accent, #f36b21);
+  }
+}
+
+.htmlFrame {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  background: #fff;
+}
+
+// ---- Markdown -------------------------------------------------------------
+
+.markdownWrap {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px 32px;
+  color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  font-size: 14px;
+  line-height: 1.75;
+
+  // GFM styles
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-weight: 600;
+    margin: 1.2em 0 0.5em;
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+  }
+  h1 {
+    font-size: 1.75em;
+    border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+    padding-bottom: 0.3em;
+  }
+  h2 {
+    font-size: 1.4em;
+    border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+    padding-bottom: 0.25em;
+  }
+  h3 {
+    font-size: 1.15em;
+  }
+
+  p {
+    margin: 0.6em 0;
+  }
+
+  a {
+    color: var(--files-accent, #f36b21);
+    text-decoration: none;
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  ul,
+  ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+  }
+  li {
+    margin: 0.2em 0;
+  }
+
+  blockquote {
+    margin: 0.75em 0;
+    padding: 0.4em 1em;
+    border-left: 3px solid var(--files-accent, #f36b21);
+    background: var(--files-accent-soft, rgba(243, 107, 33, 0.08));
+    color: var(--text-secondary, rgba(0, 0, 0, 0.65));
+  }
+
+  code {
+    font-family: "SFMono-Regular", Consolas, monospace;
+    font-size: 0.875em;
+    background: var(--code-bg, rgba(0, 0, 0, 0.05));
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+  }
+
+  pre {
+    background: var(--code-bg, rgba(0, 0, 0, 0.05));
+    border-radius: 6px;
+    padding: 1em;
+    overflow-x: auto;
+    margin: 0.75em 0;
+
+    code {
+      background: none;
+      padding: 0;
+      font-size: 0.85em;
+    }
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 0.75em 0;
+    font-size: 0.9em;
+
+    th,
+    td {
+      border: 1px solid var(--border-color, rgba(0, 0, 0, 0.12));
+      padding: 6px 12px;
+      text-align: left;
+    }
+
+    th {
+      background: var(--table-header-bg, rgba(0, 0, 0, 0.03));
+      font-weight: 600;
+    }
+
+    tr:nth-child(even) {
+      background: var(--table-row-hover, rgba(0, 0, 0, 0.02));
+    }
+  }
+
+  img {
+    max-width: 100%;
+    border-radius: 4px;
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+    margin: 1.5em 0;
+  }
+}
+
+.frontmatter {
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 8px;
+  background: var(--table-header-bg, rgba(0, 0, 0, 0.025));
+}
+
+.frontmatterRow {
+  display: grid;
+  grid-template-columns: minmax(88px, max-content) minmax(0, 1fr);
+  gap: 16px;
+
+  & + & {
+    margin-top: 8px;
+  }
+}
+
+.frontmatterKey {
+  color: var(--text-secondary, rgba(0, 0, 0, 0.52));
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.frontmatterValue {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+// ---- CSV ------------------------------------------------------------------
+
+.csvWrap {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.csvNote {
+  font-size: 11px;
+  color: var(--text-secondary, rgba(0, 0, 0, 0.45));
+  background: var(--warning-bg, rgba(250, 173, 20, 0.08));
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color, rgba(0, 0, 0, 0.06));
+  flex-shrink: 0;
+}
+
+.csvScroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.csvTable {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  width: max-content;
+  min-width: 100%;
+
+  th,
+  td {
+    border: 1px solid var(--border-color, rgba(0, 0, 0, 0.1));
+    padding: 5px 10px;
+    white-space: nowrap;
+    text-align: left;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  th {
+    background: var(--table-header-bg, rgba(0, 0, 0, 0.04));
+    font-weight: 600;
+    color: var(--text-primary, rgba(0, 0, 0, 0.88));
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  tr:nth-child(even) td {
+    background: var(--table-row-hover, rgba(0, 0, 0, 0.015));
+  }
+
+  tr:hover td {
+    background: var(--item-hover-bg, rgba(0, 0, 0, 0.04));
+  }
+}
+
+// ---- Dark mode -----------------------------------------------------------
+:global(.dark-mode) {
+  .previewStatus {
+    color: rgba(255, 255, 255, 0.62);
+    background: #141816;
+  }
+
+  .htmlWrap,
+  .htmlFrame {
+    background: #141816;
+  }
+
+  .htmlToolbar {
+    background: #1a1d1b;
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .htmlOpenButton {
+    color: rgba(255, 255, 255, 0.76);
+    background: #24211f;
+    border-color: rgba(255, 255, 255, 0.16);
+
+    &:hover {
+      color: #ff9b5c;
+      background: rgba(243, 107, 33, 0.14);
+      border-color: rgba(255, 145, 77, 0.7);
+    }
+  }
+
+  .imageWrap {
+    background: #141414;
+  }
+
+  .markdownWrap {
+    color: rgba(255, 255, 255, 0.85);
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    h1 {
+      border-bottom-color: rgba(255, 255, 255, 0.12);
+    }
+
+    h2 {
+      border-bottom-color: rgba(255, 255, 255, 0.08);
+    }
+
+    a {
+      color: #4da3ff;
+    }
+
+    blockquote {
+      border-left-color: #4da3ff;
+      background: rgba(243, 107, 33, 0.08);
+      color: rgba(255, 255, 255, 0.65);
+    }
+
+    code {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    pre {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    table {
+      th,
+      td {
+        border-color: rgba(255, 255, 255, 0.12);
+      }
+
+      th {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      tr:nth-child(even) {
+        background: rgba(255, 255, 255, 0.03);
+      }
+    }
+
+    hr {
+      border-top-color: rgba(255, 255, 255, 0.12);
+    }
+  }
+
+  .csvNote {
+    color: rgba(255, 255, 255, 0.55);
+    background: rgba(250, 173, 20, 0.15);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .csvTable {
+    th,
+    td {
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.06);
+      color: rgba(255, 255, 255, 0.88);
+    }
+
+    tr:nth-child(even) td {
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.06);
+    }
+  }
+}

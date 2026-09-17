@@ -17,3 +17,88 @@
   display: flex;
   gap: 4px;
 }
+
+.mobileCards {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mobileCard {
+  :global {
+    .qwenpaw-card-head {
+      min-height: unset;
+      padding: 0 12px;
+    }
+    .qwenpaw-card-head-title {
+      padding: 8px 0;
+    }
+    .qwenpaw-card-body {
+      padding: 12px !important;
+    }
+  }
+}
+
+.mobileCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mobileId {
+  flex: 1;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.mobileTime {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary);
+  text-align: right;
+}
+
+.mobileRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.mobileLabel {
+  font-size: 12px;
+  color: var(--ant-color-text-secondary);
+}
+
+.mobileValue {
+  font-size: 14px;
+  color: var(--ant-color-text);
+}
+
+.mobileActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mobilePagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+@media (max-width: 768px) {
+  .tableCard {
+    display: none;
+  }
+
+  .mobileCards {
+    display: flex;
+  }
+}

@@ -1,0 +1,46 @@
+.indicator {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.04);
+}
+
+.disabled {
+  background: #9ca3af;
+}
+
+.pending,
+.starting {
+  background: #f5b942;
+  animation: statusPulse 1.2s ease-in-out infinite;
+}
+
+.running {
+  background: #35a66f;
+}
+
+.failed {
+  background: #dc4c4c;
+}
+
+@keyframes statusPulse {
+  0%,
+  100% {
+    opacity: 1;
+    box-shadow: 0 0 0 2px rgba(245, 185, 66, 0.18);
+  }
+
+  50% {
+    opacity: 0.35;
+    box-shadow: 0 0 0 5px rgba(245, 185, 66, 0.04);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pending,
+  .starting {
+    animation: none;
+  }
+}

@@ -883,7 +883,7 @@ class TestMQTTChannelUtilities:
 
     def test_build_agent_request_from_native(self, mqtt_channel):
         """build_agent_request_from_native should create proper request."""
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             TextContent,
             ContentType,
         )

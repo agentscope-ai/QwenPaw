@@ -1,0 +1,46 @@
+# QwenPaw E2E test framework dependencies
+# Install with: pip install -r requirements.txt
+
+# ========== Core dependencies ==========
+
+# Test framework
+pytest>=7.4.0
+pytest-html>=4.0.0
+# allure-pytest>=2.13.0  # Removed; using pytest-html for reports
+
+# Playwright browser automation
+playwright>=1.40.0
+pytest-playwright>=0.4.0
+
+# ========== Optional enhancements ==========
+
+# Parallel test execution
+pytest-xdist>=3.5.0
+
+# Retry on failure
+pytest-rerunfailures>=13.0
+
+# Timeout control
+pytest-timeout>=2.2.0
+
+# Test coverage
+pytest-cov>=4.1.0
+
+# Test data generation
+faker>=21.0.0
+
+# JSON validation
+jsonschema>=4.20.0
+
+# ========== Dev tools ==========
+
+# Code formatting
+black>=23.0.0
+isort>=5.12.0
+
+# Linters
+flake8>=7.0.0
+pylint>=3.0.0
+
+# Type checking
+mypy>=1.8.0

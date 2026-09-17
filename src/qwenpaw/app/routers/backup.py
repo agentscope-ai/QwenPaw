@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Backup API – create, list, restore, delete, export, import."""
+
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -9,7 +11,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Form, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 
 from ...backup import (
@@ -25,16 +27,46 @@ from ...backup.models import (
     BackupConflictError,
     BackupDetail,
     BackupMeta,
+    BackupTrustMode,
+    BackupValidationError,
     CreateBackupRequest,
     DeleteBackupsRequest,
     DeleteBackupsResponse,
     RestoreBackupRequest,
 )
 from ...constant import BACKUP_DIR
+from ...identity.runtime import is_multi_user_enabled
+from ...access.actor import ActorContext
+from ...access.dependencies import require_platform_settings_manage
+from ...agents.tools import shutdown_browsers_for_workspace_dirs
+from ._backup_helpers import (
+    backup_contains_global_config,
+    parse_pending_token,
+    restored_local_keys,
+    strip_signature,
+    upload_suffix_for_trust_mode,
+    validation_detail,
+)
+from ...backup._ops.restore import preflight_restore
+from ...platform_ops.backup_service import (
+    RestoreConfirmationError,
+    RestoreImpact,
+    append_platform_snapshot,
+    consume_restore_confirmation,
+    create_pre_restore_backup,
+    create_restore_preview,
+    restore_platform_database,
+    create_platform_stream,
+    validate_platform_restore,
+)
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/backups", tags=["backups"])
+router = APIRouter(
+    prefix="/backups",
+    tags=["backups"],
+    dependencies=[Depends(require_platform_settings_manage)],
+)
 
 _UPLOAD_TMP_MAX_AGE = 3600  # 1 hour
 
@@ -53,7 +85,13 @@ def _cleanup_stale_uploads() -> None:
     if not BACKUP_DIR.is_dir():
         return
     cutoff = time.time() - _UPLOAD_TMP_MAX_AGE
-    for pattern in ("*.upload_tmp", "*.tmp"):
+    for pattern in (
+        "*.upload_tmp",
+        "*.upload_tmp.trust",
+        "*.upload_tmp.trust_legacy",
+        "*.upload_tmp.trust_foreign",
+        "*.tmp",
+    ):
         for f in BACKUP_DIR.glob(pattern):
             try:
                 if f.stat().st_mtime < cutoff:
@@ -72,11 +110,20 @@ async def create_backup_stream(req: CreateBackupRequest):
     """
 
     async def generate():
+        completed_backup_id: str | None = None
         try:
-            async for event in create_stream(req):
+            async for event in create_platform_stream(req, file_stream=create_stream):
+                if event.get("type") == "done":
+                    completed_backup_id = str(event["meta"]["id"])
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as exc:
-            payload = {"type": "error", "message": str(exc)}
+            if completed_backup_id is not None:
+                await delete_backups([completed_backup_id])
+            logger.error(
+                "Backup creation failed (error_type=%s)",
+                type(exc).__name__,
+            )
+            payload = {"type": "error", "message": "backup_creation_failed"}
             yield f"data: {json.dumps(payload)}\n\n"
 
     return StreamingResponse(
@@ -89,7 +136,7 @@ async def create_backup_stream(req: CreateBackupRequest):
 
 @router.get("", response_model=list[BackupMeta], summary="List backups")
 async def list_backups_route():
-    return await list_backups()
+    return [strip_signature(meta) for meta in await list_backups()]
 
 
 # Fixed-path routes MUST be registered before /{backup_id} to avoid
@@ -110,34 +157,38 @@ async def _handle_pending_import(pending_token: str) -> BackupMeta:
 
     The presence of *pending_token* signals that the user has confirmed the
     overwrite in the UI, so the import is retried with ``overwrite=True``.
+    The token suffix also carries the original explicit trust mode, avoiding a
+    second trust prompt on conflict retry while keeping the server-side trust
+    decision tied to the temp file.
 
     Validates the token against BACKUP_DIR to prevent path traversal, then
     removes the temp file when done (whether the import succeeds or fails).
     """
-    tmp_path = (BACKUP_DIR / pending_token).resolve()
-    # Guard against path traversal: resolved path must stay inside BACKUP_DIR
-    if not tmp_path.is_relative_to(BACKUP_DIR.resolve()):
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired pending_token",
-        )
-    if not tmp_path.is_file() or tmp_path.suffix != ".upload_tmp":
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid or expired pending_token",
-        )
+    tmp_path, trust_mode = parse_pending_token(pending_token)
     try:
-        return await import_backup(tmp_path, overwrite=True)
+        return await import_backup(
+            tmp_path,
+            overwrite=True,
+            trust_mode=trust_mode,
+        )
+    except BackupValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=validation_detail(exc),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.error("Backup import failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="backup_import_failed") from exc
     finally:
         tmp_path.unlink(missing_ok=True)
 
 
 async def _handle_fresh_upload(
     file: UploadFile,
+    *,
+    trust_mode: BackupTrustMode | None = None,
 ) -> BackupMeta | JSONResponse:
     """Save the uploaded zip to a temp file and attempt an import.
 
@@ -153,21 +204,21 @@ async def _handle_fresh_upload(
     ):
         raise HTTPException(
             status_code=400,
-            detail=(
-                "Expected a zip file, got"
-                f" content-type: {file.content_type}"
-            ),
+            detail=("Expected a zip file, got" f" content-type: {file.content_type}"),
         )
 
-    tmp_fd, tmp_name = tempfile.mkstemp(dir=BACKUP_DIR, suffix=".upload_tmp")
+    suffix = upload_suffix_for_trust_mode(trust_mode)
+    # Keep trusted and untrusted pending uploads distinguishable after a 409
+    # conflict. The retry endpoint only accepts filenames inside BACKUP_DIR.
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=BACKUP_DIR, suffix=suffix)
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(tmp_fd, "wb") as fp:
             while chunk := await file.read(1024 * 1024):
                 fp.write(chunk)
 
-        result = await import_backup(tmp_path)
-        # The no-conflict path renames tmp_path → dest (unlink is a no-op).
+        result = await import_backup(tmp_path, trust_mode=trust_mode)
+        # The no-conflict path renames tmp_path to dest (unlink is a no-op).
         # Other paths only read tmp_path, so we always clean up here.
         tmp_path.unlink(missing_ok=True)
         return result
@@ -178,22 +229,30 @@ async def _handle_fresh_upload(
             status_code=409,
             content={
                 "detail": "backup_conflict",
-                "existing": meta.model_dump(mode="json"),
+                "existing": strip_signature(meta).model_dump(mode="json"),
                 "pending_token": tmp_path.name,
             },
         )
+    except BackupValidationError as exc:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=400,
+            detail=validation_detail(exc),
+        ) from exc
     except ValueError as exc:
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         tmp_path.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.error("Backup import failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="backup_import_failed") from exc
 
 
 @router.post("/import", response_model=BackupMeta, summary="Import backup zip")
 async def import_backup_route(
     file: UploadFile = File(default=None, description="Backup zip archive"),
     pending_token: str | None = Form(default=None),
+    trust_mode: BackupTrustMode | None = Form(default=None),
 ):
     """Import a backup zip uploaded by the client.
 
@@ -212,7 +271,7 @@ async def import_backup_route(
     if file is None:
         raise HTTPException(status_code=400, detail="file is required")
 
-    return await _handle_fresh_upload(file)
+    return await _handle_fresh_upload(file, trust_mode=trust_mode)
 
 
 @router.get(
@@ -224,7 +283,9 @@ async def get_backup_route(backup_id: str):
     detail = await get_backup(backup_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Backup not found")
-    return detail
+    payload = strip_signature(detail).model_dump()
+    payload["workspace_stats"] = detail.workspace_stats
+    return BackupDetail.model_validate(payload)
 
 
 @router.post("/{backup_id}/restore", summary="Restore backup")
@@ -232,16 +293,42 @@ async def restore_backup(
     backup_id: str,
     req: RestoreBackupRequest,
     request: Request,
+    actor: ActorContext = Depends(require_platform_settings_manage),
 ):
+    if is_multi_user_enabled():
+        actor_id = str(actor.user_id or "legacy-admin")
+        try:
+            consume_restore_confirmation(
+                req.confirmation_token,
+                backup_id,
+                req,
+                actor_id=actor_id,
+            )
+        except RestoreConfirmationError as exc:
+            raise HTTPException(status_code=409, detail={"code": str(exc)}) from exc
     manager = getattr(request.app.state, "multi_agent_manager", None)
+    pre_restore_backup_ids: list[str] = []
+
+    async def create_protection_backup() -> str:
+        backup = await create_pre_restore_backup()
+        pre_restore_backup_ids.append(backup)
+        return backup
+
     try:
-        await execute_restore(
+        validate_platform_restore(backup_id, req)
+        meta = await execute_restore(
             backup_id,
             req,
             stop_agent_fn=manager.stop_agent if manager else None,
+            # Contractual order: stop agent, browsers, then replace files.
+            stop_browsers_fn=shutdown_browsers_for_workspace_dirs,
             preload_agent_fn=manager.preload_agent if manager else None,
-            list_running_agent_ids_fn=(
-                manager.list_loaded_agents if manager else None
+            list_running_agent_ids_fn=(manager.list_loaded_agents if manager else None),
+            create_pre_restore_backup_fn=(
+                create_protection_backup if is_multi_user_enabled() else None
+            ),
+            restore_database_fn=(
+                restore_platform_database if is_multi_user_enabled() else None
             ),
         )
     except FileNotFoundError as exc:
@@ -249,10 +336,54 @@ async def restore_backup(
             status_code=404,
             detail="Backup not found",
         ) from exc
+    except BackupValidationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=validation_detail(exc),
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        logger.error("Backup restore failed (error_type=%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="backup_restore_failed") from exc
 
-    return {"ok": True}
+    preserved = restored_local_keys(
+        req,
+        meta,
+        archive_has_global_config=backup_contains_global_config(backup_id),
+    )
+    return {
+        "ok": True,
+        "preserved_local_keys": preserved,
+        "pre_restore_backup_id": (
+            pre_restore_backup_ids[0] if pre_restore_backup_ids else None
+        ),
+    }
+
+
+@router.post(
+    "/{backup_id}/restore/preview",
+    response_model=RestoreImpact,
+    summary="Preview platform restore impact",
+)
+async def preview_backup_restore(
+    backup_id: str,
+    req: RestoreBackupRequest,
+    actor: ActorContext = Depends(require_platform_settings_manage),
+):
+    detail = await get_backup(backup_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    try:
+        await asyncio.to_thread(preflight_restore, backup_id, req)
+    except BackupValidationError as exc:
+        raise HTTPException(status_code=400, detail=validation_detail(exc)) from exc
+    return create_restore_preview(
+        backup_id,
+        req,
+        detail,
+        actor_id=str(actor.user_id or "legacy-admin"),
+    )
 
 
 @router.get("/{backup_id}/export", summary="Export backup as zip")

@@ -1,0 +1,160 @@
+# Pack repo plugins (bundle/tool/apps) and publish to the download CDN (OSS).
+# Runs on any published GitHub Release (including prereleases), same as Desktop OSS upload; also manually via Actions tab.
+# The Creator plugin is excluded here: it has its own version-driven
+# pipeline (creator-release.yml) so a main release never overwrites a
+# creator zip with mid-cycle code under the same immutable URL.
+
+name: QwenPaw Plugins Release
+
+on:
+  # NOTE: legacy fallback path. The standard release flow is now release.yml
+  # (see RELEASING.md). Publishing a GitHub Release directly still triggers this
+  # OLD publish, which is NOT gated on the desktop build. Kept only as an
+  # emergency rollback until the old release workflows are removed.
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      upload_to_oss:
+        description: "Upload to OSS"
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: plugins-release
+  cancel-in-progress: false
+
+jobs:
+  upload-oss:
+    runs-on: ubuntu-latest
+    # Run on: 1) any published release (including prerelease), or 2) manual with upload_to_oss.
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.upload_to_oss == 'true')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build app plugin frontends
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for app_dir in plugins/apps/*; do
+            if [[ "$(basename "$app_dir")" == "qwenpaw-creator" ]]; then
+              echo "Skipping ${app_dir} (released via creator-release.yml)"
+              continue
+            fi
+            if [[ -f "$app_dir/ui/package-lock.json" ]]; then
+              echo "Building ${app_dir}/ui"
+              npm --prefix "$app_dir/ui" ci
+              npm --prefix "$app_dir/ui" run build
+            fi
+          done
+
+      - name: Pack plugins and build index
+        run: |
+          python scripts/pack/generate_plugin_metadata.py \
+            --plugins-root plugins \
+            --dist dist/plugins \
+            --metadata-out dist/plugins/index.json \
+            --cdn-prefix /files/plugins \
+            --exclude qwenpaw-creator
+
+      - name: Install ossutil
+        run: |
+          wget -q https://gosspublic.alicdn.com/ossutil/1.7.18/ossutil-v1.7.18-linux-amd64.zip
+          unzip -q ossutil-v1.7.18-linux-amd64.zip
+          chmod +x ossutil-v1.7.18-linux-amd64/ossutil64
+          sudo mv ossutil-v1.7.18-linux-amd64/ossutil64 /usr/local/bin/ossutil
+          ossutil --version
+
+      - name: Configure ossutil
+        run: |
+          ossutil config -e ${{ secrets.OSS_ENDPOINT }} \
+            -i ${{ secrets.OSS_ACCESS_KEY_ID }} \
+            -k ${{ secrets.OSS_ACCESS_KEY_SECRET }} \
+            -L CH
+
+      - name: Sync plugin zips to OSS (long-cache, immutable)
+        run: |
+          # nullglob ensures empty globs expand to nothing in this bash session
+          shopt -s nullglob
+          for kind in bundle tool apps; do
+            while IFS= read -r -d '' f; do
+              rel="${f#dist/plugins/}"
+              echo "Uploading $f -> files/plugins/${rel}"
+              ossutil cp "$f" \
+                "oss://qwenpaw-download/files/plugins/${rel}" \
+                --acl public-read \
+                --force \
+                --meta "Cache-Control:public, max-age=31536000, immutable"
+            done < <(find "dist/plugins/${kind}" -type f -name '*.zip' -print0 2>/dev/null || true)
+          done
+          # One-time cleanup: remove legacy flat zips (pre per-plugin directory layout).
+          # This only targets {kind}/*.zip (flat files), not {kind}/{plugin_id}/*.zip (versioned).
+          for kind in bundle tool apps; do
+            remote_flat=$(ossutil ls "oss://qwenpaw-download/files/plugins/${kind}/" -s 2>/dev/null \
+              | grep -E "^oss://qwenpaw-download/files/plugins/${kind}/[^/]+\.zip$" \
+              | sed 's|.*/||' \
+              | sort -u || true)
+            for name in $remote_flat; do
+              echo "Removing legacy flat OSS object: ${kind}/${name}"
+              ossutil rm \
+                "oss://qwenpaw-download/files/plugins/${kind}/${name}" \
+                --force
+            done
+          done
+
+      - name: Merge historical versions into index
+        run: |
+          ossutil cp "oss://qwenpaw-download/metadata/plugins/index.json" \
+            existing-index.json 2>/dev/null || echo '{}' > existing-index.json
+
+          python3 scripts/pack/merge_plugin_index.py \
+            --new dist/plugins/index.json \
+            --old existing-index.json \
+            --out dist/plugins/index.json \
+            --retire-plugin-id computer-use-tool
+
+      - name: Upload plugins index (short-cache)
+        run: |
+          ossutil cp dist/plugins/index.json \
+            "oss://qwenpaw-download/metadata/plugins/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+      - name: Patch main metadata index to advertise plugins product
+        run: |
+          ossutil cp "oss://qwenpaw-download/metadata/index.json" \
+            main-index.json 2>/dev/null || cat > main-index.json << 'EOF'
+          {
+            "version": "1.0",
+            "updated_at": "",
+            "products": {}
+          }
+          EOF
+
+          python3 scripts/pack/patch_main_index.py \
+            --index main-index.json \
+            --out   main-index.json
+
+          ossutil cp main-index.json \
+            "oss://qwenpaw-download/metadata/index.json" \
+            --acl public-read \
+            --force \
+            --meta "Cache-Control:public, max-age=60, must-revalidate"
+
+      - name: Summary
+        run: |
+          echo "Plugins published. Index:"
+          cat dist/plugins/index.json | python3 -m json.tool | head -40 || true

@@ -1,0 +1,561 @@
+// Offload banner — renders below the tool card when a tool is running.
+// Uses CSS variables for light/dark theme adaptation.
+
+.offloadBanner {
+  margin-top: 6px;
+  width: 100%;
+  // Wide enough for full EN labels; still capped so it doesn't dominate the chat column
+  max-width: min(100%, 520px);
+  box-sizing: border-box;
+  background: var(--ant-color-bg-elevated, #fff);
+  border: 1px solid var(--ant-color-warning-border, rgba(245, 158, 11, 0.2));
+  border-radius: 10px;
+  overflow: hidden;
+  animation: bannerIn 0.3s cubic-bezier(0.34, 1.3, 0.64, 1);
+}
+
+// keep_foreground → amber/warning; offload → blue/primary (matches OffloadPolicyCard)
+.offloadBanner.policyKeep {
+  border-color: var(--ant-color-warning-border, rgba(245, 158, 11, 0.28));
+}
+
+.offloadBanner.policyOffload {
+  border-color: var(--ant-color-primary-border, rgba(22, 119, 255, 0.28));
+}
+
+.offloadBanner.bgMode {
+  border-color: var(--ant-color-primary-border, rgba(139, 139, 255, 0.25));
+}
+
+.offloadBanner.collapsing {
+  animation: bannerOut 0.25s ease forwards;
+}
+
+@keyframes bannerIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scaleY(0.95);
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scaleY(1);
+    max-height: 400px;
+  }
+}
+
+@keyframes bannerOut {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+    max-height: 400px;
+  }
+  to {
+    opacity: 0;
+    transform: scaleY(0.95);
+    max-height: 0;
+  }
+}
+
+.offloadBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 8px;
+  background: var(--ant-color-warning-bg, rgba(245, 158, 11, 0.05));
+}
+
+.policyKeep .offloadBar {
+  background: var(--ant-color-warning-bg, rgba(245, 158, 11, 0.06));
+}
+
+.policyOffload .offloadBar {
+  background: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.06));
+}
+
+.bgMode .offloadBar {
+  background: var(--ant-color-primary-bg, rgba(139, 139, 255, 0.05));
+}
+
+.offloadInfo {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ant-color-warning, #d48806);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.policyKeep .offloadInfo {
+  color: var(--ant-color-warning, #d48806);
+}
+
+.policyOffload .offloadInfo {
+  color: var(--ant-color-primary, #1677ff);
+}
+
+.bgMode .offloadInfo {
+  color: var(--ant-color-primary, #1677ff);
+}
+
+// Single countdown: ring + short caption on the header right (light weight)
+.timerCluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 48%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  line-height: 1;
+}
+
+.timerCluster.urgent {
+  border: none;
+  background: transparent;
+}
+
+.timerCaption {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--ant-color-warning, #d48806);
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.policyOffload .timerCaption {
+  color: var(--ant-color-primary, #1677ff);
+}
+
+.timerCluster.urgent .timerCaption {
+  color: var(--ant-color-error, #ff4d4f);
+}
+
+// Circular countdown ring
+.timerRing {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+}
+
+.timerRing svg {
+  transform: rotate(-90deg);
+  position: absolute;
+  inset: 0;
+}
+
+.ringBg {
+  fill: none;
+  stroke: var(--ant-color-border, #d9d9d9);
+  stroke-width: 2.5;
+}
+
+.ringProgress {
+  fill: none;
+  stroke: var(--ant-color-warning, #d48806);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition:
+    stroke-dashoffset 1s linear,
+    stroke 0.5s;
+}
+
+.policyOffload .ringProgress {
+  stroke: var(--ant-color-primary, #1677ff);
+}
+
+.ringProgress.urgent {
+  stroke: var(--ant-color-error, #ff4d4f);
+}
+
+.timerCount {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--ant-color-warning, #d48806);
+}
+
+.policyOffload .timerCount {
+  color: var(--ant-color-primary, #1677ff);
+}
+
+.timerCount.urgent {
+  color: var(--ant-color-error, #ff4d4f);
+}
+
+// Fixed columns (ZH layout): offload = 6-col (2+2+2 / 3+3), keep = 3-col.
+// EN keeps full copy and wraps inside the cell instead of changing the grid.
+.offloadActions {
+  padding: 8px 12px 12px;
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.actionsOffload {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.actionsOffload .offloadBtn:nth-child(-n + 3) {
+  grid-column: span 2;
+}
+
+.actionsOffload .offloadBtn:nth-child(n + 4) {
+  grid-column: span 3;
+}
+
+.actionsKeep {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.offloadBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  // Keep icon + label on one flex row; long EN text wraps inside .btnLabel
+  flex-wrap: nowrap;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--ant-color-border, #d9d9d9);
+  background: var(--ant-color-bg-container, #fff);
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ant-color-text, #000);
+  line-height: 1.25;
+  box-sizing: border-box;
+
+  &:hover {
+    transform: translateY(-1px);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+.primaryAct {
+  font-weight: 700;
+  border-color: var(--ant-color-warning-border, rgba(245, 158, 11, 0.35));
+  background: var(--ant-color-warning-bg, rgba(245, 158, 11, 0.06));
+}
+
+.policyOffload .primaryAct {
+  border-color: var(--ant-color-primary-border, rgba(22, 119, 255, 0.35));
+  background: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.06));
+}
+
+.offloadBtn .ico {
+  font-size: 12px;
+  flex-shrink: 0;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+}
+
+.offloadBtn .btnLabel {
+  min-width: 0;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: break-word;
+  word-break: normal;
+  hyphens: auto;
+}
+
+.offloadBtn:hover {
+  background: var(--ant-color-fill-secondary, #f5f5f5);
+  border-color: var(--ant-color-border-secondary, #bfbfbf);
+}
+
+.cancelAct {
+  color: var(--ant-color-text-secondary, #8c8c8c);
+
+  &:hover {
+    background: var(--ant-color-error-bg, rgba(255, 77, 79, 0.06));
+    border-color: var(--ant-color-error-border, rgba(255, 77, 79, 0.3));
+    color: var(--ant-color-error, #ff4d4f);
+  }
+}
+
+.offloadNote {
+  padding: 0 12px 10px;
+  font-size: 10px;
+  color: var(--ant-color-text-quaternary, #bfbfbf);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.noteDot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--ant-color-text-quaternary, #bfbfbf);
+}
+
+// Background status row (when tool is already in background)
+.bgStatusRow {
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ant-color-primary, #1677ff);
+}
+
+.bgPulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ant-color-primary, #1677ff);
+  animation: pulseDot 1.4s infinite;
+}
+
+@keyframes pulseDot {
+  0% {
+    box-shadow: 0 0 0 0 var(--ant-color-primary-bg, rgba(22, 119, 255, 0.5));
+  }
+  70% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.bgElapsed {
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 11px;
+  color: var(--ant-color-primary-text, #1677ff);
+  font-weight: 600;
+}
+
+// Gear button in tool card header
+.gearBtn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: var(--ant-color-text-secondary, #8c8c8c);
+  transition: all 0.15s;
+  position: relative;
+  flex-shrink: 0;
+  margin-left: 4px;
+
+  &:hover {
+    background: var(--ant-color-fill-secondary, #f5f5f5);
+    color: var(--ant-color-text, #000);
+  }
+
+  &.active {
+    background: var(--ant-color-primary-bg, rgba(22, 119, 255, 0.06));
+    color: var(--ant-color-primary, #1677ff);
+  }
+}
+
+.gearDot {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ant-color-warning, #faad14);
+  display: none;
+  animation: pulseDotOrange 1.4s infinite;
+
+  &.show {
+    display: block;
+  }
+
+  &.bgDot {
+    background: var(--ant-color-primary, #1677ff);
+    animation: pulseDot 1.4s infinite;
+  }
+}
+
+@keyframes pulseDotOrange {
+  0% {
+    box-shadow: 0 0 0 0 var(--ant-color-warning-bg, rgba(250, 173, 20, 0.5));
+  }
+  70% {
+    box-shadow: 0 0 0 5px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+// ─── Dark mode overrides ───
+:global(.dark-mode) {
+  .offloadBanner {
+    background: #181825;
+    border-color: rgba(245, 158, 11, 0.2);
+  }
+
+  .offloadBanner.bgMode {
+    border-color: rgba(139, 139, 255, 0.25);
+  }
+
+  .offloadBar {
+    background: rgba(245, 158, 11, 0.05);
+  }
+
+  .policyKeep .offloadBar {
+    background: rgba(245, 158, 11, 0.06);
+  }
+
+  .policyOffload .offloadBar {
+    background: rgba(22, 119, 255, 0.08);
+  }
+
+  .bgMode .offloadBar {
+    background: rgba(139, 139, 255, 0.05);
+  }
+
+  .offloadInfo {
+    color: #f59e0b;
+  }
+
+  .policyKeep .offloadInfo {
+    color: #f59e0b;
+  }
+
+  .policyOffload .offloadInfo {
+    color: #69b1ff;
+  }
+
+  .bgMode .offloadInfo {
+    color: #8b8bff;
+  }
+
+  .ringBg {
+    stroke: #2f2f2f;
+  }
+
+  .ringProgress {
+    stroke: #f59e0b;
+  }
+
+  .policyOffload .ringProgress {
+    stroke: #69b1ff;
+  }
+
+  .timerCount {
+    color: #f59e0b;
+  }
+
+  .policyOffload .timerCount {
+    color: #69b1ff;
+  }
+
+  .timerCaption {
+    color: #f59e0b;
+  }
+
+  .policyOffload .timerCaption {
+    color: #69b1ff;
+  }
+
+  .timerCluster.urgent .timerCaption {
+    color: #ef4444;
+  }
+
+  .primaryAct {
+    border-color: rgba(245, 158, 11, 0.35);
+    background: rgba(245, 158, 11, 0.08);
+  }
+
+  .policyOffload .primaryAct {
+    border-color: rgba(22, 119, 255, 0.4);
+    background: rgba(22, 119, 255, 0.1);
+  }
+
+  .policyKeep {
+    border-color: rgba(245, 158, 11, 0.28);
+  }
+
+  .policyOffload {
+    border-color: rgba(22, 119, 255, 0.35);
+  }
+
+  .offloadBtn {
+    border-color: #2a2a2a;
+    background: #151515;
+    color: #ececec;
+
+    &:hover {
+      background: #1e1e1e;
+      border-color: #3f3f3f;
+    }
+  }
+
+  .cancelAct {
+    color: #8e8ea0;
+
+    &:hover {
+      background: rgba(239, 68, 68, 0.08);
+      border-color: rgba(239, 68, 68, 0.3);
+      color: #ef4444;
+    }
+  }
+
+  .offloadNote {
+    color: #555;
+  }
+
+  .noteDot {
+    background: #555;
+  }
+
+  .bgStatusRow {
+    color: #8b8bff;
+  }
+
+  .bgPulse {
+    background: #8b8bff;
+  }
+
+  .bgElapsed {
+    color: #a5a5ff;
+  }
+
+  .gearBtn {
+    color: #8e8ea0;
+
+    &:hover {
+      background: #2a2a2a;
+      color: #ececec;
+    }
+
+    &.active {
+      background: rgba(139, 139, 255, 0.15);
+      color: #8b8bff;
+    }
+  }
+}

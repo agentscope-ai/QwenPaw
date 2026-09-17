@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Card, Button, Checkbox, Tooltip } from "@agentscope-ai/design";
 import {
   CalendarFilled,
@@ -27,7 +27,24 @@ interface SkillCardProps {
   onMouseLeave?: () => void;
   onToggleEnabled: (e: React.MouseEvent) => void;
   onDelete?: (e?: React.MouseEvent) => void;
+  readOnly?: boolean;
+  sourceActions?: React.ReactNode;
 }
+
+const useIsMobile = () => {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth <= 768 : false,
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handleResize = () => setIsMobile(window.innerWidth <= 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  return isMobile;
+};
 
 const normalizeSkillIconKey = (value: string) =>
   value
@@ -41,7 +58,7 @@ export const getFileIcon = (filePath: string) => {
   const textSkillIcons = new Set([
     "news",
     "file_reader",
-    "browser_visible",
+    "browser",
     "guidance",
     "himalaya",
     "dingtalk_channel",
@@ -131,10 +148,13 @@ export const SkillCard = React.memo(function SkillCard({
   onMouseLeave,
   onToggleEnabled,
   onDelete,
+  readOnly = false,
+  sourceActions,
 }: SkillCardProps) {
   const { t } = useTranslation();
   const batchMode = selected !== undefined;
   const [isHover, setIsHover] = useState(false);
+  const isMobile = useIsMobile();
 
   const handleToggleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -152,6 +172,7 @@ export const SkillCard = React.memo(function SkillCard({
   };
 
   const handleCardClick = (e: React.MouseEvent) => {
+    if (readOnly) return;
     if (batchMode && onSelect) {
       onSelect(e);
     } else {
@@ -177,7 +198,7 @@ export const SkillCard = React.memo(function SkillCard({
         onMouseLeave?.();
       }}
       className={`${styles.skillCard} ${selected ? styles.selectedCard : ""}`}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: readOnly ? "default" : "pointer" }}
     >
       {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
       <div className={styles.cardTopRow}>
@@ -238,7 +259,7 @@ export const SkillCard = React.memo(function SkillCard({
       {/* Tags row */}
       <div className={styles.metaInfoRow}>
         <span className={styles.metaInfoLabel}>{t("skills.tags")}</span>
-        {!!skill.tags?.length ? (
+        {skill.tags?.length ? (
           <div className={styles.tagChips}>
             {skill.tags.map((tag) => (
               <span key={tag} className={styles.tagChip}>
@@ -253,14 +274,11 @@ export const SkillCard = React.memo(function SkillCard({
 
       {/* Description */}
       <div className={styles.descriptionSection}>
-        <span className={styles.descriptionSectionLabel}>
-          {t("skills.skillDescription")}
-        </span>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
       </div>
 
-      {/* Footer - only show on hover or batch mode */}
-      {(isHover || batchMode) && (
+      {/* Footer - only show on hover or batch mode, always on mobile */}
+      {!readOnly && (isHover || batchMode || isMobile) && (
         <div className={styles.cardFooter}>
           <Button
             type="default"
@@ -283,6 +301,7 @@ export const SkillCard = React.memo(function SkillCard({
           )}
         </div>
       )}
+      {sourceActions}
     </Card>
   );
 });

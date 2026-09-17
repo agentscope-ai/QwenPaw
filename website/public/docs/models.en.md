@@ -2,7 +2,7 @@
 
 Before using QwenPaw, you need to configure at least one available model. QwenPaw supports multiple model providers, which you can configure and manage on the **Settings -> Models** page in the left sidebar.
 
-![Settings Models](https://img.alicdn.com/imgextra/i3/O1CN011pmbBt1sDJNlaFem4_!!6000000005732-2-tps-3826-2076.png)
+![Settings Models](https://img.alicdn.com/imgextra/i2/O1CN01cmjcv31YO2MD9GzGn_!!6000000003048-2-tps-3810-2064.png)
 
 QwenPaw supports various LLM providers:
 
@@ -26,7 +26,7 @@ QwenPaw also provides the QwenPaw-Flash series for local deployment. It includes
 
 QwenPaw Local is a local model provider based on llama.cpp. You can configure and manage it on the **Models** page.
 
-![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i2/O1CN01d2O5Bi1oUwA5J27XE_!!6000000005229-2-tps-3826-2076.png)
+![QwenPaw Local Provider](https://img.alicdn.com/imgextra/i4/O1CN01BBeBIR1zXeIQfAK8b_!!6000000006724-2-tps-3810-2064.png)
 
 When configuring QwenPaw Local for the first time, you need to download the llama.cpp runtime. Click the **Download llama.cpp** button, and QwenPaw will automatically download and configure the runtime. Once the download is complete, you can use the QwenPaw Local provider.
 
@@ -162,7 +162,7 @@ Currently supported cloud providers include:
 
 > Some providers offer different base URLs for Mainland China and other regions. Please select the correct provider based on your location.
 
-![Cloud Provider List](https://img.alicdn.com/imgextra/i1/O1CN01rdAXCF1ogqSRScNHI_!!6000000005255-2-tps-3826-2076.png)
+![Cloud Provider List](https://img.alicdn.com/imgextra/i4/O1CN01nXGQLF1zgLozc0v2d_!!6000000006743-2-tps-3810-2064.png)
 
 To activate a cloud provider, go to the provider's configuration page. Most cloud providers have pre-configured base URL; you only need to enter your API Key.
 
@@ -188,7 +188,7 @@ If the preset cloud and local providers do not meet your needs, QwenPaw also sup
 
 You can add a new provider by clicking **Add Provider** in the upper right corner of **Settings -> Models -> Providers**. When adding, you need to provide the **Provider ID** (for internal indexing in QwenPaw) and **Provider Name** (for display in the UI), and select the API compatibility mode (currently supports OpenAI `chat.completions` and Anthropic `messages`). After adding, you can add models under this provider just like with cloud providers, and select the provider's models in chat and other scenarios.
 
-![Add Provider](https://img.alicdn.com/imgextra/i4/O1CN011733V426ODQt6xkrv_!!6000000007651-2-tps-3826-2076.png)
+![Add Provider](https://img.alicdn.com/imgextra/i4/O1CN019j9pgB1dzCZmsnMlW_!!6000000003806-2-tps-3810-2064.png)
 
 ### Configure Provider
 
@@ -206,11 +206,11 @@ After configuring a custom provider, go to its **Models** page and click **Add M
 
 Configured model providers and models will appear in the **Settings -> Models -> Default LLM** list. You can select a model as the global default and click the **Save** button on the right. The model set on this page will be used as the global default by QwenPaw. If you do not specify a model in certain scenarios (such as chat), QwenPaw will use the default model set here.
 
-![Default Model Settings](https://img.alicdn.com/imgextra/i3/O1CN01DBvdcd1RQ8qrz5PAG_!!6000000002105-2-tps-3814-964.png)
+![Default Model Settings](https://img.alicdn.com/imgextra/i1/O1CN01bLNFam20DKL1tYThY_!!6000000006815-2-tps-3810-2064.png)
 
 Since different tasks may require different model capabilities, QwenPaw also supports using different models in different chats. You can select the appropriate provider and model from the dropdown menu in the upper right corner of the **Chat** page. This setting only applies to the current agent and chat. If you do not configure a provider or model in the chat page, QwenPaw will use the global default model.
 
-![Chat Model Settings](https://img.alicdn.com/imgextra/i4/O1CN01E8McfR1ZToxYO1ddD_!!6000000003196-2-tps-3826-2076.png)
+![Chat Model Settings](https://img.alicdn.com/imgextra/i2/O1CN01Vq1yXW1Oy5NHgBLmR_!!6000000001773-2-tps-3810-2064.png)
 
 ## Advanced Model Configuration
 

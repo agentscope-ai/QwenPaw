@@ -34,7 +34,8 @@ $QWENPAW_WORKING_DIR/                      # 默认 ~/.qwenpaw
 │   │   ├── skills/                      # 本地技能目录
 │   │   ├── skill.json                   # 技能启用状态与配置
 │   │   ├── memory/                      # 每日记忆文件
-│   │   └── browser/                     # 浏览器数据（cookies、缓存等）
+│   │   ├── .browser-profile/            # 浏览器持久化 profile（统一浏览器）
+│   │   └── browser/                     # 浏览器数据（旧版兼容模式）
 │   └── abc123/                          # 其他智能体工作区
 │       └── ...
 └── skill_pool/                          # 本地共享技能池
@@ -56,21 +57,24 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 
 **路径相关：**
 
-| 变量                       | 默认值              | 说明                                                                                        |
-| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------- |
-| `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | 工作目录根路径                                                                              |
-| `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | 敏感数据目录（存放 `providers.json` 和 `envs.json`）。Docker 中默认为 `/app/working.secret` |
-| `QWENPAW_CONFIG_FILE`      | `config.json`       | 配置文件名（相对于 `QWENPAW_WORKING_DIR`）                                                  |
-| `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | 心跳文件名（相对于智能体工作区）                                                            |
-| `QWENPAW_JOBS_FILE`        | `jobs.json`         | 定时任务文件名（相对于智能体工作区）                                                        |
-| `QWENPAW_CHATS_FILE`       | `chats.json`        | 对话历史文件名（相对于智能体工作区）                                                        |
-| `QWENPAW_TOKEN_USAGE_FILE` | `token_usage.json`  | Token 消耗记录文件名（相对于智能体工作区）                                                  |
+| 变量                       | 默认值              | 说明                                                                                                                                                                                                                           |
+| -------------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | 工作目录根路径                                                                                                                                                                                                                 |
+| `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | 敏感数据目录（存放 `providers.json` 和 `envs.json`）。Docker 中默认为 `/app/working.secret`                                                                                                                                    |
+| `QWENPAW_KEYRING_ACCOUNT`  | _(自动)_            | 主密钥在操作系统钥匙串中的账户名。默认为 `master_key`；当设置了 `QWENPAW_WORKING_DIR`/`QWENPAW_SECRET_DIR`（例如开发检出）时会自动派生为每个安装独立的账户名，使开发安装不会覆盖稳定安装的密钥。可显式设置以命名某个配置档案。 |
+| `QWENPAW_CONFIG_FILE`      | `config.json`       | 配置文件名（相对于 `QWENPAW_WORKING_DIR`）                                                                                                                                                                                     |
+| `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | 心跳文件名（相对于智能体工作区）                                                                                                                                                                                               |
+| `QWENPAW_JOBS_FILE`        | `jobs.json`         | 定时任务文件名（相对于智能体工作区）                                                                                                                                                                                           |
+| `QWENPAW_CHATS_FILE`       | `chats.json`        | 对话历史文件名（相对于智能体工作区）                                                                                                                                                                                           |
+| `QWENPAW_TOKEN_USAGE_FILE` | `token_usage.json`  | Token 消耗记录文件名（相对于智能体工作区）                                                                                                                                                                                     |
 
 **其他配置：**
 
 | 变量                                 | 默认值         | 说明                                                            |
 | ------------------------------------ | -------------- | --------------------------------------------------------------- |
 | `QWENPAW_LOG_LEVEL`                  | `info`         | 日志级别（`debug` / `info` / `warning` / `error` / `critical`） |
+| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`         | 当前日志文件大小上限，支持字节数及 `10MB`、`1GiB` 等后缀        |
+| `QWENPAW_LOG_MAX_BACKUPS`            | `3`            | 保留的轮转日志份数；设为 `0` 时不保留备份                       |
 | `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`       | 触发记忆压缩的字符阈值                                          |
 | `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`            | 压缩后保留的最近消息数                                          |
 | `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`          | 触发压缩的阈值比例（相对于上下文窗口大小）                      |
@@ -85,13 +89,6 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 | `QWENPAW_AUTH_PASSWORD`      | -       | 自动注册时的管理员密码（可选）           |
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | 是否启用工具守卫                         |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | 技能扫描模式（`block` / `warn` / `off`） |
-
-**记忆与检索：**
-
-| 变量                   | 默认值 | 说明                                                   |
-| ---------------------- | ------ | ------------------------------------------------------ |
-| `FTS_ENABLED`          | `true` | 是否启用 BM25 全文检索                                 |
-| `MEMORY_STORE_BACKEND` | `auto` | 记忆存储后端（`auto` / `local` / `chroma` / `sqlite`） |
 
 ---
 
@@ -203,6 +200,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
     "enabled": false,
     "every": "30m",
     "target": "main",
+    "timeoutSeconds": 300,
     "activeHours": null
   },
   "running": {
@@ -266,7 +264,7 @@ $QWENPAW_SECRET_DIR/                       # 默认 ~/.qwenpaw.secret
 - **mattermost** — Mattermost
 - **matrix** — Matrix
 - **wecom** — 企业微信
-- **weixin** — 微信个人（iLink）
+- **wechat** — 微信个人（iLink）
 - **xiaoyi** — 华为小艺
 - **mqtt** — MQTT
 - **voice** — Voice
@@ -295,12 +293,13 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 心跳是定时自检功能，按固定间隔执行 `HEARTBEAT.md` 中的任务。
 
-| 字段          | 类型           | 默认值   | 说明                                                                         |
-| ------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
-| `enabled`     | bool           | `false`  | 是否启用心跳功能                                                             |
-| `every`       | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
-| `target`      | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
-| `activeHours` | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
+| 字段             | 类型           | 默认值   | 说明                                                                         |
+| ---------------- | -------------- | -------- | ---------------------------------------------------------------------------- |
+| `enabled`        | bool           | `false`  | 是否启用心跳功能                                                             |
+| `every`          | string         | `"30m"`  | 运行间隔。支持 `Nh`、`Nm`、`Ns` 组合，如 `"1h"`、`"30m"`、`"2h30m"`、`"90s"` |
+| `target`         | string         | `"main"` | `"main"` = 只在主会话运行；`"last"` = 把结果发到最后一个发消息的频道/用户    |
+| `timeoutSeconds` | int            | `300`    | 单次心跳执行的最长时间，单位秒。有效范围：`1`–`3600`                         |
+| `activeHours`    | object \| null | `null`   | 可选活跃时段（`start`、`end` 时间，24 小时制）                               |
 
 详细说明请看 [心跳](./heartbeat)。
 
@@ -312,11 +311,12 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **基础运行参数：**
 
-| 字段                         | 类型  | 默认值  | 说明                                                                                      |
-| ---------------------------- | ----- | ------- | ----------------------------------------------------------------------------------------- |
-| `max_iters`                  | int   | `100`   | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                           |
-| `shell_command_timeout`      | float | `60.0`  | `execute_shell_command` 的默认超时时间（秒）。LLM 可在每次调用时通过 timeout 参数覆盖此值 |
-| `auto_continue_on_text_only` | bool  | `false` | 启用后,若模型只返回文本而未调用工具,Agent 会自动重试最多两轮推理                          |
+| 字段                         | 类型  | 默认值  | 说明                                                                                                                                                                                                                     |
+| ---------------------------- | ----- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `max_iters`                  | int   | `100`   | ReAct Agent 推理-执行循环的最大轮数（必须 ≥ 1）                                                                                                                                                                          |
+| `shell_command_timeout`      | float | `60.0`  | `execute_shell_command` 的默认超时时间（秒）。LLM 可在每次调用时通过 timeout 参数覆盖此值                                                                                                                                |
+| `shell_command_executable`   | str   | `""`    | `execute_shell_command` 在 Linux/macOS 上使用的 shell 路径（如 `/bin/bash`、`/bin/zsh`）。Windows 上支持 `powershell.exe` / `pwsh.exe`。留空时依次回退到 `$SHELL` 环境变量，再回退到 `/bin/sh`（Windows 上为 `cmd.exe`） |
+| `auto_continue_on_text_only` | bool  | `false` | 启用后,若模型只返回文本而未调用工具,Agent 会自动重试最多两轮推理                                                                                                                                                         |
 
 **LLM 重试与限流：**
 
@@ -352,60 +352,104 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 
 **Light 上下文压缩配置（`light_context_config.context_compact_config` 对象）：**
 
-| 字段                          | 类型  | 默认值 | 说明                                            |
-| ----------------------------- | ----- | ------ | ----------------------------------------------- |
-| `enabled`                     | bool  | `true` | 是否启用自动上下文压缩                          |
-| `compact_threshold_ratio`     | float | `0.8`  | 触发压缩的阈值比例（相对于 `max_input_length`） |
-| `reserve_threshold_ratio`     | float | `0.1`  | 压缩时保留的最近上下文比例                      |
-| `compact_with_thinking_block` | bool  | `true` | 压缩时是否包含思考块                            |
+| 字段                      | 类型  | 默认值 | 说明                                            |
+| ------------------------- | ----- | ------ | ----------------------------------------------- |
+| `enabled`                 | bool  | `true` | 是否启用自动上下文压缩                          |
+| `compact_threshold_ratio` | float | `0.8`  | 触发压缩的阈值比例（相对于 `max_input_length`） |
+| `reserve_threshold_ratio` | float | `0.1`  | 压缩时保留的最近上下文比例                      |
 
 **Light 工具结果修剪配置（`light_context_config.tool_result_pruning_config` 对象）：**
 
-| 字段                           | 类型 | 默认值  | 说明                       |
-| ------------------------------ | ---- | ------- | -------------------------- |
-| `enabled`                      | bool | `true`  | 是否启用工具结果修剪       |
-| `pruning_recent_n`             | int  | `2`     | 最近 N 条消息使用较高阈值  |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | 旧消息的工具结果字节阈值   |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | 最近消息的工具结果字节阈值 |
-| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数       |
+| 字段                           | 类型 | 默认值  | 说明                                                                |
+| ------------------------------ | ---- | ------- | ------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | 是否启用工具结果修剪                                                |
+| `pruning_recent_n`             | int  | `2`     | scroll compact 前，最近 N 条包含工具结果的消息使用最近预览阈值      |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | scroll compact 后仍保留在 live context 中的工具结果轻量预览字节阈值 |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | 工具结果进入 context 前及仍属于 recent 时使用的预览字节阈值         |
+| `offload_retention_days`       | int  | `5`     | 工具结果文件保留天数                                                |
 
 **ReMeLight 记忆配置（`reme_light_memory_config` 对象）：**
 
-| 字段                            | 类型        | 默认值         | 说明                                                     |
-| ------------------------------- | ----------- | -------------- | -------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | 是否在上下文压缩时启用记忆总结                           |
-| `auto_memory_interval`          | int \| null | `null`         | 每隔 N 次用户查询触发自动记忆。null 表示禁用定期自动记忆 |
-| `dream_cron`                    | string      | `"0 23 * * *"` | 梦境记忆优化任务的 Cron 表达式（空字符串禁用）           |
-| `rebuild_memory_index_on_start` | bool        | `false`        | 启动时是否重建记忆搜索索引                               |
-| `recursive_file_watcher`        | bool        | `false`        | 是否递归监控记忆目录                                     |
-| `auto_memory_search_config`     | object      | _（见下方）_   | 自动记忆搜索配置                                         |
-| `embedding_model_config`        | object      | _（见下方）_   | Embedding 模型配置                                       |
+| 字段                             | 类型        | 默认值           | 说明                                                                                              |
+| -------------------------------- | ----------- | ---------------- | ------------------------------------------------------------------------------------------------- |
+| `metadata_dir`                   | string      | `"mem_metadata"` | ReMe 持久状态子目录                                                                               |
+| `session_dir`                    | string      | `"mem_session"`  | ReMe auto-memory 使用的来源对话日志子目录                                                         |
+| `mem_session_dir`                | string      | `"mem_agent"`    | ReMe 内部 memory-agent 会话子目录                                                                 |
+| `resource_dir`                   | string      | `"resource"`     | Daily Paper 与未来知识工作流使用的原始资源目录                                                    |
+| `daily_dir`                      | string      | `"memory"`       | 每日记忆子目录                                                                                    |
+| `digest_dir`                     | string      | `"digest"`       | digest 记忆子目录                                                                                 |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | 是否将 Auto-Memory 结果推送到收件箱                                                               |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | 是否将 Auto-Dream 结果推送到收件箱                                                                |
+| `daily_paper_inbox_push_enabled` | bool        | `true`           | 是否将 Daily Paper 结果推送到收件箱                                                               |
+| `auto_memory_interval`           | int \| null | `5`              | 每隔 N 次用户查询触发自动记忆。`None` 或 `<= 0` 表示禁用周期自动记忆                              |
+| `dream_cron_enabled`             | bool        | `true`           | 是否启用按 Cron 定时执行的梦境记忆优化任务                                                        |
+| `dream_cron`                     | string      | `"0 23 * * *"`   | 梦境记忆优化任务的有效 5 段 Cron 表达式（启用时必填）；触发后随机延迟 0–60 秒启动，以避免集中调用 |
+| `daily_paper_cron_enabled`       | bool        | `false`          | 是否启用按 Cron 定时执行的每日论文任务                                                            |
+| `daily_paper_cron`               | string      | `"0 9 * * *"`    | 每日论文任务的有效 5 段 Cron 表达式（启用时必填）                                                 |
+| `daily_paper_use_hf_mirror`      | bool        | `false`          | 是否通过 Hugging Face 镜像站获取每日论文信息                                                      |
+| `daily_paper_topics`             | string      | `""`             | 每日论文筛选时优先关注的主题                                                                      |
+| `memory_search_enabled`          | bool        | `true`           | 是否向智能体提供 `memory_search` 工具；不影响自动记忆搜索                                         |
+| `auto_memory_search_config`      | object      | _（见下方）_     | 自动记忆搜索配置                                                                                  |
+| `embedding_model_config`         | object      | _（见下方）_     | Embedding 模型配置                                                                                |
+| `needs_reindex`                  | bool        | `false`          | 运行时维护的标记，表示已保存的向量空间发生变化，需要手动重建索引                                  |
+
+> `rebuild_memory_index_on_start` 已不再支持。仅在确有需要时通过控制台或维护 API 重建索引，详见
+> [重建记忆搜索索引](./memory#重建索引)。
+
+已弃用的 `inbox_push_enabled` 仅用于迁移：它会初始化尚未设置的各任务 Inbox 开关，随后从序列化配置中排除。
 
 **自动记忆搜索配置（`reme_light_memory_config.auto_memory_search_config` 对象）：**
 
-| 字段          | 类型  | 默认值  | 说明                                        |
-| ------------- | ----- | ------- | ------------------------------------------- |
-| `enabled`     | bool  | `false` | 是否在每轮对话时自动执行记忆搜索            |
-| `max_results` | int   | `1`     | 自动搜索时最多返回的结果数                  |
-| `min_score`   | float | `0.1`   | 自动搜索时的最低相关性分数阈值（0.0 - 1.0） |
-| `timeout`     | float | `10.0`  | 自动搜索超时时间（秒）                      |
+| 字段          | 类型 | 默认值  | 说明                             |
+| ------------- | ---- | ------- | -------------------------------- |
+| `enabled`     | bool | `false` | 是否在每轮对话时自动执行记忆搜索 |
+| `max_results` | int  | `2`     | 自动搜索时最多返回的结果数       |
 
 **Embedding 配置（`reme_light_memory_config.embedding_model_config` 对象）：**
 
-| 字段               | 类型   | 默认值     | 说明                                                |
-| ------------------ | ------ | ---------- | --------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding 后端类型（如 `"openai"`）                 |
-| `api_key`          | string | `""`       | Embedding 提供商的 API Key                          |
-| `base_url`         | string | `""`       | 自定义 API 地址（可选）                             |
-| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`） |
-| `dimensions`       | int    | `1024`     | Embedding 向量维度                                  |
-| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                             |
-| `use_dimensions`   | bool   | `false`    | 是否使用自定义维度                                  |
-| `max_cache_size`   | int    | `3000`     | 最大缓存大小                                        |
-| `max_input_length` | int    | `8192`     | Embedding 的最大输入长度                            |
-| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                |
+| 字段               | 类型   | 默认值     | 说明                                                                                  |
+| ------------------ | ------ | ---------- | ------------------------------------------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding 后端类型：`openai`、`dashscope`、`dashscope_multimodal`、`gemini`、`ollama` |
+| `api_key`          | string | `""`       | Embedding 提供商的 API Key。OpenAI 兼容和 Gemini 后端必填                             |
+| `base_url`         | string | `""`       | OpenAI 兼容后端的可选自定义 API 地址；Ollama 后端会作为 host 传递                     |
+| `model_name`       | string | `""`       | Embedding 模型名称（如 `"text-embedding-3-small"`）                                   |
+| `dimensions`       | int    | `1024`     | 预期的 Embedding 向量维度，用于返回值校验、索引和缓存                                 |
+| `enable_cache`     | bool   | `true`     | 是否启用 Embedding 缓存                                                               |
+| `use_dimensions`   | bool   | `false`    | OpenAI 后端是否在 API 请求中传递 `dimensions` 参数                                    |
+| `max_cache_size`   | int    | `10000`    | 最大缓存大小                                                                          |
+| `max_input_length` | int    | `8192`     | 单条 Embedding 输入的近似字符预算，并非精确的 Token 上限                              |
+| `max_batch_size`   | int    | `10`       | 批处理的最大批量大小                                                                  |
 
-这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。保存后会对新的 LLM 请求生效，不需要重启服务。
+`use_dimensions` 仅控制 OpenAI 兼容请求中是否携带 `dimensions` 参数。关闭后，`dimensions`
+仍用于校验服务返回的向量长度以及配置索引和缓存，因此必须填写模型实际输出的维度。部分 vLLM
+等 OpenAI 兼容服务不支持该请求参数，此时应关闭 `use_dimensions`。
+
+每条 Embedding 文本会在请求前按照 `max_input_length` 分别截断。该值按字符近似计算，中文、CJK
+及其他全角字符会使用更保守的权重并预留安全余量，不会调用模型 tokenizer 计算精确 Token 数。
+
+向量检索只有在当前后端具备最低可运行配置时才会启用；这些条件与 AgentScope credential 要求保持一致：
+
+| 后端                                            | 启用条件                         | Credential 映射                |
+| ----------------------------------------------- | -------------------------------- | ------------------------------ |
+| `openai` / `dashscope` / `dashscope_multimodal` | `model_name` 和 `api_key` 均非空 | `api_key`；可选 `base_url`     |
+| `gemini`                                        | `model_name` 和 `api_key` 均非空 | `api_key`                      |
+| `ollama`                                        | `model_name` 非空                | 可选 `host`（来自 `base_url`） |
+
+不满足启用条件时，ReMe 仍会保留关键词索引和 wikilink 图谱索引，但不会启用 embedding 向量索引。
+
+这些配置也可以在控制台的 **智能体 → 运行配置** 页面中修改。自动记忆间隔、自动搜索条数等按需读取的字段，
+保存后会作用于后续回合。Embedding 保存采用事务式流程：QwenPaw 先持久化提交的运行配置，再尝试应用到
+当前 ReMe runtime。若当前服务指纹已经成功测试，可以原位替换运行中的 Embedding 模型；否则会重新创建内嵌 ReMe。
+若两种方式都失败，系统会在不覆盖并发修改的前提下回滚本次字段并返回错误。保存后始终会调度正常的 Agent 自动重载，
+无需手动重启。索引正在重建时修改 Embedding 会返回 HTTP `409`。
+
+修改 `backend`、规范化后的 `base_url`、`model_name`、`dimensions` 或 `use_dimensions` 会设置
+`needs_reindex=true`；只修改 API Key 或缓存、批量限制不会。向量空间热更新会清空 Embedding 缓存，
+但**不会**自动重建已有文件向量，仍需在 Console 或维护 API 中显式执行重建。只有针对当前向量空间成功完成的重建
+才会清除 `needs_reindex`。
+
+控制台中的 Embedding“已开启/未开启”状态会根据当前未保存表单实时计算，只表示 Backend、模型名称和必要凭证是否满足上述启用条件，
+不表示服务已经连通或配置已经应用到运行中的 Agent。“已验证”表示真实测试请求成功；只有保存配置后，变更才会应用到运行状态。
 
 ---
 
@@ -436,16 +480,6 @@ MCP（模型上下文协议）允许智能体连接外部服务（如 Filesystem
 | `model`       | string | `""`   | 模型名称（如 `"qwen-max"`、`"gpt-4"`）        |
 
 为 `null` 时使用全局默认模型。可在控制台（智能体 → 模型设置）中配置。
-
----
-
-#### `plan` — 计划模式配置
-
-| 字段      | 类型 | 默认值  | 说明             |
-| --------- | ---- | ------- | ---------------- |
-| `enabled` | bool | `false` | 是否启用计划模式 |
-
-启用后,智能体支持 `/plan` 命令进行结构化任务规划与执行。详见 [计划模式](./plan)。
 
 ---
 
@@ -558,6 +592,36 @@ QwenPaw 需要 LLM 提供商才能运行。配置存储在 `$QWENPAW_SECRET_DIR/
 设置好的变量会在应用启动时自动加载，所有工具和子进程都可以通过 `os.environ` 读取。
 
 > **注意：** 环境变量的值（如第三方 API Key）的有效性需要用户自行保证。QwenPaw 只负责存储和注入，不会校验其正确性。
+
+---
+
+## 浏览器
+
+浏览器配置写在全局 `~/.qwenpaw/config.json` 的 `browser` 段，对所有智能体生效：
+
+```json
+{
+  "browser": {
+    "experimental": true,
+    "backend": "auto",
+    "identity": "auto",
+    "headless": "auto"
+  }
+}
+```
+
+常用字段：
+
+| 字段           | 类型   | 默认值   | 说明                                                                    |
+| -------------- | ------ | -------- | ----------------------------------------------------------------------- |
+| `experimental` | bool   | `true`   | 是否使用新版统一浏览器；`false` 切回旧版实现。**改动需重启服务**        |
+| `backend`      | string | `"auto"` | 独立浏览器的获取方式：`auto` / `launch` / `managed_cdp` / `connect_cdp` |
+| `identity`     | string | `"auto"` | 浏览器身份：`auto` / `user` / `avatar` / `guest`                        |
+| `headless`     | string | `"auto"` | `auto` 表示容器内或无图形界面时无头运行；也可写 `"true"` / `"false"`    |
+
+浏览器数据按智能体工作区隔离，存放在 `workspaces/{agent_id}/.browser-profile/`（`managed_cdp` 用 `.browser-cdp/`，旧版兼容模式用 `browser/`）。`user` 身份使用你自己 Chrome 的 profile，不落这些目录。
+
+> **完整配置说明：** 启动参数、视口、代理、空闲回收等全部字段，以及浏览器身份与接入方式的选择，请参见 [浏览器](./browser)。接入自己的 Chrome 需要安装 [Chrome 浏览器扩展](./chrome)。
 
 ---
 

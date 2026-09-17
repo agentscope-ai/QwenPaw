@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import api from "../../../api";
 import { useEnvVars } from "./useEnvVars";
+import { buildEnvOperations } from "./envOperations";
 import { EmptyState, AddButton, Toolbar, EnvRow, type Row } from "./components";
 import { PageHeader } from "@/components/PageHeader";
 import { useAppMessage } from "../../../hooks/useAppMessage";
@@ -39,7 +40,9 @@ function EnvironmentsPage() {
   /* ---- derived state ---- */
 
   const workingRows: Row[] = useMemo(
-    () => rows ?? envVars.map((e) => ({ key: e.key, value: e.value })),
+    () =>
+      rows ??
+      envVars.map((e) => ({ key: e.key, value: "", configured: e.configured })),
     [rows, envVars],
   );
 
@@ -52,7 +55,11 @@ function EnvironmentsPage() {
 
   const ensureLocal = useCallback((): Row[] => {
     if (rows) return [...rows];
-    return envVars.map((e) => ({ key: e.key, value: e.value }));
+    return envVars.map((e) => ({
+      key: e.key,
+      value: "",
+      configured: e.configured,
+    }));
   }, [rows, envVars]);
 
   /* ---- selection ---- */
@@ -79,7 +86,11 @@ function EnvironmentsPage() {
   const updateRow = useCallback(
     (idx: number, field: "key" | "value", val: string) => {
       const next = ensureLocal();
-      next[idx] = { ...next[idx], [field]: val };
+      next[idx] = {
+        ...next[idx],
+        [field]: val,
+        ...(field === "value" ? { valueChanged: true } : {}),
+      };
       setRows(next);
       if (field === "key") {
         setKeyErrors((prev) => {
@@ -134,7 +145,7 @@ function EnvironmentsPage() {
         cancelText: t("common.cancel"),
         onOk: async () => {
           try {
-            await api.deleteEnv(row.key);
+            await api.updateEnvs([{ key: row.key, action: "delete" }]);
             message.success(t("environments.deleteSuccess", { name: row.key }));
             // Refresh from server so local state is in sync
             setRows(null);
@@ -151,7 +162,7 @@ function EnvironmentsPage() {
         },
       });
     },
-    [workingRows, ensureLocal, envVars.length, fetchAll],
+    [workingRows, ensureLocal, envVars.length, fetchAll, message, t],
   );
 
   const removeSelected = useCallback(() => {
@@ -188,8 +199,11 @@ function EnvironmentsPage() {
             .filter(Boolean);
 
           if (persistedKeysToDelete.length > 0) {
-            await Promise.all(
-              persistedKeysToDelete.map((key) => api.deleteEnv(key)),
+            await api.updateEnvs(
+              persistedKeysToDelete.map((key) => ({
+                key,
+                action: "delete" as const,
+              })),
             );
           }
 
@@ -229,13 +243,10 @@ function EnvironmentsPage() {
 
   const handleSave = useCallback(async () => {
     if (!validate()) return;
-    const dict: Record<string, string> = {};
-    for (const r of workingRows) {
-      dict[r.key.trim()] = r.value;
-    }
+    const operations = buildEnvOperations(workingRows);
     setSaving(true);
     try {
-      await api.saveEnvs(dict);
+      await api.updateEnvs(operations);
       message.success(t("environments.saveSuccess"));
       setRows(null);
       setKeyErrors({});
@@ -264,7 +275,12 @@ function EnvironmentsPage() {
       <PageHeader
         parent={t("environments.parent")}
         current={t("environments.environments")}
+        className={styles.pageHeader}
       />
+
+      <div className={styles.scopeNotice}>
+        {t("environments.deploymentScopeNotice")}
+      </div>
 
       {/* ---- Content ---- */}
       {loading ? (

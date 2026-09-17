@@ -1,0 +1,192 @@
+import { vi, describe, it, expect, beforeEach } from "vitest";
+
+vi.mock("../api/modules/codingMode", () => ({
+  codingModeApi: {
+    get: vi.fn(),
+  },
+}));
+vi.mock("../api/modules/projectDirectory", () => ({
+  projectDirectoryApi: {
+    get: vi.fn(),
+  },
+}));
+
+import { renderHook, act, waitFor } from "@testing-library/react";
+import { useAgentStore } from "./agentStore";
+import { useCodingModeStore } from "./codingModeStore";
+import { useProjectDirectoryStore } from "./projectDirectoryStore";
+import { useSyncCodingMode } from "./useSyncCodingMode";
+import { codingModeApi } from "../api/modules/codingMode";
+import { projectDirectoryApi } from "../api/modules/projectDirectory";
+
+beforeEach(() => {
+  useAgentStore.setState({ selectedAgent: "agent-1", agents: [] });
+  useCodingModeStore.setState({
+    codingModeByAgent: {},
+    codingModeRevisionByAgent: {},
+  });
+  useProjectDirectoryStore.setState({ projectDirByAgent: {} });
+  vi.mocked(projectDirectoryApi.get).mockResolvedValue({
+    path: "/my/project",
+    name: "project",
+    is_workspace_default: false,
+  });
+  vi.clearAllMocks();
+});
+
+describe("useSyncCodingMode", () => {
+  // ---------------------------------------------------------------------------
+  // Test 1: calls codingModeApi.get() once on mount with a selected agent
+  // ---------------------------------------------------------------------------
+  it("calls codingModeApi.get() once on mount when selectedAgent is set", async () => {
+    vi.mocked(codingModeApi.get).mockResolvedValue({
+      enabled: false,
+      agent_id: "agent-1",
+    });
+
+    renderHook(() => useSyncCodingMode());
+
+    await waitFor(() => {
+      expect(vi.mocked(codingModeApi.get)).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 2: on success, sets codingModeByAgent[agent] to enabled value
+  // ---------------------------------------------------------------------------
+  it("sets codingModeByAgent[selectedAgent] to enabled value on success", async () => {
+    vi.mocked(codingModeApi.get).mockResolvedValue({
+      enabled: true,
+      agent_id: "agent-1",
+    });
+
+    renderHook(() => useSyncCodingMode());
+
+    await waitFor(() => {
+      expect(useCodingModeStore.getState().codingModeByAgent["agent-1"]).toBe(
+        true,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 3: on success, sets projectDirByAgent[agent] to project_dir value
+  // ---------------------------------------------------------------------------
+  it("sets projectDirByAgent[selectedAgent] to project_dir on success", async () => {
+    vi.mocked(codingModeApi.get).mockResolvedValue({
+      enabled: true,
+      agent_id: "agent-1",
+    });
+
+    renderHook(() => useSyncCodingMode());
+
+    await waitFor(() => {
+      expect(
+        useProjectDirectoryStore.getState().projectDirByAgent["agent-1"],
+      ).toBe("/my/project");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 4: on API failure, defaults codingMode to false and projectDir to null
+  // ---------------------------------------------------------------------------
+  it("defaults codingModeByAgent to false and projectDirByAgent to null on API failure", async () => {
+    vi.mocked(codingModeApi.get).mockRejectedValue(new Error("network error"));
+    vi.mocked(projectDirectoryApi.get).mockRejectedValue(
+      new Error("network error"),
+    );
+
+    renderHook(() => useSyncCodingMode());
+
+    await waitFor(() => {
+      expect(useCodingModeStore.getState().codingModeByAgent["agent-1"]).toBe(
+        false,
+      );
+      expect(
+        useProjectDirectoryStore.getState().projectDirByAgent["agent-1"],
+      ).toBeNull();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Test 5: when selectedAgent changes, a new fetch fires for the new agent
+  // ---------------------------------------------------------------------------
+  it("fires a new fetch when selectedAgent changes", async () => {
+    vi.mocked(codingModeApi.get)
+      .mockResolvedValueOnce({
+        enabled: false,
+        agent_id: "agent-1",
+      })
+      .mockResolvedValueOnce({
+        enabled: true,
+        agent_id: "agent-2",
+      });
+    vi.mocked(projectDirectoryApi.get)
+      .mockResolvedValueOnce({
+        path: "/my/project",
+        name: "project",
+        is_workspace_default: false,
+      })
+      .mockResolvedValueOnce({
+        path: "/agent2/project",
+        name: "project",
+        is_workspace_default: false,
+      });
+
+    const { rerender } = renderHook(() => useSyncCodingMode());
+
+    // Wait for the first fetch to complete
+    await waitFor(() => {
+      expect(vi.mocked(codingModeApi.get)).toHaveBeenCalledTimes(1);
+    });
+
+    // Change the selected agent — triggers cleanup + new effect
+    act(() => {
+      useAgentStore.setState({ selectedAgent: "agent-2", agents: [] });
+    });
+
+    rerender();
+
+    // A second fetch should fire for agent-2
+    await waitFor(() => {
+      expect(vi.mocked(codingModeApi.get)).toHaveBeenCalledTimes(2);
+    });
+
+    // Final state should reflect agent-2's data
+    await waitFor(() => {
+      expect(useCodingModeStore.getState().codingModeByAgent["agent-2"]).toBe(
+        true,
+      );
+      expect(
+        useProjectDirectoryStore.getState().projectDirByAgent["agent-2"],
+      ).toBe("/agent2/project");
+    });
+  });
+
+  it("does not overwrite a newer local mode change with a stale response", async () => {
+    let resolveState!: (value: { enabled: boolean; agent_id: string }) => void;
+    vi.mocked(codingModeApi.get).mockReturnValue(
+      new Promise((resolve) => {
+        resolveState = resolve;
+      }),
+    );
+
+    renderHook(() => useSyncCodingMode());
+    act(() => {
+      useCodingModeStore.getState().setCodingMode("agent-1", true);
+    });
+    resolveState({
+      enabled: false,
+      agent_id: "agent-1",
+    });
+
+    await waitFor(() => {
+      expect(
+        useProjectDirectoryStore.getState().projectDirByAgent["agent-1"],
+      ).toBe("/my/project");
+    });
+    expect(useCodingModeStore.getState().codingModeByAgent["agent-1"]).toBe(
+      true,
+    );
+  });
+});

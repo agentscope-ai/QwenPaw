@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Modal, Tooltip } from "@agentscope-ai/design";
+import { Button, Modal, Select, Tooltip } from "@agentscope-ai/design";
 import { CheckOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type {
@@ -7,6 +7,8 @@ import type {
   WorkspaceSkillSummary,
 } from "../../../../api/types";
 import { getAgentDisplayName } from "../../../../utils/agentDisplayName";
+import { useSkillFilter } from "../../../Agent/Skills/useSkillFilter";
+import { SkillFilterDropdown } from "../../../Agent/Skills/components/SkillFilterDropdown";
 import styles from "../../../Agent/Skills/index.module.less";
 
 interface BroadcastModalProps {
@@ -32,6 +34,9 @@ export function BroadcastModal({
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<string[]>(
     [],
   );
+  const [filterOpen, setFilterOpen] = useState(false);
+  const { searchTags, setSearchTags, allTags, filteredSkills } =
+    useSkillFilter(skills);
 
   const builtinSkillNames = useMemo(
     () => skills.filter((s) => s.source === "builtin").map((s) => s.name),
@@ -42,8 +47,9 @@ export function BroadcastModal({
     if (open) {
       setSelectedSkillNames(initialSkillNames);
       setSelectedWorkspaceIds([]);
+      setSearchTags([]);
     }
-  }, [open, initialSkillNames]);
+  }, [open, initialSkillNames, setSearchTags]);
 
   const handleCancel = () => {
     setSelectedSkillNames([]);
@@ -73,7 +79,9 @@ export function BroadcastModal({
               <Button
                 size="small"
                 type="primary"
-                onClick={() => setSelectedSkillNames(skills.map((s) => s.name))}
+                onClick={() =>
+                  setSelectedSkillNames(filteredSkills.map((s) => s.name))
+                }
               >
                 {t("agent.selectAll")}
               </Button>
@@ -90,8 +98,33 @@ export function BroadcastModal({
           </div>
         </div>
 
+        <Select
+          mode="multiple"
+          className={styles.tagSelect}
+          placeholder={t("skills.filterByTag")}
+          value={searchTags}
+          onChange={setSearchTags}
+          open={filterOpen}
+          onOpenChange={setFilterOpen}
+          allowClear
+          maxTagCount="responsive"
+          notFoundContent={<></>}
+          popupRender={() =>
+            allTags.length > 0 ? (
+              <SkillFilterDropdown
+                allTags={allTags}
+                searchTags={searchTags}
+                setSearchTags={setSearchTags}
+                styles={styles}
+              />
+            ) : (
+              <div className={styles.tagSelectEmpty}>{t("skills.noTags")}</div>
+            )
+          }
+        />
+
         <div className={`${styles.pickerGrid} ${styles.compactPickerGrid}`}>
-          {skills.map((skill) => {
+          {filteredSkills.map((skill) => {
             const selected = selectedSkillNames.includes(skill.name);
             return (
               <div

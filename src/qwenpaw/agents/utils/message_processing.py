@@ -10,16 +10,24 @@ import asyncio
 import logging
 import os
 import urllib.parse
-import urllib.request
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import Msg
+from agentscope.message import Msg, TextBlock, URLSource
 
+from ...app.channels.utils import file_url_to_local_path
 from ...config import load_config
 from .file_handling import download_file_from_base64, download_file_from_url
+from .image_freezing import freeze_local_images_async
 
 logger = logging.getLogger(__name__)
+
+
+def _audio_text_block(block, text: str):
+    """Build a text replacement matching the input block representation."""
+    if isinstance(block, dict):
+        return {"type": "text", "text": text}
+    return TextBlock(type="text", text=text)
 
 
 async def _process_single_file_block(
@@ -53,12 +61,6 @@ async def _process_single_file_block(
     elif isinstance(source, dict) and source.get("type") == "url":
         url = source.get("url", "")
         if url:
-            parsed = urllib.parse.urlparse(url)
-            if parsed.scheme == "file":
-                try:
-                    local_path = urllib.request.url2pathname(parsed.path)
-                except Exception:
-                    return None
             local_path = await download_file_from_url(
                 url,
                 filename,
@@ -174,22 +176,20 @@ def _convert_audio_to_wav(src_path: str) -> Optional[str]:
             timeout=30,
             check=True,
         )
-        logger.debug("Converted audio %s -> %s", src_path, dst_path)
         return dst_path
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-        stderr = getattr(e, "stderr", b"") or b""
-        logger.warning(
-            "Audio conversion failed for %s: %s\nffmpeg stderr: %s",
-            src_path,
-            e,
-            stderr.decode(errors="replace"),
-        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
+        logger.warning("Audio conversion failed")
         # Clean up the temp file on failure.
         try:
             os.unlink(dst_path)
         except OSError:
             pass
         return None
+
+
+def _local_file_url(path: str) -> str:
+    """Build a ``file://`` URL without percent-encoding non-ASCII chars."""
+    return "file://" + str(Path(path).resolve())
 
 
 def _update_block_with_local_path(
@@ -206,13 +206,13 @@ def _update_block_with_local_path(
         if block_type == "audio":
             block["source"] = {
                 "type": "url",
-                "url": Path(local_path).as_uri(),
+                "url": _local_file_url(local_path),
                 "media_type": _media_type_from_path(local_path),
             }
         else:
             block["source"] = {
                 "type": "url",
-                "url": Path(local_path).as_uri(),
+                "url": _local_file_url(local_path),
             }
     return block
 
@@ -232,7 +232,7 @@ async def _process_audio_block(
     message_content: list,
     index: int,
     local_path: str,
-    block: dict,
+    block,
 ) -> bool:
     """Handle an audio block according to the configured audio_mode.
 
@@ -258,49 +258,96 @@ async def _process_audio_block(
     audio_mode = load_config().agents.audio_mode
 
     if audio_mode == "native":
-        converted = await asyncio.to_thread(
-            _convert_audio_to_wav,
-            local_path,
-        )
+        from .audio_transcription import wait_for_reader
+        from agentscope.message import Base64Source
+        import base64
+
+        def convert_and_embed():
+            converted = _convert_audio_to_wav(local_path)
+            if not converted:
+                return None
+            try:
+                return base64.b64encode(Path(converted).read_bytes()).decode("ascii")
+            finally:
+                if Path(converted).resolve() != Path(local_path).resolve():
+                    Path(converted).unlink(missing_ok=True)
+
+        embedded = await wait_for_reader(convert_and_embed)
+        if embedded is not None:
+            source = {"type": "base64", "data": embedded, "media_type": "audio/wav"}
+            if isinstance(block, dict):
+                block["source"] = source
+            else:
+                block.source = Base64Source(**source)
+            return True
         ext = (os.path.splitext(local_path)[1] or "").lower()
-        if converted:
-            audio_path = converted
-        elif ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
+        if ext in _FORMATTER_SUPPORTED_AUDIO_EXTS:
             # Already a supported format, no conversion needed.
             audio_path = local_path
         else:
             # Unsupported format and conversion failed — show placeholder
             # instead of sending an unsupported audio block to the model.
-            message_content[index] = {
-                "type": "text",
-                "text": (
+            message_content[index] = _audio_text_block(
+                block,
+                (
                     "[Voice message]: (audio conversion failed, "
                     "install ffmpeg to enable native audio)"
                 ),
-            }
+            )
             return True
-        block["source"] = {
+        source = {
             "type": "url",
-            "url": Path(audio_path).as_uri(),
+            "url": _local_file_url(audio_path),
             "media_type": _media_type_from_path(audio_path),
         }
+        if isinstance(block, dict):
+            block["source"] = source
+        else:
+            block.source = URLSource(**source)
         return True
 
     # "auto": attempt transcription.
     text = await transcribe_audio(local_path)
     if text:
-        message_content[index] = {
-            "type": "text",
-            "text": f"[Voice message]: {text}",
-        }
+        message_content[index] = _audio_text_block(
+            block,
+            f"[Voice message]: {text}",
+        )
         return True
 
     # Transcription failed — show file-uploaded placeholder.
-    message_content[index] = {
-        "type": "text",
-        "text": "[Voice message]: (audio file received)",
-    }
+    message_content[index] = _audio_text_block(
+        block,
+        "[Voice message]: (audio file received)",
+    )
     return False
+
+
+async def _process_local_data_block(
+    message_content: list,
+    index: int,
+    block,
+) -> Optional[str]:
+    """Process a local AgentScope DataBlock and return its file path."""
+    source = getattr(block, "source", None)
+    url = str(getattr(source, "url", "")) if source else ""
+    if not url.startswith("file://"):
+        return None
+
+    local_path = file_url_to_local_path(url)
+    if not local_path:
+        return None
+    media_type = getattr(source, "media_type", "") or ""
+    if media_type.startswith("audio/"):
+        handled = await _process_audio_block(
+            message_content,
+            index,
+            local_path,
+            block,
+        )
+        if handled:
+            return None
+    return local_path
 
 
 async def _process_single_block(
@@ -334,7 +381,7 @@ async def _process_single_block(
         if isinstance(data, str) and os.path.isfile(data):
             block["source"] = {
                 "type": "url",
-                "url": Path(data).as_uri(),
+                "url": _local_file_url(data),
                 "media_type": _media_type_from_path(data),
             }
             source = block["source"]
@@ -385,13 +432,64 @@ async def _process_single_block(
         return None
 
 
-async def process_file_and_media_blocks_in_message(msg) -> None:
-    """
-    Process file and media blocks (file, image, audio, video) in messages.
-    Downloads to local and updates paths/URLs.
+# pylint: disable=too-many-return-statements
+def _coerce_block_to_dict(
+    block,
+) -> dict | None:
+    """Convert a Pydantic block (or dict) to a dict for processing.
 
-    Args:
-        msg: The message object (Msg or list[Msg]) to process.
+    Returns ``None`` for blocks that are not file/media types.
+    For 2.0 ``DataBlock``, maps ``type="data"`` back to the concrete
+    media category (``"image"``/``"audio"``/``"video"``) so downstream
+    helpers recognise it.
+    """
+    if isinstance(block, dict):
+        return block
+
+    btype = getattr(block, "type", None)
+    if btype == "data":
+        source = getattr(block, "source", None)
+        if source is None:
+            return None
+        mt = getattr(source, "media_type", "") or ""
+        main = mt.split("/")[0]
+        if main not in ("image", "audio", "video"):
+            # Generic data block (e.g. application/*) — treat as file
+            main = "file"
+        src_dict: dict = {}
+        src_type = getattr(source, "type", None)
+        if src_type == "url":
+            url_str = str(getattr(source, "url", ""))
+            if url_str.startswith("file://"):
+                url_str = url_str.removeprefix("file://")
+            src_dict = {"type": "url", "url": url_str, "media_type": mt}
+        elif src_type == "base64":
+            src_dict = {
+                "type": "base64",
+                "data": getattr(source, "data", ""),
+                "media_type": mt,
+            }
+        else:
+            return None
+        return {
+            "type": main,
+            "source": src_dict,
+            "filename": getattr(block, "name", None),
+        }
+
+    if btype in ("file", "image", "audio", "video"):
+        if hasattr(block, "model_dump"):
+            return block.model_dump()
+        return None
+
+    return None
+
+
+async def process_file_and_media_blocks_in_message(msg) -> None:
+    """Process file and media blocks (file, image, audio, video) in messages.
+
+    Downloads to local and updates paths/URLs.  Handles both dict blocks
+    (1.x) and Pydantic block objects (2.0 ``DataBlock``).
     """
     messages = (
         [msg] if isinstance(msg, Msg) else msg if isinstance(msg, list) else []
@@ -407,14 +505,40 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
         downloaded_files = []
 
         for i, block in enumerate(message.content):
+            # === 2.0 Pydantic DataBlock fast-path ===
+            # Console uploads land as ``DataBlock(URLSource(url=file:///..))``
+            # already pointing at ``media_dir``.  Preserve the Pydantic block
+            # type; local audio is handled in-place for transcription/native
+            # delivery, while other media only needs a path hint.
             if not isinstance(block, dict):
+                local_path = await _process_local_data_block(
+                    message.content,
+                    i,
+                    block,
+                )
+                if local_path:
+                    downloaded_files.append((i, local_path))
+                # Remote URL or no URL on a Pydantic block: skip silently.
+                # Adding remote-download for Pydantic DataBlock is a
+                # separate feature (would need to also convert the dict
+                # result back into a DataBlock to preserve the array
+                # type homogeneity that 2.0 expects).
                 continue
 
-            block_type = block.get("type")
+            # === 1.x legacy dict path ===
+            block_dict = _coerce_block_to_dict(block)
+            if block_dict is None:
+                continue
+
+            block_type = block_dict.get("type")
             if block_type not in ["file", "image", "audio", "video"]:
                 continue
 
-            local_path = await _process_single_block(message.content, i, block)
+            local_path = await _process_single_block(
+                message.content,
+                i,
+                block_dict,
+            )
             if local_path:
                 downloaded_files.append((i, local_path))
 
@@ -426,8 +550,12 @@ async def process_file_and_media_blocks_in_message(msg) -> None:
                     if lang == "zh"
                     else f"User uploaded a file, downloaded to {local_path}"
                 )
-                text_block = {"type": "text", "text": text}
-                message.content.insert(i + 1, text_block)
+                message.content.insert(
+                    i + 1,
+                    TextBlock(type="text", text=text),
+                )
+
+    await freeze_local_images_async(messages)
 
 
 def is_first_user_interaction(messages: list) -> bool:
@@ -456,9 +584,7 @@ def is_first_user_interaction(messages: list) -> bool:
 def prepend_to_message_content(msg, guidance: str) -> None:
     """Prepend guidance text to message content.
 
-    Args:
-        msg: Msg object to modify.
-        guidance: Text to prepend to the message content.
+    Handles both dict blocks and Pydantic TextBlock objects.
     """
     if isinstance(msg.content, str):
         msg.content = guidance + "\n\n" + msg.content
@@ -468,8 +594,16 @@ def prepend_to_message_content(msg, guidance: str) -> None:
         return
 
     for block in msg.content:
-        if isinstance(block, dict) and block.get("type") == "text":
-            block["text"] = guidance + "\n\n" + block.get("text", "")
+        btype = (
+            block.get("type")
+            if isinstance(block, dict)
+            else getattr(block, "type", None)
+        )
+        if btype == "text":
+            if isinstance(block, dict):
+                block["text"] = guidance + "\n\n" + block.get("text", "")
+            else:
+                block.text = guidance + "\n\n" + (block.text or "")
             return
 
-    msg.content.insert(0, {"type": "text", "text": guidance})
+    msg.content.insert(0, TextBlock(type="text", text=guidance))

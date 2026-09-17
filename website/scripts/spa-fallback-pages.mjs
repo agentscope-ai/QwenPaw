@@ -20,18 +20,37 @@ const DOC_SLUGS = [
   "memory",
   "compact",
   "commands",
-  "plan",
   "heartbeat",
   "config",
   "backup",
   "cli",
+  "creator",
   "community",
   "contributing",
 ];
 
 async function main() {
   const indexHtml = await readFile(join(distDir, "index.html"), "utf-8");
-  const paths = ["docs", "docs/search", ...DOC_SLUGS.map((s) => `docs/${s}`)];
+  const BLOG_SLUGS = [
+    "qwenpaw-long-term-memory",
+    "qwenpaw-files-workspace",
+    "qwenpaw-os-shell",
+    "introducing-qwenpaw-driver",
+    "qwenpaw-developer-day-collection",
+    "play-with-qwenpaw-pet",
+    "paw-git",
+    "runtime-architecture-upgrade",
+    "qwenpaw-plugin-picks-1",
+    "qwenpaw-loop-engineering",
+    "qwenpaw-sandbox",
+  ];
+  const paths = [
+    "docs",
+    "docs/search",
+    ...DOC_SLUGS.map((s) => `docs/${s}`),
+    "blog",
+    ...BLOG_SLUGS.map((s) => `blog/${s}`),
+  ];
   for (const p of paths) {
     const out = join(distDir, p, "index.html");
     await mkdir(dirname(out), { recursive: true });

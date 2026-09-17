@@ -3,33 +3,58 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
 from typing import Any, Dict
 
+from ..inbox_trace_store import (
+    append_trace_from_session_delta,
+    create_trace,
+    finalize_trace,
+    read_session_messages,
+)
 from .models import CronJobSpec
+from ...security.tool_guard.execution_level import ToolExecutionLevel
+from ...schemas import RunStatus
 
 logger = logging.getLogger(__name__)
 
 
 class CronExecutor:
-    def __init__(self, *, runner: Any, channel_manager: Any):
-        self._runner = runner
+    def __init__(self, *, workspace: Any, channel_manager: Any):
+        self._workspace = workspace
         self._channel_manager = channel_manager
 
-    async def execute(self, job: CronJobSpec) -> None:
+    # pylint: disable=too-many-statements,too-many-branches
+    async def execute(
+        self,
+        job: CronJobSpec,
+        *,
+        authorization: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Execute one job once.
 
         - task_type text: send fixed text to channel
-        - task_type agent: ask agent with prompt, send reply to channel (
-            stream_query + send_event)
+        - task_type agent + mode stream (default): ask agent with prompt,
+            forward every event to channel in real time
+            (stream_query + send_event)
+        - task_type agent + mode final: consume the full stream, then
+            deliver only the last completed message event
+        - silent agent task: consume the full agent stream without channel
+            delivery, while preserving session and trace state
         """
         target_user_id = job.dispatch.target.user_id
         target_session_id = job.dispatch.target.session_id
+        target_channel = job.dispatch.channel
         dispatch_meta: Dict[str, Any] = dict(job.dispatch.meta or {})
+        if job.task_type == "agent":
+            # Agent cron replies still print to the console channel, but
+            # should not raise frontend push bubbles (Inbox remains opt-in).
+            dispatch_meta["suppress_console_push"] = True
         logger.info(
             "cron execute: job_id=%s channel=%s task_type=%s "
             "target_user_id=%s target_session_id=%s",
             job.id,
-            job.dispatch.channel,
+            target_channel,
             job.task_type,
             target_user_id[:40] if target_user_id else "",
             target_session_id[:40] if target_session_id else "",
@@ -39,18 +64,35 @@ class CronExecutor:
             logger.info(
                 "cron send_text: job_id=%s channel=%s len=%s",
                 job.id,
-                job.dispatch.channel,
+                target_channel,
                 len(job.text or ""),
             )
-            await self._channel_manager.send_text(
-                channel=job.dispatch.channel,
-                user_id=target_user_id,
-                session_id=target_session_id,
-                text=job.text.strip(),
-                meta=dispatch_meta,
-            )
-            return
-
+            text_delivery_error: str | None = None
+            try:
+                await self._channel_manager.send_text(
+                    channel=target_channel,
+                    user_id=target_user_id,
+                    session_id=target_session_id,
+                    text=job.text.strip(),
+                    meta=dispatch_meta,
+                )
+            except Exception as e:  # pylint: disable=broad-except
+                text_delivery_error = repr(e)
+                logger.warning(
+                    "cron text delivery failed: job_id=%s channel=%s error=%s",
+                    job.id,
+                    job.dispatch.channel,
+                    text_delivery_error,
+                )
+            return {
+                "task_type": "text",
+                "run_id": None,
+                "final_text": job.text.strip(),
+                "delivery_status": (
+                    "failed" if text_delivery_error else "success"
+                ),
+                "delivery_error": text_delivery_error,
+            }
         # agent: run request as the dispatch target user so context matches
         logger.info(
             "cron agent: job_id=%s channel=%s stream_query then send_event",
@@ -59,17 +101,135 @@ class CronExecutor:
         )
         assert job.request is not None
         req: Dict[str, Any] = job.request.model_dump(mode="json")
+
+        req["channel"] = target_channel
         req["user_id"] = target_user_id or "cron"
-        req["session_id"] = target_session_id or f"cron:{job.id}"
+        raw_context = req.get("request_context")
+        request_context = (
+            dict(raw_context) if isinstance(raw_context, dict) else {}
+        )
+        request_context["source"] = "cron"
+        request_context["cron_job_id"] = job.id or ""
+        request_context["actor_type"] = "automation"
+        request_context["approval_level"] = ToolExecutionLevel.AUTO.value
+        # Never inherit a client-supplied actor from the stored request body.
+        request_context.pop("actor_context", None)
+        if authorization is not None:
+            request_context["automation_authorization"] = dict(authorization)
+            if authorization.get("authorized_by_user_id"):
+                request_context["actor_context"] = {
+                    "user_id": str(authorization["authorized_by_user_id"]),
+                    "actor_type": "automation",
+                    "admin_mode": False,
+                }
+        else:
+            request_context.pop("automation_authorization", None)
+        req["request_context"] = request_context
+
+        # Determine session_id based on share_session
+        share_session = job.runtime.share_session
+        if share_session:
+            req["session_id"] = target_session_id or f"cron:{job.id}"
+        else:
+            # Use job.id (not run_id) so all runs of this job accumulate in the
+            # same dedicated session, giving users a complete history.
+            req["session_id"] = (
+                f"{target_session_id}:cron:{job.id}"
+                if target_session_id
+                else f"cron:{job.id}"
+            )
+            req["session_source"] = "cron"
+
+        # Register a ChatSpec so the session appears in the frontend list.
+        chat_manager = getattr(self._workspace, "chat_manager", None)
+        _chat_spec = None
+        if chat_manager is not None:
+            try:
+                _chat_spec = await chat_manager.get_or_create_chat(
+                    session_id=req["session_id"],
+                    user_id=req.get("user_id", "cron"),
+                    channel=target_channel,
+                    name=job.name or f"Cron: {job.id}",
+                    source="cron",
+                )
+            except Exception:
+                logger.debug(
+                    "cron: failed to register chat spec for job %s",
+                    job.id,
+                    exc_info=True,
+                )
+
+        delivery_error: str | None = None
+        baseline_messages = await read_session_messages(
+            runner=self._workspace,
+            session_id=req["session_id"],
+            user_id=req["user_id"],
+            channel=target_channel,
+        )
+        baseline_count = len(baseline_messages)
+
+        run_id = str(uuid.uuid4())
+        await create_trace(
+            run_id,
+            meta={
+                "job_id": job.id,
+                "job_name": job.name,
+                "task_type": "agent",
+                "dispatch_channel": job.dispatch.channel,
+                "target_user_id": target_user_id,
+                "target_session_id": target_session_id,
+                "silent": job.dispatch.silent,
+            },
+        )
+
+        final_no_content = False
 
         async def _run() -> None:
-            async for event in self._runner.stream_query(req):
-                await self._channel_manager.send_event(
-                    channel=job.dispatch.channel,
-                    user_id=target_user_id,
-                    session_id=target_session_id,
-                    event=event,
-                    meta=dispatch_meta,
+            nonlocal delivery_error, final_no_content
+
+            async def _deliver(event: Any) -> None:
+                nonlocal delivery_error
+                try:
+                    await self._channel_manager.send_event(
+                        channel=target_channel,
+                        user_id=target_user_id,
+                        session_id=target_session_id,
+                        event=event,
+                        meta=dispatch_meta,
+                    )
+                except Exception as e:  # pylint: disable=broad-except
+                    if delivery_error is None:
+                        delivery_error = repr(e)
+                        logger.warning(
+                            "cron agent delivery failed: job_id=%s "
+                            "channel=%s error=%s",
+                            job.id,
+                            job.dispatch.channel,
+                            delivery_error,
+                        )
+
+            final_event: Any | None = None
+            async for event in self._workspace.stream_query(req):
+                if job.dispatch.silent:
+                    continue
+                if job.dispatch.mode == "final":
+                    if (
+                        getattr(event, "object", None) == "message"
+                        and getattr(event, "status", None)
+                        == RunStatus.Completed
+                    ):
+                        final_event = event
+                    continue
+                await _deliver(event)
+
+            if final_event is not None:
+                await _deliver(final_event)
+            elif job.dispatch.mode == "final" and not job.dispatch.silent:
+                final_no_content = True
+                logger.warning(
+                    "cron final delivery: no completed message in "
+                    "stream for job_id=%s",
+                    job.id,
                 )
 
         try:
@@ -77,13 +237,87 @@ class CronExecutor:
                 _run(),
                 timeout=job.runtime.timeout_seconds,
             )
+            await append_trace_from_session_delta(
+                run_id=run_id,
+                runner=self._workspace,
+                session_id=req["session_id"],
+                user_id=req["user_id"],
+                channel=target_channel,
+                baseline_count=baseline_count,
+            )
+            await finalize_trace(run_id, status="success")
+            if job.dispatch.silent:
+                delivery_status = "suppressed"
+            elif delivery_error:
+                delivery_status = "failed"
+            elif final_no_content:
+                delivery_status = "no_content"
+            else:
+                delivery_status = "success"
+            return {
+                "task_type": "agent",
+                "run_id": run_id,
+                "delivery_status": delivery_status,
+                "delivery_error": delivery_error,
+            }
         except asyncio.TimeoutError:
             logger.warning(
                 "cron execute: job_id=%s timed out after %ss",
                 job.id,
                 job.runtime.timeout_seconds,
             )
+            await append_trace_from_session_delta(
+                run_id=run_id,
+                runner=self._workspace,
+                session_id=req["session_id"],
+                user_id=req["user_id"],
+                channel=target_channel,
+                baseline_count=baseline_count,
+            )
+            await finalize_trace(
+                run_id,
+                status="timeout",
+                error=f"timed out after {job.runtime.timeout_seconds}s",
+            )
             raise
         except asyncio.CancelledError:
             logger.info("cron execute: job_id=%s cancelled", job.id)
+            await append_trace_from_session_delta(
+                run_id=run_id,
+                runner=self._workspace,
+                session_id=req["session_id"],
+                user_id=req["user_id"],
+                channel=target_channel,
+                baseline_count=baseline_count,
+            )
+            await finalize_trace(
+                run_id,
+                status="cancelled",
+                error="execution cancelled",
+            )
             raise
+        except Exception as e:  # pylint: disable=broad-except
+            await append_trace_from_session_delta(
+                run_id=run_id,
+                runner=self._workspace,
+                session_id=req["session_id"],
+                user_id=req["user_id"],
+                channel=target_channel,
+                baseline_count=baseline_count,
+            )
+            await finalize_trace(
+                run_id,
+                status="error",
+                error=repr(e),
+            )
+            raise
+        finally:
+            if _chat_spec is not None and chat_manager is not None:
+                try:
+                    await chat_manager.touch_chat(_chat_spec.id)
+                except Exception:
+                    logger.debug(
+                        "cron: failed to touch chat for job %s",
+                        job.id,
+                        exc_info=True,
+                    )

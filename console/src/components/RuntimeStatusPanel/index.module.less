@@ -1,0 +1,102 @@
+.panel {
+  flex: 0 0 auto;
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafafa 100%);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+.failed {
+  border-color: rgba(220, 38, 38, 0.28);
+}
+
+.header,
+.title,
+.tool {
+  display: flex;
+  align-items: center;
+}
+
+.header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.title {
+  gap: 7px;
+  color: #111827;
+  font-size: 13px;
+  font-weight: 650;
+
+  svg {
+    color: #f97316;
+  }
+}
+
+.panel:not(.failed) .title svg {
+  animation: runtime-spin 900ms linear infinite;
+}
+
+.failed .title svg {
+  color: #dc2626;
+}
+
+.tool {
+  gap: 5px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.message {
+  margin-top: 6px;
+  color: #334155;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.command {
+  margin-top: 6px;
+  overflow: hidden;
+  color: #64748b;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes runtime-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+:global(.dark-mode) {
+  .panel {
+    border-color: rgba(148, 163, 184, 0.22);
+    background: linear-gradient(180deg, #18181b 0%, #111113 100%);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  }
+
+  .failed {
+    border-color: rgba(248, 113, 113, 0.32);
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .tool,
+  .command {
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .message {
+    color: rgba(255, 255, 255, 0.68);
+  }
+}

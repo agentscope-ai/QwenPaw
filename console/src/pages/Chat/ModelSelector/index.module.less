@@ -19,6 +19,27 @@
     color: #ff7f16;
     box-shadow: 0 2px 8px rgba(97, 92, 237, 0.12);
   }
+
+  @media (max-width: 768px) {
+    max-width: 140px;
+    padding: 4px 6px;
+    gap: 3px;
+  }
+
+  @media (max-width: 480px) {
+    max-width: 96px;
+    font-size: 13px;
+  }
+}
+
+.triggerLocked {
+  cursor: not-allowed;
+  opacity: 0.72;
+
+  &:hover {
+    color: #333;
+    box-shadow: none;
+  }
 }
 
 .triggerName {
@@ -26,19 +47,35 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 180px;
+
+  @media (max-width: 768px) {
+    max-width: 90px;
+  }
+
+  @media (max-width: 480px) {
+    position: relative;
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: clip;
+
+    > .marquee {
+      display: inline-block;
+      padding-left: 100%;
+      animation: modelSelectorMarquee 10s linear infinite;
+    }
+  }
 }
 
-.triggerArrow {
-  flex-shrink: 0;
-  font-size: 18px;
-  color: #999;
-  transition:
-    transform 0.2s,
-    color 0.15s;
+.marquee {
+  display: inline-block;
+}
 
-  &.triggerArrowOpen {
-    transform: rotate(180deg);
-    color: #ff7f16;
+@keyframes modelSelectorMarquee {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-100%);
   }
 }
 
@@ -50,145 +87,372 @@
   object-fit: contain;
 }
 
-/* ---- Level-1 panel ---- */
+/* ---- Dropdown panel ---- */
 .panel {
-  min-width: 180px;
-  border-radius: 6px;
+  width: 360px;
+  max-height: 480px;
+  border-radius: 8px;
   background: #fff;
   border: 1px solid rgba(0, 0, 0, 0.06);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+
+  @media (max-width: 768px) {
+    width: calc(100vw - 32px);
+    max-width: 360px;
+    max-height: 60vh;
+  }
 }
 
-.providerItem {
-  position: relative;
+/* ---- Search box ---- */
+.searchWrapper {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 4px 8px;
-  cursor: pointer;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.searchIcon {
+  font-size: 14px;
+  color: #999;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
   font-size: 14px;
   color: #333;
-  transition: background 0.12s;
-  gap: 8px;
+  padding: 0;
+  min-width: 0;
 
-  &:hover {
-    background: rgba(97, 92, 237, 0.06);
-    color: #ff7f16;
-  }
-
-  &:hover :global(.modelSubmenu) {
-    display: block;
-  }
-
-  // Hover bridge: extend leftward to cover the margin-right gap between
-  // providerItem and the left-side submenu, keeping :hover active during transition
-  &::after {
-    content: "";
-    position: absolute;
-    left: -8px;
-    top: 0;
-    width: 8px;
-    height: 100%;
-    background: transparent;
-  }
-
-  &:first-child {
-    border-radius: 6px 6px 0 0;
-  }
-
-  &:last-child {
-    border-radius: 0 0 6px 6px;
-  }
-
-  &.providerItemActive {
-    font-weight: 500;
+  &::placeholder {
+    color: #bbb;
   }
 }
 
-.providerName {
+.searchClear {
+  font-size: 14px;
+  color: #bbb;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color 0.15s;
+
+  &:hover {
+    color: #999;
+  }
+}
+
+/* ---- Tab bar ---- */
+.tabBar {
+  display: flex;
+  gap: 0;
+  padding: 0 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+}
+
+.tabButton {
   flex: 1;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #999;
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s;
+
+  &:hover {
+    color: #666;
+  }
+
+  &.tabButtonActive {
+    color: #ff7f16;
+
+    &::after {
+      content: "";
+      position: absolute;
+      bottom: 0;
+      left: 20%;
+      right: 20%;
+      height: 2px;
+      background: #ff7f16;
+      border-radius: 1px;
+    }
+  }
+}
+
+/* ---- List container ---- */
+.listContainer {
+  overflow-y: auto;
+  flex: 1;
+  padding: 4px 0;
+}
+
+/* ---- Provider group ---- */
+.providerGroup {
+  margin-bottom: 4px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.providerHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #999;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    color: #666;
+  }
+}
+
+.providerHeaderName {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
-.providerArrow {
-  flex-shrink: 0;
-  font-size: 14px;
+.collapseIcon {
+  margin-left: auto;
+  font-size: 10px;
   color: #bbb;
+  transition: color 0.2s;
+
+  .providerHeader:hover & {
+    color: #666;
+  }
 }
 
-/* ---- Level-2 submenu ---- */
-.submenu {
-  display: none;
-  position: absolute;
-  top: -1px;
-  right: 100%;
-  margin-right: 2px;
-  min-width: 200px;
-  max-height: 360px;
-  overflow-y: auto;
-  border-radius: 6px;
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
-  z-index: 1100;
-}
-
+/* ---- Model item ---- */
 .modelItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px;
+  padding: 7px 12px 7px 20px;
+  margin: 0 4px;
   cursor: pointer;
   font-size: 14px;
   color: #333;
   transition: background 0.12s;
   gap: 8px;
-  white-space: nowrap;
+  border-radius: 6px;
 
   &:hover {
     background: rgba(97, 92, 237, 0.06);
-    color: #ff7f16;
-  }
-
-  &:first-child {
-    border-radius: 6px 6px 0 0;
-  }
-
-  &:last-child {
-    border-radius: 0 0 6px 6px;
+    color: #333;
   }
 
   &.modelItemActive {
-    background: rgba(97, 92, 237, 0.08);
+    background: rgba(255, 127, 22, 0.08);
     color: #ff7f16;
     font-weight: 500;
+
+    .modelName {
+      color: #ff7f16;
+    }
   }
 }
 
 .modelName {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
   flex: 1;
+  min-width: 0;
+}
+
+.modelTags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.freeTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #52c41a;
+  background: rgba(82, 196, 26, 0.1);
+  border: 1px solid rgba(82, 196, 26, 0.2);
+  white-space: nowrap;
+}
+
+.visionTag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 500;
+  color: #1890ff;
+  background: rgba(24, 144, 255, 0.1);
+  border: 1px solid rgba(24, 144, 255, 0.2);
+  white-space: nowrap;
 }
 
 .checkIcon {
   flex-shrink: 0;
-  font-size: 16px;
+  font-size: 14px;
   color: #ff7f16;
 }
 
 .emptyTip {
-  padding: 10px 14px;
-  font-size: 16px;
+  padding: 20px 16px;
+  text-align: center;
+  font-size: 14px;
   color: #bbb;
 }
 
 .spinWrapper {
-  padding: 14px 16px;
+  padding: 24px 16px;
   text-align: center;
+}
+
+/* ---- Free section warning banner ---- */
+.freeBanner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(250, 173, 20, 0.08);
+  border: 1px solid rgba(250, 173, 20, 0.2);
+  font-size: 12px;
+  color: #d48806;
+  line-height: 1.4;
+}
+
+.freeBannerIcon {
+  flex-shrink: 0;
+  color: #faad14;
+}
+
+/* ---- Pro section hint banner ---- */
+.proBanner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 8px 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+  font-size: 12px;
+  color: #8c8c8c;
+  line-height: 1.4;
+}
+
+/* ---- OAuth warning icon on model items ---- */
+.oauthWarningIcon {
+  flex-shrink: 0;
+  color: #faad14;
+}
+
+/* ---- More toggle ---- */
+.moreToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  margin: 4px 4px 0;
+  font-size: 12px;
+  color: #999;
+  cursor: pointer;
+  user-select: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+
+  &:hover {
+    color: #666;
+  }
+
+  :global(.anticon) {
+    font-size: 10px;
+  }
+}
+
+.moreContent {
+  animation: slideDown 0.2s ease-out;
+  overflow: hidden;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    max-height: 500px;
+    transform: translateY(0);
+  }
+}
+
+.viewMore {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-tertiary, rgba(0, 0, 0, 0.45));
+  padding: 6px 0;
+  cursor: pointer;
+  transition: color 0.2s;
+
+  &:hover {
+    color: var(--primary-color, #6366f1);
+  }
+}
+
+/* ---- OAuth connect entry ---- */
+.connectEntry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 8px 20px;
+  margin: 0 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #6366f1;
+  border-radius: 6px;
+  transition: background 0.12s;
+
+  &:hover {
+    background: rgba(99, 102, 241, 0.06);
+  }
+}
+
+.connectIcon {
+  flex-shrink: 0;
+  color: #6366f1;
+}
+
+.connectHint {
+  padding: 6px 20px;
+  font-size: 12px;
+  color: #bbb;
 }
 
 /* ─── Dark mode overrides ─────────────────────────────────────────────────── */
@@ -203,37 +467,66 @@
     }
   }
 
-  .triggerArrow {
-    color: rgba(255, 255, 255, 0.3);
-
-    &.triggerArrowOpen {
-      color: #ff7f16;
-    }
-  }
-
   .panel {
     background: #1f1f1f;
     border-color: rgba(255, 255, 255, 0.08);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   }
 
-  .providerItem {
+  .searchWrapper {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .searchIcon {
+    color: rgba(255, 255, 255, 0.3);
+  }
+
+  .searchInput {
     color: rgba(255, 255, 255, 0.85);
 
+    &::placeholder {
+      color: rgba(255, 255, 255, 0.25);
+    }
+  }
+
+  .searchClear {
+    color: rgba(255, 255, 255, 0.25);
+
     &:hover {
-      background: rgba(97, 92, 237, 0.15);
+      color: rgba(255, 255, 255, 0.4);
+    }
+  }
+
+  .tabBar {
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .tabButton {
+    color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    &.tabButtonActive {
       color: #ff7f16;
     }
   }
 
-  .providerArrow {
-    color: rgba(255, 255, 255, 0.2);
+  .providerHeader {
+    color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.55);
+    }
   }
 
-  .submenu {
-    background: #1f1f1f;
-    border-color: rgba(255, 255, 255, 0.08);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  .collapseIcon {
+    color: rgba(255, 255, 255, 0.2);
+
+    .providerHeader:hover & {
+      color: rgba(255, 255, 255, 0.45);
+    }
   }
 
   .modelItem {
@@ -241,20 +534,88 @@
 
     &:hover {
       background: rgba(97, 92, 237, 0.15);
-      color: #ff7f16;
+      color: rgba(255, 255, 255, 0.85);
     }
 
     &.modelItemActive {
-      background: rgba(97, 92, 237, 0.18);
+      background: rgba(255, 127, 22, 0.12);
       color: #ff7f16;
+
+      .modelName {
+        color: #ff7f16;
+      }
     }
+  }
+
+  .emptyTip {
+    color: rgba(255, 255, 255, 0.25);
+  }
+
+  .freeTag {
+    color: #73d13d;
+    background: rgba(82, 196, 26, 0.15);
+    border-color: rgba(82, 196, 26, 0.3);
+  }
+
+  .visionTag {
+    color: #40a9ff;
+    background: rgba(24, 144, 255, 0.15);
+    border-color: rgba(24, 144, 255, 0.3);
   }
 
   .checkIcon {
     color: #ff7f16;
   }
 
-  .emptyTip {
+  .proBanner {
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.35);
+  }
+
+  .freeBanner {
+    background: rgba(250, 173, 20, 0.1);
+    border-color: rgba(250, 173, 20, 0.25);
+    color: #ffc53d;
+  }
+
+  .freeBannerIcon {
+    color: #ffc53d;
+  }
+
+  .oauthWarningIcon {
+    color: #ffc53d;
+  }
+
+  .moreToggle {
+    color: rgba(255, 255, 255, 0.35);
+    border-top-color: rgba(255, 255, 255, 0.08);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.55);
+    }
+  }
+
+  .connectEntry {
+    color: #818cf8;
+
+    &:hover {
+      background: rgba(99, 102, 241, 0.15);
+    }
+  }
+
+  .connectIcon {
+    color: #818cf8;
+  }
+
+  .connectHint {
     color: rgba(255, 255, 255, 0.25);
+  }
+
+  .viewMore {
+    color: rgba(255, 255, 255, 0.35);
+
+    &:hover {
+      color: rgba(255, 255, 255, 0.65);
+    }
   }
 }

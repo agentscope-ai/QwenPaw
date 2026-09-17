@@ -6,7 +6,20 @@ export interface ModelInfo {
   supports_video: boolean | null;
   probe_source?: string | null;
   is_free?: boolean;
+  max_tokens: number;
+  max_input_length: number;
+  max_input_length_configured?: boolean;
   generate_kwargs: Record<string, unknown>;
+  relay_reasoning: boolean;
+  thinking_enabled: boolean | null;
+  thinking_budget: number | null;
+  reasoning_effort: string | null;
+  /** Per-model override: 'budget' or 'effort'. Falls back to provider-level. */
+  thinking_param_style?: "budget" | "effort" | null;
+  /** Per-model override for reasoning_effort options. */
+  reasoning_effort_options?: string[] | null;
+  /** Per-model override for thinking_budget [min, max] range. */
+  thinking_budget_range?: [number, number] | null;
 }
 
 export interface ProviderInfo {
@@ -29,15 +42,56 @@ export interface ProviderInfo {
   /** True when an API key is required for this provider. */
   require_api_key: boolean;
   api_key: string;
+  /** Whether a credential exists; the credential itself is never returned. */
+  api_key_configured?: boolean;
   base_url: string;
   generate_kwargs: Record<string, unknown>;
+  /** Custom HTTP headers sent with every request to this provider. */
+  custom_headers?: Record<string, string>;
+  /** Authentication mode: 'api_key' (x-api-key) or 'auth_token' (Authorization: Bearer). */
+  auth_mode?: "api_key" | "auth_token";
+  /** Whether this provider supports OAuth login. */
+  supports_oauth?: boolean;
+  /** Whether OAuth is currently connected. */
+  oauth_connected?: boolean;
+  /** Whether this provider offers a free tier. */
+  is_free_tier?: boolean;
+  /** Group key for same-brand providers (e.g. "aliyun"). */
+  provider_group?: string;
+  /** Display name for the provider group (e.g. "Aliyun"). */
+  provider_group_name?: string;
+  /** Variant within a group (e.g. "coding_plan_cn"). */
+  provider_variant?: string;
+  /** Which thinking-parameter UI to show: 'budget' or 'effort'. null = not supported. */
+  thinking_param_style?: "budget" | "effort" | null;
+  /** Valid reasoning_effort values for this provider. */
+  reasoning_effort_options?: string[];
+  /** [min, max] range for thinking_budget Slider. */
+  thinking_budget_range?: [number, number];
+  /** Provider-specific metadata (e.g. base_url_options for region selection). */
+  meta?: Record<string, unknown>;
+  /** Accepted API key prefixes. When present, validation accepts any prefix in this list. */
+  api_key_prefixes?: string[];
+}
+
+/** Predefined base URL option exposed via `ProviderInfo.meta.base_url_options`. */
+export interface BaseUrlOption {
+  label: string;
+  value: string;
 }
 
 export interface ProviderConfigRequest {
   api_key?: string;
+  clear_api_key?: boolean;
+  clear_custom_headers?: boolean;
+  clear_base_url?: boolean;
   base_url?: string;
+  /** New display name. Only applied to custom providers. */
+  name?: string;
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
+  custom_headers?: Record<string, string>;
+  auth_mode?: "api_key" | "auth_token";
 }
 
 export interface ModelSlotConfig {
@@ -47,6 +101,9 @@ export interface ModelSlotConfig {
 
 export interface ActiveModelsInfo {
   active_llm?: ModelSlotConfig;
+  effective_max_input_length?: number | null;
+  applied_agent_ids?: string[];
+  pending_reload_agent_ids?: string[];
 }
 
 export type ActiveModelScope = "effective" | "global" | "agent";
@@ -85,7 +142,13 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
+  max_tokens?: number;
+  max_input_length?: number;
   generate_kwargs?: Record<string, unknown>;
+  relay_reasoning?: boolean;
+  thinking_enabled?: boolean | null;
+  thinking_budget?: number | null;
+  reasoning_effort?: string | null;
 }
 
 export interface LocalModelConfig {
@@ -164,6 +227,8 @@ export interface TestProviderRequest {
   chat_model?: string;
   generate_kwargs?: Record<string, unknown>;
   include_extended?: boolean;
+  custom_headers?: Record<string, string>;
+  auth_mode?: "api_key" | "auth_token";
 }
 
 export interface TestModelRequest {

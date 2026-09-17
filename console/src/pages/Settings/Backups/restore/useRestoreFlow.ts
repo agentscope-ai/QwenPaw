@@ -4,14 +4,11 @@ import type { BackupMeta } from "@/api/types/backup";
 /**
  * Manages the restore flow state machine:
  *   1. handleRestore(backup) → opens PreRestoreConfirmModal
- *   2a. confirmRestoreWithoutBackup → opens RestoreBackupModal directly
- *   2b. confirmRestoreWithBackup    → opens SilentBackupModal first
- *   3. onPreRestoreBackupSuccess    → opens RestoreBackupModal after snapshot
+ *   2. confirmRestoreWithoutBackup → opens the impact preview. The server
+ *      creates its mandatory protection backup immediately before restore.
  */
 export function useRestoreFlow() {
   const [preRestoreConfirmTarget, setPreRestoreConfirmTarget] =
-    useState<BackupMeta | null>(null);
-  const [preRestoreBackupTarget, setPreRestoreBackupTarget] =
     useState<BackupMeta | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<BackupMeta | null>(null);
 
@@ -26,38 +23,15 @@ export function useRestoreFlow() {
     setRestoreTarget(target);
   };
 
-  /** User chose to take a pre-restore snapshot first; open SilentBackupModal. */
-  const confirmRestoreWithBackup = (target: BackupMeta) => {
-    setPreRestoreConfirmTarget(null);
-    setPreRestoreBackupTarget(target);
-  };
-
   /** User cancelled the pre-restore confirm dialog without proceeding. */
   const cancelPreRestore = () => setPreRestoreConfirmTarget(null);
 
-  /** Called when the pre-restore snapshot finishes; advances to RestoreBackupModal. */
-  const onPreRestoreBackupSuccess = () => {
-    if (preRestoreBackupTarget) {
-      setRestoreTarget(preRestoreBackupTarget);
-    }
-    setPreRestoreBackupTarget(null);
-  };
-
-  /** Called when SilentBackupModal is dismissed (e.g. user cancelled the snapshot). */
-  const onPreRestoreBackupClose = () => {
-    setPreRestoreBackupTarget(null);
-  };
-
   return {
     preRestoreConfirmTarget,
-    preRestoreBackupTarget,
     restoreTarget,
     setRestoreTarget,
     handleRestore,
     confirmRestoreWithoutBackup,
-    confirmRestoreWithBackup,
     cancelPreRestore,
-    onPreRestoreBackupSuccess,
-    onPreRestoreBackupClose,
   };
 }

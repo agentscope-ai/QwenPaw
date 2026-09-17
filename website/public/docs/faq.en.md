@@ -26,7 +26,7 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 
 2. Install with pip
 
-Python version requirement: >= 3.10, < 3.14
+Python version requirement: >= 3.11, < 3.14
 
 ```
 pip install qwenpaw
@@ -107,10 +107,7 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. If using the Desktop app (Windows `.exe` or macOS `.zip`), you currently need to uninstall and reinstall:
-   - Uninstall QwenPaw on your machine
-   - Download the latest build: https://qwenpaw.agentscope.io/downloads
-   - Reinstall
+5. If using the Desktop app (Tauri build), it ships with a built-in in-app updater: on startup it automatically checks for new versions and prompts you in the UI, where you can choose "Install and Restart" to update now or "Update Later" to download in the background. You can also grab the latest build manually from the download page: https://qwenpaw.agentscope.io/downloads
 
 After upgrading, restart the service with `qwenpaw app`.
 
@@ -199,6 +196,56 @@ netsh int ipv4 set dynamicport tcp start=49152 num=16384
 
 > ⚠️ **Warning**: This changes system-wide port configuration. Only do this if
 > you understand the implications.
+
+### APITimeoutError when running QwenPaw in WSL2 (NAT mode)
+
+When running QwenPaw inside WSL2 with NAT networking (especially when a VPN is
+active on the Windows host), you may encounter repeated timeouts:
+
+```
+agent error: APITimeoutError: Request timed out.
+```
+
+**Root cause:** WSL2's default network MTU (1500) is too large for the NAT
+tunnel, causing packets to be silently dropped when a VPN or certain network
+configurations are in use.
+
+**Solution:** Lower the WSL2 network interface MTU to **1350**.
+
+1. **Check the current MTU inside WSL2:**
+
+   ```bash
+   ip link show eth0 | grep mtu
+   ```
+
+2. **Set MTU to 1350 (temporary, resets on reboot):**
+
+   ```bash
+   sudo ip link set eth0 mtu 1350
+   ```
+
+3. **Make the change permanent** by adding a boot command to `/etc/wsl.conf`:
+
+   ```ini
+   [boot]
+   command = /sbin/ip link set eth0 mtu 1350
+   ```
+
+   Then restart WSL2 from PowerShell or CMD:
+
+   ```powershell
+   wsl --shutdown
+   ```
+
+4. **Verify** the change took effect:
+
+   ```bash
+   ip link show eth0 | grep mtu
+   # should show: mtu 1350
+   ```
+
+After this, QwenPaw should be able to communicate with model providers
+normally.
 
 ### Open-source repository
 
@@ -396,8 +443,9 @@ If a scheduled task does not run as expected, try the following:
 
 ### How to manage Skills
 
-Go to **Agent -> Skills** in Console. You can enable/disable Skills, create
-custom Skills, and import Skills from Skills Hub. See
+Go to **Agent -> Skills** in Console. You can enable/disable Skills, and add
+Skills through the **Add Skill** entry (create, upload via zip/URL, or browse
+the Skill Market). See
 [Skills](https://qwenpaw.agentscope.io/docs/skills).
 
 ### How to configure MCP

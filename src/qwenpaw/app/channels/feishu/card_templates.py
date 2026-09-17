@@ -66,7 +66,7 @@ def build_tool_guard_approval_card(
     """Build the tool-guard approval card JSON string.
 
     ``body_text`` is the pre-rendered markdown body produced by
-    tool_guard_mixin and used verbatim.
+    the tool-guard engine and used verbatim.
 
     A snapshot of ``body_text`` plus ``session_ctx`` (session_id /
     sender_id / receive_id / chat_id / ...) is embedded in each button's

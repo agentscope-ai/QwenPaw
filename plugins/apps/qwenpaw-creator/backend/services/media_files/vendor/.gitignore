@@ -1,0 +1,5 @@
+# Vendored animation runtimes are fetched, pinned and verified by
+# motion_engine.py (`python -m services.media_files.motion_engine fetch`).
+# GSAP ships under the GreenSock Standard License and must not be committed.
+*
+!.gitignore

@@ -1,4 +1,11 @@
-import { Form, Switch, Button, Card, Select } from "@agentscope-ai/design";
+import {
+  Form,
+  Switch,
+  Button,
+  Card,
+  Select,
+  Alert,
+} from "@agentscope-ai/design";
 import { PlusCircleOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import type { MergedRule } from "../useToolGuard";
@@ -12,9 +19,13 @@ interface ToolGuardTabProps {
   config: ToolGuardConfig | null;
   enabled: boolean;
   setEnabled: (val: boolean) => void;
+  sandboxEnabled: boolean;
+  setSandboxEnabled: (val: boolean) => void;
+  sandboxReason: string | null;
   toolOptions: { label: string; value: string }[];
   mergedRules: MergedRule[];
   toggleRule: (ruleId: string, currentlyDisabled: boolean) => void;
+  toggleAutoDeny: (ruleId: string, currentlyAutoDeny: boolean) => void;
   onPreviewRule: (rule: MergedRule) => void;
   onEditRule: (rule: MergedRule) => void;
   onDeleteRule: (ruleId: string) => void;
@@ -28,9 +39,13 @@ export function ToolGuardTab({
   config,
   enabled,
   setEnabled,
+  sandboxEnabled,
+  setSandboxEnabled,
+  sandboxReason,
   toolOptions,
   mergedRules,
   toggleRule,
+  toggleAutoDeny,
   onPreviewRule,
   onEditRule,
   onDeleteRule,
@@ -66,6 +81,24 @@ export function ToolGuardTab({
             >
               <Switch onChange={(val) => setEnabled(val)} />
             </Form.Item>
+            <Form.Item
+              label={t("security.sandboxEnabled")}
+              tooltip={t("security.sandboxEnabledTooltip")}
+            >
+              <Switch
+                checked={sandboxEnabled}
+                onChange={(val) => setSandboxEnabled(val)}
+              />
+            </Form.Item>
+            {sandboxEnabled && sandboxReason === "unelevated" && (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={t("security.sandboxUnelevatedWarning")}
+                description={t("security.sandboxUnelevatedDescription")}
+              />
+            )}
             <div className={styles.toolGuardRow}>
               <Form.Item
                 label={t("security.guardedTools")}
@@ -122,6 +155,7 @@ export function ToolGuardTab({
             rules={mergedRules}
             enabled={enabled}
             onToggleRule={toggleRule}
+            onToggleAutoDeny={toggleAutoDeny}
             onPreviewRule={onPreviewRule}
             onEditRule={onEditRule}
             onDeleteRule={onDeleteRule}

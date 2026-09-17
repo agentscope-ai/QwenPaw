@@ -22,6 +22,9 @@ htmlcov
 
 # Tests (not needed in runtime image)
 tests
+e2e
+playwright-report
+test-results
 test.py
 *_test.py
 pytest.ini
@@ -32,6 +35,10 @@ pytest.ini
 
 # Frontend: exclude build artifacts; ship pre-built src/console/dist in image
 website
+!website/
+!website/public/
+!website/public/docs/
+!website/public/docs/**
 console/node_modules
 console/dist
 console/.vite
@@ -47,6 +54,13 @@ example
 config.json
 jobs.json
 sessions_mount_dir
+tmp
+data
+backups
+*.dump
+*.bak
+docs/superpowers
+build/repository-artifact-audit.json
 
 # Misc
 .env

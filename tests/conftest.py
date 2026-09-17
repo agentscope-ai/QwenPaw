@@ -8,8 +8,10 @@ This module provides shared fixtures for testing CoPaw components.
 All fixtures are designed to be isolated, safe, and easy to use.
 """
 
+import logging
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 from collections.abc import Generator
@@ -18,6 +20,55 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_TEST_FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+sys.path.insert(0, str(_TEST_FIXTURES_DIR))
+
+from postgres import postgres_test_schema  # noqa: E402,F401
+from runtime_dirs import (  # noqa: E402,F401
+    bootstrap_test_runtime,
+    isolated_runtime_dirs,
+    shutdown_test_runtime,
+)
+
+_TEST_SESSION_RUNTIME = bootstrap_test_runtime(_PROJECT_ROOT)
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--checkpoint-test-git",
+        default=None,
+        help="Explicit Git executable for isolated checkpoint compatibility tests.",
+    )
+
+
+@pytest.fixture
+def checkpoint_test_git(request, monkeypatch):
+    """Only opt-in checkpoint tests use this explicit binary; never alter PATH."""
+    executable = request.config.getoption("--checkpoint-test-git")
+    if executable is None:
+        return
+    executable_path = Path(executable)
+    if not executable_path.is_absolute() or not executable_path.is_file():
+        pytest.fail("--checkpoint-test-git must name an existing absolute path")
+    popen = subprocess.Popen
+
+    def popen_with_checkpoint_git(command, *args, **kwargs):
+        if isinstance(command, (list, tuple)) and command and command[0] == "git":
+            command = [str(executable_path), *command[1:]]
+        return popen(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", popen_with_checkpoint_git)
+
+from qwenpaw.providers import provider_manager as _provider_manager_module
+
+
+@pytest.fixture(autouse=True)
+def capture_qwenpaw_logs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Let caplog see qwenpaw records despite the app logger handler."""
+    monkeypatch.setattr(logging.getLogger("qwenpaw"), "propagate", True)
+
 
 # =============================================================================
 # Third-Party Library Mocks
@@ -353,8 +404,9 @@ def mock_channel_config():
 
     config = MagicMock()
     config.enabled = True
-    config.filter_tool_messages = False
-    config.filter_thinking = False
+    config.show_tool_calls = True
+    config.show_tool_results = True
+    config.show_thinking = True
     config.dm_policy = "open"
     config.group_policy = "open"
     config.require_mention = False
@@ -413,8 +465,10 @@ def pytest_collection_modifyitems(
 ) -> None:
     """Modify test collection to add markers based on test location."""
     for item in items:
-        # Auto-mark tests based on directory
-        path_str = str(item.path)
+        # Auto-mark tests based on directory. as_posix() keeps the separator
+        # forward-slashed on Windows, where str() would yield backslashes and
+        # silently drop these tests from any -m filtered run.
+        path_str = item.path.as_posix()
         if "/unit/" in path_str:
             item.add_marker(pytest.mark.unit)
         elif "/integration/" in path_str:
@@ -428,3 +482,32 @@ def pytest_collection_modifyitems(
         #   - s_module: ["utils/tokenizer", "security/tool_guard"]
         #   - c_module: ["channels/dingtalk", "channels/feishu"]
         # This allows module classification to evolve without code changes.
+
+
+# =============================================================================
+# Provider Isolation
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def isolated_secret_dir(monkeypatch, isolated_runtime_dirs):
+    """Isolate all tests from real disk provider data.
+
+    ProviderManager._init_from_storage reads persisted configs and mutates
+    global provider singletons (e.g. base_url when freeze_url=False).
+    This fixture ensures every test uses a clean temporary directory and
+    a fresh ProviderManager singleton.
+    """
+    secret_dir = Path(os.environ["QWENPAW_SECRET_DIR"])
+    monkeypatch.setattr(_provider_manager_module, "SECRET_DIR", secret_dir)
+    monkeypatch.setattr(
+        _provider_manager_module.ProviderManager,
+        "_instance",
+        None,
+    )
+    return secret_dir
+
+
+def pytest_unconfigure(config: pytest.Config) -> None:
+    """Remove only the marked session-level test runtime."""
+    shutdown_test_runtime()

@@ -20,8 +20,8 @@ import BackupToolbar from "./list/BackupToolbar";
 import ImportButton from "./import/ImportButton";
 import ImportConflictModal from "./import/ImportConflictModal";
 import { useImportFlow } from "./import/useImportFlow";
+import BackupTrustDialog from "./trust/BackupTrustDialog";
 import CreateBackupModal from "./create/CreateBackupModal";
-import SilentBackupModal from "./create/SilentBackupModal";
 import PreRestoreConfirmModal from "./restore/PreRestoreConfirmModal";
 import RestoreBackupModal from "./restore/RestoreBackupModal";
 import { useRestoreFlow } from "./restore/useRestoreFlow";
@@ -73,6 +73,7 @@ export default function BackupsPage() {
   return (
     <div className={styles.page}>
       <PageHeader
+        className={styles.pageHeader}
         parent={t("nav.settings")}
         current={t("backup.title")}
         extra={
@@ -108,6 +109,14 @@ export default function BackupsPage() {
         onChoice={importFlow.handleConflictChoice}
         onCancel={importFlow.clearConflict}
       />
+      <BackupTrustDialog
+        open={!!importFlow.trustFileName}
+        mode={importFlow.trustMode ?? "foreign"}
+        backupName={importFlow.trustFileName ?? undefined}
+        confirmLoading={importFlow.trustLoading}
+        onConfirm={importFlow.handleTrustConfirm}
+        onCancel={importFlow.clearTrust}
+      />
 
       {/* Create flow */}
       <CreateBackupModal
@@ -122,14 +131,6 @@ export default function BackupsPage() {
         target={restoreFlow.preRestoreConfirmTarget}
         onCancel={restoreFlow.cancelPreRestore}
         onNoBackup={restoreFlow.confirmRestoreWithoutBackup}
-        onYesBackup={restoreFlow.confirmRestoreWithBackup}
-      />
-
-      <SilentBackupModal
-        target={restoreFlow.preRestoreBackupTarget}
-        agentIds={agents.map((a) => a.id)}
-        onClose={restoreFlow.onPreRestoreBackupClose}
-        onSuccess={restoreFlow.onPreRestoreBackupSuccess}
       />
 
       {restoreFlow.restoreTarget && (

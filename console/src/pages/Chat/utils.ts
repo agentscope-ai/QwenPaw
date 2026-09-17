@@ -79,32 +79,36 @@ export function extractTextFromMessage(msg: any): string {
 // Clipboard utilities
 // ---------------------------------------------------------------------------
 
-/** Copy text to clipboard with fallback for non-secure contexts. */
-export async function copyText(text: string): Promise<void> {
-  if (navigator.clipboard && window.isSecureContext) {
-    await navigator.clipboard.writeText(text);
-    return;
-  }
+export { copyText } from "../../utils/clipboard";
 
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "absolute";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
+// ---------------------------------------------------------------------------
+// Timestamp formatting utilities
+// ---------------------------------------------------------------------------
 
-  let copied = false;
-  try {
-    textarea.focus();
-    textarea.select();
-    copied = document.execCommand("copy");
-  } finally {
-    document.body.removeChild(textarea);
-  }
+/** Format a unix timestamp (seconds or milliseconds) to a short time string (HH:mm:ss). */
+export function formatMessageTime(ts: number): string {
+  if (!ts) return "";
+  // Normalize to milliseconds
+  const ms = ts < 1e12 ? ts * 1000 : ts;
+  const date = new Date(ms);
+  const now = new Date();
+  const hours = date.getHours().toString().padStart(2, "0");
+  const minutes = date.getMinutes().toString().padStart(2, "0");
+  const seconds = date.getSeconds().toString().padStart(2, "0");
+  const time = `${hours}:${minutes}:${seconds}`;
 
-  if (!copied) {
-    throw new Error("Failed to copy text");
+  const isToday =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  if (isToday) return time;
+
+  const month = (date.getMonth() + 1).toString().padStart(2, "0");
+  const day = date.getDate().toString().padStart(2, "0");
+  if (date.getFullYear() === now.getFullYear()) {
+    return `${month}-${day} ${time}`;
   }
+  return `${date.getFullYear()}-${month}-${day} ${time}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -188,10 +192,58 @@ export function toDisplayUrl(url: string | undefined): string {
 // DOM utilities
 // ---------------------------------------------------------------------------
 
+/** Return the sender textarea belonging to the focused sender surface. */
+export function getActiveSenderTextarea(): HTMLTextAreaElement | null {
+  const focused =
+    document.activeElement instanceof HTMLElement
+      ? document.activeElement.closest('[class*="sender"]')
+      : null;
+  const focusedTextarea = focused?.querySelector("textarea");
+  if (focusedTextarea instanceof HTMLTextAreaElement) {
+    return focusedTextarea;
+  }
+
+  const candidates = Array.from(
+    document.querySelectorAll<HTMLTextAreaElement>(
+      '[class*="sender"] textarea',
+    ),
+  );
+  return (
+    candidates.find((textarea) => textarea.offsetParent !== null) ??
+    candidates[candidates.length - 1] ??
+    null
+  );
+}
+
+/** Resolve the sender's state textarea from its textarea or rich editor. */
+export function getSenderTextareaFromTarget(
+  target: EventTarget | null,
+): HTMLTextAreaElement | null {
+  if (!(target instanceof HTMLElement)) return null;
+
+  const sender = target.closest('[class*="sender"]');
+  if (!sender) return null;
+
+  if (target instanceof HTMLTextAreaElement) {
+    return target;
+  }
+
+  const isRichEditor =
+    target.isContentEditable ||
+    target.getAttribute("contenteditable") === "true";
+  if (!isRichEditor) return null;
+  const textarea = sender.querySelector("textarea");
+  return textarea instanceof HTMLTextAreaElement ? textarea : null;
+}
+
 /** Set textarea value and trigger input event for React state sync.
  * Uses native value setter to bypass React's internal value tracker.
  */
-export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
+export function setTextareaValue(
+  textarea: HTMLTextAreaElement,
+  value: string,
+  cursorPosition?: number,
+) {
   const nativeValueSetter = Object.getOwnPropertyDescriptor(
     HTMLTextAreaElement.prototype,
     "value",
@@ -201,7 +253,21 @@ export function setTextareaValue(textarea: HTMLTextAreaElement, value: string) {
   } else {
     textarea.value = value;
   }
-  textarea.selectionStart = textarea.selectionEnd = value.length;
+  const nextCursor = cursorPosition ?? value.length;
+  textarea.selectionStart = textarea.selectionEnd = nextCursor;
   const event = new Event("input", { bubbles: true });
   textarea.dispatchEvent(event);
+}
+
+/**
+ * Clear the submitted sender value without erasing text typed for the next
+ * message while the request was being prepared.
+ */
+export function clearSubmittedSenderInput(submittedValue: string): boolean {
+  const textarea = getActiveSenderTextarea();
+  if (!textarea || textarea.value !== submittedValue) {
+    return false;
+  }
+  setTextareaValue(textarea, "");
+  return true;
 }

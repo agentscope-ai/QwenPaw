@@ -11,6 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from qwenpaw.exceptions import (
+    CommandExecutionError,
+    ProcessLaunchError,
+)
+
+# Upper bound for the liveness probe so a wedged ``tasklist`` cannot stall
+# shutdown. Callers with a deadline of their own pass a smaller budget.
+_PID_PROBE_TIMEOUT = 5.0
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -35,31 +44,12 @@ class CommandResult:
         return self.stderr.splitlines()
 
 
-class CommandExecutionError(RuntimeError):
-    def __init__(
-        self,
-        command: Sequence[str],
-        message: str,
-        *,
-        returncode: int | None = None,
-        stdout: str = "",
-        stderr: str = "",
-    ) -> None:
-        super().__init__(message)
-        self.command = list(command)
-        self.returncode = returncode
-        self.stdout = stdout
-        self.stderr = stderr
-
-
-class ProcessLaunchError(RuntimeError):
-    def __init__(
-        self,
-        command: Sequence[str],
-        message: str,
-    ) -> None:
-        super().__init__(message)
-        self.command = list(command)
+__all__ = [
+    "CommandExecutionError",
+    "CommandResult",
+    "ProcessLaunchError",
+    "ShutdownResult",
+]
 
 
 @dataclass(frozen=True)
@@ -78,6 +68,9 @@ class _ThreadedProcessStdout:
 
     def __init__(self, stream: Any) -> None:
         self._stream = stream
+
+    async def read(self, size: int = -1) -> bytes:
+        return await asyncio.to_thread(self._stream.read, size)
 
     async def readline(self) -> bytes:
         return await asyncio.to_thread(self._stream.readline)
@@ -210,19 +203,29 @@ def run_command(
     timeout: int | float | None = 10,
     cwd: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
     check: bool = True,
 ) -> CommandResult:
     command_list = list(command)
+    run_kwargs: dict[str, Any] = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "timeout": timeout,
+        "cwd": _coerce_subprocess_path(cwd),
+        "env": dict(env) if env is not None else None,
+    }
+    if encoding is not None:
+        run_kwargs["encoding"] = encoding
+    if errors is not None:
+        run_kwargs["errors"] = errors
+    run_kwargs.update(windows_hidden_subprocess_kwargs())
     try:
         result = subprocess.run(
             command_list,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
             check=False,
-            cwd=_coerce_subprocess_path(cwd),
-            env=dict(env) if env is not None else None,
+            **run_kwargs,
         )
     except FileNotFoundError as exc:
         raise CommandExecutionError(
@@ -259,6 +262,8 @@ async def run_command_async(
     timeout: int | float | None = 10,
     cwd: str | Path | None = None,
     env: Mapping[str, str] | None = None,
+    encoding: str | None = None,
+    errors: str | None = None,
     check: bool = True,
 ) -> CommandResult:
     """Run a short-lived command without relying on asyncio subprocess APIs.
@@ -273,6 +278,8 @@ async def run_command_async(
         timeout=timeout,
         cwd=cwd,
         env=env,
+        encoding=encoding,
+        errors=errors,
         check=check,
     )
 
@@ -291,6 +298,8 @@ async def start_command_async(
         popen_kwargs["cwd"] = _coerce_subprocess_path(cwd)
     if env is not None:
         popen_kwargs["env"] = dict(env)
+    creationflags = int(popen_kwargs.get("creationflags", 0) or 0)
+    popen_kwargs.update(windows_hidden_subprocess_kwargs(creationflags))
     owns_process_group = bool(
         os.name != "nt" and popen_kwargs.get("start_new_session"),
     )
@@ -523,17 +532,27 @@ def _wait_for_process_exit(
         if not process.is_alive():
             process.join(timeout=0)
             return True
-        if not _is_pid_running(process.pid, process.platform_name):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        if not _is_pid_running(
+            process.pid,
+            process.platform_name,
+            probe_timeout=min(_PID_PROBE_TIMEOUT, remaining),
+        ):
             process.join(timeout=0)
             return True
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
         time.sleep(min(0.1, remaining))
+    # The deadline is spent, so there is no budget left to probe with.
+    # Report "still running" and let the caller escalate; a stale exit is
+    # picked up by the next phase, which probes with its own budget.
     if not process.is_alive():
         process.join(timeout=0)
         return True
-    return not _is_pid_running(process.pid, process.platform_name)
+    return False
 
 
 def _coerce_subprocess_path(
@@ -542,6 +561,18 @@ def _coerce_subprocess_path(
     if path is None:
         return None
     return os.fspath(path)
+
+
+def windows_hidden_subprocess_kwargs(
+    creationflags: int = 0,
+) -> dict[str, Any]:
+    """Return subprocess kwargs that suppress Windows console windows."""
+    if os.name != "nt":
+        return {}
+    flags = creationflags | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if not flags:
+        return {}
+    return {"creationflags": flags}
 
 
 def _supports_process_groups(process: ManagedProcess) -> bool:
@@ -556,16 +587,27 @@ def _supports_process_groups(process: ManagedProcess) -> bool:
 def _is_pid_running(
     pid: int,
     platform_name: str,
+    *,
+    probe_timeout: float = _PID_PROBE_TIMEOUT,
 ) -> bool:
     if platform_name == "nt":
+        probe_kwargs: dict[str, Any] = {
+            "stderr": subprocess.STDOUT,
+            "text": True,
+            "errors": "replace",
+            "timeout": probe_timeout,
+        }
+        probe_kwargs.update(windows_hidden_subprocess_kwargs())
         try:
             output = subprocess.check_output(
                 ["tasklist", "/fi", f"PID eq {pid}"],
-                stderr=subprocess.STDOUT,
-                text=True,
+                **probe_kwargs,
             )
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+        except (OSError, subprocess.SubprocessError):
+            # A failed probe says nothing about the PID. Callers read False as
+            # a confirmed exit, so a timed-out or unavailable tasklist must not
+            # short-circuit the kill escalation in shutdown_process_sync().
+            return True
         return str(pid) in output
 
     try:

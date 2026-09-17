@@ -37,6 +37,9 @@ class PlanConfigResponse(BaseModel):
     """Plan configuration returned/accepted by config endpoints."""
 
     enabled: bool = False
+    auto_enabled: bool = True
+    auto_execute: bool = False
+    complexity_threshold: str = "medium"
 
 
 def plan_to_response(plan) -> PlanStateResponse:

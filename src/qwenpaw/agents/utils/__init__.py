@@ -52,6 +52,11 @@ from .setup_utils import (
     normalize_agent_language,
 )
 
+# Context stats
+from .context_stats import estimate_context_tokens, format_history_str
+from .as_msg_handler import AsMsgHandler
+from .as_msg_stat import AsMsgStat, AsBlockStat
+
 # Token counting
 from .token_counter import get_token_counter
 
@@ -91,6 +96,12 @@ __all__ = [
     "copy_workspace_md_files",
     # Setup utilities
     "normalize_agent_language",
+    # Context stats
+    "AsMsgHandler",
+    "AsMsgStat",
+    "AsBlockStat",
+    "estimate_context_tokens",
+    "format_history_str",
     # Token counting
     "get_token_counter",
     # Tool message utilities

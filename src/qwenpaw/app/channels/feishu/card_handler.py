@@ -66,13 +66,10 @@ logger = logging.getLogger(__name__)
 # Registry record
 # ---------------------------------------------------------------------
 
-# Outbound: given (to_handle, event, send_meta, meta) build + send the
-# card. Returns True if the card was sent so the caller can skip the
-# default text rendering.
-RenderFn = Callable[
-    [str, Any, Dict[str, Any], Dict[str, Any]],
-    Awaitable[bool],
-]
+# Outbound: given (to_handle, event, send_meta, meta, **kwargs) build +
+# send the card. Returns True if sent so the caller can skip default
+# rendering.  Uses ``...`` to allow keyword arguments like ``compact``.
+RenderFn = Callable[..., Awaitable[bool]]
 
 # Inbound: given (event, action_value) produce the synchronous card
 # response for lark_oapi.
@@ -169,7 +166,12 @@ class FeishuCardHandler:
         if kind is None:
             return False
         try:
-            return await kind.render(to_handle, event, send_meta, meta)
+            return await kind.render(
+                to_handle,
+                event,
+                send_meta,
+                meta,
+            )
         except Exception:  # pragma: no cover - defensive
             logger.exception(
                 "feishu card render failed: kind=%s",
@@ -223,7 +225,9 @@ class FeishuCardHandler:
         event: Any,
         send_meta: Dict[str, Any],
         meta: Dict[str, Any],
+        **_kwargs: Any,
     ) -> bool:
+        """Send a tool-guard approval interactive card."""
         if not meta.get("approval_request_id"):
             return False
         ch = self._channel
@@ -354,7 +358,7 @@ class FeishuCardHandler:
         command dispatcher routes it to :class:`ApprovalCommandHandler`.
         Thread-safe via the manager's enqueue callback.
         """
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ContentType,
             TextContent,
         )

@@ -1,0 +1,92 @@
+name: CodeQL
+
+# Security vulnerability scanning for QwenPaw.
+#
+# Phase 1 (current): dry-run mode — discoveries are reported as alerts
+# in the Security tab and as PR comments, but do NOT block merge.
+# Phase 2 (week 2): clean up findings, configure false-positive
+# suppression.
+# Phase 3 (week 3): remove continue-on-error to make CodeQL a required
+# check (maintainer must add it to branch protection).
+#
+# Two shards, one per language — each scans its own file set, so findings
+# are deduplicated across languages and no CI time is wasted on
+# re-scanning the same files:
+#   python      → all Python (src/qwenpaw/** + scripts/**), minus the
+#                  test/repro exclusions in codeql-config.yml
+#   typescript  → console/src/** (React/Vite frontend)
+# Tests are intentionally excluded (see codeql-config.yml paths-ignore):
+# they contain intentionally "unsafe" patterns that are not real
+# vulnerabilities.
+
+on:
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'src/**'
+      - 'console/src/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - '.github/workflows/codeql.yml'
+      - '.github/codeql-config.yml'
+  push:
+    branches: [main]
+  schedule:
+    # Weekly full scan: Monday 03:17 UTC (off-peak)
+    - cron: '17 3 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: python
+            languages: python
+            build-mode: none
+          - shard: typescript
+            languages: typescript
+            build-mode: none
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: ${{ matrix.languages }}
+          config-file: ./.github/codeql-config.yml
+          build-mode: ${{ matrix.build-mode }}
+
+      - name: Perform CodeQL Analysis
+        id: analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: ${{ matrix.shard }}
+        # Phase 1: dry-run — don't fail the workflow on findings.
+        # Phase 3: remove this line to enable blocking.
+        continue-on-error: true
+
+      - name: Upload CodeQL results summary
+        if: always()
+        run: |
+          echo "### CodeQL Scan: ${{ matrix.shard }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Status:** ${{ steps.analyze.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Language:** ${{ matrix.languages }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Mode:** dry-run (non-blocking)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "View findings in the [Security tab](https://github.com/${{ github.repository }}/security/code-scanning)" >> $GITHUB_STEP_SUMMARY

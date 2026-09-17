@@ -1,0 +1,937 @@
+# -*- coding: utf-8 -*-
+"""SSE envelope state machine.
+
+Translates agentscope ``EventType`` events into the frontend's
+streaming envelope protocol.  Tracks per-request state (text blocks,
+reasoning blocks, tool calls) and emits the correct event sequence
+that ``Builder.tsx`` expects.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from functools import wraps
+from typing import Any, AsyncGenerator, Callable, Dict
+
+from .message_convert import _media_type_to_block_type
+
+logger = logging.getLogger(__name__)
+
+
+def _gen_msg_id() -> str:
+    return "msg_" + uuid.uuid4().hex
+
+
+@dataclass(frozen=True)
+class _EventMetadataExcludedOutput:
+    """An output that must not inherit metadata from the current event."""
+
+    output: Any
+
+
+def _with_event_metadata(obj: Any, event: Any) -> Any:
+    """Return a real-time output carrying its source event metadata.
+
+    Envelope state objects are reused when a message is completed and later
+    embedded in ``AgentResponse.output``. Attach metadata to a shallow output
+    copy so event-scoped extension data cannot leak into those durable
+    objects. Empty metadata follows the exact legacy path.
+    """
+    event_metadata = getattr(event, "metadata", None)
+    if not isinstance(event_metadata, dict) or not event_metadata:
+        return obj
+
+    output_metadata = dict(event_metadata)
+    host_metadata = getattr(obj, "metadata", None)
+    if isinstance(host_metadata, dict):
+        # Host-owned metadata wins on conflicts with extension metadata.
+        output_metadata.update(host_metadata)
+
+    return obj.model_copy(
+        update={"metadata": output_metadata},
+        deep=False,
+    )
+
+
+_EventTranslator = Callable[[Any, Any], AsyncGenerator[Any, None]]
+
+
+def _propagate_event_metadata(
+    translator: _EventTranslator,
+) -> _EventTranslator:
+    """Decorate event outputs with metadata from their source event."""
+
+    @wraps(translator)
+    async def wrapped(
+        envelope: Any,
+        event: Any,
+    ) -> AsyncGenerator[Any, None]:
+        async for output in translator(envelope, event):
+            if isinstance(output, _EventMetadataExcludedOutput):
+                yield output.output
+                continue
+
+            yield _with_event_metadata(output, event)
+
+    return wrapped
+
+
+class Envelope:
+    """SSE envelope generation + state machine.
+
+    One instance per ``Runtime.run()`` invocation.  Methods are async
+    generators that yield schema objects (``AgentResponse``, ``Message``,
+    ``TextContent``, ``DataContent``) identical to what the legacy
+    ``stream_query`` produced.
+    """
+
+    def __init__(self, session_id: str = "") -> None:
+        from ..schemas import (
+            AgentResponse,
+            Message,
+            MessageType,
+            Role,
+            RunStatus,
+        )
+
+        self._response = AgentResponse(output=[], status=RunStatus.Created)
+        self._response.object = "response"
+        self._response.id = "response_" + uuid.uuid4().hex
+        self._response.created_at = datetime.now(timezone.utc).isoformat(
+            timespec="seconds",
+        )
+        self._response.session_id = session_id
+
+        self._message_id = _gen_msg_id()
+        self._completed_message = Message(
+            id=self._message_id,
+            type=MessageType.MESSAGE,
+            role=Role.ASSISTANT,
+            content=[],
+            status=RunStatus.InProgress,
+        )
+        self._completed_message.name = "assistant"
+        self._completed_message.object = "message"
+        self._message_started = False
+
+        self._text_blocks: Dict[str, Dict[str, Any]] = {}
+        self._reasoning_blocks: Dict[str, Dict[str, Any]] = {}
+        self._tool_calls: Dict[str, Dict[str, Any]] = {}
+        self._data_blocks: Dict[str, Dict[str, Any]] = {}
+
+        self._seq_counter = 0
+
+        self._error_text: str | None = None
+        self._error_code: str = "error"
+        self._finalized = False
+
+    # ------------------------------------------------------------------
+    # Sequence number helper
+    # ------------------------------------------------------------------
+
+    def _next_seq(self) -> int:
+        self._seq_counter += 1
+        return self._seq_counter
+
+    def _tag_seq(self, obj: Any) -> Any:
+        obj.sequence_number = self._next_seq()
+        return obj
+
+    # ------------------------------------------------------------------
+    # Response lifecycle
+    # ------------------------------------------------------------------
+
+    async def emit_response_created(self) -> AsyncGenerator[Any, None]:
+        from ..schemas import RunStatus
+
+        self._response.status = RunStatus.Created
+        yield self._tag_seq(self._response)
+        self._response.status = RunStatus.InProgress
+        yield self._tag_seq(self._response)
+
+    # ------------------------------------------------------------------
+    # Text message finalize helper
+    # ------------------------------------------------------------------
+
+    def _should_finalize_text_message(self) -> bool:
+        return (
+            self._message_started and len(self._completed_message.content) > 0
+        )
+
+    async def _finalize_text_message(self) -> AsyncGenerator[Any, None]:
+        """Finalize the current text message before a tool call starts."""
+        from ..schemas import RunStatus
+
+        self._completed_message.status = RunStatus.Completed
+        self._response.output.append(self._completed_message)
+        yield self._tag_seq(self._completed_message)
+
+        self._message_id = _gen_msg_id()
+        from ..schemas import Message, MessageType, Role
+
+        self._completed_message = Message(
+            id=self._message_id,
+            type=MessageType.MESSAGE,
+            role=Role.ASSISTANT,
+            content=[],
+            status=RunStatus.InProgress,
+        )
+        self._completed_message.name = "assistant"
+        self._completed_message.object = "message"
+        self._message_started = False
+        self._text_blocks = {}
+
+    # ------------------------------------------------------------------
+    # Event translation
+    # ------------------------------------------------------------------
+
+    # pylint: disable=too-many-return-statements
+    # pylint: disable=too-many-branches,too-many-statements
+    @_propagate_event_metadata
+    async def translate_event(  # noqa: C901, PLR0912, PLR0915
+        self,
+        event: Any,
+    ) -> AsyncGenerator[Any, None]:
+        """Translate an AgentScope event into real-time Host objects."""
+        from agentscope.event import EventType
+        from ..schemas import (
+            ContentType,
+            DataContent,
+            FunctionCall,
+            FunctionCallOutput,
+            ImageContent,
+            AudioContent,
+            VideoContent,
+            Message,
+            MessageType,
+            Role,
+            RunStatus,
+            TextContent,
+        )
+
+        evt_type = getattr(event, "type", None)
+        if hasattr(evt_type, "value"):
+            evt_type = evt_type.value
+
+        # === TEXT BLOCK ===
+        if evt_type == EventType.TEXT_BLOCK_START.value:
+            if not self._message_started:
+                yield self._tag_seq(self._completed_message)
+                self._message_started = True
+            block_id = event.block_id
+            index = len(self._text_blocks)
+            self._text_blocks[block_id] = {"index": index, "text": ""}
+
+        elif evt_type == EventType.TEXT_BLOCK_DELTA.value:
+            if not self._message_started:
+                yield self._tag_seq(self._completed_message)
+                self._message_started = True
+            block_id = event.block_id
+            delta = event.delta or ""
+            state = self._text_blocks.setdefault(
+                block_id,
+                {"index": len(self._text_blocks), "text": ""},
+            )
+            state["text"] += delta
+            chunk = TextContent(
+                type=ContentType.TEXT,
+                text=delta,
+                delta=True,
+                index=state["index"],
+            )
+            chunk.msg_id = self._message_id
+            yield self._tag_seq(chunk)
+
+        elif evt_type == EventType.TEXT_BLOCK_END.value:
+            block_id = event.block_id
+            state = self._text_blocks.get(block_id)
+            if state is None:
+                return
+            final_chunk = TextContent(
+                type=ContentType.TEXT,
+                text=state["text"],
+                delta=False,
+                index=state["index"],
+            )
+            final_chunk.msg_id = self._message_id
+            yield self._tag_seq(final_chunk)
+            self._completed_message.content.append(
+                TextContent(
+                    type=ContentType.TEXT,
+                    text=state["text"],
+                    delta=False,
+                    index=state["index"],
+                ),
+            )
+
+        # === THINKING BLOCK ===
+        elif evt_type == EventType.THINKING_BLOCK_START.value:
+            # A new reasoning block marks the start of a fresh ReAct
+            # iteration.  Finalize any accumulated (not-yet-rotated) text
+            # message first so it becomes its own ``output`` entry ordered
+            # *before* this reasoning block.  Without this, goal/loop
+            # iterations that emit reasoning + text with no intervening tool
+            # call keep merging every answer into the first message (whose
+            # position in ``output`` is fixed at first emit) while each later
+            # reasoning block is appended to the end — so the "Thinking"
+            # bubbles pile up below the answer instead of interleaving.
+            if self._should_finalize_text_message():
+                async for obj in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(obj)
+            block_id = event.block_id
+            r_msg_id = _gen_msg_id()
+            r_envelope = Message(
+                id=r_msg_id,
+                type=MessageType.REASONING,
+                role=Role.ASSISTANT,
+                content=[],
+                status=RunStatus.InProgress,
+            )
+            r_envelope.name = "assistant"
+            r_envelope.object = "message"
+            self._reasoning_blocks[block_id] = {
+                "msg_id": r_msg_id,
+                "envelope": r_envelope,
+                "text": "",
+            }
+            yield self._tag_seq(r_envelope)
+
+        elif evt_type == EventType.THINKING_BLOCK_DELTA.value:
+            block_id = event.block_id
+            delta = getattr(event, "delta", "") or ""
+            state = self._reasoning_blocks.get(block_id)
+            if state is None:
+                # Same rotation as THINKING_BLOCK_START: a reasoning block
+                # arriving without a START event still signals a new
+                # iteration, so finalize the pending text message first.
+                if self._should_finalize_text_message():
+                    async for obj in self._finalize_text_message():
+                        yield _EventMetadataExcludedOutput(obj)
+                r_msg_id = _gen_msg_id()
+                r_envelope = Message(
+                    id=r_msg_id,
+                    type=MessageType.REASONING,
+                    role=Role.ASSISTANT,
+                    content=[],
+                    status=RunStatus.InProgress,
+                )
+                r_envelope.name = "assistant"
+                r_envelope.object = "message"
+                state = {
+                    "msg_id": r_msg_id,
+                    "envelope": r_envelope,
+                    "text": "",
+                }
+                self._reasoning_blocks[block_id] = state
+                yield self._tag_seq(r_envelope)
+            state["text"] += delta
+            r_chunk = TextContent(
+                type=ContentType.TEXT,
+                text=delta,
+                delta=True,
+                index=0,
+            )
+            r_chunk.msg_id = state["msg_id"]
+            yield self._tag_seq(r_chunk)
+
+        elif evt_type == EventType.THINKING_BLOCK_END.value:
+            block_id = event.block_id
+            state = self._reasoning_blocks.get(block_id)
+            if state is None:
+                return
+            r_final = TextContent(
+                type=ContentType.TEXT,
+                text=state["text"],
+                delta=False,
+                index=0,
+            )
+            r_final.msg_id = state["msg_id"]
+            yield self._tag_seq(r_final)
+            state["envelope"].content.append(
+                TextContent(
+                    type=ContentType.TEXT,
+                    text=state["text"],
+                    delta=False,
+                    index=0,
+                ),
+            )
+            state["envelope"].status = RunStatus.Completed
+            self._response.output.append(state["envelope"])
+            yield self._tag_seq(state["envelope"])
+
+        # === TOOL CALL ===
+        elif evt_type == EventType.TOOL_CALL_START.value:
+            # P0-5: finalize current text message if needed
+            if self._should_finalize_text_message():
+                async for obj in self._finalize_text_message():
+                    yield _EventMetadataExcludedOutput(obj)
+
+            call_id = event.tool_call_id
+            msg_id = _gen_msg_id()
+            plugin_call_message = Message(
+                id=msg_id,
+                type=MessageType.PLUGIN_CALL,
+                role=Role.ASSISTANT,
+                content=[],
+                status=RunStatus.InProgress,
+            )
+            plugin_call_message.name = "assistant"
+            plugin_call_message.object = "message"
+
+            stub_content = DataContent(
+                type=ContentType.DATA,
+                data=FunctionCall(
+                    call_id=call_id,
+                    name=event.tool_call_name,
+                    arguments="",
+                ).model_dump(),
+                delta=True,
+                index=0,
+            )
+            stub_content.msg_id = msg_id
+
+            yield self._tag_seq(plugin_call_message.in_progress())
+            yield self._tag_seq(stub_content.in_progress())
+
+            self._tool_calls[call_id] = {
+                "name": event.tool_call_name,
+                "argument_fragments": [],
+                "message": plugin_call_message,
+                "output_text_acc": "",
+                "output_data_blocks": {},
+            }
+
+        elif evt_type == EventType.TOOL_CALL_DELTA.value:
+            call_id = event.tool_call_id
+            state = self._tool_calls.get(call_id)
+            if state is None:
+                return
+            argument_delta = event.delta or ""
+            state["argument_fragments"].append(argument_delta)
+
+            delta_content = DataContent(
+                type=ContentType.DATA,
+                # The frontend appends string fields from DATA deltas. Only
+                # send the incremental argument fragment here; repeating the
+                # call ID or name would concatenate those fields as well.
+                data=FunctionCall(
+                    arguments=argument_delta,
+                ).model_dump(exclude_none=True),
+                delta=True,
+                index=0,
+            )
+            delta_content.msg_id = state["message"].id
+            yield self._tag_seq(delta_content.in_progress())
+
+        elif evt_type == EventType.TOOL_CALL_END.value:
+            call_id = event.tool_call_id
+            state = self._tool_calls.get(call_id)
+            if state is None:
+                return
+            arguments = "".join(state.pop("argument_fragments", []))
+
+            final_content = DataContent(
+                type=ContentType.DATA,
+                data=FunctionCall(
+                    call_id=call_id,
+                    name=state["name"],
+                    arguments=arguments,
+                ).model_dump(),
+                delta=False,
+            )
+            state["message"].add_content(new_content=final_content)
+            yield self._tag_seq(final_content.completed())
+            self._response.output.append(state["message"])
+            yield self._tag_seq(state["message"].completed())
+
+        # === TOOL RESULT ===
+        elif evt_type == EventType.TOOL_RESULT_START.value:
+            call_id = event.tool_call_id
+            state = self._tool_calls.get(call_id)
+            if state is None:
+                state = {
+                    "name": event.tool_call_name,
+                    "argument_fragments": [],
+                    "output_text_acc": "",
+                    "output_data_blocks": {},
+                }
+                self._tool_calls[call_id] = state
+
+            out_msg_id = _gen_msg_id()
+            out_message = Message(
+                id=out_msg_id,
+                type=MessageType.PLUGIN_CALL_OUTPUT,
+                role=Role.TOOL,
+                content=[],
+                status=RunStatus.InProgress,
+            )
+            out_message.name = "assistant"
+            out_message.object = "message"
+
+            stub_content = DataContent(
+                type=ContentType.DATA,
+                data=FunctionCallOutput(
+                    call_id=call_id,
+                    name=state["name"],
+                    output="",
+                ).model_dump(),
+                delta=False,
+                index=0,
+            )
+            stub_content.msg_id = out_msg_id
+
+            yield self._tag_seq(out_message.in_progress())
+            yield self._tag_seq(stub_content.in_progress())
+
+            state["output_message"] = out_message
+            state["output_text_acc"] = ""
+            state["output_data_blocks"] = {}
+
+        elif evt_type == EventType.TOOL_RESULT_TEXT_DELTA.value:
+            call_id = event.tool_call_id
+            state = self._tool_calls.get(call_id)
+            if state is None:
+                return
+            state["output_text_acc"] += event.delta or ""
+
+            delta_content = self._build_tool_result_content(
+                call_id,
+                state,
+                ContentType,
+                FunctionCallOutput,
+            )
+            delta_content.msg_id = state["output_message"].id
+            yield self._tag_seq(delta_content.in_progress())
+
+        elif evt_type == EventType.TOOL_RESULT_DATA_DELTA.value:
+            call_id = event.tool_call_id
+            state = self._tool_calls.get(call_id)
+            if state is None:
+                return
+
+            block_id = event.block_id
+            media_type = getattr(event, "media_type", None)
+            block_type = _media_type_to_block_type(media_type)
+
+            blocks_dict: dict = state["output_data_blocks"]
+            url = getattr(event, "url", None)
+            b64 = getattr(event, "data", None)
+
+            if block_id in blocks_dict:
+                existing = blocks_dict[block_id]
+                if b64:
+                    existing["source"]["data"] = (
+                        existing["source"].get("data", "") + b64
+                    )
+            else:
+                source: dict[str, Any] = {}
+                if url:
+                    source = {
+                        "type": "url",
+                        "url": url,
+                        "media_type": media_type or "",
+                    }
+                elif b64:
+                    source = {
+                        "type": "base64",
+                        "data": b64,
+                        "media_type": media_type or "",
+                    }
+                blocks_dict[block_id] = {
+                    "type": block_type,
+                    "source": source,
+                }
+
+            delta_content = self._build_tool_result_content(
+                call_id,
+                state,
+                ContentType,
+                FunctionCallOutput,
+            )
+            delta_content.msg_id = state["output_message"].id
+            yield self._tag_seq(delta_content.in_progress())
+
+        elif evt_type == EventType.TOOL_RESULT_END.value:
+            call_id = event.tool_call_id
+            state = self._tool_calls.get(call_id)
+            if state is None:
+                return
+
+            tool_state = getattr(event, "state", None)
+            if hasattr(tool_state, "value"):
+                tool_state = tool_state.value
+
+            final_content = self._build_tool_result_content(
+                call_id,
+                state,
+                ContentType,
+                FunctionCallOutput,
+                tool_state=tool_state,
+            )
+
+            out_message = state.get("output_message")
+            if out_message is None:
+                out_message = Message(
+                    id=_gen_msg_id(),
+                    type=MessageType.PLUGIN_CALL_OUTPUT,
+                    role=Role.TOOL,
+                    content=[],
+                    status=RunStatus.InProgress,
+                )
+                out_message.name = "assistant"
+                out_message.object = "message"
+
+            out_message.add_content(new_content=final_content)
+            yield self._tag_seq(final_content.completed())
+            self._response.output.append(out_message)
+            yield self._tag_seq(out_message.completed())
+
+        # === DATA BLOCK ===
+        elif evt_type == EventType.DATA_BLOCK_START.value:
+            block_id = event.block_id
+            media_type = getattr(event, "media_type", "")
+
+            if not self._message_started:
+                yield self._tag_seq(self._completed_message)
+                self._message_started = True
+
+            self._data_blocks[block_id] = {
+                "media_type": media_type,
+                "data_acc": "",
+            }
+
+        elif evt_type == EventType.DATA_BLOCK_DELTA.value:
+            block_id = event.block_id
+            state = self._data_blocks.get(block_id)
+            if state is None:
+                return
+            state["data_acc"] += event.data or ""
+            # No intermediate yield: partial base64 cannot be decoded or
+            # rendered by the frontend.  Content is emitted once on
+            # DATA_BLOCK_END with the complete payload.
+
+        elif evt_type == EventType.DATA_BLOCK_END.value:
+            block_id = event.block_id
+            state = self._data_blocks.get(block_id)
+            if state is None:
+                return
+
+            media_type = state["media_type"]
+            b64_data = state["data_acc"]
+            major = (media_type.split("/", 1)[0]) if media_type else ""
+            index = len(self._completed_message.content)
+
+            if major == "audio":
+                fmt = media_type.split("/", 1)[1] if "/" in media_type else ""
+                content_block = AudioContent(
+                    type=ContentType.AUDIO,
+                    data=b64_data,
+                    format=fmt,
+                    delta=False,
+                    index=index,
+                )
+            elif major == "video":
+                video_uri = f"data:{media_type};base64,{b64_data}"
+                content_block = VideoContent(
+                    type=ContentType.VIDEO,
+                    video_url=video_uri,
+                    delta=False,
+                    index=index,
+                )
+            else:
+                data_uri = f"data:{media_type};base64,{b64_data}"
+                content_block = ImageContent(
+                    type=ContentType.IMAGE,
+                    image_url=data_uri,
+                    delta=False,
+                    index=index,
+                )
+
+            content_block.msg_id = self._message_id
+            self._completed_message.content.append(content_block)
+            yield self._tag_seq(content_block)
+
+        # === MODEL_CALL_END ===
+        elif evt_type == EventType.MODEL_CALL_END.value:
+            input_tokens = getattr(event, "input_tokens", 0)
+            output_tokens = getattr(event, "output_tokens", 0)
+            usage = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+            }
+            self._response.usage = usage
+            if self._message_started:
+                self._completed_message.usage = usage
+
+        # === EXCEED_MAX_ITERS ===
+        elif evt_type == EventType.EXCEED_MAX_ITERS.value:
+            agent_name = getattr(event, "name", "agent")
+            err_msg_id = _gen_msg_id()
+            err_message = Message(
+                id=err_msg_id,
+                type=MessageType.MESSAGE,
+                role=Role.ASSISTANT,
+                content=[],
+                status=RunStatus.InProgress,
+            )
+            err_message.name = "assistant"
+            err_message.object = "message"
+            yield self._tag_seq(err_message)
+
+            err_text = TextContent(
+                type=ContentType.TEXT,
+                text=(
+                    f"[Warning] Agent '{agent_name}' has reached "
+                    f"the maximum number of iterations."
+                ),
+                delta=False,
+                index=0,
+            )
+            err_text.msg_id = err_msg_id
+            yield self._tag_seq(err_text)
+
+            err_message.content.append(err_text)
+            err_message.status = RunStatus.Completed
+            self._response.output.append(err_message)
+            yield self._tag_seq(err_message)
+
+        # === HINT_BLOCK (P2-2: warn and drop) ===
+        # ``EventType.HINT_BLOCK`` does not exist in every agentscope version;
+        # guard the lookup so an unmatched event falls through to a no-op
+        # instead of raising AttributeError and killing the whole turn.
+        elif (_hb := getattr(EventType, "HINT_BLOCK", None)) is not None and (
+            evt_type == _hb.value
+        ):
+            source = getattr(event, "source", None) or ""
+            logger.warning(
+                "HintBlockEvent received but not rendered: "
+                "block_id=%s source=%s",
+                getattr(event, "block_id", "?"),
+                source,
+            )
+
+    # ------------------------------------------------------------------
+    # Tool result content builder
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _build_tool_result_content(
+        call_id: str,
+        state: Dict[str, Any],
+        ContentType: Any,
+        FunctionCallOutput: Any,
+        tool_state: Any = None,
+    ) -> Any:
+        from ..schemas import DataContent
+
+        blocks_dict: dict = state.get("output_data_blocks", {})
+        text_acc: str = state.get("output_text_acc", "")
+
+        if blocks_dict:
+            output_blocks: list[dict[str, Any]] = list(
+                blocks_dict.values(),
+            )
+            if text_acc:
+                output_blocks.append({"type": "text", "text": text_acc})
+            tool_output: Any = json.dumps(
+                output_blocks,
+                ensure_ascii=False,
+            )
+        else:
+            tool_output = text_acc
+
+        data_dict = FunctionCallOutput(
+            call_id=call_id,
+            name=state["name"],
+            output=tool_output,
+        ).model_dump()
+        if tool_state is not None:
+            data_dict["state"] = tool_state
+
+        return DataContent(
+            type=ContentType.DATA,
+            data=data_dict,
+            delta=False,
+            index=0,
+        )
+
+    # ------------------------------------------------------------------
+    # Heartbeat
+    # ------------------------------------------------------------------
+
+    async def heartbeat(self) -> AsyncGenerator[Any, None]:
+        yield self._tag_seq(self._response)
+
+    # ------------------------------------------------------------------
+    # Command short-circuit
+    # ------------------------------------------------------------------
+
+    async def from_msg(self, cmd_msg: Any) -> AsyncGenerator[Any, None]:
+        """Translate a completed ``Msg`` from a slash
+        command into a full envelope sequence.
+        """
+        from ..schemas import ContentType, RunStatus, TextContent
+
+        cmd_text = cmd_msg.get_text_content() or ""
+
+        if not self._message_started:
+            yield self._tag_seq(self._completed_message)
+            self._message_started = True
+
+        tc = TextContent(
+            type=ContentType.TEXT,
+            text=cmd_text,
+            delta=False,
+            index=0,
+        )
+        tc.msg_id = self._message_id
+        yield self._tag_seq(tc)
+
+        self._completed_message.content.append(tc)
+        self._completed_message.status = RunStatus.Completed
+        self._completed_message.metadata = (
+            getattr(cmd_msg, "metadata", None) or {}
+        )
+        self._response.output.append(self._completed_message)
+        yield self._tag_seq(self._completed_message)
+
+        self._response.status = RunStatus.Completed
+        self._response.completed_at = datetime.now(timezone.utc).isoformat(
+            timespec="seconds",
+        )
+        yield self._tag_seq(self._response)
+        self._finalized = True
+
+    # ------------------------------------------------------------------
+    # Error / Cancel
+    # ------------------------------------------------------------------
+
+    async def error_envelope(
+        self,
+        error_text: str,
+        error_code: str = "error",
+    ) -> AsyncGenerator[Any, None]:
+        self._error_text = error_text
+        self._error_code = error_code
+        async for obj in self._finalize_response():
+            yield obj
+
+    async def cancel_envelope(self) -> AsyncGenerator[Any, None]:
+        async for obj in self._finalize_response():
+            yield obj
+
+    # ------------------------------------------------------------------
+    # Finalize
+    # ------------------------------------------------------------------
+
+    async def finalize(self) -> AsyncGenerator[Any, None]:
+        if self._finalized:
+            return
+        async for obj in self._finalize_response():
+            yield obj
+
+    async def _finalize_response(self) -> AsyncGenerator[Any, None]:
+        from ..schemas import ContentType, RunStatus, TextContent
+
+        if self._finalized:
+            return
+
+        if self._message_started:
+            # Back-fill any partially accumulated text blocks that were
+            # not finalized (TEXT_BLOCK_END never fired, e.g. on cancel).
+            if not self._completed_message.content:
+                for state in self._text_blocks.values():
+                    text = state.get("text", "")
+                    if text:
+                        self._completed_message.content.append(
+                            TextContent(
+                                type=ContentType.TEXT,
+                                text=text,
+                                delta=False,
+                                index=state.get("index", 0),
+                            ),
+                        )
+
+            if self._completed_message.content:
+                self._completed_message.status = RunStatus.Completed
+                self._response.output.append(self._completed_message)
+                yield self._tag_seq(self._completed_message)
+
+        if self._error_text:
+            self._response.status = RunStatus.Failed
+            self._response.error = {
+                "code": self._error_code,
+                "message": self._error_text,
+            }
+        else:
+            self._response.status = RunStatus.Completed
+        self._response.completed_at = datetime.now(timezone.utc).isoformat(
+            timespec="seconds",
+        )
+        yield self._tag_seq(self._response)
+        self._finalized = True
+
+    # ------------------------------------------------------------------
+    # Partial content extraction (used by cancel-save)
+    # ------------------------------------------------------------------
+
+    def collect_partial_blocks(self) -> list[tuple[str, str]]:
+        """Return ``(block_type, content)`` tuples for streaming content
+        accumulated in this envelope that has **not** been finalized.
+
+        * ``("thinking", text)`` — from reasoning blocks whose envelope
+          status is still ``InProgress`` (i.e. the interrupted iteration).
+        * ``("text", text)`` — from text blocks (reset on every tool-call
+          start, so they belong to the current iteration only).
+
+        This is a public-API entry point so that callers (e.g.
+        ``Runtime._try_save_on_cancel``) do not need to reach into
+        private state.
+        """
+        from ..schemas import RunStatus
+
+        result: list[tuple[str, str]] = []
+
+        for state in self._reasoning_blocks.values():
+            env = state.get("envelope")
+            if env is not None and env.status == RunStatus.Completed:
+                continue
+            text = state.get("text", "")
+            if text:
+                result.append(("thinking", text))
+
+        for state in self._text_blocks.values():
+            text = state.get("text", "")
+            if text:
+                result.append(("text", text))
+
+        return result
+
+    def collect_tool_output(self) -> dict[str, str]:
+        """Return ``{call_id: accumulated_output}`` for tool calls that
+        received partial results before the stream was interrupted.
+
+        Only includes entries where ``output_text_acc`` is non-empty.
+        """
+        result: dict[str, str] = {}
+        for call_id, state in self._tool_calls.items():
+            output = state.get("output_text_acc", "")
+            if output:
+                result[call_id] = output
+        return result
+
+    @property
+    def response(self) -> Any:
+        return self._response
+
+    @property
+    def agent_ref(self) -> Any:
+        """Access point for the agent reference used in session save."""
+        return None
+
+
+__all__ = ["Envelope"]

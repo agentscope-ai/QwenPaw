@@ -10,6 +10,7 @@ Covers:
 """
 # pylint: disable=redefined-outer-name
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,9 +37,9 @@ def hook(working_dir):
 
 @pytest.fixture
 def mock_agent():
-    """Create a mock agent with async memory.get_memory."""
+    """Create a mock agent with state.context."""
     agent = MagicMock()
-    agent.memory.get_memory = AsyncMock(return_value=[])
+    agent.state = SimpleNamespace(context=[])
     return agent
 
 
@@ -86,7 +87,7 @@ class TestBootstrapHookCallEarlyExit:
         (hook.working_dir / ".bootstrap_completed").touch()
         result = await hook(mock_agent, {})
         assert result is None
-        mock_agent.memory.get_memory.assert_not_called()
+        assert mock_agent.state.context == []
 
     async def test_returns_none_when_bootstrap_md_missing(
         self,
@@ -96,7 +97,6 @@ class TestBootstrapHookCallEarlyExit:
         """No BOOTSTRAP.md → skip entirely."""
         result = await hook(mock_agent, {})
         assert result is None
-        mock_agent.memory.get_memory.assert_not_called()
 
     async def test_returns_none_when_not_first_interaction(
         self,
@@ -133,9 +133,7 @@ class TestBootstrapHookCallHappyPath:
     ):
         (hook.working_dir / "BOOTSTRAP.md").write_text("# Bootstrap")
         user_msg = self._user_msg()
-        mock_agent.memory.get_memory = AsyncMock(
-            return_value=[user_msg],
-        )
+        mock_agent.state.context = [user_msg]
 
         with patch(
             "qwenpaw.agents.hooks.bootstrap.is_first_user_interaction",
@@ -159,9 +157,7 @@ class TestBootstrapHookCallHappyPath:
     ):
         (hook.working_dir / "BOOTSTRAP.md").write_text("# Bootstrap")
         user_msg = self._user_msg()
-        mock_agent.memory.get_memory = AsyncMock(
-            return_value=[user_msg],
-        )
+        mock_agent.state.context = [user_msg]
 
         with patch(
             "qwenpaw.agents.hooks.bootstrap.is_first_user_interaction",
@@ -187,9 +183,7 @@ class TestBootstrapHookCallHappyPath:
         sys_msg = MagicMock()
         sys_msg.role = "system"
         user_msg = self._user_msg()
-        mock_agent.memory.get_memory = AsyncMock(
-            return_value=[sys_msg, user_msg],
-        )
+        mock_agent.state.context = [sys_msg, user_msg]
 
         with patch(
             "qwenpaw.agents.hooks.bootstrap.is_first_user_interaction",
@@ -242,8 +236,8 @@ class TestBootstrapHookCallException:
         mock_agent,
     ):
         (hook.working_dir / "BOOTSTRAP.md").write_text("# Bootstrap")
-        mock_agent.memory.get_memory = AsyncMock(
-            side_effect=RuntimeError("memory error"),
+        mock_agent.state = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("state error")),
         )
         result = await hook(mock_agent, {})
         assert result is None

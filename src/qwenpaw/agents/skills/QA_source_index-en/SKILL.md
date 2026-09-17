@@ -2,7 +2,7 @@
 name: QA_source_index
 description: "Maps topics and keywords from user questions to QwenPaw official documentation paths and common source code entry points, reducing blind searching. Intended for the built-in QA Agent to quickly identify which files to read when answering questions about installation, configuration, skills, MCP, multi-agent, memory, CLI, etc."
 metadata:
-  builtin_skill_version: "1.2"
+  builtin_skill_version: "1.3"
   qwenpaw:
     emoji: "🗂️"
     requires: {}
@@ -16,15 +16,16 @@ When answering questions about **installation, configuration, or behavioral prin
 
 1. Extract the topic from the user's question (match against the left column or synonyms in the table below).
 2. Resolve **`$QWENPAW_ROOT`**: use `which qwenpaw` to get the executable path. If it is `…/.qwenpaw/bin/qwenpaw`, the source root is three levels up (consistent with the **guidance** skill); otherwise, determine it from the user-provided installation path.
-3. **Read documentation first**: `website/public/docs/<topic>.<language>.md` (use the same language as the user: `zh` / `en` / `ru`, etc.). If that is insufficient, read the **source entry points** listed in the table.
+3. Resolve **`$DOCS_DIR`** first (cross-install compatible): run `python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')" 2>/dev/null`. If it returns a valid path, use it directly. Otherwise, fallback to `$QWENPAW_ROOT/website/public/docs/`.
+4. **Read documentation first**: `$DOCS_DIR/<topic>.<language>.md` (use the same language as the user: `zh` / `en`.). If that is insufficient, read the **source entry points** listed in the table.
 
 ## Topic / Keywords → Preferred Documentation and Source Code
 
-| Topic or Keywords (examples) | Preferred Documentation (`website/public/docs/`) | Common Source Entry Points (relative to `$QWENPAW_ROOT`) |
+| Topic or Keywords (examples) | Preferred Documentation (`$DOCS_DIR/`) | Common Source Entry Points (relative to `$QWENPAW_ROOT`) |
 |---------------------|-----------------------------------|-----------------------------------|
 | Installation, dependencies, getting started | `quickstart`, `intro` | `src/qwenpaw/cli/`, `pyproject.toml` |
 | Configuration, config.json, environment variables | `config` | `src/qwenpaw/config/config.py`, `src/qwenpaw/constant.py` |
-| Skills, SKILL, skill_pool, built-in skills | `skills` | `src/qwenpaw/agents/skills_manager.py`, `src/qwenpaw/agents/skills/` |
+| Skills, SKILL, skill_pool, built-in skills | `skills` | `src/qwenpaw/agents/skill_system/`, `src/qwenpaw/agents/skills/` |
 | MCP, plugins | `mcp` | `src/qwenpaw/app/routers/` (grep `mcp` as needed) |
 | Multi-agent, workspace, agent, built-in QA | `multi-agent` | `src/qwenpaw/app/routers/agents.py`, `src/qwenpaw/app/migration.py`, `src/qwenpaw/constant.py` (`BUILTIN_QA_AGENT_ID`, etc.) |
 | Memory, MEMORY, memory_search | `memory` | `src/qwenpaw/agents/memory/memory_manager.py`, `src/qwenpaw/agents/tools/memory_search.py` |
@@ -41,7 +42,7 @@ When answering questions about **installation, configuration, or behavioral prin
 
 ## Conventions
 
-- Full documentation path: `$QWENPAW_ROOT/website/public/docs/<topic>.<language>.md` (fall back to `.en.md` if the corresponding language file does not exist).
+- Full documentation path: `$DOCS_DIR/<topic>.<language>.md` (fall back to `.en.md` if the corresponding language file does not exist). Prefer `DOCS_DIR` from `qwenpaw.constant`; fallback to `$QWENPAW_ROOT/website/public/docs/`.
 - The **source entry points** in the table are starting points; use `read_file` or targeted `grep` to narrow down to specific symbols — do not read through an entire large directory listing at once.
 
 ## Notes

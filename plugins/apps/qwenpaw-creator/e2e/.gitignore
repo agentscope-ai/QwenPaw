@@ -1,0 +1,5 @@
+# E2E 运行产出（真实成片/截图/图片等二进制），不入库
+reports/artifacts/
+reports/screenshots/
+reports/*.html
+reports/*.webm

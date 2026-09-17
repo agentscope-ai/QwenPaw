@@ -46,11 +46,11 @@ export function SkillsToolbar({
           value={searchTags}
           onChange={onTagsChange}
           open={filterOpen}
-          onDropdownVisibleChange={onFilterOpenChange}
+          onOpenChange={onFilterOpenChange}
           allowClear
           maxTagCount="responsive"
           notFoundContent={<></>}
-          dropdownRender={() =>
+          popupRender={() =>
             allTags.length > 0 ? (
               <SkillFilterDropdown
                 allTags={allTags}

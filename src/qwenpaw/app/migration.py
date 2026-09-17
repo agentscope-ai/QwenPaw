@@ -19,6 +19,7 @@ from ..config.config import (
     AgentsConfig,
     AgentsLLMRoutingConfig,
     AgentsRunningConfig,
+    load_agent_config,
     save_agent_config,
 )
 from ..constant import (
@@ -76,6 +77,35 @@ def migrate_legacy_workspace_to_default_agent() -> bool:
             "verify that all SKILL.md files have valid YAML frontmatter.",
             exc_info=True,
         )
+        return False
+
+
+def migrate_legacy_memory_to_public_scopes() -> bool:
+    """登记旧 Agent 记忆为公共作用域，失败时不阻断应用启动。"""
+    try:
+        from ..migrations.memory_scope_migration import (
+            migrate_legacy_memory_scopes,
+        )
+
+        config = load_config()
+        result = migrate_legacy_memory_scopes(
+            working_dir=Path(WORKING_DIR).expanduser(),
+            agent_workspaces={
+                agent_id: Path(reference.workspace_dir).expanduser()
+                for agent_id, reference in config.agents.profiles.items()
+            },
+            load_agent=load_agent_config,
+            save_agent=save_agent_config,
+        )
+        if result.changed:
+            logger.info(
+                "Registered legacy public memory for %d agents (%d files)",
+                result.registered_agents,
+                result.registered_files,
+            )
+        return result.changed
+    except Exception:
+        logger.exception("Legacy public memory registration failed")
         return False
 
 
@@ -340,15 +370,15 @@ def _do_migrate_legacy_skills() -> bool:
     """Internal implementation of legacy skills migration."""
     from datetime import datetime, timezone
 
-    from ..agents.skills_manager import (
-        _copy_skill_dir,
-        _default_workspace_manifest,
-        _mutate_json,
-        ensure_skill_pool_initialized,
+    from ..agents.skill_system import ensure_skill_pool_initialized
+    from ..agents.skill_system.registry import reconcile_workspace_manifest
+    from ..agents.skill_system.store import (
+        copy_skill_dir,
+        default_workspace_manifest,
         get_pool_skill_manifest_path,
         get_workspace_skill_manifest_path,
         get_workspace_skills_dir,
-        reconcile_workspace_manifest,
+        mutate_json,
     )
 
     import hashlib
@@ -420,7 +450,7 @@ def _do_migrate_legacy_skills() -> bool:
                 target_dir,
             )
             return False
-        _copy_skill_dir(source_dir, target_dir)
+        copy_skill_dir(source_dir, target_dir)
         return True
 
     # --- Phase 1: Initialize pool ---
@@ -613,9 +643,9 @@ def _do_migrate_legacy_skills() -> bool:
                     changed += 1
             return changed
 
-        _mutate_json(
+        mutate_json(
             get_workspace_skill_manifest_path(workspace_dir),
-            _default_workspace_manifest(),
+            default_workspace_manifest(),
             _update,
         )
 

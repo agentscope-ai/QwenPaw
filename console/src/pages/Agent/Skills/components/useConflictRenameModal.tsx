@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useSkillScope } from "@/api/skillScope";
+import { useEffect, useRef, useState } from "react";
 import { Input, Modal } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 
@@ -19,6 +20,24 @@ export function useConflictRenameModal(): {
   conflictRenameModal: React.ReactNode;
 } {
   const { t } = useTranslation();
+  const scope = useSkillScope();
+  const pending = useRef<
+    ((result: Record<string, string> | null) => void) | null
+  >(null);
+  useEffect(() => {
+    const cancel = () => {
+      pending.current?.(null);
+      pending.current = null;
+      setItems([]);
+      setResolver(null);
+    };
+    scope.signal.addEventListener("abort", cancel);
+    return () => {
+      scope.signal.removeEventListener("abort", cancel);
+      pending.current?.(null);
+      pending.current = null;
+    };
+  }, [scope]);
   const [items, setItems] = useState<InternalItem[]>([]);
   const [resolver, setResolver] = useState<
     ((result: Record<string, string> | null) => void) | null
@@ -28,6 +47,11 @@ export function useConflictRenameModal(): {
     incoming: ConflictItem[],
   ): Promise<Record<string, string> | null> =>
     new Promise((resolve) => {
+      if (!scope.current()) {
+        resolve(null);
+        return;
+      }
+      pending.current = resolve;
       setItems(
         incoming.map((item) => ({ ...item, new_name: item.suggested_name })),
       );
@@ -41,13 +65,15 @@ export function useConflictRenameModal(): {
         renameMap[item.key] = item.new_name.trim();
       }
     }
-    resolver?.(renameMap);
+    resolver?.(scope.current() ? renameMap : null);
+    pending.current = null;
     setItems([]);
     setResolver(null);
   };
 
   const handleCancel = () => {
     resolver?.(null);
+    pending.current = null;
     setItems([]);
     setResolver(null);
   };

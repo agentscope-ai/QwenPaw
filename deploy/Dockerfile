@@ -1,15 +1,22 @@
+# Base images — override with --build-arg for environments without ACR access.
+ARG NODE_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
+ARG UV_IMAGE=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest
+
 # -----------------------------------------------------------------------------
 # Stage 1: build console frontend (dist not committed in repo).
 # -----------------------------------------------------------------------------
-FROM agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim AS console-builder
+FROM ${NODE_IMAGE} AS console-builder
 WORKDIR /app
 COPY console /app/console
 RUN cd /app/console && npm ci --include=dev && npm run build
 
+# Alias for uv binary so COPY --from can reference a build-arg image.
+FROM ${UV_IMAGE} AS uv-src
+
 # -----------------------------------------------------------------------------
 # Stage 2: runtime image with Python, Chromium, and app.
 # -----------------------------------------------------------------------------
-FROM agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/node:slim
+FROM ${NODE_IMAGE}
 
 # ENV variables
 ENV NODE_ENV=production
@@ -85,14 +92,15 @@ ENV PATH="/app/venv/bin:$PATH"
 
 COPY pyproject.toml setup.py README.md ./
 COPY src ./src
+COPY website/public/docs/ ./src/qwenpaw/docs/
 # Inject console dist from build stage (repo does not commit dist).
 COPY --from=console-builder /app/console/dist/ ./src/qwenpaw/console/
 # Speed up Python package installation with uv.
-COPY --from=agentscope-registry.ap-southeast-1.cr.aliyuncs.com/agentscope/uv:latest /uv /bin/uv
+COPY --from=uv-src /uv /bin/uv
 RUN uv pip install --no-cache-dir . && rm -rf ./build
 
 
-# QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
+# WeldonAgent app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.
 ENV QWENPAW_PORT=8088
 
 COPY deploy/config/supervisord.conf.template /etc/supervisor/conf.d/supervisord.conf.template

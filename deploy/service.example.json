@@ -1,0 +1,21 @@
+{
+  "python": "D:/Apps/WeldonAgent/.venv/Scripts/python.exe",
+  "project_dir": "D:/Apps/WeldonAgent",
+  "host": "127.0.0.1",
+  "port": 18089,
+  "timeout": 120,
+  "working_dir": "C:/ProgramData/WeldonAgent/working",
+  "secret_dir": "C:/ProgramData/WeldonAgent/secrets",
+  "backup_dir": "C:/ProgramData/WeldonAgent/backups",
+  "state_dir": "C:/ProgramData/WeldonAgent/run",
+  "log_dir": "C:/ProgramData/WeldonAgent/logs",
+  "environment": {
+    "QWENPAW_MULTI_USER_ENABLED": "true",
+    "QWENPAW_STORAGE_MODE": "postgres",
+    "QWENPAW_DATABASE_URL": "postgresql://qwenpaw:CHANGE_ME@127.0.0.1:5432/qwenpaw",
+    "QWENPAW_DATABASE_SCHEMA": "qwenpaw",
+    "QWENPAW_CUTOVER_VALIDATED_DOMAINS": "",
+    "QWENPAW_CUTOVER_LEGACY_FROZEN_DOMAINS": "",
+    "QWENPAW_CUTOVER_POSTGRES_WRITES_DOMAINS": ""
+  }
+}

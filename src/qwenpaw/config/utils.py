@@ -5,10 +5,12 @@ import json
 import logging
 import os
 import plistlib
+import shlex
 import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import uuid
 from pathlib import Path
@@ -33,6 +35,7 @@ from .config import (
     LastApiConfig,
     LastDispatchConfig,
     load_agent_config,
+    migrate_channel_display_fields,
     save_agent_config,
 )
 
@@ -41,12 +44,12 @@ logger = logging.getLogger(__name__)
 # Config cache with mtime tracking for reducing disk IO
 _config_cache: Optional[Config] = None
 _config_mtime: Optional[float] = None
-_config_lock = threading.Lock()
+_config_lock = threading.RLock()
 
 # Agent config cache: {agent_id: (config, mtime)}
 # Using Any for forward reference to AgentProfileConfig
 _agent_config_cache: dict[str, tuple[Any, float]] = {}
-_agent_config_lock = threading.Lock()
+_agent_config_lock = threading.RLock()
 
 
 def _normalize_working_dir_bound_paths(data: object) -> object:
@@ -278,6 +281,31 @@ def _get_win32_default_browser() -> Tuple[Optional[str], Optional[str]]:
     return (None, None)
 
 
+def _exec_executable_token(exec_value: str) -> Optional[str]:
+    """Extract the real executable from a .desktop ``Exec=`` value.
+
+    Handles the common ``env VAR=val /path/to/browser %U`` form (seen with
+    IME setups, e.g. ``Exec=env GTK_IM_MODULE=ibus /usr/bin/google-chrome``)
+    by skipping a leading ``env`` wrapper and any ``VAR=VALUE`` assignments,
+    so the browser binary is returned instead of ``env``.
+    """
+    try:
+        tokens = shlex.split(exec_value)
+    except ValueError:
+        tokens = exec_value.split()
+    idx = 0
+    if idx < len(tokens) and Path(tokens[idx]).name == "env":
+        idx += 1
+        # Skip VAR=VALUE assignments that follow the `env` wrapper.
+        while (
+            idx < len(tokens)
+            and "=" in tokens[idx]
+            and not tokens[idx].startswith("/")
+        ):
+            idx += 1
+    return tokens[idx] if idx < len(tokens) else None
+
+
 def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
     """Return (browser_kind, executable_path) for Linux default HTTP
     handler.
@@ -307,7 +335,11 @@ def _get_linux_default_browser() -> Tuple[Optional[str], Optional[str]]:
             with open(path, encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("Exec="):
-                        exe = line.split("=", 1)[1].strip().split()[0]
+                        exe = _exec_executable_token(
+                            line.split("=", 1)[1].strip(),
+                        )
+                        if not exe:
+                            break
                         if exe.startswith("/") and Path(exe).is_file():
                             return _linux_desktop_to_kind_and_path(exe)
                         for p in ["/usr/bin", "/usr/local/bin"]:
@@ -504,6 +536,14 @@ def _load_and_validate_config(
     data: dict,
 ) -> Config:
     """Load and validate config data, handling validation errors."""
+    channels = data.get("channels")
+    migrated_weixin = False
+    if isinstance(channels, dict) and "weixin" in channels:
+        legacy = channels.pop("weixin")
+        channels.setdefault("wechat", legacy)
+        migrated_weixin = True
+    migrated_display = migrate_channel_display_fields(channels)
+    migrated_data = data
     data = _normalize_working_dir_bound_paths(data)
     # Backward compat: top-level last_api_host / last_api_port -> last_api
     if "last_api_host" in data or "last_api_port" in data:
@@ -514,7 +554,7 @@ def _load_and_validate_config(
             la["port"] = data.get("last_api_port")
 
     try:
-        return Config.model_validate(data)
+        config = Config.model_validate(data)
     except ValidationError as exc:
         fixed_any = False
         for err in exc.errors():
@@ -524,15 +564,37 @@ def _load_and_validate_config(
         if not fixed_any:
             _backup_config_file(config_path, "validation error")
             return Config()
+        try:
+            config = Config.model_validate(data)
+        except ValidationError:
+            _backup_config_file(
+                config_path,
+                "validation error after field removal",
+            )
+            return Config()
 
-    try:
-        return Config.model_validate(data)
-    except ValidationError:
-        _backup_config_file(
-            config_path,
-            "validation error after field removal",
-        )
-        return Config()
+    if migrated_weixin or migrated_display:
+        try:
+            migration_name = (
+                "channel-display" if migrated_display else "weixin"
+            )
+            backup_path = config_path.with_suffix(
+                f".{uuid.uuid4().hex[:8]}.{migration_name}-migrate.bak",
+            )
+            shutil.copy2(config_path, backup_path)
+            with open(config_path, "w", encoding="utf-8") as file:
+                json.dump(migrated_data, file, indent=2, ensure_ascii=False)
+            logger.warning(
+                "Migrated legacy channel configuration in %s (backup: %s)",
+                config_path,
+                backup_path,
+            )
+        except OSError:
+            logger.warning(
+                "Failed to persist channel configuration migration: %s",
+                config_path,
+            )
+    return config
 
 
 def load_config(config_path: Optional[Path] = None) -> Config:
@@ -572,7 +634,10 @@ def load_config(config_path: Optional[Path] = None) -> Config:
             config = _load_and_validate_config(config_path, data)
 
         _config_cache = config
-        _config_mtime = current_mtime
+        try:
+            _config_mtime = config_path.stat().st_mtime
+        except OSError:
+            _config_mtime = current_mtime
         return config
 
 
@@ -623,18 +688,30 @@ def save_config(config: Config, config_path: Optional[Path] = None) -> None:
     if config_path is None:
         config_path = get_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as file:
-        json.dump(
-            config.model_dump(mode="json", by_alias=True),
-            file,
-            indent=2,
-            ensure_ascii=False,
-        )
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=config_path.parent,
+            prefix=f".{config_path.name}.", suffix=".tmp", delete=False,
+        ) as file:
+            temporary_path = Path(file.name)
+            json.dump(
+                config.model_dump(mode="json", by_alias=True),
+                file,
+                indent=2,
+                ensure_ascii=False,
+            )
+            file.flush()
+            os.fsync(file.fileno())
 
-    # Invalidate cache after saving
-    with _config_lock:
-        _config_cache = None
-        _config_mtime = None
+        # Same-directory replacement preserves the last complete file on failure.
+        with _config_lock:
+            os.replace(temporary_path, config_path)
+            _config_cache = None
+            _config_mtime = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
@@ -663,33 +740,13 @@ def get_heartbeat_config(agent_id: Optional[str] = None) -> HeartbeatConfig:
     return hb if hb is not None else HeartbeatConfig()
 
 
-def get_dream_cron(agent_id: Optional[str] = None) -> str:
-    """Return dream-based memory optimization job cron expression for
-    the agent.
-
-    Args:
-        agent_id: Agent ID to load config from. If None, tries to load from
-                  root config.agents.defaults (legacy behavior).
-
-    Returns:
-        str: Cron expression for dream-based memory optimization job, or empty
-             string if disabled.
-    """
-    if agent_id is not None:
-        try:
-            agent_config = load_agent_config(agent_id)
-            return agent_config.running.reme_light_memory_config.dream_cron
-        except Exception:
-            return ""
-    # Legacy: return empty string if no agent_id provided
-    return ""
-
-
 def update_last_dispatch(
     channel: str,
     user_id: str,
     session_id: str,
     agent_id: Optional[str] = None,
+    platform_user_id: Optional[str] = None,
+    binding_id: Optional[str] = None,
 ) -> None:
     """Persist last user-reply dispatch target (user send+reply only).
 
@@ -698,6 +755,8 @@ def update_last_dispatch(
         user_id: User ID
         session_id: Session ID
         agent_id: Agent ID to update. If None, updates root config (legacy).
+        platform_user_id: Trusted platform user used to isolate multi-user targets.
+        binding_id: Personal channel binding that produced the target.
     """
     if agent_id is not None:
         try:
@@ -706,7 +765,17 @@ def update_last_dispatch(
                 channel=channel,
                 user_id=user_id,
                 session_id=session_id,
+                binding_id=binding_id or "",
             )
+            if platform_user_id:
+                agent_config.last_dispatch_by_user[platform_user_id] = (
+                    LastDispatchConfig(
+                        channel=channel,
+                        user_id=user_id,
+                        session_id=session_id,
+                        binding_id=binding_id or "",
+                    )
+                )
             save_agent_config(agent_id, agent_config)
             return
         except Exception:
@@ -718,22 +787,68 @@ def update_last_dispatch(
         channel=channel,
         user_id=user_id,
         session_id=session_id,
+        binding_id=binding_id or "",
     )
     save_config(config)
 
 
+def get_last_dispatch_for_user(
+    *,
+    agent_id: str,
+    platform_user_id: str,
+) -> LastDispatchConfig | None:
+    """Return one user's saved target without falling back to another user."""
+    try:
+        agent_config = load_agent_config(agent_id)
+    except Exception:
+        return None
+    return agent_config.last_dispatch_by_user.get(platform_user_id)
+
+
+# In-process cache for the current server's API address.
+# Desktop mode uses a random port, and config.json on disk may be
+# overwritten by migrations or file-lock races.  The in-process cache
+# guarantees that tools running in the same process always resolve the
+# correct address without depending on disk I/O.
+#
+# Thread safety: the cache is an immutable tuple assigned atomically under
+# CPython's GIL.  Only the server startup thread calls write_last_api(),
+# so no lock is required for the current single-writer / multi-reader
+# pattern.  If concurrent writers are ever introduced, wrap both
+# read/write in a threading.Lock.
+_runtime_last_api: Optional[Tuple[str, int]] = None
+
+
 def read_last_api() -> Optional[Tuple[str, int]]:
-    """Read last API host/port from config (via config load/save)."""
+    """Read last API host/port, preferring the in-process cache.
+
+    Priority:
+    1. In-process runtime cache (set by ``write_last_api`` in this process)
+    2. Persisted value from config.json on disk
+    """
+    if _runtime_last_api is not None:
+        logger.debug(
+            "read_last_api: using in-process cache %s:%s",
+            _runtime_last_api[0],
+            _runtime_last_api[1],
+        )
+        return _runtime_last_api
+
     config = load_config()
     host = config.last_api.host
     port = config.last_api.port
     if not host or port is None:
+        logger.debug("read_last_api: no value in cache or config")
         return None
+    logger.debug("read_last_api: disk fallback %s:%s", host, port)
     return host, port
 
 
 def write_last_api(host: str, port: int) -> None:
-    """Write last API host/port to config (via config load/save)."""
+    """Write last API host/port to both in-process cache and config file."""
+    global _runtime_last_api
+    _runtime_last_api = (host, port)
+
     config = load_config()
     config.last_api = LastApiConfig(host=host, port=port)
     save_config(config)
@@ -755,6 +870,31 @@ def get_plugins_dir() -> Path:
     from ..constant import PLUGINS_DIR
 
     return PLUGINS_DIR
+
+
+def get_agent_dirs() -> list[Path]:
+    """Return list of all agent directories from config.
+
+    Returns canonical workspace dirs from config.agents.profiles,
+    not by scanning filesystem (which can miss custom paths or
+    include stale directories).
+
+    Returns:
+        List of Path objects for each agent's workspace directory
+    """
+    config = load_config()
+
+    agent_dirs = []
+    if config.agents and config.agents.profiles:
+        for profile in config.agents.profiles.values():
+            workspace_dir = Path(profile.workspace_dir)
+            if (
+                workspace_dir.exists()
+                and (workspace_dir / "agent.json").exists()
+            ):
+                agent_dirs.append(workspace_dir)
+
+    return agent_dirs
 
 
 def is_qwenpaw_running() -> bool:
@@ -785,3 +925,41 @@ def is_qwenpaw_running() -> bool:
 
     except Exception:
         return False
+
+
+def sanitize_mcp_clients(
+    data: dict,
+    agent_id: str,
+) -> None:
+    """Drop invalid MCP client entries in-place.
+
+    Iterates over ``data["mcp"]["clients"]`` and removes
+    entries that fail ``MCPClientConfig`` validation so that
+    one broken MCP client does not prevent the whole agent
+    from loading.
+    """
+    from .config import MCPClientConfig
+
+    mcp = data.get("mcp")
+    if not isinstance(mcp, dict):
+        return
+    clients = mcp.get("clients")
+    if not isinstance(clients, dict):
+        return
+    bad_keys: list[str] = []
+    for key, val in clients.items():
+        if not isinstance(val, dict):
+            bad_keys.append(key)
+            continue
+        try:
+            MCPClientConfig.model_validate(
+                {**val, "name": key},
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                f"Agent '{agent_id}': skipping invalid "
+                f"MCP client '{key}': {exc}",
+            )
+            bad_keys.append(key)
+    for key in bad_keys:
+        del clients[key]

@@ -1,6 +1,9 @@
 .agentsPage {
-  height: calc(100vh - 128px);
+  height: 100%;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 
   :global {
     .qwenpaw-card-body {
@@ -97,15 +100,89 @@
 /* ---- Table Card ---- */
 
 .tableCard {
-  margin-bottom: 24px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 
-  &:last-child {
-    margin-bottom: 0;
-  }
+  :global {
+    .qwenpaw-card {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
 
-  :global(.ant-card-body) {
-    padding: 0;
+    .ant-card-body,
+    .qwenpaw-card-body {
+      padding: 0 !important;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .qwenpaw-table-wrapper {
+      flex: 1;
+      min-height: 0;
+    }
+
+    .qwenpaw-table-container {
+      max-height: 100%;
+      overflow: auto;
+    }
   }
+}
+
+.accessTabs {
+  flex: 1;
+  min-height: 0;
+
+  :global {
+    .ant-tabs-content-holder,
+    .ant-tabs-content,
+    .ant-tabs-tabpane-active {
+      height: 100%;
+      min-height: 0;
+    }
+
+    .ant-tabs-content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ant-tabs-tabpane-active {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .ant-tabs-nav,
+    .qwenpaw-tabs-nav {
+      margin: 0;
+      padding: 0 24px;
+    }
+  }
+}
+
+.backendTag {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border-color: #ded7d1;
+  color: #685f58;
+  background: #faf8f6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backendTagThirdParty {
+  border-color: rgba(255, 127, 22, 0.42);
+  color: #bd5100;
+  background: #fff4e9;
 }
 
 .dragHandleButton {
@@ -231,7 +308,19 @@
   }
 
   .sortableRowDragging {
-    background: rgba(120, 170, 255, 0.12);
+    background: rgba(255, 127, 22, 0.12);
+  }
+
+  .backendTag {
+    border-color: #48413c;
+    color: #c6bbb2;
+    background: #282522;
+  }
+
+  .backendTagThirdParty {
+    border-color: rgba(255, 127, 22, 0.52);
+    color: #ff9a47;
+    background: rgba(255, 127, 22, 0.12);
   }
 
   .pickerCard {

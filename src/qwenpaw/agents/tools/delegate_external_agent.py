@@ -6,13 +6,17 @@ Uses the ACP protocol.
 
 import asyncio
 import logging
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Callable, Optional, cast
 
-from agentscope.tool import ToolResponse
+from agentscope.message import TextBlock
+from agentscope.tool import ToolChunk
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
+from ...runtime.tool_registry import tool_descriptor
 from ..acp.tool_adapter import (
     format_close_response,
     format_final_assistant_response,
@@ -25,8 +29,32 @@ from ..acp.tool_adapter import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class _RunnerState:
+    agent_id: str
+    chat_id: str
+    runner: str
+    action: str
+    status: str
+    created_at: float
+    updated_at: float
+    content: list[TextBlock] = field(default_factory=list)
+    error: Optional[str] = None
+    pending_permission: Any = None
+
+
+_runner_state_lock = asyncio.Lock()
+_runner_states: dict[tuple[str, str, str], _RunnerState] = {}
+
+
 def _current_workspace_dir() -> Path:
     return (get_current_workspace_dir() or Path(WORKING_DIR)).expanduser()
+
+
+def _current_agent_id() -> str:
+    from ...app.agent_context import get_current_agent_id
+
+    return get_current_agent_id()
 
 
 def _resolve_execution_cwd(cwd: str, workspace_dir: Path) -> Path:
@@ -43,14 +71,24 @@ def _get_acp_service() -> Any:
     from ...app.agent_context import get_current_agent_id
     from ...config.config import ACPConfig
     from ...config.config import load_agent_config
+
+    # pylint: disable=no-name-in-module
+    # ``get_acp_service`` / ``init_acp_service`` are exposed via the
+    # ``qwenpaw.agents.acp.__getattr__`` lazy-loader; pylint can't see them.
     from ..acp import get_acp_service, init_acp_service
+
+    get_service = cast(Callable[[str], Any], get_acp_service)
+    init_service = cast(
+        Callable[[str, ACPConfig], Any],
+        init_acp_service,
+    )
 
     agent_id = get_current_agent_id()
     agent_config = load_agent_config(agent_id)
     acp_config = agent_config.acp or ACPConfig()
-    service = get_acp_service(agent_id)
+    service = get_service(agent_id)
     if service is None or getattr(service, "config", None) != acp_config:
-        service = init_acp_service(agent_id, acp_config)
+        service = init_service(agent_id, acp_config)
     return service
 
 
@@ -93,10 +131,21 @@ def _validate_action_inputs(
     runner_name: str,
     message_text: str,
 ) -> Optional[str]:
-    if not runner_name:
+    allowed_actions = {
+        "list",
+        "status",
+        "start",
+        "message",
+        "respond",
+        "close",
+    }
+    if action_name not in allowed_actions:
+        return (
+            "Error: action must be one of: list, status, start, message, "
+            "respond, close."
+        )
+    if action_name not in {"list", "status"} and not runner_name:
         return "Error: runner is empty."
-    if action_name not in {"start", "message", "respond", "close"}:
-        return "Error: action must be one of: start, message, respond, close."
     if action_name in {"message", "respond"} and not message_text:
         if action_name == "message":
             return (
@@ -108,6 +157,223 @@ def _validate_action_inputs(
             "exact selected permission option id in message."
         )
     return None
+
+
+def _task_key(
+    agent_id: str,
+    chat_id: str,
+    runner_name: str,
+) -> tuple[str, str, str]:
+    return agent_id, chat_id, runner_name
+
+
+def _format_timestamp(value: float) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(value))
+
+
+async def _get_runner_state(
+    *,
+    agent_id: str,
+    chat_id: str,
+    runner_name: str,
+) -> Optional[_RunnerState]:
+    async with _runner_state_lock:
+        return _runner_states.get(_task_key(agent_id, chat_id, runner_name))
+
+
+async def _set_runner_state(state: _RunnerState) -> None:
+    async with _runner_state_lock:
+        _runner_states[
+            _task_key(state.agent_id, state.chat_id, state.runner)
+        ] = state
+
+
+async def _append_runner_state_content(
+    state: _RunnerState,
+    blocks: list[TextBlock],
+) -> None:
+    if not blocks:
+        return
+    async with _runner_state_lock:
+        state.content.extend(blocks)
+        state.updated_at = time.time()
+
+
+async def _set_runner_state_status(
+    state: _RunnerState,
+    status: str,
+    *,
+    error: Optional[str] = None,
+    pending_permission: Any = None,
+) -> None:
+    async with _runner_state_lock:
+        state.status = status
+        state.error = error
+        state.pending_permission = pending_permission
+        state.updated_at = time.time()
+
+
+def _copy_content_text(blocks: list[TextBlock], limit: int = 12000) -> str:
+    parts = [
+        str(
+            (
+                block.get("text")
+                if isinstance(block, dict)
+                else getattr(block, "text", "")
+            ),
+        )
+        for block in blocks
+    ]
+    text = "\n\n".join(part.strip() for part in parts if part and part.strip())
+    if len(text) <= limit:
+        return text
+    return text[-limit:]
+
+
+def _format_task_state_text(
+    *,
+    runner_name: str,
+    session_state: str,
+    state: Optional[_RunnerState],
+    pending_permission: Any = None,
+) -> str:
+    lines = [
+        f"runner: {runner_name}",
+        f"session: {session_state}",
+    ]
+    if state is None:
+        lines.append("task: none")
+    else:
+        effective_status = (
+            "permission_required"
+            if pending_permission is not None
+            else state.status
+        )
+        lines.extend(
+            [
+                f"task: {effective_status}",
+                f"last action: {state.action}",
+                f"started at: {_format_timestamp(state.created_at)}",
+                f"updated at: {_format_timestamp(state.updated_at)}",
+            ],
+        )
+        if state.error:
+            lines.append(f"error: {state.error}")
+        response_text_value = _copy_content_text(state.content)
+        if response_text_value:
+            lines.extend(["", "Last response:", response_text_value])
+    return "\n".join(lines)
+
+
+async def _get_runner_session_state(
+    service: Any,
+    *,
+    chat_id: str,
+    runner_name: str,
+) -> str:
+    existing = await service.get_session(chat_id=chat_id, agent=runner_name)
+    if existing is None:
+        return "closed"
+    if getattr(existing.process, "returncode", None) is not None:
+        return "exited"
+    pending_permission = await service.get_pending_permission(
+        chat_id=chat_id,
+        agent=runner_name,
+    )
+    if pending_permission is not None:
+        return "waiting_for_permission"
+    return "open"
+
+
+async def _format_acp_runner_states_response() -> ToolChunk:
+    runners = _get_available_acp_runners()
+    if not runners:
+        return response_text(
+            "No enabled ACP runners are currently configured.",
+        )
+
+    try:
+        chat_id = _request_context_chat_id()
+    except ValueError:
+        chat_id = ""
+    service = _get_acp_service() if chat_id else None
+
+    agent_id = _current_agent_id()
+    lines = ["Available external ACP runners and states:"]
+    for runner_name in runners:
+        session_state = ""
+        task_state = ""
+        if chat_id and service is not None:
+            session_state = await _get_runner_session_state(
+                service,
+                chat_id=chat_id,
+                runner_name=runner_name,
+            )
+            state = await _get_runner_state(
+                agent_id=agent_id,
+                chat_id=chat_id,
+                runner_name=runner_name,
+            )
+            if state is not None:
+                task_state = state.status
+        details = []
+        if session_state:
+            details.append(f"session: {session_state}")
+        if task_state:
+            details.append(f"task: {task_state}")
+        if details:
+            lines.append(f"- {runner_name} ({', '.join(details)})")
+        else:
+            lines.append(f"- {runner_name}")
+    return response_text("\n".join(lines))
+
+
+async def _format_runner_status_response(runner_name: str) -> ToolChunk:
+    available_runners = _get_available_acp_runners()
+    if runner_name not in available_runners:
+        return response_text(
+            f"Error: runner '{runner_name}' is not available. "
+            + _format_available_runners_text(),
+        )
+    try:
+        chat_id = _request_context_chat_id()
+    except ValueError as e:
+        return response_text(f"Error: {e}")
+
+    agent_id = _current_agent_id()
+    service = _get_acp_service()
+    session_state = await _get_runner_session_state(
+        service,
+        chat_id=chat_id,
+        runner_name=runner_name,
+    )
+    pending_permission = await service.get_pending_permission(
+        chat_id=chat_id,
+        agent=runner_name,
+    )
+    state = await _get_runner_state(
+        agent_id=agent_id,
+        chat_id=chat_id,
+        runner_name=runner_name,
+    )
+    status_text = _format_task_state_text(
+        runner_name=runner_name,
+        session_state=session_state,
+        state=state,
+        pending_permission=pending_permission,
+    )
+    if pending_permission is None:
+        return response_text(status_text)
+
+    permission_response = format_permission_suspended_response(
+        suspended_permission=pending_permission,
+    )
+    permission_text = _copy_content_text(permission_response.content)
+    return response_text(f"{status_text}\n\n{permission_text}")
+
+
+async def _format_all_runner_status_response() -> ToolChunk:
+    return await _format_acp_runner_states_response()
 
 
 async def _get_bound_session(
@@ -237,9 +503,9 @@ async def _stream_action_responses(
     message_text: str,
     execution_cwd: Path,
     max_runtime: Optional[float] = None,
-) -> AsyncGenerator[ToolResponse, None]:
+) -> AsyncGenerator[ToolChunk, None]:
     # pylint: disable=too-many-branches,too-many-statements
-    response_queue: asyncio.Queue[ToolResponse] = asyncio.Queue()
+    response_queue: asyncio.Queue[ToolChunk] = asyncio.Queue()
     flush_interval = 1.0
     pending_items: list[str] = []
     seen_stream_items: set[str] = set()
@@ -327,7 +593,14 @@ async def _stream_action_responses(
         ),
     )
     loop = asyncio.get_running_loop()
-    deadline = (
+    from ...tool_calls import arm_kill_deadline, get_call_context
+
+    _tc_ctx = get_call_context()
+    # Publish max_runtime onto kill_deadline so coordinator keep_foreground
+    # does not treat a shorter offload hook timeout as a hard kill.
+    if _tc_ctx is not None and max_runtime is not None and max_runtime > 0:
+        arm_kill_deadline(_tc_ctx, float(max_runtime))
+    fallback_deadline = (
         loop.time() + max_runtime
         if max_runtime is not None and max_runtime > 0
         else None
@@ -335,6 +608,12 @@ async def _stream_action_responses(
 
     try:
         while True:
+            # Re-read kill_deadline each iteration so extend / no_deadline
+            # from the coordinator take effect (do not freeze a local copy).
+            if _tc_ctx is not None:
+                deadline = _tc_ctx.kill_deadline
+            else:
+                deadline = fallback_deadline
             if run_task.done():
                 await flush_snapshot()
                 await settle_flush_task()
@@ -373,7 +652,6 @@ async def _stream_action_responses(
                             f'runner="{runner_name}", '
                             'message="continue") with higher max_runtime.'
                         ),
-                        stream=True,
                         is_last=True,
                     )
                     return
@@ -428,31 +706,264 @@ async def _stream_action_responses(
     )
 
 
+async def _create_runner_state(
+    *,
+    action_name: str,
+    runner_name: str,
+    chat_id: str,
+) -> _RunnerState:
+    state = _RunnerState(
+        agent_id=_current_agent_id(),
+        chat_id=chat_id,
+        runner=runner_name,
+        action=action_name,
+        status="running",
+        created_at=time.time(),
+        updated_at=time.time(),
+    )
+    await _set_runner_state(state)
+    return state
+
+
+async def _handle_immediate_action(
+    *,
+    action_name: str,
+    runner_name: str,
+) -> Optional[ToolChunk]:
+    if action_name == "list":
+        return await _format_acp_runner_states_response()
+    if action_name == "status":
+        if runner_name:
+            return await _format_runner_status_response(runner_name)
+        return await _format_all_runner_status_response()
+    if action_name == "close":
+        chat_id = _request_context_chat_id()
+        service = _get_acp_service()
+        existing = await service.get_session(
+            chat_id=chat_id,
+            agent=runner_name,
+        )
+        await service.close_chat_session(
+            chat_id=chat_id,
+            agent=runner_name,
+        )
+        return format_close_response(
+            runner_name=runner_name,
+            closed=existing is not None,
+        )
+    return None
+
+
+async def _finalize_runner_state(
+    *,
+    service: Any,
+    state: _RunnerState,
+    chat_id: str,
+    runner_name: str,
+) -> None:
+    pending_permission = await service.get_pending_permission(
+        chat_id=chat_id,
+        agent=runner_name,
+    )
+    if pending_permission is not None:
+        await _set_runner_state_status(
+            state,
+            "permission_required",
+            pending_permission=pending_permission,
+        )
+        return
+    await _set_runner_state_status(state, "completed")
+
+
+async def _set_failed_runner_state(
+    state: Optional[_RunnerState],
+    error: Exception,
+) -> None:
+    if state is not None:
+        await _set_runner_state_status(state, "failed", error=str(error))
+
+
+def _parse_timeout(
+    max_runtime: Optional[float],
+) -> tuple[Optional[float], Optional[str]]:
+    try:
+        timeout_seconds = None if max_runtime is None else float(max_runtime)
+    except (TypeError, ValueError):
+        return None, "Error: max_runtime must be a number in seconds."
+    if timeout_seconds is not None and timeout_seconds <= 0:
+        return None, "Error: max_runtime must be greater than 0."
+    return timeout_seconds, None
+
+
+async def _validate_runner_start(
+    *,
+    service: Any,
+    state: _RunnerState,
+    action_name: str,
+    chat_id: str,
+    runner_name: str,
+) -> Optional[ToolChunk]:
+    if action_name != "start":
+        return None
+    start_error = await _validate_start_request(
+        service=service,
+        chat_id=chat_id,
+        runner_name=runner_name,
+    )
+    if start_error is None:
+        return None
+    await _set_runner_state_status(
+        state,
+        "failed",
+        error=start_error,
+    )
+    return response_text(start_error)
+
+
+async def _cancel_runner_turn(
+    *,
+    service: Any,
+    chat_id: str,
+    action_name: str,
+    runner_name: str,
+) -> None:
+    if (
+        service is not None
+        and chat_id
+        and action_name in {"start", "message", "respond"}
+    ):
+        await _cancel_running_acp_turn(
+            service=service,
+            chat_id=chat_id,
+            runner_name=runner_name,
+        )
+
+
+def _interrupted_response(runner_name: str) -> ToolChunk:
+    return response_text(
+        (
+            f"ACP conversation with runner '{runner_name}' was "
+            "interrupted by the user. The ACP session is still open; "
+            "continue with "
+            f'delegate_external_agent(action="message", '
+            f'runner="{runner_name}", message="continue").'
+        ),
+        is_last=True,
+    )
+
+
+async def _run_streaming_agent_action(
+    *,
+    action_name: str,
+    runner_name: str,
+    message_text: str,
+    execution_cwd: Path,
+    timeout_seconds: Optional[float],
+) -> AsyncGenerator[ToolChunk, None]:
+    service = None
+    chat_id = ""
+    state = None
+    try:
+        service = _get_acp_service()
+        chat_id = _request_context_chat_id()
+        state = await _create_runner_state(
+            action_name=action_name,
+            runner_name=runner_name,
+            chat_id=chat_id,
+        )
+        start_error_response = await _validate_runner_start(
+            service=service,
+            state=state,
+            action_name=action_name,
+            chat_id=chat_id,
+            runner_name=runner_name,
+        )
+        if start_error_response is not None:
+            yield start_error_response
+            return
+        async for item in _stream_action_responses(
+            service=service,
+            chat_id=chat_id,
+            action_name=action_name,
+            runner_name=runner_name,
+            message_text=message_text,
+            execution_cwd=execution_cwd,
+            max_runtime=timeout_seconds,
+        ):
+            await _append_runner_state_content(
+                state,
+                list(item.content or []),
+            )
+            yield item
+        await _finalize_runner_state(
+            service=service,
+            state=state,
+            chat_id=chat_id,
+            runner_name=runner_name,
+        )
+    except asyncio.CancelledError:
+        await _cancel_runner_turn(
+            service=service,
+            chat_id=chat_id,
+            action_name=action_name,
+            runner_name=runner_name,
+        )
+        if state is not None:
+            await _set_runner_state_status(state, "cancelled")
+        yield _interrupted_response(runner_name)
+        raise
+    except ImportError as e:
+        await _set_failed_runner_state(state, e)
+        yield response_text(f"ACP mode not available: {e}.")
+    except ValueError as e:
+        await _set_failed_runner_state(state, e)
+        yield response_text(f"Error: {e}")
+    except Exception as e:
+        await _set_failed_runner_state(state, e)
+        yield response_text(f"ACP execution error: {e}")
+
+
+@tool_descriptor(
+    async_execution=True,
+    enabled_by_default=False,
+    tool_type="internal",
+    target_param="runner",
+    policy_name="DelegateExternalAgent",
+    ui_description="Delegate work to an external ACP agent runner",
+    ui_icon="📡",
+)
 async def delegate_external_agent(
     action: str,
-    runner: str,
+    runner: str = "",
     message: str = "",
     cwd: str = "",
-    max_runtime: Optional[float] = None,
-) -> ToolResponse | AsyncGenerator[ToolResponse, None]:
+    max_runtime: Optional[float] = 300,
+) -> ToolChunk | AsyncGenerator[ToolChunk, None]:
     # pylint: disable=too-many-return-statements
     """
     Open, talk to, respond to permissions for, or close an ACP agent session.
 
     1. Call delegate_external_agent(
+        action="list", runner=""
+        ) to list available external ACP runners and states.
+    2. Call delegate_external_agent(
+        action="status", runner=...
+        ) to inspect the current runner session, task state, last response, or
+        pending permission request.
+    3. Call delegate_external_agent(
         action="start", runner=..., message=...
         ) to open a new conversation.
-    2. Call delegate_external_agent(
+    4. Call delegate_external_agent(
         action="message", runner=..., message=...
         ) to keep talking.
-    3. When a permission request appears, first ask the user which option to
+    5. When a permission request appears, first ask the user which option to
        choose. Then call
        delegate_external_agent(
            action="respond", runner=..., message=...
         ) to respond to the pending permission request. You must strictly
         choose one option from the provided permission request, and the chosen
         option must come from the exact options shown in that request.
-    4. Call delegate_external_agent(
+    6. Call delegate_external_agent(
         action="close", runner=...
         ) to end the conversation.
 
@@ -460,13 +971,17 @@ async def delegate_external_agent(
 
     Args:
         action (`str`):
-            One of `start`, `message`, `respond`, or `close`. Use `respond`
-            only for a pending permission request. First ask the user which
-            option to choose, then pass the exact selected option id in
-            `message`.
+            One of `list`, `status`, `start`, `message`, `respond`, or
+            `close`. Use `list` to show enabled external ACP runners and
+            states. Use `status` to inspect one runner or all runners,
+            especially when `view_task` or `wait_task` can no longer find an
+            async delegate task. Use `respond` only for a pending permission
+            request. First ask the user which option to choose, then pass the
+            exact selected option id in `message`.
         runner (`str`):
             ACP runner name, for example `qwen_code`, `opencode`,
-            `claude_code` or `codex`.
+            `claude_code` or `codex`. Not required for `action="list"` or
+            `action="status"` without a specific runner.
         message (`str`):
             The message to send to the external agent. Used for `start` and
             `message`. For `respond`, pass the exact selected permission option
@@ -475,15 +990,15 @@ async def delegate_external_agent(
         cwd (`str`):
             Working directory for the agent. Defaults to the current workspace.
         max_runtime (`float | None`):
-            Optional max runtime in seconds for a single ACP turn. `None`
-            means no timeout is applied. When the limit is reached, the tool
-            sends ACP cancel for the current turn but keeps the ACP session
-            open, so you can continue later with
+            Optional max runtime in seconds for a single ACP turn. Defaults to
+            300 seconds. `None` means no timeout is applied. When the limit is
+            reached, the tool sends ACP cancel for the current turn but keeps
+            the ACP session open, so you can continue later with
             `delegate_external_agent(action="message", runner=..., `
             `message="continue")`.
 
     Returns:
-        `AsyncGenerator[ToolResponse, None]`:
+        `AsyncGenerator[ToolChunk, None]`:
             Streaming tool responses for external agent progress, permission
             requests, status, or errors.
     """
@@ -493,10 +1008,9 @@ async def delegate_external_agent(
     action_name = str(action or "").strip().lower()
     runner_name = str(runner or "").strip()
     message_text = str(message or "")
-    try:
-        timeout_seconds = None if max_runtime is None else float(max_runtime)
-    except (TypeError, ValueError):
-        return response_text("Error: max_runtime must be a number in seconds.")
+    timeout_seconds, timeout_error = _parse_timeout(max_runtime)
+    if timeout_error:
+        return response_text(timeout_error)
 
     validation_error = _validate_action_inputs(
         action_name=action_name,
@@ -505,25 +1019,16 @@ async def delegate_external_agent(
     )
     if validation_error:
         return response_text(validation_error)
-    if timeout_seconds is not None and timeout_seconds <= 0:
-        return response_text("Error: max_runtime must be greater than 0.")
 
-    if action_name == "close":
+    immediate_actions = {"list", "status", "close"}
+    if action_name in immediate_actions:
         try:
-            chat_id = _request_context_chat_id()
-            service = _get_acp_service()
-            existing = await service.get_session(
-                chat_id=chat_id,
-                agent=runner_name,
-            )
-            await service.close_chat_session(
-                chat_id=chat_id,
-                agent=runner_name,
-            )
-            return format_close_response(
+            immediate_response = await _handle_immediate_action(
+                action_name=action_name,
                 runner_name=runner_name,
-                closed=existing is not None,
             )
+            if immediate_response is not None:
+                return immediate_response
         except ImportError as e:
             return response_text(f"ACP mode not available: {e}.")
         except ValueError as e:
@@ -531,59 +1036,10 @@ async def delegate_external_agent(
         except Exception as e:
             return response_text(f"ACP execution error: {e}")
 
-    async def _runner() -> AsyncGenerator[ToolResponse, None]:
-        service = None
-        chat_id = ""
-        try:
-            service = _get_acp_service()
-            chat_id = _request_context_chat_id()
-            if action_name == "start":
-                start_error = await _validate_start_request(
-                    service=service,
-                    chat_id=chat_id,
-                    runner_name=runner_name,
-                )
-                if start_error:
-                    yield response_text(start_error, stream=True)
-                    return
-            async for item in _stream_action_responses(
-                service=service,
-                chat_id=chat_id,
-                action_name=action_name,
-                runner_name=runner_name,
-                message_text=message_text,
-                execution_cwd=execution_cwd,
-                max_runtime=timeout_seconds,
-            ):
-                yield item
-        except asyncio.CancelledError:
-            if (
-                service is not None
-                and chat_id
-                and action_name in {"start", "message", "respond"}
-            ):
-                await _cancel_running_acp_turn(
-                    service=service,
-                    chat_id=chat_id,
-                    runner_name=runner_name,
-                )
-            yield response_text(
-                (
-                    f"ACP conversation with runner '{runner_name}' was "
-                    "interrupted by the user. The ACP session is still open; "
-                    "continue with "
-                    f'delegate_external_agent(action="message", '
-                    f'runner="{runner_name}", message="continue").'
-                ),
-                stream=True,
-                is_last=True,
-            )
-            raise
-        except ImportError as e:
-            yield response_text(f"ACP mode not available: {e}.", stream=True)
-        except ValueError as e:
-            yield response_text(f"Error: {e}", stream=True)
-        except Exception as e:
-            yield response_text(f"ACP execution error: {e}", stream=True)
-
-    return _runner()
+    return _run_streaming_agent_action(
+        action_name=action_name,
+        runner_name=runner_name,
+        message_text=message_text,
+        execution_cwd=execution_cwd,
+        timeout_seconds=timeout_seconds,
+    )

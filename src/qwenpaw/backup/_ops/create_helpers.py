@@ -12,8 +12,11 @@ from .._utils.constants import (
     PREFIX_SECRETS,
     PREFIX_SKILL_POOL,
     PREFIX_WORKSPACES,
+    PREFIX_PLATFORM_CONTENT,
+    PLATFORM_CONTENT_DIRECTORIES,
 )
 from ...constant import CONFIG_FILE, SECRET_DIR, WORKING_DIR
+from ...identity.runtime import is_multi_user_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +49,33 @@ def add_agent_workspaces(
         ws = Path(ref.workspace_dir).expanduser().resolve()
         if ws.is_dir():
             file_count = 0
+            skipped = 0
             for entry in sorted(ws.rglob("*")):
-                if entry.is_file():
-                    rel = entry.relative_to(ws).as_posix()
-                    arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                if not entry.is_file():
+                    continue
+                rel = entry.relative_to(ws).as_posix()
+                arcname = f"{PREFIX_WORKSPACES}{aid}/{rel}"
+                try:
                     zf.write(entry, arcname)
-                    file_count += 1
+                except (PermissionError, OSError) as exc:
+                    # A file that can't be added (e.g. an open Chromium
+                    # cache file the backend has locked) must not abort
+                    # the whole backup; skip it and continue (#4916).
+                    skipped += 1
+                    logger.warning(
+                        "Skipping %s (could not be added to backup): %s",
+                        entry,
+                        exc,
+                    )
+                    continue
+                file_count += 1
+            if skipped:
+                logger.warning(
+                    "Agent '%s': skipped %d file(s) that could not be "
+                    "added to the backup",
+                    aid,
+                    skipped,
+                )
             logger.debug(
                 "Agent '%s': %d file(s) added from %s",
                 aid,
@@ -114,7 +138,7 @@ def add_skill_pool(zf: zipfile.ZipFile, stop_event=None) -> bool:
     Returns ``False`` if *stop_event* was set before or during the operation
     (cancelled), ``True`` otherwise.
     """
-    from ...agents.skills_manager import get_skill_pool_dir
+    from ...agents.skill_system.store import get_skill_pool_dir
 
     skill_pool_dir = get_skill_pool_dir()
     if not skill_pool_dir.is_dir():
@@ -132,6 +156,28 @@ def add_skill_pool(zf: zipfile.ZipFile, stop_event=None) -> bool:
             zf.write(entry, arcname)
             file_count += 1
     logger.info("Skill pool backed up: %d file(s)", file_count)
+    return True
+
+
+def add_platform_content(zf: zipfile.ZipFile, stop_event=None) -> bool:
+    """Include managed content referenced by the platform database snapshot."""
+    for name in PLATFORM_CONTENT_DIRECTORIES:
+        root = WORKING_DIR / name
+        if root.is_symlink() or not root.resolve().is_relative_to(WORKING_DIR.resolve()):
+            raise ValueError("platform_content_symlink_denied")
+        prefix = f"{PREFIX_PLATFORM_CONTENT}{name}/"
+        # Preserve empty roots so a restore can remove post-backup content.
+        zf.writestr(prefix, b"")
+        if not root.is_dir():
+            continue
+        for entry in sorted(root.rglob("*")):
+            if stop_event and stop_event.is_set():
+                return False
+            if entry.is_symlink() or not entry.resolve().is_relative_to(root.resolve()):
+                raise ValueError("platform_content_symlink_denied")
+            if entry.is_file():
+                # Missing or unreadable authoritative content must fail the backup.
+                zf.write(entry, prefix + entry.relative_to(root).as_posix())
     return True
 
 
@@ -168,6 +214,8 @@ def add_files_to_zip(
 
     if meta.scope.include_global_config:
         add_global_config(zf)
+        if is_multi_user_enabled() and not add_platform_content(zf, stop_event):
+            return []
     if meta.scope.include_secrets:
         if not add_secrets(zf, stop_event):
             return []

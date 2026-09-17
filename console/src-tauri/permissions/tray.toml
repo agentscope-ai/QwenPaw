@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "tray"
+description = "Allows the frontend to handle desktop close-window actions and localize tray menu labels."
+commands.allow = [
+  "minimize_to_tray",
+  "quit_app",
+  "set_tray_labels",
+  "ack_close",
+]

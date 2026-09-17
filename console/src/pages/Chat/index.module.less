@@ -1,25 +1,124 @@
-/* Disabled input overlay */
-.chatDisabledOverlay {
-  position: relative;
+/* Chat page root layout */
+.chatPageRoot {
   height: 100%;
   width: 100%;
+  display: flex;
+  flex-direction: row;
+  position: relative;
+  overflow: hidden;
+
+  :global {
+    [class$="-bubble-files-download"] {
+      opacity: 1 !important;
+      background: transparent !important;
+
+      svg {
+        display: none;
+      }
+    }
+
+    [class$="-sender-content-bottom"] {
+      align-items: center;
+      column-gap: 8px;
+    }
+
+    [class$="-sender-actions-list"] {
+      align-items: center;
+      column-gap: 8px;
+    }
+  }
 }
 
-.chatDisabledOverlay :global([class*="chat-anywhere-input"]),
-.chatDisabledOverlay :global([class*="chat-input"]),
-.chatDisabledOverlay :global(textarea),
-.chatDisabledOverlay :global(input[type="text"]) {
-  pointer-events: none !important;
-  opacity: 0.5 !important;
-  background-color: #f5f5f5 !important;
-  cursor: not-allowed !important;
+.filesPreviewOpen,
+.filesWorkspaceOpen {
+  .chatMainArea {
+    min-width: 420px;
+    transition:
+      width 330ms cubic-bezier(0.22, 0.78, 0.24, 1),
+      opacity 220ms ease;
+  }
 }
 
-.chatDisabledOverlay :global(button[class*="send"]),
-.chatDisabledOverlay :global(button[class*="submit"]) {
-  pointer-events: none !important;
-  opacity: 0.3 !important;
-  cursor: not-allowed !important;
+.filesWorkspaceOpen {
+  .chatMainArea {
+    :global {
+      [class$="-sender-content"] {
+        padding: 6px;
+      }
+
+      [class$="-sender-content-bottom"] {
+        min-width: 0;
+        align-items: center;
+        column-gap: 4px;
+      }
+
+      [class$="-sender-prefix"] {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      [class$="-sender-actions-list"] {
+        min-width: 0;
+        align-items: center;
+        column-gap: 4px;
+      }
+
+      [class$="-sender-actions-list-length"] {
+        display: none;
+      }
+
+      [class$="-sender-actions-list-presets"] {
+        flex: 0 0 auto;
+      }
+    }
+  }
+}
+
+.compactSenderAffix {
+  min-width: 0;
+  flex: 0 1 auto;
+  gap: 4px;
+}
+
+.senderActionAffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 1024px) {
+  .filesPreviewOpen,
+  .filesWorkspaceOpen {
+    .chatMainArea {
+      min-width: 300px;
+      opacity: 0.7;
+    }
+  }
+}
+
+@media (max-width: 720px) {
+  .filesPreviewOpen,
+  .filesWorkspaceOpen {
+    .chatMainArea {
+      visibility: hidden;
+    }
+  }
+}
+
+/* Main chat area (left of history panel) */
+.chatMainArea {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatMainArea {
+    will-change: auto;
+  }
 }
 
 /* Chat messages scrollable area */
@@ -36,6 +135,17 @@
       flex: 1;
       display: flex;
       align-items: center;
+    }
+  }
+
+  /* Wide mode: widen bubble list and sender while keeping spacing */
+  &.wideMode :global {
+    .qwenpaw-bubble-list {
+      max-width: none !important;
+    }
+
+    .qwenpaw-chat-anywhere-sender-wrapper {
+      max-width: none !important;
     }
   }
 
@@ -77,30 +187,136 @@
   }
 }
 
+/* Right-side history panel */
+.historyPanel {
+  width: 330px;
+  flex-shrink: 0;
+  align-self: stretch;
+  overflow: hidden;
+  position: relative;
+}
+
+@media (max-width: 900px) {
+  .historyPanel {
+    position: fixed;
+    top: 90px;
+    right: 0;
+    bottom: 0;
+    width: min(330px, 85vw);
+    z-index: 1000;
+    box-shadow: -4px 0 12px rgba(0, 0, 0, 0.15);
+    border-radius: 12px 0 0 12px;
+  }
+  .historyPanelMask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 999;
+  }
+}
+
 .suggestionLabel {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
-  width: 100%;
-  line-height: 1.4;
+  width: min(520px, calc(100vw - 96px));
+  max-width: 100%;
+  line-height: 1.35;
+  padding: 2px 0;
+}
+
+.suggestionMain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.suggestionIcon {
+  flex: 0 0 auto;
+  width: 18px;
+  color: #ff7f16;
+  text-align: center;
+}
+
+.suggestionLabelCompact {
+  width: auto;
 }
 
 .suggestionCommand {
-  flex: 0 0 88px;
+  flex: 0 1 auto;
+  min-width: 0;
   color: #ff7f16;
   font-weight: 600;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.suggestionGroup {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.55);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 18px;
+  padding: 0 8px;
+}
+
+.suggestionLabelCompact .suggestionCommand {
+  flex-basis: auto;
+  max-width: min(320px, calc(100vw - 96px));
 }
 
 .suggestionDescription {
-  flex: 1;
   min-width: 0;
+  padding-left: 26px;
   color: rgba(0, 0, 0, 0.45);
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
+  word-break: break-word;
+}
+
+:global {
+  .ant-cascader-dropdown {
+    max-width: min(560px, calc(100vw - 32px)) !important;
+  }
+
+  .ant-cascader-dropdown .ant-cascader-menus,
+  .ant-cascader-dropdown .ant-cascader-menu {
+    max-width: min(560px, calc(100vw - 32px)) !important;
+  }
+
+  .ant-cascader-dropdown .ant-cascader-menu {
+    width: min(560px, calc(100vw - 32px));
+    height: auto;
+    max-height: 360px;
+  }
+
+  .ant-cascader-dropdown .ant-cascader-menu-item {
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 8px 10px;
+  }
+
+  .ant-cascader-dropdown .ant-cascader-menu-item-content {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .qwenpaw-suggestion .qwenpaw-cascader-menu,
+  .qwenpaw-suggestion .ant-cascader-menu,
+  .ant-cascader-dropdown.qwenpaw-suggestion .qwenpaw-cascader-menu,
+  .ant-cascader-dropdown.qwenpaw-suggestion .ant-cascader-menu {
+    height: auto !important;
+    max-height: 210px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
 }
 
 :global(.dark-mode) {
@@ -110,6 +326,57 @@
 
   .suggestionDescription {
     color: rgba(255, 255, 255, 0.65);
+  }
+
+  .suggestionGroup {
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.72);
+  }
+}
+
+.inlineSlashMenu {
+  position: fixed;
+  z-index: 1200;
+  width: min(560px, calc(100vw - 32px));
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  padding: 4px;
+}
+
+.inlineSlashItem {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.inlineSlashItemActive,
+.inlineSlashItem:hover {
+  background: rgba(0, 0, 0, 0.045);
+}
+
+:global(.dark-mode) {
+  .inlineSlashMenu {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: #1f1f1f;
+    box-shadow:
+      0 12px 28px rgba(0, 0, 0, 0.35),
+      0 2px 8px rgba(0, 0, 0, 0.24);
+  }
+
+  .inlineSlashItemActive,
+  .inlineSlashItem:hover {
+    background: rgba(255, 255, 255, 0.08);
   }
 }
 
@@ -122,12 +389,131 @@
   }
 }
 
-/* Dark mode scrollbar for disabled overlay */
+/* Message actions: always visible (timestamps are useful at a glance). */
+.chatMessagesArea :global {
+  [class*="bubble-footer"] {
+    opacity: 1;
+  }
+}
+
+/* Fix #4216: Preserve newlines in user message bubbles.
+ * The Raw text renderer (used when raw=true) renders \n as plain React
+ * children which HTML collapses into whitespace. pre-wrap keeps them. */
+.chatMessagesArea :global {
+  [class*="bubble-end"] [class*="markdown"],
+  [class*="bubble-user"] [class*="markdown"] {
+    white-space: pre-wrap;
+  }
+}
+
+/* Fix #5480: Assistant response markdown may temporarily fall back to the
+ * vendor Raw renderer while streaming. Raw renders newline-bearing text as
+ * normal div children, so wrap long lines on the host side.
+ */
+.chatMessagesArea :global {
+  [class*="bubble-start"] [class*="markdown"],
+  [class*="bubble-assistant"] [class*="markdown"] {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+}
+
+/* Fix #6852: Preserve source newlines for the vendor Raw fallback and for
+ * leaf text blocks produced by XMarkdown. Applying pre-wrap to the Markdown
+ * root also renders inter-block whitespace and caused the #5596 regression.
+ * Keep code blocks and tables bounded with their own horizontal scroll.
+ */
+.chatMessagesArea :global {
+  [class*="bubble-start"] [class*="markdown"]:not(.x-markdown),
+  [class*="bubble-assistant"] [class*="markdown"]:not(.x-markdown),
+  [class*="bubble-start"] .x-markdown p,
+  [class*="bubble-start"] .x-markdown li,
+  [class*="bubble-assistant"] .x-markdown p,
+  [class*="bubble-assistant"] .x-markdown li {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  [class*="bubble-start"] .x-markdown pre,
+  [class*="bubble-start"] .x-markdown table,
+  [class*="bubble-assistant"] .x-markdown pre,
+  [class*="bubble-assistant"] .x-markdown table {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  [class*="bubble-start"] .x-markdown pre,
+  [class*="bubble-assistant"] .x-markdown pre {
+    white-space: pre;
+  }
+}
+/* End #6852 */
+
+/* Fix #6583: Keep enough attachment cards visible to verify a multi-file
+ * selection, while bounding very large drops to three scrollable rows. */
+.chatMessagesArea :global {
+  .qwenpaw-sender-header .qwenpaw-attachment {
+    width: 100%;
+    overflow: visible;
+  }
+
+  .qwenpaw-sender-header .qwenpaw-attachment-list {
+    flex-wrap: wrap;
+    align-content: flex-start;
+    max-height: 208px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+
+@media (max-width: 600px) {
+  .chatMessagesArea :global {
+    .qwenpaw-sender-header .qwenpaw-attachment-list {
+      column-gap: 8px;
+      padding-inline: 6px;
+    }
+  }
+}
+/* End #6583 */
+
+/* ---- Rate-limit guidance banner ---- */
+.rateLimitBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: rgba(250, 173, 20, 0.08);
+  border-top: 1px solid rgba(250, 173, 20, 0.2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.rateLimitText {
+  font-size: 13px;
+  color: #d48806;
+  flex: 1;
+  min-width: 120px;
+}
+
+.rateLimitActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 :global(.dark-mode) {
-  .chatDisabledOverlay :global([class*="chat-anywhere-input"]),
-  .chatDisabledOverlay :global([class*="chat-input"]),
-  .chatDisabledOverlay :global(textarea),
-  .chatDisabledOverlay :global(input[type="text"]) {
-    background-color: #2a2a2a !important;
+  .rateLimitBanner {
+    background: rgba(250, 173, 20, 0.06);
+    border-top-color: rgba(250, 173, 20, 0.15);
+  }
+
+  .rateLimitText {
+    color: #ffc53d;
   }
 }

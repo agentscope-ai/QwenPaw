@@ -1,6 +1,6 @@
 # CoPaw Test & Coverage Makefile
 
-.PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-full clean
+.PHONY: test test-unit test-contract test-integration test-channel test-channel-contract coverage-full clean gen-browser-manual
 
 # Python path
 PYTHON := python
@@ -40,7 +40,13 @@ clean:
 
 # Quick check (fast feedback)
 quick:
+	@qp_test_workdir=$$(mktemp -d); \
+	trap 'rm -rf "$$qp_test_workdir"' EXIT; \
+	QWENPAW_WORKING_DIR="$$qp_test_workdir" \
 	$(PYTEST) tests/unit/ -x -q --tb=line
+
+gen-browser-manual:
+	$(PYTHON) scripts/gen_browser_manual.py
 
 # Channel-specific tests
 test-channel:

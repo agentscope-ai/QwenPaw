@@ -1,0 +1,161 @@
+.richInputRoot {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  max-height: 128px;
+  overflow: auto;
+  color: inherit;
+}
+
+.richEditor {
+  position: relative;
+  z-index: 1;
+  min-height: 48px;
+  padding: 5px 0;
+  outline: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+  cursor: text;
+}
+
+.paragraph {
+  margin: 0;
+}
+
+.text {
+  color: inherit;
+}
+
+.placeholder {
+  position: absolute;
+  inset: 0 8px;
+  padding: 5px 0;
+  overflow: hidden;
+  line-height: 1.65;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
+.hiddenTextarea {
+  position: absolute !important;
+  inset: 0 auto auto 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  caret-color: transparent !important;
+}
+
+.atomicNode {
+  display: inline;
+}
+
+.atomicChip {
+  display: inline-flex;
+  align-items: center;
+  max-width: min(240px, 72vw);
+  margin: 0 3px;
+  padding: 2px 8px 2px 6px;
+  gap: 4px;
+  color: #1677ff;
+  font: inherit;
+  line-height: 1.45;
+  vertical-align: baseline;
+  background: rgba(22, 119, 255, 0.08);
+  border: 1px solid rgba(22, 119, 255, 0.14);
+  border-radius: 7px;
+  cursor: pointer;
+
+  svg {
+    flex: 0 0 auto;
+  }
+
+  span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    color: #0958d9;
+    background: rgba(22, 119, 255, 0.13);
+  }
+}
+
+.codeChipHost {
+  display: inline;
+}
+
+.codeChip {
+  color: #315f93;
+  font-family: var(--ant-font-family-code);
+  background: rgba(49, 95, 147, 0.08);
+  border-color: rgba(49, 95, 147, 0.16);
+}
+
+.codePopover {
+  :global([class$="-popover-inner"]) {
+    padding: 0;
+    overflow: hidden;
+  }
+}
+
+.codePreview {
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(420px, 60vh);
+  overflow: auto;
+
+  pre {
+    margin: 0;
+    padding: 14px 16px 16px;
+    color: var(--ant-color-text);
+    font-family: var(--ant-font-family-code);
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    background: var(--ant-color-fill-quaternary);
+  }
+}
+
+.codePreviewHeader {
+  padding: 9px 16px;
+  color: var(--ant-color-text-secondary);
+  font-size: 12px;
+  border-bottom: 1px solid var(--ant-color-border-secondary);
+}
+
+.richInputRoot[data-disabled] {
+  cursor: not-allowed;
+
+  .richEditor {
+    cursor: not-allowed;
+  }
+}
+
+:global(.dark-mode) {
+  .atomicChip {
+    color: #69b1ff;
+    background: rgba(64, 150, 255, 0.14);
+    border-color: rgba(105, 177, 255, 0.24);
+
+    &:hover {
+      color: #91caff;
+      background: rgba(64, 150, 255, 0.2);
+    }
+  }
+
+  .codeChip {
+    color: #91caff;
+    background: rgba(64, 150, 255, 0.12);
+  }
+}

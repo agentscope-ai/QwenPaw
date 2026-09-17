@@ -4,16 +4,39 @@
 from datetime import date, timedelta
 
 from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
+from ...runtime.tool_registry import tool_descriptor
 from ...token_usage import get_token_usage_manager
+from ...access.actor import ActorContext, ActorType
+from ...app.agent_context import get_current_user_id
+from ...identity.models import PlatformRole
+from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+from ...token_usage.usage_repository import PostgresUsageRepository
+from ...token_usage.usage_service import UsageScopeService
 
 
+def _usage_scope_service() -> UsageScopeService:
+    schema = get_identity_schema()
+    return UsageScopeService(
+        repository=PostgresUsageRepository(schema=schema),
+        schema=schema,
+    )
+
+
+@tool_descriptor(
+    async_execution=True,
+    tool_type="internal",
+    policy_name="GetTokenUsage",
+    ui_description="Get llm token usage",
+    ui_icon="📊",
+)
 async def get_token_usage(
     days: int = 30,
     model_name: str | None = None,
     provider_id: str | None = None,
-) -> ToolResponse:
+) -> ToolChunk:
     """Query LLM token usage over the past N days.
 
     Use this when the user asks about token consumption, API usage,
@@ -25,16 +48,37 @@ async def get_token_usage(
         provider_id: Optional provider ID to filter by.
 
     Returns:
-        ToolResponse with a formatted summary of token usage.
+        ToolChunk with a formatted summary of token usage.
     """
     end = date.today()
     start = end - timedelta(days=max(1, min(days, 365)))
-    summary = await get_token_usage_manager().get_summary(
-        start_date=start,
-        end_date=end,
-        model_name=model_name,
-        provider_id=provider_id,
-    )
+    if is_multi_user_enabled():
+        user_id = get_current_user_id()
+        if not user_id:
+            raise RuntimeError("usage_actor_unavailable")
+        from uuid import UUID
+
+        summary = await _usage_scope_service().get_summary(
+            actor=ActorContext(
+                user_id=UUID(user_id),
+                actor_type=ActorType.USER,
+                platform_role=PlatformRole.MEMBER,
+                admin_mode=False,
+                request_id="tool:get_token_usage",
+            ),
+            scope="personal",
+            start_date=start,
+            end_date=end,
+            model_name=model_name,
+            provider_key=provider_id,
+        )
+    else:
+        summary = await get_token_usage_manager().get_summary(
+            start_date=start,
+            end_date=end,
+            model_name=model_name,
+            provider_id=provider_id,
+        )
 
     lines: list[str] = []
     filter_desc = []
@@ -46,9 +90,7 @@ async def get_token_usage(
         filter_desc.append("all models")
     lines.append(f"Token usage ({start} ~ {end}, {', '.join(filter_desc)}):")
     lines.append("")
-    total_tokens = (
-        summary.total_prompt_tokens + summary.total_completion_tokens
-    )
+    total_tokens = summary.total_prompt_tokens + summary.total_completion_tokens
     lines.append(f"- Total tokens: {total_tokens:,}")
     lines.append(f"- Prompt tokens: {summary.total_prompt_tokens:,}")
     lines.append(
@@ -80,6 +122,8 @@ async def get_token_usage(
         )
 
     text = "\n".join(lines) if lines else "No token usage data in this period."
-    return ToolResponse(
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[TextBlock(type="text", text=text)],
     )

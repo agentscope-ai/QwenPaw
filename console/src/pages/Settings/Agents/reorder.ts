@@ -16,6 +16,18 @@ export function reorderAgents(
     return agents;
   }
 
+  const activeAgent = agents[oldIndex];
+  const overAgent = agents[newIndex];
+  const activePinned = activeAgent.id === "default" || activeAgent.pinned;
+  const overPinned = overAgent.id === "default" || overAgent.pinned;
+  if (
+    activeAgent.id === "default" ||
+    overAgent.id === "default" ||
+    Boolean(activePinned) !== Boolean(overPinned)
+  ) {
+    return agents;
+  }
+
   const nextAgents = [...agents];
   const [movedAgent] = nextAgents.splice(oldIndex, 1);
   nextAgents.splice(newIndex, 0, movedAgent);

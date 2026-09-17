@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from qwenpaw.agents.tools.file_search import (
+    _compile_search_pattern,
     _is_text_file,
     _MAX_MATCHES,
     _MAX_OUTPUT_CHARS,
@@ -47,6 +48,48 @@ class FakeCancelAfter(FakeCancel):
     def is_set(self) -> bool:
         self._checks += 1
         return self._checks > self.after
+
+
+# ---------------------------------------------------------------------------
+# _compile_search_pattern tests
+# ---------------------------------------------------------------------------
+
+
+def test_compile_search_pattern_literal():
+    regex = _compile_search_pattern("hello", is_regex=False, flags=0)
+    assert regex.search("hello world")
+    assert not regex.search("hi world")
+
+
+def test_compile_search_pattern_pipe_alternatives():
+    pattern = "keyword_a|keyword_b|keyword_c|keyword_d|keyword_e"
+    regex = _compile_search_pattern(pattern, is_regex=False, flags=0)
+    assert regex.search("the item remains keyword_d")
+    assert regex.search("field keyword_c is set")
+    assert not regex.search("completely unrelated content")
+
+
+def test_compile_search_pattern_pipe_only():
+    regex = _compile_search_pattern("||", is_regex=False, flags=0)
+    assert not regex.search("any line")
+    assert regex.search("a||b")
+
+    single = _compile_search_pattern("|", is_regex=False, flags=0)
+    assert single.search("a|b")
+    assert not single.search("any line")
+
+
+def test_compile_search_pattern_pipe_preserves_regex_metacharacters():
+    regex = _compile_search_pattern("a.b|c.d", is_regex=False, flags=0)
+    assert regex.search("a.b")
+    assert regex.search("c.d")
+    assert not regex.search("axb")
+
+
+def test_compile_search_pattern_regex_mode():
+    regex = _compile_search_pattern(r"foo|bar", is_regex=True, flags=0)
+    assert regex.search("foo")
+    assert regex.search("bar")
 
 
 # ---------------------------------------------------------------------------
@@ -684,6 +727,25 @@ def test_walk_and_grep_context_line_at_file_end_edge(temp_dir):
     assert matches == expected
 
 
+def test_walk_and_grep_pipe_alternatives_literal(temp_dir):
+    """Pipe-separated literals should match any alternative."""
+    (temp_dir / "file.txt").write_text(
+        "the item remains keyword_d\nfield keyword_c is set\n",
+        encoding="utf-8",
+    )
+    pattern = "keyword_a|keyword_b|keyword_d|keyword_c"
+    regex = _compile_search_pattern(pattern, is_regex=False, flags=0)
+    matches, status = _walk_and_grep(
+        temp_dir / "file.txt",
+        regex,
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert len(matches) == 2
+
+
 def test_walk_and_grep_regex_metacharacters(temp_dir):
     """Test regex metacharacters in pattern are handled correctly."""
     (temp_dir / "file.txt").write_text("a.b\nc\\d\ne*f\n")
@@ -734,3 +796,89 @@ def test_walk_and_grep_first_match_exceeds_output_limit(temp_dir):
         assert len(matches) == 0
     finally:
         fs._MAX_OUTPUT_CHARS = original_limit
+
+
+def test_walk_and_grep_show_file_default_unchanged(temp_dir):
+    """Default show_file=True keeps the existing per-line path format."""
+    (temp_dir / "file.txt").write_text("line one\nline two\nline three\n")
+    regex = re.compile(r"two")
+    matches, status = _walk_and_grep(
+        temp_dir / "file.txt",
+        regex,
+        0,
+        FakeCancel(),
+        None,
+    )
+    assert status == "ok"
+    assert matches == ["file.txt:2:> line two"]
+
+
+def test_walk_and_grep_show_file_false_single_file(temp_dir):
+    """show_file=False on a single file omits path prefix and headers."""
+    (temp_dir / "file.txt").write_text("line one\nline two\nline three\n")
+    regex = re.compile(r"two")
+    matches, status = _walk_and_grep(
+        temp_dir / "file.txt",
+        regex,
+        0,
+        FakeCancel(),
+        None,
+        show_file=False,
+    )
+    assert status == "ok"
+    assert matches == ["2:> line two"]
+
+
+def test_walk_and_grep_show_file_false_multi_file(temp_dir):
+    """show_file=False groups multi-file results with one header per file."""
+    (temp_dir / "a.txt").write_text("match_a\n")
+    (temp_dir / "b.txt").write_text("match_b\n")
+    regex = re.compile(r"match_")
+    matches, status = _walk_and_grep(
+        temp_dir,
+        regex,
+        0,
+        FakeCancel(),
+        None,
+        show_file=False,
+    )
+    assert status == "ok"
+    assert matches == [
+        "a.txt",
+        "1:> match_a",
+        "---",
+        "b.txt",
+        "1:> match_b",
+    ]
+
+
+def test_walk_and_grep_show_file_false_with_context(temp_dir):
+    """show_file=False with context uses --- within and between file groups."""
+    (temp_dir / "a.txt").write_text(
+        "line zero\nline one\nline two HIT\nline three\nline four\n",
+    )
+    (temp_dir / "b.txt").write_text("aaa\nbbb HIT\nccc\n")
+    regex = re.compile(r"HIT")
+    matches, status = _walk_and_grep(
+        temp_dir,
+        regex,
+        2,
+        FakeCancel(),
+        None,
+        show_file=False,
+    )
+    assert status == "ok"
+    assert matches == [
+        "a.txt",
+        "1:  line zero",
+        "2:  line one",
+        "3:> line two HIT",
+        "4:  line three",
+        "5:  line four",
+        "---",
+        "b.txt",
+        "1:  aaa",
+        "2:> bbb HIT",
+        "3:  ccc",
+        "---",
+    ]

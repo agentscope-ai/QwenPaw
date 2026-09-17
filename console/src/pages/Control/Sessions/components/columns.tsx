@@ -1,6 +1,5 @@
 import { Button, Tag } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
 import type { ColumnsType } from "antd/es/table";
 import { formatTime, type Session } from "./constants";
 import { CHANNEL_COLORS } from "../../../../constants/channel";
@@ -10,7 +9,9 @@ interface ColumnHandlers {
   onEdit: (session: Session) => void;
   onDelete: (sessionId: string) => void;
   onView: (session: Session) => void;
-  t: TFunction;
+  onArchiveToggle: (session: Session) => void;
+  onShare: (session: Session) => void;
+  isArchivedTab?: boolean;
 }
 
 /** Normalize ISO string to UTC for consistent sorting across mixed timezone formats. */
@@ -25,8 +26,9 @@ export const createColumns = (
   handlers: ColumnHandlers,
 ): ColumnsType<Session> => {
   const { t } = useTranslation();
+  const isArchived = !!handlers.isArchivedTab;
 
-  return [
+  const cols: ColumnsType<Session> = [
     {
       title: "ID",
       dataIndex: "id",
@@ -61,6 +63,20 @@ export const createColumns = (
       ),
     },
     {
+      title: t("sessions.accessColumn", "Access"),
+      key: "access",
+      width: 160,
+      render: (_: unknown, record: Session) =>
+        record.access_role === "viewer" ? (
+          <span>
+            <Tag color="orange">{t("chat.sharedReadOnlyBadge")}</Tag>
+            {record.shared_by || ""}
+          </span>
+        ) : (
+          <Tag>{t("sessions.ownerAccess", "Owner")}</Tag>
+        ),
+    },
+    {
       title: "CreatedAt",
       dataIndex: "created_at",
       key: "created_at",
@@ -77,40 +93,108 @@ export const createColumns = (
       render: (timestamp: string | number | null) => formatTime(timestamp),
       sorter: (a: Session, b: Session) =>
         toUTCTime(a.updated_at) - toUTCTime(b.updated_at),
-      defaultSortOrder: "descend",
-    },
-    {
-      title: "Action",
-      key: "action",
-      width: 180,
-      fixed: "right",
-      render: (_: unknown, record: Session) => (
-        <div className={styles.actionColumn}>
-          <Button
-            type="link"
-            size="small"
-            onClick={() => handlers.onEdit(record)}
-          >
-            {t("common.edit")}
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            style={{ color: "#52c41a" }}
-            onClick={() => handlers.onView(record)}
-          >
-            {t("common.view")}
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            onClick={() => handlers.onDelete(record.id)}
-          >
-            {t("common.delete")}
-          </Button>
-        </div>
-      ),
+      defaultSortOrder: isArchived ? undefined : "descend",
     },
   ];
+
+  if (isArchived) {
+    cols.push({
+      title: t("sessions.archivedAtColumn", "ArchivedAt"),
+      dataIndex: "archived_at",
+      key: "archived_at",
+      width: 180,
+      render: (timestamp: string | number | null) => formatTime(timestamp),
+      sorter: (a: Session, b: Session) =>
+        toUTCTime(a.archived_at) - toUTCTime(b.archived_at),
+      defaultSortOrder: "descend",
+    });
+  }
+
+  cols.push({
+    title: "Action",
+    key: "action",
+    width: isArchived ? 160 : 200,
+    fixed: "right",
+    render: (_: unknown, record: Session) => {
+      if (record.access_role === "viewer") {
+        return (
+          <div className={styles.actionColumn}>
+            <Button
+              type="link"
+              size="small"
+              style={{ color: "#52c41a" }}
+              onClick={() => handlers.onView(record)}
+            >
+              {t("common.view")}
+            </Button>
+          </div>
+        );
+      }
+      return (
+        <div className={styles.actionColumn}>
+        {isArchived ? (
+          <>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handlers.onArchiveToggle(record)}
+            >
+              {t("sessions.archive.unaction", "Unarchive")}
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              danger
+              onClick={() => handlers.onDelete(record.id)}
+            >
+              {t("common.delete")}
+            </Button>
+          </>
+        ) : (
+          <>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handlers.onEdit(record)}
+            >
+              {t("common.edit")}
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              style={{ color: "#52c41a" }}
+              onClick={() => handlers.onView(record)}
+            >
+              {t("common.view")}
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handlers.onShare(record)}
+            >
+              分享
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => handlers.onArchiveToggle(record)}
+            >
+              {t("sessions.archive.action", "Archive")}
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              danger
+              onClick={() => handlers.onDelete(record.id)}
+            >
+              {t("common.delete")}
+            </Button>
+          </>
+        )}
+        </div>
+      );
+    },
+  });
+
+  return cols;
 };

@@ -19,9 +19,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import Optional, cast
 
 logger = logging.getLogger(__name__)
+
+_DEFAULT_REGISTER_EXPIRES_S = 3600
+_MAX_REGISTER_EXPIRES_S = 24 * 60 * 60
+_TRANSACTION_TTL_S = 5 * 60
 
 
 def _user(uri: str) -> str:
@@ -44,6 +49,34 @@ def _method_and_uri(msg: str) -> tuple[str, str]:
     return "", ""
 
 
+def _register_expires(msg: str) -> int:
+    """Return a safe REGISTER lifetime; malformed values use the default."""
+    contact = _hdr(msg, "Contact")
+    contact_match = re.search(
+        r"(?:^|;)\s*expires\s*=\s*\"?(\d+)\"?",
+        contact,
+        flags=re.IGNORECASE,
+    )
+    raw = contact_match.group(1) if contact_match else _hdr(msg, "Expires")
+    try:
+        expires = int(raw) if raw else _DEFAULT_REGISTER_EXPIRES_S
+    except ValueError:
+        return _DEFAULT_REGISTER_EXPIRES_S
+    return max(0, min(expires, _MAX_REGISTER_EXPIRES_S))
+
+
+def _is_final_response(msg: str) -> bool:
+    """Whether *msg* is a SIP response that terminates a transaction."""
+    first_line = msg.split("\r\n", 1)[0]
+    parts = first_line.split()
+    if len(parts) < 2 or not first_line.startswith("SIP/"):
+        return False
+    try:
+        return int(parts[1]) >= 200
+    except ValueError:
+        return False
+
+
 def _build_200(msg: str) -> str:
     lines = ["SIP/2.0 200 OK"]
     for h in ("Via", "From", "To", "Call-ID", "CSeq"):
@@ -57,8 +90,8 @@ def _build_200(msg: str) -> str:
 class _SIPProxy(asyncio.DatagramProtocol):
     def __init__(self) -> None:
         self.transport: Optional[asyncio.DatagramTransport] = None
-        self.registry: dict[str, tuple[str, int]] = {}
-        self.transactions: dict[str, tuple[str, int]] = {}
+        self.registry: dict[str, tuple[tuple[str, int], float]] = {}
+        self.transactions: dict[str, tuple[tuple[str, int], float]] = {}
 
     def connection_made(self, transport: asyncio.BaseTransport) -> None:
         self.transport = cast(asyncio.DatagramTransport, transport)
@@ -73,6 +106,7 @@ class _SIPProxy(asyncio.DatagramProtocol):
         except Exception:
             return
 
+        self._prune_expired()
         method, req_uri = _method_and_uri(msg)
         if method == "REGISTER":
             self._register(msg, addr)
@@ -83,7 +117,22 @@ class _SIPProxy(asyncio.DatagramProtocol):
 
     def _register(self, msg: str, addr: tuple[str, int]) -> None:
         user = _user(_hdr(msg, "To"))
-        self.registry[user] = addr
+        expires = _register_expires(msg)
+        if not user:
+            return
+        if expires == 0:
+            registration = self.registry.get(user)
+            if registration and registration[0] == addr:
+                self.registry.pop(user, None)
+                logger.debug("SIP unregistered %s", user)
+            elif registration:
+                logger.debug(
+                    "Ignoring stale SIP unregister for %s from %s",
+                    user,
+                    addr,
+                )
+        else:
+            self.registry[user] = (addr, time.monotonic() + expires)
         logger.debug("SIP REG %s -> %s", user, addr)
         self.transport.sendto(_build_200(msg).encode(), addr)
 
@@ -95,8 +144,8 @@ class _SIPProxy(asyncio.DatagramProtocol):
         addr: tuple[str, int],
     ) -> None:
         target = _user(uri)
-        dest = self.registry.get(target)
-        if not dest:
+        registration = self.registry.get(target)
+        if not registration:
             if method == "INVITE":
                 resp = msg.replace(
                     msg.split("\r\n", 1)[0],
@@ -105,12 +154,16 @@ class _SIPProxy(asyncio.DatagramProtocol):
                 )
                 self.transport.sendto(resp.encode(), addr)
             return
+        dest, _expires_at = registration
 
         call_id = _hdr(msg, "Call-ID")
-        if method == "INVITE":
-            self.transactions[call_id] = addr
-        elif call_id not in self.transactions:
-            self.transactions[call_id] = addr
+        if call_id and (
+            method == "INVITE" or call_id not in self.transactions
+        ):
+            self.transactions[call_id] = (
+                addr,
+                time.monotonic() + _TRANSACTION_TTL_S,
+            )
 
         self.transport.sendto(msg.encode(), dest)
 
@@ -120,14 +173,24 @@ class _SIPProxy(asyncio.DatagramProtocol):
         addr: tuple[str, int],
     ) -> None:
         call_id = _hdr(msg, "Call-ID")
-        dest = self.transactions.get(call_id)
+        transaction = self.transactions.get(call_id)
+        dest = transaction[0] if transaction else None
         if dest and dest != addr:
             self.transport.sendto(msg.encode(), dest)
             return
-        for _user_name, uaddr in self.registry.items():
+        for _user_name, (uaddr, _expires_at) in self.registry.items():
             if uaddr != addr:
                 self.transport.sendto(msg.encode(), uaddr)
                 break
+
+    def _prune_expired(self) -> None:
+        now = time.monotonic()
+        for user, (_addr, expires_at) in list(self.registry.items()):
+            if expires_at <= now:
+                self.registry.pop(user, None)
+        for call_id, (_addr, expires_at) in list(self.transactions.items()):
+            if expires_at <= now:
+                self.transactions.pop(call_id, None)
 
 
 class MiniRegistrar:

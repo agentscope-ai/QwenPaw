@@ -1,0 +1,16 @@
+# no trailing slash so the dev-install symlink form is ignored too
+ui/node_modules
+# build output stays out of git; run `npm run build` in ui/ before installing
+ui/dist/
+.env
+__pycache__/
+*.pyc
+data/
+generated/
+backend/data/
+# manual_real acceptance outputs (open the rendered pages by hand)
+backend/tests/manual/.manual-doc-reader/
+backend/tests/manual/fixtures/
+backend/generated/
+# local-only eval media for the manual render-review eval (never commit)
+backend/tests/fixtures/render_review/

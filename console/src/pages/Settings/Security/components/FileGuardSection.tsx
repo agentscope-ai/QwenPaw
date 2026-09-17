@@ -31,6 +31,8 @@ interface FileGuardSectionProps {
 export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState(true);
+  const [allowPreviewOutsideWorkspace, setAllowPreviewOutsideWorkspace] =
+    useState(false);
   const [paths, setPaths] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,6 +44,9 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
       setLoading(true);
       const data = await api.getFileGuard();
       setEnabled(data?.enabled ?? true);
+      setAllowPreviewOutsideWorkspace(
+        data?.allow_preview_outside_workspace ?? false,
+      );
       setPaths(data?.paths ?? []);
     } catch {
       message.error(t("security.fileGuard.loadFailed"));
@@ -62,6 +67,22 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
         message.success(t("security.fileGuard.saveSuccess"));
       } catch {
         setEnabled(!checked);
+        message.error(t("security.fileGuard.saveFailed"));
+      }
+    },
+    [t],
+  );
+
+  const handlePreviewToggle = useCallback(
+    async (checked: boolean) => {
+      setAllowPreviewOutsideWorkspace(checked);
+      try {
+        await api.updateFileGuard({
+          allow_preview_outside_workspace: checked,
+        });
+        message.success(t("security.fileGuard.saveSuccess"));
+      } catch {
+        setAllowPreviewOutsideWorkspace(!checked);
         message.error(t("security.fileGuard.saveFailed"));
       }
     },
@@ -159,6 +180,28 @@ export function FileGuardSection({ onSave }: FileGuardSectionProps = {}) {
             {t("security.fileGuard.enableLabel")}
           </span>
           <Switch checked={enabled} onChange={handleToggle} />
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 16,
+          }}
+        >
+          <div>
+            <span style={{ fontWeight: 500 }}>
+              {t("security.fileGuard.allowPreviewOutsideWorkspace")}
+            </span>
+            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
+              {t("security.fileGuard.allowPreviewOutsideWorkspaceDesc")}
+            </div>
+          </div>
+          <Switch
+            checked={allowPreviewOutsideWorkspace}
+            onChange={handlePreviewToggle}
+          />
         </div>
 
         <Space.Compact style={{ width: "100%" }}>

@@ -1,46 +1,125 @@
 # -*- coding: utf-8 -*-
-"""Audio transcription utility.
-
-Transcribes audio files to text using either:
-- An OpenAI-compatible ``/v1/audio/transcriptions`` endpoint (Whisper API), or
-- The locally installed ``openai-whisper`` Python library (Local Whisper).
-
-Transcription is only attempted when explicitly enabled via the
-``transcription_provider_type`` config setting.  The default is ``"disabled"``.
-"""
+"""Saved global ASR service with bounded execution and safe failure codes."""
 
 import asyncio
+import inspect
 import logging
 import shutil
 import threading
-from typing import List, Optional, Tuple
+from contextvars import ContextVar
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
-
-# ------------------------------------------------------------------
-# Cached local-whisper model (lazy singleton)
-# ------------------------------------------------------------------
-_local_whisper_model = None
+LOCAL_MODELS = ("tiny", "base", "small", "medium", "large-v3", "turbo")
+_local_models = {}
 _local_whisper_lock = threading.Lock()
+_local_inference = threading.BoundedSemaphore(1)
+_inference_slots = threading.BoundedSemaphore(4)
+_private_asr_call = ContextVar("private_asr_call", default=False)
 
 
-def _get_local_whisper_model():
-    """Return a cached whisper model, loading it on first call."""
-    global _local_whisper_model  # noqa: PLW0603
-    if _local_whisper_model is not None:
-        return _local_whisper_model
+class _PrivateASRLogFilter(logging.Filter):
+    def filter(self, record):
+        return not _private_asr_call.get()
+
+
+# Suppress transport diagnostics only within ASR; other requests retain their logs.
+_transport_filter = _PrivateASRLogFilter()
+for _logger_name in (
+    "openai._base_client",
+    "openai._client",
+    "httpx",
+    "httpcore.connection",
+    "httpcore.http11",
+    "httpcore.http2",
+    "httpcore.proxy",
+    "httpcore.socks",
+):
+    logging.getLogger(_logger_name).addFilter(_transport_filter)
+
+ERRORS = {
+    "TRANSCRIPTION_DISABLED": (400, "Transcription is disabled."),
+    "TRANSCRIPTION_NOT_READY": (503, "Transcription is not ready."),
+    "UNSUPPORTED_FILE_TYPE": (400, "Unsupported audio file type."),
+    "FILE_TOO_LARGE": (413, "Audio exceeds the size limit."),
+    "EMPTY_AUDIO": (400, "Audio is empty."),
+    "EMPTY_TRANSCRIPT": (422, "No speech was recognized."),
+    "TRANSCRIPTION_BUSY": (429, "Transcription is busy. Try again later."),
+    "UPSTREAM_TIMEOUT": (504, "Transcription timed out."),
+    "UPSTREAM_FAILED": (502, "Transcription failed."),
+    "INVALID_VOICE_SETTINGS": (400, "Invalid voice transcription settings."),
+    "INVALID_TRANSCRIPTION_REQUEST": (400, "Unsupported transcription fields."),
+}
+
+
+class TranscriptionError(Exception):
+    def __init__(self, code):
+        self.code = code
+        self.status, self.message = ERRORS[code]
+        super().__init__(code)
+
+
+@dataclass(frozen=True)
+class TranscriptionSnapshot:
+    provider_type: str
+    provider_id: str = ""
+    model: str = "whisper-1"
+    local_model: str = "base"
+    base_url: str = field(default="", repr=False)
+    api_key: str = field(default="", repr=False)
+    headers: tuple = field(default=(), repr=False)
+
+
+def local_cache_root():
+    from ...constant import WORKING_DIR
+
+    return Path(WORKING_DIR).resolve() / "cache" / "whisper"
+
+
+def _weight_path(model_name):
+    if model_name not in LOCAL_MODELS:
+        raise TranscriptionError("TRANSCRIPTION_NOT_READY")
+    root = local_cache_root().resolve()
+    path = root / (model_name + ".pt")
+    if path.is_symlink() or not path.is_file() or path.stat().st_size == 0:
+        raise TranscriptionError("TRANSCRIPTION_NOT_READY")
+    return path
+
+
+def _get_local_whisper_model(model_name="base"):
+    path = _weight_path(model_name)
+    key = (model_name, str(path.parent), path.stat().st_mtime_ns, path.stat().st_size)
     with _local_whisper_lock:
-        if _local_whisper_model is not None:
-            return _local_whisper_model
-        import whisper
+        if key not in _local_models:
+            import whisper
 
-        _local_whisper_model = whisper.load_model("base")
-        return _local_whisper_model
+            # Passing a verified local file prevents whisper's name-based download.
+            model = whisper.load_model(str(path), download_root=str(path.parent))
+            for cached_key in list(_local_models):
+                if cached_key[:2] == key[:2]:
+                    del _local_models[cached_key]
+            _local_models[key] = model
+        return _local_models[key]
 
 
-# ------------------------------------------------------------------
-# Provider helpers
-# ------------------------------------------------------------------
+async def wait_for_reader(function, *args):
+    """Cancellation never outlives a worker that still owns a source file."""
+    task = asyncio.create_task(asyncio.to_thread(function, *args))
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:
+            break
+    if cancelled:
+        if not task.cancelled():
+            task.exception()
+        raise asyncio.CancelledError
+    return task.result()
 
 
 def _url_for_provider(provider) -> Optional[Tuple[str, str]]:
@@ -79,239 +158,243 @@ def _get_manager():
         return None
 
 
-# ------------------------------------------------------------------
-# Public helpers for API / Console UI
-# ------------------------------------------------------------------
-
-
-def list_transcription_providers() -> List[dict]:
-    """Return providers capable of audio transcription.
-
-    Each entry is ``{"id": ..., "name": ..., "available": bool}``.
-    Availability is based on whether the provider has usable credentials.
-    """
+def list_transcription_providers():
     manager = _get_manager()
     if manager is None:
         return []
-
-    results: list[dict] = []
-    all_providers = {
+    providers = {
         **getattr(manager, "builtin_providers", {}),
         **getattr(manager, "custom_providers", {}),
     }
-    for provider in all_providers.values():
-        creds = _url_for_provider(provider)
-        if creds is not None:
-            results.append(
-                {
-                    "id": provider.id,
-                    "name": provider.name,
-                    "available": True,
-                },
-            )
-    return results
+    plugins = getattr(manager, "plugin_providers", {})
+    if isinstance(plugins, dict):
+        for provider_id in plugins:
+            providers[provider_id] = manager.get_provider(provider_id)
+    result = []
+    for provider in providers.values():
+        if provider is None:
+            continue
+        credentials = _url_for_provider(provider)
+        if credentials is None:
+            from ...providers.openai_provider import OpenAIProvider
+
+            if not isinstance(provider, OpenAIProvider):
+                continue
+        # Names are display-only; redact credentials even if embedded in a label.
+        label = str(provider.name)
+        sensitive = [
+            getattr(provider, "api_key", ""),
+            getattr(provider, "base_url", ""),
+        ]
+        headers = getattr(provider, "custom_headers", {})
+        if isinstance(headers, dict):
+            sensitive.extend(headers.values())
+        for value in sensitive:
+            if isinstance(value, str) and value:
+                label = label.replace(value, "[redacted]")
+        result.append(
+            {"id": provider.id, "name": label, "available": credentials is not None}
+        )
+    return result
 
 
-def get_configured_transcription_provider_id() -> str:
-    """Return the explicitly configured provider ID (raw config value)."""
+def get_configured_transcription_provider_id():
     from ...config import load_config
 
     return load_config().agents.transcription_provider_id
 
 
-def check_local_whisper_available() -> dict:
-    """Check whether the local whisper provider can be used.
-
-    Returns a dict with::
-
-        {
-            "available": bool,
-            "ffmpeg_installed": bool,
-            "whisper_installed": bool,
-        }
-    """
+def check_local_whisper_available(model_name="base"):
     ffmpeg_ok = shutil.which("ffmpeg") is not None
-
     whisper_ok = False
     try:
-        import whisper as _whisper  # noqa: F401
+        import whisper
 
         whisper_ok = True
     except ImportError:
         pass
-
+    try:
+        _weight_path(model_name)
+        ready = True
+    except (OSError, TranscriptionError):
+        ready = False
     return {
-        "available": ffmpeg_ok and whisper_ok,
+        "available": ffmpeg_ok and whisper_ok and ready,
         "ffmpeg_installed": ffmpeg_ok,
         "whisper_installed": whisper_ok,
+        "model_ready": ready,
     }
 
 
-# ------------------------------------------------------------------
-# Transcription backends
-# ------------------------------------------------------------------
-
-
-async def _transcribe_local_whisper(file_path: str) -> Optional[str]:
-    """Transcribe using the locally installed ``openai-whisper`` library.
-
-    Requires both ``ffmpeg`` and ``openai-whisper`` to be installed.
-    Returns the transcribed text, or ``None`` on failure.
-    """
-    status = check_local_whisper_available()
-    if not status["available"]:
-        missing = []
-        if not status["ffmpeg_installed"]:
-            missing.append("ffmpeg")
-        if not status["whisper_installed"]:
-            missing.append("openai-whisper")
-        logger.warning(
-            "Local Whisper unavailable (missing: %s). "
-            "Install the missing dependencies to use local transcription.",
-            ", ".join(missing),
-        )
-        return None
-
-    def _run():
-        model = _get_local_whisper_model()
-        result = model.transcribe(file_path)
-        return (result.get("text") or "").strip()
-
-    try:
-        text = await asyncio.to_thread(_run)
-        if text:
-            logger.debug(
-                "Local Whisper transcribed %s: %s",
-                file_path,
-                text[:80],
-            )
-            return text
-        logger.warning(
-            "Local Whisper returned empty text for %s",
-            file_path,
-        )
-        return None
-    except Exception:
-        logger.warning(
-            "Local Whisper transcription failed for %s",
-            file_path,
-            exc_info=True,
-        )
-        return None
-
-
-def _get_configured_provider_creds() -> Optional[Tuple[str, str]]:
-    """Return ``(base_url, api_key)`` for the explicitly configured provider.
-
-    Returns ``None`` when no provider is configured or the configured
-    provider is not found / has no usable credentials.
-    """
+def capture_snapshot(agents=None):
     from ...config import load_config
 
-    configured_id = load_config().agents.transcription_provider_id
-    if not configured_id:
-        return None
-
+    if agents is None:
+        agents = load_config().agents
+    kind = agents.transcription_provider_type
+    provider_id = agents.transcription_provider_id
+    model = agents.transcription_model
+    local_model = getattr(agents, "transcription_local_model", "base")
+    if kind == "disabled":
+        raise TranscriptionError("TRANSCRIPTION_DISABLED")
+    if kind not in {"local_whisper", "whisper_api"}:
+        raise TranscriptionError("TRANSCRIPTION_NOT_READY")
+    if kind == "local_whisper":
+        if not check_local_whisper_available(local_model)["available"]:
+            raise TranscriptionError("TRANSCRIPTION_NOT_READY")
+        return TranscriptionSnapshot(kind, local_model=local_model)
     manager = _get_manager()
-    if manager is None:
-        return None
-
-    provider = manager.get_provider(configured_id)
-    if provider is None:
-        logger.warning(
-            "Configured transcription provider '%s' not found",
-            configured_id,
-        )
-        return None
-
-    creds = _url_for_provider(provider)
-    if creds is None:
-        logger.warning(
-            "Configured transcription provider '%s' has no usable credentials",
-            configured_id,
-        )
-    return creds
-
-
-async def _transcribe_whisper_api(file_path: str) -> Optional[str]:
-    """Transcribe using the OpenAI-compatible Whisper API endpoint.
-
-    Only uses the explicitly configured provider — no auto-detection.
-    Returns the transcribed text, or ``None`` on failure.
-    """
-    creds = _get_configured_provider_creds()
-    if creds is None:
-        logger.warning(
-            "No transcription provider configured; skipping transcription",
-        )
-        return None
-
-    base_url, api_key = creds
-
-    try:
-        from openai import AsyncOpenAI
-    except ImportError:
-        logger.warning(
-            "openai package not installed; cannot transcribe audio",
-        )
-        return None
-
-    from ...config import load_config
-
-    model_name = load_config().agents.transcription_model or "whisper-1"
-
-    client = AsyncOpenAI(
-        base_url=base_url,
-        api_key=api_key or "none",
-        timeout=60,
+    provider = manager.get_provider(provider_id) if manager and provider_id else None
+    creds = _url_for_provider(provider) if provider else None
+    if not creds or not creds[0] or not model:
+        raise TranscriptionError("TRANSCRIPTION_NOT_READY")
+    return TranscriptionSnapshot(
+        kind,
+        provider_id,
+        model,
+        local_model,
+        *creds,
+        tuple(dict(provider.custom_headers).items()),
     )
 
+
+async def require_registered_service(snapshot):
+    if snapshot.provider_type != "whisper_api":
+        return
+    from ...models.runtime import require_transcription_service
+
     try:
-        with open(file_path, "rb") as f:
-            transcript = await client.audio.transcriptions.create(
-                model=model_name,
-                file=f,
-            )
-        text = transcript.text.strip()
-        if text:
-            logger.debug("Transcribed audio %s: %s", file_path, text[:80])
-            return text
-        logger.warning("Transcription returned empty text for %s", file_path)
-        return None
+        await require_transcription_service(snapshot.provider_id, snapshot.model)
     except Exception:
-        logger.warning(
-            "Audio transcription failed for %s",
-            file_path,
-            exc_info=True,
+        raise TranscriptionError("TRANSCRIPTION_NOT_READY") from None
+
+
+async def _local(file_path, model_name):
+    if not check_local_whisper_available(model_name)["available"]:
+        raise TranscriptionError("TRANSCRIPTION_NOT_READY")
+    if not _local_inference.acquire(blocking=False):
+        raise TranscriptionError("TRANSCRIPTION_BUSY")
+    try:
+
+        def run():
+            model = _get_local_whisper_model(model_name)
+            return (model.transcribe(file_path).get("text") or "").strip()
+
+        return await wait_for_reader(run)
+    finally:
+        _local_inference.release()
+
+
+async def _remote(file_path, snapshot):
+    token = _private_asr_call.set(True)
+    try:
+        return await _remote_private(file_path, snapshot)
+    finally:
+        _private_asr_call.reset(token)
+
+
+async def _remote_private(file_path, snapshot):
+    client = None
+    try:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            base_url=snapshot.base_url,
+            api_key=snapshot.api_key or "none",
+            default_headers=dict(snapshot.headers),
+            timeout=60,
+            max_retries=0,
         )
-        return None
+        with open(file_path, "rb") as stream:
+            result = await client.audio.transcriptions.create(
+                model=snapshot.model, file=stream
+            )
+        return result.text.strip()
+    finally:
+        if client is not None:
+            close_result = client.close()
+            if inspect.isawaitable(close_result):
+                close_task = asyncio.ensure_future(close_result)
+                cancelled = False
+                while not close_task.done():
+                    try:
+                        await asyncio.shield(close_task)
+                    except asyncio.CancelledError:
+                        cancelled = True
+                close_task.result()
+                if cancelled:
+                    raise asyncio.CancelledError
 
 
-# ------------------------------------------------------------------
-# Public entry point
-# ------------------------------------------------------------------
+async def transcribe_snapshot(file_path, snapshot):
+    if not _inference_slots.acquire(blocking=False):
+        raise TranscriptionError("TRANSCRIPTION_BUSY")
+    try:
+        await require_registered_service(snapshot)
+        try:
+            text = (
+                await _local(file_path, snapshot.local_model)
+                if snapshot.provider_type == "local_whisper"
+                else await _remote(file_path, snapshot)
+            )
+            if not text:
+                raise TranscriptionError("EMPTY_TRANSCRIPT")
+            return text
+        except TranscriptionError:
+            raise
+        except Exception as exc:
+            from openai import APITimeoutError
+
+            code = (
+                "UPSTREAM_TIMEOUT"
+                if isinstance(exc, (TimeoutError, APITimeoutError))
+                else "UPSTREAM_FAILED"
+            )
+            raise TranscriptionError(code) from None
+    finally:
+        _inference_slots.release()
 
 
-async def transcribe_audio(file_path: str) -> Optional[str]:
-    """Transcribe an audio file to text.
-
-    Dispatches to either the Whisper API or local Whisper based on the
-    ``transcription_provider_type`` config setting.  When the setting is
-    ``"disabled"`` (the default), returns ``None`` immediately.
-
-    Returns the transcribed text, or ``None`` on failure.
-    """
+def _get_configured_provider_creds():
     from ...config import load_config
 
-    provider_type = load_config().agents.transcription_provider_type
+    provider_id = load_config().agents.transcription_provider_id
+    manager = _get_manager() if provider_id else None
+    provider = manager.get_provider(provider_id) if manager else None
+    return _url_for_provider(provider) if provider else None
 
-    if provider_type == "disabled":
-        logger.debug("Transcription is disabled; skipping")
+
+async def _transcribe_local_whisper(file_path, snapshot=None):
+    try:
+        text = await _local(file_path, snapshot.local_model if snapshot else "base")
+        return text or None
+    except Exception:
         return None
-    if provider_type == "local_whisper":
-        return await _transcribe_local_whisper(file_path)
-    if provider_type == "whisper_api":
-        return await _transcribe_whisper_api(file_path)
 
-    logger.warning("Unknown transcription_provider_type: %s", provider_type)
-    return None
+
+async def _transcribe_whisper_api(file_path, snapshot=None):
+    try:
+        if snapshot is None:
+            from ...config import load_config
+
+            creds = _get_configured_provider_creds()
+            if creds is None:
+                return None
+            snapshot = TranscriptionSnapshot(
+                "whisper_api",
+                model=load_config().agents.transcription_model,
+                base_url=creds[0],
+                api_key=creds[1],
+            )
+        return await transcribe_snapshot(file_path, snapshot)
+    except Exception:
+        return None
+
+
+async def transcribe_audio(file_path):
+    """Chat auto mode preserves its placeholder fallback, without unsafe logs."""
+    try:
+        snapshot = capture_snapshot()
+        return await transcribe_snapshot(file_path, snapshot)
+    except Exception:
+        return None

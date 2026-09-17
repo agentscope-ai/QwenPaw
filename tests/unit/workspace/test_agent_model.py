@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from agentscope_runtime.engine.schemas.exception import (
+from qwenpaw.exceptions import (
     ConfigurationException,
 )
 

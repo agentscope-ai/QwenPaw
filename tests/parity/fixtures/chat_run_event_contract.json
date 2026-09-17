@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "run_id": "run-rich-contract-001",
+  "conversation_id": "conversation-rich-contract-001",
+  "events": [
+    {
+      "sequence_no": 1,
+      "event_id": "evt-001",
+      "type": "reasoning",
+      "message_id": "msg-reasoning-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-reasoning-001",
+        "type": "reasoning",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "text", "text": "先分析工具调用。" }]
+      }
+    },
+    {
+      "sequence_no": 2,
+      "event_id": "evt-002",
+      "type": "assistant_delta",
+      "message_id": "msg-answer-001",
+      "wire": {
+        "object": "content",
+        "msg_id": "msg-answer-001",
+        "type": "text",
+        "text": "正在处理",
+        "delta": true,
+        "index": 0,
+        "status": "in_progress"
+      }
+    },
+    {
+      "sequence_no": 3,
+      "event_id": "evt-003",
+      "type": "tool_start",
+      "message_id": "msg-tool-start-001",
+      "tool_call_id": "call-shell-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-tool-start-001",
+        "type": "plugin_call",
+        "role": "assistant",
+        "status": "in_progress",
+        "content": [
+          {
+            "type": "data",
+            "data": {
+              "call_id": "call-shell-001",
+              "name": "execute_shell_command",
+              "arguments": "{\"command\":\"echo contract\"}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 4,
+      "event_id": "evt-004",
+      "type": "approval_required",
+      "tool_call_id": "call-shell-001",
+      "approval_id": "approval-shell-001",
+      "wire": {
+        "object": "approval_required",
+        "status": "in_progress",
+        "data": {
+          "approval_id": "approval-shell-001",
+          "tool_call_id": "call-shell-001",
+          "tool_name": "execute_shell_command"
+        }
+      }
+    },
+    {
+      "sequence_no": 5,
+      "event_id": "evt-004-decision",
+      "type": "approval_decided",
+      "tool_call_id": "call-shell-001",
+      "approval_id": "approval-shell-001",
+      "wire": {
+        "object": "approval_decided",
+        "status": "completed",
+        "data": {
+          "approval_id": "approval-shell-001",
+          "tool_call_id": "call-shell-001",
+          "decision": "approved"
+        }
+      }
+    },
+    {
+      "sequence_no": 6,
+      "event_id": "evt-005",
+      "type": "tool_output",
+      "message_id": "msg-tool-output-001",
+      "tool_call_id": "call-shell-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-tool-output-001",
+        "type": "plugin_call_output",
+        "role": "tool",
+        "status": "completed",
+        "content": [
+          {
+            "type": "data",
+            "data": {
+              "call_id": "call-shell-001",
+              "name": "execute_shell_command",
+              "output": "contract"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 7,
+      "event_id": "evt-006",
+      "type": "skill",
+      "message_id": "msg-skill-001",
+      "tool_call_id": "call-skill-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-skill-001",
+        "type": "plugin_call",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "data",
+            "data": {
+              "call_id": "call-skill-001",
+              "name": "materialize_skill",
+              "arguments": "{\"name\":\"imagegen\"}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 8,
+      "event_id": "evt-007",
+      "type": "plugin",
+      "message_id": "msg-plugin-001",
+      "tool_call_id": "call-plugin-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-plugin-001",
+        "type": "plugin_call",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "data",
+            "data": {
+              "call_id": "call-plugin-001",
+              "name": "weather_plugin",
+              "arguments": "{\"city\":\"成都\"}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 9,
+      "event_id": "evt-008",
+      "type": "mcp",
+      "message_id": "msg-mcp-001",
+      "tool_call_id": "call-mcp-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-mcp-001",
+        "type": "mcp_tool_call",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "data",
+            "data": {
+              "call_id": "call-mcp-001",
+              "name": "tavily_search",
+              "arguments": "{\"query\":\"QwenPaw\"}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 10,
+      "event_id": "evt-009",
+      "type": "command",
+      "message_id": "msg-command-001",
+      "tool_call_id": "call-command-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-command-001",
+        "type": "plugin_call",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "data",
+            "data": {
+              "call_id": "call-command-001",
+              "name": "execute_shell_command",
+              "arguments": "{\"command\":\"pwd\"}"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 11,
+      "event_id": "evt-010",
+      "type": "image",
+      "message_id": "msg-image-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-image-001",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "image",
+            "image_url": "/api/files/contract-image.png"
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 12,
+      "event_id": "evt-011",
+      "type": "file",
+      "message_id": "msg-file-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-file-001",
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "file",
+            "filename": "contract-report.md",
+            "file_url": "/api/files/contract-report.md"
+          }
+        ]
+      }
+    },
+    {
+      "sequence_no": 13,
+      "event_id": "evt-012",
+      "type": "progress",
+      "message_id": "msg-progress-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-progress-001",
+        "type": "progress",
+        "role": "assistant",
+        "status": "in_progress",
+        "content": [{ "type": "text", "text": "进度 50%" }]
+      }
+    },
+    {
+      "sequence_no": 14,
+      "event_id": "evt-013",
+      "type": "error",
+      "wire": {
+        "object": "error",
+        "status": "failed",
+        "data": {
+          "code": "CONTRACT_RECOVERABLE_ERROR",
+          "message": "可恢复错误示例"
+        }
+      }
+    },
+    {
+      "sequence_no": 15,
+      "event_id": "evt-014",
+      "type": "final",
+      "message_id": "msg-answer-001",
+      "wire": {
+        "object": "message",
+        "id": "msg-answer-001",
+        "type": "result",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "text", "text": "处理完成。" }]
+      }
+    }
+  ]
+}

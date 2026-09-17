@@ -10,7 +10,6 @@ export interface ContextCompactConfig {
   enabled: boolean;
   compact_threshold_ratio: number;
   reserve_threshold_ratio: number;
-  compact_with_thinking_block: boolean;
 }
 
 export interface ToolResultPruningConfig {
@@ -23,21 +22,43 @@ export interface ToolResultPruningConfig {
   exempt_tool_names: string[];
 }
 
+export type ContextStrategy = "native" | "scroll";
+
+export interface ScrollConfig {
+  db_filename: string;
+  repl_timeout_s: number;
+  history_retention_days: number;
+  allow_unsandboxed: boolean;
+  offload_dialog: boolean;
+}
+
+export interface VisualCompactConfig {
+  enabled: boolean;
+  effort: "low" | "medium" | "high";
+}
+
 export interface LightContextConfig {
+  strategy: ContextStrategy;
   dialog_path: string;
   token_count_estimate_divisor: number;
   context_compact_config: ContextCompactConfig;
+  scroll_config: ScrollConfig;
   tool_result_pruning_config: ToolResultPruningConfig;
+  visual_compact_config: VisualCompactConfig;
 }
 
 export interface AutoMemorySearchConfig {
   enabled: boolean;
   max_results: number;
-  min_score: number;
 }
 
 export interface EmbeddingModelConfig {
-  backend: string;
+  backend:
+    | "openai"
+    | "dashscope"
+    | "dashscope_multimodal"
+    | "gemini"
+    | "ollama";
   api_key: string;
   base_url: string;
   model_name: string;
@@ -50,13 +71,20 @@ export interface EmbeddingModelConfig {
 }
 
 export interface ReMeLightMemoryConfig {
-  summarize_when_compact: boolean;
-  auto_memory_interval: number | null;
+  needs_reindex: boolean;
+  auto_memory_inbox_push_enabled: boolean;
+  auto_dream_inbox_push_enabled: boolean;
+  daily_paper_inbox_push_enabled: boolean;
+  auto_memory_interval: number;
+  dream_cron_enabled: boolean;
   dream_cron: string;
+  daily_paper_cron_enabled: boolean;
+  daily_paper_cron: string;
+  daily_paper_use_hf_mirror: boolean;
+  daily_paper_topics: string;
+  memory_search_enabled: boolean;
   auto_memory_search_config: AutoMemorySearchConfig;
   embedding_model_config: EmbeddingModelConfig;
-  rebuild_memory_index_on_start: boolean;
-  recursive_file_watcher: boolean;
 }
 
 export interface AutoTitleConfig {
@@ -64,10 +92,90 @@ export interface AutoTitleConfig {
   timeout_seconds: number;
 }
 
+export interface ADBPGMemoryConfig {
+  rest_base_url: string;
+  rest_api_key: string;
+  memory_isolation: boolean;
+  search_timeout: number;
+  auto_memory_search_config: AutoMemorySearchConfig;
+}
+
+export interface DoomLoopStageConfig {
+  after: number;
+  action: string;
+  prompt: string;
+}
+
+export interface DoomLoopConfig {
+  enabled: boolean;
+  window_size: number;
+  similarity_threshold: number;
+  stages: DoomLoopStageConfig[];
+}
+
+export interface IterationGateConfig {
+  enabled: boolean;
+  max_iterations?: number | null;
+}
+
+export interface RubricGateConfig {
+  enabled: boolean;
+  prompt: string;
+  max_interventions: number;
+  in_loop_modes: boolean;
+}
+
+export type CustomGateType =
+  | "iteration"
+  | "doom_loop"
+  | "token_budget"
+  | "timeout"
+  | "tool_call_budget"
+  | "qualitative_rubric"
+  | "completion_rubric";
+
+export interface GateInstanceConfig {
+  id: string;
+  type: CustomGateType;
+  enabled: boolean;
+  params: Record<string, unknown>;
+}
+
+export interface CustomLoopModeConfig {
+  id: string;
+  name: string;
+  description: string;
+  slash_command: string;
+  enabled: boolean;
+  gates: GateInstanceConfig[];
+}
+
+export interface GoalLoopModeConfig {
+  max_iterations: number;
+  max_tokens: number;
+}
+
+export interface MissionLoopModeConfig {
+  max_iterations: number;
+  max_retries_per_story: number;
+  default_verification_instructions: string;
+  default_verify_command: string;
+}
+
+export interface LoopConfig {
+  iteration?: IterationGateConfig;
+  doom_loop: DoomLoopConfig;
+  rubric?: RubricGateConfig;
+  goal?: GoalLoopModeConfig;
+  mission?: MissionLoopModeConfig;
+  custom_modes?: CustomLoopModeConfig[];
+}
+
 export interface AgentsRunningConfig {
   max_iters: number;
-  auto_continue_on_text_only: boolean;
+  loop: LoopConfig;
   shell_command_timeout: number;
+  shell_command_executable: string;
   llm_retry_enabled: boolean;
   llm_max_retries: number;
   llm_backoff_base: number;
@@ -77,11 +185,11 @@ export interface AgentsRunningConfig {
   llm_rate_limit_pause: number;
   llm_rate_limit_jitter: number;
   llm_acquire_timeout: number;
-  max_input_length: number;
   history_max_length: number;
   context_manager_backend: string;
   light_context_config: LightContextConfig;
   memory_manager_backend: string;
+  adbpg_memory_config?: ADBPGMemoryConfig | null;
   reme_light_memory_config: ReMeLightMemoryConfig;
   approval_level?: string;
   auto_title_config: AutoTitleConfig;

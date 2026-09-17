@@ -1,0 +1,15 @@
+# Build output
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# Cache
+.cache/
+*.cache
+
+# Misc
+coverage/
+.vscode/
+.idea/

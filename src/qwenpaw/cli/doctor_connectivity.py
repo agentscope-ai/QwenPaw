@@ -28,8 +28,9 @@ from ..config.config import (
     VoiceChannelConfig,
     WecomConfig,
     XiaoYiConfig,
-    WeixinConfig,
+    WeChatConfig,
 )
+from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from .doctor_checks import _effective_channels_mcp, _read_workspace_agent_json
 
 ChannelProbe = Callable[[str, Any, float], list[str]]
@@ -97,12 +98,15 @@ def _probe_matrix(
 
 def _probe_telegram(
     agent_id: str,
-    _cfg: TelegramConfig,
+    cfg: TelegramConfig,
     timeout: float,
 ) -> list[str]:
-    err = _http_get_ok("https://api.telegram.org", timeout)
+    url = (cfg.base_url or "").strip().rstrip(
+        "/",
+    ) or "https://api.telegram.org"
+    err = _http_get_ok(url, timeout)
     if err:
-        return [f"{agent_id}: telegram: reach api.telegram.org — {err}"]
+        return [f"{agent_id}: telegram: reach {url} — {err}"]
     return []
 
 
@@ -118,17 +122,29 @@ def _probe_onebot(
     cfg: OneBotConfig,
     timeout: float,
 ) -> list[str]:
-    host = (cfg.ws_host or "127.0.0.1").strip()
+    # Mirrors OneBotChannel: a blank ws_host falls back to loopback,
+    # IPv6 brackets are dropped, and a whitespace token counts as unset.
+    configured_host = (cfg.ws_host or "").strip().strip("[]") or "127.0.0.1"
     port = int(cfg.ws_port or 6199)
-    if host in ("0.0.0.0", ""):
-        host = "127.0.0.1"
+    access_token = (cfg.access_token or "").strip()
+    notes: list[str] = []
+    if not is_loopback_host(configured_host) and not access_token:
+        notes.append(
+            f"{agent_id}: onebot: ws_host {configured_host} is reachable "
+            "from the network but access_token is empty — every "
+            "connection is rejected. Set access_token, or bind ws_host "
+            "to 127.0.0.1.",
+        )
+    # A wildcard bind address is not a connectable target; probe the
+    # loopback address of the same family instead.
+    host = probe_host_for_bind_host(configured_host)
     err = _tcp_check(host, port, timeout)
     if err:
-        return [
+        notes.append(
             f"{agent_id}: onebot: TCP {host}:{port} — {err} "
             "(is the reverse WebSocket server running?)",
-        ]
-    return []
+        )
+    return notes
 
 
 def _probe_feishu(
@@ -189,37 +205,52 @@ def _probe_voice(
 
 def _probe_xiaoyi(
     agent_id: str,
-    cfg: XiaoYiConfig,
+    _cfg: XiaoYiConfig,
     timeout: float,
 ) -> list[str]:
-    raw = (cfg.ws_url or "").strip()
-    if not raw:
-        return []
-    parsed = urlparse(raw)
-    host = parsed.hostname
-    if not host:
-        return [f"{agent_id}: xiaoyi: could not parse host from ws_url"]
-    port = parsed.port or (443 if parsed.scheme in ("wss", "https") else 80)
-    err = _tcp_check(host, port, timeout)
-    if err:
-        return [f"{agent_id}: xiaoyi: TCP {host}:{port} — {err}"]
-    return []
+    from qwenpaw.app.channels.xiaoyi.constants import (
+        DEFAULT_WS_URL,
+        DEFAULT_WS_URL_BACKUP,
+    )
+
+    notes: list[str] = []
+    for label, raw in (
+        ("primary", DEFAULT_WS_URL),
+        ("backup", DEFAULT_WS_URL_BACKUP),
+    ):
+        if not raw:
+            continue
+        parsed = urlparse(raw)
+        host = parsed.hostname
+        if not host:
+            continue
+        port = parsed.port or (
+            443 if parsed.scheme in ("wss", "https") else 80
+        )
+        err = _tcp_check(host, port, timeout)
+        if err:
+            notes.append(
+                f"{agent_id}: xiaoyi: "
+                f"TCP {host}:{port} ({label}) "
+                f"\u2014 {err}",
+            )
+    return notes
 
 
-def _probe_weixin(
+def _probe_wechat(
     agent_id: str,
-    cfg: WeixinConfig,
+    cfg: WeChatConfig,
     timeout: float,
 ) -> list[str]:
     base = (cfg.base_url or "").strip().rstrip("/")
     if base:
         err = _http_get_ok(base + "/", timeout)
         if err:
-            return [f"{agent_id}: weixin: GET {base!r} — {err}"]
+            return [f"{agent_id}: wechat: GET {base!r} — {err}"]
         return []
     err = _http_get_ok("https://api.weixin.qq.com/", timeout)
     if err:
-        return [f"{agent_id}: weixin: reach api.weixin.qq.com — {err}"]
+        return [f"{agent_id}: wechat: reach api.weixin.qq.com — {err}"]
     return []
 
 
@@ -236,7 +267,7 @@ _BUILTIN_PROBES: dict[str, ChannelProbe] = {
     "wecom": _probe_wecom,
     "voice": _probe_voice,
     "xiaoyi": _probe_xiaoyi,
-    "weixin": _probe_weixin,
+    "wechat": _probe_wechat,
 }
 
 

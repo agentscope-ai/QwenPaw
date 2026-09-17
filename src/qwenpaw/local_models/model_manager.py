@@ -504,7 +504,8 @@ class ModelManager:
             return False, f"Failed to fetch info from {repo_id}"
 
         if any(
-            isinstance(f, dict) and f.get("Name", "").endswith(".gguf")
+            isinstance(f, dict)
+            and (f.get("Name", "") or f.get("Path", "")).endswith(".gguf")
             for f in files
         ):
             return True, ""

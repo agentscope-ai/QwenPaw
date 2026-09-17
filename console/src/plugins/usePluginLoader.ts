@@ -9,6 +9,9 @@
  */
 
 import { getApiUrl, getApiToken } from "../api/config";
+import { pluginSystem } from "./hostExternals";
+import { chatExtensions } from "./registry/chatExtensions";
+import { menuRegistry, routeRegistry, slotRegistry } from "./registry/store";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Plugin manifest type (mirrors backend PluginInfo)
@@ -20,6 +23,19 @@ interface PluginInfo {
   frontend_entry?: string;
 }
 
+const loadedPluginIds = new Set<string>();
+
+export function resetLoadedPlugins(): void {
+  for (const pluginId of loadedPluginIds) {
+    menuRegistry.disposeSource(pluginId);
+    routeRegistry.disposeSource(pluginId);
+    slotRegistry.disposeSource(pluginId);
+    chatExtensions.disposeAll(pluginId);
+    pluginSystem.remove(pluginId);
+  }
+  loadedPluginIds.clear();
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Internal helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,7 +45,7 @@ interface PluginInfo {
  * to a full URL using the same base that all other API calls use.
  */
 function resolveUrl(pluginId: string, apiPath: string): string {
-  return getApiUrl(`plugins/${pluginId}/files/${apiPath}`);
+  return getApiUrl(`frontend_plugin/${pluginId}/files/${apiPath}`);
 }
 
 /**
@@ -79,7 +95,7 @@ export async function loadAllPlugins(): Promise<{
     const token = getApiToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(getApiUrl("/plugins"), { headers });
+    const res = await fetch(getApiUrl("/frontend_plugin"), { headers });
     if (!res.ok) {
       console.warn(`[PluginLoader] /api/plugins returned ${res.status}`);
       return { loaded: 0, failed: [] };
@@ -95,6 +111,7 @@ export async function loadAllPlugins(): Promise<{
   const results = await Promise.allSettled(
     frontendPlugins.map(async (p) => {
       await executePluginScript(resolveUrl(p.id, p.frontend_entry!));
+      loadedPluginIds.add(p.id);
       console.info(`[PluginLoader] ✓ ${p.id}`);
     }),
   );

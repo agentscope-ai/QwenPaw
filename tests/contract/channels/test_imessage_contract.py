@@ -11,6 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from tests.contract.channels import ChannelContractTest
 
@@ -39,6 +40,8 @@ class TestIMessageChannelContract(ChannelContractTest):
             db_path="~/Library/Messages/chat.db",
             poll_sec=5.0,
             bot_prefix="[Test]",
-            show_tool_details=False,
-            filter_tool_messages=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )

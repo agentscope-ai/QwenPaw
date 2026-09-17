@@ -4,6 +4,9 @@
 # Default WebSocket URL
 DEFAULT_WS_URL = "wss://hag.cloud.huawei.com/openclaw/v1/ws/link"
 
+# Default backup WebSocket URL (IP direct)
+DEFAULT_WS_URL_BACKUP = "wss://116.63.174.231/openclaw/v1/ws/link"
+
 # Heartbeat interval (seconds)
 HEARTBEAT_INTERVAL = 30
 

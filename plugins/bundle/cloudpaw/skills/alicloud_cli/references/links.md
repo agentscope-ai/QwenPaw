@@ -1,0 +1,43 @@
+# 阿里云 CLI 官方链接清单（集中管理）
+
+> 由 llms.txt 自动整理。
+
+- `什么是阿里云CLI`: https://help.aliyun.com/zh/cli/what-is-alibaba-cloud-cli.md
+- `快速入门`: https://help.aliyun.com/zh/cli/quick-start.md
+- `支持CLI的云产品`: https://help.aliyun.com/zh/cli/cloud-products-supporting-cli.md
+- `使用阿里云CLI调用OPENAPI`: https://help.aliyun.com/zh/cli/quickly-start-using-alibaba-cloud-cli.md
+- `使用阿里云CLI_VISUAL_STUDIO_CODE插件`: https://help.aliyun.com/zh/cli/use-alibaba-cloud-cli-visual-studio-code-plug-in.md
+- `安装指南`: https://help.aliyun.com/zh/cli/installation-guide.md
+- `在LINUX上安装阿里云CLI`: https://help.aliyun.com/zh/cli/install-cli-on-linux.md
+- `在MACOS上安装阿里云CLI`: https://help.aliyun.com/zh/cli/install-cli-on-macos.md
+- `在WINDOWS系统中安装阿里云CLI`: https://help.aliyun.com/zh/cli/install-cli-on-windows.md
+- `更新阿里云CLI`: https://help.aliyun.com/zh/cli/update-cli.md
+- `卸载阿里云CLI`: https://help.aliyun.com/zh/cli/uninstall-cli.md
+- `配置阿里云CLI`: https://help.aliyun.com/zh/cli/configure-alibaba-cloud-cli.md
+- `在阿里云CLI中配置身份凭证`: https://help.aliyun.com/zh/cli/configure-credentials.md
+- `阿里云CLI凭证管理指南`: https://help.aliyun.com/zh/cli/other-configure-command-operations.md
+- `配置代理信息`: https://help.aliyun.com/zh/cli/use-an-http-proxy-server.md
+- `命令自动补全功能`: https://help.aliyun.com/zh/cli/auto-completion-function.md
+- `使用阿里云CLI`: https://help.aliyun.com/zh/cli/use-alibaba-cloud-cli.md
+- `命令结构`: https://help.aliyun.com/zh/cli/call-rpc-api-and-roa-api.md
+- `阿里云CLI参数格式要求`: https://help.aliyun.com/zh/cli/parameter-format-overview.md
+- `阿里云CLI命令行选项`: https://help.aliyun.com/zh/cli/command-line-options.md
+- `管理和使用插件`: https://help.aliyun.com/zh/cli/managing-and-using-cli-plugins.md
+- `生成并调用命令`: https://help.aliyun.com/zh/cli/sample-commands.md
+- `获取帮助信息`: https://help.aliyun.com/zh/cli/use-the-help-command.md
+- `使用阿里云CLI管理OSS资源`: https://help.aliyun.com/zh/cli/use-alibaba-cloud-cli-to-manage-oss-data.md
+- `过滤且表格化输出结果`: https://help.aliyun.com/zh/cli/filter-results-and-tabulate-output.md
+- `聚合分页类接口查询结果`: https://help.aliyun.com/zh/cli/aggregation-of-paging-interface-results.md
+- `强制调用接口`: https://help.aliyun.com/zh/cli/force-call-apis.md
+- `结果轮询`: https://help.aliyun.com/zh/cli/result-polling.md
+- `模拟调用功能`: https://help.aliyun.com/zh/cli/simulate-a-call.md
+- `在阿里云CLI中开启日志输出功能`: https://help.aliyun.com/zh/cli/log-debugging.md
+- `导出阿里云CLI命令元数据与OPENAPI元数据`: https://help.aliyun.com/zh/cli/export-metadata.md
+- `最佳实践`: https://help.aliyun.com/zh/cli/best-practices.md
+- `使用阿里云CLI跨地域迁移ECS实例`: https://help.aliyun.com/zh/cli/use-alibaba-cloud-cli-to-migrate-ecs-instances-across-regions.md
+- `在DOCKER容器中运行阿里云CLI`: https://help.aliyun.com/zh/cli/run-alibaba-cloud-cli-in-a-docker-container.md
+- `常用工具`: https://help.aliyun.com/zh/cli/common-tools.md
+- `VIM编辑器`: https://help.aliyun.com/zh/cli/use-the-vim-editor.md
+- `NANO编辑器`: https://help.aliyun.com/zh/cli/nano-editor-tutorial.md
+- `阿里云CLI错误排查指南`: https://help.aliyun.com/zh/cli/cli-troubleshooting.md
+- `查看阿里云CLI版本更新与变更详情`: https://help.aliyun.com/zh/cli/view-version-update-and-change-details.md

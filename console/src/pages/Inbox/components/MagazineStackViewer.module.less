@@ -1,0 +1,44 @@
+.viewerContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.mainArea {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px;
+  align-items: center;
+  gap: 10px;
+}
+
+.contentCard {
+  min-height: 320px;
+  border-radius: 12px;
+}
+
+.date {
+  color: rgba(0, 0, 0, 0.5);
+  margin-bottom: 12px;
+}
+
+.timeline {
+  display: flex;
+  overflow-x: auto;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.timelineItem {
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: #fff;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.active {
+  border-color: #ff7f16;
+  color: #ff7f16;
+}

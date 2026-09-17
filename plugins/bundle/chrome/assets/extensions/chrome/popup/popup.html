@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QwenPaw</title>
+    <style>
+      body {
+        box-sizing: border-box;
+        width: 280px;
+        margin: 0;
+        padding: 14px;
+        color: #172033;
+        background: #ffffff;
+        font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 15px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0 0 12px;
+      }
+
+      .logo {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+      }
+
+      .subtitle {
+        margin: 2px 0 0;
+        color: #64748b;
+        font-size: 12px;
+      }
+
+      dl {
+        display: grid;
+        grid-template-columns: 92px 1fr;
+        gap: 8px 10px;
+        margin: 0;
+      }
+
+      dt {
+        color: #64748b;
+      }
+
+      dd {
+        min-width: 0;
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: #dc2626;
+      }
+
+      .dot[data-connected="true"] {
+        background: #059669;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <img class="logo" src="../icons/logo-48.png" alt="">
+      <div>
+        <h1>QwenPaw</h1>
+        <p class="subtitle">Connects this browser to QwenPaw.</p>
+      </div>
+    </div>
+    <dl>
+      <dt>Status</dt>
+      <dd class="status"><span id="dot" class="dot"></span><span id="status">Checking</span></dd>
+      <dt>QwenPaw tabs</dt>
+      <dd id="tabs">0</dd>
+      <dt>Version</dt>
+      <dd id="version">-</dd>
+    </dl>
+    <script src="popup.js"></script>
+  </body>
+</html>

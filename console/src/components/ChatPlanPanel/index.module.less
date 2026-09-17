@@ -1,0 +1,283 @@
+.panel {
+  flex: 0 0 auto;
+  margin: 0 0 8px;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+.summary {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+}
+
+.titleRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.title {
+  min-width: 0;
+  overflow: hidden;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.description,
+.current,
+.subtaskDesc,
+.subtaskOutcome {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.description {
+  display: -webkit-box;
+  margin-top: 4px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.current {
+  margin-top: 6px;
+  color: #475569;
+}
+
+.progressBox {
+  flex: 0 0 156px;
+  min-width: 0;
+}
+
+.progressText {
+  margin-bottom: 2px;
+  color: #64748b;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.state,
+.subtaskState {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  max-width: 92px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  box-sizing: border-box;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+.state {
+  height: 22px;
+  padding: 0 8px;
+}
+
+.subtaskState {
+  width: 66px;
+  height: 24px;
+  margin-top: 1px;
+  padding: 0 7px;
+}
+
+.stateIcon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+}
+
+.stateLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stateTodo {
+  border-color: #e2e8f0;
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.stateInProgress {
+  border-color: #c7d2fe;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.stateInProgress .stateIcon {
+  animation: stateSpin 1.1s linear infinite;
+}
+
+.stateDone {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.stateAbandoned {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.subtasks {
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid rgba(15, 23, 42, 0.08);
+  list-style: none;
+  max-height: 224px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100, 116, 139, 0.32) transparent;
+}
+
+.subtasks::-webkit-scrollbar {
+  width: 6px;
+}
+
+.subtasks::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(100, 116, 139, 0.32);
+}
+
+.subtask {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  padding: 7px 0;
+}
+
+.subtaskBody {
+  min-width: 0;
+  flex: 1;
+}
+
+.subtaskName {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.subtaskDesc {
+  display: -webkit-box;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.subtaskOutcome {
+  margin-top: 3px;
+  color: #15803d;
+  overflow-wrap: anywhere;
+}
+
+@keyframes stateSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+:global(.dark-mode) {
+  .panel {
+    border-color: rgba(148, 163, 184, 0.22);
+    background: linear-gradient(180deg, #18181b 0%, #111113 100%);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+  }
+
+  .title {
+    color: rgba(255, 255, 255, 0.9);
+  }
+
+  .description,
+  .progressText,
+  .subtaskDesc {
+    color: rgba(255, 255, 255, 0.58);
+  }
+
+  .current {
+    color: rgba(255, 255, 255, 0.68);
+  }
+
+  .subtaskName {
+    color: rgba(255, 255, 255, 0.82);
+  }
+
+  .subtasks {
+    border-top-color: rgba(148, 163, 184, 0.18);
+  }
+
+  .stateTodo {
+    border-color: rgba(148, 163, 184, 0.2);
+    background: rgba(148, 163, 184, 0.1);
+    color: rgba(255, 255, 255, 0.68);
+  }
+
+  .stateInProgress {
+    border-color: rgba(129, 140, 248, 0.34);
+    background: rgba(79, 70, 229, 0.18);
+    color: #c7d2fe;
+  }
+
+  .stateDone {
+    border-color: rgba(74, 222, 128, 0.3);
+    background: rgba(22, 101, 52, 0.2);
+    color: #86efac;
+  }
+
+  .stateAbandoned {
+    border-color: rgba(248, 113, 113, 0.32);
+    background: rgba(127, 29, 29, 0.24);
+    color: #fca5a5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stateInProgress .stateIcon {
+    animation: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .summary {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .progressBox {
+    width: 100%;
+    flex-basis: auto;
+  }
+
+  .subtaskState {
+    width: 58px;
+  }
+}

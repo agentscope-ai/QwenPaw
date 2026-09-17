@@ -1,0 +1,492 @@
+{
+  "id": "qwenpaw-creator",
+  "name": "QwenPaw Creator",
+  "version": "1.0.3",
+  "type": "app",
+  "description": "An agentic video creation platform. Start from an idea or existing footage: an Agent team of screenwriting, directing, visual, motion, and editing Specialists handles planning, generation, editing, and composition; select anything in the project and hand it to the Agent for a precise change, with every key decision staying in your hands.",
+  "description_i18n": {
+    "zh-CN": "Agentic 视频创作平台。从一句创意生成短剧，或将已有素材剪成成片：编剧、导演、视觉、动效、剪辑等 Agent 协同完成策划、生成、剪辑与合成；项目中所见皆可选中交给 Agent 精准修改，每个关键决定都由你确认。",
+    "en-US": "An agentic video creation platform. Start from an idea or existing footage: an Agent team of screenwriting, directing, visual, motion, and editing Specialists handles planning, generation, editing, and composition; select anything in the project and hand it to the Agent for a precise change, with every key decision staying in your hands."
+  },
+  "author": "QwenPaw Creator Team",
+  "entry": {
+    "backend": "backend/main.py",
+    "frontend": "ui/dist/index.js"
+  },
+  "dependencies": [
+    "oss2",
+    "imageio-ffmpeg",
+    "pypdfium2",
+    "pandas",
+    "matplotlib",
+    "openpyxl",
+    "tabulate",
+    "numpy"
+  ],
+  "qwenpaw_version": {
+    "min": "2.0.1"
+  },
+  "pack_exclude": [
+    "backend/tests",
+    "backend/scripts",
+    "backend/pytest.ini",
+    "e2e",
+    "scripts",
+    "ui/src",
+    "ui/public",
+    "ui/scripts",
+    "ui/index.html",
+    "ui/package.json",
+    "ui/package-lock.json",
+    "ui/plugin-entry.js",
+    "ui/tsconfig.json",
+    "ui/vite.config.ts",
+    "ui/vitest.config.ts"
+  ],
+  "meta": {
+    "pawapp": {
+      "icon": "🎬",
+      "icon_url": "/api/frontend_plugin/qwenpaw-creator/files/ui/dist/app/logo-mark.png",
+      "entry_page": "/apps/qwenpaw-creator",
+      "launch_scope": "page",
+      "category": "video-creation"
+    },
+    "permissions": {
+      "chat": false,
+      "storage": false
+    },
+    "runtime_dependencies": {
+      "jq": {
+        "required_for": "jq_project agent edits",
+        "path_env": "CREATOR_JQ_PATH",
+        "auto_install_env": "CREATOR_AUTO_INSTALL_BINARIES",
+        "auto_install_default": false
+      },
+      "ffmpeg": {
+        "required_for": "media probing, rendering, and composition",
+        "path_env": "CREATOR_FFMPEG_PATH",
+        "bundled_fallback": "imageio-ffmpeg"
+      },
+      "ffprobe": {
+        "required": false,
+        "path_env": "CREATOR_FFPROBE_PATH",
+        "fallback": "ffmpeg metadata probing"
+      },
+      "libreoffice": {
+        "required": false,
+        "required_for": "office document (doc/docx/ppt/pptx/vsdx) rendering in read_document",
+        "path_env": "CREATOR_LIBREOFFICE_PATH",
+        "fallback": "xlsx renders via the data renderer; other office formats return a readable install hint"
+      }
+    },
+    "features": [
+      "project-management",
+      "script-generation",
+      "asset-generation",
+      "storyboard-editing",
+      "reference-to-video",
+      "video-stitching"
+    ],
+    "tools": [
+      {
+        "name": "creator_text_model",
+        "description": "QwenPaw Creator text model configuration for script, storyboard, and prompt planning",
+        "icon": "📝",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "Text API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Used only by Creator text workflows. Environment fallback: TEXT_API_KEY."
+          },
+          {
+            "name": "model",
+            "label": "Text Model",
+            "type": "text",
+            "required": false,
+            "default": "qwen3.7-plus",
+            "placeholder": "qwen3.7-plus"
+          },
+          {
+            "name": "base_url",
+            "label": "Text Base URL",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+          }
+        ]
+      },
+      {
+        "name": "creator_vlm_model",
+        "description": "QwenPaw Creator native multimodal understanding configuration",
+        "icon": "👁️",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "VLM API Key",
+            "type": "password",
+            "required": false,
+            "placeholder": "Uses Text API Key when empty",
+            "help": "Optional. Falls back to creator_text_model / TEXT_API_KEY."
+          },
+          {
+            "name": "model",
+            "label": "VLM Model",
+            "type": "text",
+            "required": false,
+            "default": "qwen3.7-plus",
+            "placeholder": "qwen3.7-plus"
+          },
+          {
+            "name": "base_url",
+            "label": "VLM Base URL",
+            "type": "text",
+            "required": false,
+            "placeholder": "Uses Text Base URL when empty"
+          }
+        ]
+      },
+      {
+        "name": "creator_web_grounding",
+        "description": "QwenPaw Creator web and image grounding configuration",
+        "icon": "🌐",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "enabled",
+            "label": "Grounding Enabled",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          },
+          {
+            "name": "tavily_api_key",
+            "label": "Tavily API Key",
+            "type": "password",
+            "required": false,
+            "placeholder": "tvly-...",
+            "help": "Optional primary text and image retrieval provider."
+          },
+          {
+            "name": "serper_api_key",
+            "label": "Serper API Key",
+            "type": "password",
+            "required": false,
+            "placeholder": "serper key",
+            "help": "Optional Google search provider tried after Tavily."
+          },
+          {
+            "name": "native_search_enabled",
+            "label": "Qwen Native Search Fallback",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"],
+            "help": "Uses DashScope Responses web_search/web_search_image only when the selected search adapter is compatible."
+          },
+          {
+            "name": "search_reuse_llm",
+            "label": "Reuse Creator LLM for Search",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"]
+          },
+          {
+            "name": "search_api_key",
+            "label": "Qwen Search API Key",
+            "type": "password",
+            "required": false,
+            "help": "Used only when search_reuse_llm is false."
+          },
+          {
+            "name": "search_model",
+            "label": "Qwen Search Model",
+            "type": "text",
+            "required": false,
+            "help": "Used only when search_reuse_llm is false."
+          },
+          {
+            "name": "search_base_url",
+            "label": "Qwen Search Base URL",
+            "type": "text",
+            "required": false,
+            "help": "Used only when search_reuse_llm is false."
+          },
+          {
+            "name": "validation_source",
+            "label": "Validation Model Source",
+            "type": "select",
+            "required": false,
+            "default": "llm",
+            "options": ["llm", "vlm", "custom"],
+            "help": "Which model verifies grounded images: the Creator LLM, the Creator VLM, or the custom model below. Overrides the legacy reuse_llm switch."
+          },
+          {
+            "name": "reuse_llm",
+            "label": "Reuse Creator LLM for Validation",
+            "type": "select",
+            "required": false,
+            "default": "true",
+            "options": ["true", "false"],
+            "help": "Legacy switch; ignored when validation_source is set."
+          },
+          {
+            "name": "api_key",
+            "label": "Grounding LLM API Key",
+            "type": "password",
+            "required": false,
+            "help": "Used only when reuse_llm is false. Must support image input for visual verification."
+          },
+          {
+            "name": "model",
+            "label": "Grounding LLM Model",
+            "type": "text",
+            "required": false,
+            "help": "Used only when reuse_llm is false."
+          },
+          {
+            "name": "base_url",
+            "label": "Grounding LLM Base URL",
+            "type": "text",
+            "required": false,
+            "help": "Used only when reuse_llm is false."
+          }
+        ]
+      },
+      {
+        "name": "creator_image_model",
+        "description": "QwenPaw Creator image generation/editing configuration",
+        "icon": "🎨",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "Image API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Used only by Creator image workflows. Environment fallback: IMAGE_API_KEY."
+          },
+          {
+            "name": "base_url",
+            "label": "Image Base URL",
+            "type": "text",
+            "required": false,
+            "default": "https://routify.alibaba-inc.com/protocol/openai",
+            "placeholder": "https://routify.alibaba-inc.com/protocol/openai"
+          },
+          {
+            "name": "model",
+            "label": "Image Model",
+            "type": "text",
+            "required": false,
+            "default": "gpt-image-2",
+            "placeholder": "gpt-image-2"
+          },
+          {
+            "name": "translate_model",
+            "label": "Image Translate Model",
+            "type": "text",
+            "required": false,
+            "default": "qwen-mt-image",
+            "placeholder": "qwen-mt-image",
+            "help": "Optional in-image text translation model (DashScope provider only). Environment fallback: IMAGE_TRANSLATE_MODEL_NAME."
+          },
+          {
+            "name": "quality",
+            "label": "Image Quality",
+            "type": "select",
+            "required": false,
+            "default": "low",
+            "options": ["low", "medium", "high", "auto"]
+          },
+          {
+            "name": "timeout",
+            "label": "Image Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "default": 120,
+            "min": 30,
+            "max": 600
+          }
+        ]
+      },
+      {
+        "name": "creator_asr_model",
+        "description": "QwenPaw Creator speech-to-text configuration for source understanding",
+        "icon": "🎙️",
+        "requires_config": false,
+        "config_fields": [
+          {"name": "provider", "label": "ASR Provider", "type": "select", "required": true, "default": "fun-asr", "options": ["fun-asr", "whisper"]},
+          {"name": "api_key", "label": "ASR API Key", "type": "password", "required": false, "help": "Fun-ASR may reuse creator_text_model when enabled in Creator settings."},
+          {"name": "base_url", "label": "ASR Base URL", "type": "text", "required": true, "default": "https://dashscope.aliyuncs.com/api/v1"},
+          {"name": "model", "label": "ASR Model", "type": "text", "required": true, "default": "fun-asr"},
+          {"name": "language", "label": "Language", "type": "text", "required": false}
+        ]
+      },
+      {
+        "name": "creator_tts_model",
+        "description": "QwenPaw Creator text-to-speech configuration for narration and character voices",
+        "icon": "🔊",
+        "requires_config": false,
+        "config_fields": [
+          {"name": "api_key", "label": "TTS API Key", "type": "password", "required": false, "placeholder": "sk-...", "help": "Optional capability. TTS tools appear only when a key is configured. Environment fallback: TTS_API_KEY."},
+          {"name": "base_url", "label": "TTS Base URL", "type": "text", "required": false, "default": "https://dashscope.aliyuncs.com/api/v1"},
+          {"name": "model", "label": "TTS Model", "type": "text", "required": false, "default": "qwen3-tts-flash"},
+          {"name": "voice", "label": "Default Voice", "type": "select", "required": false, "default": "Cherry", "options": ["Cherry", "Serena", "Ethan", "Chelsie", "Dylan", "Sunny", "Jada", "Nofish"], "help": "System voice used when a request does not pick one. Custom enrolled voices are selected per character."}
+        ]
+      },
+      {
+        "name": "creator_s2v_model",
+        "description": "QwenPaw Creator digital-human lip-sync (Wan2.2-S2V) configuration",
+        "icon": "🧍",
+        "requires_config": false,
+        "config_fields": [
+          {"name": "api_key", "label": "S2V API Key", "type": "password", "required": false, "placeholder": "sk-...", "help": "Optional capability. The s2v_generation tool appears only when a key is resolvable. Environment fallback: S2V_API_KEY."},
+          {"name": "base_url", "label": "S2V Base URL", "type": "text", "required": false, "default": "https://dashscope.aliyuncs.com/api/v1"},
+          {"name": "model", "label": "S2V Model", "type": "text", "required": false, "default": "wan2.2-s2v"},
+          {"name": "detect_model", "label": "Face Detect Model", "type": "text", "required": false, "default": "wan2.2-s2v-detect", "help": "Free portrait suitability check that always runs before the billed submission."}
+        ]
+      },
+      {
+        "name": "creator_embedding_model",
+        "description": "QwenPaw Creator text embedding configuration for long-source graph memory",
+        "icon": "🧠",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "Embedding API Key",
+            "type": "password",
+            "required": false,
+            "help": "Optional. May reuse creator_vlm_model when enabled in Creator settings. Environment fallback: EMBEDDING_API_KEY."
+          },
+          {
+            "name": "model",
+            "label": "Embedding Model",
+            "type": "text",
+            "required": false,
+            "default": "qwen3-vl-embedding",
+            "placeholder": "qwen3-vl-embedding"
+          },
+          {
+            "name": "base_url",
+            "label": "Embedding Base URL",
+            "type": "text",
+            "required": false,
+            "default": "https://dashscope.aliyuncs.com/api/v1",
+            "placeholder": "https://dashscope.aliyuncs.com/api/v1",
+            "help": "DashScope native multimodal-embedding endpoint root. Note the per-request batch cap."
+          }
+        ]
+      },
+      {
+        "name": "creator_video_model",
+        "description": "QwenPaw Creator reference-to-video configuration",
+        "icon": "🎬",
+        "requires_config": true,
+        "config_fields": [
+          {
+            "name": "api_key",
+            "label": "Video API Key",
+            "type": "password",
+            "required": true,
+            "placeholder": "sk-...",
+            "help": "Used only by Creator video workflows. Environment fallback: VIDEO_API_KEY."
+          },
+          {
+            "name": "base_url",
+            "label": "Video Base URL",
+            "type": "text",
+            "required": false,
+            "default": "https://dashscope.aliyuncs.com/api/v1",
+            "placeholder": "https://dashscope.aliyuncs.com/api/v1"
+          },
+          {
+            "name": "model",
+            "label": "Video Model",
+            "type": "text",
+            "required": false,
+            "default": "wan2.7-r2v",
+            "placeholder": "wan2.7-r2v",
+            "help": "Supported: Bailian wan2.x r2v family, Bailian happyhorse-1.x-r2v, Volcano doubao-seedance-2.x. Environment fallback: VIDEO_MODEL_NAME."
+          },
+          {
+            "name": "submit_timeout",
+            "label": "Submit Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "default": 180,
+            "min": 30,
+            "max": 1800
+          },
+          {
+            "name": "status_timeout",
+            "label": "Status Timeout (seconds)",
+            "type": "number",
+            "required": false,
+            "default": 30,
+            "min": 10,
+            "max": 300
+          }
+        ]
+      },
+      {
+        "name": "creator_media_oss",
+        "description": "QwenPaw Creator OSS and provider-bound media upload configuration",
+        "icon": "🪣",
+        "requires_config": false,
+        "config_fields": [
+          {
+            "name": "policy_api_key",
+            "label": "DashScope Upload Policy API Key",
+            "type": "password",
+            "required": false,
+            "help": "Used for DashScope model-bound temporary uploads. Environment fallback: OSS_POLICY_API_KEY."
+          },
+          {
+            "name": "access_key_id",
+            "label": "OSS Access Key ID",
+            "type": "text",
+            "required": false,
+            "help": "Environment fallback: OSS_ACCESS_KEY_ID."
+          },
+          {
+            "name": "access_key_secret",
+            "label": "OSS Access Key Secret",
+            "type": "password",
+            "required": false,
+            "help": "Environment fallback: OSS_ACCESS_KEY_SECRET."
+          },
+          {
+            "name": "endpoint",
+            "label": "OSS Endpoint",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://oss-cn-hangzhou.aliyuncs.com"
+          },
+          {
+            "name": "bucket",
+            "label": "OSS Bucket",
+            "type": "text",
+            "required": false,
+            "default": "creator-store"
+          },
+          {
+            "name": "public_base_url",
+            "label": "OSS Public Base URL",
+            "type": "text",
+            "required": false,
+            "placeholder": "https://cdn.example.com"
+          }
+        ]
+      }
+    ]
+  }
+}

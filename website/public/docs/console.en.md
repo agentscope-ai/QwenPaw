@@ -69,6 +69,36 @@ row to delete it.
 
 ---
 
+## Inbox
+
+> Sidebar: **Inbox → Inbox**
+
+Inbox is the centralized place to handle approvals and review execution results
+from cron jobs and heartbeat runs.
+
+**Unread indicator:**
+The Inbox entry shows an unread dot. Open Inbox regularly to avoid missing
+important notifications.
+
+**Approvals:**
+Approval-required actions triggered from any agent chat in the Console channel
+appear in the Inbox approval page.
+
+![todo](https://img.alicdn.com/imgextra/i3/O1CN01sVXgDs1uRd07B7u7a_!!6000000006034-2-tps-2926-1860.png)
+
+You can handle approvals from all agents in one place (approve / reject /
+cancel task). Approval cards include a countdown; if no action is taken before
+timeout, the request is **rejected by default**. Actions taken here stay in sync
+with approval popups in chat.
+
+**Push messages:**
+For cron jobs and heartbeat, users can choose whether execution results should
+be pushed to Inbox. Click a message to view execution details, including traces.
+
+![todo](https://img.alicdn.com/imgextra/i2/O1CN01iC21Ec20wD8uObwi2_!!6000000006913-2-tps-2886-1878.png)
+
+---
+
 ## Channels
 
 > Sidebar: **Control → Channels**
@@ -76,7 +106,7 @@ row to delete it.
 Manage messaging channels (Console, DingTalk, Feishu, Discord, QQ, WeChat,
 iMessage, etc.): enable/disable and credentials.
 
-![Channels](https://img.alicdn.com/imgextra/i4/O1CN01cqMycR1SeczjROAHu_!!6000000002272-2-tps-3822-2070.png)
+![Channels](https://img.alicdn.com/imgextra/i2/O1CN01ieCEb91uiZfJ6Zz5V_!!6000000006071-2-tps-3810-2064.png)
 
 **Enable a channel:**
 
@@ -239,36 +269,27 @@ Click a skill card for the full description.
 **Edit a skill:**
 Click a skill card → turn off content preview → edit → **Save**.
 
-**Create a custom skill:**
+**Add a skill:**
 
-1. Click **Create Skill**.
-2. Enter a skill name (e.g. `weather_query`) and skill content in Markdown (must
-   include `name` and `description`).
-3. Click **Create**; the new skill appears in the list.
+The **Add Skill** dropdown at the top right is the unified entry for every way
+of adding a skill:
 
-**Load from skill pool:**
-
-1. Click **Load from skill pool**.
-2. In the dialog, pick skills to add to the current agent.
-3. Click **Confirm**.
+- **Create Skill**: enter a skill name (e.g. `weather_query`) and skill content
+  in Markdown (must include `name` and `description`), then click **Create**.
+- **Load from Skill Pool**: pick skills to add to the current agent in the
+  dialog, then click **Confirm**.
+- **Upload via Zip**: choose a local skill **zip** file to import.
+- **Upload via URL**: paste a skill URL (the dialog lists supported sources
+  with example URLs — click one to fill it in), then click **Confirm**.
+- **Browse Market**: the page switches to the embedded Skill Market; search or
+  filter by category, then click **Save** on a card to install it into the
+  current agent. Click **Back** (or use browser back) to return to the list.
 
 **Sync to skill pool:**
 
-1. Click **Sync to skill pool**.
+1. Click **Sync to Skill Pool**.
 2. Select skills to push to the pool.
 3. Click **Confirm**.
-
-**Upload a skill:**
-
-1. Click **Upload via zip**.
-2. Choose a skill **zip** file.
-3. Click **Open**; on success the skill appears in the list.
-
-**Import from Skills Hub:**
-
-1. Click **Import from Skills Hub** at the top.
-2. Enter the skill URL, then import.
-3. Wait for completion; the skill appears enabled in the list.
 
 **Delete a skill:**
 Click **Delete** on the card and confirm. If the skill is enabled, it is
@@ -287,6 +308,11 @@ off, this agent cannot call that tool in chat.
 
 Use **Enable all** / **Disable all** at the top for batch changes. Changes apply
 to the **current agent** immediately.
+
+The **browser** tool card carries one extra button that switches between the
+**New (Beta)** and **Legacy (compat)** browser implementations. It is written to
+the global configuration, applies to every agent, and takes effect only after a
+service restart — see [Browser](./browser).
 
 ---
 
@@ -308,7 +334,7 @@ The new client appears in the list.
 
 > Sidebar: **Workspace → Configuration**
 
-![Runtime Config](https://img.alicdn.com/imgextra/i1/O1CN011l1EnX1YbmDvsXolR_!!6000000003078-2-tps-3822-2070.png)
+![Runtime Config](https://img.alicdn.com/imgextra/i4/O1CN01MC8p7m1iSICDbWOFr_!!6000000004411-2-tps-3810-2064.png)
 
 This page configures **runtime parameters for the current agent**, grouped in
 cards. Click **Save** at the bottom (**Reset** reloads from the server).
@@ -347,7 +373,7 @@ path, etc.). See [Multi-Agent](./multi-agent).
 
 Configure LLM providers and select the default model for agents. See [Models](./models) for details on provider and model configuration.
 
-![Models](https://img.alicdn.com/imgextra/i4/O1CN01rePoH21MabpCZyWr1_!!6000000001451-2-tps-3822-2070.png)
+![Models](https://img.alicdn.com/imgextra/i2/O1CN012UbhBA1lVuAQm9Cb3_!!6000000004825-2-tps-3810-2064.png)
 
 On this page you can:
 
@@ -370,9 +396,9 @@ On this page you can:
 
 - Broadcast skills to specific agents
 - Update built-in skills to the latest version
-- Upload skills via zip
-- Import skills from Skills Hub
-- Create skills
+- Add skills through the **Add Skill** entry: Create Skill, Upload via
+  Zip, Upload via URL, or Browse Market (clicking **Save** in the market saves
+  into the pool)
 - Edit skills
 - Delete skills
 
@@ -410,6 +436,22 @@ Select rows → click **Delete** in the toolbar → confirm.
 
 ---
 
+## Tool Offload
+
+> Sidebar: **Settings → Tool Offload**
+
+![Settings → Tool Offload (Keep Foreground / Auto Offload to Background)](https://img.alicdn.com/imgextra/i2/O1CN01NTmeZPSYyeF7nOIU_!!6000000001249-0-tps-3840-1986.jpg)
+
+Configure the default action when a tool reaches its offload deadline:
+
+- **Keep Foreground** (product default) — do not auto-offload when the offload
+  countdown ends; the tool keeps running in the chat foreground until it
+  finishes or hits its execution timeout.
+- **Auto Offload to Background** — when the offload countdown ends, move the
+  call to the background so the agent can continue other work.
+
+---
+
 ## Security
 
 > Sidebar: **Settings → Security**
@@ -428,7 +470,7 @@ Click **Save** after changing toggles or rules. Details: [Security](./security).
 
 > Sidebar: **Settings → Token Usage**
 
-![Token Usage](https://img.alicdn.com/imgextra/i2/O1CN01KYNxoL1Xgz6z9nsVy_!!6000000002954-2-tps-3822-2070.png)
+![Token Usage](https://img.alicdn.com/imgextra/i1/O1CN01FWWKrS1hYsGvs4wG1_!!6000000004290-2-tps-3810-2064.png)
 
 View LLM token usage over a range, by date and model.
 
@@ -459,10 +501,28 @@ model (same settings apply to voice input in chat and channel voice messages).
 - **Audio mode** — **Auto**: transcribe per settings below, then send text
   (works for most models). **Native**: send audio as an attachment (only for
   models that support audio).
-- **Transcription backend** — **Off**; **Whisper API** (OpenAI-compatible
-  `audio/transcriptions`; configure keys under [Models](#models) and select the
-  provider here); **Local Whisper** (requires `ffmpeg` and
-  `pip install 'qwenpaw[whisper]'`).
+- **Transcription backend** — **Off**; **Whisper API**; **Local Whisper**.
+
+**Whisper API setup:**
+
+1. Add an OpenAI-compatible provider under [Models](#models).
+2. Make sure the provider supports `audio/transcriptions` and has a valid API
+   key.
+3. Return here and select that provider as the Whisper API backend.
+
+**Local Whisper setup:**
+
+1. Install `ffmpeg` with your system package manager.
+2. Install the optional Python dependency in the environment that runs QwenPaw:
+   `pip install "qwenpaw[whisper]"`.
+3. Restart QwenPaw, then select **Local Whisper** here.
+
+Verify the local installation with:
+
+```bash
+ffmpeg -version
+python -c "import whisper; print('openai-whisper installed')"
+```
 
 **Save** applies to newly received audio. Follow on-page help for details.
 
@@ -478,7 +538,7 @@ model (same settings apply to voice input in chat and channel voice messages).
 | Cron Jobs             | Control → Cron Jobs            | Create/edit/delete, run now                    |
 | Heartbeat             | Control → Heartbeat            | Interval, delivery target, active hours        |
 | Files                 | Workspace → Files              | Persona files, memory, upload/download         |
-| Skills                | Workspace → Skills             | Enable/disable, Hub/upload/custom              |
+| Skills                | Workspace → Skills             | Enable/disable, create/zip/URL/market add      |
 | Tools                 | Workspace → Tools              | Toggle built-in tools by name                  |
 | MCP                   | Workspace → MCP                | MCP clients                                    |
 | Configuration         | Workspace → Configuration      | Iterations, context, retries, compaction, etc. |
@@ -486,6 +546,7 @@ model (same settings apply to voice input in chat and channel voice messages).
 | Models                | Settings → Models              | Providers, local models, active model          |
 | Skill pool            | Settings → Skill pool          | Built-in and shared reusable skills            |
 | Environment Variables | Settings → Environments        | Keys for tools/skills                          |
+| Tool Offload          | Settings → Tool Offload        | Default policy: Keep Foreground / Auto Offload |
 | Security              | Settings → Security            | Tool guard, skill scan, file guard             |
 | Token Usage           | Settings → Token Usage         | Usage by date/model                            |
 | Voice transcription   | Settings → Voice transcription | Audio mode, Whisper API/local                  |
@@ -497,6 +558,8 @@ model (same settings apply to voice input in chat and channel voice messages).
 - [Config & working directory](./config) — Config fields, providers, env vars
 - [Channels](./channels) — Per-channel setup and credentials
 - [Skills](./skills) — Built-in skills and custom skills
+- [Browser](./browser) — Browser tool tracks, identities, and settings
+- [Chrome extension](./chrome) — Connect QwenPaw to your own Chrome
 - [Heartbeat](./heartbeat) — Heartbeat configuration
 - [Context](./context) — Compaction and context
 - [Security](./security) — Web login, tool guard, file guard

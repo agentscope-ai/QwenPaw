@@ -31,6 +31,17 @@ except ImportError:
 _DESC_LIMIT = 80
 _PLAN_DESC_LIMIT = 200
 
+# While ``_plan_awaiting_user_confirm`` is set (after ``create_plan`` /
+# ``revise_current_plan`` is scheduled), only these tools may run.
+# ``check_plan_tool_gate`` hard-blocks everything else.
+_PLAN_TOOLS_WHILE_AWAITING_USER_CONFIRM = frozenset(
+    {
+        "create_plan",
+        "revise_current_plan",
+        "finish_plan",
+    },
+)
+
 
 def set_plan_gate(  # pylint: disable=protected-access
     plan_notebook,
@@ -41,51 +52,95 @@ def set_plan_gate(  # pylint: disable=protected-access
         plan_notebook._plan_tool_gate = enabled
 
 
-def check_plan_tool_gate(  # pylint: disable=protected-access
+def set_plan_auto_execute(  # pylint: disable=protected-access
+    plan_notebook,
+    enabled: bool = True,
+) -> None:
+    """Mark whether the current plan flow should execute immediately."""
+    if plan_notebook is not None:
+        plan_notebook._qp_plan_auto_execute = enabled
+
+
+def clear_plan_awaiting_user_confirm(  # pylint: disable=protected-access
+    plan_notebook,
+) -> None:
+    """Reset same-turn-only plan flags at the start of each user turn.
+
+    Clears ``_plan_awaiting_user_confirm``, ``_plan_just_mutated``, and
+    ``_plan_text_only_after_mutation`` so an interrupted last turn cannot
+    leak into the next one.  The agent re-arms these from ``_acting()`` when
+    a new plan mutation runs.
+    """
+    if plan_notebook is not None:
+        plan_notebook._plan_awaiting_user_confirm = False
+        plan_notebook._plan_just_mutated = False
+        plan_notebook._plan_text_only_after_mutation = False
+
+
+def check_plan_tool_gate(
     plan_notebook,
     tool_name: str,
-):
-    """Return an error string if *tool_name* must be blocked, else ``None``.
+):  # pylint: disable=protected-access
+    """Return an error string if *tool_name* must be blocked, else `None`.
 
-    When a ``/plan`` request is pending (gate set by the runner), only
-    ``create_plan`` may run.  The gate is cleared once a plan exists.
+    - Post-mutation lock ``_plan_awaiting_user_confirm``: when set, only
+      plan-management tools may run (checked before ``current_plan``).
+    - Initial ``/plan`` gate ``_plan_tool_gate``: only ``create_plan`` until a
+      plan exists.
+
+    The runner clears confirmation-related notebook flags once per user
+    query.
     """
     if plan_notebook is None:
         return None
+    auto_execute = bool(getattr(plan_notebook, "_qp_plan_auto_execute", False))
+    if (
+        getattr(plan_notebook, "_plan_awaiting_user_confirm", False)
+        and not auto_execute
+    ):
+        if tool_name in _PLAN_TOOLS_WHILE_AWAITING_USER_CONFIRM:
+            return None
+        return (
+            f"Tool '{tool_name}' is not available right now. "
+            "A plan was just created or revised — present it to the user "
+            "and wait for their confirmation (or edit/cancel) before "
+            "calling any other tools. Only 'create_plan', "
+            "'revise_current_plan', and 'finish_plan' are allowed until "
+            "the user's next message."
+        )
     if plan_notebook.current_plan is not None:
         if getattr(plan_notebook, "_plan_tool_gate", False):
             plan_notebook._plan_tool_gate = False
         return None
-    if not getattr(plan_notebook, "_plan_tool_gate", False):
-        return None
-    if tool_name == "create_plan":
+    gate = getattr(plan_notebook, "_plan_tool_gate", False)
+    if not gate or tool_name in {"create_plan", "ask_user_input"}:
         return None
     return (
         f"Tool '{tool_name}' is not available right now. "
-        "You MUST call 'create_plan' first to define the plan and its "
-        "subtasks. Decompose the user's request into a logical pipeline: "
-        "each subtask needs a clear name, description, and measurable "
-        "expected_outcome. Write plan text in the same language as the "
-        "user's request."
+        "You MUST call 'ask_user_input' first if critical user details are "
+        "missing, otherwise call 'create_plan' to define the plan and its "
+        "subtasks. Decompose the user's request into a logical pipeline: each "
+        "subtask needs a clear name, description, and measurable "
+        "expected_outcome. Write plan text in the same language as the user's "
+        "request."
     )
 
 
 def should_skip_auto_continue(  # pylint: disable=protected-access
     plan_notebook,
 ) -> bool:
-    """True when auto-continue must be suppressed for the current turn.
+    """True when auto-continue must be suppressed for the current turn."""
 
-    After ``create_plan`` or ``revise_current_plan`` the notebook sets
-    ``_plan_just_mutated`` so the agent can present the plan and wait for
-    confirmation without auto-continue injecting an extra reasoning pass.
-    """
     if plan_notebook is None:
         return False
+
+    if getattr(plan_notebook, "_plan_awaiting_user_confirm", False):
+        return True
 
     val = bool(getattr(plan_notebook, "_plan_just_mutated", False))
     if val:
         plan_notebook._plan_just_mutated = False
-        return True
+        return not bool(getattr(plan_notebook, "_qp_plan_auto_execute", False))
 
     if (
         bool(getattr(plan_notebook, "_plan_recently_finished", False))
@@ -213,11 +268,35 @@ if _HAS_DEFAULT_HINT:
         no_plan: str | None = (
             "There is no active plan yet.\n"
             + _LANG_BLOCK
-            + "Call 'create_plan' to decompose the user's request into a "
-            "structured plan with subtasks. Each subtask needs: name, "
-            "description, expected_outcome. Order by dependency.\n"
+            + "If critical user details are missing and would materially "
+            "change the result, call 'ask_user_input' first with concise "
+            "choices and a recommended default. Use question objects like "
+            "{name, label, type, options, required}; for each choice question "
+            "provide 2-4 concrete options, and the UI supports a final custom "
+            "answer. Otherwise call 'create_plan' "
+            "to decompose the user's request into a structured plan with "
+            "subtasks. Each subtask needs: name, description, "
+            "expected_outcome. Order by dependency.\n"
             "After 'create_plan' succeeds, present the plan and wait for "
-            "user confirmation.\n"
+            "user confirmation. Do not call any other tool after "
+            "'create_plan' in the same turn.\n"
+        )
+
+        auto_no_plan: str | None = (
+            "There is no active plan yet.\n"
+            + _LANG_BLOCK
+            + "This is an auto-planned complex task. If critical user "
+            "details are missing and would materially change the result, call "
+            "'ask_user_input' first with concise choices and a recommended "
+            "default. Use question objects like {name, label, type, options, "
+            "required}; for each choice question provide 2-4 concrete "
+            "options, and the UI supports a final custom answer. Otherwise "
+            "call 'create_plan' to decompose the user's "
+            "request into an executable plan with subtasks. Each subtask "
+            "needs: name, description, expected_outcome. Order by "
+            "dependency.\n"
+            "After 'create_plan' succeeds, do NOT wait for user "
+            "confirmation; continue execution immediately.\n"
         )
 
         at_the_beginning_after_mutation: str = (
@@ -228,6 +307,15 @@ if _HAS_DEFAULT_HINT:
             "Do NOT call 'revise_current_plan' again — the user has not "
             "responded to the updated plan yet.\n"
             "Do NOT execute any subtask until the user confirms.\n"
+        )
+
+        auto_at_the_beginning_after_mutation: str = (
+            "The current plan:\n```\n{plan}\n```\n"
+            + _LANG_BLOCK
+            + "This auto plan was JUST created. Do NOT wait for user "
+            "confirmation. Call 'update_subtask_state' with subtask_idx=0 "
+            "and state='in_progress', then begin executing that subtask. "
+            "Include a tool call in this turn.\n"
         )
 
         recently_finished_guard: str | None = (
@@ -245,6 +333,8 @@ if _HAS_DEFAULT_HINT:
         def _hint_no_plan(self, nb) -> str | None:
             """Select hint when there is no active plan."""
             if nb is not None and getattr(nb, "_plan_tool_gate", False):
+                if getattr(nb, "_qp_plan_auto_execute", False):
+                    return self.auto_no_plan
                 return self.no_plan
             if nb is not None and getattr(
                 nb,
@@ -264,6 +354,14 @@ if _HAS_DEFAULT_HINT:
             )
 
             if n_ip == 0 and n_done == 0 and n_abn == 0:
+                if (
+                    just_mutated
+                    and nb is not None
+                    and getattr(nb, "_qp_plan_auto_execute", False)
+                ):
+                    return self.auto_at_the_beginning_after_mutation.format(
+                        plan=plan.to_markdown(),
+                    )
                 tmpl = (
                     self.at_the_beginning_after_mutation
                     if just_mutated

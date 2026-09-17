@@ -17,6 +17,11 @@ _TOOL_GUARD_I18N: dict[str, dict[str, str]] = {
         "parameters": "Parameters",
         "reason": "Reason",
         "reason_denied": "User denied execution",
+        "instruction_no_retry": (
+            "This specific tool call has been denied by the user. "
+            "Do not retry this call or attempt alternative methods "
+            "to complete it."
+        ),
         "reason_timeout": "Approval timeout after {timeout}s, auto-denied",
         "approve_hint": (
             "Type `/approve` to approve, or send any message to deny."
@@ -60,6 +65,7 @@ _TOOL_GUARD_I18N: dict[str, dict[str, str]] = {
         "parameters": "参数",
         "reason": "原因",
         "reason_denied": "用户拒绝执行",
+        "instruction_no_retry": ("用户已拒绝此次工具调用。请不要重试该调用，也不要尝试其他方法来完成这一次调用。"),
         "reason_timeout": "审批超时（{timeout}秒），自动拒绝",
         "approve_hint": "输入 `/approve` 批准执行，或发送任意消息拒绝。",
         "blocked_footer": "该工具已被禁止，无法批准执行。",
@@ -94,6 +100,11 @@ _TOOL_GUARD_I18N: dict[str, dict[str, str]] = {
         "parameters": "Параметры",
         "reason": "Причина",
         "reason_denied": "Пользователь отклонил выполнение",
+        "instruction_no_retry": (
+            "Пользователь отклонил этот вызов инструмента. Не повторяйте его "
+            "и не пытайтесь завершить именно этот вызов альтернативными "
+            "способами."
+        ),
         "reason_timeout": (
             "Время подтверждения истекло ({timeout}с), "
             "автоматически отклонено"
@@ -142,6 +153,11 @@ _TOOL_GUARD_I18N: dict[str, dict[str, str]] = {
         "parameters": "パラメータ",
         "reason": "理由",
         "reason_denied": "ユーザーが実行を拒否しました",
+        "instruction_no_retry": (
+            "ユーザーがこのツール呼び出しを拒否しました。この呼び出しを再試行"
+            "したり、代替手段でこの呼び出しを完了しようとしたりしないでく"
+            "ださい。"
+        ),
         "reason_timeout": "承認がタイムアウトしました（{timeout}秒）、自動拒否",
         "approve_hint": ("`/approve` と入力して承認するか、" "拒否するには任意のメッセージを送信してください。"),
         "blocked_footer": ("このツールはブロックされており、承認できません。"),

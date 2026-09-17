@@ -3,20 +3,31 @@ name: Pre-commit Checks
 on: [push, pull_request]
 
 jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
   run:
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
     env:
       OS: ubuntu-latest
-      PYTHON: "3.10"
+      PYTHON: "3.11"
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
       - name: Update setuptools and wheel
         run: |

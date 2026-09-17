@@ -1,9 +1,13 @@
 import { request } from "../request";
-import type { TokenUsageSummary } from "../types/tokenUsage";
+import type { TokenUsageSummary, TokenUsageRecord } from "../types/tokenUsage";
 
 export interface GetTokenUsageParams {
   start_date: string;
   end_date: string;
+  model?: string;
+  provider?: string;
+  scope?: "personal" | "agent" | "platform";
+  agent_id?: string;
 }
 
 function buildQuery(params: GetTokenUsageParams): string {
@@ -11,10 +15,19 @@ function buildQuery(params: GetTokenUsageParams): string {
     start_date: params.start_date,
     end_date: params.end_date,
   });
+  if (params.model) search.set("model", params.model);
+  if (params.provider) search.set("provider", params.provider);
+  if (params.scope) search.set("scope", params.scope);
+  if (params.agent_id) search.set("agent_id", params.agent_id);
   return `?${search.toString()}`;
 }
 
 export const tokenUsageApi = {
+  // Original summary endpoint (backend aggregation)
   getTokenUsage: (params: GetTokenUsageParams) =>
     request<TokenUsageSummary>(`/token-usage${buildQuery(params)}`),
+
+  // New details endpoint (raw records for frontend aggregation)
+  getTokenUsageDetails: (params: GetTokenUsageParams) =>
+    request<TokenUsageRecord[]>(`/token-usage/details${buildQuery(params)}`),
 };

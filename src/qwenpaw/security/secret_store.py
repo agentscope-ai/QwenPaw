@@ -11,9 +11,11 @@ tokens, etc.) stored on disk.  Secrets are encrypted with Fernet (AES-128-CBC
 Encrypted values carry an ``ENC:`` prefix so readers can distinguish them
 from legacy plaintext and transparently migrate on first access.
 """
+
 from __future__ import annotations
 
 import base64
+import hashlib
 import logging
 import os
 import secrets
@@ -21,7 +23,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from ..constant import EnvVarLoader
+from ..constant import EnvVarLoader, KEYRING_ACCOUNT_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,48 @@ def _get_secret_dir() -> Path:
     return SECRET_DIR
 
 
+def _keyring_account() -> str:
+    """Return the keychain account name for the current install.
+
+    The OS keychain is a single, machine-global namespace keyed by
+    ``(service, account)``.  Because the service/account pair used to be a
+    fixed constant, *every* install on the machine read and wrote the same
+    keychain item regardless of where its ``SECRET_DIR`` lived.  A
+    development checkout pointed at a separate working dir (e.g. ``.devdata``
+    via ``QWENPAW_WORKING_DIR``) would therefore share — and silently
+    overwrite — the stable install's master key, leaving the stable install
+    unable to decrypt its own secrets.
+
+    Resolution:
+
+    1. Explicit ``QWENPAW_KEYRING_ACCOUNT`` override always wins (useful for
+       CI or for naming a dev profile deterministically).
+    2. If the install has *not* relocated its config/secrets via env
+       override, keep the historical ``master_key`` account verbatim so that
+       existing default and auto-detected legacy installs are completely
+       unaffected (no new keychain entry, no re-prompt).
+    3. Otherwise the user has explicitly opted into a separate location, so
+       derive a per-install account from the resolved ``SECRET_DIR`` path.
+       Distinct secret dirs get distinct, stable keychain items and never
+       collide.
+    """
+    explicit = EnvVarLoader.get_str(KEYRING_ACCOUNT_ENV)
+    if explicit:
+        return explicit
+
+    relocated = bool(
+        EnvVarLoader.get_str("QWENPAW_WORKING_DIR")
+        or EnvVarLoader.get_str("QWENPAW_SECRET_DIR"),
+    )
+    if not relocated:
+        return _KEYRING_ACCOUNT
+
+    digest = hashlib.sha256(
+        str(_get_secret_dir()).encode("utf-8"),
+    ).hexdigest()[:16]
+    return f"{_KEYRING_ACCOUNT}:{digest}"
+
+
 # ---------------------------------------------------------------------------
 # Master-key management
 # ---------------------------------------------------------------------------
@@ -51,7 +95,25 @@ def _should_skip_keyring() -> bool:
 
     Covers Docker containers, headless Linux servers, and CI
     environments where attempting keyring access could hang on D-Bus.
+
+    Note:
+        This function cannot catch every edge case.  A common false
+        negative is SSH X11 forwarding (``ssh -X``): the SSH client
+        automatically sets ``DISPLAY=localhost:10.0`` even though no
+        desktop keyring daemon is running on the remote server.  Other
+        similar situations include systemd user services, ``tmux``/
+        ``screen`` sessions inherited from a desktop login, and Docker
+        containers started with ``-e DISPLAY``.  For these cases a
+        daemon-thread timeout in ``_call_with_timeout`` acts as the
+        safety net so the caller is never blocked for more than
+        ``_KEYRING_TIMEOUT`` seconds regardless of what this function
+        returns.
     """
+    # Explicit escape hatch for CI, containers, and remote/headless hosts
+    # where OS keyring access is unavailable or may block.
+    if EnvVarLoader.get_bool("QWENPAW_DISABLE_KEYRING"):
+        return True
+
     if EnvVarLoader.get_bool("QWENPAW_RUNNING_IN_CONTAINER"):
         return True
 
@@ -68,25 +130,78 @@ def _should_skip_keyring() -> bool:
     return False
 
 
+_KEYRING_TIMEOUT = 10
+
+
+def _call_with_timeout(fn, timeout):
+    """Run *fn* in a daemon thread and wait at most *timeout* seconds.
+
+    Returns ``(result, timed_out)``.  When the call times out the
+    daemon thread is abandoned and ``(None, True)`` is returned
+    immediately — the main thread is never blocked beyond *timeout*.
+
+    Using a daemon thread avoids the ``ThreadPoolExecutor`` trap where
+    ``shutdown(wait=True)`` on context-manager exit blocks until the
+    hung thread finishes, negating the intended timeout.
+    """
+    result_holder = [None]
+    exc_holder = [None]
+    done = threading.Event()
+
+    def _worker():
+        try:
+            result_holder[0] = fn()
+        except Exception as _exc:  # pylint: disable=broad-except
+            exc_holder[0] = _exc
+        finally:
+            done.set()
+
+    threading.Thread(target=_worker, daemon=True).start()
+    if not done.wait(timeout=timeout):
+        return None, True
+    exc = exc_holder[0]
+    if exc is not None:
+        raise exc
+    return result_holder[0], False
+
+
 def _try_keyring_get() -> Optional[str]:
     """Read master key from OS keychain. Returns ``None`` on any failure.
 
     Skipped inside containers, headless Linux, and CI environments.
+    Uses a daemon-thread timeout to avoid hanging on systems that have
+    DISPLAY set but no keyring daemon running (e.g. Linux servers with
+    SSH X11 forwarding).
     """
     if _should_skip_keyring():
         return None
     try:
         import keyring
 
-        value = keyring.get_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT)
-        if value:
-            return value
+        account = _keyring_account()
 
-        # Backward compatibility: read legacy CoPaw keyring entry.
-        return keyring.get_password(
-            _KEYRING_SERVICE_LEGACY,
-            _KEYRING_ACCOUNT,
-        )
+        def _get():
+            value = keyring.get_password(
+                _KEYRING_SERVICE,
+                account,
+            )
+            if value:
+                return value
+            # Backward compatibility: read legacy CoPaw keyring entry.
+            return keyring.get_password(
+                _KEYRING_SERVICE_LEGACY,
+                account,
+            )
+
+        result, timed_out = _call_with_timeout(_get, _KEYRING_TIMEOUT)
+        if timed_out:
+            logger.debug(
+                "keyring get timed out after %ds, "
+                "falling back to file storage",
+                _KEYRING_TIMEOUT,
+            )
+            return None
+        return result
     except Exception:
         return None
 
@@ -95,13 +210,31 @@ def _try_keyring_set(key_hex: str) -> bool:
     """Store master key in OS keychain. Returns success flag.
 
     Skipped inside containers where no desktop keyring service exists.
+    Uses a daemon-thread timeout to avoid hanging when the keyring
+    daemon is unavailable.
     """
     if _should_skip_keyring():
         return False
     try:
         import keyring
 
-        keyring.set_password(_KEYRING_SERVICE, _KEYRING_ACCOUNT, key_hex)
+        account = _keyring_account()
+
+        def _set():
+            keyring.set_password(
+                _KEYRING_SERVICE,
+                account,
+                key_hex,
+            )
+
+        _, timed_out = _call_with_timeout(_set, _KEYRING_TIMEOUT)
+        if timed_out:
+            logger.debug(
+                "keyring set timed out after %ds, "
+                "falling back to file storage",
+                _KEYRING_TIMEOUT,
+            )
+            return False
         return True
     except Exception:
         logger.debug("keyring unavailable, falling back to file storage")

@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 from ...config.config import ACPAgentConfig, ACPConfig
+from ...exceptions import (
+    ACPConfigurationError,
+    ACPError,
+    ACPProtocolError,
+    ACPSessionError,
+    ACPTransportError,
+)
+
+ACPErrors = ACPError
 
 __all__ = [
     "ACPAgentConfig",
     "ACPConfig",
+    "ACPError",
     "ACPErrors",
     "ACPConfigurationError",
     "ACPTransportError",
@@ -17,28 +27,6 @@ __all__ = [
     "ACPSessionError",
     "SuspendedPermission",
 ]
-
-
-class ACPErrors(Exception):
-    def __init__(self, message: str, *, agent: Optional[str] = None):
-        super().__init__(message)
-        self.agent = agent
-
-
-class ACPConfigurationError(ACPErrors):
-    pass
-
-
-class ACPTransportError(ACPErrors):
-    pass
-
-
-class ACPProtocolError(ACPErrors):
-    pass
-
-
-class ACPSessionError(ACPErrors):
-    pass
 
 
 @dataclass

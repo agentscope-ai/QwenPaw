@@ -696,6 +696,174 @@ cp -r ~/.qwenpaw/workspaces ~/backups/workspaces-$(date +%Y%m%d)
 
 ---
 
+## Part 3: In-Workspace Subagents (spawn_subagent)
+
+> Introduced in **v1.1.10**.
+
+Beyond collaborating with agents in **separate workspaces** (`chat_with_agent`),
+QwenPaw also supports spawning ephemeral sub-tasks **within the current project**.
+
+### Three Collaboration Modes Compared
+
+| Mode                         | Workspace                          | History              | Best for                                           |
+| ---------------------------- | ---------------------------------- | -------------------- | -------------------------------------------------- |
+| `chat_with_agent`            | Target agent's own workspace       | None (text only)     | Calling a specialist agent (QA, code review, etc.) |
+| `spawn_subagent(fork=False)` | Same project as parent             | None (blank session) | Clean, independent sub-tasks                       |
+| `spawn_subagent(fork=True)`  | Depends on environment (see below) | Full parent history  | Context-aware side tasks that may modify files     |
+
+### Key Characteristics
+
+- **Ephemeral**: Subagents cannot be resumed. Each call creates a fresh session that is discarded after completion.
+- **Same Agent**: The subagent runs as the same agent (same config, persona, tools), just in a separate session.
+- **Always available**: `fork=True` works regardless of whether Coding Mode is enabled.
+
+### fork=True Behavior by Environment
+
+| Environment                              | Behavior                                                                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Coding Mode ON + project_dir is git repo | Creates a **git worktree** under `<project_dir>/.qwenpaw/worktrees/`. Subagent works in the isolated worktree.   |
+| Coding Mode OFF + workspace is git repo  | Creates a **git worktree** under `<workspace_dir>/.qwenpaw/worktrees/`. Subagent works in the isolated worktree. |
+| No git repo available                    | **In-place fork**: inherits conversation context, works in the same directory as the parent. No file isolation.  |
+
+The core guarantee of `fork=True` is **conversation context inheritance**. Git worktree isolation is an automatic bonus when the project is a git repository.
+
+### When to Use spawn_subagent?
+
+**Use `spawn_subagent(fork=False)` (default, most common)**:
+
+- Sub-task needs to read/write **files in the current project**
+- Sub-task is self-contained and **doesn't need conversation context**
+
+```
+"List all API endpoints under src/core"
+"Run the test suite and summarize failures"
+"Scan the codebase for security vulnerabilities"
+```
+
+**Use `spawn_subagent(fork=True)`**:
+
+- Sub-task **needs the full conversation context** (e.g. based on what we just discussed)
+- Sub-task **modifies files** but shouldn't affect the current working tree (requires git repo)
+- Sub-task needs context but **doesn't modify files** (works anywhere)
+
+```
+"Based on our discussion, write unit tests for the parser module"
+"Try an alternative implementation in a separate branch for comparison"
+"Summarize what we've discussed so far into a spec document"
+```
+
+**Use `chat_with_agent` (cross-agent)**:
+
+- You need a specialist agent with its own configuration and tools
+
+### Usage Examples
+
+#### Foreground (waits for result)
+
+```
+User: Analyze performance bottlenecks in src/core
+
+Agent internally calls:
+spawn_subagent(task="Analyze performance bottlenecks in src/core and report findings")
+→ Returns: [SESSION: sub-ab12]
+            Detailed analysis...
+```
+
+#### Background (returns immediately, poll later)
+
+```
+spawn_subagent(
+    task="Scan the entire codebase for security vulnerabilities",
+    background=True,
+)
+→ Returns: [TASK_ID: task-cd34]
+            [SESSION: sub-ef56]
+            Task submitted. Poll with check_agent_task(task_id="task-cd34").
+```
+
+#### fork=True with git repo — Inherit History, Isolated Worktree
+
+```
+spawn_subagent(
+    task="Based on our discussion, write unit tests for the parser module",
+    fork=True,
+)
+→ [SESSION: sub-gh78]
+   Tests written to src/tests/...
+   [FORK_BRANCH: fork/ab12ef34]
+   The forked worktree has uncommitted changes. Review and merge manually.
+
+# If the subagent makes no file changes → worktree is cleaned up automatically
+```
+
+#### fork=True without git repo — In-place with Context
+
+```
+spawn_subagent(
+    task="Based on our earlier discussion, draft the API spec",
+    fork=True,
+)
+→ [SESSION: sub-ij90]
+   API spec drafted...
+
+# No worktree involved — subagent inherits context and works in-place
+```
+
+### .worktreeinclude — Auto-copy Config Files into Worktree
+
+When a git worktree is created, files ignored by `.gitignore` (like `.env`)
+are not included. Create a `.worktreeinclude` file in the project root to
+specify files that should be copied into the worktree automatically:
+
+```
+# .worktreeinclude
+.env
+.env.local
+config/local.json
+```
+
+QwenPaw copies these files into the worktree when it is created, so the
+subagent can run without missing configuration.
+
+> Note: `.worktreeinclude` only applies when a git worktree is created.
+
+### FAQ
+
+**Q: Can I use both spawn_subagent and chat_with_agent together?**
+
+Yes. They are complementary:
+
+- `spawn_subagent` — in-project file tasks (same agent, ephemeral)
+- `chat_with_agent` — specialist agents in other workspaces
+
+**Q: Does fork=True require Coding Mode?**
+
+No. `fork=True` always works:
+
+- With a git repo (Coding Mode or workspace): you get worktree isolation + context inheritance.
+- Without a git repo: you get context inheritance only (in-place work, no file isolation).
+
+**Q: Is the worktree cleaned up automatically?**
+
+- **With file changes**: kept. Returns `[FORK_BRANCH]` with the branch name. Merge manually, then remove with `git worktree remove`.
+- **No file changes**: automatically removed.
+- **No git repo**: no worktree is created, so no cleanup needed.
+
+**Q: What about cleanup in background=True mode?**
+
+Background mode skips automatic cleanup. Manage manually:
+
+```bash
+git worktree list
+git worktree remove .qwenpaw/worktrees/<id>
+```
+
+**Q: Can I resume a subagent session?**
+
+No. Subagents are ephemeral by design. If you need multi-turn interaction with another agent, use `chat_with_agent` with a `session_id`.
+
+---
+
 ## Related Pages
 
 - [CLI Commands](./cli) - Detailed CLI reference

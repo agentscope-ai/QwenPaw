@@ -2,24 +2,64 @@
 """Tests for model_factory message normalization integration."""
 
 # pylint: disable=protected-access,redefined-outer-name
+import base64
+import json
 from types import SimpleNamespace
 
 import pytest
 from agentscope.formatter import OpenAIChatFormatter
-from agentscope.message import Msg, ToolResultBlock
+from agentscope.message import (
+    Base64Source,
+    DataBlock,
+    HintBlock,
+    Msg,
+    TextBlock,
+    ThinkingBlock,
+    ToolCallBlock,
+    ToolResultBlock,
+    ToolResultState,
+    URLSource,
+)
 
 try:
     from agentscope.formatter import AnthropicChatFormatter
-except ImportError:  # pragma: no cover - compatibility fallback
+except ImportError:
     AnthropicChatFormatter = None
 
 try:
     from agentscope.formatter import GeminiChatFormatter
-except ImportError:  # pragma: no cover - compatibility fallback
+except ImportError:
     GeminiChatFormatter = None
 
 from qwenpaw.agents import model_factory
 from qwenpaw.constant import MEDIA_UNSUPPORTED_PLACEHOLDER
+from qwenpaw.providers.capping_formatter import (
+    _CappingAnthropicFormatter,
+    _CappingOpenAIFormatter,
+)
+from qwenpaw.utils.tool_call_extra import persist_tool_call_extras
+
+
+def _data_block(media_type: str, url: str) -> DataBlock:
+    return DataBlock(source=URLSource(url=url, media_type=media_type))
+
+
+def _base64_data_block(media_type: str, content: bytes) -> DataBlock:
+    return DataBlock(
+        source=Base64Source(
+            media_type=media_type,
+            data=base64.b64encode(content).decode("ascii"),
+        ),
+    )
+
+
+def test_anthropic_dedup_key_uses_immutable_base64_directly() -> None:
+    block = _base64_data_block("image/png", b"immutable-content")
+
+    key = model_factory._anthropic_media_dedup_key(block.source)
+
+    assert key == ("base64", "image/png", block.source.data)
+    assert key[2] is block.source.data
 
 
 def _media_messages() -> list[Msg]:
@@ -29,41 +69,30 @@ def _media_messages() -> list[Msg]:
             name="user",
             role="user",
             content=[
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "url",
-                        "url": "file:///tmp/demo.png",
-                    },
-                },
+                _data_block("image/png", "file:///tmp/demo.png"),
             ],
         ),
         Msg(
             name="assistant",
             role="assistant",
             content=[
-                {
-                    "type": "tool_use",
-                    "id": "call_1",
-                    "name": "view_image",
-                    "input": {},
-                },
-            ],
-        ),
-        Msg(
-            name="system",
-            role="system",
-            content=[
+                ToolCallBlock(
+                    type="tool_call",
+                    id="call_1",
+                    name="view_image",
+                    input="{}",
+                ),
                 ToolResultBlock(
                     type="tool_result",
                     id="call_1",
                     name="view_image",
                     output=[
                         {
-                            "type": "image",
+                            "type": "data",
                             "source": {
                                 "type": "url",
                                 "url": "file:///tmp/demo.png",
+                                "media_type": "image/png",
                             },
                         },
                     ],
@@ -74,36 +103,25 @@ def _media_messages() -> list[Msg]:
 
 
 def _assert_request_time_stripped(formatter_class) -> None:
-    """Helper to assert that media is stripped from normalized messages."""
     original = _media_messages()
     (
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         original,
         formatter_class,
         SimpleNamespace(),
     )
 
-    # First message (user image) should be replaced with placeholder
-    assert normalized[0].content == [
-        {
-            "type": "text",
-            "text": MEDIA_UNSUPPORTED_PLACEHOLDER,
-        },
-    ]
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
 
-    # Third message (tool result with image) should have output replaced
-    assert normalized[2].content[0]["output"] == MEDIA_UNSUPPORTED_PLACEHOLDER
-
-    # Original messages should be unchanged
-    assert original[0].content[0]["type"] == "image"
-    assert original[2].content[0]["output"][0]["type"] == "image"
+    assert original[0].content[0].type == "data"
 
 
 def test_openai_formatter_normalizes_on_copy(monkeypatch) -> None:
-    """Test that OpenAI formatter normalizes messages with media stripped."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -113,7 +131,6 @@ def test_openai_formatter_normalizes_on_copy(monkeypatch) -> None:
 
 
 def test_anthropic_formatter_normalizes_on_copy(monkeypatch) -> None:
-    """Test Anthropic formatter normalizes messages with media stripped."""
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -126,7 +143,6 @@ def test_anthropic_formatter_normalizes_on_copy(monkeypatch) -> None:
 
 
 def test_gemini_formatter_normalizes_on_copy(monkeypatch) -> None:
-    """Test that Gemini formatter normalizes messages with media stripped."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -139,7 +155,6 @@ def test_gemini_formatter_normalizes_on_copy(monkeypatch) -> None:
 
 
 def test_multimodal_support_preserves_media(monkeypatch) -> None:
-    """Test that when multimodal is supported, media is preserved."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -151,28 +166,24 @@ def test_multimodal_support_preserves_media(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         original,
         OpenAIChatFormatter,
         SimpleNamespace(),
     )
 
-    # Media should be preserved in normalized messages
-    assert normalized[0].content[0]["type"] == "image"
-    assert normalized[2].content[0]["output"][0]["type"] == "image"
-
-    # Original should be unchanged
-    assert original[0].content[0]["type"] == "image"
+    assert normalized[0].content[0].type == "data"
+    assert original[0].content[0].type == "data"
 
 
 def test_force_strip_media_flag_overrides_multimodal_support(
     monkeypatch,
 ) -> None:
-    """Test that _qwenpaw_force_strip_media flag forces media stripping."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
-        lambda: True,  # Model supports multimodal
+        lambda: True,
     )
 
     original = _media_messages()
@@ -182,38 +193,119 @@ def test_force_strip_media_flag_overrides_multimodal_support(
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         original,
         OpenAIChatFormatter,
         formatter_instance,
     )
 
-    # Media should be stripped despite multimodal support
-    assert normalized[0].content[0]["type"] == "text"
-    assert normalized[0].content[0]["text"] == MEDIA_UNSUPPORTED_PLACEHOLDER
+    assert normalized[0].content[0].type == "text"
+    assert normalized[0].content[0].text == MEDIA_UNSUPPORTED_PLACEHOLDER
+
+
+@pytest.mark.asyncio
+async def test_anthropic_dedup_uses_complete_media_content(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    first = _base64_data_block("image/png", b"version-one")
+    second = _base64_data_block("image/png", b"version-two")
+    msg = Msg(name="user", role="user", content=[first, second])
+
+    formatted = await formatter.format([msg])
+
+    content = formatted[0]["content"]
+    assert [item["type"] for item in content] == ["image", "image"]
+    assert formatter._qwenpaw_last_wire_media_count == 2
+
+
+@pytest.mark.asyncio
+async def test_anthropic_dedup_omits_identical_media(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    first = _base64_data_block("image/png", b"same-version")
+    second = _base64_data_block("image/png", b"same-version")
+    msg = Msg(name="user", role="user", content=[first, second])
+
+    formatted = await formatter.format([msg])
+
+    content = formatted[0]["content"]
+    assert [item["type"] for item in content] == ["image", "text"]
+    assert "omitted" in content[1]["text"]
+    assert formatter._qwenpaw_last_wire_media_count == 1
+
+
+@pytest.mark.asyncio
+async def test_formatter_resets_wire_media_count_before_failure(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        model_factory,
+        "_supports_multimodal_for_current_model",
+        lambda: True,
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingAnthropicFormatter,
+    )
+    formatter = formatter_class()
+    valid = Msg(
+        name="user",
+        role="user",
+        content=[_base64_data_block("image/png", b"valid")],
+    )
+    await formatter.format([valid])
+    assert formatter._qwenpaw_last_wire_media_count == 1
+
+    async def fail_format(_self, _msgs):
+        raise RuntimeError("formatter failed")
+
+    monkeypatch.setattr(_CappingAnthropicFormatter, "format", fail_format)
+    with pytest.raises(RuntimeError, match="formatter failed"):
+        await formatter.format([valid])
+
+    assert formatter._qwenpaw_last_wire_media_count == 0
 
 
 def test_formatter_flags_returned_correctly() -> None:
-    """Test that formatter family flags are returned correctly."""
-    msgs = [Msg(name="user", role="user", content="Hello")]
+    msgs = [
+        Msg(name="user", role="user", content=[TextBlock(text="Hello")]),
+    ]
 
     (
         _normalized,
         is_anthropic,
         is_gemini,
+        is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         OpenAIChatFormatter,
         None,
     )
 
-    # OpenAI formatter should not be anthropic or gemini
     assert is_anthropic is False
     assert is_gemini is False
+    assert is_response is False
 
 
 def test_anthropic_flag_detected(monkeypatch) -> None:
-    """Test that Anthropic formatter is correctly detected."""
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -223,12 +315,15 @@ def test_anthropic_flag_detected(monkeypatch) -> None:
         lambda: True,
     )
 
-    msgs = [Msg(name="user", role="user", content="Hello")]
+    msgs = [
+        Msg(name="user", role="user", content=[TextBlock(text="Hello")]),
+    ]
 
     (
         _normalized,
         is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         AnthropicChatFormatter,
@@ -239,7 +334,6 @@ def test_anthropic_flag_detected(monkeypatch) -> None:
 
 
 def test_gemini_flag_detected(monkeypatch) -> None:
-    """Test that Gemini formatter is correctly detected."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -249,12 +343,15 @@ def test_gemini_flag_detected(monkeypatch) -> None:
         lambda: True,
     )
 
-    msgs = [Msg(name="user", role="user", content="Hello")]
+    msgs = [
+        Msg(name="user", role="user", content=[TextBlock(text="Hello")]),
+    ]
 
     (
         _normalized,
         _is_anthropic,
         is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         msgs,
         GeminiChatFormatter,
@@ -265,16 +362,12 @@ def test_gemini_flag_detected(monkeypatch) -> None:
 
 
 def test_original_messages_not_modified_by_formatter_prep() -> None:
-    """Test that preparing messages for formatter doesn't modify originals."""
     original = Msg(
         name="user",
         role="user",
         content=[
-            {"type": "text", "text": "Hello"},
-            {
-                "type": "image",
-                "source": {"type": "url", "url": "file:///tmp/test.png"},
-            },
+            TextBlock(text="Hello"),
+            _data_block("image/png", "file:///tmp/test.png"),
         ],
     )
     original_dict = original.to_dict()
@@ -283,15 +376,235 @@ def test_original_messages_not_modified_by_formatter_prep() -> None:
         _normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         [original],
         OpenAIChatFormatter,
         SimpleNamespace(_qwenpaw_force_strip_media=False),
     )
 
-    # Original message should be completely unchanged
     assert original.to_dict() == original_dict
-    assert original.content[1]["type"] == "image"
+    assert original.content[1].type == "data"
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_aligns_reasoning_with_split_segments() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="first reasoning"),
+            ToolCallBlock(id="call_1", name="first", input="{}"),
+            ToolCallBlock(id="call_2", name="second", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="first",
+                output=[TextBlock(text="first result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            ToolResultBlock(
+                id="call_2",
+                name="second",
+                output=[TextBlock(text="second result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            ThinkingBlock(thinking="second reasoning"),
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "first reasoning",
+        "second reasoning",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_aligns_reasoning_across_hint() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="first reasoning"),
+            TextBlock(text="before hint"),
+            HintBlock(hint="continue"),
+            ThinkingBlock(thinking="second reasoning"),
+            TextBlock(text="after hint"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "first reasoning",
+        "second reasoning",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_does_not_carry_reasoning_forward() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=True)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="tool reasoning"),
+            ToolCallBlock(id="call_1", name="tool", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="tool",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == "tool reasoning"
+    assert "reasoning_content" not in assistant_messages[1]
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_preserves_real_and_fills_missing() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=True,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="tool reasoning"),
+            ToolCallBlock(id="call_1", name="tool", input="{}"),
+            ToolResultBlock(
+                id="call_1",
+                name="tool",
+                output=[TextBlock(text="result")],
+                state=ToolResultState.SUCCESS,
+            ),
+            TextBlock(text="done"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert [item.get("reasoning_content") for item in assistant_messages] == [
+        "tool reasoning",
+        " ",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_respects_disabled_relay_privacy() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=False,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="private reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == " "
+
+
+@pytest.mark.asyncio
+async def test_required_reasoning_falls_back_when_alignment_mismatches(
+    monkeypatch,
+) -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(
+        relay_reasoning_content=True,
+    )
+    formatter._qwenpaw_require_reasoning_content = True
+    monkeypatch.setattr(
+        model_factory,
+        "_reasoning_by_assistant_segment",
+        lambda _blocks, _formatter: ["real reasoning", "extra segment"],
+    )
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="real reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages[0]["reasoning_content"] == " "
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_respects_disabled_reasoning_relay() -> None:
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+    )
+    formatter = formatter_class(relay_reasoning_content=False)
+    msg = Msg(
+        name="assistant",
+        role="assistant",
+        content=[
+            ThinkingBlock(thinking="private reasoning"),
+            TextBlock(text="answer"),
+        ],
+    )
+
+    formatted = await formatter.format([msg])
+
+    assistant_messages = [
+        item for item in formatted if item.get("role") == "assistant"
+    ]
+    assert assistant_messages
+    assert all("reasoning_content" not in item for item in assistant_messages)
 
 
 # -----------------------------------------------------------------------------
@@ -300,25 +613,18 @@ def test_original_messages_not_modified_by_formatter_prep() -> None:
 
 
 def _messages_with_extra_content() -> list[Msg]:
-    """Create messages that include Gemini-specific extra_content."""
+    """Create messages with tool_call blocks."""
     return [
         Msg(
             name="assistant",
             role="assistant",
             content=[
-                {
-                    "type": "tool_use",
-                    "id": "call_ec",
-                    "name": "search",
-                    "input": {"q": "hello"},
-                    "extra_content": {"thought_signature": "sig_abc"},
-                },
-            ],
-        ),
-        Msg(
-            name="system",
-            role="system",
-            content=[
+                ToolCallBlock(
+                    type="tool_call",
+                    id="call_ec",
+                    name="search",
+                    input=json.dumps({"q": "hello"}),
+                ),
                 ToolResultBlock(
                     type="tool_result",
                     id="call_ec",
@@ -330,8 +636,97 @@ def _messages_with_extra_content() -> list[Msg]:
     ]
 
 
+@pytest.mark.asyncio
+async def test_openai_formatter_relays_persisted_tool_call_extra() -> None:
+    msg = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        msg,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+    # Exercise the session persistence boundary, not just the live Msg.
+    restored = Msg.model_validate(msg.model_dump(mode="json"))
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="example",
+    )
+
+    formatted = await formatter_class().format([restored])
+
+    tool_call = formatted[0]["tool_calls"][0]
+    assert tool_call["id"] == "call_ec"
+    assert tool_call["extra_content"] == {
+        "thought_signature": "signature-abc",
+    }
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_does_not_relay_other_provider_extra() -> None:
+    msg = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        msg,
+        {
+            "call_ec": {
+                "provider_id": "source-provider",
+                "extra_content": {"thought_signature": "signature-abc"},
+            },
+        },
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="target-provider",
+    )
+
+    formatted = await formatter_class().format([msg])
+
+    assert "extra_content" not in formatted[0]["tool_calls"][0]
+
+
+@pytest.mark.asyncio
+async def test_openai_formatter_isolates_reused_ids_between_requests() -> None:
+    first = _messages_with_extra_content()[0]
+    second = _messages_with_extra_content()[0]
+    persist_tool_call_extras(
+        first,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-1"},
+            },
+        },
+    )
+    persist_tool_call_extras(
+        second,
+        {
+            "call_ec": {
+                "provider_id": "example",
+                "extra_content": {"thought_signature": "signature-2"},
+            },
+        },
+    )
+    formatter_class = model_factory._create_file_block_support_formatter(
+        _CappingOpenAIFormatter,
+        provider_id="example",
+    )
+
+    formatter = formatter_class()
+    formatted_first = await formatter.format([first])
+    formatted_second = await formatter.format([second])
+
+    first_call = formatted_first[0]["tool_calls"][0]
+    second_call = formatted_second[0]["tool_calls"][0]
+    relayed = [
+        first_call["extra_content"]["thought_signature"],
+        second_call["extra_content"]["thought_signature"],
+    ]
+    assert relayed == ["signature-1", "signature-2"]
+
+
 def test_openai_formatter_strips_extra_content(monkeypatch) -> None:
-    """OpenAI formatter should strip extra_content from tool_use blocks."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -342,17 +737,22 @@ def test_openai_formatter_strips_extra_content(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _messages_with_extra_content(),
         OpenAIChatFormatter,
         SimpleNamespace(),
     )
 
-    assert "extra_content" not in normalized[0].content[0]
+    block = normalized[0].content[0]
+    assert not hasattr(block, "extra_content") or not getattr(
+        block,
+        "extra_content",
+        None,
+    )
 
 
 def test_anthropic_formatter_strips_extra_content(monkeypatch) -> None:
-    """Anthropic formatter should strip extra_content from tool_use blocks."""
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
@@ -366,17 +766,22 @@ def test_anthropic_formatter_strips_extra_content(monkeypatch) -> None:
         normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
         _messages_with_extra_content(),
         AnthropicChatFormatter,
         SimpleNamespace(),
     )
 
-    assert "extra_content" not in normalized[0].content[0]
+    block = normalized[0].content[0]
+    assert not hasattr(block, "extra_content") or not getattr(
+        block,
+        "extra_content",
+        None,
+    )
 
 
 def test_gemini_formatter_preserves_extra_content(monkeypatch) -> None:
-    """Gemini formatter should keep extra_content on tool_use blocks."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
@@ -386,23 +791,24 @@ def test_gemini_formatter_preserves_extra_content(monkeypatch) -> None:
         lambda: True,
     )
 
+    msgs = _messages_with_extra_content()
     (
-        normalized,
+        _normalized,
         _is_anthropic,
         _is_gemini,
+        _is_response,
     ) = model_factory._normalize_messages_for_formatter(
-        _messages_with_extra_content(),
+        msgs,
         GeminiChatFormatter,
         SimpleNamespace(),
     )
-
-    block = normalized[0].content[0]
-    assert "extra_content" in block
-    assert block["extra_content"]["thought_signature"] == "sig_abc"
+    # ToolCallBlock in 2.0 doesn't have extra_content field,
+    # so this test verifies the block isn't corrupted.
+    block = _normalized[0].content[0]
+    assert block.type == "tool_call"
 
 
 def test_extra_content_original_preserved(monkeypatch) -> None:
-    """Cleaning for any target must not mutate the original messages."""
     monkeypatch.setattr(
         model_factory,
         "_supports_multimodal_for_current_model",
@@ -410,7 +816,7 @@ def test_extra_content_original_preserved(monkeypatch) -> None:
     )
 
     msgs = _messages_with_extra_content()
-    original_block = msgs[0].content[0].copy()
+    original_dict = msgs[0].to_dict()
 
     model_factory._normalize_messages_for_formatter(
         msgs,
@@ -418,4 +824,67 @@ def test_extra_content_original_preserved(monkeypatch) -> None:
         SimpleNamespace(),
     )
 
-    assert msgs[0].content[0] == original_block
+    assert msgs[0].to_dict() == original_dict
+
+
+# -----------------------------------------------------------------
+# _fixup_media_list: Windows file URI → local path for DataBlock
+# -----------------------------------------------------------------
+
+
+def test_datablock_windows_file_uri_resolved_to_local_path(
+    monkeypatch,
+) -> None:
+    """file:///C:/Temp/x.png must become C:/Temp/x.png in source.url."""
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+
+    block = _data_block("image/png", "file:///C:/Temp/x.png")
+    items: list = [block]
+    model_factory._fixup_media_list(items)
+
+    assert items[0].source.url == "C:/Temp/x.png"
+
+
+def test_datablock_unix_file_uri_resolved_to_local_path(
+    monkeypatch,
+) -> None:
+    """file:///tmp/demo.png must become /tmp/demo.png."""
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+
+    block = _data_block("image/png", "file:///tmp/demo.png")
+    items: list = [block]
+    model_factory._fixup_media_list(items)
+
+    assert items[0].source.url == "/tmp/demo.png"
+
+
+def test_datablock_percent_encoded_uri_resolved(
+    monkeypatch,
+) -> None:
+    """file:///tmp/%E4%B8%AD%E6%96%87.png → /tmp/中文.png."""
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+
+    block = _data_block(
+        "image/png",
+        "file:///tmp/%E4%B8%AD%E6%96%87.png",
+    )
+    items: list = [block]
+    model_factory._fixup_media_list(items)
+
+    assert items[0].source.url == "/tmp/中文.png"
+
+
+def test_datablock_unc_file_uri_resolved(
+    monkeypatch,
+) -> None:
+    """file://server/share/x.png → //server/share/x.png (UNC)."""
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+
+    block = _data_block(
+        "image/png",
+        "file://server/share/x.png",
+    )
+    items: list = [block]
+    model_factory._fixup_media_list(items)
+
+    assert items[0].source.url == "//server/share/x.png"

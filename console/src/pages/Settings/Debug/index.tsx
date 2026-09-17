@@ -49,15 +49,24 @@ export default function DebugPage() {
           type="info"
           showIcon
           className={styles.tipAlert}
-          message={t(
-            "debug.desc",
-            "View backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
-          )}
+          message={
+            <Space wrap>
+              <span>
+                {t(
+                  "debug.desc",
+                  "View backend daemon log file to help diagnose issues. Logs refresh automatically while this page is open.",
+                )}
+              </span>
+              <Tag color="green">
+                {t("debug.redacted", "Sensitive data redacted")}
+              </Tag>
+            </Space>
+          }
         />
         <Card
           title={t("debug.backend.title", "Backend logs")}
           extra={
-            <Space size="middle">
+            <Space size="middle" className={styles.cardExtra}>
               <Text type="secondary">
                 {t("debug.backend.newestFirst", "Newest first")}
               </Text>
@@ -76,7 +85,7 @@ export default function DebugPage() {
             <div className={styles.toolbar}>
               <div className={styles.toolbarLeft}>
                 <Select
-                  style={{ width: 160 }}
+                  className={styles.levelSelect}
                   value={backendLevel}
                   onChange={(v) => setBackendLevel(v)}
                   options={[
@@ -106,7 +115,7 @@ export default function DebugPage() {
                   ]}
                 />
                 <Input
-                  style={{ width: 320 }}
+                  className={styles.searchInput}
                   value={backendQuery}
                   onChange={(e) => setBackendQuery(e.target.value)}
                   placeholder={t(
@@ -116,7 +125,7 @@ export default function DebugPage() {
                   allowClear
                 />
                 {backendLogs?.updated_at && (
-                  <Text type="secondary">
+                  <Text type="secondary" className={styles.updatedAt}>
                     {t("debug.backend.updatedAt", "Updated at")}:{" "}
                     {dayjs(backendLogs.updated_at * 1000).format(
                       "YYYY-MM-DD HH:mm:ss",
@@ -139,7 +148,7 @@ export default function DebugPage() {
             {backendLogs?.path && (
               <div className={styles.logPath}>
                 <Text type="secondary" className={styles.logPathLabel}>
-                  {t("debug.backend.path", "Log file")}
+                  {t("debug.backend.path", "Log source")}
                 </Text>
                 <code className={styles.logPathValue}>{backendLogs.path}</code>
               </div>

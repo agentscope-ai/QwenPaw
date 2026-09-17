@@ -6,6 +6,11 @@
   padding: 20px;
   border-bottom: 1px solid #eae9e7;
   flex-shrink: 0;
+
+  @media (max-width: 768px) {
+    padding: 12px;
+    gap: 6px;
+  }
 }
 
 .leading {
@@ -62,6 +67,43 @@
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+@media (max-width: 768px) {
+  .pageHeader {
+    padding: 12px 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .leading {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .breadcrumbHeader {
+    flex-wrap: wrap;
+    gap: 4px 8px;
+  }
+
+  .breadcrumbParent {
+    font-size: 14px;
+  }
+
+  .breadcrumbSeparator {
+    margin: 0 4px;
+  }
+
+  .breadcrumbCurrent {
+    font-size: 16px;
+  }
+
+  .extra {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
 }
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */

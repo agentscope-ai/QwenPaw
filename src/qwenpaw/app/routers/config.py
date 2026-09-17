@@ -1,77 +1,93 @@
 # -*- coding: utf-8 -*-
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, List, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+)
 from pydantic import BaseModel, Field
 
-from ..utils import schedule_agent_reload
+from ...access.actor import ActorContext
+from ...access.capabilities import Capability
+from ...access.dependencies import get_actor
+from ...access.service import AuthorizationDeniedError, AuthorizationService
+from ...agents.acp.core import ACPAgentConfig, ACPConfig
+from ...agents.acp.node_runtime import (
+    ACPNodeRuntimeStatus,
+    get_node_runtime_status,
+    resolve_node_runtime,
+)
 from ...config import (
-    load_config,
-    save_config,
     ChannelConfig,
     ChannelConfigUnion,
-    get_available_channels,
     ToolGuardConfig,
     ToolGuardRuleConfig,
+    get_available_channels,
+    load_config,
+    save_config,
 )
-from ..channels.registry import BUILTIN_CHANNEL_KEYS
-from ...config.timezone import normalize_tz
 from ...config.config import (
     AgentsLLMRoutingConfig,
-    ConsoleConfig,
-    DingTalkConfig,
-    DiscordConfig,
-    FeishuConfig,
     HeartbeatConfig,
-    IMessageChannelConfig,
-    MatrixConfig,
-    MattermostConfig,
-    MQTTConfig,
-    QQConfig,
-    SIPChannelConfig,
+    SecurityConfig,
     SkillScannerConfig,
     SkillScannerWhitelistEntry,
-    TelegramConfig,
-    VoiceChannelConfig,
-    WecomConfig,
 )
-from ...agents.acp.core import ACPConfig, ACPAgentConfig
-
-from .schemas_config import (
-    ChannelHealthResponse,
-    ChannelRestartResponse,
-    HeartbeatBody,
+from ...config.timezone import normalize_tz
+from ...identity.runtime import is_multi_user_enabled
+from ..channels.conflict import (
+    get_channel_bot_identity,
+    get_channel_config,
 )
 from ..channels.qrcode_auth_handler import (
     QRCODE_AUTH_HANDLERS,
     generate_qrcode_image,
 )
+from ..channels.registry import BUILTIN_CHANNEL_KEYS
+from ..utils import schedule_agent_reload
+from .schemas_config import (
+    ChannelConflictAgent,
+    ChannelConflictResponse,
+    ChannelHealthResponse,
+    ChannelRestartResponse,
+    HeartbeatBody,
+)
 
 router = APIRouter(prefix="/config", tags=["config"])
 
 
-_CHANNEL_CONFIG_CLASS_MAP = {
-    "telegram": TelegramConfig,
-    "dingtalk": DingTalkConfig,
-    "discord": DiscordConfig,
-    "feishu": FeishuConfig,
-    "qq": QQConfig,
-    "imessage": IMessageChannelConfig,
-    "console": ConsoleConfig,
-    "voice": VoiceChannelConfig,
-    "sip": SIPChannelConfig,
-    "mattermost": MattermostConfig,
-    "mqtt": MQTTConfig,
-    "matrix": MatrixConfig,
-    "wecom": WecomConfig,
-}
+def _channel_config_class(name: str) -> Optional[type[BaseModel]]:
+    """Config model for a built-in channel, None for plugin channels.
+
+    Built-in channel shapes are declared once as ``ChannelConfig``
+    fields, so deriving them here cannot drift when a channel is added
+    later. This is the same source of truth doctor already walks.
+    """
+    field = ChannelConfig.model_fields.get(name)
+    annotation = field.annotation if field is not None else None
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    return None
+
+
 _ALLOWED_ACP_TOOL_PARSE_MODES = {
     "call_title",
     "update_detail",
     "call_detail",
 }
+
+
+class ACPNodeRuntimeUpdate(BaseModel):
+    node_path: str = ""
 
 
 @router.get(
@@ -126,6 +142,32 @@ async def list_channel_types() -> List[str]:
     return list(get_available_channels())
 
 
+@router.get(
+    "/channels/schemas",
+    summary="Get plugin channel config schemas",
+    description=(
+        "Return config_fields metadata for plugin-registered channels "
+        "so the frontend can render dynamic forms."
+    ),
+)
+async def list_channel_schemas() -> dict:
+    """Return plugin channel schemas for frontend form rendering."""
+    from ...plugins.registry import PluginRegistry
+
+    registry = PluginRegistry()
+    result: dict = {}
+    for key, reg in registry.get_registered_channels().items():
+        result[key] = {
+            "label": reg.label,
+            "description": reg.description,
+            "plugin_id": reg.plugin_id,
+            "config_fields": reg.config_fields,
+            "icon": reg.icon,
+            "doc_url": reg.doc_url,
+        }
+    return result
+
+
 @router.put(
     "/channels",
     response_model=ChannelConfig,
@@ -140,8 +182,8 @@ async def put_channels(
     ),
 ) -> ChannelConfig:
     """Update all channel configs."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
     agent.config.channels = channels_config
@@ -217,9 +259,7 @@ async def get_channel_health(
     "/channels/{channel_name}/restart",
     response_model=ChannelRestartResponse,
     summary="Restart a channel",
-    description=(
-        "Stop and re-start a specific channel" " without restarting the agent"
-    ),
+    description=("Stop and re-start a specific channel without restarting the agent"),
 )
 async def restart_channel(
     channel_name: str = Path(
@@ -245,7 +285,7 @@ async def restart_channel(
     except Exception as exc:
         raise HTTPException(
             status_code=500,
-            detail=(f"Failed to restart channel" f" '{channel_name}': {exc}"),
+            detail=(f"Failed to restart channel '{channel_name}': {exc}"),
         ) from exc
 
 
@@ -339,6 +379,90 @@ async def get_channel(
     return single_channel_config
 
 
+@router.post(
+    "/channels/{channel_name}/conflict-check",
+    response_model=ChannelConflictResponse,
+    summary="Check channel Bot conflicts",
+    description="Check whether another running agent uses the same Bot",
+)
+async def check_channel_conflict(
+    request: Request,
+    channel_name: str = Path(
+        ...,
+        description="Name of the channel to check",
+        min_length=1,
+    ),
+    single_channel_config: dict = Body(
+        ...,
+        description="Proposed channel configuration",
+    ),
+) -> ChannelConflictResponse:
+    """Check a proposed config against channels in running agents."""
+    from ..agent_context import get_agent_for_request
+
+    available = get_available_channels()
+    if channel_name not in available:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Channel '{channel_name}' not found",
+        )
+
+    if not single_channel_config.get("enabled", False):
+        return ChannelConflictResponse(conflict=False)
+
+    proposed_identity = get_channel_bot_identity(
+        channel_name,
+        single_channel_config,
+    )
+    if proposed_identity is None:
+        return ChannelConflictResponse(conflict=False)
+
+    current_agent = await get_agent_for_request(request)
+    current_agent_id = current_agent.agent_id
+    manager = request.app.state.multi_agent_manager
+    conflicts = []
+
+    for agent_id, workspace in list(manager.agents.items()):
+        workspace_agent_id = getattr(workspace, "agent_id", agent_id)
+        if current_agent_id in (agent_id, workspace_agent_id):
+            continue
+
+        channel_manager = getattr(workspace, "channel_manager", None)
+        running_channels = getattr(channel_manager, "channels", ())
+        if not any(
+            getattr(channel, "channel", None) == channel_name
+            for channel in running_channels
+        ):
+            continue
+
+        other_config = get_channel_config(
+            getattr(workspace.config, "channels", None),
+            channel_name,
+        )
+        if (
+            get_channel_bot_identity(
+                channel_name,
+                other_config,
+            )
+            != proposed_identity
+        ):
+            continue
+
+        agent_name = getattr(workspace.config, "name", "") or agent_id
+        conflicts.append(
+            ChannelConflictAgent(
+                agent_id=agent_id,
+                agent_name=str(agent_name),
+            ),
+        )
+
+    conflicts.sort(key=lambda item: item.agent_id)
+    return ChannelConflictResponse(
+        conflict=bool(conflicts),
+        agents=conflicts,
+    )
+
+
 @router.put(
     "/channels/{channel_name}",
     response_model=ChannelConfigUnion,
@@ -358,8 +482,8 @@ async def put_channel(
     ),
 ) -> ChannelConfigUnion:
     """Update a specific channel config by name."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     available = get_available_channels()
     if channel_name not in available:
@@ -374,7 +498,7 @@ async def put_channel(
     if agent.config.channels is None:
         agent.config.channels = ChannelConfig()
 
-    config_class = _CHANNEL_CONFIG_CLASS_MAP.get(channel_name)
+    config_class = _channel_config_class(channel_name)
     if config_class is not None:
         channel_config = config_class(**single_channel_config)
     else:
@@ -419,14 +543,57 @@ async def put_acp_config(
     ),
 ) -> ACPConfig:
     """Update ACP config for the current agent."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
     agent.config.acp = acp_config
     save_agent_config(agent.agent_id, agent.config)
     schedule_agent_reload(request, agent.agent_id)
     return agent.config.acp
+
+
+@router.get(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Get ACP Node runtime",
+    description="Return configured and detected Node runtimes for ACP",
+)
+async def get_acp_node_runtime() -> ACPNodeRuntimeStatus:
+    """Return global ACP Node runtime status."""
+    node_path = load_config().acp.node_path
+    return await asyncio.to_thread(get_node_runtime_status, node_path)
+
+
+@router.put(
+    "/acp/node-runtime",
+    response_model=ACPNodeRuntimeStatus,
+    summary="Update ACP Node runtime",
+    description="Update the global Node runtime used by ACP subprocesses",
+)
+async def put_acp_node_runtime(
+    body: ACPNodeRuntimeUpdate = Body(...),
+) -> ACPNodeRuntimeStatus:
+    """Update global ACP Node runtime path."""
+    node_path = body.node_path.strip()
+    if node_path:
+        candidate = await asyncio.to_thread(resolve_node_runtime, node_path)
+        if not candidate.available:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "reason_code": candidate.reason_code,
+                    "reason": candidate.reason,
+                },
+            )
+
+    config = load_config()
+    config.acp.node_path = node_path
+    save_config(config)
+    return await asyncio.to_thread(
+        get_node_runtime_status,
+        config.acp.node_path,
+    )
 
 
 @router.get(
@@ -476,8 +643,8 @@ async def put_acp_agent_config(
     ),
 ) -> ACPAgentConfig:
     """Update config for one ACP agent."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     if acp_agent_config.tool_parse_mode not in _ALLOWED_ACP_TOOL_PARSE_MODES:
         raise HTTPException(
@@ -512,8 +679,8 @@ async def put_acp_agent_config(
 )
 async def get_heartbeat(request: Request) -> Any:
     """Return effective heartbeat config (from file or default)."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import HeartbeatConfig as HeartbeatConfigModel
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
     hb = agent.config.heartbeat
@@ -531,24 +698,40 @@ async def get_heartbeat(request: Request) -> Any:
 async def put_heartbeat(
     request: Request,
     body: HeartbeatBody = Body(..., description="Heartbeat configuration"),
+    actor: ActorContext = Depends(get_actor),
 ) -> Any:
     """Update heartbeat config and reschedule the heartbeat job."""
-    from ..agent_context import get_agent_for_request
     from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
 
     agent = await get_agent_for_request(request)
+    existing = agent.config.heartbeat
+    multi_user = is_multi_user_enabled()
+    existing_authorizer = getattr(existing, "authorized_by_user_id", None)
+    if not isinstance(existing_authorizer, str):
+        existing_authorizer = None
+    authorized_by_user_id = existing_authorizer
+    if multi_user:
+        authorized_by_user_id = (
+            str(actor.user_id) if actor.user_id is not None else None
+        )
+    if multi_user and authorized_by_user_id is None:
+        raise HTTPException(
+            status_code=401,
+            detail="heartbeat_authorization_required",
+        )
     hb = HeartbeatConfig(
         enabled=body.enabled,
         every=body.every,
         target=body.target,
+        timeout_seconds=body.timeout_seconds,
         active_hours=body.active_hours,
+        authorized_by_user_id=authorized_by_user_id,
     )
     agent.config.heartbeat = hb
     save_agent_config(agent.agent_id, agent.config)
 
     # Reschedule heartbeat (async, non-blocking)
-    import asyncio
-
     async def reschedule_in_background():
         try:
             if agent.cron_manager is not None:
@@ -563,6 +746,63 @@ async def put_heartbeat(
     asyncio.create_task(reschedule_in_background())
 
     return hb.model_dump(mode="json", by_alias=True)
+
+
+@router.post(
+    "/heartbeat/run",
+    summary="Run heartbeat now",
+    description="Trigger one heartbeat execution immediately",
+)
+async def run_heartbeat_now(request: Request) -> Any:
+    """Trigger one heartbeat run in background for quick testing."""
+    import logging
+
+    from ..agent_context import get_agent_for_request
+    from ..crons.heartbeat import (
+        HeartbeatIdentityError,
+        run_heartbeat_once,
+        validate_heartbeat_authorization,
+    )
+
+    workspace = await get_agent_for_request(request)
+    if is_multi_user_enabled():
+        heartbeat_config = workspace.config.heartbeat
+        authorized_user_id = getattr(
+            heartbeat_config,
+            "authorized_by_user_id",
+            None,
+        )
+        try:
+            authorized_user_id = UUID(str(authorized_user_id))
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=409,
+                detail="heartbeat_authorization_required",
+            ) from None
+        try:
+            await validate_heartbeat_authorization(
+                agent_id=workspace.agent_id,
+                authorized_user_id=authorized_user_id,
+            )
+        except HeartbeatIdentityError as exc:
+            raise HTTPException(status_code=409, detail=exc.code) from exc
+
+    async def _run_once_bg() -> None:
+        try:
+            await run_heartbeat_once(
+                workspace=workspace,
+                channel_manager=workspace.channel_manager,
+                agent_id=workspace.agent_id,
+                workspace_dir=workspace.workspace_dir,
+            )
+        except Exception as e:  # pylint: disable=broad-except
+            logging.getLogger(__name__).exception(
+                "manual heartbeat run failed: %s",
+                e,
+            )
+
+    asyncio.create_task(_run_once_bg())
+    return {"started": True}
 
 
 @router.get(
@@ -628,14 +868,110 @@ async def put_user_timezone(
 # ── Security / Tool Guard ────────────────────────────────────────────
 
 
+def _is_agent_security_request(request: Request) -> bool:
+    """Only the explicit Agent route selects Agent policy scope."""
+    return request.url.path.startswith("/api/agents/")
+
+
+def _require_platform_security_access(
+    request: Request,
+    actor: ActorContext,
+) -> None:
+    if not is_multi_user_enabled() or _is_agent_security_request(request):
+        return
+    try:
+        AuthorizationService().require(
+            actor,
+            Capability.PLATFORM_SETTINGS_MANAGE,
+        )
+    except AuthorizationDeniedError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+
+
+async def _security_policy_context(
+    request: Request,
+    actor: ActorContext,
+) -> tuple[SecurityConfig, SecurityConfig | None, str | None]:
+    """Return platform baseline, Agent override, and scoped Agent ID."""
+    _require_platform_security_access(request, actor)
+    baseline = load_config().security
+    if not is_multi_user_enabled() or not _is_agent_security_request(request):
+        return baseline, None, None
+
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    return baseline, workspace.config.security, workspace.agent_id
+
+
+async def _save_agent_security(
+    request: Request,
+    agent_id: str,
+    security: SecurityConfig,
+) -> None:
+    from ...config.config import save_agent_config
+    from ..agent_context import get_agent_for_request
+
+    workspace = await get_agent_for_request(request)
+    workspace.config.security = security
+    save_agent_config(agent_id, workspace.config)
+    schedule_agent_reload(request, agent_id)
+
+
+def _raise_policy_conflict(violations) -> None:
+    if violations:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "platform_security_baseline_locked",
+                "reason": "Agent 安全策略不能降低平台安全基线",
+                "locked_fields": [item.as_dict() for item in violations],
+            },
+        )
+
+
+@router.get(
+    "/security/policy",
+    summary="Get platform baseline and effective Agent security policy",
+)
+async def get_security_policy(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> dict:
+    from ...platform_ops.security_policy import (
+        merge_security_policy,
+        platform_locked_fields,
+    )
+
+    baseline, override, agent_id = await _security_policy_context(request, actor)
+    effective = merge_security_policy(baseline, override)
+    return {
+        "scope": "agent" if agent_id else "platform",
+        "agent_id": agent_id,
+        "platform_locked_fields": platform_locked_fields(baseline),
+        "platform_baseline": baseline.model_dump(),
+        "agent_override": override.model_dump() if override else None,
+        "effective_policy": effective.model_dump(),
+    }
+
+
 @router.get(
     "/security/tool-guard",
     response_model=ToolGuardConfig,
     summary="Get tool guard settings",
 )
-async def get_tool_guard() -> ToolGuardConfig:
-    config = load_config()
-    return config.security.tool_guard
+async def get_tool_guard(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> ToolGuardConfig:
+    from ...platform_ops.security_policy import merge_security_policy
+
+    baseline, override, _agent_id = await _security_policy_context(request, actor)
+    return (
+        baseline.tool_guard
+        if override is None
+        else merge_security_policy(baseline, override).tool_guard
+    )
 
 
 @router.put(
@@ -644,9 +980,24 @@ async def get_tool_guard() -> ToolGuardConfig:
     summary="Update tool guard settings",
 )
 async def put_tool_guard(
+    request: Request,
     body: ToolGuardConfig = Body(...),
+    actor: ActorContext = Depends(get_actor),
 ) -> ToolGuardConfig:
     config = load_config()
+    baseline, override, agent_id = await _security_policy_context(request, actor)
+    if agent_id is not None:
+        from ...platform_ops.security_policy import (
+            merge_security_policy,
+            validate_agent_security_override,
+        )
+
+        candidate = merge_security_policy(baseline, override)
+        candidate.tool_guard = body
+        _raise_policy_conflict(validate_agent_security_override(baseline, candidate))
+        await _save_agent_security(request, agent_id, candidate)
+        return merge_security_policy(baseline, candidate).tool_guard
+
     config.security.tool_guard = body
     save_config(config)
 
@@ -664,7 +1015,11 @@ async def put_tool_guard(
     response_model=List[ToolGuardRuleConfig],
     summary="List built-in guard rules from YAML files",
 )
-async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
+async def get_builtin_rules(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> List[ToolGuardRuleConfig]:
+    _require_platform_security_access(request, actor)
     from ...security.tool_guard.guardians.rule_guardian import (
         load_rules_from_directory,
     )
@@ -686,17 +1041,183 @@ async def get_builtin_rules() -> List[ToolGuardRuleConfig]:
     ]
 
 
+# ── Security / Sandbox ───────────────────────────────────────────────
+
+
+class SandboxSettingBody(BaseModel):
+    """Global governance sandbox switch (``security.sandbox_enabled``)."""
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "When True, shell tools with no matching rule run inside the "
+            "sandbox without prompting. When False (default), such calls "
+            "run directly without the sandbox (no prompt)."
+        ),
+    )
+
+
+class SandboxStatusResponse(BaseModel):
+    """Sandbox config + runtime effective status."""
+
+    enabled: bool = Field(
+        description="The configured value of security.sandbox_enabled.",
+    )
+    effective: bool = Field(
+        description=(
+            "Whether the sandbox is actually active this session. "
+            "May be False even when enabled=True (e.g. non-admin on Windows)."
+        ),
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        description=(
+            "When effective != enabled, explains why. "
+            "None when effective == enabled."
+        ),
+    )
+
+
+async def _sandbox_effective_status(
+    enabled: bool,
+) -> tuple[bool, Optional[str]]:
+    """Return (effective, reason) for the sandbox setting.
+
+    Checks both platform-level permissions (admin on Windows) and
+    actual sandbox capability availability.
+
+    The capability probe runs in a thread-pool worker via
+    ``asyncio.to_thread`` so that the (potentially blocking) first
+    call never stalls the async event loop.  Subsequent calls hit
+    the ``lru_cache`` and return instantly.
+    """
+    if not enabled:
+        return False, None
+
+    # Check if sandbox backend is actually available on this platform.
+    # probe_sandbox_support() is lru_cache'd; the first call may block
+    # (subprocess.run on Linux), so we offload it to a thread.
+    from ...sandbox import probe_sandbox_support
+
+    capability = await asyncio.to_thread(probe_sandbox_support)
+    if not capability.supported:
+        return False, "unsupported"
+
+    # Check platform-level permissions — on Windows, an unelevated
+    # sandbox is available but offers weaker isolation than the
+    # elevated (admin) sandbox.
+    from ...utils.platform import is_windows_admin
+
+    if not is_windows_admin():
+        return True, "unelevated"
+
+    return True, None
+
+
+@router.get(
+    "/security/sandbox",
+    response_model=SandboxStatusResponse,
+    summary="Get global sandbox switch",
+)
+async def get_sandbox_setting(
+    request: Request,
+    enabled: Optional[bool] = Query(
+        default=None,
+        description=(
+            "If provided, compute effective/reason for this proposed value "
+            "without persisting it. Useful for the frontend to preview the "
+            "runtime status before saving."
+        ),
+    ),
+    actor: ActorContext = Depends(get_actor),
+) -> SandboxStatusResponse:
+    from ...platform_ops.security_policy import merge_security_policy
+
+    baseline, override, _agent_id = await _security_policy_context(request, actor)
+    current_enabled = (
+        baseline.sandbox_enabled
+        if override is None
+        else merge_security_policy(baseline, override).sandbox_enabled
+    )
+    # Use the proposed value if provided, otherwise the current config value.
+    target_enabled = enabled if enabled is not None else current_enabled
+    effective, reason = await _sandbox_effective_status(target_enabled)
+    return SandboxStatusResponse(
+        enabled=target_enabled,
+        effective=effective,
+        reason=reason,
+    )
+
+
+@router.put(
+    "/security/sandbox",
+    response_model=SandboxStatusResponse,
+    summary="Update global sandbox switch",
+)
+async def put_sandbox_setting(
+    request: Request,
+    body: SandboxSettingBody = Body(...),
+    actor: ActorContext = Depends(get_actor),
+) -> SandboxStatusResponse:
+    config = load_config()
+    baseline, override, agent_id = await _security_policy_context(request, actor)
+    if agent_id is not None:
+        from ...platform_ops.security_policy import (
+            merge_security_policy,
+            validate_agent_security_override,
+        )
+
+        candidate = merge_security_policy(baseline, override)
+        candidate.sandbox_enabled = body.enabled
+        _raise_policy_conflict(validate_agent_security_override(baseline, candidate))
+        await _save_agent_security(request, agent_id, candidate)
+        effective_security = merge_security_policy(baseline, candidate)
+        effective, reason = await _sandbox_effective_status(
+            effective_security.sandbox_enabled
+        )
+        return SandboxStatusResponse(
+            enabled=effective_security.sandbox_enabled,
+            effective=effective,
+            reason=reason,
+        )
+
+    current_enabled = config.security.sandbox_enabled
+
+    # Idempotent: if the value hasn't changed, return current status
+    # without triggering the admin guard. This prevents partial-save
+    # issues when the frontend saves other security settings alongside
+    # an unchanged sandbox value.
+    if body.enabled == current_enabled:
+        effective, reason = await _sandbox_effective_status(body.enabled)
+        return SandboxStatusResponse(
+            enabled=body.enabled,
+            effective=effective,
+            reason=reason,
+        )
+
+    config.security.sandbox_enabled = body.enabled
+    save_config(config)
+    effective, reason = await _sandbox_effective_status(body.enabled)
+    return SandboxStatusResponse(
+        enabled=body.enabled,
+        effective=effective,
+        reason=reason,
+    )
+
+
 # ── Security / File Guard ────────────────────────────────────────────
 
 
 class FileGuardResponse(BaseModel):
     enabled: bool = True
     paths: List[str] = []
+    allow_preview_outside_workspace: bool = False
 
 
 class FileGuardUpdateBody(BaseModel):
     enabled: Optional[bool] = None
     paths: Optional[List[str]] = None
+    allow_preview_outside_workspace: Optional[bool] = None
 
 
 @router.get(
@@ -704,15 +1225,28 @@ class FileGuardUpdateBody(BaseModel):
     response_model=FileGuardResponse,
     summary="Get file guard settings",
 )
-async def get_file_guard() -> FileGuardResponse:
-    config = load_config()
-    fg = config.security.file_guard
+async def get_file_guard(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> FileGuardResponse:
+    from ...platform_ops.security_policy import merge_security_policy
+
+    baseline, override, _agent_id = await _security_policy_context(request, actor)
+    fg = (
+        baseline.file_guard
+        if override is None
+        else merge_security_policy(baseline, override).file_guard
+    )
     from ...security.tool_guard.guardians.file_guardian import (
         ensure_file_guard_paths,
     )
 
     paths = ensure_file_guard_paths(fg.sensitive_files or [])
-    return FileGuardResponse(enabled=fg.enabled, paths=paths)
+    return FileGuardResponse(
+        enabled=fg.enabled,
+        paths=paths,
+        allow_preview_outside_workspace=fg.allow_preview_outside_workspace,
+    )
 
 
 @router.put(
@@ -721,10 +1255,22 @@ async def get_file_guard() -> FileGuardResponse:
     summary="Update file guard settings",
 )
 async def put_file_guard(
+    request: Request,
     body: FileGuardUpdateBody,
+    actor: ActorContext = Depends(get_actor),
 ) -> FileGuardResponse:
+    from ...platform_ops.security_policy import (
+        merge_security_policy,
+        validate_agent_security_override,
+    )
+
     config = load_config()
-    fg = config.security.file_guard
+    baseline, override, agent_id = await _security_policy_context(request, actor)
+    fg = (
+        merge_security_policy(baseline, override).file_guard
+        if agent_id is not None
+        else config.security.file_guard
+    )
 
     if body.enabled is not None:
         fg.enabled = body.enabled
@@ -734,8 +1280,17 @@ async def put_file_guard(
         )
 
         fg.sensitive_files = ensure_file_guard_paths(body.paths)
+    if body.allow_preview_outside_workspace is not None:
+        fg.allow_preview_outside_workspace = body.allow_preview_outside_workspace
 
-    save_config(config)
+    if agent_id is not None:
+        candidate = merge_security_policy(baseline, override)
+        candidate.file_guard = fg
+        _raise_policy_conflict(validate_agent_security_override(baseline, candidate))
+        await _save_agent_security(request, agent_id, candidate)
+        fg = merge_security_policy(baseline, candidate).file_guard
+    else:
+        save_config(config)
 
     from ...security.tool_guard.engine import get_guard_engine
 
@@ -745,6 +1300,7 @@ async def put_file_guard(
     return FileGuardResponse(
         enabled=fg.enabled,
         paths=fg.sensitive_files,
+        allow_preview_outside_workspace=fg.allow_preview_outside_workspace,
     )
 
 
@@ -756,9 +1312,18 @@ async def put_file_guard(
     response_model=SkillScannerConfig,
     summary="Get skill scanner settings",
 )
-async def get_skill_scanner() -> SkillScannerConfig:
-    config = load_config()
-    return config.security.skill_scanner
+async def get_skill_scanner(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> SkillScannerConfig:
+    from ...platform_ops.security_policy import merge_security_policy
+
+    baseline, override, _agent_id = await _security_policy_context(request, actor)
+    return (
+        baseline.skill_scanner
+        if override is None
+        else merge_security_policy(baseline, override).skill_scanner
+    )
 
 
 @router.put(
@@ -767,9 +1332,24 @@ async def get_skill_scanner() -> SkillScannerConfig:
     summary="Update skill scanner settings",
 )
 async def put_skill_scanner(
+    request: Request,
     body: SkillScannerConfig = Body(...),
+    actor: ActorContext = Depends(get_actor),
 ) -> SkillScannerConfig:
     config = load_config()
+    baseline, override, agent_id = await _security_policy_context(request, actor)
+    if agent_id is not None:
+        from ...platform_ops.security_policy import (
+            merge_security_policy,
+            validate_agent_security_override,
+        )
+
+        candidate = merge_security_policy(baseline, override)
+        candidate.skill_scanner = body
+        _raise_policy_conflict(validate_agent_security_override(baseline, candidate))
+        await _save_agent_security(request, agent_id, candidate)
+        return merge_security_policy(baseline, candidate).skill_scanner
+
     config.security.skill_scanner = body
     save_config(config)
     return body
@@ -779,7 +1359,11 @@ async def put_skill_scanner(
     "/security/skill-scanner/blocked-history",
     summary="Get blocked skills history",
 )
-async def get_blocked_history() -> list:
+async def get_blocked_history(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> list:
+    _require_platform_security_access(request, actor)
     from ...security.skill_scanner import get_blocked_history as _get_history
 
     records = _get_history()
@@ -790,7 +1374,11 @@ async def get_blocked_history() -> list:
     "/security/skill-scanner/blocked-history",
     summary="Clear all blocked skills history",
 )
-async def delete_blocked_history() -> dict:
+async def delete_blocked_history(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> dict:
+    _require_platform_security_access(request, actor)
     from ...security.skill_scanner import clear_blocked_history
 
     clear_blocked_history()
@@ -802,8 +1390,11 @@ async def delete_blocked_history() -> dict:
     summary="Remove a single blocked history entry",
 )
 async def delete_blocked_entry(
+    request: Request,
     index: int = Path(..., ge=0),
+    actor: ActorContext = Depends(get_actor),
 ) -> dict:
+    _require_platform_security_access(request, actor)
     from ...security.skill_scanner import remove_blocked_entry
 
     ok = remove_blocked_entry(index)
@@ -822,8 +1413,20 @@ class WhitelistAddRequest(BaseModel):
     summary="Add a skill to the whitelist",
 )
 async def add_to_whitelist(
+    request: Request,
     body: WhitelistAddRequest = Body(...),
+    actor: ActorContext = Depends(get_actor),
 ) -> dict:
+    _require_platform_security_access(request, actor)
+    if is_multi_user_enabled() and _is_agent_security_request(request):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "platform_security_baseline_locked",
+                "reason": "Agent 不能扩大平台技能白名单",
+                "locked_fields": ["security.skill_scanner.whitelist"],
+            },
+        )
     skill_name = body.skill_name.strip()
     content_hash = body.content_hash
     if not skill_name:
@@ -855,8 +1458,32 @@ async def add_to_whitelist(
     summary="Remove a skill from the whitelist",
 )
 async def remove_from_whitelist(
+    request: Request,
     skill_name: str = Path(..., min_length=1),
+    actor: ActorContext = Depends(get_actor),
 ) -> dict:
+    _require_platform_security_access(request, actor)
+    if is_multi_user_enabled() and _is_agent_security_request(request):
+        from ...platform_ops.security_policy import (
+            merge_security_policy,
+            validate_agent_security_override,
+        )
+
+        baseline, override, agent_id = await _security_policy_context(request, actor)
+        candidate = merge_security_policy(baseline, override)
+        original_len = len(candidate.skill_scanner.whitelist)
+        candidate.skill_scanner.whitelist = [
+            item
+            for item in candidate.skill_scanner.whitelist
+            if item.skill_name != skill_name
+        ]
+        if len(candidate.skill_scanner.whitelist) == original_len:
+            raise HTTPException(status_code=404, detail="Skill not found")
+        _raise_policy_conflict(validate_agent_security_override(baseline, candidate))
+        assert agent_id is not None
+        await _save_agent_security(request, agent_id, candidate)
+        return {"removed": True, "skill_name": skill_name}
+
     config = load_config()
     scanner_cfg = config.security.skill_scanner
     original_len = len(scanner_cfg.whitelist)
@@ -896,8 +1523,12 @@ class AllowNoAuthHostsUpdateBody(BaseModel):
     response_model=AllowNoAuthHostsResponse,
     summary="Get allow no auth hosts configuration",
 )
-async def get_allow_no_auth_hosts() -> AllowNoAuthHostsResponse:
+async def get_allow_no_auth_hosts(
+    request: Request,
+    actor: ActorContext = Depends(get_actor),
+) -> AllowNoAuthHostsResponse:
     """Get the list of IP addresses allowed without authentication."""
+    _require_platform_security_access(request, actor)
     config = load_config()
     return AllowNoAuthHostsResponse(
         hosts=config.security.allow_no_auth_hosts,
@@ -910,7 +1541,9 @@ async def get_allow_no_auth_hosts() -> AllowNoAuthHostsResponse:
     summary="Update allow no auth hosts configuration",
 )
 async def put_allow_no_auth_hosts(
+    request: Request,
     body: AllowNoAuthHostsUpdateBody = Body(...),
+    actor: ActorContext = Depends(get_actor),
 ) -> AllowNoAuthHostsResponse:
     """Update the list of IP addresses allowed without authentication.
 
@@ -921,6 +1554,17 @@ async def put_allow_no_auth_hosts(
     - Validates as literal IPv4/IPv6 using ipaddress module
     - Returns 400 on invalid IP addresses
     """
+    _require_platform_security_access(request, actor)
+    if is_multi_user_enabled() and _is_agent_security_request(request):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "reason_code": "platform_security_baseline_locked",
+                "reason": "免认证主机只能由平台管理员配置",
+                "locked_fields": ["security.allow_no_auth_hosts"],
+            },
+        )
+
     import ipaddress
 
     # Normalize and validate IP addresses

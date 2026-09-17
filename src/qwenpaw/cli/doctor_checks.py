@@ -1,15 +1,16 @@
 # -*- coding: utf-8 -*-
 """Read-only diagnostics for `qwenpaw doctor` (no config or disk mutations)."""
+
 from __future__ import annotations
 
 # pylint: disable=too-many-branches,too-many-statements
 # pylint: disable=too-many-return-statements
 import asyncio
-import importlib
-import importlib.util
 import json
+import ntpath
 import os
 import platform
+import subprocess
 import shutil
 import sqlite3
 import sys
@@ -18,7 +19,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from ..__version__ import __version__
-from ..agents.skills_manager import (
+from ..agents.skill_system import (
     get_workspace_skills_dir,
     read_skill_manifest,
 )
@@ -39,14 +40,11 @@ from ..config.utils import (
     _read_config_data,
     get_config_path,
     get_jobs_path,
-    get_playwright_chromium_executable_path,
-    is_running_in_container,
 )
 from ..constant import (
     HEARTBEAT_FILE,
     JOBS_FILE,
     MEMORY_DIR,
-    PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV,
     PROJECT_NAME,
     SECRET_DIR,
     WORKING_DIR,
@@ -55,7 +53,6 @@ from ..constant import (
 from ..utils.logging import LOG_FILE_BASENAME
 from ..utils.system_info import summarize_python_environment
 from ..providers.provider import Provider
-
 
 # Log file opened on app startup (see ``qwenpaw.app._app`` lifespan).
 APP_LOG_BASENAME = LOG_FILE_BASENAME
@@ -119,6 +116,28 @@ def check_app_log_writable() -> tuple[bool, str]:
         f"log file does not exist and parent directory is not writable: "
         f"{parent}",
     )
+
+
+def check_browser_readiness(cfg: Config) -> tuple[bool, str]:
+    """Report the active browser track and its minimum runtime dependency."""
+    if cfg.browser.experimental:
+        try:
+            from ..browser.runtime.links import registered_links
+
+            return (
+                True,
+                "unified browser track; "
+                f"{len(registered_links())} control link(s) registered",
+            )
+        except Exception as exc:  # pylint: disable=broad-exception-caught
+            return False, f"unified browser control links unavailable: {exc}"
+    try:
+        from playwright.async_api import async_playwright
+
+        del async_playwright
+        return True, "stable browser track; Playwright importable"
+    except ImportError:
+        return False, "stable browser track requires Playwright"
 
 
 def check_agent_workspace_writable(cfg: Config) -> tuple[bool, str]:
@@ -249,6 +268,101 @@ def load_raw_config_dict() -> dict[str, Any] | None:
         return None
     data = _read_config_data(path)
     return data if isinstance(data, dict) else None
+
+
+def _windows_long_paths_enabled() -> tuple[bool | None, str | None]:
+    """Read Windows long-path support from registry, if available."""
+    try:
+        import winreg  # pylint: disable=import-outside-toplevel
+    except ImportError:
+        return None, "winreg is unavailable"
+
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\FileSystem",
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, "LongPathsEnabled")
+    except OSError as exc:
+        return None, str(exc)
+    return bool(value), None
+
+
+def _powershell_language_mode(
+    executable: str,
+) -> tuple[str | None, str | None]:
+    """Return PowerShell language mode without mutating user state."""
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$ExecutionContext.SessionState.LanguageMode",
+            ],
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        return None, str(exc)
+
+    output = (completed.stdout or "").strip()
+    if completed.returncode == 0 and output:
+        return output.splitlines()[-1].strip(), None
+    error = (completed.stderr or "").strip()
+    return None, error or f"exit code {completed.returncode}"
+
+
+def windows_environment_lines() -> list[str]:
+    """Windows-specific read-only diagnostics for ``qwenpaw doctor``."""
+    if platform.system() != "Windows":
+        return []
+
+    lines: list[str] = []
+    enabled, err = _windows_long_paths_enabled()
+    if enabled is True:
+        lines.append("Long paths: enabled")
+    elif enabled is False:
+        lines.append(
+            "Long paths: disabled; deeply nested workspaces, skills, "
+            "caches, or package installs may fail over 260 characters",
+        )
+    else:
+        detail = f"; {err}" if err else ""
+        lines.append(f"Long paths: unknown{detail}")
+
+    cwd_len = len(str(WORKING_DIR))
+    cwd_line = f"Current working directory length: {cwd_len}"
+    if cwd_len >= 220:
+        cwd_line += "; close to Windows MAX_PATH"
+    lines.append(cwd_line)
+
+    powershell = shutil.which("powershell.exe") or shutil.which("powershell")
+    pwsh = shutil.which("pwsh.exe") or shutil.which("pwsh")
+    if powershell:
+        lines.append(f"PowerShell: found {ntpath.basename(powershell)}")
+        executable = powershell
+    elif pwsh:
+        lines.append(f"PowerShell: found {ntpath.basename(pwsh)}")
+        executable = pwsh
+    else:
+        lines.append("PowerShell: not found on PATH")
+        return lines
+
+    mode, mode_err = _powershell_language_mode(executable)
+    if mode:
+        mode_line = f"PowerShell language mode: {mode}"
+        if mode == "ConstrainedLanguage":
+            mode_line += "; some scripts may be restricted"
+        lines.append(mode_line)
+    else:
+        detail = f"; {mode_err}" if mode_err else ""
+        lines.append(f"PowerShell language mode: unknown{detail}")
+    return lines
 
 
 def scan_unknown_config_keys(raw: dict[str, Any]) -> list[str]:
@@ -433,100 +547,6 @@ def _playwright_chromium_bundle_present() -> bool:
     return False
 
 
-def browser_automation_notes(cfg: Config | None) -> list[str]:
-    """``browser_use`` / Playwright readiness (read-only hints).
-
-    Does not start a browser; only checks imports, typical paths, and
-    workspace ``browser/user_data`` layout.
-    """
-    notes: list[str] = []
-
-    if importlib.util.find_spec("playwright") is None:
-        notes.append(
-            "browser_use needs the Playwright Python package — install with: "
-            f"'{sys.executable}' -m pip install playwright && "
-            f"'{sys.executable}' -m playwright install chromium",
-        )
-        return notes
-
-    try:
-        importlib.import_module("playwright.async_api")
-    except ImportError:
-        notes.append(
-            "playwright is installed but async_api failed to import — "
-            "reinstall the playwright package for this Python.",
-        )
-        return notes
-
-    use_default = (
-        EnvVarLoader.get_str("QWENPAW_BROWSER_USE_DEFAULT", "1")
-        .strip()
-        .lower()
-    )
-    if use_default in ("0", "false", "no", "off"):
-        notes.append(
-            "QWENPAW_BROWSER_USE_DEFAULT is off — browser_use will not "
-            "prefer the OS default Chrome/Edge path; bundled or scanned "
-            "Chromium paths apply.",
-        )
-
-    if is_running_in_container():
-        notes.append(
-            "Container environment: use headless browser_use unless you add "
-            "display forwarding; install Chromium in the image or run "
-            f"'{sys.executable}' -m playwright install chromium "
-            "if launches fail.",
-        )
-
-    exe = get_playwright_chromium_executable_path()
-    if not exe and sys.platform != "darwin":
-        if not _playwright_chromium_bundle_present():
-            notes.append(
-                "No system Chrome/Chromium path found and no Playwright "
-                "chromium cache detected — run "
-                f"'{sys.executable}' -m playwright install chromium' or "
-                "install Chrome/Edge, or set "
-                f"{PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH_ENV}.",
-            )
-    elif not exe and sys.platform == "darwin":
-        if not _playwright_chromium_bundle_present():
-            notes.append(
-                "No Chrome/Edge/Chromium on PATH — browser_use falls back to "
-                "WebKit on macOS; install Chrome/Edge or run "
-                f"'{sys.executable}' -m playwright install chromium' if you "
-                "need Chromium specifically.",
-            )
-
-    if sys.platform.startswith("linux") and not is_running_in_container():
-        if not (os.environ.get("DISPLAY") or "").strip():
-            notes.append(
-                "DISPLAY is unset — headed browser_use (visible window) "
-                "may fail; use the default headless mode or configure "
-                "X11/Wayland.",
-            )
-
-    if cfg is not None:
-        for agent_id, ref in cfg.agents.profiles.items():
-            ws = Path(ref.workspace_dir).expanduser()
-            ud = ws / "browser" / "user_data"
-            try:
-                if ud.is_file():
-                    notes.append(
-                        f"{agent_id}: {ud} exists as a file — remove or "
-                        "rename it so browser_use can use a profile "
-                        "directory.",
-                    )
-                elif ud.is_dir() and not os.access(ud, os.W_OK):
-                    notes.append(
-                        f"{agent_id}: {ud} is not writable — persistent "
-                        "browser profiles may fail.",
-                    )
-            except OSError:
-                pass
-
-    return notes
-
-
 def security_baseline_notes(cfg: Config) -> list[str]:
     """Non-fatal security hints."""
     notes: list[str] = []
@@ -548,14 +568,10 @@ def security_baseline_notes(cfg: Config) -> list[str]:
     return notes
 
 
-def _embedding_has_credentials(emb_api_key: str) -> bool:
-    if (emb_api_key or "").strip():
+def _embedding_has_credentials(backend: str, emb_api_key: str) -> bool:
+    if backend == "ollama":
         return True
-    return bool(
-        os.getenv("OPENAI_API_KEY")
-        or os.getenv("DASHSCOPE_API_KEY")
-        or os.getenv("ANTHROPIC_API_KEY"),
-    )
+    return bool((emb_api_key or "").strip())
 
 
 def memory_embedding_notes(cfg: Config) -> list[str]:
@@ -569,6 +585,7 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
         emb = ac.running.reme_light_memory_config.embedding_model_config
         ms = ac.running.reme_light_memory_config.auto_memory_search_config
         if ms.enabled and not _embedding_has_credentials(
+            emb.backend,
             emb.api_key,
         ):
             notes.append(
@@ -576,14 +593,14 @@ def memory_embedding_notes(cfg: Config) -> list[str]:
                 "reme_light_memory_config.auto_memory_search_config.enabled "
                 "is on but no embedding API key is set in "
                 "reme_light_memory_config.embedding_model_config.api_key "
-                "and no common OPENAI_/DASHSCOPE_/ANTHROPIC_ "
-                "API key env was found.",
+                "and no matching provider API key environment variable "
+                "was found.",
             )
     return notes
 
 
 def workspace_hygiene_notes(cfg: Config) -> list[str]:
-    """Large prompt files, heavy tool_result/dialog dirs; memory tree size."""
+    """Large prompt files, heavy tool_results/dialog dirs; memory tree size."""
     notes: list[str] = []
     bootstrap_names = (
         "AGENTS.md",
@@ -609,7 +626,7 @@ def workspace_hygiene_notes(cfg: Config) -> list[str]:
                     "burn context; consider splitting or summarizing.",
                 )
         for sub, many, label in (
-            ("tool_result", _TOOL_RESULT_MANY, "tool_result"),
+            ("tool_results", _TOOL_RESULT_MANY, "tool_results"),
             ("dialog", _DIALOG_MANY, "dialog"),
         ):
             d = wd / sub
@@ -858,7 +875,7 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                         f"{agent_id}: xiaoyi enabled but "
                         "ak/sk/agent_id incomplete",
                     )
-            elif name == "weixin":
+            elif name == "wechat":
                 tok = (sub.bot_token or "").strip()
                 fp = (sub.bot_token_file or "").strip()
                 if tok:
@@ -867,12 +884,12 @@ def enabled_channel_notes(cfg: Config) -> list[str]:
                     p = Path(fp).expanduser()
                     if not p.is_file():
                         notes.append(
-                            f"{agent_id}: weixin enabled but "
+                            f"{agent_id}: wechat enabled but "
                             f"bot_token_file missing: {p}",
                         )
                 else:
                     notes.append(
-                        f"{agent_id}: weixin enabled but bot_token and "
+                        f"{agent_id}: wechat enabled but bot_token and "
                         "bot_token_file unset",
                     )
             elif name == "imessage":

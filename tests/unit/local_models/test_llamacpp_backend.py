@@ -884,7 +884,17 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
         "supports_image": False,
         "supports_video": False,
         "probe_source": "probed",
+        "max_input_length": 131072,
+        "max_input_length_configured": False,
+        "max_tokens": 8192,
         "generate_kwargs": {},
+        "relay_reasoning": True,
+        "thinking_enabled": None,
+        "thinking_budget": None,
+        "reasoning_effort": None,
+        "thinking_param_style": None,
+        "reasoning_effort_options": None,
+        "thinking_budget_range": None,
     }
     assert downloader.get_server_status() == {
         "running": True,
@@ -1032,7 +1042,17 @@ async def test_setup_server_passes_mmproj_argument(
         "supports_image": True,
         "supports_video": False,
         "probe_source": "probed",
+        "max_input_length": 131072,
+        "max_input_length_configured": False,
+        "max_tokens": 8192,
         "generate_kwargs": {},
+        "relay_reasoning": True,
+        "thinking_enabled": None,
+        "thinking_budget": None,
+        "reasoning_effort": None,
+        "thinking_param_style": None,
+        "reasoning_effort_options": None,
+        "thinking_budget_range": None,
     }
 
     assert start_calls == [

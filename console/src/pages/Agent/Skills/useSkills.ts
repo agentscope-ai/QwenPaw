@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Modal } from "@agentscope-ai/design";
-import { useAppMessage } from "../../../hooks/useAppMessage";
-import api from "../../../api";
+import { useSkillRuntime } from "./useSkillRuntime";
 import type { SecurityScanErrorResponse } from "../../../api/modules/security";
 import { invalidateSkillCache } from "../../../api/modules/skill";
 import type { SkillSpec } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
+import {
+  harnessApi,
+  type HarnessDiscoveredSkill,
+} from "../../../api/modules/harness";
 import { parseErrorDetail } from "../../../utils/error";
 import {
   handleScanError,
@@ -20,67 +22,114 @@ type SkillActionResult =
 
 export function useSkills() {
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
+  const { scope, api, message, modal: Modal } = useSkillRuntime();
+  const { selectedAgent, agents } = useAgentStore();
+  const selectedAgentInfo = agents.find((item) => item.id === selectedAgent);
+  const readOnly = !scope.canEdit;
+  const selectedBackend = selectedAgentInfo?.backend ?? "qwenpaw";
+  const canDiscoverProviderSkills = Boolean(
+    selectedAgentInfo?.backend_capabilities?.provider_skills_discovery,
+  );
   const [skills, setSkills] = useState<SkillSpec[]>([]);
+  const [providerSkills, setProviderSkills] = useState<
+    HarnessDiscoveredSkill[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [importing, setImporting] = useState(false);
   const importTaskIdRef = useRef<string | null>(null);
   const importCancelReasonRef = useRef<"manual" | "timeout" | null>(null);
-  const { message } = useAppMessage();
 
   const handleError = useCallback(
     (error: unknown, defaultMsg: string): boolean => {
-      if (handleScanError(error, t)) return true;
+      if (!scope.current()) return true;
+      if (handleScanError(error, t, scope)) return true;
       const msg =
         error instanceof Error && error.message ? error.message : defaultMsg;
       console.error(defaultMsg, error);
       message.error(msg);
       return false;
     },
-    [t],
+    [t, scope, message],
   );
 
   const checkScanWarnings = useCallback(
     (skillName: string) =>
-      checkScanWarningsShared(
-        skillName,
-        api.getBlockedHistory,
-        api.getSkillScanner,
-        t,
-      ),
-    [t],
+      scope.current()
+        ? checkScanWarningsShared(
+            skillName,
+            api.getBlockedHistory,
+            api.getSkillScanner,
+            t,
+            scope,
+          )
+        : Promise.resolve(),
+    [t, scope],
   );
 
-  const fetchSkills = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await api.listSkills(selectedAgent);
-      setSkills(data || []);
-    } catch (error) {
-      console.error(t("skills.loadFailed"), error);
-      message.error(t("skills.loadFailed"));
-    } finally {
-      setLoading(false);
+  const loadProviderSkills = useCallback(async () => {
+    if (!scope.current()) return;
+    if (selectedBackend === "qwenpaw" || !canDiscoverProviderSkills) {
+      setProviderSkills([]);
+      return;
     }
-  }, [selectedAgent]);
+    try {
+      const result = await harnessApi.listSkills(selectedBackend);
+      if (!scope.current()) return;
+      setProviderSkills(result.skills);
+      if (result.message) {
+        message.warning(result.message);
+      }
+    } catch (error) {
+      console.warn("Failed to discover Provider Skills:", error);
+      setProviderSkills([]);
+    }
+  }, [canDiscoverProviderSkills, message, selectedBackend, scope]);
+
+  const fetchSkills = useCallback(
+    async (showLoading = true) => {
+      if (!scope.ready || !scope.current()) return;
+      if (showLoading) setLoading(true);
+      try {
+        const data = await api.listSkills(selectedAgent);
+        if (scope.current()) setSkills(data || []);
+      } catch (error) {
+        console.error(t("skills.loadFailed"), error);
+        message.error(t("skills.loadFailed"));
+      } finally {
+        if (scope.current()) await loadProviderSkills();
+        if (scope.current() && showLoading) setLoading(false);
+      }
+    },
+    [loadProviderSkills, message, selectedAgent, t, scope, api],
+  );
+
+  // Preserve mounted cards and their conflict notices during a state refresh.
+  const refreshSkills = useCallback(() => fetchSkills(false), [fetchSkills]);
 
   const hardRefresh = useCallback(async () => {
     setLoading(true);
     try {
       invalidateSkillCache({ agentId: selectedAgent });
       const data = await api.refreshSkills(selectedAgent);
-      setSkills(data || []);
+      if (scope.current()) setSkills(data || []);
+      await loadProviderSkills();
     } catch (error) {
       console.error(t("skills.refreshFailed"), error);
       message.error(t("skills.refreshFailed"));
     } finally {
-      setLoading(false);
+      if (scope.current()) setLoading(false);
     }
-  }, [selectedAgent]);
+  }, [loadProviderSkills, message, selectedAgent, t, scope, api]);
 
   // Invalidate cache when agent changes
   useEffect(() => {
+    setSkills([]);
+    setProviderSkills([]);
+    setLoading(false);
+    setUploading(false);
+    setImporting(false);
+    importTaskIdRef.current = null;
     invalidateSkillCache({ agentId: selectedAgent });
     void fetchSkills();
   }, [selectedAgent, fetchSkills]);
@@ -91,6 +140,11 @@ export function useSkills() {
     config?: Record<string, unknown>,
     enable?: boolean,
   ): Promise<SkillActionResult> => {
+    if (!scope.current()) return { success: false };
+    if (readOnly) {
+      message.warning(t("agent.readOnlyHint"));
+      return { success: false };
+    }
     try {
       const result = await api.createSkill(name, content, config, enable);
       message.success(t("skills.createdSuccessfully"));
@@ -113,6 +167,11 @@ export function useSkills() {
     targetName?: string,
     renameMap?: Record<string, string>,
   ): Promise<SkillActionResult> => {
+    if (!scope.current()) return { success: false };
+    if (readOnly) {
+      message.warning(t("agent.readOnlyHint"));
+      return { success: false };
+    }
     try {
       setUploading(true);
       const result = await api.uploadSkill(file, {
@@ -143,7 +202,7 @@ export function useSkills() {
       handleError(error, t("skills.uploadFailed"));
       return { success: false };
     } finally {
-      setUploading(false);
+      if (scope.current()) setUploading(false);
     }
   };
 
@@ -151,6 +210,11 @@ export function useSkills() {
     input: string,
     targetName?: string,
   ): Promise<SkillActionResult> => {
+    if (!scope.current()) return { success: false };
+    if (readOnly) {
+      message.warning(t("agent.readOnlyHint"));
+      return { success: false };
+    }
     const text = (input || "").trim();
     if (!text) {
       message.warning(t("skills.provideUrl"));
@@ -174,7 +238,7 @@ export function useSkills() {
       const task = await api.startHubSkillInstall(payload);
       importTaskIdRef.current = task.task_id;
 
-      while (importTaskIdRef.current) {
+      while (scope.current() && importTaskIdRef.current) {
         const status = await api.getHubSkillInstallStatus(task.task_id);
 
         if (status.status === "completed" && status.result?.installed) {
@@ -201,7 +265,7 @@ export function useSkills() {
             | null
             | undefined;
           if (hubResult?.type === "security_scan_failed") {
-            showScanErrorModal(hubResult, t);
+            showScanErrorModal(hubResult, t, scope);
             return { success: false };
           }
           throw new Error(status.error || t("skills.importFailed"));
@@ -238,7 +302,7 @@ export function useSkills() {
   };
 
   const cancelImport = useCallback(() => {
-    if (!importing) return;
+    if (!importing || !scope.current()) return;
     importCancelReasonRef.current = "manual";
     const taskId = importTaskIdRef.current;
     if (!taskId) return;
@@ -246,6 +310,11 @@ export function useSkills() {
   }, [importing]);
 
   const toggleEnabled = async (skill: SkillSpec) => {
+    if (!scope.current()) return false;
+    if (readOnly) {
+      message.warning(t("agent.readOnlyHint"));
+      return false;
+    }
     try {
       if (skill.enabled) {
         await api.disableSkill(skill.name);
@@ -274,6 +343,11 @@ export function useSkills() {
   };
 
   const deleteSkill = async (skill: SkillSpec) => {
+    if (!scope.current()) return false;
+    if (readOnly) {
+      message.warning(t("agent.readOnlyHint"));
+      return false;
+    }
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
         title: t("common.confirm"),
@@ -286,7 +360,7 @@ export function useSkills() {
       });
     });
 
-    if (!confirmed) return false;
+    if (!confirmed || !scope.current()) return false;
 
     try {
       const result = await api.deleteSkill(skill.name);
@@ -305,16 +379,18 @@ export function useSkills() {
 
   return {
     skills,
+    providerSkills,
     loading,
     uploading,
     importing,
+    readOnly,
     createSkill,
     uploadSkill,
     importFromHub,
     cancelImport,
     toggleEnabled,
     deleteSkill,
-    refreshSkills: fetchSkills,
+    refreshSkills,
     hardRefresh,
   };
 }

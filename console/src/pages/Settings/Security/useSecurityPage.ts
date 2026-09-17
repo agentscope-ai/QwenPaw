@@ -1,14 +1,19 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Form } from "@agentscope-ai/design";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import { useToolGuard, type MergedRule } from "./useToolGuard";
+import { useAgentStore } from "../../../stores/agentStore";
+import type { SecurityPolicyResponse } from "../../../api/modules/security";
 
 const BUILTIN_TOOLS = [
   "execute_shell_command",
   "execute_python_code",
-  "browser_use",
+  "browser",
+  // ── DEPRECATED BROWSER (remove together with backend deprecated_browser/) ──
+  "browser",
+  // ── END DEPRECATED BROWSER ──
   "desktop_screenshot",
   "view_image",
   "read_file",
@@ -26,6 +31,24 @@ export function useSecurityPage() {
   const [editForm] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState("toolGuard");
+  const selectedAgent = useAgentStore((state) => state.selectedAgent);
+  const [policy, setPolicy] = useState<SecurityPolicyResponse | null>(null);
+
+  const fetchPolicy = useCallback(async () => {
+    if (!selectedAgent) {
+      setPolicy(null);
+      return;
+    }
+    try {
+      setPolicy(await api.getSecurityPolicy(selectedAgent));
+    } catch {
+      setPolicy(null);
+    }
+  }, [selectedAgent]);
+
+  useEffect(() => {
+    void fetchPolicy();
+  }, [fetchPolicy]);
 
   // FileGuard handlers exposed from child component
   const [fileGuardHandlers, setFileGuardHandlers] = useState<{
@@ -69,6 +92,12 @@ export function useSecurityPage() {
     builtinRules,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    savedSandboxEnabled,
+    markSandboxSaved,
+    setSandboxEnabled,
+    sandboxEffective,
+    sandboxReason,
     mergedRules,
     shellEvasionChecks,
     toggleShellEvasionCheck,
@@ -76,6 +105,7 @@ export function useSecurityPage() {
     error,
     fetchAll,
     toggleRule,
+    toggleAutoDeny,
     deleteCustomRule,
     addCustomRule,
     updateCustomRule,
@@ -102,11 +132,22 @@ export function useSecurityPage() {
         denied_tools: values.denied_tools ?? [],
         custom_rules: customRules,
         disabled_rules: Array.from(savedBody.disabled_rules),
+        auto_denied_rules: savedBody.auto_denied_rules,
         shell_evasion_checks: savedBody.shell_evasion_checks,
       };
+      // Save sandbox FIRST so that if it fails (e.g. 403 for non-admin),
+      // Tool Guard has not been touched — avoiding a partial-save state
+      // where Tool Guard is persisted but sandbox is not.
+      // Only call the API when the value actually changed to skip
+      // unnecessary requests (and potential 403s) on unchanged toggles.
+      if (sandboxEnabled !== savedSandboxEnabled) {
+        await api.updateSandbox({ enabled: sandboxEnabled });
+      }
       await api.updateToolGuard(body);
       setEnabled(body.enabled);
+      markSandboxSaved();
       message.success(t("security.saveSuccess"));
+      await fetchPolicy();
     } catch (err) {
       if (err instanceof Error && "errorFields" in err) {
         return;
@@ -117,7 +158,18 @@ export function useSecurityPage() {
     } finally {
       setSaving(false);
     }
-  }, [customRules, buildSaveBody, form, t]);
+  }, [
+    customRules,
+    buildSaveBody,
+    form,
+    t,
+    sandboxEnabled,
+    savedSandboxEnabled,
+    markSandboxSaved,
+    setEnabled,
+    message,
+    fetchPolicy,
+  ]);
 
   const handleReset = useCallback(() => {
     form.resetFields();
@@ -212,12 +264,17 @@ export function useSecurityPage() {
     // Tab state
     activeTab,
     setActiveTab,
+    policy,
 
     // Tool Guard form
     form,
     config,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    setSandboxEnabled,
+    sandboxEffective,
+    sandboxReason,
     toolOptions,
     saving,
     handleSave,
@@ -228,6 +285,7 @@ export function useSecurityPage() {
     builtinRules,
     customRules,
     toggleRule,
+    toggleAutoDeny,
     deleteCustomRule,
     openAddRule,
     openEditRule,

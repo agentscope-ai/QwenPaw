@@ -7,6 +7,7 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  issues: write
 
 jobs:
   welcome:
@@ -20,6 +21,127 @@ jobs:
             const prNumber = context.payload.pull_request.number;
             const prTitle = context.payload.pull_request.title;
             const prBody = context.payload.pull_request.body || '';
+
+            // ---------------------------------------------------------------
+            // Spam gate: close if author has >10 open PRs in this repo.
+            // Bypassed for repo maintainers and admins.
+            // per_page=1 is sufficient — we only need total_count.
+            // ---------------------------------------------------------------
+            try {
+              // Bypass for repo maintainers / admins.
+              try {
+                const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: author,
+                });
+                if (['admin', 'maintain'].includes(perm.permission)) {
+                  console.log(`@${author} is a repo ${perm.permission} — bypassing spam gate`);
+                  throw new Error('__bypass__');
+                }
+              } catch (permErr) {
+                if (permErr.message === '__bypass__') throw permErr;
+                // 404 = not a collaborator, proceed with spam check.
+                if (permErr.status !== 404) {
+                  console.log(`Permission check warning: ${permErr.message} — proceeding with spam check`);
+                }
+              }
+
+              const { data: openResult } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${context.repo.owner}/${context.repo.repo} type:pr is:open author:${author}`,
+                per_page: 1,
+              });
+              const openCount = openResult.total_count;
+              console.log(`@${author} has ${openCount} open PR(s) in this repo`);
+
+              if (openCount > 10) {
+                // Ensure the label exists (create it if missing)
+                try {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: 'Close-and-review-later',
+                    color: 'e4e669',
+                    description: 'Closed automatically for later review',
+                  });
+                } catch (labelErr) {
+                  // 422 = label already exists, that's fine
+                  if (labelErr.status !== 422) console.log(`Label creation warning: ${labelErr.message}`);
+                }
+
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  labels: ['Close-and-review-later'],
+                });
+
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                  state: 'closed',
+                });
+
+                const warningComment = [
+                  `<div align="center">`,
+                  ``,
+                  `<img src="https://img.alicdn.com/imgextra/i2/O1CN01eSmIfy1hJImze8NN8_!!6000000004256-2-tps-1858-1858.png" width="80" height="80" />`,
+                  ``,
+                  `</div>`,
+                  ``,
+                  `Hi @${author},`,
+                  ``,
+                  `This pull request has been **automatically closed** because you currently have more than **10 open pull requests** in this repository.`,
+                  ``,
+                  `> **Why this happened**`,
+                  `> Our [contribution policy](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/4333) asks contributors to maintain a manageable number of active pull requests to ensure fair use of maintainer resources. A high volume of simultaneous open PRs — especially those that are AI-generated and submitted without personal verification — places a significant burden on maintainers.`,
+                  ``,
+                  `**What you can do:**`,
+                  `1. Review your open pull requests and close any that are no longer relevant, are duplicated, or have not been personally verified.`,
+                  `2. Once you have fewer than 10 open pull requests, you are welcome to reopen this PR or submit a new one.`,
+                  `3. Please ensure every PR you submit has been **personally tested**, addresses a verified issue, and follows our [pull request guidelines](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/4333).`,
+                  ``,
+                  `This pull request has been labeled \`Close-and-review-later\` and may be revisited by a maintainer.`,
+                  ``,
+                  `Thank you for your understanding. 🐾`,
+                  ``,
+                  `---`,
+                  ``,
+                  `你好 @${author}，`,
+                  ``,
+                  `由于你目前在本仓库有超过 **10 个处于 open 状态的 PR**，此 pull request 已被**自动关闭**。`,
+                  ``,
+                  `> **原因说明**`,
+                  `> 根据我们的[贡献规范](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/4333)，为保障维护者资源的合理使用，我们要求贡献者控制活跃 PR 的数量。大量未经人工验证的 open PR（尤其是 AI 生成内容）会给维护者带来沉重负担。`,
+                  ``,
+                  `**你可以采取以下措施：**`,
+                  `1. 检查并关闭不再相关、重复或未经本人验证的 open PR。`,
+                  `2. 当你的 open PR 数量少于 10 个时，欢迎重新开启此 PR 或提交新的 PR。`,
+                  `3. 请确保每个 PR 均经过**本人亲自测试**，针对已验证的问题，并遵循我们的 [PR 提交规范](https://github.com/${context.repo.owner}/${context.repo.repo}/issues/4333)。`,
+                  ``,
+                  `此 PR 已被标记为 \`Close-and-review-later\`，维护者可能会在后续进行审核。`,
+                  ``,
+                  `感谢你的理解与配合。🐾`,
+                ].join('\n');
+
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body: warningComment,
+                });
+
+                console.log(`Closed PR #${prNumber} for @${author} — open PR limit exceeded (${openCount} open)`);
+                return;
+              }
+            } catch (spamErr) {
+              if (spamErr.message !== '__bypass__') {
+                // Fail open: if the check itself errors, don't block legitimate contributors.
+                console.log(`Spam gate check failed: ${spamErr.message} — continuing with normal welcome`);
+              }
+            }
+            // ---------------------------------------------------------------
 
             // Check if Chinese characters exist in title
             const hasChinese = /[\u4e00-\u9fff]/.test(prTitle);

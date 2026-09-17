@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { ToolInfo } from "../../../api/modules/tools";
+import type { ToolConfigUpdate } from "../../../api/modules/tools";
 import { useTranslation } from "react-i18next";
 import { useAgentStore } from "../../../stores/agentStore";
 
 export function useTools() {
   const { t } = useTranslation();
-  const { selectedAgent } = useAgentStore();
+  const { selectedAgent, agents } = useAgentStore();
+  const readOnly =
+    agents.find((agent) => agent.id === selectedAgent)?.can_edit === false;
   const [tools, setTools] = useState<ToolInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [batchLoading, setBatchLoading] = useState(false);
@@ -27,11 +30,16 @@ export function useTools() {
   }, [t]);
 
   useEffect(() => {
+    if (!selectedAgent) return;
     loadTools();
   }, [loadTools, selectedAgent]);
 
   const toggleEnabled = useCallback(
     async (tool: ToolInfo) => {
+      if (readOnly || tool.can_edit === false) {
+        message.info(t("agent.readOnlyHint"));
+        return;
+      }
       // Optimistic update
       setTools((prev) =>
         prev.map((t) =>
@@ -44,9 +52,10 @@ export function useTools() {
         message.success(
           tool.enabled ? t("tools.disableSuccess") : t("tools.enableSuccess"),
         );
-        // Update with server response (no full reload)
+        // Merge rather than replace to preserve any local state not returned
+        // by the server (e.g. UI-only fields added in future expansions).
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? result : t)),
+          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
         );
       } catch (error) {
         // Revert optimistic update on error
@@ -58,11 +67,15 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [message, readOnly, t],
   );
 
   const toggleAsyncExecution = useCallback(
     async (tool: ToolInfo) => {
+      if (readOnly || tool.can_edit === false) {
+        message.info(t("agent.readOnlyHint"));
+        return;
+      }
       // Optimistic update
       setTools((prev) =>
         prev.map((t) =>
@@ -82,9 +95,9 @@ export function useTools() {
             ? t("tools.asyncExecutionEnabled")
             : t("tools.asyncExecutionDisabled"),
         );
-        // Update with server response
+        // Merge server response to preserve static metadata.
         setTools((prev) =>
-          prev.map((t) => (t.name === result.name ? result : t)),
+          prev.map((t) => (t.name === result.name ? { ...t, ...result } : t)),
         );
       } catch (error) {
         // Revert optimistic update on error
@@ -98,18 +111,28 @@ export function useTools() {
         message.error(t("tools.toggleError"));
       }
     },
-    [t],
+    [message, readOnly, t],
   );
 
   const enableAll = useCallback(async () => {
-    const disabledTools = tools.filter((tool) => !tool.enabled);
+    if (readOnly) {
+      message.info(t("agent.readOnlyHint"));
+      return;
+    }
+    const disabledTools = tools.filter(
+      (tool) => !tool.enabled && tool.can_edit !== false,
+    );
     if (disabledTools.length === 0) {
       message.info(t("tools.allEnabled"));
       return;
     }
 
     // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: true })));
+    setTools((prev) =>
+      prev.map((tool) =>
+        tool.can_edit === false ? tool : { ...tool, enabled: true },
+      ),
+    );
 
     setBatchLoading(true);
     try {
@@ -117,11 +140,11 @@ export function useTools() {
         disabledTools.map((tool) => api.toggleTool(tool.name)),
       );
       message.success(t("tools.enableAllSuccess"));
-      // Update with server responses, but preserve async_execution
+      // Merge server responses, preserving all static metadata.
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result ? { ...result, async_execution: t.async_execution } : t;
+          return result ? { ...t, ...result } : t;
         }),
       );
     } catch (error) {
@@ -131,17 +154,27 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [loadTools, message, readOnly, t, tools]);
 
   const disableAll = useCallback(async () => {
-    const enabledTools = tools.filter((tool) => tool.enabled);
+    if (readOnly) {
+      message.info(t("agent.readOnlyHint"));
+      return;
+    }
+    const enabledTools = tools.filter(
+      (tool) => tool.enabled && tool.can_edit !== false,
+    );
     if (enabledTools.length === 0) {
       message.info(t("tools.allDisabled"));
       return;
     }
 
     // Optimistic update - preserve async_execution state
-    setTools((prev) => prev.map((t) => ({ ...t, enabled: false })));
+    setTools((prev) =>
+      prev.map((tool) =>
+        tool.can_edit === false ? tool : { ...tool, enabled: false },
+      ),
+    );
 
     setBatchLoading(true);
     try {
@@ -149,11 +182,11 @@ export function useTools() {
         enabledTools.map((tool) => api.toggleTool(tool.name)),
       );
       message.success(t("tools.disableAllSuccess"));
-      // Update with server responses, but preserve async_execution
+      // Merge server responses, preserving all static metadata.
       setTools((prev) =>
         prev.map((t) => {
           const result = results.find((r) => r.name === t.name);
-          return result ? { ...result, async_execution: t.async_execution } : t;
+          return result ? { ...t, ...result } : t;
         }),
       );
     } catch (error) {
@@ -163,15 +196,36 @@ export function useTools() {
     } finally {
       setBatchLoading(false);
     }
-  }, [tools, t, loadTools]);
+  }, [loadTools, message, readOnly, t, tools]);
+
+  const saveToolConfig = useCallback(
+    async (toolName: string, body: ToolConfigUpdate) => {
+      if (readOnly) {
+        message.info(t("agent.readOnlyHint"));
+        return;
+      }
+      try {
+        await api.updateToolConfig(toolName, body);
+        message.success(t("tools.configSaved"));
+      } catch (error) {
+        console.error("Failed to save tool config:", error);
+        message.error(t("tools.configSaveError"));
+        throw error;
+      }
+    },
+    [message, readOnly, t],
+  );
 
   return {
     tools,
     loading,
     batchLoading,
+    readOnly,
     toggleEnabled,
     toggleAsyncExecution,
     enableAll,
     disableAll,
+    loadTools,
+    saveToolConfig,
   };
 }

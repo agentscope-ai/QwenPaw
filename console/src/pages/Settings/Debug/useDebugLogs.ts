@@ -5,6 +5,7 @@ import {
   debugApi,
   type BackendDebugLogsResponse,
 } from "../../../api/modules/debug";
+import { useAuthStore } from "../../../stores/authStore";
 
 const BACKEND_LOG_LINES = 200;
 const BACKEND_REFRESH_MS = 3000;
@@ -22,6 +23,15 @@ export function backendLevelColor(level: BackendLevelFilter): string {
 export function useDebugLogs() {
   const { t } = useTranslation();
   const { message: messageApi } = App.useApp();
+  const authMode = useAuthStore((state) => state.mode);
+  const userId = useAuthStore((state) => state.user?.id ?? "");
+  const platformRole = useAuthStore(
+    (state) => state.user?.platform_role ?? "member",
+  );
+  const canReadGlobalLogs = authMode === "legacy" || platformRole === "admin";
+  const scopeKey = `${authMode}:${userId}:${platformRole}`;
+  const currentScope = useRef(scopeKey);
+  currentScope.current = scopeKey;
 
   const [backendLogs, setBackendLogs] =
     useState<BackendDebugLogsResponse | null>(null);
@@ -37,9 +47,17 @@ export function useDebugLogs() {
 
   const loadBackendLogs = useCallback(
     async (opts?: { successToast?: boolean }) => {
+      const requestedScope = scopeKey;
       const isFirstFetch = !firstFetchDone.current;
+      if (!canReadGlobalLogs) {
+        setBackendLogs(null);
+        setBackendError("");
+        setInitialLoading(false);
+        return;
+      }
       try {
         const res = await debugApi.getBackendLogs(BACKEND_LOG_LINES);
+        if (currentScope.current !== requestedScope) return;
         setBackendLogs(res);
         setBackendError("");
         if (opts?.successToast) {
@@ -48,6 +66,7 @@ export function useDebugLogs() {
           );
         }
       } catch (error) {
+        if (currentScope.current !== requestedScope) return;
         setBackendError(
           error instanceof Error
             ? error.message
@@ -61,25 +80,29 @@ export function useDebugLogs() {
           );
         }
       } finally {
-        if (isFirstFetch) {
+        if (isFirstFetch && currentScope.current === requestedScope) {
           firstFetchDone.current = true;
           setInitialLoading(false);
         }
       }
     },
-    [t, messageApi],
+    [canReadGlobalLogs, scopeKey, t, messageApi],
   );
 
   // ── Initial load ────────────────────────────────────────────────────────
 
   useEffect(() => {
+    firstFetchDone.current = false;
+    setBackendLogs(null);
+    setBackendError("");
+    setInitialLoading(canReadGlobalLogs);
     void loadBackendLogs();
-  }, [loadBackendLogs]);
+  }, [canReadGlobalLogs, loadBackendLogs, scopeKey]);
 
   // ── Auto-refresh polling ────────────────────────────────────────────────
 
   useEffect(() => {
-    if (!autoRefresh) return;
+    if (!autoRefresh || !canReadGlobalLogs) return;
     let cancelled = false;
     let timeoutId: number | undefined;
 
@@ -101,7 +124,7 @@ export function useDebugLogs() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [autoRefresh, loadBackendLogs]);
+  }, [autoRefresh, canReadGlobalLogs, loadBackendLogs]);
 
   // ── Filter and sort ─────────────────────────────────────────────────────
 

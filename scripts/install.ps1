@@ -21,6 +21,7 @@ param(
     [string]$SourceDir = "",
     [string]$Extras    = "",
     [string]$UvPath    = "",
+    [switch]$Prerelease,
     [switch]$Help
 )
 
@@ -52,6 +53,7 @@ Options:
   -SourceDir <DIR>      Local source directory (used with -FromSource)
   -Extras <EXTRAS>      Comma-separated optional extras to install
                         (e.g. dev, whisper)
+  -Prerelease           Install the latest PyPI release, including pre-releases
   -UvPath <PATH>        Path to a pre-installed uv.exe (skips all auto-install)
   -Help                 Show this help
 
@@ -221,27 +223,39 @@ function Prepare-Console {
     $consoleSrc  = Join-Path $RepoDir "console\dist"
     $consoleDest = Join-Path $RepoDir "src\qwenpaw\console"
 
-    # Already populated
-    if (Test-Path (Join-Path $consoleDest "index.html")) { $script:ConsoleAvailable = $true; return }
-
-    # Copy pre-built assets if available
-    if ((Test-Path $consoleSrc) -and (Test-Path (Join-Path $consoleSrc "index.html"))) {
-        Write-Info "Copying console frontend assets..."
-        New-Item -ItemType Directory -Path $consoleDest -Force | Out-Null
-        Copy-Item -Path "$consoleSrc\*" -Destination $consoleDest -Recurse -Force
-        $script:ConsoleCopied   = $true
-        $script:ConsoleAvailable = $true
-        return
-    }
-
     # Try to build if npm is available
     $packageJson = Join-Path $RepoDir "console\package.json"
     if (-not (Test-Path $packageJson)) {
+        if ((Test-Path $consoleSrc) -and (Test-Path (Join-Path $consoleSrc "index.html"))) {
+            Write-Info "Console source not found; copying pre-built frontend assets..."
+            New-Item -ItemType Directory -Path $consoleDest -Force | Out-Null
+            Copy-Item -Path "$consoleSrc\*" -Destination $consoleDest -Recurse -Force
+            $script:ConsoleCopied   = $true
+            $script:ConsoleAvailable = $true
+            return
+        }
+        if (Test-Path (Join-Path $consoleDest "index.html")) {
+            $script:ConsoleAvailable = $true
+            return
+        }
         Write-Warn "Console source not found - the web UI won't be available."
         return
     }
 
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
+        if ((Test-Path $consoleSrc) -and (Test-Path (Join-Path $consoleSrc "index.html"))) {
+            Write-Warn "npm not found - using existing console\dist assets."
+            New-Item -ItemType Directory -Path $consoleDest -Force | Out-Null
+            Copy-Item -Path "$consoleSrc\*" -Destination $consoleDest -Recurse -Force
+            $script:ConsoleCopied   = $true
+            $script:ConsoleAvailable = $true
+            return
+        }
+        if (Test-Path (Join-Path $consoleDest "index.html")) {
+            Write-Warn "npm not found - using existing bundled console assets."
+            $script:ConsoleAvailable = $true
+            return
+        }
         Write-Warn "npm not found - skipping console frontend build."
         Write-Warn "Install Node.js from https://nodejs.org/ then re-run this installer,"
         Write-Warn "or run 'cd console && npm ci && npm run build' manually."
@@ -260,6 +274,9 @@ function Prepare-Console {
     }
     if (Test-Path (Join-Path $consoleSrc "index.html")) {
         New-Item -ItemType Directory -Path $consoleDest -Force | Out-Null
+        if (Test-Path (Join-Path $consoleDest "index.html")) {
+            Remove-Item -Path "$consoleDest\*" -Recurse -Force -ErrorAction SilentlyContinue
+        }
         Copy-Item -Path "$consoleSrc\*" -Destination $consoleDest -Recurse -Force
         $script:ConsoleCopied   = $true
         $script:ConsoleAvailable = $true
@@ -288,7 +305,7 @@ if ($FromSource) {
         Write-Info "Installing QwenPaw from local source: $SourceDir"
         Prepare-Console $SourceDir
         Write-Info "Installing package from source..."
-        uv pip install "${SourceDir}${ExtrasSuffix}" --python $VenvPython --prerelease=allow
+        uv pip install "${SourceDir}${ExtrasSuffix}" --python $VenvPython
         if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation from source failed" }
         Cleanup-Console $SourceDir
     } else {
@@ -302,7 +319,7 @@ if ($FromSource) {
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Failed to clone repository" }
             Prepare-Console $cloneDir
             Write-Info "Installing package from source..."
-            uv pip install "${cloneDir}${ExtrasSuffix}" --python $VenvPython --prerelease=allow
+            uv pip install "${cloneDir}${ExtrasSuffix}" --python $VenvPython
             if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation from source failed" }
         } finally {
             if (Test-Path $cloneDir) {
@@ -314,8 +331,11 @@ if ($FromSource) {
     $package = "qwenpaw"
     if ($Version) { $package = "qwenpaw==$Version" }
 
+    $prereleaseArgs = @()
+    if ($Prerelease) { $prereleaseArgs = @("--prerelease=allow") }
+
     Write-Info "Installing ${package}${ExtrasSuffix} from PyPI..."
-    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --prerelease=allow --quiet --refresh-package qwenpaw
+    uv pip install "${package}${ExtrasSuffix}" --python $VenvPython --quiet --refresh-package qwenpaw @prereleaseArgs
     if ($LASTEXITCODE -ne 0) { Stop-WithError "Installation failed" }
 }
 

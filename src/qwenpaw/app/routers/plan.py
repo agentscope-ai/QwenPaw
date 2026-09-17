@@ -23,6 +23,10 @@ from ...plan.schemas import (
     PlanStateResponse,
     plan_to_response,
 )
+from ..agent_context import (
+    get_running_config_workspace,
+    require_running_config_editor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +48,14 @@ async def _plan_from_session_state(
         session = workspace.runner.session
         states = await session.get_session_state_dict(
             session_id=session_id,
+            user_id="default",
             allow_not_exist=True,
         )
+        if not states:
+            states = await session.get_session_state_dict(
+                session_id=session_id,
+                allow_not_exist=True,
+            )
     except Exception:
         logger.debug("Failed to read session state for plan", exc_info=True)
         return None
@@ -111,9 +121,20 @@ async def get_current_plan(
     summary="Get plan config",
 )
 async def get_plan_config(request: Request) -> PlanConfigResponse:
-    workspace = await _get_workspace(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.plan.view",
+    )
+    require_running_config_editor(request)
     plan_cfg = workspace.config.plan
-    return PlanConfigResponse(enabled=plan_cfg.enabled)
+    if plan_cfg is None:
+        plan_cfg = PlanConfig()
+    return PlanConfigResponse(
+        enabled=plan_cfg.enabled,
+        auto_enabled=plan_cfg.auto_enabled,
+        auto_execute=plan_cfg.auto_execute,
+        complexity_threshold=plan_cfg.complexity_threshold,
+    )
 
 
 @router.put(
@@ -125,12 +146,24 @@ async def put_plan_config(
     request: Request,
     body: PlanConfigResponse = Body(...),
 ) -> PlanConfigResponse:
-    workspace = await _get_workspace(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.plan.update",
+    )
+    require_running_config_editor(request)
     if workspace.config.plan is None:
         workspace.config.plan = PlanConfig()
     workspace.config.plan.enabled = body.enabled
+    workspace.config.plan.auto_enabled = body.auto_enabled
+    workspace.config.plan.auto_execute = body.auto_execute
+    workspace.config.plan.complexity_threshold = body.complexity_threshold
     save_agent_config(workspace.agent_id, workspace.config)
-    return PlanConfigResponse(enabled=workspace.config.plan.enabled)
+    return PlanConfigResponse(
+        enabled=workspace.config.plan.enabled,
+        auto_enabled=workspace.config.plan.auto_enabled,
+        auto_execute=workspace.config.plan.auto_execute,
+        complexity_threshold=workspace.config.plan.complexity_threshold,
+    )
 
 
 @router.get(

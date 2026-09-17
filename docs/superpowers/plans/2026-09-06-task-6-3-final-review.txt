@@ -1,0 +1,4102 @@
+Final Task 6.3 working diff. Contains pre-existing changes; report identifies ownership. No commits.
+warning: in the working copy of 'console/src/api/types/checkpoints.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'console/src/locales/en.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'console/src/locales/zh.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'console/src/pages/Agent/Checkpoints/RestoreModal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'console/src/pages/Agent/Checkpoints/graphLayout.test.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'console/src/pages/Agent/Checkpoints/index.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/app/routers/checkpoints.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/hooks.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/models.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/policy.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/repository.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/runtime.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'src/qwenpaw/checkpoints/service.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/app/routers/test_checkpoints_router.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/checkpoints/test_checkpoint_basic.py', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'tests/unit/checkpoints/test_checkpoint_hooks.py', LF will be replaced by CRLF the next time Git touches it
+diff --git a/console/src/api/types/checkpoints.ts b/console/src/api/types/checkpoints.ts
+index 3d23979e..57e44acc 100644
+--- a/console/src/api/types/checkpoints.ts
++++ b/console/src/api/types/checkpoints.ts
+@@ -9,16 +9,17 @@ export interface CheckpointNode {
+   sha: string;
+   timestamp_ms: number;
+   subject: string;
+   query: string | null;
+   channel: string;
+   restore_index: number | null;
+   parent_commit: string | null;
+   is_head: boolean;
++  agent_id: string;
+   user_id: string;
+   session_id: string;
+   session_title: string;
+ }
+ 
+ export interface CheckpointSession {
+   session_key: string;
+   session_id: string;
+@@ -39,39 +40,47 @@ export interface CheckpointGraphResponse {
+     heads: number;
+   };
+   truncated: boolean;
+ }
+ 
+ export interface CheckpointStatus {
+   auto_enabled: boolean;
+   has_checkpoints: boolean;
+-  workspace_dir: string;
++  scope: "user_runtime" | "legacy" | "agent_workspace";
++  restore_mode?: "new_chat" | "in_place";
+ }
+ 
+ export interface RestoreRequest {
+   commit: string;
+   session_id: string;
+-  user_id: string;
+   channel: string;
+   include_memory: boolean;
+   include_files: boolean;
+   files?: string[];
+ }
+ 
++export interface SnapshotRequest {
++  session_id: string;
++  channel: string;
++  name: string;
++}
++
+ export interface RestoreResult {
+   target: string;
+   commit: string;
+   restored_paths: string[];
+   deleted_paths: string[];
+   file_paths: string[];
+   pre_restore_ref: string | null;
+   dry_run: boolean;
+   include_memory: boolean;
+   include_files: boolean;
++  new_session_id: string | null;
++  new_chat_id: string | null;
+ }
+ 
+ export interface GcResult {
+   deleted_refs: string[];
+   kept_refs: string[];
+   dry_run: boolean;
+ }
+ 
+diff --git a/console/src/locales/en.json b/console/src/locales/en.json
+index ea1b842b..537e8563 100644
+--- a/console/src/locales/en.json
++++ b/console/src/locales/en.json
+@@ -126,29 +126,74 @@
+     "skills": "Skills",
+     "skillPool": "Skill Pool",
+     "market": "Skill Market",
+     "tools": "Tools",
+     "mcp": "MCP",
+     "acp": "ACP",
+     "agentConfig": "Configuration",
+     "agents": "Agent Management",
++    "users": "User Management",
+     "settings": "Settings",
+     "models": "Models",
+     "environments": "Environments",
+     "offloadPolicy": "Tool Offload",
+     "security": "Security",
++    "systemStatus": "System Status",
+     "tokenUsage": "Token Usage",
+     "agentStats": "Agent Statistics",
+     "voiceTranscription": "Voice Transcription",
+     "debug": "Debug",
+     "plugins": "Plugins",
+     "backups": "Backups",
+     "pluginManager": "Plugin Manager"
+   },
++  "systemStatus": {
++    "title": "System Status",
++    "refresh": "Refresh",
++    "retry": "Retry",
++    "loading": "Loading storage status…",
++    "overview": "Storage overview",
++    "normal": "Normal",
++    "hero": {
++      "legacy": "Legacy storage is active",
++      "postgres": "PostgreSQL storage is active",
++      "legacyDescription": "Business repositories still use the original file storage path.",
++      "postgresDescription": "Business repositories are using the configured PostgreSQL path."
++    },
++    "database": {
++      "title": "Database",
++      "connected": "Database connected",
++      "disconnected": "Database disconnected",
++      "notRequired": "Not required in Legacy mode"
++    },
++    "repository": {
++      "title": "Active repository",
++      "legacy": "Legacy file storage",
++      "configured": "Configured mode"
++    },
++    "schema": {
++      "title": "Schema version",
++      "expected": "Expected"
++    },
++    "lock": {
++      "title": "Migration lock",
++      "notApplicable": "Not applicable",
++      "notConfigured": "Not configured",
++      "unknown": "Unknown",
++      "description": "This phase does not acquire or modify migration locks."
++    },
++    "readOnly": {
++      "title": "Read-only diagnostics",
++      "description": "This page exposes sanitized health information only. It cannot migrate, rebuild, delete, or switch storage."
++    },
++    "error": {
++      "title": "Unable to load storage status"
++    }
++  },
+   "os": {
+     "console": "Console",
+     "appStore": "App Store",
+     "appStoreDesc": "Install or remove desktop apps",
+     "arrangeDesktop": "Clean up desktop",
+     "approvalActionFailed": "Action failed, please retry",
+     "booting": "Starting up…",
+     "changeWallpaper": "Change wallpaper",
+@@ -646,16 +691,17 @@
+       "action": "Restore",
+       "title": "Restore checkpoint",
+       "preview": "Preview restore",
+       "confirm": "Restore checkpoint",
+       "conversation": "Conversation",
+       "memory": "Memory",
+       "files": "Workspace files",
+       "refreshWarning": "The conversation will change. Refresh the conversation after the restore completes.",
++      "newChatWarning": "Restore creates a new conversation and keeps the original. Only selected files are restored.",
+       "selectedCount": "{{count}} files selected",
+       "selectAll": "Select all changed files",
+       "delete": "Delete",
+       "restore": "Restore",
+       "noFileChanges": "No workspace file changes are needed.",
+       "success": "Checkpoint restored. Refresh the conversation to load its restored state."
+     }
+   },
+@@ -724,16 +770,61 @@
+     "idPlaceholder": "e.g.: my-agent",
+     "nameRequired": "Please enter agent name",
+     "namePlaceholder": "e.g.: My Agent",
+     "descriptionPlaceholder": "Briefly describe this agent's purpose...",
+     "workspaceHelp": "Leave empty to auto-generate in ~/.qwenpaw/workspaces/<id>",
+     "dragHandleTooltip": "Drag to reorder agents",
+     "reorderSuccess": "Agent order saved",
+     "reorderFailed": "Failed to save agent order",
++    "accessGroup": {
++      "owner": "Mine",
++      "collaborator": "Collaborative",
++      "user": "Usable",
++      "adminAll": "All Agents"
++    },
++    "accessRole": {
++      "column": "Resource role",
++      "owner": "Owner",
++      "collaborator": "Collaborator",
++      "user": "Run only"
++    },
++    "visibility": {
++      "column": "Visibility",
++      "private": "Private",
++      "shared": "Shared",
++      "public_candidate": "Pending publication",
++      "public": "Platform public"
++    },
++    "owner": "Owner ID",
++    "manageMembers": "Manage members",
++    "memberUser": "User",
++    "memberRole": "Member role",
++    "addMember": "Add member",
++    "revokeMember": "Revoke",
++    "revokeMemberConfirm": "Revoke this user's access?",
++    "transferOwner": "Transfer ownership",
++    "transferOwnerConfirm": "Transfer ownership to this user? The current owner becomes a collaborator.",
++    "modelLocked": "Public default model",
++    "historicalReadOnly": "History only",
++    "readOnlyHint": "This Agent is run-only. Skills, tools, and runtime configuration are maintained by its owner or collaborators.",
++    "governanceEdit": "Governance edit",
++    "governanceRuntimeConfig": "Manage runtime config",
++    "governanceMemoryFiles": "Manage public memory",
++    "publishPublic": "Publish publicly",
++    "publishConfirm": "Publish this Agent for all platform users?",
++    "revokePublication": "Revoke publication",
++    "revokePublicationConfirm": "Users will no longer be able to start new runs. Continue?",
++    "published": "Agent published for platform use",
++    "publicationRevoked": "Platform publication revoked",
++    "editForbidden": "Your role cannot edit this agent",
++    "copyForbidden": "Your role cannot copy this agent",
++    "toggleForbidden": "Your role cannot enable or disable this agent",
++    "deleteForbidden": "Only the owner can delete this agent",
++    "pinForbidden": "Your role cannot reorder this agent",
+     "defaultNotEditable": "Default agent cannot be edited",
+     "defaultNotDeletable": "Default agent cannot be deleted",
+     "disable": "Disable",
+     "enable": "Enable",
+     "disabled": "Disabled",
+     "disableConfirm": "Confirm Disable Agent",
+     "disableConfirmDesc": "The agent instance will not start after disabling, but will remain visible in the list",
+     "enableConfirm": "Confirm Enable Agent",
+@@ -852,16 +943,19 @@
+           "name": "Full access",
+           "description": "Allow unrestricted local execution without confirmation."
+         }
+       }
+     },
+     "model": "Model",
+     "modelHelp": "Assign a specific LLM model to this agent. Leave empty to use the global default.",
+     "modelPlaceholder": "Use global default",
++    "modelInheritCurrent": "Use global default (current: {{model}})",
++    "modelInheritUnavailable": "Use global default (not configured)",
++    "modelExplicit": "Specific model selected",
+     "noConfiguredModels": "No configured models",
+     "modelColumn": "Model",
+     "copyTooltip": "Copy agent configuration",
+     "copyDefaultTooltip": "Copy using the default agent as a template",
+     "copyTitle": "Copy Agent Configuration",
+     "copyNameLabel": "New agent name",
+     "copyOptionsLabel": "Copy content",
+     "copyOptionAgentJson": "agent.json (required)",
+@@ -1499,18 +1593,27 @@
+     }
+   },
+   "channels": {
+     "title": "Channels",
+     "description": "Manage and configure message channels",
+     "loading": "Loading channels...",
+     "configSaved": "Configuration saved successfully",
+     "configFailed": "Failed to save configuration",
++    "agentChannels": "Agent Channels",
++    "myBindings": "My Channel Bindings",
++    "bindingSaved": "Personal channel binding saved",
++    "bindingDeleted": "Personal channel binding deleted",
++    "bindingDeleteFailed": "Failed to delete personal channel binding",
++    "removeBinding": "Remove Binding",
++    "secretsConfigured": "Secrets configured securely",
++    "secretsConfiguredDescription": "Configured: {{fields}}. Secret values are never shown; leave them blank to keep the existing values.",
+     "botConflictTitle": "Bot already in use",
+     "botConflictDescription": "This Bot is already being used by {{agents}} on the same channel. Saving anyway may cause message conflicts.",
++    "personalBotConflictDescription": "This Bot identity is already used by another personal channel binding. Saving anyway may cause duplicate delivery or competing connections.",
+     "botConflictConfirm": "Save anyway",
+     "channelType": "Channel Type",
+     "status": "Status",
+     "totalItems": "Total {{count}} items",
+     "botPrefix": "Bot Prefix",
+     "showToolCalls": "Show Tool Call Information",
+     "showToolCallsTooltip": "Show tool call information to users (turn off to hide)",
+     "showToolResults": "Show Tool Result Information",
+@@ -1737,18 +1840,24 @@
+     "filterUserId": "Filter by User ID",
+     "filterChannel": "Filter by Channel",
+     "allChannels": "All Channels",
+     "totalItems": "Total {{count}} items",
+     "selectedItems": "Selected {{count}} items",
+     "editSession": "Edit Session",
+     "pleaseInputName": "Please input session name",
+     "sessionNamePlaceholder": "Session name",
++    "emptySessionTitle": "No messages in this session",
++    "emptySessionDescription": "This session exists, but no user or agent messages have been recorded. The available session metadata is shown below.",
++    "viewFailed": "Failed to load session content",
+     "activeTab": "Active",
+     "archivedTab": "Archived",
++    "scopeAll": "All",
++    "scopeOwned": "Mine",
++    "scopeShared": "Shared with me",
+     "archivedAtColumn": "Archived At",
+     "archive": {
+       "action": "Archive",
+       "unaction": "Unarchive",
+       "batchAction": "Batch Archive",
+       "success": "Chat archived",
+       "successHint": "Chat archived. View in Control > Sessions > Archived.",
+       "failed": "Failed to archive",
+@@ -2193,23 +2302,76 @@
+     "modalityAudio": "Audio",
+     "modalityVideo": "Video",
+     "modalityFile": "File",
+     "modalityText": "Text only",
+     "perMillionIn": "/1M in",
+     "perMillionOut": "/1M out"
+   },
+   "files": {
++    "personalWorkspace": {
++      "temporary": "Temporary attachments",
++      "documents": "Agent documents",
++      "outputs": "Outputs",
++      "temporaryDescription": "Files uploaded by this account for the current Agent and not yet saved",
++      "temporaryBadge": "Temporary",
++      "noTemporary": "No temporary attachments",
++      "loadFailed": "Failed to load temporary attachments",
++      "outputsDescription": "Output lifecycle will be managed in Task 6.2-R/5",
++      "saveToDocuments": "Save to Agent documents",
++      "savedToDocuments": "Saved to Agent documents",
++      "deleteAttachmentConfirm": "Clean up this temporary attachment?",
++      "operationFailed": "File operation failed"
++    },
++    "personalLibrary": {
++      "title": "Personal library",
++      "description": "Visible only to you. You can later grant eligible Agents read-only search access.",
++      "upload": "Upload file",
++      "uploadSucceeded": "Uploaded to your personal library: {{name}}",
++      "uploadFailed": "Failed to upload the personal library file",
++      "uploadConflict": "A file with the same name already exists. Refresh the library and rename the file before retrying.",
++      "empty": "Your personal library has no files",
++      "path": "Path",
++      "pathRequired": "Enter a path relative to your personal library",
++      "saveToLibrary": "Save to personal library",
++      "destinationPath": "Destination path",
++      "sourceUnchanged": "The source file is copied only and is not modified or deleted.",
++      "copySucceeded": "Saved to personal library: {{path}}",
++      "copyFailed": "Failed to save to personal library",
++      "grantAgents": "Agent access",
++      "grantReadOnly": "An authorized Agent can only read your personal library and cannot modify its contents.",
++      "grantLoadFailed": "Failed to load eligible Agents",
++      "grantUpdateFailed": "Failed to update Agent access",
++      "noGrantCandidates": "No eligible Agents",
++      "accessible": "Accessible"
++    },
+     "title": "Files",
++    "governanceMemoryTitle": "Managing public memory for {{name}}",
+     "navigator": "Files navigator",
+     "source": "Source",
+     "workspace": "Workspace",
+     "agentWorkspace": "Agent workspace",
+     "profile": "Profile",
+     "memory": "Long-term Memory",
++    "memoryScope": {
++      "public": "Public memory",
++      "private": "My memory"
++    },
++    "memoryIndexState": {
++      "ready": "Index ready",
++      "needs_reindex": "Index rebuild required",
++      "reindexing": "Rebuilding index",
++      "reindex_failed": "Index rebuild failed",
++      "unavailable": "Memory runtime unavailable"
++    },
++    "rebuildMemoryIndex": "Rebuild index",
++    "createMemoryFile": "New memory file",
++    "createMemoryFileTitle": "Create memory file",
++    "createMemoryFilePlaceholder": "Enter a file name, for example 2026-08-26.md",
++    "memoryScopeLoadFailed": "Memory access changed; cached content was cleared.",
+     "daily": "Daily",
+     "digest": "Knowledge Base",
+     "memoryGraph": "Memory Graph",
+     "memoryGraphShort": "Graph",
+     "memoryGraphLoading": "Loading memory graph…",
+     "memoryGraphLoadFailed": "Failed to load the memory graph.",
+     "memoryGraphCounts": "{{nodes}} nodes · {{edges}} links",
+     "memoryGraphEmpty": "No indexed memory links yet.",
+@@ -2228,16 +2390,22 @@
+     "memoryGraphIndexed": "Indexed file",
+     "memoryGraphUnresolved": "Unresolved link",
+     "memoryGraphDirection": "Wiki link direction",
+     "memoryGraphOpenFile": "Open Markdown",
+     "memoryGraphOutbound": "Outgoing · {{count}}",
+     "memoryGraphInbound": "Incoming · {{count}}",
+     "projectDirectory": "Project directory",
+     "workspaceDirectory": "Configuration directory",
++    "workspaceKinds": {
++      "draft": "Agent draft",
++      "published_baseline": "Published baseline",
++      "user_runtime": "Personal runtime",
++      "legacy": "Registered legacy"
++    },
+     "switchDirectory": "Switch directory source",
+     "changeDirectoryTitle": "Change project directory?",
+     "changeDirectoryWarning": "Unsaved edits or pending diffs are open in this project. Changing directories will discard them.",
+     "sourceEmpty": "No files are available in this source yet.",
+     "loadMore": "Load next 200",
+     "upload": "Upload files",
+     "conflictPolicy": "Upload conflict policy",
+     "conflictRename": "Keep both",
+@@ -2291,16 +2459,33 @@
+     "inheritAgent": "Inherit Agent default",
+     "useWorkspace": "Use configuration directory",
+     "createSessionHint": "Send the first message to set a Session-specific directory.",
+     "sessionSource": "Session",
+     "agentSource": "Agent default"
+   },
+   "agentConfig": {
+     "title": "Configuration",
++    "governanceBadge": "Admin governance",
++    "governanceTitle": "You are managing another user's Agent runtime configuration",
++    "governanceDescription": "Target Agent: {{agentName}} ({{agentId}}), owner: {{ownerUserId}}. Actions on this page are recorded in the administrator governance audit.",
++    "readOnlyTitle": "Read-only runtime summary",
++    "readOnlyEyebrow": "Authorized to use",
++    "readOnlyBadge": "Use only",
++    "readOnlyDescription": "This Agent is maintained by its owner or an administrator. You can use it in chat, but cannot change its runtime parameters.",
++    "language": "Agent language",
++    "timezone": "Timezone",
++    "activeModel": "Active model",
++    "modelSwitching": "Chat model switching",
++    "availableInChat": "Available in chat",
++    "fixedModel": "Fixed model",
++    "notConfigured": "Not configured",
++    "versionConflictTitle": "Configuration changed elsewhere",
++    "versionConflictContent": "This page is based on an older configuration version. Reload the latest configuration before saving again.",
++    "versionConflictReload": "Reload",
+     "projectDirectoryTitle": "Default project directory",
+     "projectDirectoryDescription": "The default directory used for files and commands.",
+     "projectDirectoryDefault": "Agent default",
+     "changeProjectDirectory": "Change directory",
+     "projectDirectoryWorkspaceFallback": "Using the Agent workspace",
+     "enhancedCodeCapability": "Enhanced code capability",
+     "enhancedCodeCapabilityTooltip": "Adds code-oriented tools without changing the project directory.",
+     "enhancedCodeCapabilityDescription": "Enable AST, LSP, code prompts, Git context and source control.",
+@@ -2563,22 +2748,24 @@
+     "maxInputLength": "Max Input Length",
+     "maxInputLengthTooltip": "Maximum input length (tokens) for the model context window",
+     "maxInputLengthPlaceholder": "Enter max input length",
+     "maxInputLengthRequired": "Max input length is required",
+     "maxInputLengthMin": "Max input length must be at least 1000",
+     "contextCompactRatio": "Compaction Threshold Ratio",
+     "contextCompactRatioTooltip": "Compaction is triggered when the context length reaches this fraction of the max context length",
+     "contextCompactRatioRequired": "Context compact ratio is required",
++    "contextCompactRatioRange": "Context compact ratio must be between 0.1 and 0.9",
+     "contextCompactThreshold": "Compaction Threshold (tokens)",
+     "contextCompactThresholdTooltip": "Auto-calculated from max context length × compaction ratio. Compaction triggers when context exceeds this value.",
+     "contextCompactThresholdPlaceholder": "Auto-calculated",
+     "contextCompactReserveRatio": "Reserve Threshold Ratio",
+     "contextCompactReserveRatioTooltip": "Calculates the target recent-tail budget. Scroll also applies a minimum recent budget and a 40K cap, and always keeps the complete active turn.",
+     "contextCompactReserveRatioRequired": "Context reserve ratio is required",
++    "contextCompactReserveRatioRange": "Context reserve ratio must be between 0.01 and 0.3",
+     "contextCompactReserveThreshold": "Reserve Threshold (tokens)",
+     "contextCompactReserveThresholdTooltip": "The effective target used to split the recent tail. This is a soft target; boundary messages and the complete active turn may increase the retained amount.",
+     "contextCompactReserveThresholdPlaceholder": "Auto-calculated",
+     "toolResultCompactRecentN": "Recent Tool Results Range",
+     "toolResultCompactRecentNTooltip": "Number of recent tool-result-bearing messages that use the larger recent preview limit in Native context mode",
+     "toolResultCompactRecentNRequired": "Recent tool results range is required",
+     "toolResultCompactOldThreshold": "Older Tool Result Preview Bytes",
+     "toolResultCompactOldThresholdTooltip": "Maximum preview bytes for older tool results in Native context mode.",
+@@ -2606,16 +2793,23 @@
+     "languageTooltip": "Language for agent persona files (SOUL.md, AGENTS.md, etc.). Changing this will re-copy MD files in the selected language.",
+     "languageConfirmTitle": "Change Agent Language",
+     "languageConfirmContent": "Changing the language will overwrite the following files with the new language version:\n\n  SOUL.md, AGENTS.md, PROFILE.md, MEMORY.md, BOOTSTRAP.md, HEARTBEAT.md\n\nIf you have customized any of these files, please back them up first. Your other files will not be affected.",
+     "languageConfirmOk": "Change Language",
+     "languageSaveSuccess": "Language updated successfully",
+     "languageSaveSuccessWithFiles": "Language updated, {{count}} MD file(s) copied",
+     "languageSaveFailed": "Failed to update language",
+     "saveSuccess": "Configuration saved successfully",
++    "savedPendingReload": "Configuration saved, but the Agent runtime has not reloaded yet",
++    "pendingReloadTitle": "Runtime reload pending",
++    "pendingReloadDescription": "The configuration is persisted on disk, but the running Agent is still using the previous configuration. Retry now or restart the Agent.",
++    "retryReload": "Retry reload",
++    "reloadSuccess": "Agent runtime reloaded",
++    "reloadPending": "Reload is still pending; try again later",
++    "reloadFailed": "Runtime reload failed",
+     "saveFailed": "Failed to save configuration",
+     "timezone": "User Timezone",
+     "timezoneTooltip": "Used for scheduled tasks, time display, and agent context. Defaults to your system timezone.",
+     "timezoneRequired": "Please select a timezone",
+     "selectTimezone": "Select timezone",
+     "timezoneSaveSuccess": "Timezone updated successfully",
+     "timezoneSaveFailed": "Failed to update timezone",
+     "loadFailed": "Failed to load configuration",
+@@ -2630,16 +2824,17 @@
+     "tokenCountModel": "Token Count Model",
+     "tokenCountModelTooltip": "Model name used for precise token counting; set to \"default\" to use built-in estimation",
+     "tokenCountModelPlaceholder": "Model name or default",
+     "tokenCountUseMirror": "Use HuggingFace Mirror",
+     "tokenCountUseMirrorTooltip": "Use a HuggingFace mirror site when downloading tokenizers",
+     "tokenCountEstimateDivisor": "byte/Token Estimate Divisor",
+     "tokenCountEstimateDivisorTooltip": "Divisor for byte-based token estimation (tokens ≈ byte_length / divisor). Recommended value: 3.75 ~ 4.",
+     "tokenCountEstimateDivisorRequired": "Estimate divisor is required",
++    "tokenCountEstimateDivisorRange": "Estimate divisor must be between 2 and 5",
+     "tokenCountEstimateDivisorMin": "Estimate divisor must be between 2 and 5",
+     "toolResultCompactTitle": "Tool Result Compact Config",
+     "toolResultCompactEnabled": "Enable Tool Result Compaction",
+     "toolResultCompactEnabledTooltip": "Compact oversized tool call results to save context space",
+     "memorySummaryTitle": "Long-term Memory Config",
+     "memorySummaryEnabled": "Activate Memory Summary",
+     "memorySummaryEnabledTooltip": "Automatically generate and save memory summaries during context compaction",
+     "dreamCronEnabled": "Enable Dream",
+@@ -2948,27 +3143,37 @@
+     "updateAvailable": "Update Available"
+   },
+   "theme": {
+     "dark": "Dark",
+     "light": "Light",
+     "system": "System"
+   },
+   "chat": {
++    "historicalReadOnlyNotice": "Access to this Agent was revoked. Your existing conversations remain read-only.",
++    "historicalReadOnlyPlaceholder": "History only: new chats and messages are disabled",
++    "sharedReadOnlyNotice": "This read-only conversation was shared by {{owner}}. You can inspect the full history but cannot modify or continue it.",
++    "sharedReadOnlyPlaceholder": "Read-only share: messages and conversation changes are disabled",
++    "sharedReadOnlyBadge": "Read-only share",
++    "sharedAccessRevoked": "Access to this shared conversation was revoked. Stale content has been cleared.",
+     "fileReference": {
+       "codeSnippet_one": "Code snippet · {{count}} line",
+       "codeSnippet_other": "Code snippet · {{count}} lines"
+     },
+     "modelSelectTooltip": "Select model",
+     "newChatTooltip": "New chat",
+     "searchTooltip": "Search all chats",
+     "chatHistoryTooltip": "Chat history",
+     "wideModeTooltip": "Wide mode",
+     "normalModeTooltip": "Normal mode",
+     "allChats": "All Chats",
++    "scopeLabel": "Conversation scope",
++    "scopeAll": "All",
++    "scopeOwned": "Mine",
++    "scopeShared": "Shared with me",
+     "createNewChat": "Create New Chat",
+     "pinDrawer": "Pin",
+     "unpinDrawer": "Unpin",
+     "statusIdle": "Idle",
+     "statusInProgress": "In progress",
+     "disclaimer": "Works for you, grows with you",
+     "greeting": "Hello, how can I help you today?",
+     "description": "I am a helpful assistant that can help you with your questions.",
+@@ -3349,16 +3554,28 @@
+     "authNotEnabled": "Authentication is not enabled",
+     "logout": "Logout",
+     "logoutSuccess": "Logged out successfully",
+     "sessionExpired": "Session expired, please login again",
+     "unauthorized": "Unauthorized, please login"
+   },
+   "account": {
+     "title": "Account",
++    "roleAdmin": "Administrator",
++    "roleMember": "Member",
++    "language": "Language",
++    "timezone": "Time zone",
++    "savePreferences": "Save preferences",
++    "preferencesSaved": "Preferences saved",
++    "loginDevices": "Login devices",
++    "sessionsLoadFailed": "Failed to load login devices",
++    "currentDevice": "Current / recent device",
++    "unknownDevice": "Unknown device",
++    "noSessions": "No active sessions",
++    "revokeAllDevices": "Sign out all devices",
+     "currentPassword": "Current Password",
+     "currentPasswordRequired": "Please enter your current password",
+     "newUsername": "New Username",
+     "newUsernamePlaceholder": "Leave blank to keep current",
+     "newPassword": "New Password",
+     "newPasswordPlaceholder": "Leave blank to keep current",
+     "confirmPassword": "Confirm New Password",
+     "confirmPasswordPlaceholder": "Re-enter new password",
+@@ -3366,16 +3583,44 @@
+     "save": "Save Changes",
+     "updateSuccess": "Account updated successfully",
+     "updateFailed": "Failed to update account",
+     "wrongPassword": "Current password is incorrect",
+     "nothingToUpdate": "Please enter a new username or password",
+     "passwordEmpty": "Password cannot be blank",
+     "usernameEmpty": "Username cannot be blank"
+   },
++  "adminUsers": {
++    "errors": {
++      "lastActiveAdmin": "At least one active administrator must remain",
++      "usernameExists": "The username already exists",
++      "userNotFound": "The user does not exist",
++      "unknown": "Operation failed"
++    },
++    "title": "User Management",
++    "description": "Create users, manage roles and status, and revoke login sessions.",
++    "loadFailed": "Failed to load users",
++    "create": "Create User",
++    "created": "User created",
++    "createFailed": "Failed to create user",
++    "username": "Username",
++    "initialPassword": "Initial Password",
++    "role": "Role",
++    "status": "Status",
++    "actions": "Actions",
++    "active": "Active",
++    "disabled": "Disabled",
++    "disable": "Disable",
++    "enable": "Enable",
++    "disableTitle": "Disable user",
++    "enableTitle": "Enable user",
++    "revokeSessions": "Revoke Sessions",
++    "revokeTitle": "Revoke login sessions",
++    "revoked": "Revoked {{count}} sessions"
++  },
+   "approval": {
+     "title": "Security Approval Required",
+     "ownerAgent": "Owner Agent",
+     "executingAgent": "Executing Agent",
+     "tool": "Tool",
+     "severity": "Severity",
+     "findings": "Findings",
+     "parameters": "Parameters",
+diff --git a/console/src/locales/zh.json b/console/src/locales/zh.json
+index b9249c81..4ba93b8c 100644
+--- a/console/src/locales/zh.json
++++ b/console/src/locales/zh.json
+@@ -126,29 +126,74 @@
+     "skills": "技能",
+     "skillPool": "技能池",
+     "market": "技能市场",
+     "tools": "工具",
+     "mcp": "MCP",
+     "acp": "ACP",
+     "agentConfig": "运行配置",
+     "agents": "智能体管理",
++    "users": "用户管理",
+     "settings": "设置",
+     "models": "模型",
+     "environments": "环境变量",
+     "offloadPolicy": "工具后台策略",
+     "security": "安全",
++    "systemStatus": "系统状态",
+     "tokenUsage": "Token 消耗",
+     "agentStats": "智能体统计",
+     "voiceTranscription": "语音转写",
+     "debug": "调试",
+     "plugins": "插件",
+     "backups": "备份",
+     "pluginManager": "插件管理"
+   },
++  "systemStatus": {
++    "title": "系统状态",
++    "refresh": "刷新",
++    "retry": "重试",
++    "loading": "正在读取存储状态…",
++    "overview": "存储概览",
++    "normal": "正常",
++    "hero": {
++      "legacy": "当前仍使用原存储",
++      "postgres": "当前使用 PostgreSQL 存储",
++      "legacyDescription": "业务 Repository 仍沿用原有文件存储路径，尚未切换到 PostgreSQL。",
++      "postgresDescription": "业务 Repository 正在使用配置的 PostgreSQL 存储路径。"
++    },
++    "database": {
++      "title": "数据库",
++      "connected": "数据库已连接",
++      "disconnected": "数据库未连接",
++      "notRequired": "Legacy 模式无需连接"
++    },
++    "repository": {
++      "title": "当前 Repository",
++      "legacy": "Legacy 文件存储",
++      "configured": "配置模式"
++    },
++    "schema": {
++      "title": "Schema 版本",
++      "expected": "期望版本"
++    },
++    "lock": {
++      "title": "迁移锁",
++      "notApplicable": "不适用",
++      "notConfigured": "未配置",
++      "unknown": "未知",
++      "description": "本阶段不会获取或修改迁移锁。"
++    },
++    "readOnly": {
++      "title": "只读诊断",
++      "description": "本页只展示脱敏健康信息，不能迁移、重建、删除或切换存储。"
++    },
++    "error": {
++      "title": "无法加载存储状态"
++    }
++  },
+   "os": {
+     "console": "控制台",
+     "appStore": "应用商店",
+     "appStoreDesc": "安装或移除桌面应用",
+     "arrangeDesktop": "整理桌面",
+     "approvalActionFailed": "操作失败，请重试",
+     "booting": "正在启动…",
+     "changeWallpaper": "更换壁纸",
+@@ -428,16 +473,17 @@
+       "action": "恢复",
+       "title": "恢复检查点",
+       "preview": "预览恢复",
+       "confirm": "恢复检查点",
+       "conversation": "会话内容",
+       "memory": "记忆",
+       "files": "工作区文件",
+       "refreshWarning": "会话内容将发生变化。恢复完成后，请刷新会话以载入最新状态。",
++      "newChatWarning": "恢复将创建一个新会话并保留原会话；仅恢复你勾选的文件。",
+       "selectedCount": "已选择 {{count}} 个文件",
+       "selectAll": "选择全部变更文件",
+       "delete": "删除",
+       "restore": "恢复",
+       "noFileChanges": "无需恢复工作区文件。",
+       "success": "检查点恢复成功，请刷新会话以载入恢复后的状态。"
+     }
+   },
+@@ -506,16 +552,61 @@
+     "idPlaceholder": "例如：my-agent",
+     "nameRequired": "请输入智能体名称",
+     "namePlaceholder": "例如：我的智能体",
+     "descriptionPlaceholder": "简要描述这个智能体的用途...",
+     "workspaceHelp": "留空将自动生成在 ~/.qwenpaw/workspaces/<id> 目录",
+     "dragHandleTooltip": "拖拽调整智能体顺序",
+     "reorderSuccess": "智能体顺序已保存",
+     "reorderFailed": "保存智能体顺序失败",
++    "accessGroup": {
++      "owner": "我的",
++      "collaborator": "协作",
++      "user": "可使用",
++      "adminAll": "全部智能体"
++    },
++    "accessRole": {
++      "column": "资源角色",
++      "owner": "所有者",
++      "collaborator": "协作者",
++      "user": "仅使用"
++    },
++    "visibility": {
++      "column": "可见范围",
++      "private": "私有",
++      "shared": "定向共享",
++      "public_candidate": "待发布",
++      "public": "平台公用"
++    },
++    "owner": "所有者 ID",
++    "manageMembers": "管理成员",
++    "memberUser": "用户",
++    "memberRole": "成员角色",
++    "addMember": "添加成员",
++    "revokeMember": "撤销授权",
++    "revokeMemberConfirm": "确认撤销该用户的访问权限？",
++    "transferOwner": "转移所有权",
++    "transferOwnerConfirm": "确认将所有权转移给该用户？原所有者将变为协作者。",
++    "modelLocked": "公用默认模型",
++    "historicalReadOnly": "历史只读",
++    "readOnlyHint": "该智能体仅供使用，技能、工具和运行配置由所有者或协作者维护。",
++    "governanceEdit": "治理配置",
++    "governanceRuntimeConfig": "代管运行配置",
++    "governanceMemoryFiles": "代管公共记忆",
++    "publishPublic": "发布为公用",
++    "publishConfirm": "确认发布为平台公用智能体？",
++    "revokePublication": "撤销公用",
++    "revokePublicationConfirm": "撤销后普通用户将不能发起新的运行，确认继续？",
++    "published": "已发布为平台公用智能体",
++    "publicationRevoked": "已撤销平台公用状态",
++    "editForbidden": "当前角色不能编辑此智能体",
++    "copyForbidden": "当前角色不能复制此智能体",
++    "toggleForbidden": "当前角色不能启停此智能体",
++    "deleteForbidden": "只有所有者可以删除此智能体",
++    "pinForbidden": "当前角色不能调整此智能体顺序",
+     "defaultNotEditable": "默认智能体不允许编辑",
+     "defaultNotDeletable": "默认智能体不允许删除",
+     "disable": "禁用",
+     "enable": "启用",
+     "disabled": "已禁用",
+     "disableConfirm": "确认禁用智能体",
+     "disableConfirmDesc": "禁用后该智能体不会启动运行实例，但仍可在列表中查看",
+     "enableConfirm": "确认启用智能体",
+@@ -634,16 +725,19 @@
+           "name": "完全访问",
+           "description": "允许不受限的本地执行，不进行确认。"
+         }
+       }
+     },
+     "model": "模型",
+     "modelHelp": "为此智能体指定特定的 LLM 模型。留空则使用全局默认模型。",
+     "modelPlaceholder": "使用全局默认",
++    "modelInheritCurrent": "使用全局默认（当前：{{model}}）",
++    "modelInheritUnavailable": "使用全局默认（尚未配置）",
++    "modelExplicit": "已指定模型",
+     "noConfiguredModels": "暂无已配置的模型",
+     "modelColumn": "模型",
+     "copyTooltip": "复制智能体配置",
+     "copyDefaultTooltip": "以默认智能体配置为模板进行复制",
+     "copyTitle": "复制智能体配置",
+     "copyNameLabel": "新智能体名称",
+     "copyOptionsLabel": "复制内容",
+     "copyOptionAgentJson": "agent.json（必选）",
+@@ -1338,18 +1432,27 @@
+     }
+   },
+   "channels": {
+     "title": "频道",
+     "description": "管理和配置消息频道",
+     "loading": "正在加载频道...",
+     "configSaved": "配置保存成功",
+     "configFailed": "配置保存失败",
++    "agentChannels": "智能体频道",
++    "myBindings": "我的频道绑定",
++    "bindingSaved": "个人频道绑定保存成功",
++    "bindingDeleted": "个人频道绑定已删除",
++    "bindingDeleteFailed": "个人频道绑定删除失败",
++    "removeBinding": "删除绑定",
++    "secretsConfigured": "密钥已安全配置",
++    "secretsConfiguredDescription": "已配置：{{fields}}。密钥不会回显，留空保存将保留原值。",
+     "botConflictTitle": "机器人已被使用",
+     "botConflictDescription": "该机器人已被 {{agents}} 的同名频道使用，仍然保存可能导致消息冲突。",
++    "personalBotConflictDescription": "该机器人身份已被其他个人频道绑定使用，仍然保存可能导致消息重复接收或连接互相抢占。",
+     "botConflictConfirm": "仍然保存",
+     "channelType": "频道类型",
+     "status": "状态",
+     "totalItems": "共 {{count}} 项",
+     "botPrefix": "机器人前缀",
+     "showToolCalls": "显示工具调用信息",
+     "showToolCallsTooltip": "向用户显示工具调用信息（关闭则隐藏）",
+     "showToolResults": "显示工具结果信息",
+@@ -1595,18 +1698,24 @@
+     "filterUserId": "按用户ID筛选",
+     "filterChannel": "按频道筛选",
+     "allChannels": "全部频道",
+     "totalItems": "共 {{count}} 项",
+     "selectedItems": "已选 {{count}} 项",
+     "editSession": "编辑会话",
+     "pleaseInputName": "请输入会话名称",
+     "sessionNamePlaceholder": "会话名称",
++    "emptySessionTitle": "会话尚无消息",
++    "emptySessionDescription": "该会话已创建，但尚未产生用户或智能体消息。以下为现有会话信息。",
++    "viewFailed": "读取会话内容失败",
+     "activeTab": "活跃",
+     "archivedTab": "已归档",
++    "scopeAll": "全部",
++    "scopeOwned": "我的",
++    "scopeShared": "分享给我的",
+     "archivedAtColumn": "归档时间",
+     "archive": {
+       "action": "归档",
+       "unaction": "取消归档",
+       "batchAction": "批量归档",
+       "success": "会话已归档",
+       "successHint": "会话已归档，可在「控制-会话-已归档」查看",
+       "failed": "归档失败",
+@@ -2051,23 +2160,76 @@
+     "modalityAudio": "音频",
+     "modalityVideo": "视频",
+     "modalityFile": "文件",
+     "modalityText": "仅文本",
+     "perMillionIn": "/1M 输入",
+     "perMillionOut": "/1M 输出"
+   },
+   "files": {
++    "personalWorkspace": {
++      "temporary": "临时附件",
++      "documents": "Agent 资料",
++      "outputs": "产物",
++      "temporaryDescription": "当前账号在此智能体中上传、尚未保存的文件",
++      "temporaryBadge": "临时附件",
++      "noTemporary": "暂无临时附件",
++      "loadFailed": "临时附件加载失败",
++      "outputsDescription": "产物生命周期将在 Task 6.2-R/5 中管理",
++      "saveToDocuments": "保存到 Agent 资料",
++      "savedToDocuments": "已保存到 Agent 资料",
++      "deleteAttachmentConfirm": "确定清理此临时附件吗？",
++      "operationFailed": "文件操作失败"
++    },
++    "personalLibrary": {
++      "title": "个人资料库",
++      "description": "仅自己可见；后续可选择授权给可使用的智能体只读检索。",
++      "upload": "上传文件",
++      "uploadSucceeded": "已上传到个人资料库：{{name}}",
++      "uploadFailed": "上传个人资料库文件失败",
++      "uploadConflict": "个人资料库中已存在同名文件，请先刷新并更换文件名后重试。",
++      "empty": "个人资料库暂无文件",
++      "path": "路径",
++      "pathRequired": "请输入资料库内的相对路径",
++      "saveToLibrary": "保存到个人资料库",
++      "destinationPath": "保存路径",
++      "sourceUnchanged": "仅复制文件到个人资料库，源文件不会被修改或删除。",
++      "copySucceeded": "已保存到个人资料库：{{path}}",
++      "copyFailed": "保存到个人资料库失败",
++      "grantAgents": "Agent 授权",
++      "grantReadOnly": "已授权的 Agent 仅可读取你的资料库，不能修改其中内容。",
++      "grantLoadFailed": "加载可授权 Agent 失败",
++      "grantUpdateFailed": "更新 Agent 授权失败",
++      "noGrantCandidates": "没有可授权的 Agent",
++      "accessible": "可使用"
++    },
+     "title": "文件",
++    "governanceMemoryTitle": "正在代管 {{name}} 的公共记忆",
+     "navigator": "文件导航器",
+     "source": "来源",
+     "workspace": "工作区",
+     "agentWorkspace": "Agent 工作区",
+     "profile": "档案",
+     "memory": "长期记忆",
++    "memoryScope": {
++      "public": "公共记忆",
++      "private": "我的记忆"
++    },
++    "memoryIndexState": {
++      "ready": "索引已就绪",
++      "needs_reindex": "需要重建索引",
++      "reindexing": "正在重建索引",
++      "reindex_failed": "索引重建失败",
++      "unavailable": "记忆运行时不可用"
++    },
++    "rebuildMemoryIndex": "重建索引",
++    "createMemoryFile": "新建记忆文件",
++    "createMemoryFileTitle": "新建记忆文件",
++    "createMemoryFilePlaceholder": "输入文件名，例如 2026-08-26.md",
++    "memoryScopeLoadFailed": "无法加载当前记忆作用域，已清除缓存内容。",
+     "daily": "日记",
+     "digest": "知识库",
+     "memoryGraph": "记忆图谱",
+     "memoryGraphShort": "Graph",
+     "memoryGraphLoading": "正在加载记忆图谱…",
+     "memoryGraphLoadFailed": "记忆图谱加载失败。",
+     "memoryGraphCounts": "{{nodes}} 个节点 · {{edges}} 条链接",
+     "memoryGraphEmpty": "还没有已索引的记忆链接。",
+@@ -2086,16 +2248,22 @@
+     "memoryGraphIndexed": "已索引文件",
+     "memoryGraphUnresolved": "未解析链接",
+     "memoryGraphDirection": "Wiki Link 方向",
+     "memoryGraphOpenFile": "打开 Markdown",
+     "memoryGraphOutbound": "出链 · {{count}}",
+     "memoryGraphInbound": "入链 · {{count}}",
+     "projectDirectory": "项目目录",
+     "workspaceDirectory": "配置目录",
++    "workspaceKinds": {
++      "draft": "Agent 草稿",
++      "published_baseline": "发布基线",
++      "user_runtime": "个人运行空间",
++      "legacy": "已登记旧目录"
++    },
+     "switchDirectory": "切换目录来源",
+     "changeDirectoryTitle": "更换项目目录？",
+     "changeDirectoryWarning": "当前项目仍有未保存的编辑或待处理差异。更换目录将丢弃这些内容。",
+     "sourceEmpty": "此来源暂无可用文件。",
+     "loadMore": "继续加载 200 项",
+     "upload": "上传文件",
+     "conflictPolicy": "上传冲突策略",
+     "conflictRename": "保留两份",
+@@ -2149,16 +2317,33 @@
+     "inheritAgent": "继承 Agent 默认目录",
+     "useWorkspace": "使用配置目录",
+     "createSessionHint": "发送第一条消息后可设置会话专属目录。",
+     "sessionSource": "会话",
+     "agentSource": "Agent 默认"
+   },
+   "agentConfig": {
+     "title": "运行配置",
++    "governanceBadge": "管理员代管",
++    "governanceTitle": "当前正在代管其他用户的智能体运行配置",
++    "governanceDescription": "目标智能体：{{agentName}}（{{agentId}}），所有者：{{ownerUserId}}。本页面操作将记录管理员治理审计。",
++    "readOnlyTitle": "运行配置只读摘要",
++    "readOnlyEyebrow": "已授权使用",
++    "readOnlyBadge": "仅使用",
++    "readOnlyDescription": "该智能体由所有者或管理员维护。你可以使用它进行对话，但不能修改其运行参数。",
++    "language": "智能体语言",
++    "timezone": "时区",
++    "activeModel": "当前模型",
++    "modelSwitching": "对话模型切换",
++    "availableInChat": "可在对话中切换",
++    "fixedModel": "使用固定模型",
++    "notConfigured": "未配置",
++    "versionConflictTitle": "配置已被其他窗口修改",
++    "versionConflictContent": "当前页面基于旧版本配置，继续保存会覆盖其他人的修改。请重新加载最新配置。",
++    "versionConflictReload": "重新加载",
+     "projectDirectoryTitle": "默认项目目录",
+     "projectDirectoryDescription": "文件和命令默认使用的目录。",
+     "projectDirectoryDefault": "Agent 默认目录",
+     "changeProjectDirectory": "更换目录",
+     "projectDirectoryWorkspaceFallback": "当前使用智能体工作区",
+     "enhancedCodeCapability": "增强代码能力",
+     "enhancedCodeCapabilityTooltip": "增加代码工具，但不会改变项目目录。",
+     "enhancedCodeCapabilityDescription": "启用 AST、LSP、代码提示词、Git 上下文和源码管理。",
+@@ -2421,22 +2606,24 @@
+     "maxInputLength": "最大输入长度",
+     "maxInputLengthTooltip": "模型上下文窗口的最大输入长度（token 数）",
+     "maxInputLengthPlaceholder": "请输入最大输入长度",
+     "maxInputLengthRequired": "最大输入长度为必填项",
+     "maxInputLengthMin": "最大输入长度必须大于等于 1000",
+     "contextCompactRatio": "上下文压缩阈值比例",
+     "contextCompactRatioTooltip": "当上下文长度达到最大上下文长度的该比例时，触发自动压缩",
+     "contextCompactRatioRequired": "上下文压缩比例为必填项",
++    "contextCompactRatioRange": "上下文压缩比例必须在 0.1 到 0.9 之间",
+     "contextCompactThreshold": "压缩触发阈值（tokens）",
+     "contextCompactThresholdTooltip": "根据最大上下文长度与压缩阈值比例自动计算，上下文超过此 token 数时触发压缩",
+     "contextCompactThresholdPlaceholder": "自动计算",
+     "contextCompactReserveRatio": "上下文保留阈值比例",
+     "contextCompactReserveRatioTooltip": "用于计算 recent tail 的目标预算；Scroll 模式会再应用最小 recent 预算和 40K 上限，并始终完整保留 active turn",
+     "contextCompactReserveRatioRequired": "上下文保留比例为必填项",
++    "contextCompactReserveRatioRange": "上下文保留比例必须在 0.01 到 0.3 之间",
+     "contextCompactReserveThreshold": "保留阈值（tokens）",
+     "contextCompactReserveThresholdTooltip": "实际用于切分 recent tail 的目标 token 数；这是软目标，边界消息和完整 active turn 可能使实际保留量更大",
+     "contextCompactReserveThresholdPlaceholder": "自动计算",
+     "toolResultCompactRecentN": "最新工具结果范围",
+     "toolResultCompactRecentNTooltip": "Native 上下文模式下，最近 N 条包含工具结果的消息使用较大的最近预览字节上限",
+     "toolResultCompactRecentNRequired": "最新工具结果范围为必填项",
+     "toolResultCompactOldThreshold": "旧工具结果预览字节数",
+     "toolResultCompactOldThresholdTooltip": "Native 上下文模式下，旧工具结果使用的最大预览字节数",
+@@ -2470,16 +2657,23 @@
+     "languageSaveFailed": "语言更新失败",
+     "timezone": "用户时区",
+     "timezoneTooltip": "用于定时任务、时间显示和 Agent 上下文，默认使用系统时区。",
+     "timezoneRequired": "请选择时区",
+     "selectTimezone": "选择时区",
+     "timezoneSaveSuccess": "时区更新成功",
+     "timezoneSaveFailed": "时区更新失败",
+     "saveSuccess": "配置保存成功",
++    "savedPendingReload": "配置已保存，但智能体运行时尚未完成热重载",
++    "pendingReloadTitle": "运行时等待热重载",
++    "pendingReloadDescription": "配置已写入磁盘；当前智能体仍在使用旧配置。可点击重试，或重启智能体后生效。",
++    "retryReload": "重试热重载",
++    "reloadSuccess": "智能体运行时已热重载",
++    "reloadPending": "热重载仍未完成，请稍后重试",
++    "reloadFailed": "热重载失败",
+     "saveFailed": "配置保存失败",
+     "loadFailed": "配置加载失败",
+     "historyMaxLength": "历史记录最大长度",
+     "historyMaxLengthTooltip": "/history 命令输出的最大长度（字符数）",
+     "historyMaxLengthRequired": "历史记录最大长度为必填项",
+     "historyMaxLengthMin": "历史记录最大长度必须大于等于 1000",
+     "historyMaxLengthPlaceholder": "请输入最大长度",
+     "contextCompactTitle": "上下文压缩配置",
+@@ -2488,16 +2682,17 @@
+     "tokenCountModel": "Token 计数模型",
+     "tokenCountModelTooltip": "用于精确计算 token 数量的模型名称，填 default 使用内置估算",
+     "tokenCountModelPlaceholder": "填写模型名称或 default",
+     "tokenCountUseMirror": "使用 HuggingFace 镜像",
+     "tokenCountUseMirrorTooltip": "下载 tokenizer 时是否使用 HuggingFace 国内镜像",
+     "tokenCountEstimateDivisor": "byte/Token 估算除数",
+     "tokenCountEstimateDivisorTooltip": "基于字节数估算 token 数的除数（token 数 ≈ 字节数 / 除数）。推荐值：3.75 ~ 4。",
+     "tokenCountEstimateDivisorRequired": "估算除数为必填项",
++    "tokenCountEstimateDivisorRange": "估算除数必须在 2 到 5 之间",
+     "tokenCountEstimateDivisorMin": "估算除数范围为 2 ~ 5",
+     "toolResultCompactTitle": "工具结果压缩配置",
+     "toolResultCompactEnabled": "启用工具结果压缩",
+     "toolResultCompactEnabledTooltip": "对过长的工具调用结果进行压缩，节省上下文空间",
+     "memorySummaryTitle": "长期记忆配置",
+     "memorySummaryEnabled": "启动记忆总结",
+     "memorySummaryEnabledTooltip": "在上下文压缩时自动生成并保存记忆总结",
+     "dreamCronEnabled": "启用梦境任务",
+@@ -2806,26 +3001,36 @@
+     "updateAvailable": "有可用更新"
+   },
+   "theme": {
+     "dark": "深色",
+     "light": "浅色",
+     "system": "跟随系统"
+   },
+   "chat": {
++    "historicalReadOnlyNotice": "该智能体已撤销使用权限，仅可查看你已有的历史会话。",
++    "historicalReadOnlyPlaceholder": "历史只读：无法创建会话或发送消息",
++    "sharedReadOnlyNotice": "这是 {{owner}} 分享的只读会话，可查看完整过程但不能修改或继续对话。",
++    "sharedReadOnlyPlaceholder": "只读分享：无法发送消息或修改会话",
++    "sharedReadOnlyBadge": "只读分享",
++    "sharedAccessRevoked": "该共享会话的访问权限已撤销，页面已清除失效内容。",
+     "fileReference": {
+       "codeSnippet": "代码片段 · {{count}} 行"
+     },
+     "modelSelectTooltip": "模型选择",
+     "newChatTooltip": "新建聊天",
+     "searchTooltip": "搜索所有聊天",
+     "chatHistoryTooltip": "聊天历史",
+     "wideModeTooltip": "宽屏模式",
+     "normalModeTooltip": "正常模式",
+     "allChats": "全部聊天",
++    "scopeLabel": "会话范围",
++    "scopeAll": "全部",
++    "scopeOwned": "我的",
++    "scopeShared": "分享给我的",
+     "createNewChat": "创建新聊天",
+     "pinDrawer": "固定",
+     "unpinDrawer": "取消固定",
+     "statusIdle": "空闲",
+     "statusInProgress": "进行中",
+     "disclaimer": "懂你所需，伴你左右",
+     "greeting": "你好，我今天能帮你做什么？",
+     "description": "我是一个智能助手，可以帮助你解答问题。",
+@@ -3206,16 +3411,28 @@
+     "authNotEnabled": "认证未启用",
+     "logout": "退出登录",
+     "logoutSuccess": "已成功退出",
+     "sessionExpired": "会话已过期，请重新登录",
+     "unauthorized": "未授权，请登录"
+   },
+   "account": {
+     "title": "账户管理",
++    "roleAdmin": "管理员",
++    "roleMember": "普通用户",
++    "language": "语言",
++    "timezone": "时区",
++    "savePreferences": "保存个人偏好",
++    "preferencesSaved": "个人偏好已保存",
++    "loginDevices": "登录设备",
++    "sessionsLoadFailed": "加载登录设备失败",
++    "currentDevice": "当前/最近设备",
++    "unknownDevice": "未知设备",
++    "noSessions": "暂无活动会话",
++    "revokeAllDevices": "退出所有设备",
+     "currentPassword": "当前密码",
+     "currentPasswordRequired": "请输入当前密码",
+     "newUsername": "新用户名",
+     "newUsernamePlaceholder": "留空则保持不变",
+     "newPassword": "新密码",
+     "newPasswordPlaceholder": "留空则保持不变",
+     "confirmPassword": "确认新密码",
+     "confirmPasswordPlaceholder": "再次输入新密码",
+@@ -3223,16 +3440,44 @@
+     "save": "保存更改",
+     "updateSuccess": "账户更新成功",
+     "updateFailed": "账户更新失败",
+     "wrongPassword": "当前密码不正确",
+     "nothingToUpdate": "请输入新用户名或新密码",
+     "passwordEmpty": "密码不能为空白",
+     "usernameEmpty": "用户名不能为空白"
+   },
++  "adminUsers": {
++    "errors": {
++      "lastActiveAdmin": "必须保留至少一个已启用的管理员",
++      "usernameExists": "用户名已存在",
++      "userNotFound": "用户不存在",
++      "unknown": "操作失败"
++    },
++    "title": "用户管理",
++    "description": "创建用户、管理角色和状态，并撤销登录会话。",
++    "loadFailed": "加载用户失败",
++    "create": "创建用户",
++    "created": "用户已创建",
++    "createFailed": "创建用户失败",
++    "username": "用户名",
++    "initialPassword": "初始密码",
++    "role": "角色",
++    "status": "状态",
++    "actions": "操作",
++    "active": "已启用",
++    "disabled": "已禁用",
++    "disable": "禁用",
++    "enable": "启用",
++    "disableTitle": "禁用用户",
++    "enableTitle": "启用用户",
++    "revokeSessions": "撤销会话",
++    "revokeTitle": "撤销用户登录会话",
++    "revoked": "已撤销 {{count}} 个会话"
++  },
+   "voiceTranscription": {
+     "title": "语音转写",
+     "description": "配置如何处理收到的音频和语音消息。",
+     "loadFailed": "加载音频模式设置失败",
+     "saveSuccess": "音频模式已保存",
+     "saveFailed": "保存音频模式失败",
+     "audioModeLabel": "音频模式",
+     "audioModeDescription": "选择来自频道（Discord、Telegram 等）的语音消息在发送给模型之前如何处理。",
+diff --git a/console/src/pages/Agent/Checkpoints/RestoreModal.tsx b/console/src/pages/Agent/Checkpoints/RestoreModal.tsx
+index 38076f94..f3c38b43 100644
+--- a/console/src/pages/Agent/Checkpoints/RestoreModal.tsx
++++ b/console/src/pages/Agent/Checkpoints/RestoreModal.tsx
+@@ -1,34 +1,41 @@
+ import { useEffect, useMemo, useState } from "react";
+ import { Alert, Button, Checkbox, Divider, Modal, Spin } from "antd";
+ import { useTranslation } from "react-i18next";
++import { useNavigate } from "react-router-dom";
+ import { checkpointsApi } from "@/api/modules/checkpoints";
+ import type {
+   CheckpointNode,
+   RestoreRequest,
+   RestoreResult,
+ } from "@/api/types/checkpoints";
+ import { useAppMessage } from "@/hooks/useAppMessage";
+ import styles from "./index.module.less";
+ 
+ interface RestoreModalProps {
+   open: boolean;
+   node: CheckpointNode | null;
+   onClose: () => void;
+   onRestored: () => void;
++  createsNewChat?: boolean;
+ }
+ 
++export const restoredChatPath = (chatId: string): string =>
++  `/chat/${encodeURIComponent(chatId)}`;
++
+ export function RestoreModal({
+   open,
+   node,
+   onClose,
+   onRestored,
++  createsNewChat = false,
+ }: RestoreModalProps) {
+   const { t } = useTranslation();
++  const navigate = useNavigate();
+   const { message } = useAppMessage();
+   const [includeMemory, setIncludeMemory] = useState(false);
+   const [includeFiles, setIncludeFiles] = useState(false);
+   const [preview, setPreview] = useState<RestoreResult | null>(null);
+   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+   const [previewing, setPreviewing] = useState(false);
+   const [restoring, setRestoring] = useState(false);
+ 
+@@ -38,17 +45,16 @@ export function RestoreModal({
+     setIncludeFiles(false);
+     setPreview(null);
+     setSelectedFiles([]);
+   }, [open, node?.commit]);
+ 
+   const baseRequest = (): RestoreRequest => ({
+     commit: node?.commit ?? "",
+     session_id: node?.session_id ?? "",
+-    user_id: node?.user_id ?? "",
+     channel: node?.channel ?? "console",
+     include_memory: includeMemory,
+     include_files: includeFiles,
+   });
+ 
+   const previewRestore = async () => {
+     if (!node) return;
+     setPreviewing(true);
+@@ -62,25 +68,28 @@ export function RestoreModal({
+       setPreviewing(false);
+     }
+   };
+ 
+   const applyRestore = async () => {
+     if (!node || !preview) return;
+     setRestoring(true);
+     try {
+-      await checkpointsApi.restore({
++      const result = await checkpointsApi.restore({
+         ...baseRequest(),
+         // Pin confirmation to the exact commit resolved by the preview.
+         commit: preview.commit,
+         files: includeFiles ? selectedFiles : undefined,
+       });
+       message.success(t("checkpoints.restore.success"));
+       onClose();
+       onRestored();
++      if (result.new_chat_id) {
++        navigate(restoredChatPath(result.new_chat_id));
++      }
+     } catch (error) {
+       message.error((error as Error).message);
+     } finally {
+       setRestoring(false);
+     }
+   };
+ 
+   const fileStatus = useMemo(() => {
+@@ -168,17 +177,21 @@ export function RestoreModal({
+               {t("checkpoints.restore.files")}
+             </Checkbox>
+           </div>
+         ) : (
+           <>
+             <Alert
+               type="warning"
+               showIcon
+-              message={t("checkpoints.restore.refreshWarning")}
++              message={t(
++                createsNewChat
++                  ? "checkpoints.restore.newChatWarning"
++                  : "checkpoints.restore.refreshWarning",
++              )}
+             />
+             <div className={styles.previewSummary}>
+               <span>{t("checkpoints.restore.conversation")}</span>
+               {includeMemory && <span>{t("checkpoints.restore.memory")}</span>}
+               {includeFiles && (
+                 <span>
+                   {t("checkpoints.restore.selectedCount", {
+                     count: selectedFiles.length,
+diff --git a/console/src/pages/Agent/Checkpoints/graphLayout.test.ts b/console/src/pages/Agent/Checkpoints/graphLayout.test.ts
+index 8049a3d2..b0bd427d 100644
+--- a/console/src/pages/Agent/Checkpoints/graphLayout.test.ts
++++ b/console/src/pages/Agent/Checkpoints/graphLayout.test.ts
+@@ -14,16 +14,17 @@ const node = (
+   sha: commit,
+   timestamp_ms: 0,
+   subject: commit,
+   query: null,
+   channel: "console",
+   restore_index: null,
+   parent_commit,
+   is_head: false,
++  agent_id: "agent",
+   user_id: "u",
+   session_id: "s",
+   session_title: "Session title",
+ });
+ 
+ describe("buildGraphRows", () => {
+   it("keeps a linear history in one lane", () => {
+     const rows = buildGraphRows([
+diff --git a/console/src/pages/Agent/Checkpoints/index.tsx b/console/src/pages/Agent/Checkpoints/index.tsx
+index d20ea731..08a34071 100644
+--- a/console/src/pages/Agent/Checkpoints/index.tsx
++++ b/console/src/pages/Agent/Checkpoints/index.tsx
+@@ -33,16 +33,17 @@ import type {
+   CheckpointNode,
+   CheckpointStatus,
+ } from "@/api/types/checkpoints";
+ import { useAgentStore } from "@/stores/agentStore";
+ import { useAppMessage } from "@/hooks/useAppMessage";
+ import { buildGraphRows, graphLaneCount } from "./graphLayout";
+ import { CheckpointGraph } from "./CheckpointGraph";
+ import { RestoreModal } from "./RestoreModal";
++import { restoreCreatesNewChat } from "./restoreMode";
+ import styles from "./index.module.less";
+ 
+ const EMPTY_SUMMARY: CheckpointGraphResponse["summary"] = {
+   total: 0,
+   auto: 0,
+   snapshots: 0,
+   safety: 0,
+   heads: 0,
+@@ -185,17 +186,16 @@ export default function CheckpointsPage() {
+     const target = sessions.find(
+       (item) => item.session_key === snapshotSession,
+     );
+     if (!target) return;
+     setSnapshotSaving(true);
+     try {
+       await checkpointsApi.snapshot({
+         session_id: target.session_id,
+-        user_id: target.user_id,
+         channel: target.channel,
+         name: snapshotName.trim(),
+       });
+       setSnapshotOpen(false);
+       setSnapshotName("");
+       message.success(t("checkpoints.snapshotCreated"));
+       await load(true);
+     } catch (caught) {
+@@ -295,18 +295,22 @@ export default function CheckpointsPage() {
+ 
+   return (
+     <div className={styles.page}>
+       {modalContext}
+       <PageHeader
+         className={styles.pageHeader}
+         items={[{ title: t("nav.agent") }, { title: t("checkpoints.title") }]}
+         afterBreadcrumb={
+-          status?.workspace_dir ? (
+-            <span className={styles.workspacePath}>{status.workspace_dir}</span>
++          status ? (
++            <span className={styles.workspacePath}>
++              {status.scope === "user_runtime"
++                ? "个人运行空间"
++                : "Agent 工作区"}
++            </span>
+           ) : null
+         }
+         extra={
+           <div className={styles.headerActions}>
+             <label className={styles.autoControl}>
+               <span>{t("checkpoints.auto")}</span>
+               <Switch
+                 size="small"
+@@ -615,12 +619,13 @@ export default function CheckpointsPage() {
+         </Spin>
+       </Modal>
+ 
+       <RestoreModal
+         open={restoreOpen}
+         node={selected}
+         onClose={() => setRestoreOpen(false)}
+         onRestored={() => void load(true)}
++        createsNewChat={restoreCreatesNewChat(status)}
+       />
+     </div>
+   );
+ }
+diff --git a/src/qwenpaw/app/routers/checkpoints.py b/src/qwenpaw/app/routers/checkpoints.py
+index f520db0e..1c1c3652 100644
+--- a/src/qwenpaw/app/routers/checkpoints.py
++++ b/src/qwenpaw/app/routers/checkpoints.py
+@@ -1,27 +1,32 @@
+ # -*- coding: utf-8 -*-
+ """Agent workspace checkpoint endpoints for the Console graph page."""
+ 
+ from __future__ import annotations
+ 
+-from dataclasses import asdict
++from dataclasses import asdict, replace
+ import logging
++from uuid import uuid4
+ 
+ from fastapi import APIRouter, HTTPException, Query, Request
+ from pydantic import BaseModel, Field
+ 
+ from ...checkpoints.models import (
+     CheckpointEntry,
+     CheckpointError,
+     RestoreResult,
+ )
+-from ...checkpoints.policy import session_key
++from ...checkpoints.policy import session_file_path, session_key
+ from ...checkpoints.runtime import RUNTIME
+-from ..agent_context import get_agent_for_request
++from ...identity.runtime import is_multi_user_enabled
++from ...access.dependencies import get_actor
++from ...access.agent_repository import AgentResourceRole
++from ..agent_context import get_agent_access_state, get_agent_for_request
++from ..chats.models import ChatSpec
+ 
+ router = APIRouter(prefix="/workspace/checkpoints", tags=["checkpoints"])
+ logger = logging.getLogger(__name__)
+ 
+ 
+ class AutoRequest(BaseModel):
+     enabled: bool
+ 
+@@ -71,26 +76,56 @@ def _entry_payload(
+ 
+ def _restore_payload(result: RestoreResult) -> dict:
+     return asdict(result)
+ 
+ 
+ async def _service(request: Request):
+     workspace = await get_agent_for_request(request)
+     try:
++        if _uses_personal_runtime(request):
++            from ..agent_context import get_files_workspace_access
++
++            files_access = await get_files_workspace_access(request, workspace)
++            service = await RUNTIME.get_for_workspace_dir_async(
++                files_access.project.path,
++            )
++            service.workspace = workspace
++            service.agent_id = workspace.agent_id
++            service.checkpoint_scope = files_access.project.kind
++            service.conversation_workspace_dir = workspace.workspace_dir
++            return service
+         return await RUNTIME.get_for_workspace_async(workspace)
+     except CheckpointError as exc:
+         raise HTTPException(status_code=400, detail=str(exc)) from exc
+ 
+ 
++def _trusted_user_id(request: Request, supplied_user_id: str) -> str:
++    """多用户模式只接受认证中间件签发的用户身份。"""
++    if not is_multi_user_enabled():
++        return supplied_user_id
++    actor = get_actor(request)
++    if actor.user_id is None:
++        raise HTTPException(status_code=401, detail="not_authenticated")
++    return str(actor.user_id)
++
++
++def _uses_personal_runtime(request: Request) -> bool:
++    """仅使用成员的检查点必须绑定其独立运行空间。"""
++    if not is_multi_user_enabled():
++        return False
++    role, historical_read_only = get_agent_access_state(request)
++    return role is AgentResourceRole.USER and not historical_read_only
++
++
+ def _checkpoint_error(exc: CheckpointError) -> HTTPException:
+     return HTTPException(status_code=400, detail=str(exc))
+ 
+ 
+-async def _workspace_sessions(service) -> list[dict]:
++async def _workspace_sessions(service, *, user_id: str | None = None) -> list[dict]:
+     """Return the complete lightweight chat catalog for this workspace."""
+     workspace = service.workspace
+     if workspace is None or not hasattr(workspace, "chat_manager"):
+         return []
+     try:
+         chats = await workspace.chat_manager.list_chats(archived=None)
+     except Exception:
+         logger.warning(
+@@ -107,32 +142,74 @@ async def _workspace_sessions(service) -> list[dict]:
+             ),
+             "session_id": chat.session_id,
+             "user_id": chat.user_id,
+             "channel": chat.channel,
+             "title": chat.name or "",
+             "archived": chat.archived,
+         }
+         for chat in chats
+-        if chat.session_id
++        if chat.session_id and (user_id is None or chat.user_id == user_id)
+     ]
+ 
+ 
++async def _visible_entries(service, request: Request, *, limit: int):
++    """多用户模式只返回认证主体自身创建的检查点。"""
++    if not is_multi_user_enabled():
++        return await service.graph_entries(limit=limit)
++    user_id = _trusted_user_id(request, "")
++    return await service.graph_entries(limit=limit, user_id=user_id)
++
++
++async def _require_restore_access(
++    service,
++    request: Request,
++    *,
++    commit: str,
++    user_id: str,
++    session_id: str,
++    channel: str,
++) -> CheckpointEntry | None:
++    """恢复目标必须与可信 Agent、创建者和原始会话完全匹配。"""
++    if not is_multi_user_enabled():
++        return None
++    agent_id = str(getattr(service, "agent_id", "") or "")
++    try:
++        entry = await service.resolve_target_entry(
++            commit,
++            session_id,
++            user_id,
++            channel,
++        )
++    except CheckpointError as exc:
++        raise HTTPException(status_code=403, detail="forbidden") from exc
++    if not (
++        entry.commit == commit
++        and entry.agent_id == agent_id
++        and entry.session_id == session_id
++        and entry.channel == channel
++        and entry.user_id == user_id
++    ):
++        raise HTTPException(status_code=403, detail="forbidden")
++    return entry
++
++
+ @router.get("/status")
+ async def checkpoint_status(request: Request) -> dict:
+     service = await _service(request)
+     try:
+-        entries = await service.graph_entries(limit=1)
++        entries = await _visible_entries(service, request, limit=1)
+         auto_enabled, _debounce_seconds = await service.auto_settings()
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return {
+         "auto_enabled": auto_enabled,
+         "has_checkpoints": bool(entries),
+-        "workspace_dir": str(service.workspace_dir),
++        "scope": getattr(service, "checkpoint_scope", "agent_workspace"),
++        "restore_mode": "new_chat" if is_multi_user_enabled() else "in_place",
+     }
+ 
+ 
+ @router.patch("/auto")
+ async def set_checkpoint_auto(body: AutoRequest, request: Request) -> dict:
+     service = await _service(request)
+     try:
+         auto_enabled, _debounce_seconds = await service.set_auto_enabled(
+@@ -145,20 +222,21 @@ async def set_checkpoint_auto(body: AutoRequest, request: Request) -> dict:
+ 
+ @router.get("/graph")
+ async def checkpoint_graph(
+     request: Request,
+     limit: int = Query(default=500, ge=1, le=1000),
+ ) -> dict:
+     service = await _service(request)
+     try:
+-        entries = await service.graph_entries(limit=limit)
++        entries = await _visible_entries(service, request, limit=limit)
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+-    sessions = await _workspace_sessions(service)
++    user_id = _trusted_user_id(request, "") if is_multi_user_enabled() else None
++    sessions = await _workspace_sessions(service, user_id=user_id)
+     titles = {
+         (item["channel"], item["user_id"], item["session_id"]): item["title"]
+         for item in sessions
+     }
+     nodes = [_entry_payload(entry, titles) for entry in entries]
+     return {
+         "nodes": nodes,
+         "sessions": sessions,
+@@ -175,32 +253,52 @@ async def checkpoint_graph(
+ 
+ @router.post("/snapshot")
+ async def create_checkpoint(body: SnapshotRequest, request: Request) -> dict:
+     service = await _service(request)
+     try:
+         result = await service.make_snapshot_result(
+             kind="snap",
+             session_id=body.session_id,
+-            user_id=body.user_id,
++            user_id=_trusted_user_id(request, body.user_id),
+             channel=body.channel,
+             name=body.name or None,
+             message=body.name,
+         )
+     except (CheckpointError, ValueError) as exc:
+         raise _checkpoint_error(CheckpointError(str(exc))) from exc
+     return asdict(result)
+ 
+ 
+ async def _restore(body: RestoreRequest, request: Request, *, dry_run: bool):
+     service = await _service(request)
++    user_id = _trusted_user_id(request, body.user_id)
++    entry = await _require_restore_access(
++        service,
++        request,
++        commit=body.commit,
++        user_id=user_id,
++        session_id=body.session_id,
++        channel=body.channel,
++    )
++    restore_user_id = entry.user_id if entry is not None else user_id
++    if is_multi_user_enabled():
++        try:
++            return await _restore_as_new_chat(
++                service,
++                body,
++                user_id=restore_user_id,
++                dry_run=dry_run,
++            )
++        except CheckpointError as exc:
++            raise _checkpoint_error(exc) from exc
+     kwargs = {
+         "target": body.commit,
+         "session_id": body.session_id,
+-        "user_id": body.user_id,
++        "user_id": restore_user_id,
+         "channel": body.channel,
+         "dry_run": dry_run,
+     }
+     try:
+         if body.include_files:
+             result = await service.restore_with_files(
+                 **kwargs,
+                 include_memory=body.include_memory,
+@@ -210,16 +308,139 @@ async def _restore(body: RestoreRequest, request: Request, *, dry_run: bool):
+             result = await service.restore_with_memory(**kwargs)
+         else:
+             result = await service.restore(**kwargs)
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return _restore_payload(result)
+ 
+ 
++async def _restore_as_new_chat(
++    service,
++    body: RestoreRequest,
++    *,
++    user_id: str,
++    dry_run: bool,
++) -> dict:
++    """多用户恢复复制为新会话；源会话和历史记录保持不变。"""
++    workspace = service.workspace
++    chat_manager = getattr(workspace, "chat_manager", None)
++    if chat_manager is None:
++        raise HTTPException(status_code=409, detail="source_chat_unavailable")
++    source_chat_id = await chat_manager.get_chat_id_by_session(
++        body.session_id,
++        body.channel,
++        user_id=user_id,
++    )
++    if not source_chat_id:
++        raise HTTPException(status_code=403, detail="forbidden")
++    source_chat = await chat_manager.get_chat(source_chat_id)
++    if source_chat is None or source_chat.user_id != user_id:
++        raise HTTPException(status_code=403, detail="forbidden")
++
++    preview_session_id = f"preview-{body.commit[:12]}"
++    if dry_run:
++        session_preview = await service.restore_session_copy(
++            target=body.commit,
++            source_session_id=body.session_id,
++            source_user_id=user_id,
++            source_channel=body.channel,
++            new_session_id=preview_session_id,
++            new_user_id=user_id,
++            new_channel=body.channel,
++            dry_run=True,
++        )
++        if body.include_files or body.include_memory:
++            file_preview = await service.restore_selected_files_copy(
++                target=body.commit,
++                source_session_id=body.session_id,
++                source_user_id=user_id,
++                source_channel=body.channel,
++                selected_files=None,
++                include_files=body.include_files,
++                include_memory=body.include_memory,
++                dry_run=True,
++            )
++            session_preview = replace(
++                session_preview,
++                include_memory=body.include_memory,
++                include_files=True,
++                deleted_paths=file_preview.deleted_paths,
++                file_paths=file_preview.file_paths,
++            )
++        return _restore_payload(session_preview)
++
++    new_session_id = str(uuid4())
++    new_chat_id = str(uuid4())
++    new_session_path = session_file_path(
++        service.conversation_workspace_dir,
++        session_id=new_session_id,
++        user_id=user_id,
++        channel=body.channel,
++    )
++    chat_created = False
++    scope_result = None
++    try:
++        copied = await service.restore_session_copy(
++            target=body.commit,
++            source_session_id=body.session_id,
++            source_user_id=user_id,
++            source_channel=body.channel,
++            new_session_id=new_session_id,
++            new_user_id=user_id,
++            new_channel=body.channel,
++        )
++        if body.include_files or body.include_memory:
++            file_result = await service.restore_selected_files_copy(
++                target=body.commit,
++                source_session_id=body.session_id,
++                source_user_id=user_id,
++                source_channel=body.channel,
++                selected_files=tuple(body.files or ()),
++                include_files=body.include_files,
++                include_memory=body.include_memory,
++            )
++            scope_result = file_result
++            copied = replace(
++                copied,
++                include_memory=body.include_memory,
++                include_files=True,
++                deleted_paths=file_result.deleted_paths,
++                file_paths=file_result.file_paths,
++            )
++        await chat_manager.create_chat(
++            ChatSpec(
++                id=new_chat_id,
++                session_id=new_session_id,
++                user_id=user_id,
++                channel=body.channel,
++                name=f"{source_chat.name} (restored)",
++                meta={
++                    "restored_from_chat_id": source_chat.id,
++                    "restored_from_checkpoint": body.commit,
++                },
++            ),
++        )
++        chat_created = True
++    except Exception:
++        if chat_created or await chat_manager.get_chat(new_chat_id) is not None:
++            await chat_manager.delete_chats([new_chat_id])
++        new_session_path.unlink(missing_ok=True)
++        if scope_result is not None:
++            await service.rollback_selected_scopes(scope_result)
++        raise
++    return _restore_payload(
++        replace(
++            copied,
++            new_session_id=new_session_id,
++            new_chat_id=new_chat_id,
++        ),
++    )
++
++
+ @router.post("/restore/preview")
+ async def preview_checkpoint_restore(
+     body: RestoreRequest,
+     request: Request,
+ ) -> dict:
+     return await _restore(body, request, dry_run=True)
+ 
+ 
+@@ -233,27 +454,29 @@ async def apply_checkpoint_restore(
+             status_code=400,
+             detail="Select at least one file before restoring files.",
+         )
+     return await _restore(body, request, dry_run=False)
+ 
+ 
+ async def _run_gc(body: GcRequest, request: Request, *, dry_run: bool) -> dict:
+     service = await _service(request)
++    user_id = _trusted_user_id(request, "console")
+     try:
+         result = await service.gc(
+             session_id="console",
+             user_id="console",
+             channel="console",
+             compact=body.compact,
+             all_sessions=True,
+             dry_run=dry_run,
+             keep_count=body.keep_count,
+             keep_days=body.keep_days,
+             pre_restore_days=body.pre_restore_days,
++            creator_user_id=(user_id if is_multi_user_enabled() else None),
+         )
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return asdict(result)
+ 
+ 
+ @router.post("/gc/preview")
+ async def preview_checkpoint_gc(body: GcRequest, request: Request) -> dict:
+@@ -287,15 +510,19 @@ async def update_checkpoint_gc_settings(
+             pre_restore_retention_days=body.pre_restore_retention_days,
+         )
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+ 
+ 
+ @router.delete("")
+ async def reset_checkpoints(request: Request) -> dict:
++    if is_multi_user_enabled() and not _uses_personal_runtime(request):
++        role, historical_read_only = get_agent_access_state(request)
++        if role is not AgentResourceRole.OWNER or historical_read_only:
++            raise HTTPException(status_code=403, detail="forbidden")
+     service = await _service(request)
+     try:
+         await service.reset()
+         auto_enabled, _debounce_seconds = await service.auto_settings()
+     except CheckpointError as exc:
+         raise _checkpoint_error(exc) from exc
+     return {"reset": True, "auto_enabled": auto_enabled}
+diff --git a/src/qwenpaw/checkpoints/hooks.py b/src/qwenpaw/checkpoints/hooks.py
+index 914965bf..9f0d143b 100644
+--- a/src/qwenpaw/checkpoints/hooks.py
++++ b/src/qwenpaw/checkpoints/hooks.py
+@@ -1,14 +1,15 @@
+ # -*- coding: utf-8 -*-
+ """Runtime hooks for built-in conversation checkpoints."""
+ 
+ from __future__ import annotations
+ 
+ import logging
++from pathlib import Path
+ 
+ from ..hooks.base import LifecycleHook
+ from ..hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+ from ..runtime.hooks import HookContext, HookResult
+ from ..runtime.phases import Phase
+ 
+ from .policy import context_channel
+ from .runtime import RUNTIME
+@@ -25,32 +26,53 @@ def _last_user_text(ctx: HookContext) -> str:
+     if not ctx.input_msgs:
+         return ""
+     last = ctx.input_msgs[-1]
+     if hasattr(last, "get_text_content"):
+         return last.get_text_content() or ""
+     return ""
+ 
+ 
++def _checkpoint_workspace_dir(ctx: HookContext) -> str | None:
++    """仅使用服务端标记的个人运行目录作为快照根目录。"""
++    request_context = getattr(ctx.request, "request_context", None)
++    if not isinstance(request_context, dict):
++        return None
++    if request_context.get("project_dir_source") != "user_runtime":
++        return None
++    value = request_context.get("project_dir")
++    if not isinstance(value, str) or not value:
++        return None
++    path = Path(value)
++    return str(path) if path.is_absolute() else None
++
++
++async def _checkpoint_service(ctx: HookContext):
++    workspace_dir = _checkpoint_workspace_dir(ctx)
++    if workspace_dir is not None:
++        return await RUNTIME.get_for_workspace_dir_async(workspace_dir)
++    return await RUNTIME.get_for_workspace_async(ctx.workspace)
++
++
+ def is_slash_like_input(text: str) -> bool:
+     """Return whether *text* should be treated as slash-command input."""
+     return (text or "").lstrip().startswith("/")
+ 
+ 
+ class CheckpointQueryGateHook(LifecycleHook):
+     """Block new requests while checkpoint maintenance holds the gate."""
+ 
+     phase = Phase.PRE_DISPATCH
+     name = "checkpoint_query_gate"
+     priority = 20
+ 
+     async def run(self, ctx: HookContext) -> HookResult:
+         try:
+             if ctx.workspace is not None:
+-                engine = await RUNTIME.get_for_workspace_async(ctx.workspace)
++                engine = await _checkpoint_service(ctx)
+                 await engine.query_gate.wait()
+         except Exception:
+             logger.exception("Checkpoint query gate failed")
+         return HookResult()
+ 
+ 
+ class CheckpointAutoSnapshotHook(LifecycleHook):
+     """Schedule debounced auto checkpoints after session persistence."""
+@@ -64,23 +86,26 @@ class CheckpointAutoSnapshotHook(LifecycleHook):
+         try:
+             if ctx.workspace is None:
+                 return HookResult()
+             if ctx.extras.get(SESSION_SAVE_SUCCEEDED_KEY) is not True:
+                 return HookResult()
+             text = _last_user_text(ctx)
+             if is_slash_like_input(text):
+                 return HookResult()
+-            await RUNTIME.schedule_auto_snapshot(
+-                ctx.workspace,
+-                session_id=ctx.session_id,
+-                user_id=_request_user_id(ctx),
+-                channel=context_channel(ctx),
+-                query_text=text or None,
+-            )
++            kwargs = {
++                "session_id": ctx.session_id,
++                "user_id": _request_user_id(ctx),
++                "channel": context_channel(ctx),
++                "query_text": text or None,
++            }
++            workspace_dir = _checkpoint_workspace_dir(ctx)
++            if workspace_dir is not None:
++                kwargs["workspace_dir"] = workspace_dir
++            await RUNTIME.schedule_auto_snapshot(ctx.workspace, **kwargs)
+         except Exception:
+             logger.exception("Checkpoint POST_RESPONSE auto snapshot failed")
+         return HookResult()
+ 
+ 
+ __all__ = [
+     "CheckpointAutoSnapshotHook",
+     "CheckpointQueryGateHook",
+diff --git a/src/qwenpaw/checkpoints/models.py b/src/qwenpaw/checkpoints/models.py
+index badc009e..25062124 100644
+--- a/src/qwenpaw/checkpoints/models.py
++++ b/src/qwenpaw/checkpoints/models.py
+@@ -21,16 +21,17 @@ class CheckpointEntry:
+     commit: str
+     timestamp_ms: int
+     subject: str
+     query: str | None
+     channel: str = "unknown"
+     restore_index: int | None = None
+     parent_commit: str | None = None
+     is_head: bool = False
++    agent_id: str = ""
+     user_id: str = ""
+     session_id: str = ""
+ 
+ 
+ @dataclass(frozen=True)
+ class SnapshotResult:
+     """Internal result of creating one checkpoint snapshot."""
+ 
+@@ -63,16 +64,18 @@ class RestoreResult:
+     commit: str
+     restored_paths: tuple[str, ...]
+     pre_restore_ref: str | None
+     dry_run: bool
+     include_memory: bool = False
+     include_files: bool = False
+     deleted_paths: tuple[str, ...] = ()
+     file_paths: tuple[str, ...] = ()
++    new_session_id: str | None = None
++    new_chat_id: str | None = None
+ 
+ 
+ @dataclass(frozen=True)
+ class GcResult:
+     """Result of a checkpoint GC pass."""
+ 
+     deleted_refs: tuple[str, ...]
+     kept_refs: tuple[str, ...]
+diff --git a/src/qwenpaw/checkpoints/policy.py b/src/qwenpaw/checkpoints/policy.py
+index 7d760da6..d4648ae6 100644
+--- a/src/qwenpaw/checkpoints/policy.py
++++ b/src/qwenpaw/checkpoints/policy.py
+@@ -151,16 +151,17 @@ DEVELOPMENT_ARTIFACT_PATTERNS = (
+     "dist/",
+     "build/",
+     ".DS_Store",
+     "*.log",
+ )
+ 
+ EXCLUDE_PATTERNS = (
+     ".git/",
++    "/sessions/",
+     *DEVELOPMENT_ARTIFACT_PATTERNS,
+     *(f"/{name}" for name in sorted(QWENPAW_RUNTIME_STATE_FILES)),
+     *(f"/{name}" for name in QWENPAW_RUNTIME_STATE_DIRS),
+     *(f"/*{suffix}" for suffix in QWENPAW_STATE_SUFFIXES),
+ )
+ 
+ 
+ def exclude_pattern_to_pathspec(pattern: str) -> str:
+@@ -553,25 +554,27 @@ def latest_user_query(
+         if text:
+             return text
+     return None
+ 
+ 
+ def encode_metadata(
+     query: str | None,
+     *,
++    agent_id: str | None = None,
+     channel: str | None = None,
+     user_id: str | None = None,
+     session_id: str | None = None,
+     parent_commit: str | None = None,
+ ) -> str:
+     """Encode metadata as a single UTF-8-safe commit-message line."""
+     payload = json.dumps(
+         {
+             "query": query,
++            "agent_id": agent_id,
+             "channel": channel,
+             "user_id": user_id,
+             "session_id": session_id,
+             "parent": parent_commit,
+         },
+         ensure_ascii=False,
+         separators=(",", ":"),
+     )
+diff --git a/src/qwenpaw/checkpoints/repository.py b/src/qwenpaw/checkpoints/repository.py
+index 9388e0e8..31e50332 100644
+--- a/src/qwenpaw/checkpoints/repository.py
++++ b/src/qwenpaw/checkpoints/repository.py
+@@ -89,26 +89,33 @@ class CheckpointRepository:
+ 
+     def _git_init_env(self) -> dict[str, str]:
+         """Return isolated config without binding init to an existing repo."""
+         env = self._git_env().copy()
+         for name in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):
+             env.pop(name, None)
+         return env
+ 
+-    def run_git(self, *args: str, input_text: str | None = None) -> str:
++    def run_git(
++        self,
++        *args: str,
++        input_text: str | None = None,
++        input_bytes: bytes | None = None,
++    ) -> str:
++        if input_text is not None and input_bytes is not None:
++            raise ValueError("Git input must be text or bytes, not both")
+         try:
+             proc = subprocess.run(
+                 self._git_command(*args),
+                 cwd=str(self.workspace_dir),
+                 env=self._git_env(),
+                 input=(
+                     input_text.encode("utf-8")
+                     if input_text is not None
+-                    else None
++                    else input_bytes
+                 ),
+                 capture_output=True,
+                 check=False,
+                 timeout=_GIT_TIMEOUT_SECONDS,
+             )
+         except FileNotFoundError as exc:
+             raise CheckpointError(GIT_REQUIRED_MESSAGE) from exc
+         except subprocess.TimeoutExpired as exc:
+@@ -254,22 +261,45 @@ class CheckpointRepository:
+                 encoding="ascii",
+             )
+         except OSError as exc:
+             raise CheckpointError(
+                 f"Failed to persist checkpoint index policy: {exc}",
+             ) from exc
+         self._pending_index_policy = None
+ 
+-    def write_workspace_tree(self) -> str:
++    def write_workspace_tree(
++        self,
++        extra_blobs: dict[str, bytes] | None = None,
++    ) -> str:
+         """Stage the snapshot boundary and return its Git tree object."""
+         pathspecs = tuple(SNAPSHOT_EXCLUDE_PATHSPECS)
+         if not self._index_policy_matches(pathspecs):
+             self.run_git("read-tree", "--empty")
+         self.run_git("add", "-f", "-A", "--", ".", *pathspecs)
++        for rel, content in sorted((extra_blobs or {}).items()):
++            normalized = Path(rel).as_posix().removeprefix("./")
++            if not normalized or Path(normalized).is_absolute() or ".." in Path(
++                normalized,
++            ).parts:
++                raise CheckpointError(f"Unsafe checkpoint blob path: {rel}")
++            object_id = self.run_git(
++                "hash-object",
++                "-w",
++                "--stdin",
++                input_bytes=content,
++            )
++            self.run_git(
++                "update-index",
++                "--add",
++                "--cacheinfo",
++                "100644",
++                object_id,
++                normalized,
++            )
+         tree = self.run_git("write-tree")
+         self._commit_index_policy()
+         return tree
+ 
+     def reset(self) -> None:
+         """Delete and recreate all checkpoint-owned persistence."""
+         if self.state_dir.exists():
+             # Keep Python 3.11 compatibility; shutil.rmtree(onexc=...) is
+diff --git a/src/qwenpaw/checkpoints/runtime.py b/src/qwenpaw/checkpoints/runtime.py
+index e321a1a2..9b278f22 100644
+--- a/src/qwenpaw/checkpoints/runtime.py
++++ b/src/qwenpaw/checkpoints/runtime.py
+@@ -92,27 +92,31 @@ class CheckpointRuntime:
+         self._lock = threading.Lock()
+         self._generation = 0
+         self._last_auto_gc: dict[str, float] = {}
+         self.debouncer = Debouncer()
+ 
+     def get_for_workspace(self, workspace: Any) -> CheckpointService:
+         service = self.get_for_workspace_dir(workspace.workspace_dir)
+         service.workspace = workspace
++        service.agent_id = str(getattr(workspace, "agent_id", "") or "")
++        service.checkpoint_scope = "agent_workspace"
+         return service
+ 
+     async def get_for_workspace_async(
+         self,
+         workspace: Any,
+     ) -> CheckpointService:
+         """Return a service without blocking the event loop on first use."""
+         service = await self.get_for_workspace_dir_async(
+             workspace.workspace_dir,
+         )
+         service.workspace = workspace
++        service.agent_id = str(getattr(workspace, "agent_id", "") or "")
++        service.checkpoint_scope = "agent_workspace"
+         return service
+ 
+     async def get_for_workspace_dir_async(
+         self,
+         workspace_dir: str | Path,
+     ) -> CheckpointService:
+         """Initialize one workspace service in a worker, single-flight."""
+         key = await run_sync_io(self._workspace_key, workspace_dir)
+@@ -196,20 +200,30 @@ class CheckpointRuntime:
+     async def schedule_auto_snapshot(
+         self,
+         workspace: Any,
+         *,
+         session_id: str,
+         user_id: str,
+         channel: str,
+         query_text: str | None = None,
++        workspace_dir: str | Path | None = None,
+     ) -> None:
+         if not session_id:
+             return
+-        service = await self.get_for_workspace_async(workspace)
++        if workspace_dir is None:
++            service = await self.get_for_workspace_async(workspace)
++        else:
++            service = await self.get_for_workspace_dir_async(workspace_dir)
++            service.workspace = workspace
++            service.agent_id = str(
++                getattr(workspace, "agent_id", "") or "",
++            )
++            service.checkpoint_scope = "user_runtime"
++            service.conversation_workspace_dir = Path(workspace.workspace_dir)
+         auto_enabled, debounce_seconds = await service.auto_settings()
+         if not auto_enabled:
+             return
+         key = session_key(
+             channel=channel,
+             user_id=user_id,
+             session_id=session_id,
+         )
+diff --git a/src/qwenpaw/checkpoints/service.py b/src/qwenpaw/checkpoints/service.py
+index 521d1723..2bfa1bdf 100644
+--- a/src/qwenpaw/checkpoints/service.py
++++ b/src/qwenpaw/checkpoints/service.py
+@@ -3,23 +3,24 @@
+ 
+ # Synchronous Git helpers run through run_sync_io.
+ # pylint: disable=too-many-arguments
+ # pylint: disable=too-many-public-methods
+ 
+ from __future__ import annotations
+ 
+ import asyncio
++import json
+ import logging
+ import time
+ import weakref
+ from dataclasses import dataclass
+ from pathlib import Path
+ 
+-from ..utils.io_utils import run_sync_io
++from ..utils.io_utils import run_sync_io, write_text_atomic
+ 
+ from .policy import (
+     DEFAULT_AUTO_DEBOUNCE_SECONDS,
+     DEFAULT_GC_KEEP_COUNT,
+     DEFAULT_GC_KEEP_DAYS,
+     DEFAULT_MEMORY_QUIESCE_TIMEOUT,
+     DEFAULT_PRE_RESTORE_RETENTION_DAYS,
+     DEFAULT_QUERY_PREVIEW_CHARS,
+@@ -31,16 +32,17 @@ from .policy import (
+     encode_metadata,
+     latest_user_query,
+     metadata_from_commit_message,
+     query_from_commit_message,
+     ref_kind,
+     ref_session_key,
+     sanitize_ref_component,
+     session_key,
++    session_file_path,
+ )
+ from .models import (
+     CheckpointEntry,
+     CheckpointError,
+     GcResult,
+     RestoreResult,
+     SnapshotResult,
+ )
+@@ -72,16 +74,19 @@ class CheckpointService:
+         policy: CheckpointPolicy | None = None,
+     ):
+         self.repository = repository or CheckpointRepository(workspace_dir)
+         self.policy = policy or CheckpointPolicy(self.repository.config_file)
+         # Set by the registry when a live request is available; mutating
+         # restores need it to quiesce tasks and pause cron.
+         self._workspace_ref = None
+         self._workspace_fallback = None
++        self.agent_id = ""
++        self.checkpoint_scope = "agent_workspace"
++        self.conversation_workspace_dir = self.repository.workspace_dir
+         self.query_gate = asyncio.Event()
+         self.query_gate.set()
+         self.lock = asyncio.Lock()
+         self.maintenance_lock = asyncio.Lock()
+         self._restores = RestoreService(self)
+ 
+     @property
+     def workspace_dir(self) -> Path:
+@@ -376,28 +381,35 @@ class CheckpointService:
+             subject = f"snapshot {key} {label}"
+         else:
+             ref = f"refs/pre-restore/{now_ms}-{key}"
+             while self.repository.ref_exists(ref):
+                 now_ms += 1
+                 ref = f"refs/pre-restore/{now_ms}-{key}"
+             subject = f"pre-restore {key} {now_ms}"
+ 
+-        tree = tree_override or self.repository.write_workspace_tree()
++        tree = tree_override or self.repository.write_workspace_tree(
++            self._conversation_snapshot_blob(
++                session_id=session_id,
++                user_id=user_id,
++                channel=channel,
++            ),
++        )
+         body = message.strip() if message else subject
+         query = query_override
+         if query is None:
+             query = latest_user_query(
+-                self.repository.workspace_dir,
++                Path(self.conversation_workspace_dir),
+                 session_id=session_id,
+                 user_id=user_id,
+                 channel=channel,
+             )
+         metadata = encode_metadata(
+             query,
++            agent_id=self.agent_id or None,
+             channel=channel,
+             user_id=user_id,
+             session_id=session_id,
+             parent_commit=parent_commit,
+         )
+         commit = self.repository.run_git(
+             "commit-tree",
+             tree,
+@@ -408,16 +420,241 @@ class CheckpointService:
+         return SnapshotResult(
+             ref=ref,
+             commit=commit,
+             tree=tree,
+             parent_commit=parent_commit,
+             timestamp_ms=now_ms,
+         )
+ 
++    def _conversation_snapshot_blob(
++        self,
++        *,
++        session_id: str,
++        user_id: str,
++        channel: str,
++    ) -> dict[str, bytes] | None:
++        """跨空间快照只注入当前会话，不扫描其他用户 session。"""
++        source = session_file_path(
++            Path(self.conversation_workspace_dir),
++            session_id=session_id,
++            user_id=user_id,
++            channel=channel,
++        )
++        try:
++            content = source.read_bytes()
++        except OSError as exc:
++            if Path(self.conversation_workspace_dir) == self.workspace_dir:
++                return {}
++            raise CheckpointError(
++                "The source session state is unavailable for this checkpoint.",
++            ) from exc
++        rel = session_file_path(
++            Path("."),
++            session_id=session_id,
++            user_id=user_id,
++            channel=channel,
++        ).as_posix()
++        return {rel: content}
++
++    async def restore_session_copy(
++        self,
++        *,
++        target: str,
++        source_session_id: str,
++        source_user_id: str,
++        source_channel: str,
++        new_session_id: str,
++        new_user_id: str,
++        new_channel: str,
++        dry_run: bool = False,
++    ) -> RestoreResult:
++        """把检查点中的会话状态复制为新会话，绝不覆盖源会话。"""
++        async with self.maintenance_lock:
++            async with self.lock:
++                return await run_sync_io(
++                    self._restore_session_copy_sync,
++                    target=target,
++                    source_session_id=source_session_id,
++                    source_user_id=source_user_id,
++                    source_channel=source_channel,
++                    new_session_id=new_session_id,
++                    new_user_id=new_user_id,
++                    new_channel=new_channel,
++                    dry_run=dry_run,
++                )
++
++    def _restore_session_copy_sync(self, **kwargs) -> RestoreResult:
++        entry = self.resolve_target(
++            kwargs["target"],
++            kwargs["source_session_id"],
++            kwargs["source_user_id"],
++            kwargs["source_channel"],
++        )
++        source_rel = session_file_path(
++            Path("."),
++            session_id=kwargs["source_session_id"],
++            user_id=kwargs["source_user_id"],
++            channel=kwargs["source_channel"],
++        ).as_posix()
++        try:
++            content = self.repository.read_blob(entry.commit, source_rel)
++        except CheckpointError as exc:
++            raise CheckpointError(
++                "Checkpoint session state is missing or invalid.",
++            ) from exc
++        try:
++            state = json.loads(content.decode("utf-8"))
++        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
++            raise CheckpointError(
++                "Checkpoint session state is missing or invalid.",
++            ) from exc
++        if not isinstance(state, dict):
++            raise CheckpointError("Checkpoint session state is missing or invalid.")
++        target_path = session_file_path(
++            Path(self.conversation_workspace_dir),
++            session_id=kwargs["new_session_id"],
++            user_id=kwargs["new_user_id"],
++            channel=kwargs["new_channel"],
++        )
++        target_rel = target_path.relative_to(
++            Path(self.conversation_workspace_dir),
++        ).as_posix()
++        if target_path.exists():
++            raise CheckpointError("Restored session already exists.")
++        if not kwargs["dry_run"]:
++            write_text_atomic(
++                target_path,
++                json.dumps(state, ensure_ascii=False, separators=(",", ":")),
++                encoding="utf-8",
++            )
++        return RestoreResult(
++            target=kwargs["target"],
++            commit=entry.commit,
++            restored_paths=(target_rel,),
++            pre_restore_ref=None,
++            dry_run=kwargs["dry_run"],
++        )
++
++    async def restore_selected_files_copy(
++        self,
++        *,
++        target: str,
++        source_session_id: str,
++        source_user_id: str,
++        source_channel: str,
++        selected_files: tuple[str, ...] | None,
++        include_files: bool = True,
++        include_memory: bool = False,
++        dry_run: bool = False,
++    ) -> RestoreResult:
++        """预览或恢复勾选文件，不触碰源会话状态。"""
++        async with self.maintenance_lock:
++            if not dry_run:
++                self.query_gate.clear()
++            try:
++                async with self.lock:
++                    return await run_sync_io(
++                        self._restore_selected_files_copy_sync,
++                        target=target,
++                        source_session_id=source_session_id,
++                        source_user_id=source_user_id,
++                        source_channel=source_channel,
++                        selected_files=selected_files,
++                        include_files=include_files,
++                        include_memory=include_memory,
++                        dry_run=dry_run,
++                    )
++            finally:
++                if not dry_run:
++                    self.query_gate.set()
++
++    def _restore_selected_files_copy_sync(self, **kwargs) -> RestoreResult:
++        entry = self.resolve_target(
++            kwargs["target"],
++            kwargs["source_session_id"],
++            kwargs["source_user_id"],
++            kwargs["source_channel"],
++        )
++        source_rel = session_file_path(
++            Path("."),
++            session_id=kwargs["source_session_id"],
++            user_id=kwargs["source_user_id"],
++            channel=kwargs["source_channel"],
++        ).as_posix()
++        current_tree = self.repository.write_workspace_tree()
++        touched = (
++            self._restores._file_restore_candidates(
++                target_commit=entry.commit,
++                current_tree=current_tree,
++                conv_rel=source_rel,
++                selected_files=kwargs["selected_files"],
++            )
++            if kwargs["include_files"]
++            else set()
++        )
++        restored, deleted = self.repository.plan_tree_restore(
++            entry.commit,
++            touched,
++        )
++        memory = self._restores._memory_restorer() if kwargs["include_memory"] else None
++        if memory is not None:
++            memory_restored, memory_deleted = memory.plan(entry.commit)
++            restored.extend(memory_restored)
++            deleted.extend(memory_deleted)
++        pre_ref = None
++        if not kwargs["dry_run"]:
++            pre_ref = self.create_snapshot_unlocked(
++                "pre-restore",
++                kwargs["source_session_id"],
++                kwargs["source_user_id"],
++                kwargs["source_channel"],
++                None,
++                f"Before selected file restore to {kwargs['target']}",
++                None,
++                tree_override=current_tree,
++            ).ref
++            try:
++                self.repository.restore_tree_paths(entry.commit, touched)
++                if memory is not None:
++                    memory.restore_sync(entry.commit)
++            except Exception:
++                self.repository.restore_tree_paths(current_tree, touched)
++                if memory is not None:
++                    memory.restore_sync(current_tree)
++                raise
++        return RestoreResult(
++            target=kwargs["target"],
++            commit=entry.commit,
++            restored_paths=tuple(restored),
++            deleted_paths=tuple(deleted),
++            file_paths=tuple(sorted(touched)),
++            pre_restore_ref=pre_ref,
++            dry_run=kwargs["dry_run"],
++            include_files=kwargs["include_files"],
++            include_memory=kwargs["include_memory"],
++        )
++
++    async def rollback_selected_scopes(self, result: RestoreResult) -> None:
++        """回滚本次新会话创建失败前已应用的文件/记忆范围。"""
++        if not result.pre_restore_ref:
++            return
++        async with self.maintenance_lock:
++            async with self.lock:
++                await run_sync_io(self._rollback_selected_scopes_sync, result)
++
++    def _rollback_selected_scopes_sync(self, result: RestoreResult) -> None:
++        if result.file_paths:
++            self.repository.restore_tree_paths(
++                result.pre_restore_ref,
++                set(result.file_paths),
++            )
++        if result.include_memory:
++            self._restores._memory_restorer().restore_sync(result.pre_restore_ref)
++
+     # -- reset ------------------------------------------------------------
+ 
+     async def reset(self) -> None:
+         """Delete and recreate this workspace's checkpoint state."""
+         async with self.maintenance_lock:
+             self.query_gate.clear()
+             try:
+                 async with self.lock:
+@@ -451,37 +688,58 @@ class CheckpointService:
+                     limit,
+                     include_all,
+                 )
+ 
+     async def graph_entries(
+         self,
+         *,
+         limit: int = 1000,
++        user_id: str | None = None,
+     ) -> list[CheckpointEntry]:
+         """Return workspace-wide entries for graph visualisation."""
+         resolved = max(1, min(1000, limit))
+         async with self.maintenance_lock:
+             async with self.lock:
+                 return await run_sync_io(
+                     self._timeline_sync,
+                     "",
+                     "",
+                     "",
+                     resolved,
+                     True,
++                    user_id,
++                )
++
++    async def resolve_target_entry(
++        self,
++        target: str,
++        session_id: str,
++        user_id: str,
++        channel: str,
++    ) -> CheckpointEntry:
++        """精确解析单个恢复目标，不受图谱分页上限影响。"""
++        async with self.maintenance_lock:
++            async with self.lock:
++                return await run_sync_io(
++                    self.resolve_target,
++                    target,
++                    session_id,
++                    user_id,
++                    channel,
+                 )
+ 
+     def _timeline_sync(
+         self,
+         session_id: str,
+         user_id: str,
+         channel: str,
+         limit: int | None,
+         include_all: bool,
++        creator_user_id: str | None = None,
+     ) -> list[CheckpointEntry]:
+         resolved = self.timeline_default_limit if limit is None else limit
+         resolved = max(1, min(self.timeline_max_limit, resolved))
+         key = session_key(
+             channel=channel,
+             user_id=user_id,
+             session_id=session_id,
+         )
+@@ -514,16 +772,20 @@ class CheckpointService:
+                 record,
+                 restore_index=restore_indexes.get(record.ref),
+                 is_head=(
+                     record.commit == heads.get(ref_session_key(record.ref))
+                 ),
+             )
+             for record in records
+         ]
++        if creator_user_id is not None:
++            entries = [
++                entry for entry in entries if entry.user_id == creator_user_id
++            ]
+         entries.sort(
+             key=lambda entry: entry.timestamp_ms,
+             reverse=True,
+         )
+         return entries[:resolved]
+ 
+     def _list_ref_records(self) -> list[_RefRecord]:
+         """Read checkpoint refs and commit metadata in one Git process."""
+@@ -673,29 +935,33 @@ class CheckpointService:
+         if not isinstance(chan, str) or not chan:
+             chan = key.split("-", 1)[0] if key else "unknown"
+         user_id = metadata.get("user_id")
+         if not isinstance(user_id, str):
+             user_id = ""
+         session_id = metadata.get("session_id")
+         if not isinstance(session_id, str):
+             session_id = ""
++        agent_id = metadata.get("agent_id")
++        if not isinstance(agent_id, str):
++            agent_id = ""
+         return CheckpointEntry(
+             ref=ref,
+             kind=kind,
+             session_key=key,
+             name=name,
+             commit=record.commit,
+             timestamp_ms=record.timestamp_ms,
+             subject=subject,
+             query=query_from_commit_message(commit_message),
+             channel=chan,
+             restore_index=restore_index,
+             parent_commit=parent,
+             is_head=is_head,
++            agent_id=agent_id,
+             user_id=user_id,
+             session_id=session_id,
+         )
+ 
+     def _entry_timestamp(self, ref: str, commit: str) -> int:
+         return self._timestamp_from_ref(
+             ref,
+             self._commit_timestamp(commit),
+@@ -849,31 +1115,33 @@ class CheckpointService:
+         user_id: str,
+         channel: str,
+         compact: bool = False,
+         all_sessions: bool = False,
+         dry_run: bool = False,
+         keep_count: int | None = None,
+         keep_days: int | None = None,
+         pre_restore_days: int | None = None,
++        creator_user_id: str | None = None,
+     ) -> GcResult:
+         """Delete collectible auto/pre-restore refs and run git gc."""
+         async with self.maintenance_lock:
+             async with self.lock:
+                 return await run_sync_io(
+                     self._gc_sync,
+                     session_id,
+                     user_id,
+                     channel,
+                     compact,
+                     all_sessions,
+                     dry_run,
+                     keep_count,
+                     keep_days,
+                     pre_restore_days,
++                    creator_user_id,
+                 )
+ 
+     @staticmethod
+     def _kept_auto_refs_by_session(
+         records: list[_RefRecord],
+         keep_count: int,
+     ) -> set[str]:
+         """Return newest auto refs under a separate quota per session."""
+@@ -899,16 +1167,17 @@ class CheckpointService:
+         user_id: str,
+         channel: str,
+         compact: bool,
+         all_sessions: bool,
+         dry_run: bool,
+         keep_count: int | None,
+         keep_days: int | None,
+         pre_restore_days: int | None,
++        creator_user_id: str | None,
+     ) -> GcResult:
+         resolved_count = (
+             self.gc_keep_count if keep_count is None else keep_count
+         )
+         resolved_days = self.gc_keep_days if keep_days is None else keep_days
+         resolved_pre_restore_days = (
+             self.pre_restore_retention_days
+             if pre_restore_days is None
+@@ -924,16 +1193,22 @@ class CheckpointService:
+             records
+             if all_sessions
+             else [
+                 record
+                 for record in records
+                 if ref_session_key(record.ref) == key
+             ]
+         )
++        if creator_user_id is not None:
++            scoped_records = [
++                record
++                for record in scoped_records
++                if self._entry_from_record(record).user_id == creator_user_id
++            ]
+         now_ms = int(time.time() * 1000)
+         keep_cutoff_ms = now_ms - resolved_days * 86_400_000
+         pre_cutoff_ms = now_ms - resolved_pre_restore_days * 86_400_000
+ 
+         records_by_session: dict[str, list[_RefRecord]] = {}
+         for record in scoped_records:
+             record_key = ref_session_key(record.ref)
+             if record_key:
+diff --git a/tests/unit/app/routers/test_checkpoints_router.py b/tests/unit/app/routers/test_checkpoints_router.py
+index 7bd6e981..fe2bd271 100644
+--- a/tests/unit/app/routers/test_checkpoints_router.py
++++ b/tests/unit/app/routers/test_checkpoints_router.py
+@@ -1,20 +1,135 @@
+ # -*- coding: utf-8 -*-
+ from __future__ import annotations
+ 
+ from pathlib import Path
+ from types import SimpleNamespace
++from uuid import uuid4
+ 
+ import pytest
+ from fastapi import HTTPException
+ 
+ from qwenpaw.app.routers import checkpoints as router
+ from qwenpaw.checkpoints.models import CheckpointEntry, GcResult, RestoreResult
+ from qwenpaw.checkpoints.policy import session_key
++from qwenpaw.access.actor import ActorContext, ActorType
++from qwenpaw.identity.models import PlatformRole
++from qwenpaw.access.agent_repository import AgentResourceRole
++
++
++def test_checkpoint_entry_exposes_trusted_agent_identity() -> None:
++    entry = CheckpointEntry(
++        ref="refs/snap/example/one",
++        kind="snap",
++        session_key="example",
++        name="one",
++        commit="a" * 40,
++        timestamp_ms=1,
++        subject="snapshot",
++        query=None,
++        agent_id="public-agent",
++    )
++
++    assert router._entry_payload(entry)["agent_id"] == "public-agent"
++
++
++def test_checkpoint_user_id_comes_from_authenticated_actor(monkeypatch) -> None:
++    authenticated_user_id = uuid4()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
++            actor=ActorContext(
++                user_id=authenticated_user_id,
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    assert router._trusted_user_id(request, "attacker-controlled-user") == str(
++        authenticated_user_id,
++    )
++
++
++@pytest.mark.asyncio
++async def test_member_cannot_restore_another_users_checkpoint(monkeypatch) -> None:
++    service = FakeService()
++    authenticated_user_id = uuid4()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
++            actor=ActorContext(
++                user_id=authenticated_user_id,
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    with pytest.raises(HTTPException) as caught:
++        await router._require_restore_access(
++            service,
++            request,
++            commit="a" * 40,
++            user_id="another-user",
++            session_id="session",
++            channel="console",
++        )
++
++    assert caught.value.status_code == 403
++
++
++@pytest.mark.asyncio
++async def test_member_checkpoint_graph_only_includes_own_entries(monkeypatch) -> None:
++    service = FakeService()
++    authenticated_user_id = uuid4()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.USER),
++            actor=ActorContext(
++                user_id=authenticated_user_id,
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    assert await router._visible_entries(service, request, limit=20) == []
++
++
++@pytest.mark.asyncio
++async def test_owner_checkpoint_graph_does_not_expose_other_private_creator(
++    monkeypatch,
++) -> None:
++    service = FakeService()
++    request = SimpleNamespace(
++        state=SimpleNamespace(
++            agent_access=SimpleNamespace(role=AgentResourceRole.OWNER),
++            actor=ActorContext(
++                user_id=uuid4(),
++                actor_type=ActorType.USER,
++                platform_role=PlatformRole.MEMBER,
++                admin_mode=False,
++                request_id="request",
++            ),
++        ),
++    )
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    assert await router._visible_entries(service, request, limit=20) == []
+ 
+ 
+ def _entry() -> CheckpointEntry:
+     key = session_key(channel="console", user_id="user", session_id="session")
+     return CheckpointEntry(
+         ref=f"refs/auto/{key}/1",
+         kind="auto",
+         session_key=key,
+@@ -32,16 +147,17 @@ def _entry() -> CheckpointEntry:
+ 
+ 
+ class FakeService:
+     auto_enabled = True
+     workspace_dir = Path("/workspace")
+     gc_keep_count = 20
+     gc_keep_days = 7
+     pre_restore_retention_days = 7
++    checkpoint_scope = "user_runtime"
+ 
+     def __init__(self) -> None:
+         self.calls: list[tuple[str, dict]] = []
+         chat = SimpleNamespace(
+             channel="console",
+             user_id="user",
+             session_id="session",
+             name="Readable session title",
+@@ -57,19 +173,35 @@ class FakeService:
+ 
+         class ChatManager:
+             async def list_chats(self, *, archived=None):
+                 assert archived is None
+                 return [chat, empty_chat]
+ 
+         self.workspace = SimpleNamespace(chat_manager=ChatManager())
+ 
+-    async def graph_entries(self, *, limit: int):
+-        self.calls.append(("graph", {"limit": limit}))
+-        return [_entry()]
++    async def graph_entries(self, *, limit: int, user_id: str | None = None):
++        self.calls.append(("graph", {"limit": limit, "user_id": user_id}))
++        entries = [_entry()]
++        if user_id is not None:
++            entries = [entry for entry in entries if entry.user_id == user_id]
++        return entries
++
++    async def resolve_target_entry(
++        self,
++        target: str,
++        session_id: str,
++        user_id: str,
++        channel: str,
++    ):
++        del session_id, user_id, channel
++        entry = _entry()
++        if target != entry.commit:
++            raise CheckpointError("unknown")
++        return entry
+ 
+     async def auto_settings(self):
+         self.calls.append(("auto_settings", {}))
+         return self.auto_enabled, 1.5
+ 
+     async def set_auto_enabled(self, enabled: bool):
+         self.calls.append(("set_auto_enabled", {"enabled": enabled}))
+         self.auto_enabled = enabled
+@@ -161,16 +293,52 @@ async def test_graph_returns_topology_and_exact_session_identity():
+         "total": 1,
+         "auto": 1,
+         "snapshots": 0,
+         "safety": 0,
+         "heads": 1,
+     }
+ 
+ 
++@pytest.mark.asyncio
++async def test_status_exposes_scope_not_server_workspace_path(
++    checkpoint_service,
++) -> None:
++    result = await router.checkpoint_status(SimpleNamespace())
++
++    assert result["scope"] == "user_runtime"
++    assert result["restore_mode"] == "in_place"
++    assert "workspace_dir" not in result
++
++
++@pytest.mark.asyncio
++async def test_multi_user_status_explicitly_exposes_new_chat_restore_mode(
++    checkpoint_service,
++    monkeypatch,
++) -> None:
++    user_id = uuid4()
++    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
++
++    result = await router.checkpoint_status(
++        SimpleNamespace(
++            state=SimpleNamespace(
++                actor=ActorContext(
++                    user_id=user_id,
++                    actor_type=ActorType.USER,
++                    platform_role=PlatformRole.MEMBER,
++                    admin_mode=False,
++                    request_id="status-mode",
++                ),
++            ),
++        ),
++    )
++
++    assert result["restore_mode"] == "new_chat"
++
++
+ @pytest.mark.asyncio
+ async def test_gc_uses_retention_unless_compact_is_explicit(
+     checkpoint_service,
+ ):
+     await router.preview_checkpoint_gc(
+         router.GcRequest(),
+         SimpleNamespace(),
+     )
+@@ -180,18 +348,19 @@ async def test_gc_uses_retention_unless_compact_is_explicit(
+             "session_id": "console",
+             "user_id": "console",
+             "channel": "console",
+             "compact": False,
+             "all_sessions": True,
+             "dry_run": True,
+             "keep_count": None,
+             "keep_days": None,
+-            "pre_restore_days": None,
+-        },
++                "pre_restore_days": None,
++                "creator_user_id": None,
++            },
+     )
+ 
+     await router.apply_checkpoint_gc(
+         router.GcRequest(compact=True),
+         SimpleNamespace(),
+     )
+     assert checkpoint_service.calls[-1][1]["compact"] is True
+     assert checkpoint_service.calls[-1][1]["dry_run"] is False
+diff --git a/tests/unit/checkpoints/test_checkpoint_basic.py b/tests/unit/checkpoints/test_checkpoint_basic.py
+index bc14e212..cbd647a0 100644
+--- a/tests/unit/checkpoints/test_checkpoint_basic.py
++++ b/tests/unit/checkpoints/test_checkpoint_basic.py
+@@ -654,19 +654,27 @@ async def test_snapshot_reuses_index_and_timeline_batches_git_reads(
+         user_id=USER_ID,
+         channel=CHANNEL,
+         query="first",
+     )
+ 
+     calls: list[tuple[str, ...]] = []
+     original_run_git = engine.repository.run_git
+ 
+-    def recording_run_git(*args: str, input_text: str | None = None) -> str:
++    def recording_run_git(
++        *args: str,
++        input_text: str | None = None,
++        input_bytes: bytes | None = None,
++    ) -> str:
+         calls.append(args)
+-        return original_run_git(*args, input_text=input_text)
++        return original_run_git(
++            *args,
++            input_text=input_text,
++            input_bytes=input_bytes,
++        )
+ 
+     monkeypatch.setattr(engine.repository, "run_git", recording_run_git)
+     _write_session(tmp_path, "second")
+     await engine.make_auto_checkpoint(
+         session_id=SESSION_ID,
+         user_id=USER_ID,
+         channel=CHANNEL,
+         query="second",
+diff --git a/tests/unit/checkpoints/test_checkpoint_hooks.py b/tests/unit/checkpoints/test_checkpoint_hooks.py
+index 6e0dad50..f39e0aee 100644
+--- a/tests/unit/checkpoints/test_checkpoint_hooks.py
++++ b/tests/unit/checkpoints/test_checkpoint_hooks.py
+@@ -1,19 +1,23 @@
+ # -*- coding: utf-8 -*-
+ """Checkpoint hook scheduling behavior."""
+ 
+ from __future__ import annotations
+ 
+ from types import SimpleNamespace
++from pathlib import Path
+ 
+ import pytest
+ 
+ from qwenpaw.agents.acp.meta import ACP_EPHEMERAL_META_KEY
+-from qwenpaw.checkpoints.hooks import CheckpointAutoSnapshotHook
++from qwenpaw.checkpoints.hooks import (
++    CheckpointAutoSnapshotHook,
++    CheckpointQueryGateHook,
++)
+ from qwenpaw.checkpoints.runtime import RUNTIME
+ from qwenpaw.hooks.session.signals import SESSION_SAVE_SUCCEEDED_KEY
+ 
+ pytestmark = [pytest.mark.unit, pytest.mark.p1]
+ 
+ 
+ def _ctx(*, persisted: bool | None, ephemeral: bool = False):
+     extras = {}
+@@ -51,16 +55,68 @@ async def test_auto_snapshot_requires_successfully_persisted_session(
+             "session_id": "session",
+             "user_id": "user",
+             "channel": "console",
+             "query_text": "hello",
+         },
+     ]
+ 
+ 
++async def test_auto_snapshot_uses_trusted_personal_runtime_root(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    scheduled: list[tuple[object, dict]] = []
++
++    async def schedule(workspace, **kwargs) -> None:
++        scheduled.append((workspace, kwargs))
++
++    monkeypatch.setattr(RUNTIME, "schedule_auto_snapshot", schedule)
++    ctx = _ctx(persisted=True)
++    ctx.request.request_context.update(
++        {
++            "project_dir": "C:/managed/user_workspaces/user/agent",
++            "project_dir_source": "user_runtime",
++        },
++    )
++
++    await CheckpointAutoSnapshotHook().run(ctx)
++
++    assert scheduled[0][1]["workspace_dir"] == str(
++        Path("C:/managed/user_workspaces/user/agent"),
++    )
++
++
++async def test_query_gate_uses_same_personal_runtime_as_auto_snapshot(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    requested: list[str] = []
++    gate = SimpleNamespace(wait=lambda: _completed_wait())
++
++    async def get_service(path):
++        requested.append(str(path))
++        return SimpleNamespace(query_gate=gate)
++
++    monkeypatch.setattr(RUNTIME, "get_for_workspace_dir_async", get_service)
++    ctx = _ctx(persisted=True)
++    ctx.request.request_context.update(
++        {
++            "project_dir": "C:/managed/user_workspaces/user/agent",
++            "project_dir_source": "user_runtime",
++        },
++    )
++
++    await CheckpointQueryGateHook().run(ctx)
++
++    assert requested == [str(Path("C:/managed/user_workspaces/user/agent"))]
++
++
++async def _completed_wait() -> None:
++    return None
++
++
+ async def test_auto_snapshot_skips_slash_like_input(
+     monkeypatch: pytest.MonkeyPatch,
+ ) -> None:
+     scheduled = False
+ 
+     async def schedule(*_args, **_kwargs) -> None:
+         nonlocal scheduled
+         scheduled = True
+
+NEW TESTS AND MODE HELPER
+# -*- coding: utf-8 -*-
+"""检查点身份边界的真实 Git 隔离测试。"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+from uuid import uuid4
+
+import pytest
+from fastapi import HTTPException
+
+from qwenpaw.access.actor import ActorContext, ActorType
+from qwenpaw.access.agent_repository import AgentResourceRole
+from qwenpaw.app.routers import checkpoints as router
+from qwenpaw.app.chats.manager import ChatManager
+from qwenpaw.app.chats.models import ChatSpec
+from qwenpaw.app.chats.repo import JsonChatRepository
+from qwenpaw.checkpoints.runtime import CheckpointRuntime
+from qwenpaw.checkpoints.models import CheckpointError
+from qwenpaw.identity.models import PlatformRole
+from qwenpaw.checkpoints.policy import session_file_path
+
+
+def _request(user_id, role: AgentResourceRole = AgentResourceRole.USER):
+    return SimpleNamespace(
+        state=SimpleNamespace(
+            agent_access=SimpleNamespace(
+                role=role,
+                historical_read_only=False,
+            ),
+            actor=ActorContext(
+                user_id=user_id,
+                actor_type=ActorType.USER,
+                platform_role=PlatformRole.MEMBER,
+                admin_mode=False,
+                request_id="checkpoint-permissions",
+            ),
+        ),
+    )
+
+
+async def _service(
+    root: Path,
+    *,
+    agent_id: str = "shared-agent",
+    conversation_root: Path | None = None,
+):
+    runtime = CheckpointRuntime()
+    service = await runtime.get_for_workspace_dir_async(root)
+    service.agent_id = agent_id
+    service.checkpoint_scope = "user_runtime"
+    if conversation_root is not None:
+        service.conversation_workspace_dir = conversation_root
+    return service
+
+
+async def _async_value(value):
+    return value
+
+
+@pytest.mark.asyncio
+async def test_same_root_snapshot_contains_only_the_requested_session(
+    tmp_path: Path,
+) -> None:
+    """Agent 工作区快照必须包含当前会话，且不能夹带其他用户会话。"""
+    root = tmp_path / "agent"
+    own_user_id = str(uuid4())
+    other_user_id = str(uuid4())
+    own = session_file_path(
+        root,
+        session_id="own-session",
+        user_id=own_user_id,
+        channel="console",
+    )
+    other = session_file_path(
+        root,
+        session_id="other-session",
+        user_id=other_user_id,
+        channel="console",
+    )
+    own.parent.mkdir(parents=True)
+    own.write_text('{"agent":{"state":{"context":["own"]}}}', encoding="utf-8")
+    other.write_text('{"agent":{"state":{"context":["other"]}}}', encoding="utf-8")
+    service = await _service(root, conversation_root=root)
+
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="own-session",
+        user_id=own_user_id,
+        channel="console",
+        name="own-only",
+    )
+
+    own_rel = f"sessions/console/{own_user_id}_own-session.json"
+    other_rel = f"sessions/console/{other_user_id}_other-session.json"
+    assert service.repository.read_blob(snapshot.commit, own_rel)
+    with pytest.raises(CheckpointError):
+        service.repository.read_blob(snapshot.commit, other_rel)
+
+
+@pytest.mark.asyncio
+async def test_graph_filters_creator_before_applying_limit(tmp_path: Path) -> None:
+    """大量其他用户检查点不能挤掉当前用户的图谱结果。"""
+    root = tmp_path / "graph-agent"
+    service = await _service(root, conversation_root=root)
+    own_user_id = str(uuid4())
+    other_user_id = str(uuid4())
+    for user_id, session_id in (
+        (own_user_id, "own"),
+        (other_user_id, "other-1"),
+        (other_user_id, "other-2"),
+    ):
+        path = session_file_path(
+            root,
+            session_id=session_id,
+            user_id=user_id,
+            channel="console",
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text('{"agent":{"state":{"context":[]}}}', encoding="utf-8")
+        await service.make_snapshot_result(
+            kind="snap",
+            session_id=session_id,
+            user_id=user_id,
+            channel="console",
+            name=session_id,
+        )
+
+    entries = await service.graph_entries(limit=1, user_id=own_user_id)
+
+    assert len(entries) == 1
+    assert entries[0].user_id == own_user_id
+
+
+@pytest.mark.asyncio
+async def test_shared_gc_only_collects_authenticated_creator_refs(
+    tmp_path: Path,
+) -> None:
+    """共享仓库 GC 即使 all_sessions 也不能收集其他创建者 refs。"""
+    root = tmp_path / "gc-agent"
+    service = await _service(root, conversation_root=root)
+    own_user_id = str(uuid4())
+    other_user_id = str(uuid4())
+    for user_id, session_id in (
+        (own_user_id, "own"),
+        (other_user_id, "other"),
+    ):
+        path = session_file_path(
+            root,
+            session_id=session_id,
+            user_id=user_id,
+            channel="console",
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        for index in range(2):
+            path.write_text(
+                f'{{"agent":{{"state":{{"context":[{index}]}}}}}}',
+                encoding="utf-8",
+            )
+            await service.make_auto_checkpoint(
+                session_id=session_id,
+                user_id=user_id,
+                channel="console",
+                query=str(index),
+            )
+
+    other_refs_before = {
+        entry.ref
+        for entry in await service.graph_entries(user_id=other_user_id)
+    }
+    result = await service.gc(
+        session_id="ignored",
+        user_id=own_user_id,
+        channel="console",
+        compact=True,
+        all_sessions=True,
+        creator_user_id=own_user_id,
+    )
+    other_refs_after = {
+        entry.ref
+        for entry in await service.graph_entries(user_id=other_user_id)
+    }
+
+    assert result.deleted_refs
+    assert other_refs_after == other_refs_before
+
+
+@pytest.mark.asyncio
+async def test_restore_rejects_commit_from_a_different_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止移除会话匹配校验后，commit 被用于覆盖另一会话。"""
+    user_id = uuid4()
+    service = await _service(tmp_path / "runtime")
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=str(user_id),
+        channel="console",
+        name="source",
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+    monkeypatch.setattr(router, "_service", lambda _request: _async_value(service))
+
+    with pytest.raises(HTTPException) as caught:
+        await router._require_restore_access(
+            service,
+            _request(user_id),
+            commit=snapshot.commit,
+            user_id=str(user_id),
+            session_id="target-session",
+            channel="console",
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_unowned_legacy_checkpoint_is_not_private_user_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止旧无 user_id 元数据的记录自动变成当前成员的私人记录。"""
+    user_id = uuid4()
+    service = await _service(tmp_path / "runtime")
+    legacy = await service.make_snapshot_result(
+        kind="snap",
+        session_id="legacy-session",
+        user_id="",
+        channel="console",
+        name="legacy",
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    with pytest.raises(HTTPException) as caught:
+        await router._require_restore_access(
+            service,
+            _request(user_id),
+            commit=legacy.commit,
+            user_id=str(user_id),
+            session_id="legacy-session",
+            channel="console",
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_authenticated_user_can_restore_own_checkpoint_files(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止可信身份校验只验证元数据、却没有执行真实文件恢复。"""
+    user_id = uuid4()
+    root = tmp_path / "runtime"
+    root.mkdir()
+    session_file = session_file_path(
+        root,
+        session_id="own-session",
+        user_id=str(user_id),
+        channel="console",
+    )
+    session_file.parent.mkdir(parents=True)
+    session_file.write_text('{"value":"before"}', encoding="utf-8")
+    service = await _service(root)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="own-session",
+        user_id=str(user_id),
+        channel="console",
+        name="own",
+    )
+    session_file.write_text('{"value":"after"}', encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    await router._require_restore_access(
+        service,
+        _request(user_id),
+        commit=snapshot.commit,
+        user_id=str(user_id),
+        session_id="own-session",
+        channel="console",
+    )
+    result = await service.restore(
+        target=snapshot.commit,
+        session_id="own-session",
+        user_id=str(user_id),
+        channel="console",
+    )
+
+    assert result.commit == snapshot.commit
+    assert session_file.read_text(encoding="utf-8") == '{"value":"before"}'
+
+
+@pytest.mark.asyncio
+async def test_owner_cannot_restore_collaborator_private_conversation_checkpoint(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止把 Agent 草稿管理权扩大为其他用户私人会话读取权。"""
+    owner_id = uuid4()
+    collaborator_id = uuid4()
+    service = await _service(tmp_path / "agent-workspace")
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="draft-session",
+        user_id=str(collaborator_id),
+        channel="console",
+        name="collaborator-draft",
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+    monkeypatch.setattr(router, "_service", lambda _request: _async_value(service))
+
+    with pytest.raises(HTTPException) as caught:
+        await router._require_restore_access(
+            service,
+            _request(owner_id, AgentResourceRole.OWNER),
+            commit=snapshot.commit,
+            user_id=str(owner_id),
+            session_id="draft-session",
+            channel="console",
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_personal_checkpoint_restores_new_session_without_changing_source(
+    tmp_path: Path,
+) -> None:
+    """防止个人仓库漏存 Agent session，或恢复时覆盖原会话。"""
+    user_id = str(uuid4())
+    agent_root = tmp_path / "agent"
+    personal_root = tmp_path / "personal"
+    source = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source.parent.mkdir(parents=True)
+    checkpoint_state = {
+        "agent": {
+            "state": {
+                "context": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": "checkpoint query"}],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "tool_use",
+                                "name": "execute_shell_command",
+                                "output": "rich-output",
+                            },
+                        ],
+                    },
+                ],
+            },
+        },
+    }
+    import json
+
+    source.write_text(json.dumps(checkpoint_state), encoding="utf-8")
+    service = await _service(
+        personal_root,
+        conversation_root=agent_root,
+    )
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="before-new-turn",
+    )
+    entries = await service.graph_entries()
+    assert entries[0].query == "checkpoint query"
+    source.write_text('{"agent":{"state":{"context":[]}}}', encoding="utf-8")
+
+    result = await service.restore_session_copy(
+        target=snapshot.commit,
+        source_session_id="source-session",
+        source_user_id=user_id,
+        source_channel="console",
+        new_session_id="restored-session",
+        new_user_id=user_id,
+        new_channel="console",
+    )
+
+    restored = session_file_path(
+        agent_root,
+        session_id="restored-session",
+        user_id=user_id,
+        channel="console",
+    )
+    assert json.loads(source.read_text(encoding="utf-8"))["agent"]["state"][
+        "context"
+    ] == []
+    assert json.loads(restored.read_text(encoding="utf-8")) == checkpoint_state
+    assert result.restored_paths == (
+        f"sessions/console/{user_id}_restored-session.json",
+    )
+
+
+@pytest.mark.asyncio
+async def test_corrupt_checkpoint_session_is_rejected_without_new_file(
+    tmp_path: Path,
+) -> None:
+    """防止损坏的旧 session blob 被当成成功恢复。"""
+    user_id = str(uuid4())
+    agent_root = tmp_path / "agent"
+    source = session_file_path(
+        agent_root,
+        session_id="source",
+        user_id=user_id,
+        channel="console",
+    )
+    source.parent.mkdir(parents=True)
+    source.write_text("not-json", encoding="utf-8")
+    service = await _service(tmp_path / "personal", conversation_root=agent_root)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source",
+        user_id=user_id,
+        channel="console",
+        name="corrupt",
+    )
+
+    with pytest.raises(CheckpointError, match="missing or invalid"):
+        await service.restore_session_copy(
+            target=snapshot.commit,
+            source_session_id="source",
+            source_user_id=user_id,
+            source_channel="console",
+            new_session_id="new",
+            new_user_id=user_id,
+            new_channel="console",
+        )
+
+    assert not session_file_path(
+        agent_root,
+        session_id="new",
+        user_id=user_id,
+        channel="console",
+    ).exists()
+
+
+@pytest.mark.asyncio
+async def test_missing_checkpoint_session_is_rejected_without_new_file(
+    tmp_path: Path,
+) -> None:
+    """旧检查点缺少 session blob 时必须明确失败，不能生成空会话。"""
+    user_id = str(uuid4())
+    root = tmp_path / "legacy-agent"
+    service = await _service(root, conversation_root=root)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="missing-source",
+        user_id=user_id,
+        channel="console",
+        name="missing",
+    )
+
+    with pytest.raises(CheckpointError, match="missing or invalid"):
+        await service.restore_session_copy(
+            target=snapshot.commit,
+            source_session_id="missing-source",
+            source_user_id=user_id,
+            source_channel="console",
+            new_session_id="new",
+            new_user_id=user_id,
+            new_channel="console",
+        )
+
+    assert not session_file_path(
+        root,
+        session_id="new",
+        user_id=user_id,
+        channel="console",
+    ).exists()
+
+
+@pytest.mark.asyncio
+async def test_corrupt_restore_is_mapped_to_http_400(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """多用户恢复的数据错误必须返回可解释 4xx，而不是泄漏为 500。"""
+    user_uuid = uuid4()
+    user_id = str(user_uuid)
+    root = tmp_path / "http-agent"
+    source = session_file_path(
+        root,
+        session_id="source",
+        user_id=user_id,
+        channel="console",
+    )
+    source.parent.mkdir(parents=True)
+    source.write_text("not-json", encoding="utf-8")
+    service = await _service(root, conversation_root=root)
+    manager = ChatManager(repo=JsonChatRepository(root / "chats.json"))
+    await manager.create_chat(
+        ChatSpec(
+            session_id="source",
+            user_id=user_id,
+            channel="console",
+            name="source",
+        ),
+    )
+    service.workspace = SimpleNamespace(chat_manager=manager)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source",
+        user_id=user_id,
+        channel="console",
+        name="corrupt-http",
+    )
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    async def get_service(_request):
+        return service
+
+    monkeypatch.setattr(router, "_service", get_service)
+
+    with pytest.raises(HTTPException) as caught:
+        await router._restore(
+            router.RestoreRequest(
+                commit=snapshot.commit,
+                session_id="source",
+                channel="console",
+            ),
+            _request(user_uuid),
+            dry_run=False,
+        )
+
+    assert caught.value.status_code == 400
+    assert "missing or invalid" in str(caught.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_collaborator_cannot_reset_shared_checkpoint_repository(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """协作者不能用共享仓库 reset 删除其他创建者检查点。"""
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    async def unexpected_service(_request):
+        raise AssertionError("reset must be rejected before opening the repository")
+
+    monkeypatch.setattr(router, "_service", unexpected_service)
+
+    with pytest.raises(HTTPException) as caught:
+        await router.reset_checkpoints(
+            _request(uuid4(), AgentResourceRole.COLLABORATOR),
+        )
+
+    assert caught.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_restore_preview_does_not_create_session_or_chat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止预览通过生成新 UUID、目录或 ChatSpec 产生业务写入。"""
+    user_uuid = uuid4()
+    user_id = str(user_uuid)
+    agent_root = tmp_path / "agent"
+    source_path = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text('{"agent":{"state":{"context":[]}}}', encoding="utf-8")
+    personal_root = tmp_path / "personal"
+    personal_root.mkdir()
+    selected = personal_root / "selected.txt"
+    selected.write_text("checkpoint", encoding="utf-8")
+    service = await _service(
+        personal_root,
+        conversation_root=agent_root,
+    )
+    manager = ChatManager(repo=JsonChatRepository(agent_root / "chats.json"))
+    source_chat = ChatSpec(
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    await manager.create_chat(source_chat)
+    service.workspace = SimpleNamespace(chat_manager=manager)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    selected.write_text("current", encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    async def get_service(_request):
+        return service
+
+    monkeypatch.setattr(router, "_service", get_service)
+
+    result = await router._restore(
+        router.RestoreRequest(
+            commit=snapshot.commit,
+            session_id="source-session",
+            channel="console",
+            include_files=True,
+            files=["selected.txt"],
+        ),
+        _request(user_uuid),
+        dry_run=True,
+    )
+
+    assert result["new_session_id"] is None
+    assert result["new_chat_id"] is None
+    assert [chat.id for chat in await manager.list_chats()] == [source_chat.id]
+    assert list((agent_root / "sessions" / "console").glob("*.json")) == [
+        source_path,
+    ]
+    assert selected.read_text(encoding="utf-8") == "current"
+
+
+@pytest.mark.asyncio
+async def test_restore_callback_failure_removes_new_session_and_chat(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止 PG 元数据 callback 失败后暴露可继续的新会话半成品。"""
+    user_uuid = uuid4()
+    user_id = str(user_uuid)
+    agent_root = tmp_path / "agent"
+    source_path = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text('{"agent":{"state":{"context":[]}}}', encoding="utf-8")
+    personal_root = tmp_path / "failed-personal"
+    personal_root.mkdir()
+    selected = personal_root / "selected.txt"
+    selected.write_text("checkpoint", encoding="utf-8")
+    manager = ChatManager(repo=JsonChatRepository(agent_root / "chats.json"))
+    source_chat = ChatSpec(
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    await manager.create_chat(source_chat)
+
+    async def fail_metadata(_chat) -> None:
+        raise RuntimeError("metadata failed")
+
+    manager.set_on_chat_created(fail_metadata)
+    service = await _service(
+        personal_root,
+        conversation_root=agent_root,
+    )
+    service.workspace = SimpleNamespace(chat_manager=manager)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    selected.write_text("current", encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    async def get_service(_request):
+        return service
+
+    monkeypatch.setattr(router, "_service", get_service)
+
+    with pytest.raises(RuntimeError, match="metadata failed"):
+        await router._restore(
+            router.RestoreRequest(
+                commit=snapshot.commit,
+                session_id="source-session",
+                channel="console",
+                include_files=True,
+                files=["selected.txt"],
+            ),
+            _request(user_uuid),
+            dry_run=False,
+        )
+
+    assert [chat.id for chat in await manager.list_chats()] == [source_chat.id]
+    assert list((agent_root / "sessions" / "console").glob("*.json")) == [
+        source_path,
+    ]
+    assert selected.read_text(encoding="utf-8") == "current"
+
+
+@pytest.mark.asyncio
+async def test_new_session_restore_keeps_source_and_restores_only_selected_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """防止新会话恢复覆盖源 session，或恢复未勾选的个人文件。"""
+    user_uuid = uuid4()
+    user_id = str(user_uuid)
+    agent_root = tmp_path / "agent"
+    personal_root = tmp_path / "personal"
+    source_path = session_file_path(
+        agent_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    )
+    source_path.parent.mkdir(parents=True)
+    source_path.write_text('{"agent":{"state":{"context":["before"]}}}', encoding="utf-8")
+    personal_root.mkdir()
+    selected = personal_root / "selected.txt"
+    untouched = personal_root / "untouched.txt"
+    memory = personal_root / "MEMORY.md"
+    selected.write_text("before", encoding="utf-8")
+    untouched.write_text("before", encoding="utf-8")
+    memory.write_text("before-memory", encoding="utf-8")
+    manager = ChatManager(repo=JsonChatRepository(agent_root / "chats.json"))
+    source_chat = ChatSpec(
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    await manager.create_chat(source_chat)
+    service = await _service(personal_root, conversation_root=agent_root)
+    service.workspace = SimpleNamespace(chat_manager=manager)
+    snapshot = await service.make_snapshot_result(
+        kind="snap",
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+        name="source",
+    )
+    source_path.write_text('{"agent":{"state":{"context":["after"]}}}', encoding="utf-8")
+    selected.write_text("after", encoding="utf-8")
+    untouched.write_text("after", encoding="utf-8")
+    memory.write_text("after-memory", encoding="utf-8")
+    monkeypatch.setattr(router, "is_multi_user_enabled", lambda: True)
+
+    async def get_service(_request):
+        return service
+
+    monkeypatch.setattr(router, "_service", get_service)
+
+    result = await router._restore(
+        router.RestoreRequest(
+            commit=snapshot.commit,
+            session_id="source-session",
+            channel="console",
+            include_files=True,
+            include_memory=True,
+            files=["selected.txt"],
+        ),
+        _request(user_uuid),
+        dry_run=False,
+    )
+
+    assert result["new_chat_id"]
+    assert source_path.read_text(encoding="utf-8") == (
+        '{"agent":{"state":{"context":["after"]}}}'
+    )
+    assert selected.read_text(encoding="utf-8") == "before"
+    assert untouched.read_text(encoding="utf-8") == "after"
+    assert memory.read_text(encoding="utf-8") == "before-memory"
+    assert not session_file_path(
+        personal_root,
+        session_id="source-session",
+        user_id=user_id,
+        channel="console",
+    ).exists()
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { renderWithProviders } from "@/test/common_setup";
+import type { CheckpointNode, RestoreResult } from "@/api/types/checkpoints";
+import { RestoreModal } from "./RestoreModal";
+
+const mocks = vi.hoisted(() => ({
+  navigate: vi.fn(),
+  previewRestore: vi.fn(),
+  restore: vi.fn(),
+  success: vi.fn(),
+  error: vi.fn(),
+}));
+
+vi.mock("react-router-dom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("react-router-dom")>();
+  return { ...actual, useNavigate: () => mocks.navigate };
+});
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
+}));
+
+vi.mock("@/api/modules/checkpoints", () => ({
+  checkpointsApi: {
+    previewRestore: mocks.previewRestore,
+    restore: mocks.restore,
+  },
+}));
+
+vi.mock("@/hooks/useAppMessage", () => ({
+  useAppMessage: () => ({
+    message: { success: mocks.success, error: mocks.error },
+  }),
+}));
+
+const node: CheckpointNode = {
+  ref: "refs/snap/source/checkpoint",
+  kind: "snap",
+  session_key: "source",
+  name: "checkpoint",
+  commit: "a".repeat(40),
+  sha: "a".repeat(12),
+  timestamp_ms: 1,
+  subject: "checkpoint",
+  query: "before restore",
+  channel: "console",
+  restore_index: null,
+  parent_commit: null,
+  is_head: true,
+  agent_id: "agent",
+  user_id: "user",
+  session_id: "source-session",
+  session_title: "source",
+};
+
+const result = (newChatId: string | null): RestoreResult => ({
+  target: node.commit,
+  commit: node.commit,
+  restored_paths: ["sessions/console/restored.json"],
+  deleted_paths: [],
+  file_paths: [],
+  pre_restore_ref: null,
+  dry_run: false,
+  include_memory: false,
+  include_files: false,
+  new_session_id: newChatId ? "restored-session" : null,
+  new_chat_id: newChatId,
+});
+
+describe("checkpoint restore navigation", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("成功恢复后使用服务端创建的 chat id 导航", async () => {
+    mocks.previewRestore.mockResolvedValue({ ...result(null), dry_run: true });
+    mocks.restore.mockResolvedValue(result("restored/chat id"));
+    const onClose = vi.fn();
+    const onRestored = vi.fn();
+    renderWithProviders(
+      <RestoreModal
+        open
+        node={node}
+        onClose={onClose}
+        onRestored={onRestored}
+        createsNewChat
+      />,
+    );
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("checkpoints.restore.preview"));
+    await user.click(
+      await screen.findByText("checkpoints.restore.confirm"),
+    );
+
+    await waitFor(() => {
+      expect(mocks.navigate).toHaveBeenCalledWith(
+        "/chat/restored%2Fchat%20id",
+      );
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onRestored).toHaveBeenCalledOnce();
+    expect(
+      screen.getByText("checkpoints.restore.newChatWarning"),
+    ).toBeInTheDocument();
+  });
+
+  it("恢复失败时不关闭、不刷新且不导航", async () => {
+    mocks.previewRestore.mockResolvedValue({ ...result(null), dry_run: true });
+    mocks.restore.mockRejectedValue(new Error("restore failed"));
+    const onClose = vi.fn();
+    const onRestored = vi.fn();
+    renderWithProviders(
+      <RestoreModal open node={node} onClose={onClose} onRestored={onRestored} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("checkpoints.restore.preview"));
+    await user.click(await screen.findByText("checkpoints.restore.confirm"));
+    await waitFor(() => expect(mocks.error).toHaveBeenCalled());
+    expect(mocks.navigate).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onRestored).not.toHaveBeenCalled();
+  });
+
+  it("Legacy 成功恢复无新 chat id 时保持原行为", async () => {
+    mocks.previewRestore.mockResolvedValue({ ...result(null), dry_run: true });
+    mocks.restore.mockResolvedValue(result(null));
+    const onClose = vi.fn();
+    const onRestored = vi.fn();
+    renderWithProviders(
+      <RestoreModal open node={node} onClose={onClose} onRestored={onRestored} />,
+    );
+    const user = userEvent.setup();
+    await user.click(screen.getByText("checkpoints.restore.preview"));
+    expect(
+      await screen.findByText("checkpoints.restore.refreshWarning"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByText("checkpoints.restore.confirm"));
+    await waitFor(() => expect(onRestored).toHaveBeenCalledOnce());
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(mocks.navigate).not.toHaveBeenCalled();
+  });
+});
+
+import type { CheckpointStatus } from "@/api/types/checkpoints";
+
+export const restoreCreatesNewChat = (
+  status: CheckpointStatus | null,
+): boolean => status?.restore_mode === "new_chat";
+
+import { describe, expect, it } from "vitest";
+import type { CheckpointStatus } from "@/api/types/checkpoints";
+import { restoreCreatesNewChat } from "./restoreMode";
+
+const status = (
+  restore_mode?: CheckpointStatus["restore_mode"],
+): CheckpointStatus => ({
+  auto_enabled: true,
+  has_checkpoints: true,
+  scope: "agent_workspace",
+  restore_mode,
+});
+
+describe("checkpoint restore mode", () => {
+  it("只在后端明确声明 new_chat 时显示新会话语义", () => {
+    expect(restoreCreatesNewChat(status("new_chat"))).toBe(true);
+    expect(restoreCreatesNewChat(status("in_place"))).toBe(false);
+  });
+
+  it("旧后端缺少模式字段时安全回退到原位恢复提示", () => {
+    expect(restoreCreatesNewChat(status())).toBe(false);
+    expect(restoreCreatesNewChat(null)).toBe(false);
+  });
+});
+
+

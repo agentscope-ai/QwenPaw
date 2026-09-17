@@ -1,132 +1,64 @@
 # -*- coding: utf-8 -*-
-"""Integrated tests for QwenPaw app startup and console."""
-# pylint:disable=consider-using-with
+"""Integration smoke tests for app startup and console."""
 from __future__ import annotations
 
-import socket
-import subprocess
-import sys
-import threading
-import time
-
-import httpx
+import pytest
 
 
-def _find_free_port(host: str = "127.0.0.1") -> int:
-    """Bind to portary 0 and return the OS-assigned free port."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind((host, 0))
-        sock.listen(1)
-        return sock.getsockname()[1]
+@pytest.mark.integration
+@pytest.mark.p0
+def test_api_version_ok(app_server) -> None:
+    """Test purpose:
+    - Verify the basic version endpoint is available after startup, as the
+      minimum readiness signal for integration tests.
+
+    Test flow:
+    1. Request the version endpoint.
+    2. Assert status code is 200.
+    3. Assert the response contains a non-empty string version.
+
+    API endpoints:
+    - GET /api/version
+    """
+    response = app_server.api_request("GET", "/api/version")
+    assert response.status_code == 200, app_server.logs_tail()
+    payload = response.json()
+    assert "version" in payload
+    assert isinstance(payload["version"], str)
+    assert payload["version"].strip()
 
 
-def _tee_stream(stream, buffer: list[str]) -> None:
-    """Read subprocess output, print it live, and keep a copy."""
-    try:
-        for line in iter(stream.readline, ""):
-            buffer.append(line)
-            print(line, end="", flush=True)
-    finally:
-        stream.close()
+@pytest.mark.integration
+@pytest.mark.p1
+def test_console_entry_or_fallback_ok(app_server) -> None:
+    """Test purpose:
+    - Verify the console entry returns predictable behavior across build
+      variants (either a working HTML page or an explicit fallback).
 
+    Test flow:
+    1. Request /console/.
+    2. If status is 200, assert HTML content-type and HTML body markers.
+    3. If status is 404, request / and assert a clear JSON fallback message.
 
-def test_app_startup_and_console() -> None:
-    """Test that qwenpaw app starts correctly with backend and console."""
-    host = "127.0.0.1"
-    port = _find_free_port(host)
-    log_lines: list[str] = []
+    API endpoints:
+    - GET /console/
+    - GET /
+    """
+    response = app_server.api_request("GET", "/console/")
+    if response.status_code == 200:
+        content_type = response.headers.get("content-type", "").lower()
+        assert "text/html" in content_type
+        body = response.text
+        assert body.strip()
+        assert "<!doctype html>" in body.lower() or "<html" in body.lower()
+        return
 
-    process = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "qwenpaw",
-            "app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-            "--log-level",
-            "info",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-
-    assert process.stdout is not None
-
-    log_thread = threading.Thread(
-        target=_tee_stream,
-        args=(process.stdout, log_lines),
-        daemon=True,
-    )
-    log_thread.start()
-
-    try:
-        max_wait = 60
-        start_time = time.time()
-        backend_ready = False
-        last_error = None
-
-        with httpx.Client(timeout=5.0, trust_env=False) as client:
-            while time.time() - start_time < max_wait:
-                if process.poll() is not None:
-                    logs = "".join(log_lines)[-4000:]
-                    if "ImportError" in logs or "ModuleNotFoundError" in logs:
-                        raise AssertionError(
-                            "Failed due to dependency issue:\n" f"{logs}",
-                        )
-                    raise AssertionError(
-                        f"Process exited early with code"
-                        f" {process.returncode}.\nLogs:\n{logs}",
-                    )
-
-                try:
-                    response = client.get(f"http://{host}:{port}/api/version")
-                    if response.status_code == 200:
-                        backend_ready = True
-                        version_data = response.json()
-                        assert "version" in version_data
-                        assert isinstance(version_data["version"], str)
-                        break
-                except (httpx.ConnectError, httpx.TimeoutException) as e:
-                    last_error = str(e)
-                    time.sleep(1.0)
-
-            if not backend_ready:
-                logs = "".join(log_lines)[-4000:]
-                raise AssertionError(
-                    "Backend did not start within timeout period. "
-                    f"Last error: {last_error}\n"
-                    f"Logs:\n{logs}",
-                )
-
-            console_response = client.get(f"http://{host}:{port}/console/")
-            assert (
-                console_response.status_code == 200
-            ), f"Console not accessible: {console_response.status_code}"
-
-            assert (
-                "text/html"
-                in console_response.headers.get("content-type", "").lower()
-            ), "Console should return HTML content"
-
-            html_content = console_response.text
-            assert len(html_content) > 0, "Console HTML should not be empty"
-            assert (
-                "<!doctype html>" in html_content.lower()
-                or "<html" in html_content.lower()
-            ), "Console should return valid HTML"
-
-    finally:
-        if process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
-
-        log_thread.join(timeout=2)
+    # Source installs without prebuilt frontend currently return 404 at
+    # /console/. In this case, "/" should still expose a clear fallback
+    # message instead of crashing.
+    assert response.status_code == 404, app_server.logs_tail()
+    root_response = app_server.api_request("GET", "/")
+    assert root_response.status_code == 200, app_server.logs_tail()
+    fallback = root_response.json()
+    assert "message" in fallback
+    assert "web console is not available" in fallback["message"]

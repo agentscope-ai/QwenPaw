@@ -1,21 +1,104 @@
 import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import api from "../../../api";
 import type { CronJobSpecOutput } from "../../../api/types";
 import { useAgentStore } from "../../../stores/agentStore";
+import { parseErrorDetail } from "../../../utils/error";
 
 type CronJob = CronJobSpecOutput;
 
-export function useCronJobs() {
+export function useCronJobs(scope: "mine" | "agent" = "mine") {
   const { selectedAgent } = useAgentStore();
   const [jobs, setJobs] = useState<CronJob[]>([]);
   const [loading, setLoading] = useState(false);
   const { message } = useAppMessage();
+  const { t } = useTranslation();
+
+  const getDisplayErrorMessage = (error: unknown, fallback: string): string => {
+    const normalizeMessage = (raw: string): string => {
+      const cleaned = raw.replace(/^Value error,\s*/i, "").trim();
+      if (cleaned.includes("schedule.type is cron but cron is empty")) {
+        return t("cronJobs.validation.cronRequired");
+      }
+      if (cleaned.includes("schedule.type is once but run_at is missing")) {
+        return t("cronJobs.validation.runAtRequired");
+      }
+      if (
+        cleaned.includes("repeat_end_type is until but repeat_until is missing")
+      ) {
+        return t("cronJobs.validation.repeatUntilRequired");
+      }
+      if (
+        cleaned.includes("repeat_end_type is count but repeat_count is missing")
+      ) {
+        return t("cronJobs.validation.repeatCountRequired");
+      }
+      if (cleaned.includes("repeat_until must be later than run_at")) {
+        return t("cronJobs.validation.repeatUntilAfterRunAt");
+      }
+      if (cleaned.includes("task_type is text but text is empty")) {
+        return t("cronJobs.validation.textRequired");
+      }
+      if (cleaned.includes("task_type is agent but request is missing")) {
+        return t("cronJobs.validation.requestRequired");
+      }
+      if (cleaned.includes("cron must have 5 fields")) {
+        return t("cronJobs.validation.invalidCronExpression");
+      }
+      return cleaned;
+    };
+
+    const detail = parseErrorDetail(error) as unknown;
+    if (typeof detail === "string" && detail.trim()) {
+      return normalizeMessage(detail);
+    }
+    if (Array.isArray(detail) && detail.length > 0) {
+      const first = detail[0];
+      if (typeof first === "string" && first.trim()) {
+        return normalizeMessage(first);
+      }
+      if (first && typeof first === "object") {
+        const firstObj = first as { msg?: unknown; message?: unknown };
+        if (typeof firstObj.msg === "string" && firstObj.msg.trim()) {
+          return normalizeMessage(firstObj.msg);
+        }
+        if (typeof firstObj.message === "string" && firstObj.message.trim()) {
+          return normalizeMessage(firstObj.message);
+        }
+      }
+    }
+    if (detail && typeof detail === "object") {
+      const detailObj = detail as {
+        message?: unknown;
+        detail?: unknown;
+        msg?: unknown;
+      };
+      if (typeof detailObj.message === "string" && detailObj.message.trim()) {
+        return normalizeMessage(detailObj.message);
+      }
+      if (typeof detailObj.msg === "string" && detailObj.msg.trim()) {
+        return normalizeMessage(detailObj.msg);
+      }
+      if (typeof detailObj.detail === "string" && detailObj.detail.trim()) {
+        return normalizeMessage(detailObj.detail);
+      }
+    }
+    if (error instanceof Error && error.message) {
+      const separatorIndex = error.message.indexOf(" - ");
+      const messageText =
+        separatorIndex >= 0
+          ? error.message.slice(0, separatorIndex)
+          : error.message;
+      return normalizeMessage(messageText);
+    }
+    return fallback;
+  };
 
   const fetchJobs = async () => {
     setLoading(true);
     try {
-      const data = await api.listCronJobs();
+      const data = await api.listCronJobs(scope);
       if (data) {
         setJobs(data as CronJob[]);
       }
@@ -41,17 +124,17 @@ export function useCronJobs() {
     return () => {
       mounted = false;
     };
-  }, [selectedAgent]);
+  }, [selectedAgent, scope]);
 
   const createJob = async (values: CronJob) => {
     try {
       const created = await api.createCronJob(values);
       setJobs((prev) => [created as CronJob, ...prev]);
       message.success("Created successfully");
-      return true;
+      return created as CronJob;
     } catch (error) {
       console.error("Failed to create cron job", error);
-      message.error("Failed to save");
+      message.error(getDisplayErrorMessage(error, "Failed to save"));
       return false;
     }
   };
@@ -67,13 +150,13 @@ export function useCronJobs() {
         prev.map((j) => (j.id === jobId ? (updated as CronJob) : j)),
       );
       message.success("Updated successfully");
-      return true;
+      return updated as CronJob;
     } catch (error) {
       console.error("Failed to update cron job", error);
       if (original) {
         setJobs((prev) => prev.map((j) => (j.id === jobId ? original : j)));
       }
-      message.error("Failed to save");
+      message.error(getDisplayErrorMessage(error, "Failed to save"));
       return false;
     }
   };
@@ -97,14 +180,20 @@ export function useCronJobs() {
   };
 
   const toggleEnabled = async (job: CronJob) => {
-    const updated = { ...job, enabled: !job.enabled };
+    const enabling = !job.enabled;
+    const updated = {
+      ...job,
+      enabled: enabling,
+      status: enabling ? ("active" as const) : ("paused" as const),
+    };
     setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
 
     try {
-      const returned = await api.replaceCronJob(job.id, updated);
-      setJobs((prev) =>
-        prev.map((j) => (j.id === job.id ? (returned as CronJob) : j)),
-      );
+      if (enabling) {
+        await api.resumeCronJob(job.id);
+      } else {
+        await api.pauseCronJob(job.id);
+      }
       message.success(`${updated.enabled ? "Enabled" : "Disabled"}`);
       return true;
     } catch (error) {
@@ -127,6 +216,34 @@ export function useCronJobs() {
     }
   };
 
+  const authorizeJob = async (
+    jobId: string,
+    confirmedPreview?: {
+      config_version: number;
+      authorization_digest: string;
+    },
+  ) => {
+    try {
+      const preview =
+        confirmedPreview ?? (await api.getCronJobAuthorization(jobId));
+      const authorized = await api.authorizeCronJob(jobId, {
+        config_version: preview.config_version,
+        authorization_digest: preview.authorization_digest,
+      });
+      setJobs((prev) =>
+        prev.map((job) => (job.id === jobId ? authorized : job)),
+      );
+      message.success(t("cronJobs.authorizationSuccess"));
+      return authorized;
+    } catch (error) {
+      console.error("Failed to authorize cron job", error);
+      message.error(
+        getDisplayErrorMessage(error, t("cronJobs.authorizationFailed")),
+      );
+      return false;
+    }
+  };
+
   return {
     jobs,
     loading,
@@ -135,5 +252,6 @@ export function useCronJobs() {
     deleteJob,
     toggleEnabled,
     executeNow,
+    authorizeJob,
   };
 }

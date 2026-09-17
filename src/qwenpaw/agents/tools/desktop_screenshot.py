@@ -4,18 +4,24 @@
 import json
 import os
 import platform
-import subprocess
 import time
-
-from agentscope.message import TextBlock
-from agentscope.tool import ToolResponse
+import mimetypes
+from agentscope.message import DataBlock, TextBlock, URLSource
+from agentscope.tool import ToolChunk
+from agentscope.message import ToolResultState
 
 from ...config.context import get_current_workspace_dir
 from ...constant import WORKING_DIR
+from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import run_sync_io
+from .file_io import _path_to_file_url
+from ..utils.image_freezing import freeze_local_images_async
 
 
-def _tool_error(msg: str) -> ToolResponse:
-    return ToolResponse(
+def _tool_error(msg: str) -> ToolChunk:
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
             TextBlock(
                 type="text",
@@ -29,9 +35,22 @@ def _tool_error(msg: str) -> ToolResponse:
     )
 
 
-def _tool_ok(path: str, message: str) -> ToolResponse:
-    return ToolResponse(
+def _tool_ok(path: str, message: str) -> ToolChunk:
+    file_url = _path_to_file_url(path)
+    mime_type, _ = mimetypes.guess_type(path)
+    if mime_type is None:
+        mime_type = "image/*"
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
+            DataBlock(
+                source=URLSource(
+                    url=file_url,
+                    media_type=mime_type,
+                ),
+                name=os.path.basename(path),
+            ),
             TextBlock(
                 type="text",
                 text=json.dumps(
@@ -48,7 +67,7 @@ def _tool_ok(path: str, message: str) -> ToolResponse:
     )
 
 
-def _capture_mss(path: str) -> ToolResponse:
+def _capture_mss(path: str) -> ToolChunk:
     """Full-screen capture using mss (Windows, Linux, macOS)."""
     try:
         import mss
@@ -68,42 +87,71 @@ def _capture_mss(path: str) -> ToolResponse:
         return _tool_error(f"desktop_screenshot (mss) failed: {e!s}")
 
 
-def _capture_macos_screencapture(
+async def _capture_macos_screencapture(
     path: str,
     capture_window: bool,
-) -> ToolResponse:
+) -> ToolChunk:
     """macOS: screencapture (supports window selection with -w)."""
+    import asyncio
+
+    from ...tool_calls import cancellable_wait
+
     cmd = ["screencapture", "-x", path]
     if capture_window:
         cmd.insert(-1, "-w")
+    proc = None
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=False,
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
         )
-        if result.returncode != 0:
-            stderr = (result.stderr or "").strip() or "Unknown error"
-            return _tool_error(f"screencapture failed: {stderr}")
+        _, stderr = await cancellable_wait(
+            proc.communicate(),
+            fallback_secs=30,
+            as_kill_deadline=True,
+        )
+        if proc.returncode != 0:
+            stderr_str = (stderr or b"").decode().strip() or "Unknown error"
+            return _tool_error(f"screencapture failed: {stderr_str}")
         if not os.path.isfile(path):
             return _tool_error(
                 "screencapture reported success but file was not created",
             )
         return _tool_ok(path, f"Desktop screenshot saved to {path}")
-    except subprocess.TimeoutExpired:
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass
         return _tool_error(
             "screencapture timed out (e.g. window selection cancelled)",
         )
     except Exception as e:
+        if proc is not None and proc.returncode is None:
+            try:
+                proc.kill()
+                await proc.wait()
+            except (ProcessLookupError, OSError):
+                pass
         return _tool_error(f"desktop_screenshot failed: {e!s}")
 
 
+@tool_descriptor(
+    requires_sandbox=("file_write",),
+    async_execution=True,
+    tool_type="file",
+    target_param="path",
+    policy_name="DesktopScreenshot",
+    ui_description="Capture desktop screenshots",
+    ui_icon="📸",
+)
 async def desktop_screenshot(
     path: str = "",
     capture_window: bool = False,
-) -> ToolResponse:
+) -> ToolChunk:
     """Capture a screenshot of the entire desktop (all monitors)
         or a single window.
 
@@ -122,7 +170,7 @@ async def desktop_screenshot(
             (capture_window is ignored).
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             JSON with "ok", "path" (saved file path), and optional "message"
             or "error".
     """
@@ -137,7 +185,13 @@ async def desktop_screenshot(
 
     # macOS: optional window selection via screencapture -w
     if system == "Darwin" and capture_window:
-        return _capture_macos_screencapture(path, capture_window=True)
+        result = await _capture_macos_screencapture(
+            path,
+            capture_window=True,
+        )
+    else:
+        # Full-screen on all platforms (macOS, Linux, Windows) via mss.
+        result = await run_sync_io(_capture_mss, path)
 
-    # Full-screen on all platforms (macOS, Linux, Windows) via mss
-    return _capture_mss(path)
+    await freeze_local_images_async(result)
+    return result

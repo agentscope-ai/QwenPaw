@@ -10,6 +10,9 @@ importers:
       "@fontsource-variable/geist":
         specifier: ^5.2.8
         version: 5.2.8
+      "@supabase/supabase-js":
+        specifier: ^2.110.4
+        version: 2.110.4
       "@types/react-syntax-highlighter":
         specifier: ^15.5.13
         version: 15.5.13
@@ -28,6 +31,9 @@ importers:
       i18next:
         specifier: ^25.8.20
         version: 25.10.9(typescript@5.6.3)
+      js-yaml:
+        specifier: ^4.3.0
+        version: 4.3.0
       lucide-react:
         specifier: ^0.468.0
         version: 0.468.0(react@18.3.1)
@@ -83,9 +89,9 @@ importers:
       "@tailwindcss/vite":
         specifier: ^4.2.2
         version: 4.2.2(vite@6.4.1(@types/node@25.5.0)(jiti@2.6.1)(lightningcss@1.32.0))
-      "@types/highlight.js":
-        specifier: ^10.1.0
-        version: 10.1.0
+      "@types/js-yaml":
+        specifier: ^4.0.9
+        version: 4.0.9
       "@types/node":
         specifier: ^25.5.0
         version: 25.5.0
@@ -1952,6 +1958,54 @@ packages:
       }
     engines: { node: ">=18" }
 
+  "@supabase/auth-js@2.110.4":
+    resolution:
+      {
+        integrity: sha512-nD+gsHRX7/qCCKzpX8Lch/NUi0rmg4YereGTFzUT0BkPJ0ObDLkhCfjfiloRNLky1oHkb+QLA45Vx2zAsQ6iIQ==,
+      }
+    engines: { node: ">=22.0.0" }
+
+  "@supabase/functions-js@2.110.4":
+    resolution:
+      {
+        integrity: sha512-661Bg5VeEDv6twzQhXzoBpPV4xswuwGGDzmBkpa1wmpwu5/veHqT2lURNxCowCiUOWIkj8fJ9LLjq0sgwBIA4A==,
+      }
+    engines: { node: ">=22.0.0" }
+
+  "@supabase/phoenix@0.4.4":
+    resolution:
+      {
+        integrity: sha512-Gt0pqoXuIqX/8dvG0OKp/wMCobXNH3klNbUPBNyOfN0YA1IswrM3HyWFMOPk1Jy+BRaIyDPcFx4jLBwHNmlyfQ==,
+      }
+
+  "@supabase/postgrest-js@2.110.4":
+    resolution:
+      {
+        integrity: sha512-TVTPrB8Ee/0dqA6B1fieMnCS32TYi5IRgIFuW5jL5DWGtw/y9XIojVkgLROdm8mhfpkiwt51lEtKYb3jl5cx1w==,
+      }
+    engines: { node: ">=22.0.0" }
+
+  "@supabase/realtime-js@2.110.4":
+    resolution:
+      {
+        integrity: sha512-nPtV06SuJXA+iAMUFBRrhjReayDICIzM8qi0TbsOXlPhn3GK5sDchwidHDtw9VPVOgKeF3xyXlrjIxeA0YdpuA==,
+      }
+    engines: { node: ">=22.0.0" }
+
+  "@supabase/storage-js@2.110.4":
+    resolution:
+      {
+        integrity: sha512-s7e6KGY3KQQTLWz93xd8qJQpSZMqHQR8Yvigk4aqxdCc/XEzNhF/FiEEUO8bwZ2RrFxCe4rmPlHHd+/OyTATMw==,
+      }
+    engines: { node: ">=22.0.0" }
+
+  "@supabase/supabase-js@2.110.4":
+    resolution:
+      {
+        integrity: sha512-RErQw3rYFu/t23oli4q7Zb+PUiyAv2h2/aoGLJqaY35eBGugmo+Bb7ZByqxssoFcrxT6xVz3hQde53O/6/+HWA==,
+      }
+    engines: { node: ">=22.0.0" }
+
   "@tailwindcss/node@4.2.2":
     resolution:
       {
@@ -2333,12 +2387,11 @@ packages:
         integrity: sha512-WPs+bbQw5aCj+x6laNGWLH3wviHtoCv/P3+otBhbOhJgG8qtpdAMlTCxLtsTWA7LH1Oh/bFCHsBn0TPS5m30EQ==,
       }
 
-  "@types/highlight.js@10.1.0":
+  "@types/js-yaml@4.0.9":
     resolution:
       {
-        integrity: sha512-77hF2dGBsOgnvZll1vymYiNUtqJ8cJfXPD6GG/2M0aLRc29PkvB7Au6sIDjIEFcSICBhCh2+Pyq6WSRS7LUm6A==,
+        integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==,
       }
-    deprecated: This is a stub types definition. highlight.js provides its own type definitions, so you do not need this installed.
 
   "@types/mdast@4.0.4":
     resolution:
@@ -3846,6 +3899,13 @@ packages:
       typescript:
         optional: true
 
+  iceberg-js@0.8.1:
+    resolution:
+      {
+        integrity: sha512-1dhVQZXhcHje7798IVM+xoo/1ZdVfzOMIc8/rgVSijRK38EDqOJoGula9N/8ZI5RD8QTxNQtK/Gozpr+qUqRRA==,
+      }
+    engines: { node: ">=20.0.0" }
+
   iconv-lite@0.6.3:
     resolution:
       {
@@ -4101,10 +4161,10 @@ packages:
         integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==,
       }
 
-  js-yaml@4.1.1:
+  js-yaml@4.3.0:
     resolution:
       {
-        integrity: sha512-qQKT4zQxXl8lLwBtHMWwaTcGfFOZviOJet3Oy/xmGk2gZH677CJM9EvtfdSkgWcATZhj/55JZ0rmy3myCT5lsA==,
+        integrity: sha512-1td788aAnnZ5qs7V2QIRl1owjtYpbKt749Y3xauqQgwIIGF/xXWz1wMTEBx5O3LK3lXLVuqXPdPxj2BoFHaW9Q==,
       }
     hasBin: true
 
@@ -7453,6 +7513,38 @@ snapshots:
 
   "@sindresorhus/merge-streams@4.0.0": {}
 
+  "@supabase/auth-js@2.110.4":
+    dependencies:
+      tslib: 2.8.1
+
+  "@supabase/functions-js@2.110.4":
+    dependencies:
+      tslib: 2.8.1
+
+  "@supabase/phoenix@0.4.4": {}
+
+  "@supabase/postgrest-js@2.110.4":
+    dependencies:
+      tslib: 2.8.1
+
+  "@supabase/realtime-js@2.110.4":
+    dependencies:
+      "@supabase/phoenix": 0.4.4
+      tslib: 2.8.1
+
+  "@supabase/storage-js@2.110.4":
+    dependencies:
+      iceberg-js: 0.8.1
+      tslib: 2.8.1
+
+  "@supabase/supabase-js@2.110.4":
+    dependencies:
+      "@supabase/auth-js": 2.110.4
+      "@supabase/functions-js": 2.110.4
+      "@supabase/postgrest-js": 2.110.4
+      "@supabase/realtime-js": 2.110.4
+      "@supabase/storage-js": 2.110.4
+
   "@tailwindcss/node@4.2.2":
     dependencies:
       "@jridgewell/remapping": 2.3.5
@@ -7681,9 +7773,7 @@ snapshots:
     dependencies:
       "@types/unist": 3.0.3
 
-  "@types/highlight.js@10.1.0":
-    dependencies:
-      highlight.js: 11.11.1
+  "@types/js-yaml@4.0.9": {}
 
   "@types/mdast@4.0.4":
     dependencies:
@@ -7926,7 +8016,7 @@ snapshots:
     dependencies:
       env-paths: 2.2.1
       import-fresh: 3.3.1
-      js-yaml: 4.1.1
+      js-yaml: 4.3.0
       parse-json: 5.2.0
     optionalDependencies:
       typescript: 5.6.3
@@ -8594,6 +8684,8 @@ snapshots:
     optionalDependencies:
       typescript: 5.6.3
 
+  iceberg-js@0.8.1: {}
+
   iconv-lite@0.6.3:
     dependencies:
       safer-buffer: 2.1.2
@@ -8686,7 +8778,7 @@ snapshots:
 
   js-tokens@4.0.0: {}
 
-  js-yaml@4.1.1:
+  js-yaml@4.3.0:
     dependencies:
       argparse: 2.0.1
 

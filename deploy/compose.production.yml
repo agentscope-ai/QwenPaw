@@ -1,0 +1,118 @@
+name: weldonagent
+
+x-app-environment: &app-environment
+  WELDON_DB_NAME: ${WELDON_DB_NAME:-weldonagent}
+  WELDON_DB_SCHEMA: ${WELDON_DB_SCHEMA:-weldonagent}
+  WELDON_DB_USER: ${WELDON_DB_USER:-weldon}
+  WELDON_DB_PASSWORD: ${WELDON_DB_PASSWORD:?Set WELDON_DB_PASSWORD in deploy/.env}
+  WELDON_TIMEZONE: ${WELDON_TIMEZONE:-Asia/Shanghai}
+
+x-app-base: &app-base
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile.multi-user
+  init: true
+  environment: *app-environment
+  depends_on:
+    agent-pg:
+      condition: service_healthy
+  volumes:
+    - type: bind
+      source: ${WELDON_DATA_ROOT:?Set WELDON_DATA_ROOT in deploy/.env}
+      target: /data
+
+services:
+  agent-pg:
+    image: postgres:16
+    container_name: agent-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${WELDON_DB_NAME:-weldonagent}
+      POSTGRES_USER: ${WELDON_DB_USER:-weldon}
+      POSTGRES_PASSWORD: ${WELDON_DB_PASSWORD:?Set WELDON_DB_PASSWORD in deploy/.env}
+      WELDON_DB_SCHEMA: ${WELDON_DB_SCHEMA:-weldonagent}
+      TZ: ${WELDON_TIMEZONE:-Asia/Shanghai}
+    volumes:
+      - type: bind
+        source: ${WELDON_DATA_ROOT:?Set WELDON_DATA_ROOT in deploy/.env}/postgres
+        target: /var/lib/postgresql/data
+      - type: bind
+        source: ./postgres-init.sh
+        target: /docker-entrypoint-initdb.d/01-schema.sh
+        read_only: true
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  agent-init:
+    <<: *app-base
+    profiles: ["init"]
+    restart: "no"
+    command:
+      - python
+      - /app/deploy/runtime_env.py
+      - exec
+      - --
+      - sh
+      - -ec
+      - >-
+        python -m qwenpaw service --config /app/deploy/service.production.json database-upgrade --yes &&
+        python -m qwenpaw init --defaults --accept-security &&
+        python -m qwenpaw service --config /app/deploy/service.production.json check
+
+  agent-app:
+    <<: *app-base
+    container_name: agent-app
+    restart: unless-stopped
+    stop_grace_period: 30s
+    ports:
+      - ${WELDON_BIND_ADDRESS:-127.0.0.1}:${WELDON_PORT:-18089}:18089
+    command:
+      - python
+      - /app/deploy/runtime_env.py
+      - exec
+      - --
+      - python
+      - -m
+      - qwenpaw
+      - service
+      - --config
+      - /app/deploy/service.production.json
+      - run
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - /app/deploy/runtime_env.py
+        - exec
+        - --
+        - python
+        - -m
+        - qwenpaw
+        - service
+        - --config
+        - /app/deploy/service.production.json
+        - status
+      interval: 30s
+      timeout: 45s
+      start_period: 180s
+      retries: 3
+
+  agent-maintenance:
+    <<: *app-base
+    profiles: ["maintenance"]
+    restart: "no"
+    entrypoint:
+      - python
+      - /app/deploy/runtime_env.py
+      - exec
+      - --
+      - python
+      - -m
+      - qwenpaw
+      - deployment-backup
+    command: ["--help"]

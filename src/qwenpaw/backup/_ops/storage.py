@@ -8,12 +8,22 @@ import logging
 import zipfile
 from pathlib import Path
 
-from .._utils.constants import PREFIX_WORKSPACES, validate_backup_id, zip_path
+from .._utils.constants import (
+    PREFIX_WORKSPACES,
+    find_zip_path,
+    validate_backup_id,
+    zip_path,
+)
 from .._utils.meta import read_meta_from_zip
+from .._utils.signing import (
+    resolve_signature_action,
+    sign_trusted_backup,
+)
 from ..models import (
     BackupConflictError,
     BackupDetail,
     BackupMeta,
+    BackupTrustMode,
     DeleteBackupsResponse,
 )
 from ...constant import BACKUP_DIR
@@ -65,8 +75,8 @@ async def get_backup(backup_id: str) -> BackupDetail | None:
 
 
 def _detail_sync(backup_id: str) -> BackupDetail | None:
-    zp = zip_path(backup_id)
-    if not zp.is_file():
+    zp = find_zip_path(backup_id)
+    if zp is None:
         return None
     try:
         with zipfile.ZipFile(zp, "r") as zf:
@@ -136,8 +146,8 @@ def _delete_sync(ids: list[str]) -> DeleteBackupsResponse:
     logger.info("Deleting %d backup(s): %s", len(ids), ids)
     resp = DeleteBackupsResponse()
     for sid in ids:
-        zp = zip_path(sid)
-        if not zp.is_file():
+        zp = find_zip_path(sid)
+        if zp is None:
             logger.warning("Delete failed: backup not found: %s", sid)
             resp.failed.append({"id": sid, "reason": "not found"})
             continue
@@ -162,8 +172,8 @@ async def export_backup(backup_id: str) -> tuple[Path, str]:
 
 
 def _export_sync(backup_id: str) -> tuple[Path, str]:
-    zp = zip_path(backup_id)
-    if not zp.is_file():
+    zp = find_zip_path(backup_id)
+    if zp is None:
         raise FileNotFoundError(f"Backup not found: {backup_id}")
 
     with zipfile.ZipFile(zp, "r") as zf:
@@ -183,6 +193,7 @@ async def import_backup(
     tmp_path: Path,
     *,
     overwrite: bool = False,
+    trust_mode: BackupTrustMode | None = None,
 ) -> BackupMeta:
     """Import a backup from a temporary file on disk.
 
@@ -191,14 +202,33 @@ async def import_backup(
     the conflict to the user.  Pass ``overwrite=True`` to replace the existing
     backup without asking.
 
+    Legacy unsigned archives must pass ``trust_mode="legacy"`` before they are
+    accepted. Foreign signed archives must pass ``trust_mode="foreign"``.
+    Accepted foreign/legacy archives are re-signed locally so future operations
+    can use the same verification path as local backups.
+
     The caller is responsible for cleaning up *tmp_path* afterwards.
     """
-    return await asyncio.to_thread(_import_sync, tmp_path, overwrite)
+    return await asyncio.to_thread(
+        _import_sync,
+        tmp_path,
+        overwrite,
+        trust_mode,
+    )
+
+
+def _read_meta_from_path(path: Path) -> BackupMeta:
+    with zipfile.ZipFile(path, "r") as zf:
+        meta_json = read_meta_from_zip(zf)
+        if meta_json is None:
+            raise ValueError("Zip does not contain a valid meta.json")
+        return BackupMeta.model_validate_json(meta_json)
 
 
 def _import_sync(
     tmp_path: Path,
     overwrite: bool = False,
+    trust_mode: BackupTrustMode | None = None,
 ) -> BackupMeta:
     """Validate and store an uploaded backup zip from *tmp_path*."""
     logger.info(
@@ -214,24 +244,40 @@ def _import_sync(
         if meta_json is None:
             raise ValueError("Zip does not contain a valid meta.json")
         meta = BackupMeta.model_validate_json(meta_json)
+        signature_action = resolve_signature_action(
+            zf,
+            meta,
+            meta.id,
+            trust_mode=trust_mode,
+            operation="Importing",
+        )
 
     validate_backup_id(meta.id)
 
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
-    existing = zip_path(meta.id)
+    existing = find_zip_path(meta.id)
 
-    if existing.is_file() and not overwrite:
+    if existing is not None and not overwrite:
+        existing_meta = _read_meta_from_path(existing)
         logger.warning(
             "Import conflict: backup id=%s already exists;"
             " raising BackupConflictError",
             meta.id,
         )
-        raise BackupConflictError(meta)
+        raise BackupConflictError(existing_meta)
 
     dest = zip_path(meta.id)
-    # tmp_path lives in BACKUP_DIR (via mkstemp(dir=BACKUP_DIR)),
-    # so this rename is within the same filesystem and is atomic.
-    tmp_path.replace(dest)
+    noncanonical_existing = existing if existing != dest else None
+    if signature_action == "none":
+        # tmp_path lives in BACKUP_DIR (via mkstemp(dir=BACKUP_DIR)),
+        # so this rename is within the same filesystem and is atomic.
+        tmp_path.replace(dest)
+    else:
+        # The user has explicitly trusted this archive. Bind that decision to
+        # the stored copy by replacing meta.json with a local signature.
+        meta = sign_trusted_backup(tmp_path, meta, dest_zip=dest)
+    if noncanonical_existing is not None:
+        noncanonical_existing.unlink(missing_ok=True)
     logger.info(
         "Backup imported: id=%s name=%r dest=%s",
         meta.id,

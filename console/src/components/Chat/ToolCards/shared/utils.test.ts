@@ -1,0 +1,254 @@
+import { describe, expect, it, vi } from "vitest";
+import type { TFunction } from "i18next";
+
+vi.mock("@/api/modules/chat", () => ({
+  chatApi: {
+    filePreviewUrl: (p: string) => `/api/files/preview${p}`,
+  },
+}));
+
+import {
+  extractUrlFromText,
+  formatAgentList,
+  formatMemorySearch,
+  getMediaInfo,
+  hasMultimediaPreview,
+} from "./utils";
+import type { ToolCallContent } from "./types";
+
+const translate = ((key: string) => {
+  const translations: Record<string, string> = {
+    "tool.formatTable.file": "file",
+    "tool.formatTable.lineNumber": "lineNumber",
+    "tool.formatTable.score": "score",
+    "tool.formatTable.summary": "summary",
+    "tool.formatTable.name": "name",
+    "tool.formatTable.id": "id",
+    "tool.formatTable.description": "description",
+    "tool.formatTable.status": "status",
+  };
+
+  return translations[key] ?? key;
+}) as TFunction;
+
+describe("formatMemorySearch", () => {
+  it("renders memory search results as readable markdown cards", () => {
+    const memoryResults = [
+      {
+        path: "memory/2026-06-08.md",
+        start_line: 42,
+        end_line: 45,
+        score: 0.85,
+        snippet: "这是实际摘要内容",
+      },
+    ];
+    const rawToolResult = JSON.stringify([
+      {
+        type: "text",
+        text: JSON.stringify(memoryResults),
+      },
+    ]);
+
+    const formattedResult = formatMemorySearch(rawToolResult, translate);
+
+    expect(formattedResult).toContain("### 1. memory/2026-06-08.md");
+    expect(formattedResult).toContain("- **lineNumber**: L42-45");
+    expect(formattedResult).toContain("- **score**: 0.85");
+    expect(formattedResult).toContain("这是实际摘要内容");
+    expect(formattedResult).not.toContain("| memory/2026-06-08.md |");
+  });
+
+  it("unwraps plain text tool result blocks instead of showing raw JSON", () => {
+    const rawToolResult = JSON.stringify([
+      {
+        type: "text",
+        text: "memory/2026-05-18.md L1-77\\n# 记忆与反思\\n这是很长的内容",
+      },
+    ]);
+
+    const formattedResult = formatMemorySearch(rawToolResult, translate);
+
+    expect(formattedResult).toBe(
+      "memory/2026-05-18.md L1-77\n# 记忆与反思\n这是很长的内容",
+    );
+    expect(formattedResult).not.toContain('"type":"text"');
+    expect(formattedResult).not.toContain("\\n");
+  });
+
+  it("formats malformed memory search text without showing metadata prefix", () => {
+    // 截图格式：[ { 之间有空格，snippet 含真实换行导致 JSON.parse 失败
+    const malformedMemoryText =
+      '[ { "path": "/Users/zz/.copaw/workspaces/q88eWE/memory/2026-05-18.md", "start_line": 1, "end_line": 77, "score": 0.625, "snippet": "# 记忆与反思 - 2026-05-18\n\n## 项目信息\n\n项目名称：《弹幕逃生》4分钟短视频';
+    const rawToolResult = JSON.stringify([
+      {
+        type: "text",
+        text: malformedMemoryText,
+      },
+    ]);
+
+    const formattedResult = formatMemorySearch(rawToolResult, translate);
+
+    expect(formattedResult).toContain(
+      "### 1. /Users/zz/.copaw/workspaces/q88eWE/memory/2026-05-18.md",
+    );
+    expect(formattedResult).toContain("- **lineNumber**: L1-77");
+    expect(formattedResult).toContain("- **score**: 0.63");
+    expect(formattedResult).toContain("# 记忆与反思 - 2026-05-18");
+    expect(formattedResult).not.toContain('[ { "path"');
+    expect(formattedResult).not.toContain('"snippet":');
+  });
+});
+
+describe("getMediaInfo", () => {
+  const baseToolCall = (
+    overrides: Partial<ToolCallContent>,
+  ): ToolCallContent => ({
+    type: "tool_call",
+    id: "tc-1",
+    name: "send_file_to_user",
+    params: {},
+    status: "calling",
+    ...overrides,
+  });
+
+  it("does not fall back to a relative param path (backend cannot preview it)", () => {
+    const media = getMediaInfo(
+      baseToolCall({ params: { file_path: "file1.txt" } }),
+    );
+    expect(media).toBeNull();
+  });
+
+  it("uses an absolute param path while the result is pending", () => {
+    const media = getMediaInfo(
+      baseToolCall({ params: { file_path: "/abs/path/file1.txt" } }),
+    );
+    expect(media?.url).toBe("/api/files/preview/abs/path/file1.txt");
+  });
+
+  it("uses a Windows drive-letter param path while the result is pending", () => {
+    const media = getMediaInfo(
+      baseToolCall({ params: { file_path: "C:/Users/a/file1.txt" } }),
+    );
+    expect(media).not.toBeNull();
+  });
+
+  it("prefers the resolved absolute URL from result blocks over params", () => {
+    const media = getMediaInfo(
+      baseToolCall({
+        params: { file_path: "file1.txt" },
+        status: "done",
+        result: JSON.stringify([
+          {
+            type: "file",
+            source: { type: "url", url: "file:///abs/path/file1.txt" },
+            filename: "file1.txt",
+          },
+          { type: "text", text: "File sent successfully." },
+        ]),
+      }),
+    );
+    expect(media?.url).toBe("/api/files/preview/abs/path/file1.txt");
+    expect(media?.name).toBe("file1.txt");
+  });
+
+  it("only auto-expands multimedia file previews", () => {
+    expect(
+      hasMultimediaPreview(
+        baseToolCall({ params: { file_path: "/abs/path/image.png" } }),
+      ),
+    ).toBe(true);
+    expect(
+      hasMultimediaPreview(
+        baseToolCall({ params: { file_path: "/abs/path/readme.txt" } }),
+      ),
+    ).toBe(false);
+  });
+
+  it("extracts a screenshot path without the serialized JSON suffix", () => {
+    const screenshotPath =
+      "/Users/zz/.copaw/workspaces/Yn8ymB/" +
+      "desktop_screenshot_1786592092.png";
+    const result = JSON.stringify([
+      {
+        type: "data",
+        source: {
+          type: "base64",
+          data: "A".repeat(1_300_000),
+          media_type: "image/png",
+        },
+      },
+      {
+        type: "text",
+        text: JSON.stringify(
+          {
+            ok: true,
+            path: screenshotPath,
+            message: `Desktop screenshot saved to ${screenshotPath}`,
+          },
+          null,
+          2,
+        ),
+      },
+    ]);
+
+    const media = getMediaInfo(
+      baseToolCall({
+        name: "desktop_screenshot",
+        status: "done",
+        result,
+      }),
+    );
+
+    expect(media).toEqual({
+      url: `/api/files/preview${screenshotPath}`,
+      name: "desktop_screenshot_1786592092.png",
+      type: "image",
+    });
+  });
+});
+
+describe("extractUrlFromText", () => {
+  it("supports saved media paths containing spaces", () => {
+    expect(
+      extractUrlFromText(
+        "Desktop screenshot saved to /Users/test/My Screens/image 1.png",
+      ),
+    ).toBe("/Users/test/My Screens/image 1.png");
+  });
+
+  it("supports escaped Windows paths in serialized JSON", () => {
+    const result = JSON.stringify({
+      message: String.raw`Desktop screenshot saved to C:\Users\test user\image.png`,
+    });
+
+    expect(extractUrlFromText(result)).toBe(
+      String.raw`C:\Users\test user\image.png`,
+    );
+  });
+});
+
+describe("formatAgentList", () => {
+  it("renders agent rows from tool result text blocks", () => {
+    const agents = [
+      {
+        name: "Coder",
+        id: "agent-1",
+        description: "Coding agent",
+        status: "ready",
+      },
+    ];
+    const rawToolResult = JSON.stringify([
+      {
+        type: "text",
+        text: JSON.stringify(agents),
+      },
+    ]);
+
+    const formattedResult = formatAgentList(rawToolResult, translate);
+
+    expect(formattedResult).toContain(
+      "| Coder | `agent-1` | Coding agent | ready |",
+    );
+    expect(formattedResult).not.toContain("|  | `` |  |  |");
+  });
+});

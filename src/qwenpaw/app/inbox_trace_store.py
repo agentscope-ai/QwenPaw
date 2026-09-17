@@ -1,0 +1,229 @@
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+
+import asyncio
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+from ..constant import WORKING_DIR
+from ..utils.io_utils import (
+    read_json,
+    run_sync_io,
+    unlink_async,
+    write_json_atomic,
+)
+
+_TRACE_DIR = WORKING_DIR / "inbox_traces"
+_LOCK = asyncio.Lock()
+
+
+def _trace_path(run_id: str) -> Path:
+    return _TRACE_DIR / f"{run_id}.json"
+
+
+def _to_jsonable(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        return [_to_jsonable(item) for item in value]
+    if isinstance(value, dict):
+        return {str(k): _to_jsonable(v) for k, v in value.items()}
+    if hasattr(value, "model_dump"):
+        return _to_jsonable(value.model_dump(mode="json"))
+    if hasattr(value, "dict"):
+        return _to_jsonable(value.dict())
+    return {"repr": repr(value)}
+
+
+def _read_trace(run_id: str) -> dict[str, Any]:
+    path = _trace_path(run_id)
+    if not path.exists():
+        return {
+            "run_id": run_id,
+            "created_at": time.time(),
+            "completed_at": None,
+            "status": "running",
+            "meta": {},
+            "events": [],
+        }
+    data = read_json(path)
+    if not isinstance(data, dict):
+        raise ValueError("invalid trace file")
+    data.setdefault("events", [])
+    return data
+
+
+def _write_trace(run_id: str, payload: dict[str, Any]) -> None:
+    path = _trace_path(run_id)
+    write_json_atomic(
+        path,
+        payload,
+        sort_keys=True,
+    )
+
+
+async def create_trace(
+    run_id: str,
+    *,
+    meta: dict[str, Any] | None = None,
+) -> None:
+    async with _LOCK:
+        payload = {
+            "run_id": run_id,
+            "created_at": time.time(),
+            "completed_at": None,
+            "status": "running",
+            "meta": _to_jsonable(meta or {}),
+            "events": [],
+        }
+        await run_sync_io(_write_trace, run_id, payload)
+
+
+async def append_trace_events(
+    run_id: str,
+    events: list[dict[str, Any]],
+) -> None:
+    if not events:
+        return
+
+    normalized_events: list[dict[str, Any]] = []
+    for item in events:
+        if not isinstance(item, dict):
+            continue
+        normalized_events.append(
+            {
+                "at": item.get("at")
+                if item.get("at") is not None
+                else time.time(),
+                "event": _to_jsonable(item.get("event")),
+            },
+        )
+    if not normalized_events:
+        return
+
+    async with _LOCK:
+        payload = await run_sync_io(_read_trace, run_id)
+        existing_events = payload.get("events", [])
+        existing_events.extend(normalized_events)
+        payload["events"] = existing_events
+        await run_sync_io(_write_trace, run_id, payload)
+
+
+def flatten_session_messages(content: Any) -> list[dict[str, Any]]:
+    if not isinstance(content, list):
+        return []
+    messages: list[dict[str, Any]] = []
+    for item in content:
+        if isinstance(item, dict):
+            messages.append(item)
+            continue
+        if isinstance(item, list) and item and isinstance(item[0], dict):
+            messages.append(item[0])
+    return messages
+
+
+def parse_session_timestamp(value: Any) -> float | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value.strip()
+    try:
+        return datetime.fromisoformat(raw).timestamp()
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt).timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+async def read_session_messages(
+    *,
+    runner: Any,
+    session_id: str,
+    user_id: str,
+    channel: str,
+) -> list[dict[str, Any]]:
+    session = getattr(runner, "session", None)
+    if session is None:
+        return []
+    try:
+        state = await session.get_session_state_dict(
+            session_id,
+            user_id,
+            channel,
+            allow_not_exist=True,
+        )
+    except Exception:  # pylint: disable=broad-except
+        return []
+    agent_state = state.get("agent", {}).get("state", {})
+    return flatten_session_messages(agent_state.get("context"))
+
+
+async def append_trace_from_session_delta(
+    *,
+    run_id: str,
+    runner: Any,
+    session_id: str,
+    user_id: str,
+    channel: str,
+    baseline_count: int,
+) -> list[dict[str, Any]]:
+    messages = await read_session_messages(
+        runner=runner,
+        session_id=session_id,
+        user_id=user_id,
+        channel=channel,
+    )
+    baseline_count = max(baseline_count, 0)
+    delta = messages[baseline_count:]
+    await append_trace_events(
+        run_id,
+        [
+            {
+                "at": parse_session_timestamp(
+                    msg.get("created_at") or msg.get("timestamp"),
+                ),
+                "event": msg,
+            }
+            for msg in delta
+        ],
+    )
+    return delta
+
+
+async def finalize_trace(
+    run_id: str,
+    *,
+    status: str,
+    error: str | None = None,
+) -> None:
+    async with _LOCK:
+        payload = await run_sync_io(_read_trace, run_id)
+        payload["status"] = status
+        payload["completed_at"] = time.time()
+        if error is not None:
+            payload["error"] = error
+        await run_sync_io(_write_trace, run_id, payload)
+
+
+async def get_trace(run_id: str) -> dict[str, Any] | None:
+    path = _trace_path(run_id)
+    if not path.exists():
+        return None
+    async with _LOCK:
+        return await run_sync_io(_read_trace, run_id)
+
+
+async def delete_trace(run_id: str) -> bool:
+    if not run_id:
+        return False
+    path = _trace_path(run_id)
+    async with _LOCK:
+        if not path.exists():
+            return False
+        await unlink_async(path)
+    return True

@@ -1,0 +1,21 @@
+[Unit]
+Description=WeldonAgent multi-user agent platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=qwenpaw
+Group=qwenpaw
+WorkingDirectory=/opt/qwenpaw
+ExecStart=/opt/qwenpaw/.venv/bin/python -m qwenpaw service --config /etc/qwenpaw/service.json run
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+KillMode=control-group
+UMask=0077
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

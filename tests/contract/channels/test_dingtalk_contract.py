@@ -19,6 +19,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
@@ -62,8 +64,10 @@ class TestDingTalkChannelContract(ChannelContractTest):
             client_secret="test_client_secret",
             bot_prefix="[Test]",
             media_dir=str(self._media_dir),
-            show_tool_details=False,
-            filter_tool_messages=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
     # =========================================================================

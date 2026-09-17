@@ -19,7 +19,14 @@ _MAX_AGE_SECONDS = 60
 _MAX_MESSAGES = 500
 
 
-async def append(session_id: str, text: str, *, sticky: bool = False) -> None:
+async def append(
+    session_id: str,
+    text: str,
+    *,
+    sticky: bool = False,
+    root_session_id: str | None = None,
+    chat_id: str | None = None,
+) -> None:
     """Append a message (bounded: oldest dropped if over _MAX_MESSAGES)."""
     if not session_id or not text:
         return
@@ -31,6 +38,8 @@ async def append(session_id: str, text: str, *, sticky: bool = False) -> None:
                 "sticky": sticky,
                 "ts": time.time(),
                 "session_id": session_id,
+                "root_session_id": root_session_id or session_id,
+                "chat_id": chat_id,
             },
         )
         if len(_list) > _MAX_MESSAGES:
@@ -70,6 +79,9 @@ def _strip_ts(msgs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             "id": m["id"],
             "text": m["text"],
             "sticky": bool(m.get("sticky", False)),
+            "session_id": m.get("session_id"),
+            "root_session_id": m.get("root_session_id") or m.get("session_id"),
+            "chat_id": m.get("chat_id"),
         }
         for m in msgs
     ]

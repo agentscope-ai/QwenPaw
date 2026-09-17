@@ -91,8 +91,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--python",
-        default="3.10",
-        help="Python version for conda env (default: 3.10)",
+        default="3.11",
+        help="Python version for conda env (default: 3.11)",
     )
     parser.add_argument(
         "--wheel",
@@ -128,25 +128,16 @@ def main() -> int:
                 "-n",
                 env_name,
                 f"python={args.python}",
+                # OpenSSL 3.5.7 has a regression (upstream commit 738688d76206
+                # reworking asn1_d2i_read_bio) that breaks
+                # ssl.SSLContext.load_verify_locations(cadata=<DER>), which
+                # _load_windows_store_certs relies on. aiohttp then fails at
+                # import time and the desktop backend never starts. See #5086.
+                "openssl<3.5.7",
                 "pip",
                 "-y",
             ],
         )
-        _run(
-            [
-                conda,
-                "run",
-                "-n",
-                env_name,
-                "python",
-                "-m",
-                "pip",
-                "install",
-                "--upgrade",
-                "pip",
-            ],
-        )
-
         # Install qwenpaw with all dependencies
         # Scope CMAKE_ARGS to this specific command to avoid affecting other
         # CMake-based packages. Only set if we need to compile from source.
@@ -201,6 +192,23 @@ def main() -> int:
                     str(wheels_cache),
                 ],
             )
+        # pip may uninstall/reinstall files owned by conda while resolving
+        # qwenpaw[full]. Restore conda-managed packaging tools before packing.
+        _run(
+            [
+                conda,
+                "run",
+                "-n",
+                env_name,
+                conda,
+                "install",
+                "-y",
+                "--force-reinstall",
+                "pip",
+                "setuptools",
+                "wheel",
+            ],
+        )
         _run(
             [
                 conda,

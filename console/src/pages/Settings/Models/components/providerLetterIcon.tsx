@@ -3,6 +3,7 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   modelscope: "#6236FF",
   "aliyun-codingplan": "#FF6A00",
   "aliyun-codingplan-intl": "#FF6A00",
+  "aliyun-tokenplan": "#FF6A00",
   deepseek: "#4D6BFE",
   gemini: "#4285F4",
   "azure-openai": "#0078D4",
@@ -13,6 +14,7 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   "minimax-cn": "#1A1A2E",
   minimax: "#1A1A2E",
   openai: "#10A37F",
+  "openai-response": "#10A37F",
   dashscope: "#6236FF",
   lmstudio: "#6C5CE7",
   "siliconflow-cn": "#5B5FC7",
@@ -24,6 +26,8 @@ const PROVIDER_LETTER_COLORS: Record<string, string> = {
   "zhipu-intl-codingplan": "#3366FF",
   openrouter: "#6366F1",
   opencode: "#2563EB",
+  kilo: "#FF5722",
+  "github-models": "#24292F",
 };
 
 /** A palette of fallback colors for providers without a predefined color. */

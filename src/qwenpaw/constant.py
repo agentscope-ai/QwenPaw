@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 # Load .env file from project root before reading any env vars
@@ -86,6 +87,17 @@ class EnvVarLoader:
         return _get_env(env_var, default)
 
 
+CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV = (
+    "QWENPAW_CUSTOM_AGENT_STARTUP_CONCURRENCY"
+)
+DEFAULT_CUSTOM_AGENT_STARTUP_CONCURRENCY = 5
+CUSTOM_AGENT_STARTUP_CONCURRENCY = EnvVarLoader.get_int(
+    CUSTOM_AGENT_STARTUP_CONCURRENCY_ENV,
+    default=DEFAULT_CUSTOM_AGENT_STARTUP_CONCURRENCY,
+    min_value=1,
+)
+
+
 # WORKING_DIR priority:
 # 1. QWENPAW_WORKING_DIR / COPAW_WORKING_DIR env var is set → use it
 # 2. ~/.copaw exists (legacy installation) → use it as-is
@@ -110,7 +122,60 @@ SECRET_DIR = (
     .resolve()
 )
 
+# Env key for overriding the OS keychain account used for the master key.
+KEYRING_ACCOUNT_ENV = "QWENPAW_KEYRING_ACCOUNT"
+
 PROJECT_NAME = "QwenPaw"
+
+# Message metadata tags shared across agent middleware and memory managers.
+QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
+QWENPAW_CLIENT_MESSAGE_ID_KEY = "qwenpaw_client_message_id"
+SCROLL_MEMORY_MESSAGE_TAG = "scroll_memory"
+AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
+EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"
+AUTO_CONTINUE_MESSAGE_TAG = "auto_continue"
+LOOP_CONTINUATION_MESSAGE_TAG = "loop_continuation"
+RUBRIC_EVALUATION_MESSAGE_TAG = "rubric_evaluation"
+RUNTIME_CONTEXT_MESSAGE_TAG = "runtime_context"
+# User-role messages the runtime injects to keep a turn going. They are NOT
+# new requests: the scroll active-turn anchor (live scan + SQL floor) must
+# skip them, or the anchor jumps to the stub and the REAL request becomes
+# evictable/searchable again (the #5746 failure mode, loop-session flavor).
+SYNTHETIC_USER_MESSAGE_TAGS = frozenset(
+    {
+        AUTO_CONTINUE_MESSAGE_TAG,
+        LOOP_CONTINUATION_MESSAGE_TAG,
+        RUBRIC_EVALUATION_MESSAGE_TAG,
+        RUNTIME_CONTEXT_MESSAGE_TAG,
+    },
+)
+AUTO_MEMORY_SEARCH_TEXT = (
+    "I'll check memory for relevant context before answering."
+)
+AUTO_MEMORY_SEARCH_THINKING_PREFIX = (
+    "I should search long-term memory before answering."
+)
+
+# Subdirectory name inside each agent's workspace that holds cloned / imported
+# coding projects.
+# Full path = <workspace_dir> / CODING_PROJECT_SUBDIR / <name>
+CODING_PROJECT_SUBDIR = "coding_projects"
+
+
+def _resolve_docs_dir() -> Path | None:
+    """Find QwenPaw documentation directory across all install methods."""
+    _pkg_docs = Path(__file__).resolve().parent / "docs"
+    if _pkg_docs.is_dir() and any(_pkg_docs.glob("*.md")):
+        return _pkg_docs
+    _src_docs = (
+        Path(__file__).resolve().parents[2] / "website" / "public" / "docs"
+    )
+    if _src_docs.is_dir() and any(_src_docs.glob("*.md")):
+        return _src_docs
+    return None
+
+
+DOCS_DIR: Path | None = _resolve_docs_dir()
 
 # Default media directory for channels (cross-platform)
 DEFAULT_MEDIA_DIR = WORKING_DIR / "media"
@@ -165,7 +230,10 @@ CONFIG_FILE = EnvVarLoader.get_str("QWENPAW_CONFIG_FILE", "config.json")
 HEARTBEAT_FILE = EnvVarLoader.get_str("QWENPAW_HEARTBEAT_FILE", "HEARTBEAT.md")
 HEARTBEAT_DEFAULT_EVERY = "6h"
 HEARTBEAT_DEFAULT_TARGET = "main"
+HEARTBEAT_DEFAULT_TIMEOUT_SECONDS = 300
+HEARTBEAT_MAX_TIMEOUT_SECONDS = 3600
 HEARTBEAT_TARGET_LAST = "last"
+HEARTBEAT_TARGET_INBOX = "inbox"
 
 # Debug history file for /dump_history and /load_history commands
 DEBUG_HISTORY_FILE = EnvVarLoader.get_str(
@@ -176,6 +244,10 @@ MAX_LOAD_HISTORY_COUNT = 10000
 
 # Env key for app log level (used by CLI and app load for reload child).
 LOG_LEVEL_ENV = "QWENPAW_LOG_LEVEL"
+
+# Fixed desktop backend port. When set, get_stable_port() uses this port
+# instead of auto-assigning.
+QWENPAW_DESKTOP_PORT = _get_env("QWENPAW_DESKTOP_PORT")
 
 # Env to indicate running inside a container (e.g. Docker). Set to 1/true/yes.
 RUNNING_IN_CONTAINER = EnvVarLoader.get_bool(
@@ -213,9 +285,6 @@ BACKUP_DIR = (
     .resolve()
 )
 
-# Custom channel modules (installed via `qwenpaw channels install`); manager
-# loads BaseChannel subclasses from here.
-CUSTOM_CHANNELS_DIR = WORKING_DIR / "custom_channels"
 
 # Plugin directory (installed via `qwenpaw plugin install`)
 PLUGINS_DIR = WORKING_DIR / "plugins"
@@ -237,15 +306,19 @@ MEMORY_COMPACT_RATIO = EnvVarLoader.get_float(
     allow_inf=False,
 )
 
-DASHSCOPE_BASE_URL = EnvVarLoader.get_str(
-    "DASHSCOPE_BASE_URL",
-    "https://dashscope.aliyuncs.com/compatible-mode/v1",
-)
-
 # CORS configuration — comma-separated list of allowed origins for dev mode.
 # Example: QWENPAW_CORS_ORIGINS="http://localhost:5173,http://127.0.0.1:5173"
 # When unset, CORS middleware is not applied.
 CORS_ORIGINS = EnvVarLoader.get_str("QWENPAW_CORS_ORIGINS", "").strip()
+
+# Upload size limit (MB).  None = no limit.
+UPLOAD_MAX_SIZE_MB: int | None = (
+    int(v)
+    if (v := EnvVarLoader.get_str("QWENPAW_UPLOAD_MAX_SIZE_MB", ""))
+    .strip()
+    .isdigit()
+    else None
+)
 
 # LLM API retry configuration
 LLM_MAX_RETRIES = EnvVarLoader.get_int(
@@ -322,6 +395,7 @@ try:
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_TIMEOUT_SECONDS = 300.0
 
+
 # Tool guard approval heartbeat interval (seconds).
 # Sends periodic heartbeat messages during approval wait to keep SSE
 # connection alive. Should be less than browser/proxy timeout (30-60s).
@@ -334,6 +408,20 @@ try:
     )
 except (TypeError, ValueError):
     TOOL_GUARD_APPROVAL_HEARTBEAT_INTERVAL = 15.0
+
+# TTL for learned model capability cache entries (seconds).
+# 0 disables expiry. Stale entries from transient upstream failures
+# (e.g. a gateway routing a multimodal model to a text-only backend)
+# are discarded after this duration.
+try:
+    CAPABILITY_CACHE_TTL_SECONDS = max(
+        float(
+            _get_env("QWENPAW_CAPABILITY_CACHE_TTL_SECONDS", "1800"),
+        ),
+        0.0,
+    )
+except (TypeError, ValueError):
+    CAPABILITY_CACHE_TTL_SECONDS = 1800.0
 
 # Marker prepended to every truncation notice.
 # Format:

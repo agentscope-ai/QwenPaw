@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { Button, Empty, Modal, Input } from "@agentscope-ai/design";
-import { PlusOutlined } from "@ant-design/icons";
+import { useState, useCallback, useEffect } from "react";
+import { Button, Empty, Modal, Input, Select } from "@agentscope-ai/design";
+import { Tabs } from "antd";
+import { LockKeyhole, Plus, Server } from "lucide-react";
 import type { MCPClientInfo } from "../../../api/types";
 import { MCPClientCard } from "./components";
 import { useMCP } from "./useMCP";
@@ -28,41 +29,68 @@ function normalizeTransport(raw?: unknown): MCPTransport | undefined {
   }
 }
 
-function normalizeClientData(key: string, rawData: any) {
+function normalizeClientData(key: string, rawData: Record<string, unknown>) {
   const transport =
-    normalizeTransport(rawData.transport ?? rawData.type) ??
+    normalizeTransport(
+      (rawData.transport as string) ?? (rawData.type as string),
+    ) ??
     (rawData.url || rawData.baseUrl || !rawData.command
       ? "streamable_http"
       : "stdio");
 
   const command =
-    transport === "stdio" ? (rawData.command ?? "").toString() : "";
+    transport === "stdio" ? ((rawData.command ?? "") as string) : "";
 
   return {
-    name: rawData.name || key,
-    description: rawData.description || "",
-    enabled: rawData.enabled ?? rawData.isActive ?? true,
+    name: (rawData.name as string) || key,
+    description: (rawData.description as string) || "",
+    enabled:
+      (rawData.enabled as boolean) ?? (rawData.isActive as boolean) ?? true,
     transport,
-    url: (rawData.url || rawData.baseUrl || "").toString(),
-    headers: rawData.headers || {},
+    url: (rawData.url || rawData.baseUrl || "") as string,
+    headers: (rawData.headers as Record<string, string>) || {},
     command,
-    args: Array.isArray(rawData.args) ? rawData.args : [],
-    env: rawData.env || {},
-    cwd: (rawData.cwd || "").toString(),
+    args: Array.isArray(rawData.args) ? (rawData.args as string[]) : [],
+    env: (rawData.env as Record<string, string>) || {},
+    cwd: (rawData.cwd || "") as string,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Form-mode state defaults
+// ---------------------------------------------------------------------------
+
+const defaultForm = {
+  key: "",
+  name: "",
+  description: "",
+  transport: "streamable_http" as MCPTransport,
+  url: "",
+  command: "",
+  args: "",
+  env: "",
+  cwd: "",
+};
 
 function MCPPage() {
   const { t } = useTranslation();
   const {
     clients,
+    providerServers,
     loading,
     toggleEnabled,
     deleteClient,
     createClient,
     updateClient,
+    updatePolicy,
+    refreshClients,
+    canEdit,
+    scopeKey,
   } = useMCP();
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"json" | "form">("json");
+
+  // JSON-import state
   const [newClientJson, setNewClientJson] = useState(`{
   "mcpServers": {
     "example-client": {
@@ -74,6 +102,37 @@ function MCPPage() {
     }
   }
 }`);
+
+  // Form state
+  const [form, setForm] = useState({ ...defaultForm });
+
+  const setField = useCallback(
+    <K extends keyof typeof defaultForm>(k: K, v: (typeof defaultForm)[K]) => {
+      setForm((prev) => ({ ...prev, [k]: v }));
+    },
+    [],
+  );
+
+  const resetModal = useCallback(() => {
+    setNewClientJson(`{
+  "mcpServers": {
+    "example-client": {
+      "command": "npx",
+      "args": ["-y", "@example/mcp-server"],
+      "env": {
+        "API_KEY": "<YOUR_API_KEY>"
+      }
+    }
+  }
+}`);
+    setForm({ ...defaultForm });
+    setActiveTab("json");
+  }, []);
+
+  useEffect(() => {
+    setCreateModalOpen(false);
+    resetModal();
+  }, [scopeKey, resetModal]);
 
   const handleToggleEnabled = async (
     client: MCPClientInfo,
@@ -88,24 +147,21 @@ function MCPPage() {
     await deleteClient(client);
   };
 
-  const handleCreateClient = async () => {
+  // ---------- JSON import ----------
+  const handleCreateFromJson = async () => {
     try {
-      const parsed = JSON.parse(newClientJson);
-
-      // Support two formats:
-      // Format 1: { "mcpServers": { "key": { "command": "...", ... } } }
-      // Format 2: { "key": { "command": "...", ... } }
-      // Format 3: { "key": "...", "name": "...", "command": "...", ... } (direct)
-
-      const clientsToCreate: Array<{ key: string; data: any }> = [];
+      const parsed = JSON.parse(newClientJson) as Record<string, unknown>;
+      const clientsToCreate: Array<{
+        key: string;
+        data: ReturnType<typeof normalizeClientData>;
+      }> = [];
 
       if (parsed.mcpServers) {
-        // Format 1: nested mcpServers
-        Object.entries(parsed.mcpServers).forEach(
-          ([key, data]: [string, any]) => {
+        Object.entries(parsed.mcpServers as Record<string, unknown>).forEach(
+          ([key, data]) => {
             clientsToCreate.push({
               key,
-              data: normalizeClientData(key, data),
+              data: normalizeClientData(key, data as Record<string, unknown>),
             });
           },
         );
@@ -113,28 +169,28 @@ function MCPPage() {
         parsed.key &&
         (parsed.command || parsed.url || parsed.baseUrl)
       ) {
-        // Format 3: direct format with key field
-        const { key, ...clientData } = parsed;
+        const { key, ...clientData } = parsed as Record<string, unknown>;
         clientsToCreate.push({
-          key,
-          data: normalizeClientData(key, clientData),
+          key: key as string,
+          data: normalizeClientData(key as string, clientData),
         });
       } else {
-        // Format 2: direct client objects with keys
-        Object.entries(parsed).forEach(([key, data]: [string, any]) => {
+        Object.entries(parsed).forEach(([key, data]) => {
           if (
             typeof data === "object" &&
-            (data.command || data.url || data.baseUrl)
+            data !== null &&
+            ((data as Record<string, unknown>).command ||
+              (data as Record<string, unknown>).url ||
+              (data as Record<string, unknown>).baseUrl)
           ) {
             clientsToCreate.push({
               key,
-              data: normalizeClientData(key, data),
+              data: normalizeClientData(key, data as Record<string, unknown>),
             });
           }
         });
       }
 
-      // Create all clients
       let allSuccess = true;
       for (const { key, data } of clientsToCreate) {
         const success = await createClient(key, data);
@@ -143,104 +199,391 @@ function MCPPage() {
 
       if (allSuccess) {
         setCreateModalOpen(false);
-        setNewClientJson(`{
-  "mcpServers": {
-    "example-client": {
-      "command": "npx",
-      "args": ["-y", "@example/mcp-server"],
-      "env": {
-        "API_KEY": "<YOUR_API_KEY>"
+        resetModal();
       }
-    }
-  }
-}`);
-      }
-    } catch (error) {
+    } catch {
       alert("Invalid JSON format");
     }
   };
+
+  // ---------- Form create ----------
+  const handleCreateFromForm = async () => {
+    const key = form.key.trim();
+    const name = form.name.trim();
+    if (!key) {
+      alert(t("mcp.form.keyRequired"));
+      return;
+    }
+    if (!name) {
+      alert(t("mcp.form.nameRequired"));
+      return;
+    }
+
+    const isHttp =
+      form.transport === "streamable_http" || form.transport === "sse";
+
+    if (isHttp && !form.url.trim()) {
+      alert(t("mcp.form.urlRequired"));
+      return;
+    }
+    if (form.transport === "stdio" && !form.command.trim()) {
+      alert(t("mcp.form.commandRequired"));
+      return;
+    }
+
+    // Parse args: split on newlines, commas, or spaces
+    const args = form.args
+      .split(/[\n, ]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    // Parse env (KEY=VALUE lines)
+    const env: Record<string, string> = {};
+    form.env
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .forEach((line) => {
+        const idx = line.indexOf("=");
+        if (idx > 0) {
+          env[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+        }
+      });
+
+    const clientData = {
+      name,
+      description: form.description,
+      transport: form.transport,
+      url: isHttp ? form.url.trim() : "",
+      command: form.transport === "stdio" ? form.command.trim() : "",
+      args,
+      env,
+      cwd: form.cwd.trim(),
+    };
+
+    const success = await createClient(key, clientData);
+    if (success) {
+      setCreateModalOpen(false);
+      resetModal();
+    }
+  };
+
+  const isHttpTransport =
+    form.transport === "streamable_http" || form.transport === "sse";
 
   return (
     <div className={styles.mcpPage}>
       <PageHeader
         items={[{ title: t("nav.agent") }, { title: t("mcp.title") }]}
-        extra={
+        extra={canEdit ? (
           <Button
+            data-testid="mcp-create-open"
             type="primary"
-            icon={<PlusOutlined />}
+            icon={<Plus size={14} />}
             onClick={() => setCreateModalOpen(true)}
           >
             {t("mcp.create")}
           </Button>
-        }
+        ) : undefined}
       />
 
       {loading ? (
         <div className={styles.loading}>
           <p>{t("common.loading")}</p>
         </div>
-      ) : clients.length === 0 ? (
+      ) : clients.length === 0 && providerServers.length === 0 ? (
         <div className={styles.emptyState}>
           <Empty description={t("mcp.emptyState")} />
         </div>
       ) : (
-        <div className={styles.mcpGrid}>
-          {clients.map((client) => (
-            <MCPClientCard
-              key={client.key}
-              client={client}
-              onToggle={handleToggleEnabled}
-              onDelete={handleDelete}
-              onUpdate={updateClient}
-            />
-          ))}
+        <div className={styles.mcpSections}>
+          <section className={styles.mcpSection}>
+            <div className={styles.sectionHeader}>
+              <div className={styles.sectionIcon}>
+                <Server size={17} />
+              </div>
+              <div>
+                <h2>{t("mcp.qwenpawManaged")}</h2>
+                <p>{t("mcp.qwenpawManagedHint")}</p>
+              </div>
+            </div>
+            {clients.length === 0 ? (
+              <div className={styles.sectionEmpty}>{t("mcp.emptyState")}</div>
+            ) : (
+              <div className={styles.mcpGrid}>
+                {clients.map((client) => (
+                  <MCPClientCard
+                    key={`${scopeKey}:${client.key}`}
+                    client={client}
+                    onToggle={handleToggleEnabled}
+                    onDelete={handleDelete}
+                    onUpdate={updateClient}
+                    onUpdatePolicy={updatePolicy}
+                    onRefresh={refreshClients}
+                    canEdit={canEdit && client.can_edit !== false}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {providerServers.length > 0 && (
+            <section className={styles.mcpSection}>
+              <div className={styles.sectionHeader}>
+                <div className={styles.sectionIcon}>
+                  <LockKeyhole size={17} />
+                </div>
+                <div>
+                  <h2>
+                    {t("mcp.providerManaged", {
+                      provider: providerServers[0].provider_id,
+                    })}
+                  </h2>
+                  <p>{t("mcp.providerManagedHint")}</p>
+                </div>
+              </div>
+              <div className={styles.providerGrid}>
+                {providerServers.map((server) => (
+                  <article
+                    className={styles.providerCard}
+                    key={`${server.provider_id}:${server.name}`}
+                  >
+                    <div className={styles.providerCardHeader}>
+                      <strong>{server.name}</strong>
+                      <span
+                        className={
+                          server.enabled
+                            ? styles.providerEnabled
+                            : styles.providerDisabled
+                        }
+                      >
+                        {server.enabled
+                          ? t("common.enabled")
+                          : t("common.disabled")}
+                      </span>
+                    </div>
+                    <div className={styles.providerMeta}>
+                      <span>{server.transport}</span>
+                      <span>{t("mcp.providerOnly")}</span>
+                      <span>{t("mcp.readOnly")}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
       )}
 
       <Modal
         title={t("mcp.create")}
         open={createModalOpen}
-        onCancel={() => setCreateModalOpen(false)}
+        onCancel={() => {
+          setCreateModalOpen(false);
+          resetModal();
+        }}
         footer={
           <div className={styles.modalFooter}>
             <Button
-              onClick={() => setCreateModalOpen(false)}
+              onClick={() => {
+                setCreateModalOpen(false);
+                resetModal();
+              }}
               style={{ marginRight: 8 }}
             >
               {t("common.cancel")}
             </Button>
-            <Button type="primary" onClick={handleCreateClient}>
+            <Button
+              data-testid="mcp-create-submit"
+              type="primary"
+              onClick={
+                activeTab === "json"
+                  ? handleCreateFromJson
+                  : handleCreateFromForm
+              }
+            >
               {t("common.create")}
             </Button>
           </div>
         }
         width={800}
       >
-        <div className={styles.importHint}>
-          <p className={styles.importHintTitle}>{t("mcp.formatSupport")}:</p>
-          <ul className={styles.importHintList}>
-            <li>
-              {t("mcp.standardFormat")}:{" "}
-              <code>{`{ "mcpServers": { "key": {...} } }`}</code>
-            </li>
-            <li>
-              {t("mcp.directFormat")}: <code>{`{ "key": {...} }`}</code>
-            </li>
-            <li>
-              {t("mcp.singleFormat")}:{" "}
-              <code>{`{ "key": "...", "name": "...", "command": "..." }`}</code>
-            </li>
-          </ul>
-        </div>
-        <Input.TextArea
-          value={newClientJson}
-          onChange={(e) => setNewClientJson(e.target.value)}
-          autoSize={{ minRows: 15, maxRows: 25 }}
-          className={styles.jsonTextArea}
+        <Tabs
+          activeKey={activeTab}
+          onChange={(k) => setActiveTab(k as "json" | "form")}
+          items={[
+            {
+              key: "json",
+              label: t("mcp.tab.json"),
+              children: (
+                <div>
+                  <div className={styles.importHint}>
+                    <p className={styles.importHintTitle}>
+                      {t("mcp.formatSupport")}:
+                    </p>
+                    <ul className={styles.importHintList}>
+                      <li>
+                        {t("mcp.standardFormat")}:{" "}
+                        <code>{`{ "mcpServers": { "key": {...} } }`}</code>
+                      </li>
+                      <li>
+                        {t("mcp.directFormat")}:{" "}
+                        <code>{`{ "key": {...} }`}</code>
+                      </li>
+                      <li>
+                        {t("mcp.singleFormat")}:{" "}
+                        <code>{`{ "key": "...", "name": "...", "command": "..." }`}</code>
+                      </li>
+                    </ul>
+                  </div>
+                  <Input.TextArea
+                    data-testid="mcp-create-json"
+                    value={newClientJson}
+                    onChange={(e) => setNewClientJson(e.target.value)}
+                    autoSize={{ minRows: 15, maxRows: 25 }}
+                    className={styles.jsonTextArea}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: "form",
+              label: t("mcp.tab.form"),
+              children: (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
+                  {/* Key + Name */}
+                  <div style={rowStyle}>
+                    <div style={fieldStyle}>
+                      <label style={labelStyle}>
+                        {t("mcp.form.key")}
+                        <span style={{ color: "#c0392b" }}> *</span>
+                      </label>
+                      <Input
+                        placeholder={t("mcp.form.keyPlaceholder")}
+                        value={form.key}
+                        onChange={(e) => setField("key", e.target.value)}
+                      />
+                    </div>
+                    <div style={fieldStyle}>
+                      <label style={labelStyle}>
+                        {t("mcp.form.name")}
+                        <span style={{ color: "#c0392b" }}> *</span>
+                      </label>
+                      <Input
+                        placeholder={t("mcp.form.namePlaceholder")}
+                        value={form.name}
+                        onChange={(e) => setField("name", e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Transport */}
+                  <div>
+                    <label style={labelStyle}>{t("mcp.form.transport")}</label>
+                    <Select
+                      value={form.transport}
+                      onChange={(v) => setField("transport", v as MCPTransport)}
+                      style={{ width: "100%" }}
+                      options={[
+                        {
+                          label: "Streamable HTTP",
+                          value: "streamable_http",
+                        },
+                        { label: "SSE", value: "sse" },
+                        { label: "Stdio", value: "stdio" },
+                      ]}
+                    />
+                  </div>
+
+                  {/* URL (HTTP/SSE) or Command (stdio) */}
+                  {isHttpTransport ? (
+                    <div>
+                      <label style={labelStyle}>
+                        {t("mcp.form.url")}
+                        <span style={{ color: "#c0392b" }}> *</span>
+                      </label>
+                      <Input
+                        placeholder="https://mcp.example.com/mcp"
+                        value={form.url}
+                        onChange={(e) => setField("url", e.target.value)}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label style={labelStyle}>
+                          {t("mcp.form.command")}
+                          <span style={{ color: "#c0392b" }}> *</span>
+                        </label>
+                        <Input
+                          placeholder="npx"
+                          value={form.command}
+                          onChange={(e) => setField("command", e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label style={labelStyle}>{t("mcp.form.args")}</label>
+                        <Input
+                          placeholder="-y @example/mcp-server"
+                          value={form.args}
+                          onChange={(e) => setField("args", e.target.value)}
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  {/* Description */}
+                  <div>
+                    <label style={labelStyle}>
+                      {t("mcp.form.description")}
+                    </label>
+                    <Input
+                      placeholder={t("mcp.form.descriptionPlaceholder")}
+                      value={form.description}
+                      onChange={(e) => setField("description", e.target.value)}
+                    />
+                  </div>
+
+                  {/* Env (only for stdio) */}
+                  {form.transport === "stdio" && (
+                    <div>
+                      <label style={labelStyle}>{t("mcp.form.env")}</label>
+                      <Input.TextArea
+                        placeholder={t("mcp.form.envPlaceholder")}
+                        value={form.env}
+                        onChange={(e) => setField("env", e.target.value)}
+                        autoSize={{ minRows: 2, maxRows: 5 }}
+                      />
+                    </div>
+                  )}
+                </div>
+              ),
+            },
+          ]}
         />
       </Modal>
     </div>
   );
 }
+
+const rowStyle: React.CSSProperties = {
+  display: "flex",
+  gap: 12,
+};
+
+const fieldStyle: React.CSSProperties = {
+  flex: 1,
+  display: "flex",
+  flexDirection: "column",
+  gap: 4,
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: "#555",
+  fontWeight: 500,
+};
 
 export default MCPPage;

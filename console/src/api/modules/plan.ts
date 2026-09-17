@@ -1,6 +1,10 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
+import {
+  withAgentRequestContext,
+  type AgentRequestContext,
+} from "./agentRequestContext";
 
 export interface SubTaskResponse {
   name: string;
@@ -26,6 +30,9 @@ export interface PlanStateResponse {
 
 export interface PlanConfigResponse {
   enabled: boolean;
+  auto_enabled: boolean;
+  auto_execute: boolean;
+  complexity_threshold: string;
 }
 
 export const planApi = {
@@ -36,13 +43,27 @@ export const planApi = {
         : "/plan/current",
     ),
 
-  getPlanConfig: () => request<PlanConfigResponse>("/plan/config"),
+  getPlanConfig: (context?: AgentRequestContext) => {
+    const options = withAgentRequestContext(undefined, context);
+    return options
+      ? request<PlanConfigResponse>("/plan/config", options)
+      : request<PlanConfigResponse>("/plan/config");
+  },
 
-  updatePlanConfig: (body: PlanConfigResponse) =>
-    request<PlanConfigResponse>("/plan/config", {
-      method: "PUT",
-      body: JSON.stringify(body),
-    }),
+  updatePlanConfig: (
+    body: PlanConfigResponse,
+    context?: AgentRequestContext,
+  ) =>
+    request<PlanConfigResponse>(
+      "/plan/config",
+      withAgentRequestContext(
+        {
+          method: "PUT",
+          body: JSON.stringify(body),
+        },
+        context,
+      ),
+    ),
 };
 
 /**

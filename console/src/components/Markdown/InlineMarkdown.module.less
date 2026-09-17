@@ -1,0 +1,21 @@
+.root {
+  display: inline;
+  min-width: 0;
+
+  :global(strong) {
+    font-weight: 600;
+  }
+
+  :global(code) {
+    padding: 0 3px;
+    border-radius: 3px;
+    font-size: 0.95em;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+      "Liberation Mono", "Courier New", monospace;
+    background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06));
+  }
+
+  :global(em) {
+    font-style: italic;
+  }
+}

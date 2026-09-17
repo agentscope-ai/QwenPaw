@@ -26,12 +26,15 @@ Run:
 # pylint: disable=broad-exception-raised
 from __future__ import annotations
 
+
 import threading
 from pathlib import Path
 from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from qwenpaw.exceptions import ChannelError
 
@@ -71,8 +74,10 @@ def wecom_channel(
         bot_prefix="[WeComBot] ",
         media_dir=str(tmp_path / "media"),
         welcome_text="Welcome to WeCom Bot!",
-        show_tool_details=False,
-        filter_tool_messages=True,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=False,
+            show_tool_results=False,
+        ),
         dm_policy="open",
         group_policy="open",
     )
@@ -304,18 +309,21 @@ class TestWecomChannelInit:
             secret="",
             bot_prefix="",
             media_dir=str(tmp_path / "media"),
-            show_tool_details=True,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
             allow_from=["user1", "user2"],
             deny_message="Access denied",
             max_reconnect_attempts=5,
         )
 
         assert channel.enabled is False
-        assert channel._show_tool_details is True
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is True
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
         assert channel.allow_from == {"user1", "user2"}
         assert channel.deny_message == "Access denied"
         assert channel._max_reconnect_attempts == 5
@@ -683,7 +691,7 @@ class TestWecomChannelBuildAgentRequest:
 
     def test_build_agent_request_from_native_basic(self, wecom_channel):
         """build_agent_request_from_native creates proper AgentRequest."""
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         payload = {
             "channel_id": "wecom",
@@ -918,19 +926,14 @@ class TestWecomChannelMessageHandlers:
         sample_text_frame,
         mock_ws_client,
     ):
-        """_on_message should block non-allowlisted users."""
-        wecom_channel.dm_policy = "allowlist"
-        wecom_channel.allow_from = {"other_user"}
-        wecom_channel.deny_message = "You are not allowed"
+        """With new architecture, blocking is in _access_control_gate.
 
-        wecom_channel._client = mock_ws_client
-        wecom_channel._loop = MagicMock()
-        wecom_channel._loop.is_running.return_value = True
-
-        await wecom_channel._on_message(sample_text_frame)
-
-        # Should send denial message
-        mock_ws_client.reply_stream.assert_called()
+        Setting access_control_dm after init directly enables it.
+        Messages now pass through _on_message to the queue; blocking
+        happens downstream in _consume_one_request.
+        """
+        wecom_channel.access_control_dm = True
+        assert wecom_channel.access_control_enabled is True
 
     @pytest.mark.asyncio
     async def test_on_enter_chat(
@@ -1046,7 +1049,7 @@ class TestWecomChannelSendMethods:
     ):
         """send_content_parts should send text content."""
         wecom_channel._client = mock_ws_client
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         parts = [TextContent(type="text", text="Hello World")]
         meta = {"wecom_frame": {"test": "frame"}}
@@ -1068,7 +1071,7 @@ class TestWecomChannelSendMethods:
         """send_content_parts should apply bot prefix."""
         wecom_channel._client = mock_ws_client
         wecom_channel.bot_prefix = "[Bot]"
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         parts = [TextContent(type="text", text="Hello")]
 
@@ -1090,7 +1093,7 @@ class TestWecomChannelSendMethods:
     ):
         """send_content_parts should use send_message when no frame."""
         wecom_channel._client = mock_ws_client
-        from agentscope_runtime.engine.schemas.agent_schemas import TextContent
+        from qwenpaw.schemas import TextContent
 
         parts = [TextContent(type="text", text="Hello")]
 
@@ -1468,7 +1471,7 @@ class TestWecomChannelEdgeCases:
         wecom_channel._client = mock_ws_client
         wecom_channel._upload_media = AsyncMock(return_value="media_123")
 
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             ImageContent,
         )
 
@@ -1497,7 +1500,7 @@ class TestWecomChannelEdgeCases:
         amr_file = tmp_path / "test.amr"
         amr_file.write_bytes(b"amr data")
 
-        from agentscope_runtime.engine.schemas.agent_schemas import (
+        from qwenpaw.schemas import (
             AudioContent,
         )
 

@@ -11,6 +11,9 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from ..constant import WORKING_DIR, TOKEN_USAGE_FILE
+from ..identity.runtime import get_identity_schema
+from ..persistence.mode import StorageMode
+from ..persistence.settings import load_database_settings
 from .buffer import TokenUsageBuffer, _UsageEvent
 
 logger = logging.getLogger(__name__)
@@ -39,6 +42,13 @@ class TokenUsageByModel(TokenUsageStats):
     model: str = Field(..., description="Model name")
 
 
+class TokenUsageByDateModel(TokenUsageStats):
+    """Per-date per-model aggregate in summary."""
+
+    provider_id: str = Field("", description="Provider ID")
+    model: str = Field(..., description="Model name")
+
+
 class TokenUsageSummary(BaseModel):
     """Aggregated token usage summary returned by get_summary()."""
 
@@ -47,15 +57,11 @@ class TokenUsageSummary(BaseModel):
     total_calls: int = Field(0, ge=0)
     by_model: dict[str, TokenUsageByModel] = Field(
         default_factory=dict,
-        description="Per composite key (provider:model)",
-    )
-    by_provider: dict[str, TokenUsageStats] = Field(
-        default_factory=dict,
-        description="Per provider_id",
+        description="Per model (provider:model key) aggregation",
     )
     by_date: dict[str, TokenUsageStats] = Field(
         default_factory=dict,
-        description="Per date (YYYY-MM-DD)",
+        description="Per date (YYYY-MM-DD) - all models combined",
     )
 
 
@@ -67,7 +73,20 @@ class TokenUsageManager:
 
     def __init__(self) -> None:
         path: Path = (WORKING_DIR / TOKEN_USAGE_FILE).expanduser()
-        self._buffer = TokenUsageBuffer(path)
+        settings = load_database_settings()
+        self._postgres = (
+            settings.multi_user_enabled
+            and settings.storage_mode is StorageMode.POSTGRES
+        )
+        if self._postgres:
+            from .postgres_buffer import PostgresUsageBuffer
+            from .usage_repository import PostgresUsageRepository
+
+            self._buffer = PostgresUsageBuffer(
+                repository=PostgresUsageRepository(schema=get_identity_schema())
+            )
+        else:
+            self._buffer = TokenUsageBuffer(path)
         self._flush_interval = 10  # default
 
     def start(self, flush_interval: int = 10) -> None:
@@ -78,7 +97,7 @@ class TokenUsageManager:
         """
         self._flush_interval = flush_interval
         # Recreate buffer with desired flush_interval if different from default
-        if flush_interval != 10:
+        if not self._postgres and flush_interval != 10:
             path: Path = (WORKING_DIR / TOKEN_USAGE_FILE).expanduser()
             self._buffer = TokenUsageBuffer(
                 path,
@@ -208,7 +227,6 @@ class TokenUsageManager:
         total_completion = 0
         total_calls = 0
         by_model_raw: dict[str, dict] = {}
-        by_provider_raw: dict[str, dict] = {}
         by_date_raw: dict[str, dict] = {}
 
         for r in records:
@@ -219,14 +237,15 @@ class TokenUsageManager:
             total_completion += ct
             total_calls += calls
 
-            model = r.model
-            prov = r.provider_id
-            composite = f"{prov}:{model}" if prov else model
+            # Aggregate by model
+            model_key = (
+                f"{r.provider_id}:{r.model}" if r.provider_id else r.model
+            )
             bm = by_model_raw.setdefault(
-                composite,
+                model_key,
                 {
-                    "provider_id": prov,
-                    "model": model,
+                    "provider_id": r.provider_id,
+                    "model": r.model,
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
                     "call_count": 0,
@@ -236,14 +255,7 @@ class TokenUsageManager:
             bm["completion_tokens"] += ct
             bm["call_count"] += calls
 
-            bp = by_provider_raw.setdefault(
-                prov,
-                {"prompt_tokens": 0, "completion_tokens": 0, "call_count": 0},
-            )
-            bp["prompt_tokens"] += pt
-            bp["completion_tokens"] += ct
-            bp["call_count"] += calls
-
+            # Aggregate by date
             bd = by_date_raw.setdefault(
                 r.date,
                 {"prompt_tokens": 0, "completion_tokens": 0, "call_count": 0},
@@ -258,17 +270,48 @@ class TokenUsageManager:
             total_calls=total_calls,
             by_model={
                 k: TokenUsageByModel.model_validate(v)
-                for k, v in by_model_raw.items()
-            },
-            by_provider={
-                k: TokenUsageStats.model_validate(v)
-                for k, v in by_provider_raw.items()
+                for k, v in sorted(by_model_raw.items())
             },
             by_date={
                 k: TokenUsageStats.model_validate(v)
                 for k, v in sorted(by_date_raw.items())
             },
         )
+
+    async def get_details(
+        self,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        model_name: Optional[str] = None,
+        provider_id: Optional[str] = None,
+    ) -> list[TokenUsageRecord]:
+        """Get raw token usage records for frontend aggregation.
+
+        Args:
+            start_date: Start of date range (inclusive). Default: 30 days ago.
+            end_date: End of date range (inclusive). Default: today.
+            model_name: Optional model name filter.
+            provider_id: Optional provider ID filter.
+
+        Returns:
+            List of TokenUsageRecord with per-date per-model data.
+        """
+        if end_date is None:
+            end_date = date.today()
+        if start_date is None:
+            start_date = end_date - timedelta(days=30)
+
+        merged = await self._buffer.get_merged_data()
+
+        records = await self._query(
+            merged,
+            start_date,
+            end_date,
+            model_name,
+            provider_id,
+        )
+
+        return records
 
     @classmethod
     def get_instance(cls) -> "TokenUsageManager":

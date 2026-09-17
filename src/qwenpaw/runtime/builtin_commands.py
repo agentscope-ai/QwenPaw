@@ -1,0 +1,775 @@
+# -*- coding: utf-8 -*-
+"""Built-in slash command adapters.
+
+Wraps the four existing command mechanisms (daemon, control,
+conversation, skill) as :class:`CommandSpec` instances registered
+into a single :class:`SlashCommandRegistry`.  Each adapter reads
+from :class:`HookContext` (``ctx.workspace``, ``ctx.agent``, etc.)
+and delegates to the original handler.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections.abc import Mapping
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from ._state_utils import StateProxy
+from .slash_command_registry import CommandSpec, FallbackHandler
+
+if TYPE_CHECKING:
+    from agentscope.message import Msg
+
+logger = logging.getLogger(__name__)
+
+
+def _bind_command_memory_manager(
+    memory_manager: Any,
+    request: Any,
+    request_context: Any,
+) -> Any:
+    """Bind a slash command to the request's trusted user and model slot."""
+    if memory_manager is None:
+        return None
+    bind = getattr(memory_manager, "for_model_request", None)
+    if not callable(bind):
+        return memory_manager
+    trusted_context = (
+        dict(request_context) if isinstance(request_context, Mapping) else {}
+    )
+    actor_user_id = getattr(request, "user_id", None)
+    if actor_user_id:
+        trusted_context["user_id"] = actor_user_id
+    return bind(
+        trusted_context,
+        getattr(request, "_model_authority", None),
+    )
+
+
+# ======================================================================
+# Daemon command adapters
+# ======================================================================
+
+
+def _make_daemon_adapter(subcommand: str) -> CommandSpec:
+    """Create a :class:`CommandSpec` for one daemon subcommand."""
+
+    async def _handler(ctx: Any, args: str) -> "Msg | None":
+        from .commands.daemon import (
+            DaemonCommandHandlerMixin,
+            DaemonContext,
+        )
+        from ..config.config import load_agent_config
+
+        agent_id = getattr(ctx, "agent_id", None) or "default"
+        workspace = getattr(ctx, "workspace", None)
+
+        try:
+            cfg = load_agent_config(agent_id)
+            agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
+        except Exception:
+            agent_name = "QwenPaw"
+
+        daemon_ctx = DaemonContext(
+            load_config_fn=lambda: load_agent_config(agent_id),
+            memory_manager=getattr(workspace, "memory_manager", None),
+            manager=getattr(workspace, "_manager", None),
+            agent_id=agent_id,
+            session_id=getattr(ctx, "session_id", "") or "",
+            agent_name=agent_name,
+        )
+
+        full_query = f"/{subcommand} {args}".strip()
+        handler_mixin = DaemonCommandHandlerMixin()
+        return await handler_mixin.handle_daemon_command(
+            full_query,
+            daemon_ctx,
+        )
+
+    return CommandSpec(
+        name=subcommand,
+        handler=_handler,
+        category="daemon",
+    )
+
+
+def _make_daemon_compound_adapter() -> CommandSpec:
+    """``/daemon <sub>`` compound entry.
+
+    Delegates via ``parse_daemon_query``.
+    """
+
+    async def _handler(ctx: Any, args: str) -> "Msg | None":
+        from .commands.daemon import (
+            DaemonCommandHandlerMixin,
+            DaemonContext,
+            parse_daemon_query,
+        )
+        from ..config.config import load_agent_config
+
+        full_query = f"/daemon {args}".strip()
+        parsed = parse_daemon_query(full_query)
+        if parsed is None:
+            from agentscope.message import Msg, TextBlock
+
+            return Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="Unknown daemon command.",
+                    ),
+                ],
+            )
+
+        agent_id = getattr(ctx, "agent_id", None) or "default"
+        workspace = getattr(ctx, "workspace", None)
+
+        try:
+            cfg = load_agent_config(agent_id)
+            agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
+        except Exception:
+            agent_name = "QwenPaw"
+
+        daemon_ctx = DaemonContext(
+            load_config_fn=lambda: load_agent_config(agent_id),
+            memory_manager=getattr(
+                workspace,
+                "memory_manager",
+                None,
+            ),
+            manager=getattr(workspace, "_manager", None),
+            agent_id=agent_id,
+            session_id=getattr(ctx, "session_id", "") or "",
+            agent_name=agent_name,
+        )
+
+        handler_mixin = DaemonCommandHandlerMixin()
+        return await handler_mixin.handle_daemon_command(
+            full_query,
+            daemon_ctx,
+        )
+
+    return CommandSpec(
+        name="daemon",
+        handler=_handler,
+        category="daemon",
+    )
+
+
+def _collect_daemon_specs() -> list[CommandSpec]:
+    specs = [
+        _make_daemon_adapter("restart"),
+        _make_daemon_adapter("status"),
+        _make_daemon_adapter("version"),
+        _make_daemon_adapter("logs"),
+    ]
+    # reload-config has an underscore alias
+    rc_spec = _make_daemon_adapter("reload-config")
+    specs.append(
+        CommandSpec(
+            name=rc_spec.name,
+            handler=rc_spec.handler,
+            aliases=("reload_config",),
+            category=rc_spec.category,
+        ),
+    )
+    specs.append(_make_daemon_compound_adapter())
+    return specs
+
+
+# ======================================================================
+# Control command adapters
+# ======================================================================
+
+
+def _make_control_adapter(
+    handler: Any,
+    command_name: str,
+    *,
+    help_text: str = "",
+) -> CommandSpec:
+    """Wrap a :class:`BaseControlCommandHandler` as
+    a :class:`CommandSpec`.
+    """
+
+    async def _handler(ctx: Any, args: str) -> "Msg | None":
+        from .commands.control import parse_args
+        from .commands.control.base import ControlContext
+        from agentscope.message import Msg, TextBlock
+
+        workspace = getattr(ctx, "workspace", None)
+        request = getattr(ctx, "request", None)
+
+        if workspace is None:
+            return Msg(
+                name="assistant",
+                role="assistant",
+                content=[
+                    TextBlock(
+                        type="text",
+                        text="**Error**\n\nControl command "
+                        "unavailable (workspace not initialized)",
+                    ),
+                ],
+            )
+
+        channel = None
+        channel_mgr = getattr(workspace, "channel_manager", None)
+        if channel_mgr is not None:
+            channel_id = getattr(request, "channel", None) or "console"
+            try:
+                channel = await channel_mgr.get_channel(
+                    channel_id,
+                )
+            except Exception:
+                pass
+
+        full_query = (
+            f"/{command_name} {args}".strip() if args else f"/{command_name}"
+        )
+        parsed_args = parse_args(
+            full_query,
+            f"/{command_name}",
+        )
+
+        ctrl_ctx = ControlContext(
+            workspace=workspace,
+            payload=request,
+            channel=channel,
+            session_id=getattr(ctx, "session_id", "") or "",
+            user_id=(getattr(request, "user_id", "") if request else "") or "",
+            agent_id=getattr(ctx, "agent_id", "") or "",
+            args=parsed_args,
+        )
+
+        try:
+            text = await handler.handle(ctrl_ctx)
+        except Exception as e:
+            logger.exception(
+                "Control command failed: /%s",
+                command_name,
+            )
+            text = f"**Command Failed**\n\n{e}"
+
+        return Msg(
+            name="assistant",
+            role="assistant",
+            content=[TextBlock(type="text", text=text)],
+        )
+
+    return CommandSpec(
+        name=command_name,
+        handler=_handler,
+        category="control",
+        help_text=help_text,
+    )
+
+
+def _collect_control_specs() -> list[CommandSpec]:
+    from .commands.control import _COMMAND_REGISTRY
+
+    specs = []
+    seen_names: set[str] = set()
+    for raw_name, handler in _COMMAND_REGISTRY.items():
+        name = raw_name.lstrip("/")
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+        # Advertise from the handler's own definition site — no secondary map.
+        help_text = getattr(handler, "description", "") or ""
+        specs.append(_make_control_adapter(handler, name, help_text=help_text))
+    return specs
+
+
+# ======================================================================
+# Conversation command adapters
+# ======================================================================
+
+_CONVERSATION_COMMANDS = frozenset(
+    {
+        "compact",
+        "new",
+        "clear",
+        "history",
+        "compact_str",
+        "summarize_status",
+        "message",
+        "dump_history",
+        "load_history",
+        "proactive",
+        "plan",
+        "system_prompt",
+        "dream",
+        "memorize",
+        "reme_status",
+    },
+)
+
+
+async def _load_agent_state(ctx: Any) -> "tuple[Any, dict]":
+    """Load AgentState from workspace.session without building the agent.
+
+    Returns ``(state, payload)`` where ``payload`` is the raw saved session
+    dict — so callers can read/preserve the persisted ``"scroll"`` checkpoint
+    block (the scroll context manager's bookkeeping) instead of dropping it.
+    """
+    from agentscope.state import AgentState
+
+    workspace = getattr(ctx, "workspace", None)
+    if workspace is None:
+        return None, {}
+    session = getattr(workspace, "session", None)
+    if session is None:
+        return None, {}
+
+    request = getattr(ctx, "request", None)
+    user_id = (getattr(request, "user_id", "") if request else "") or ""
+    channel = (getattr(request, "channel", "") if request else "") or ""
+
+    proxy = StateProxy()
+    await session.load_session_state(
+        session_id=ctx.session_id,
+        user_id=user_id or ctx.session_id,
+        channel=channel,
+        agent=proxy,
+    )
+    payload = proxy.data or {}
+    if not payload:
+        return AgentState(), {}
+
+    raw = payload.get("state")
+    if raw is not None:
+        return AgentState.model_validate(raw), payload
+
+    # Legacy 1.x format
+    memory_raw = payload.get("memory")
+    if isinstance(memory_raw, dict):
+        from ..app.chats.utils import parse_legacy_memory_state
+
+        msgs, summary = parse_legacy_memory_state(memory_raw)
+        state = AgentState()
+        state.context.extend(msgs)
+        state.summary = summary
+        return state, payload
+
+    return AgentState(), payload
+
+
+async def _save_agent_state(
+    ctx: Any,
+    state: "Any",
+    *,
+    scroll_block: dict | None = None,
+) -> None:
+    """Save AgentState back to workspace.session.
+
+    ``scroll_block`` is the scroll context manager's checkpoint to persist
+    alongside the state (mirroring ``QwenPawAgent.state_dict``'s ``"scroll"``
+    key). Passing ``None`` writes no scroll block — callers that want to
+    *preserve* the existing one must pass it back in explicitly.
+    """
+    workspace = getattr(ctx, "workspace", None)
+    if workspace is None:
+        return
+    session = getattr(workspace, "session", None)
+    if session is None:
+        return
+
+    request = getattr(ctx, "request", None)
+    user_id = (getattr(request, "user_id", "") if request else "") or ""
+    channel = (getattr(request, "channel", "") if request else "") or ""
+
+    proxy = StateProxy()
+    proxy.data = {"state": state.model_dump(mode="json")}
+    if scroll_block is not None:
+        proxy.data["scroll"] = scroll_block
+    proxy.data["mode_state"] = getattr(ctx, "mode_state", {})
+    await session.save_session_state(
+        session_id=ctx.session_id,
+        user_id=user_id or ctx.session_id,
+        channel=channel,
+        agent=proxy,
+    )
+
+
+def _resolve_scroll_block(
+    *,
+    updated: dict | None,
+    context_empty: bool,
+    existing: dict | None,
+) -> dict | None:
+    """Decide which scroll checkpoint a conversation command should persist.
+
+    Keeps the scroll context manager's bookkeeping consistent with the
+    command's effect on ``state.context``:
+
+    * ``updated`` set    — a scroll ``/compact`` refreshed it → save it.
+    * ``context_empty``  — ``/clear`` / ``/new`` wiped the window → drop it
+      (reset), so a stale eviction index doesn't resurface old turns.
+    * otherwise          — preserve the existing block (read-only commands must
+      not nuke it, which was the prior bug).
+    """
+    if updated is not None:
+        return updated
+    if context_empty:
+        return None
+    return existing
+
+
+def _make_conversation_adapter(
+    name: str,
+    *,
+    help_text: str = "",
+) -> CommandSpec:
+    """Wrap one conversation command via standalone CommandHandler.
+
+    Loads AgentState directly from session — no agent instance required.
+    """
+
+    async def _handler(ctx: Any, args: str) -> "Msg | None":
+        from ..agents.command_handler import CommandHandler
+
+        # /plan with arguments is NOT a command — fall through to model
+        if name == "plan" and args.strip():
+            return None
+
+        workspace = getattr(ctx, "workspace", None)
+        if workspace is None:
+            return None
+
+        state, payload = await _load_agent_state(ctx)
+        if state is None:
+            return None
+        existing_scroll = payload.get("scroll")
+        mode_state = payload.get("mode_state")
+        if isinstance(mode_state, dict):
+            ctx.mode_state = dict(mode_state)
+
+        agent_id = getattr(ctx, "agent_id", None) or "default"
+        ws_dir = str(getattr(workspace, "workspace_dir", "")) or None
+
+        offloader = None
+        from ..agents.offloader import QwenPawOffloader
+
+        try:
+            if ws_dir:
+                import os
+
+                from ..config.config import load_agent_config
+
+                cfg = load_agent_config(agent_id)
+                lcc = cfg.running.light_context_config
+                # Under scroll, dialog archiving is opt-in (history.db is the
+                # source of truth); only wire an offloader for the commands
+                # when ``offload_dialog`` is on. Native keeps it always.
+                want_dialog = lcc.strategy != "scroll" or getattr(
+                    lcc.scroll_config,
+                    "offload_dialog",
+                    False,
+                )
+                if want_dialog:
+                    offloader = QwenPawOffloader(
+                        dialog_path=os.path.join(ws_dir, lcc.dialog_path),
+                        tool_results_dir=os.path.join(
+                            ws_dir,
+                            lcc.tool_result_pruning_config.tool_results_cache,
+                        ),
+                    )
+        except Exception:
+            pass
+
+        try:
+            cfg = load_agent_config(agent_id)
+            agent_name = cfg.name if cfg and cfg.name else "QwenPaw"
+        except Exception:
+            agent_name = "QwenPaw"
+
+        command_request = getattr(ctx, "request", None)
+        command_request_context = (
+            getattr(command_request, "request_context", None) or {}
+        )
+        command_memory_manager = _bind_command_memory_manager(
+            getattr(workspace, "memory_manager", None),
+            command_request,
+            command_request_context,
+        )
+        cmd_handler = CommandHandler(
+            agent_name=agent_name,
+            state=state,
+            agent_id=agent_id,
+            memory_manager=command_memory_manager,
+            offloader=offloader,
+            workspace_dir=ws_dir,
+            scroll_state=existing_scroll,
+            session_id=getattr(ctx, "session_id", None),
+            prompt_context=ctx,
+            actor_user_id=(
+                getattr(command_request, "user_id", None)
+            ),
+            source_conversation_id=str(
+                command_request_context.get("conversation_id")
+                or command_request_context.get("chat_id")
+                or ""
+            ),
+        )
+
+        full_query = f"/{name} {args}".strip() if args else f"/{name}"
+        result = await cmd_handler.handle_command(full_query)
+
+        scroll_block = _resolve_scroll_block(
+            updated=cmd_handler.updated_scroll_state,
+            context_empty=not state.context,
+            existing=existing_scroll,
+        )
+        await _save_agent_state(ctx, state, scroll_block=scroll_block)
+        return result
+
+    return CommandSpec(
+        name=name,
+        handler=_handler,
+        category="conversation",
+        help_text=help_text,
+    )
+
+
+def _collect_conversation_specs() -> list[CommandSpec]:
+    # Advertise from SYSTEM_COMMAND_DESCRIPTIONS — the curated subset defined
+    # next to SYSTEM_COMMANDS in command_handler.py. Commands absent from that
+    # dict keep help_text="" and are not shown in ACP autocomplete.
+    from ..agents.command_handler import SYSTEM_COMMAND_DESCRIPTIONS
+
+    return [
+        _make_conversation_adapter(
+            n,
+            help_text=SYSTEM_COMMAND_DESCRIPTIONS.get(n, ""),
+        )
+        for n in sorted(_CONVERSATION_COMMANDS)
+    ]
+
+
+# ======================================================================
+# Skill fallback handler
+# ======================================================================
+
+
+def _extract_block_text(block: Any) -> str:
+    """Return the text of a message content block (dict or object)."""
+    if isinstance(block, dict):
+        return block.get("text") or ""
+    return getattr(block, "text", "") or ""
+
+
+def _build_skill_injection(
+    original_text: str,
+    display_name: str,
+    description: str,
+    skill_dir: "Path",
+    skill_body: str,
+) -> str:
+    """Keep the typed command at the head; append the skill body in a
+    trailing ``<skill>`` block (hidden from display by
+    ``strip_injected_skill_block``).
+
+    The block uses a nested-element schema — ``<name>``/``<description>``/
+    ``<dir>``/``<content>`` — rather than XML attributes, so frontmatter
+    values (name, dir) need no attribute quoting/escaping. The typed
+    command stays at the head, so the user's request is not duplicated
+    inside the block.
+    """
+    return (
+        f"{original_text}\n\n"
+        f"<skill>\n"
+        f"<name>{display_name}</name>\n"
+        f"<description>{description}</description>\n"
+        f"<dir>{skill_dir}</dir>\n"
+        f"<content>\n"
+        f"This skill has already been loaded because the user invoked "
+        f"it directly above. Do not call the Skill tool to read it "
+        f"again. Follow the skill instructions to fulfill the user's "
+        f"request above. Relative paths inside the skill (e.g. "
+        f"`scripts/`) resolve against the directory above.\n\n"
+        f"{skill_body.strip()}\n"
+        f"</content>\n"
+        f"</skill>"
+    )
+
+
+def _parse_skill_query(query: str) -> tuple[str, str] | None:
+    """Parse ``/name [input]`` or ``/[name with spaces] [input]``."""
+    stripped = query.strip()
+    if not stripped.startswith("/"):
+        return None
+    rest = stripped[1:]
+    if rest.startswith("["):
+        close = rest.find("]")
+        if close < 0:
+            return None
+        name = rest[1:close].strip().lower()
+        user_input = rest[close + 1 :].strip()
+        return (name, user_input) if name else None
+    parts = rest.split(None, 1)
+    if not parts:
+        return None
+    name = parts[0].lower()
+    user_input = parts[1] if len(parts) > 1 else ""
+    return (name, user_input) if name else None
+
+
+# pylint: disable-next=too-many-return-statements
+async def _skill_fallback_handler(
+    raw_text: str,
+    ctx: Any,
+) -> "Msg | None":
+    """Fallback handler for ``/<skill_name>`` dispatch.
+
+    Resolves skills directly from the filesystem (workspace/skills/
+    directory) — no agent or toolkit required.
+    """
+    from agentscope.message import Msg, TextBlock
+
+    workspace = getattr(ctx, "workspace", None)
+    if workspace is None:
+        return None
+
+    workspace_dir = getattr(workspace, "workspace_dir", None)
+    if not workspace_dir:
+        return None
+
+    parsed = _parse_skill_query(raw_text)
+    if not parsed:
+        return None
+    skill_name, user_input = parsed
+
+    from ..agents.skill_system.registry import (
+        get_workspace_skills_dir,
+        resolve_effective_skills,
+    )
+
+    request = getattr(ctx, "request", None)
+    channel = (getattr(request, "channel", "") if request else "") or "console"
+
+    try:
+        effective_skills = resolve_effective_skills(
+            Path(workspace_dir),
+            channel,
+        )
+    except Exception:
+        return None
+
+    skills_dir = get_workspace_skills_dir(Path(workspace_dir))
+    skill_dir = next(
+        (
+            skills_dir / sn
+            for sn in effective_skills
+            if sn.lower() == skill_name
+        ),
+        None,
+    )
+    if skill_dir is None or not skill_dir.exists():
+        return None
+
+    skill_md = skill_dir / "SKILL.md"
+    if not skill_md.exists():
+        return None
+
+    from ..agents.utils.file_handling import (
+        read_text_file_with_encoding_fallback,
+    )
+
+    import frontmatter as fm
+
+    raw = read_text_file_with_encoding_fallback(skill_md)
+    post = fm.loads(raw)
+    display_name = post.get("name") or skill_name
+    description = post.get("description") or ""
+
+    if not user_input:
+        desc = description or "No description."
+        return Msg(
+            name="assistant",
+            role="assistant",
+            content=[
+                TextBlock(
+                    type="text",
+                    text=(
+                        f"**{skill_name}**\n\n"
+                        f"- **command**: `/{skill_name} <input>` to invoke\n"
+                        f"- **name**: {display_name}\n"
+                        f"- **description**: {desc}\n"
+                        f"- **path**: `{skill_dir}`"
+                    ),
+                ),
+            ],
+        )
+
+    # Append the skill body as a trailing <skill> block; typed text stays.
+    msgs = getattr(ctx, "input_msgs", None)
+    if msgs:
+        last = msgs[-1]
+        content = getattr(last, "content", None)
+        if isinstance(content, list):
+            for i, block in enumerate(content):
+                btype = (
+                    block.get("type")
+                    if isinstance(block, dict)
+                    else getattr(block, "type", None)
+                )
+                if btype == "text":
+                    merged = _build_skill_injection(
+                        _extract_block_text(block),
+                        display_name,
+                        description,
+                        skill_dir,
+                        post.content,
+                    )
+                    content[i] = TextBlock(type="text", text=merged)
+                    return None
+            merged = _build_skill_injection(
+                "",
+                display_name,
+                description,
+                skill_dir,
+                post.content,
+            )
+            content.insert(0, TextBlock(type="text", text=merged))
+        elif isinstance(content, str):
+            last.content = _build_skill_injection(
+                content,
+                display_name,
+                description,
+                skill_dir,
+                post.content,
+            )
+    return None
+
+
+# ======================================================================
+# Factory
+# ======================================================================
+
+
+def collect_builtin_command_specs() -> list[CommandSpec]:
+    """Return all built-in command specs (daemon, control, conversation).
+
+    These are registered into each workspace's :class:`SlashCommandRegistry`
+    via ``bootstrap_plugins(builtin_command_specs=...)``.
+    """
+    specs: list[CommandSpec] = []
+    specs.extend(_collect_daemon_specs())
+    specs.extend(_collect_control_specs())
+    specs.extend(_collect_conversation_specs())
+    return specs
+
+
+def get_skill_fallback_handler() -> FallbackHandler:
+    """Return the ``/<skill_name>`` fallback dispatch handler."""
+    return _skill_fallback_handler
+
+
+__all__ = [
+    "collect_builtin_command_specs",
+    "get_skill_fallback_handler",
+]

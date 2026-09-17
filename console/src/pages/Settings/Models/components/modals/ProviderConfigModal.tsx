@@ -1,17 +1,45 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import type { KeyboardEvent, ReactNode, UIEvent } from "react";
-import { Form, Input, Modal, Button, Select } from "@agentscope-ai/design";
+import {
+  Form,
+  Input,
+  Modal,
+  Button,
+  Select,
+  Radio,
+} from "@agentscope-ai/design";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
-import { ApiOutlined, DownOutlined, RightOutlined } from "@ant-design/icons";
-import type { ProviderConfigRequest } from "../../../../../api/types";
+import {
+  ApiOutlined,
+  CloseOutlined,
+  DownOutlined,
+  RightOutlined,
+} from "@ant-design/icons";
+import type {
+  BaseUrlOption,
+  ProviderConfigRequest,
+} from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
 import styles from "../../index.module.less";
+import {
+  buildCredentialUpdate,
+  buildCustomHeadersUpdate,
+  buildBaseUrlUpdate,
+} from "../../providerCredentials";
 
 interface ProviderConfigFormValues
-  extends Omit<ProviderConfigRequest, "generate_kwargs"> {
+  extends Omit<
+    ProviderConfigRequest,
+    "generate_kwargs" | "custom_headers" | "auth_mode"
+  > {
   generate_kwargs_text?: string;
+}
+
+interface HeaderEntry {
+  key: string;
+  value: string;
 }
 
 interface JsonCodeEditorProps {
@@ -241,13 +269,18 @@ interface ProviderConfigModalProps {
     id: string;
     name: string;
     api_key?: string;
+    api_key_configured?: boolean;
     api_key_prefix?: string;
+    api_key_prefixes?: string[];
     base_url?: string;
     is_custom: boolean;
     freeze_url: boolean;
     chat_model: string;
     support_connection_check: boolean;
     generate_kwargs: Record<string, unknown>;
+    custom_headers?: Record<string, string>;
+    auth_mode?: "api_key" | "auth_token";
+    meta?: Record<string, unknown>;
   };
   activeModels: any;
   open: boolean;
@@ -269,8 +302,36 @@ export function ProviderConfigModal({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [form] = Form.useForm<ProviderConfigFormValues>();
   const { message } = useAppMessage();
+  const [authMode, setAuthMode] = useState<"api_key" | "auth_token">(
+    provider.auth_mode ?? "api_key",
+  );
+  const [customHeaders, setCustomHeaders] = useState<HeaderEntry[]>(
+    Object.entries(provider.custom_headers ?? {}).map(([key, value]) => ({
+      key,
+      value,
+    })),
+  );
+  const [customHeadersDirty, setCustomHeadersDirty] = useState(false);
   const selectedChatModel = Form.useWatch("chat_model", form);
   const canEditBaseUrl = !provider.freeze_url;
+
+  const baseUrlOptions = useMemo<BaseUrlOption[]>(() => {
+    const raw = provider.meta?.base_url_options;
+    if (!Array.isArray(raw)) return [];
+    return raw.flatMap((item) => {
+      if (
+        item &&
+        typeof item === "object" &&
+        typeof (item as BaseUrlOption).label === "string" &&
+        typeof (item as BaseUrlOption).value === "string"
+      ) {
+        return [item as BaseUrlOption];
+      }
+      return [];
+    });
+  }, [provider.meta]);
+
+  const useBaseUrlSelect = canEditBaseUrl && baseUrlOptions.length > 0;
 
   const parseGenerateConfig = (value?: string) => {
     const trimmed = value?.trim();
@@ -299,19 +360,47 @@ export function ProviderConfigModal({
     return selectedChatModel || provider.chat_model || "OpenAIChatModel";
   }, [provider.chat_model, provider.is_custom, selectedChatModel]);
 
-  const apiKeyPlaceholder = useMemo(() => {
-    if (provider.api_key) {
-      return t("models.leaveBlankKeep");
+  const isAnthropicProvider = useMemo(
+    () =>
+      provider.id === "anthropic" ||
+      provider.chat_model === "AnthropicChatModel" ||
+      effectiveChatModel === "AnthropicChatModel",
+    [provider.id, provider.chat_model, effectiveChatModel],
+  );
+
+  const validApiKeyPrefixes = useMemo(() => {
+    if (provider.api_key_prefixes && provider.api_key_prefixes.length > 0) {
+      return provider.api_key_prefixes;
     }
     if (provider.api_key_prefix) {
-      return t("models.enterApiKey", { prefix: provider.api_key_prefix });
+      return [provider.api_key_prefix];
+    }
+    return [];
+  }, [provider.api_key_prefix, provider.api_key_prefixes]);
+
+  const apiKeyPlaceholder = useMemo(() => {
+    if (provider.api_key_configured || provider.api_key) {
+      return t("models.leaveBlankKeep");
+    }
+    if (validApiKeyPrefixes.length > 0) {
+      return t("models.enterApiKey", {
+        prefix: validApiKeyPrefixes.join(", "),
+      });
     }
     return t("models.enterApiKeyOptional");
-  }, [provider.api_key, provider.api_key_prefix, t]);
+  }, [provider.api_key, provider.api_key_configured, validApiKeyPrefixes, t]);
+
+  const apiKeyLabel =
+    isAnthropicProvider && authMode === "auth_token"
+      ? t("models.authModeAuthToken")
+      : t("models.apiKey");
 
   const baseUrlExtra = useMemo(() => {
     if (!canEditBaseUrl) {
       return undefined;
+    }
+    if (useBaseUrlSelect) {
+      return t("models.selectBaseURLHint");
     }
     if (provider.id === "azure-openai") {
       return t("models.azureEndpointHint");
@@ -337,7 +426,14 @@ export function ProviderConfigModal({
         : t("models.openAICompatibleEndpoint");
     }
     return t("models.apiEndpointHint");
-  }, [canEditBaseUrl, provider.id, provider.is_custom, effectiveChatModel, t]);
+  }, [
+    canEditBaseUrl,
+    useBaseUrlSelect,
+    provider.id,
+    provider.is_custom,
+    effectiveChatModel,
+    t,
+  ]);
 
   const baseUrlPlaceholder = useMemo(() => {
     if (!canEditBaseUrl) {
@@ -372,6 +468,7 @@ export function ProviderConfigModal({
     if (open) {
       form.setFieldsValue({
         api_key: undefined,
+        name: provider.name,
         base_url: provider.base_url || undefined,
         chat_model: provider.chat_model || "OpenAIChatModel",
         generate_kwargs_text:
@@ -382,6 +479,14 @@ export function ProviderConfigModal({
       });
       setAdvancedOpen(false);
       setFormDirty(false);
+      setAuthMode(provider.auth_mode ?? "api_key");
+      setCustomHeaders(
+        Object.entries(provider.custom_headers ?? {}).map(([key, value]) => ({
+          key,
+          value,
+        })),
+      );
+      setCustomHeadersDirty(false);
     }
   }, [provider, form, open]);
 
@@ -397,10 +502,21 @@ export function ProviderConfigModal({
       // Validate connection before saving
       // For local providers, we might skip this or just check if models exist (which the backend does)
       if (provider.support_connection_check) {
+        const testHeaders = customHeaders
+          .filter((h) => h.key.trim())
+          .reduce<Record<string, string>>((acc, h) => {
+            acc[h.key.trim()] = h.value;
+            return acc;
+          }, {});
         const result = await api.testProviderConnection(provider.id, {
           api_key: values.api_key,
-          base_url: values.base_url,
+          base_url:
+            values.base_url?.trim() === provider.base_url?.trim()
+              ? undefined
+              : values.base_url?.trim() || undefined,
           chat_model: values.chat_model,
+          custom_headers: testHeaders,
+          auth_mode: isAnthropicProvider ? authMode : undefined,
         });
 
         if (!result.success) {
@@ -410,17 +526,31 @@ export function ProviderConfigModal({
         }
       }
 
+      const headersObj = customHeaders
+        .filter((h) => h.key.trim())
+        .reduce<Record<string, string>>((acc, h) => {
+          acc[h.key.trim()] = h.value;
+          return acc;
+        }, {});
+
       await api.configureProvider(provider.id, {
-        api_key: values.api_key,
-        base_url: values.base_url,
+        ...buildCredentialUpdate(values.api_key, false),
+        ...buildCustomHeadersUpdate(headersObj, customHeadersDirty),
+        ...buildBaseUrlUpdate(values.base_url, provider.base_url),
+        name: provider.is_custom ? values.name?.trim() : undefined,
         chat_model: values.chat_model,
         generate_kwargs: hasGenerateConfigInput ? generateConfig : {},
+        auth_mode: isAnthropicProvider ? authMode : undefined,
       });
 
       await onSaved();
       setFormDirty(false);
       onClose();
-      message.success(t("models.configurationSaved", { name: provider.name }));
+      message.success(
+        t("models.configurationSaved", {
+          name: (provider.is_custom && values.name?.trim()) || provider.name,
+        }),
+      );
     } catch (error) {
       if (error && typeof error === "object" && "errorFields" in error) return;
       const errMsg =
@@ -439,10 +569,21 @@ export function ProviderConfigModal({
         "base_url",
         "chat_model",
       ]);
+      const testHeaders = customHeaders
+        .filter((h) => h.key.trim())
+        .reduce<Record<string, string>>((acc, h) => {
+          acc[h.key.trim()] = h.value;
+          return acc;
+        }, {});
       const result = await api.testProviderConnection(provider.id, {
         api_key: values.api_key,
-        base_url: values.base_url,
+        base_url:
+          values.base_url?.trim() === provider.base_url?.trim()
+            ? undefined
+            : values.base_url?.trim() || undefined,
         chat_model: values.chat_model,
+        custom_headers: testHeaders,
+        auth_mode: isAnthropicProvider ? authMode : undefined,
       });
       if (result.success) {
         message.success(getLocalizedTestConnectionMessage(result, t));
@@ -477,7 +618,7 @@ export function ProviderConfigModal({
       cancelText: t("models.cancel"),
       onOk: async () => {
         try {
-          await api.configureProvider(provider.id, { api_key: "" });
+          await api.configureProvider(provider.id, { clear_api_key: true });
           await onSaved();
           onClose();
           if (isActiveLlmProvider) {
@@ -501,13 +642,14 @@ export function ProviderConfigModal({
   return (
     <Modal
       width={800}
+      className={styles.modelManageModal}
       title={t("models.configureProvider", { name: provider.name })}
       open={open}
       onCancel={onClose}
       footer={
         <div className={styles.modalFooter}>
           <div className={styles.modalFooterLeft}>
-            {provider.api_key && (
+            {(provider.api_key_configured || provider.api_key) && (
               <Button danger size="small" onClick={handleRevoke}>
                 {t("models.revokeAuthorization")}
               </Button>
@@ -542,6 +684,7 @@ export function ProviderConfigModal({
         form={form}
         layout="vertical"
         initialValues={{
+          name: provider.name,
           base_url: provider.base_url || undefined,
           chat_model: provider.chat_model || "OpenAIChatModel",
           generate_kwargs_text:
@@ -552,6 +695,22 @@ export function ProviderConfigModal({
         }}
         onValuesChange={() => setFormDirty(true)}
       >
+        {provider.is_custom && (
+          <Form.Item
+            name="name"
+            label={t("models.providerNameLabel")}
+            rules={[
+              {
+                required: true,
+                whitespace: true,
+                message: t("models.providerNameLabel"),
+              },
+            ]}
+          >
+            <Input placeholder={t("models.providerNamePlaceholder")} />
+          </Form.Item>
+        )}
+
         {provider.is_custom && (
           <Form.Item
             name="chat_model"
@@ -570,6 +729,10 @@ export function ProviderConfigModal({
                 {
                   value: "OpenAIChatModel",
                   label: t("models.protocolOpenAI"),
+                },
+                {
+                  value: "OpenAIResponseModel",
+                  label: t("models.protocolOpenAIResponse"),
                 },
                 {
                   value: "AnthropicChatModel",
@@ -618,25 +781,41 @@ export function ProviderConfigModal({
           }
           extra={baseUrlExtra}
         >
-          <Input placeholder={baseUrlPlaceholder} disabled={!canEditBaseUrl} />
+          {useBaseUrlSelect ? (
+            <Select
+              options={baseUrlOptions.map((option) => ({
+                label: `${option.label} — ${option.value}`,
+                value: option.value,
+              }))}
+              placeholder={t("models.selectBaseURL")}
+            />
+          ) : (
+            <Input
+              placeholder={baseUrlPlaceholder}
+              disabled={!canEditBaseUrl}
+            />
+          )}
         </Form.Item>
 
         {/* API Key */}
         <Form.Item
           name="api_key"
-          label={t("models.apiKey")}
+          label={apiKeyLabel}
           rules={[
             {
               validator: (_, value) => {
                 if (
                   value &&
-                  provider.api_key_prefix &&
-                  !value.startsWith(provider.api_key_prefix)
+                  validApiKeyPrefixes.length > 0 &&
+                  authMode !== "auth_token" &&
+                  !validApiKeyPrefixes.some((prefix) =>
+                    value.startsWith(prefix),
+                  )
                 ) {
                   return Promise.reject(
                     new Error(
                       t("models.apiKeyShouldStart", {
-                        prefix: provider.api_key_prefix,
+                        prefix: validApiKeyPrefixes.join(", "),
                       }),
                     ),
                   );
@@ -660,6 +839,90 @@ export function ProviderConfigModal({
               {t("models.advancedConfig")}
             </span>
           </button>
+
+          {/* Anthropic auth mode selector */}
+          {isAnthropicProvider && advancedOpen && (
+            <Form.Item label={t("models.authMode")}>
+              <Radio.Group
+                value={authMode}
+                onChange={(e) => {
+                  setAuthMode(e.target.value);
+                  setFormDirty(true);
+                }}
+              >
+                <Radio value="api_key">{t("models.authModeApiKey")}</Radio>
+                <Radio value="auth_token">
+                  {t("models.authModeAuthToken")}
+                </Radio>
+              </Radio.Group>
+            </Form.Item>
+          )}
+
+          {/* Custom Headers editor */}
+          {advancedOpen && (
+            <Form.Item
+              label={t("models.customHeaders")}
+              extra={t("models.customHeadersHint")}
+            >
+              <div className={styles.customHeadersSection}>
+                {customHeaders.map((header, index) => (
+                  <div key={index} className={styles.customHeaderRow}>
+                    <Input
+                      className={styles.customHeaderKey}
+                      placeholder={t("models.customHeaderKey")}
+                      value={header.key}
+                      onChange={(e) => {
+                        const next = [...customHeaders];
+                        next[index] = { ...next[index], key: e.target.value };
+                        setCustomHeaders(next);
+                        setCustomHeadersDirty(true);
+                        setFormDirty(true);
+                      }}
+                    />
+                    <Input
+                      className={styles.customHeaderValue}
+                      placeholder={t("models.customHeaderValue")}
+                      value={header.value}
+                      onChange={(e) => {
+                        const next = [...customHeaders];
+                        next[index] = {
+                          ...next[index],
+                          value: e.target.value,
+                        };
+                        setCustomHeaders(next);
+                        setCustomHeadersDirty(true);
+                        setFormDirty(true);
+                      }}
+                    />
+                    <CloseOutlined
+                      className={styles.customHeaderDelete}
+                      onClick={() => {
+                        setCustomHeaders(
+                          customHeaders.filter((_, i) => i !== index),
+                        );
+                        setCustomHeadersDirty(true);
+                        setFormDirty(true);
+                      }}
+                    />
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className={styles.addHeaderBtn}
+                  onClick={() => {
+                    setCustomHeaders([
+                      ...customHeaders,
+                      { key: "", value: "" },
+                    ]);
+                    setCustomHeadersDirty(true);
+                    setFormDirty(true);
+                  }}
+                >
+                  {t("models.addHeader")}
+                </button>
+              </div>
+            </Form.Item>
+          )}
 
           <Form.Item
             hidden={!advancedOpen}

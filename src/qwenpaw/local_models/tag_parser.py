@@ -234,6 +234,13 @@ def _parse_single_tool_call(raw_text: str) -> ParsedToolCall | None:
         data = None
 
     if data is not None:
+        if not isinstance(data, dict):
+            logger.warning(
+                "Tool call JSON must be an object: %s",
+                stripped[:200],
+            )
+            return None
+
         name = data.get("name", "")
         if not name:
             logger.warning(

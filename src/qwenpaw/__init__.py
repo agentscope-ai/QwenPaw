@@ -2,7 +2,7 @@
 import logging
 import os
 import time
-
+from . import _compat as _compat_bootstrap
 from .utils.logging import setup_logger
 
 # Fallback before we can safely read canonical constant definitions.
@@ -21,6 +21,7 @@ except Exception as exc:
 
 _t0 = time.perf_counter()
 setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+
 if _bootstrap_err is not None:
     logging.getLogger(__name__).warning(
         "qwenpaw: failed to load persisted envs on init: %s",

@@ -1,4 +1,4 @@
-import { Button, Tabs } from "@agentscope-ai/design";
+import { Alert, Button, Tabs } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { useSecurityPage } from "./useSecurityPage";
 import {
@@ -18,10 +18,14 @@ function SecurityPage() {
   const {
     activeTab,
     setActiveTab,
+    policy,
     form,
     config,
     enabled,
     setEnabled,
+    sandboxEnabled,
+    setSandboxEnabled,
+    sandboxReason,
     toolOptions,
     saving,
     handleSave,
@@ -30,6 +34,7 @@ function SecurityPage() {
     builtinRules,
     customRules,
     toggleRule,
+    toggleAutoDeny,
     deleteCustomRule,
     openAddRule,
     openEditRule,
@@ -84,6 +89,29 @@ function SecurityPage() {
       />
 
       <div className={styles.content}>
+        {policy && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message={t("security.policyBaselineTitle")}
+            description={t("security.policyBaselineDescription", {
+              agentId: policy.agent_id,
+              lockedCount: policy.platform_locked_fields.length,
+              lockedFields: policy.platform_locked_fields.join(", "),
+              toolGuard: policy.effective_policy.tool_guard.enabled
+                ? t("common.enabled")
+                : t("common.disabled"),
+              fileGuard: policy.effective_policy.file_guard.enabled
+                ? t("common.enabled")
+                : t("common.disabled"),
+              scanner: policy.effective_policy.skill_scanner.mode,
+              sandbox: policy.effective_policy.sandbox_enabled
+                ? t("common.enabled")
+                : t("common.disabled"),
+            })}
+          />
+        )}
         <Tabs
           className={styles.mainTabs}
           activeKey={activeTab}
@@ -102,9 +130,13 @@ function SecurityPage() {
                   config={config}
                   enabled={enabled}
                   setEnabled={setEnabled}
+                  sandboxEnabled={sandboxEnabled}
+                  setSandboxEnabled={setSandboxEnabled}
+                  sandboxReason={sandboxReason}
                   toolOptions={toolOptions}
                   mergedRules={mergedRules}
                   toggleRule={toggleRule}
+                  toggleAutoDeny={toggleAutoDeny}
                   onPreviewRule={setPreviewRule}
                   onEditRule={openEditRule}
                   onDeleteRule={deleteCustomRule}

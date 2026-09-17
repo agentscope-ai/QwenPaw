@@ -13,6 +13,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 from tests.contract.channels import ChannelContractTest
 
 if TYPE_CHECKING:
@@ -53,8 +55,10 @@ class TestConsoleChannelContract(ChannelContractTest):
             process=process,
             enabled=True,
             bot_prefix="[TEST] ",
-            show_tool_details=False,
-            filter_tool_messages=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
     # Subclass-specific tests can be added here

@@ -36,6 +36,18 @@
   flex-wrap: wrap;
 }
 
+.levelSelect {
+  width: 160px;
+}
+
+.searchInput {
+  width: 320px;
+}
+
+.updatedAt {
+  font-size: 12px;
+}
+
 .toolbarRight {
   display: flex;
   align-items: center;
@@ -104,5 +116,59 @@
 
   .highlight {
     background: rgba(255, 214, 102, 0.35);
+  }
+}
+
+/* ─── Mobile Adaptation ──────────────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .content {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .cardExtra {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .toolbarLeft {
+    width: 100%;
+  }
+
+  .levelSelect {
+    flex: 0 0 auto;
+    width: 120px !important;
+  }
+
+  .searchInput {
+    flex: 1 1 auto;
+    width: auto !important;
+    min-width: 0;
+  }
+
+  .updatedAt {
+    width: 100%;
+  }
+
+  .toolbarRight {
+    width: 100%;
+    justify-content: stretch;
+
+    > * {
+      flex: 1;
+    }
+  }
+
+  .logPath {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
 }

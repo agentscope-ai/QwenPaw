@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "devtools"
+description = "Allows the frontend to open DevTools via the hidden 8-click logo gesture."
+commands.allow = ["open_devtools"]

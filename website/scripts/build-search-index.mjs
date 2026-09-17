@@ -23,6 +23,9 @@ function slugifyHeading(text) {
 
 function stripMarkdownForExcerpt(md) {
   return md
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
     .replace(/^#+\s+.+$/gm, "")
     .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
     .replace(/[*_`#]/g, "")

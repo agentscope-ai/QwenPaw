@@ -1,9 +1,6 @@
 /**
- * First step in the restore flow: asks the user whether they want to create
- * an automatic snapshot before overwriting data. Three outcomes:
- *   - Cancel     → abort entirely
- *   - No backup  → proceed straight to RestoreBackupModal
- *   - Yes backup → open SilentBackupModal first, then RestoreBackupModal
+ * First restore warning. The server always creates a signed protection backup
+ * after the final impact confirmation and before it writes any data.
  */
 import { Button, Modal } from "antd";
 import { useTranslation } from "react-i18next";
@@ -13,14 +10,12 @@ interface Props {
   target: BackupMeta | null;
   onCancel: () => void;
   onNoBackup: (target: BackupMeta) => void;
-  onYesBackup: (target: BackupMeta) => void;
 }
 
 export default function PreRestoreConfirmModal({
   target,
   onCancel,
   onNoBackup,
-  onYesBackup,
 }: Props) {
   const { t } = useTranslation();
 
@@ -35,15 +30,12 @@ export default function PreRestoreConfirmModal({
         <Button key="cancel" onClick={onCancel}>
           {t("common.cancel")}
         </Button>,
-        <Button key="no" onClick={() => target && onNoBackup(target)}>
-          {t("backup.preRestoreBackupNo")}
-        </Button>,
         <Button
-          key="yes"
+          key="continue"
           type="primary"
-          onClick={() => target && onYesBackup(target)}
+          onClick={() => target && onNoBackup(target)}
         >
-          {t("backup.preRestoreBackupYes")}
+          {t("backup.preRestoreBackupNo")}
         </Button>,
       ]}
     >

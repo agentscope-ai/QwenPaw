@@ -1,14 +1,32 @@
 import { request } from "../request";
 import { getApiUrl } from "../config";
 import { buildAuthHeaders } from "../authHeaders";
-import type { MdFileInfo, MdFileContent, DailyMemoryFile } from "../types";
+import { useCodeFileCacheStore } from "../../stores/codeFileCacheStore";
+import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
+import type {
+  MdFileInfo,
+  MdFileContent,
+  DailyMemoryFile,
+  MemorySection,
+} from "../types";
+import type {
+  DirectoryPage,
+  FileMetadata,
+  WorkspaceRoot,
+} from "../../features/files-workspace/types";
+import type { MemoryScope } from "../../features/files-workspace/filesWorkspaceScope";
+import {
+  withAgentRequestContext,
+  type AgentRequestContext,
+} from "./agentRequestContext";
+import { getUserScopedStorageKey } from "../../stores/identityStorage";
 
 function getSelectedAgentId(): string {
   try {
     // Read from sessionStorage first (per-tab agent), fall back to localStorage
+    const storageKey = getUserScopedStorageKey("qwenpaw-agent-storage");
     const agentStorage =
-      sessionStorage.getItem("qwenpaw-agent-storage") ||
-      localStorage.getItem("qwenpaw-agent-storage");
+      sessionStorage.getItem(storageKey) || localStorage.getItem(storageKey);
     if (agentStorage) {
       const parsed = JSON.parse(agentStorage);
       const selectedAgent = parsed?.state?.selectedAgent;
@@ -34,26 +52,268 @@ function generateFallbackFilename(): string {
   return `qwenpaw_workspace_${agentId}_${timestamp}.zip`;
 }
 
-export interface WorkspaceDownloadResult {
-  blob: Blob;
-  filename: string;
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
+function workspaceQuery(
+  path: string,
+  values: Record<string, string | number | undefined>,
+): string {
+  const query = new URLSearchParams();
+  Object.entries(values).forEach(([key, value]) => {
+    if (value !== undefined) query.set(key, String(value));
+  });
+  return `${path}?${query.toString()}`;
+}
+
+function projectHeaders(
+  chatId?: string,
+  projectDirOverride?: string,
+  context?: AgentRequestContext,
+): Record<string, string> {
+  const headers = {
+    ...buildAuthHeaders(),
+    ...(chatId ? { "X-Chat-Id": chatId } : {}),
+    ...(!chatId && projectDirOverride
+      ? { "X-Session-Project-Dir": projectDirOverride }
+      : {}),
+  };
+  return (withAgentRequestContext({ headers }, context)?.headers ??
+    headers) as Record<string, string>;
+}
+
+function requestMemory<T>(
+  path: string,
+  context?: AgentRequestContext,
+  options?: Parameters<typeof request<T>>[1],
+): Promise<T> {
+  const merged = withAgentRequestContext(options, context);
+  return merged ? request<T>(path, merged) : request<T>(path);
+}
+
+export class UploadConflictError extends Error {
+  files: string[];
+
+  constructor(files: string[]) {
+    super("Upload contains conflicting filenames");
+    this.name = "UploadConflictError";
+    this.files = files;
+  }
+}
+
+interface WorkspaceFileChunk {
+  path: string;
+  content: string;
+  offset: number;
+  limit: number;
+  next_offset: number;
+  eof: boolean;
+  truncated: boolean;
+  encoding: string;
+  etag: string;
 }
 
 export const workspaceApi = {
-  listFiles: () =>
-    request<MdFileInfo[]>("/workspace/files").then((files) =>
+  listDirectory: (
+    path = "",
+    cursor?: string,
+    limit = 200,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
+    context?: AgentRequestContext,
+  ): Promise<DirectoryPage> =>
+    request<DirectoryPage>(
+      workspaceQuery("/workspace/tree", { path, cursor, limit, root }),
+      { headers: projectHeaders(chatId, projectDirOverride, context) },
+    ),
+
+  getFileMetadata: (
+    path: string,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
+    context?: AgentRequestContext,
+  ): Promise<FileMetadata> =>
+    request<FileMetadata>(
+      workspaceQuery("/workspace/file-metadata", { path, root }),
+      { headers: projectHeaders(chatId, projectDirOverride, context) },
+    ),
+
+  loadFileChunk: (
+    path: string,
+    offset = 0,
+    limit = 256 * 1024,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
+    context?: AgentRequestContext,
+  ): Promise<WorkspaceFileChunk> =>
+    request<WorkspaceFileChunk>(
+      workspaceQuery("/workspace/file-content", {
+        path,
+        offset,
+        limit,
+        root,
+      }),
+      { headers: projectHeaders(chatId, projectDirOverride, context) },
+    ),
+
+  loadFileText: async (
+    path: string,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
+    context?: AgentRequestContext,
+  ): Promise<{ content: string; etag: string }> => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const chunks: string[] = [];
+      let offset = 0;
+      let etag = "";
+      let versionChanged = false;
+      for (;;) {
+        let chunk: WorkspaceFileChunk;
+        try {
+          chunk = await workspaceApi.loadFileChunk(
+            path,
+            offset,
+            256 * 1024,
+            chatId,
+            root,
+            projectDirOverride,
+            context,
+          );
+        } catch (error) {
+          if (attempt === 0) {
+            versionChanged = true;
+            break;
+          }
+          throw error;
+        }
+        if (!etag) {
+          etag = chunk.etag;
+        } else if (chunk.etag !== etag) {
+          versionChanged = true;
+          break;
+        }
+        chunks.push(chunk.content);
+        if (chunk.eof) {
+          return { content: chunks.join(""), etag };
+        }
+        if (chunk.next_offset <= offset) {
+          throw new Error("Workspace file reader did not advance");
+        }
+        offset = chunk.next_offset;
+      }
+      if (!versionChanged || attempt === 1) {
+        throw new Error("Workspace file changed while it was being read");
+      }
+    }
+    throw new Error("Workspace file changed while it was being read");
+  },
+
+  saveFileContent: async (
+    path: string,
+    content: string,
+    etag?: string,
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
+    context?: AgentRequestContext,
+  ): Promise<{ path: string; size: number; etag: string }> => {
+    const response = await fetch(
+      getApiUrl(workspaceQuery("/workspace/file-content", { path, root })),
+      {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...projectHeaders(chatId, projectDirOverride, context),
+          ...(etag ? { "If-Match": etag } : {}),
+        },
+        body: JSON.stringify({ content }),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Workspace save failed: ${response.status}`);
+    }
+    return response.json();
+  },
+
+  getFileDownloadUrl: (path: string, root: WorkspaceRoot = "project") =>
+    getApiUrl(workspaceQuery("/workspace/file-download", { path, root })),
+
+  getHtmlFileUriUrl: (path: string, root: WorkspaceRoot = "project") =>
+    getApiUrl(workspaceQuery("/workspace/html-file-uri", { path, root })),
+
+  uploadFiles: async (
+    files: File[],
+    path = "",
+    conflict?: "overwrite" | "skip" | "rename",
+    chatId?: string,
+    root: WorkspaceRoot = "project",
+    projectDirOverride?: string,
+    context?: AgentRequestContext,
+  ): Promise<{
+    files: Array<{
+      name: string;
+      path: string;
+      size?: number;
+      status: "uploaded" | "skipped";
+    }>;
+  }> => {
+    const formData = new FormData();
+    files.forEach((file) => formData.append("files", file));
+    const response = await fetch(
+      getApiUrl(
+        workspaceQuery("/workspace/file-upload", {
+          path,
+          conflict,
+          root,
+        }),
+      ),
+      {
+        method: "POST",
+        headers: projectHeaders(chatId, projectDirOverride, context),
+        body: formData,
+      },
+    );
+    if (response.status === 409) {
+      const payload = await response.json().catch(() => null);
+      if (payload?.detail?.code === "upload_conflict") {
+        throw new UploadConflictError(
+          Array.isArray(payload.detail.files) ? payload.detail.files : [],
+        );
+      }
+    }
+    if (!response.ok) {
+      throw new Error(`File upload failed: ${response.status}`);
+    }
+    return response.json();
+  },
+
+  listFiles: (context?: AgentRequestContext) =>
+    requestMemory<MdFileInfo[]>("/workspace/files", context).then((files) =>
       files.map((file) => ({
         ...file,
         updated_at: new Date(file.modified_time).getTime(),
       })),
     ),
 
-  loadFile: (fileName: string) =>
-    request<MdFileContent>(`/workspace/files/${encodeURIComponent(fileName)}`),
-
-  saveFile: (fileName: string, content: string) =>
-    request<Record<string, unknown>>(
+  loadFile: (fileName: string, context?: AgentRequestContext) =>
+    requestMemory<MdFileContent>(
       `/workspace/files/${encodeURIComponent(fileName)}`,
+      context,
+    ),
+
+  saveFile: (
+    fileName: string,
+    content: string,
+    context?: AgentRequestContext,
+  ) =>
+    requestMemory<Record<string, unknown>>(
+      `/workspace/files/${encodeURIComponent(fileName)}`,
+      context,
       {
         method: "PUT",
         body: JSON.stringify({ content }),
@@ -61,37 +321,16 @@ export const workspaceApi = {
     ),
 
   // Workspace package download
-  downloadWorkspace: async (): Promise<WorkspaceDownloadResult> => {
-    const response = await fetch(getApiUrl("/workspace/download"), {
-      method: "GET",
-      headers: buildAuthHeaders(),
-    });
-
-    if (!response.ok) {
-      throw new Error(
-        `Workspace download failed: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const blob = await response.blob();
-
-    // Extract filename from Content-Disposition header
-    const disposition = response.headers.get("Content-Disposition");
-    let filename: string;
-
-    if (disposition) {
-      const filenameMatch = disposition.match(/filename="(.+?)"/);
-      if (filenameMatch && filenameMatch[1]) {
-        filename = filenameMatch[1];
-      } else {
-        filename = generateFallbackFilename();
-      }
-    } else {
-      filename = generateFallbackFilename();
-    }
-
-    return { blob, filename };
-  },
+  downloadWorkspace: () =>
+    downloadFileFromUrl(
+      getApiUrl("/workspace/download"),
+      generateFallbackFilename(),
+      {
+        headers: buildAuthHeaders(),
+        errorMessage: "Workspace download failed",
+        preferResponseFilename: true,
+      },
+    ),
 
   // File upload functionality
   uploadFile: async (
@@ -116,10 +355,74 @@ export const workspaceApi = {
     return await response.json();
   },
 
+  listMemoryFiles: (
+    section: MemorySection,
+    scope: MemoryScope = "public",
+    context?: AgentRequestContext,
+  ) =>
+    requestMemory<MdFileInfo[]>(
+      workspaceQuery("/workspace/memory", { section, scope }),
+      context,
+    ),
+
+  loadMemoryFile: (
+    memoryPath: string,
+    section: MemorySection,
+    scope: MemoryScope = "public",
+    context?: AgentRequestContext,
+  ) =>
+    requestMemory<MdFileContent>(
+      workspaceQuery(`/workspace/memory/${encodePath(memoryPath)}`, {
+        section,
+        scope,
+      }),
+      context,
+    ),
+
+  saveMemoryFile: (
+    memoryPath: string,
+    content: string,
+    section: MemorySection,
+    scope: MemoryScope = "public",
+    context?: AgentRequestContext,
+  ) =>
+    requestMemory<Record<string, unknown>>(
+      workspaceQuery(`/workspace/memory/${encodePath(memoryPath)}`, {
+        section,
+        scope,
+      }),
+      context,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      },
+    ),
+
+  createMemoryFile: (
+    memoryPath: string,
+    content: string,
+    section: MemorySection,
+    scope: MemoryScope = "public",
+    context?: AgentRequestContext,
+  ) =>
+    requestMemory<Record<string, unknown>>(
+      workspaceQuery(`/workspace/memory/${encodePath(memoryPath)}`, {
+        section,
+        scope,
+      }),
+      context,
+      {
+        method: "POST",
+        body: JSON.stringify({ content }),
+      },
+    ),
+
+  // Legacy helpers retained for persisted tabs and older callers.
   listDailyMemory: () =>
     request<MdFileInfo[]>("/workspace/memory").then((files) =>
       files.map((file) => {
-        const date = file.filename.replace(".md", "");
+        const basename = file.filename.split("/").pop() || file.filename;
+        const date = basename.replace(".md", "");
         return {
           ...file,
           date,
@@ -128,12 +431,12 @@ export const workspaceApi = {
       }),
     ),
 
-  loadDailyMemory: (date: string) =>
-    request<MdFileContent>(`/workspace/memory/${encodeURIComponent(date)}.md`),
+  loadDailyMemory: (memoryPath: string) =>
+    request<MdFileContent>(`/workspace/memory/${encodePath(memoryPath)}`),
 
-  saveDailyMemory: (date: string, content: string) =>
+  saveDailyMemory: (memoryPath: string, content: string) =>
     request<Record<string, unknown>>(
-      `/workspace/memory/${encodeURIComponent(date)}.md`,
+      `/workspace/memory/${encodePath(memoryPath)}`,
       {
         method: "PUT",
         body: JSON.stringify({ content }),
@@ -141,12 +444,102 @@ export const workspaceApi = {
     ),
 
   // System prompt files management
-  getSystemPromptFiles: () =>
-    request<string[]>("/workspace/system-prompt-files"),
+  getSystemPromptFiles: (context?: AgentRequestContext) =>
+    requestMemory<string[]>("/workspace/system-prompt-files", context),
 
-  setSystemPromptFiles: (files: string[]) =>
-    request<string[]>("/workspace/system-prompt-files", {
-      method: "PUT",
-      body: JSON.stringify(files),
+  setSystemPromptFiles: (files: string[], context?: AgentRequestContext) =>
+    requestMemory<string[]>(
+      "/workspace/system-prompt-files",
+      context,
+      {
+        method: "PUT",
+        body: JSON.stringify(files),
+      },
+    ),
+
+  // Coding Mode – full file tree (all file types)
+  listCodeFiles: () =>
+    request<MdFileInfo[]>("/workspace/code-files").then((files) =>
+      files.map((file) => ({
+        ...file,
+        updated_at: new Date(file.modified_time).getTime(),
+      })),
+    ),
+
+  /**
+   * Load a workspace file's text content.
+   *
+   * Cache strategy: returns the in-memory cached content immediately when
+   * present (no network). Otherwise issues a GET with `If-None-Match` from
+   * the cached ETag (if any) so a hard-refresh can short-circuit to 304.
+   * Cache invalidation is driven by the shared workspace watcher.
+   */
+  loadCodeFile: async (
+    filePath: string,
+  ): Promise<{ path: string; content: string }> => {
+    const cache = useCodeFileCacheStore.getState();
+    const cached = cache.get(filePath);
+    if (cached) {
+      return { path: filePath, content: cached.content };
+    }
+
+    const url = getApiUrl(
+      `/workspace/code-files/${filePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+    );
+    const headers = new Headers();
+    for (const [k, v] of Object.entries(buildAuthHeaders())) {
+      headers.set(k, v);
+    }
+    // The browser handles `If-None-Match` automatically from its HTTP cache;
+    // we only need to populate the in-memory cache from the response.
+    const response = await fetch(url, { headers });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      const err = new Error(text || `Request failed: ${response.status}`);
+      (err as Error & { status?: number }).status = response.status;
+      throw err;
+    }
+
+    const data = (await response.json()) as { path: string; content: string };
+    const etag = response.headers.get("ETag");
+    cache.set(filePath, data.content, etag);
+    return data;
+  },
+
+  saveCodeFile: (filePath: string, content: string) =>
+    request<{ path: string; size: number }>(
+      `/workspace/code-files/${filePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ content }),
+      },
+    ).then((result) => {
+      // Local edit: drop the cached entry — next read will refetch with the
+      // server's new ETag. Cheaper than threading content through here.
+      useCodeFileCacheStore.getState().invalidate(filePath);
+      return result;
     }),
+
+  /** Returns the URL for the SSE file-watch stream (Coding Mode). */
+  getWatchUrl: (root: WorkspaceRoot = "project") =>
+    `${getApiUrl("/workspace/watch")}?root=${encodeURIComponent(root)}`,
+
+  /**
+   * Returns the URL for a binary file (image, PDF, CSV) preview.
+   * The browser can use this URL directly in <img>, <embed>, or fetch().
+   */
+  getBinaryFileUrl: (filePath: string) =>
+    getApiUrl(
+      `/workspace/binary-files/${filePath
+        .split("/")
+        .map(encodeURIComponent)
+        .join("/")}`,
+    ),
 };

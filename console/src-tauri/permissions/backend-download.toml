@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "backend-download"
+description = "Allows the frontend to save files streamed from the local backend."
+commands.allow = ["download_backend_file"]

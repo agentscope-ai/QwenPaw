@@ -2,6 +2,24 @@
  * MCP (Model Context Protocol) client types
  */
 
+export interface MCPClientOAuthStatus {
+  /** Whether a valid access token is present */
+  authorized: boolean;
+  /** Unix timestamp when the access token expires (0 = unknown) */
+  expires_at: number;
+  /** Granted OAuth scope(s) */
+  scope: string;
+  /** OAuth client_id used */
+  client_id: string;
+}
+
+export type MCPAccessEffect = "allow" | "ask" | "deny";
+
+export interface MCPAccessSummary {
+  default_effect: MCPAccessEffect;
+  overrides_count: number;
+}
+
 export interface MCPClientInfo {
   /** Unique client key identifier */
   key: string;
@@ -25,6 +43,59 @@ export interface MCPClientInfo {
   env: Record<string, string>;
   /** Working directory for stdio command */
   cwd: string;
+  /** Tool whitelist (null means all tools enabled) */
+  tools: string[] | null;
+  /** OAuth status (null if OAuth not configured) */
+  oauth_status: MCPClientOAuthStatus | null;
+  /** Summarised MCP access policy */
+  access_summary: MCPAccessSummary;
+  /** Names of configured secrets. Secret values are never returned. */
+  credential_fields?: { headers: string[]; env: string[] };
+  /** Optimistic concurrency revision for all configuration mutations. */
+  revision?: number;
+  /** Runtime materialization state; saved configuration may not be active yet. */
+  runtime_status?: string;
+  runtime_error?: string | null;
+  /** Whether the captured actor may edit this client. */
+  can_edit?: boolean;
+}
+
+export type MCPSecretAction =
+  | { action: "keep" | "delete" }
+  | { action: "replace"; value: string };
+
+export interface MCPCredentialUpdates {
+  headers?: Record<string, MCPSecretAction>;
+  env?: Record<string, MCPSecretAction>;
+}
+
+export interface MCPOAuthStartRequest {
+  /** MCP server URL */
+  url: string;
+  /** OAuth scope(s) to request */
+  scope?: string;
+  /** Pre-registered client_id (leave empty to use Dynamic Client Registration) */
+  client_id?: string;
+  /** Override authorization endpoint (skips auto-discovery) */
+  auth_endpoint?: string;
+  /** Override token endpoint (skips auto-discovery) */
+  token_endpoint?: string;
+  expected_revision?: number;
+}
+
+export interface MCPOAuthStartResponse {
+  /** Full authorization URL to open in a popup */
+  auth_url: string;
+  /** State token / session ID for polling */
+  session_id: string;
+}
+
+export interface MCPOAuthStatusResponse {
+  authorized: boolean;
+  expires_at: number;
+  scope: string;
+  session_id?: string;
+  status?: "pending" | "completed" | "failed" | "expired";
 }
 
 export interface MCPClientCreateRequest {
@@ -60,8 +131,72 @@ export interface MCPToolInfo {
   name: string;
   /** Tool description */
   description: string;
+  /** Whether this tool is enabled (passes the whitelist) */
+  enabled: boolean;
   /** JSON Schema for the tool's input parameters */
   input_schema: Record<string, unknown>;
+}
+
+export type MCPAccessSourceType = "channel" | (string & {});
+export type MCPAccessSubjectType = "all" | "user";
+
+export interface MCPAccessRule {
+  /** Where the tool call comes from */
+  source_type: MCPAccessSourceType;
+  /** Concrete source, e.g. console, dingtalk */
+  source_value: string;
+  /** Object scope within the source */
+  subject_type: MCPAccessSubjectType;
+  /** Concrete object value when subject_type is user */
+  subject_value: string;
+  /** Access effect for this tool */
+  effect: MCPAccessEffect;
+}
+
+export interface MCPAccessPrincipalOption {
+  /** Where the tool call comes from */
+  source_type: MCPAccessSourceType;
+  /** Concrete source, e.g. console, dingtalk */
+  source_value: string;
+  /** Selectable object type */
+  subject_type: "user";
+  /** User identifier within the selected source */
+  subject_value: string;
+  /** Display label */
+  label: string;
+  /** Recent chat UUID */
+  chat_id: string;
+  /** Recent chat name */
+  chat_name: string;
+  /** Recent session ID */
+  session_id: string;
+  /** Most recent chat update timestamp */
+  updated_at: string | null;
+}
+
+export interface MCPToolDefaultPolicy {
+  /** MCP tool name */
+  tool_name: string;
+  /** Default effect for this tool */
+  effect: MCPAccessEffect;
+}
+
+export interface MCPToolAccessOverride extends MCPAccessRule {
+  /** MCP tool name */
+  tool_name: string;
+}
+
+export interface MCPAccessPolicy {
+  /** Default effect when no MCP rule matches */
+  default_effect: MCPAccessEffect;
+  /** Console-managed MCP-wide source/object overrides */
+  client_overrides: MCPAccessRule[];
+  /** Console-managed default effects for individual tools */
+  tool_defaults: MCPToolDefaultPolicy[];
+  /** Console-managed per-source/per-object/per-tool overrides */
+  tool_overrides: MCPToolAccessOverride[];
+  /** Preserved rules not editable from the MCP console */
+  unmanaged_rules_count: number;
 }
 
 export interface MCPClientUpdateRequest {
@@ -75,14 +210,14 @@ export interface MCPClientUpdateRequest {
   transport?: "stdio" | "streamable_http" | "sse";
   /** Remote MCP endpoint URL for HTTP/SSE transport */
   url?: string;
-  /** HTTP headers for remote transport */
-  headers?: Record<string, string>;
   /** Command to launch the MCP server */
   command?: string;
   /** Command-line arguments */
   args?: string[];
-  /** Environment variables */
-  env?: Record<string, string>;
   /** Working directory for stdio command */
   cwd?: string;
+  /** Explicit actions for configured secrets. */
+  credential_updates?: MCPCredentialUpdates;
+  /** Revision observed when editing began. */
+  expected_revision?: number;
 }

@@ -8,32 +8,109 @@ configuration, running config, and system prompt files.
 from __future__ import annotations
 
 import asyncio
+import copy
 import io
+import json
+import logging
+import mimetypes
+import secrets
 import shutil
+import stat
 import tempfile
+import os
+import sys
+import unicodedata
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, AsyncIterator, Literal
+from urllib.parse import quote
 
-from fastapi import APIRouter, Body, HTTPException, UploadFile, File, Request
-from fastapi.responses import StreamingResponse
+from fastapi import (
+    APIRouter,
+    Body,
+    File,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
+from fastapi.responses import ORJSONResponse, Response, StreamingResponse
+from watchfiles import awatch, Change
 from pydantic import BaseModel, Field
 
-from ..utils import schedule_agent_reload
+from ..utils import (
+    RunningConfigRuntimeStatus,
+    check_upload_size,
+    get_agent_reload_status,
+    reload_agent_and_track,
+    safe_join,
+    schedule_agent_reload,
+)
 from ...config import (
     load_config,
     save_config,
     AgentsRunningConfig,
 )
-from ...config.config import load_agent_config, save_agent_config
+from ...config.config import (
+    load_agent_config,
+    save_agent_config,
+    update_agent_config_async,
+)
+from ...config.config import EmbeddingModelConfig
+from ...agents.config_repository import (
+    AgentConfigVersionConflict,
+    PostgresAgentConfigRepository,
+)
+from ...identity.runtime import get_identity_schema, is_multi_user_enabled
+from ...memory_scope.models import MemoryScope, MemoryScopeDenied
+from ...memory_scope.resolver import MemoryScopeResolver
+from ...persistence.agent_user_workspaces import AgentUserWorkspaceRepository
+from ...access.dependencies import get_actor
+from ...access.agent_repository import (
+    AgentResourceRole,
+    AgentVisibility,
+)
+from ...agents.memory.embedding_model import (
+    embedding_vector_space_fingerprint,
+    test_embedding_model,
+)
 from ...agents.memory.agent_md_manager import AgentMdManager
 from ...agents.templates import get_workspace_md_template_id
 from ...agents.utils import copy_workspace_md_files
 from ...constant import BUILTIN_QA_AGENT_ID, SUPPORTED_AGENT_LANGUAGES
-from ..agent_context import get_agent_for_request
+from ...services.workspace_files import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_PAGE_SIZE,
+    FileVersionConflict,
+    InvalidCursor,
+    InvalidWorkspacePath,
+    MAX_PAGE_SIZE,
+    file_etag,
+    get_file_metadata,
+    list_directory,
+    read_file_chunk,
+    resolve_workspace_path,
+    save_text_file,
+    FilesWorkspaceAccess,
+)
+from ...utils.io_utils import get_path_lock, run_sync_io
+from ..agent_context import (
+    get_agent_access_state,
+    get_agent_for_request,
+    get_files_workspace_access,
+    get_project_dir_for_request,
+    get_running_config_workspace as get_governed_running_config_workspace,
+    require_running_config_editor,
+)
 
+from ..voice_service import VoiceUploadRoute
 
-router = APIRouter(prefix="/workspace", tags=["workspace"])
+router = APIRouter(prefix="/workspace", tags=["workspace"], route_class=VoiceUploadRoute)
+logger = logging.getLogger(__name__)
+_FILESYSTEM_SEMAPHORE = asyncio.Semaphore(8)
+_WATCH_HEARTBEAT_SECONDS = 30.0
+_WATCH_POLL_TIMEOUT_MS = 1_000
 
 
 class MdFileInfo(BaseModel):
@@ -50,6 +127,205 @@ class MdFileContent(BaseModel):
     """Markdown file content."""
 
     content: str = Field(..., description="File content")
+
+
+class EmbeddingTestResponse(BaseModel):
+    """Result of an AgentScope embedding connectivity request."""
+
+    success: bool
+    configured_dimensions: int
+    actual_dimensions: int | None = None
+    latency_ms: int
+    message: str
+
+
+class RunningConfigAccess(BaseModel):
+    """当前用户对 Agent 运行配置的访问能力。"""
+
+    agent_id: str
+    access_role: Literal["owner", "collaborator", "user", "admin_governance"]
+    can_view: bool
+    can_edit: bool
+    can_edit_project_files: bool = True
+    can_edit_workspace_files: bool = True
+    is_governance: bool = False
+    visibility: AgentVisibility = AgentVisibility.PRIVATE
+    owner_user_id: str | None = None
+
+
+class RunningConfigSummary(BaseModel):
+    """仅使用用户可见的运行配置摘要，不包含完整草稿或敏感字段。"""
+
+    agent_id: str
+    name: str
+    language: str
+    timezone: str
+    active_model: dict[str, str | None] | None = None
+    model_switchable: bool
+    access_role: Literal["owner", "collaborator", "user", "admin_governance"]
+    can_edit: bool
+    read_only_reason: str | None = None
+
+
+def _runtime_config_access(request: Request, agent_id: str) -> RunningConfigAccess:
+    request_state = getattr(request, "state", None)
+    if request_state is None:
+        return RunningConfigAccess(
+            agent_id=agent_id,
+            access_role="owner",
+            can_view=True,
+            can_edit=True,
+        )
+    state_values = vars(request_state)
+    nested_state = state_values.get("_state")
+    if isinstance(nested_state, dict):
+        state_values = nested_state
+    governance = state_values.get("agent_governance")
+    if governance is not None:
+        return RunningConfigAccess(
+            agent_id=agent_id or getattr(governance, "agent_key", ""),
+            access_role="admin_governance",
+            can_view=True,
+            can_edit=True,
+            is_governance=True,
+            visibility=getattr(
+                governance,
+                "visibility",
+                AgentVisibility.PRIVATE,
+            ),
+            owner_user_id=(
+                str(getattr(governance, "owner_user_id", "")) or None
+            ),
+        )
+    access = state_values.get("agent_access")
+    role = getattr(access, "role", None)
+    role_value = getattr(role, "value", role)
+    if role_value not in {"owner", "collaborator", "user"}:
+        role_value = "owner"
+    can_edit = (
+        role_value in {"owner", "collaborator"}
+        and not bool(getattr(access, "historical_read_only", False))
+    )
+    return RunningConfigAccess(
+        agent_id=agent_id,
+        access_role=role_value,
+        can_view=True,
+        can_edit=can_edit,
+        can_edit_project_files=not bool(
+            getattr(access, "historical_read_only", False),
+        ),
+        can_edit_workspace_files=can_edit,
+        visibility=getattr(access, "visibility", AgentVisibility.PRIVATE),
+        owner_user_id=(
+            str(getattr(access, "owner_user_id", ""))
+            if getattr(access, "owner_user_id", None) is not None
+            else None
+        ),
+    )
+
+
+def _require_running_config_view(access: RunningConfigAccess) -> None:
+    if not access.can_view:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def _require_complete_running_config_view(access: RunningConfigAccess) -> None:
+    if not access.can_edit:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+def _require_workspace_write_access(request: Request, workspace: Any) -> None:
+    """要求 Agent 草稿所有者、协作者或显式管理员代管权限。"""
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+
+
+async def _resolve_files_access(
+    request: Request,
+    workspace: Any,
+) -> FilesWorkspaceAccess:
+    role, _historical = get_agent_access_state(request)
+    agent_project = (
+        workspace.workspace_dir
+        if role is AgentResourceRole.USER
+        else await get_project_dir_for_request(request, workspace)
+    )
+    return await get_files_workspace_access(
+        request,
+        workspace,
+        agent_project=agent_project,
+    )
+
+
+def _require_files_root_write(root_access: Any) -> None:
+    if root_access.read_only:
+        raise HTTPException(status_code=403, detail="forbidden")
+
+
+async def get_running_config_workspace(
+    request: Request,
+    *,
+    action: str,
+) -> Any:
+    """仅在显式标记存在时进入管理员治理解析。"""
+    marker = getattr(request, "headers", {}).get("X-Agent-Governance")
+    if not isinstance(marker, str):
+        marker = None
+    if marker is None:
+        return await get_agent_for_request(request)
+    return await get_governed_running_config_workspace(
+        request,
+        action=action,
+    )
+
+
+async def _resolve_memory_workspace(
+    request: Request,
+    scope: MemoryScope,
+    *,
+    write: bool,
+) -> tuple[Path, bool]:
+    """Resolve a safe public/private memory root from the authenticated actor."""
+    workspace = await get_running_config_workspace(
+        request,
+        action=(
+            "agent.admin.memory.edit" if write else "agent.admin.memory.view"
+        ),
+    )
+    access = _runtime_config_access(request, workspace.agent_id)
+    actor = get_actor(request)
+    governance = access.is_governance
+    resolver = MemoryScopeResolver()
+    try:
+        if scope is MemoryScope.PRIVATE:
+            if governance:
+                raise HTTPException(status_code=403, detail="forbidden")
+            context = resolver.resolve_private(
+                actor=actor,
+                agent_id=workspace.agent_id,
+            )
+            root = resolver.ensure_workspace(context)
+            if is_multi_user_enabled():
+                await AgentUserWorkspaceRepository(
+                    schema=get_identity_schema(),
+                ).ensure_private(
+                    user_id=actor.user_id,
+                    agent_key=workspace.agent_id,
+                    workspace_key=resolver.workspace_key(context),
+                )
+            return root, True
+        context = resolver.resolve_public(
+            actor=actor,
+            agent_id=workspace.agent_id,
+            governance=governance,
+        )
+        can_edit = access.can_edit
+        if write and not can_edit:
+            raise HTTPException(status_code=403, detail="forbidden")
+        return resolver.ensure_workspace(context), can_edit
+    except MemoryScopeDenied as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
 
 
 def _dir_stats(root: Path) -> tuple[int, int]:
@@ -151,14 +427,910 @@ async def write_working_file(
     """Write a working directory markdown file."""
     try:
         workspace = await get_agent_for_request(request)
+        _require_workspace_write_access(request, workspace)
         workspace_manager = AgentMdManager(
             str(workspace.workspace_dir),
             agent_id=workspace.agent_id,
         )
         workspace_manager.write_working_md(md_name, body.content)
         return {"written": True}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Coding Mode – full file-tree + file watcher (SSE)
+# ---------------------------------------------------------------------------
+
+_SKIP_NAMES: frozenset[str] = frozenset(
+    {
+        ".git",
+        "__pycache__",
+        ".venv",
+        "node_modules",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".hypothesis",
+    },
+)
+
+
+def _should_skip(rel_parts: tuple[str, ...]) -> bool:
+    return any(p.startswith(".") or p in _SKIP_NAMES for p in rel_parts)
+
+
+def _is_skipped_name(name: str) -> bool:
+    return name.startswith(".") or name in _SKIP_NAMES
+
+
+def _list_all_files(workspace_dir: Path) -> list[dict]:
+    """Recursively list all non-hidden workspace files.
+
+    Uses ``os.walk(topdown=True)`` and prunes ``dirnames`` in place so that
+    we never descend into ``node_modules`` / ``.venv`` / ``.git`` etc. — the
+    previous ``Path.rglob('*')`` walked them fully and filtered after the
+    fact, which is the dominant cost on real projects. Each file is stat'd
+    exactly once. Paths are returned with POSIX ``/`` separators so the
+    frontend ``buildTree`` (which splits on ``/``) works on Windows too.
+    """
+    files: list[dict] = []
+    root = str(workspace_dir)
+    try:
+        for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+            # Prune in place — must mutate, not rebind, for os.walk to honor.
+            dirnames[:] = sorted(
+                d for d in dirnames if not _is_skipped_name(d)
+            )
+            rel_dir = os.path.relpath(dirpath, root)
+            for name in sorted(filenames):
+                if _is_skipped_name(name):
+                    continue
+                full = os.path.join(dirpath, name)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                rel = (
+                    name
+                    if rel_dir == "."
+                    else f"{rel_dir}/{name}".replace(os.sep, "/")
+                )
+                files.append(
+                    {
+                        "filename": rel,
+                        "path": rel,
+                        "size": st.st_size,
+                        "modified_time": datetime.fromtimestamp(
+                            st.st_mtime,
+                            tz=timezone.utc,
+                        ).isoformat(),
+                    },
+                )
+    except Exception:
+        pass
+    return files
+
+
+async def _resolve_files_root(
+    request: Request,
+    workspace: Any,
+    root: str,
+) -> Path:
+    """Resolve the selected project or agent configuration directory."""
+    access = await _resolve_files_access(request, workspace)
+    if root == "workspace":
+        return access.workspace.path
+    if root == "project":
+        return access.project.path
+    raise HTTPException(
+        status_code=400,
+        detail="root must be project or workspace",
+    )
+
+
+@router.get(
+    "/tree",
+    summary="List one workspace directory page",
+)
+async def list_workspace_tree(
+    request: Request,
+    path: str = Query(default=""),
+    cursor: str | None = Query(default=None),
+    root: str = Query(default="project"),
+    limit: int = Query(
+        default=DEFAULT_PAGE_SIZE,
+        ge=1,
+        le=MAX_PAGE_SIZE,
+    ),
+) -> dict:
+    """List immediate children without materializing the full project."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                list_directory,
+                files_root,
+                path,
+                cursor,
+                limit,
+            )
+    except InvalidCursor as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Directory not found",
+        ) from exc
+
+
+@router.get(
+    "/file-metadata",
+    summary="Read workspace file metadata",
+)
+async def read_workspace_file_metadata(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> dict:
+    """Return file metadata before content is requested."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                get_file_metadata,
+                files_root,
+                path,
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+
+@router.get(
+    "/file-content",
+    summary="Read a bounded workspace text chunk",
+)
+async def read_workspace_file_content(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=DEFAULT_CHUNK_SIZE, ge=1),
+) -> dict:
+    """Read text by byte range with UTF-8 boundary protection."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                read_file_chunk,
+                files_root,
+                path,
+                offset,
+                limit,
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=416, detail=str(exc)) from exc
+    except FileVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="File changed while it was being read",
+        ) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+
+@router.put(
+    "/file-content",
+    summary="Save workspace text with optimistic concurrency",
+)
+async def write_workspace_file_content(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+    body: dict = Body(...),
+) -> dict:
+    """Atomically save text when the supplied ETag still matches."""
+    content = body.get("content")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=422, detail="content must be a string")
+    workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
+    root_access = access.workspace if root == "workspace" else access.project
+    if root not in {"workspace", "project"}:
+        raise HTTPException(
+            status_code=400,
+            detail="root must be project or workspace",
+        )
+    _require_files_root_write(root_access)
+    files_root = root_access.path
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            return await asyncio.to_thread(
+                save_text_file,
+                files_root,
+                path,
+                content,
+                request.headers.get("if-match"),
+            )
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except FileVersionConflict as exc:
+        raise HTTPException(
+            status_code=409,
+            detail="File changed on disk",
+        ) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get(
+    "/file-download",
+    summary="Stream one workspace file",
+)
+async def download_workspace_file(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> StreamingResponse:
+    """Stream one safe workspace file without buffering it in memory."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_download() -> tuple[Path, os.stat_result, str, str]:
+        target = resolve_workspace_path(files_root, path)
+        info = target.stat()
+        filename = target.name.replace('"', "")
+        media_type = (
+            mimetypes.guess_type(filename)[0] or "application/octet-stream"
+        )
+        return target, info, filename, media_type
+
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            target, info, filename, media_type = await asyncio.to_thread(
+                _resolve_download,
+            )
+        if not stat.S_ISREG(info.st_mode):
+            raise FileNotFoundError(path)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    def _stream_file(chunk_size: int = 256 * 1024):
+        with target.open("rb") as handle:
+            while chunk := handle.read(chunk_size):
+                yield chunk
+
+    quoted_filename = quote(filename)
+    if quoted_filename == filename:
+        content_disposition = f'attachment; filename="{filename}"'
+    else:
+        content_disposition = f"attachment; filename*=utf-8''{quoted_filename}"
+    return StreamingResponse(
+        _stream_file(),
+        media_type=media_type,
+        headers={
+            "Accept-Ranges": "bytes",
+            "Content-Disposition": content_disposition,
+            "Content-Length": str(info.st_size),
+            "ETag": file_etag(info),
+        },
+    )
+
+
+@router.get(
+    "/html-file-uri",
+    summary="Resolve one workspace HTML file for the desktop browser",
+)
+async def resolve_workspace_html_file_uri(
+    request: Request,
+    path: str = Query(...),
+    root: str = Query(default="project"),
+) -> dict:
+    """Return the URI of one validated HTML file in the selected workspace."""
+    workspace = await get_agent_for_request(request)
+    files_root = await _resolve_files_root(request, workspace, root)
+
+    def _resolve_html() -> Path:
+        target = resolve_workspace_path(files_root, path)
+        if target.suffix.lower() not in {".html", ".htm"}:
+            raise InvalidWorkspacePath("Path must reference an HTML file")
+        if not target.is_file():
+            raise FileNotFoundError(path)
+        return target
+
+    try:
+        async with _FILESYSTEM_SEMAPHORE:
+            target = await asyncio.to_thread(_resolve_html)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, OSError) as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+
+    return {"uri": target.as_uri()}
+
+
+def _reserve_path(target: Path) -> bool:
+    """Atomically reserve one upload target without truncating a file."""
+    try:
+        descriptor = os.open(
+            target,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+    except FileExistsError:
+        return False
+    os.close(descriptor)
+    return True
+
+
+def _reserve_upload_targets(
+    upload_targets: list[tuple[UploadFile, str, Path]],
+    conflict: str | None,
+) -> tuple[list[tuple[UploadFile, str, Path | None, Path]], set[Path]]:
+    """Atomically allocate all non-overwrite upload destinations."""
+    allocated: list[tuple[UploadFile, str, Path | None, Path]] = []
+    reservations: set[Path] = set()
+    try:
+        for upload, filename, target in upload_targets:
+            if conflict == "overwrite":
+                allocated.append((upload, filename, target, target))
+                continue
+            if _reserve_path(target):
+                reservations.add(target)
+                allocated.append((upload, filename, target, target))
+                continue
+            if conflict == "skip":
+                allocated.append((upload, filename, None, target))
+                continue
+            if conflict != "rename":
+                raise FileExistsError(filename)
+            for index in range(1, 10_000):
+                candidate = target.with_name(
+                    f"{target.stem} ({index}){target.suffix}",
+                )
+                if _reserve_path(candidate):
+                    reservations.add(candidate)
+                    allocated.append((upload, filename, candidate, target))
+                    break
+            else:
+                raise OSError("Unable to allocate a conflict-free filename")
+    except BaseException:
+        for reservation in reservations:
+            reservation.unlink(missing_ok=True)
+        raise
+    return allocated, reservations
+
+
+def _write_reserved_upload(upload: UploadFile, target: Path) -> int:
+    """Copy one upload and atomically replace its reserved target."""
+    temporary = target.with_name(
+        f".{target.name}.{secrets.token_hex(6)}.qwenpaw.tmp",
+    )
+    size = 0
+    try:
+        upload.file.seek(0)
+        with temporary.open("wb") as handle:
+            while chunk := upload.file.read(256 * 1024):
+                size += len(chunk)
+                handle.write(chunk)
+            handle.flush()
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return size
+
+
+def _cleanup_upload_reservations(reservations: set[Path]) -> None:
+    """Remove placeholders that were not replaced by completed uploads."""
+    for reservation in reservations:
+        reservation.unlink(missing_ok=True)
+
+
+def _probe_name_alias(directory: Path, first: str, second: str) -> bool:
+    """Return whether two spellings address the same directory entry."""
+    first_path = directory / first
+    second_path = directory / second
+    descriptor = os.open(
+        first_path,
+        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+        0o600,
+    )
+    os.close(descriptor)
+    try:
+        return second_path.exists()
+    finally:
+        first_path.unlink(missing_ok=True)
+
+
+def _filesystem_name_rules(directory: Path) -> tuple[bool, bool]:
+    """Detect case and Unicode normalization sensitivity for a directory."""
+    token = secrets.token_hex(8)
+    try:
+        case_aliases = _probe_name_alias(
+            directory,
+            f".qwenpaw-case-{token}-a",
+            f".QWENPAW-CASE-{token}-A",
+        )
+        normalization_aliases = _probe_name_alias(
+            directory,
+            f".qwenpaw-unicode-{token}-é",
+            f".qwenpaw-unicode-{token}-e\u0301",
+        )
+    except OSError:
+        case_aliases = os.name == "nt" or sys.platform == "darwin"
+        normalization_aliases = sys.platform == "darwin"
+    return not case_aliases, not normalization_aliases
+
+
+def _upload_name_key(
+    filename: str,
+    *,
+    case_sensitive: bool,
+    normalization_sensitive: bool,
+) -> str:
+    """Build a filename comparison key matching the target filesystem."""
+    comparable = (
+        filename
+        if normalization_sensitive
+        else unicodedata.normalize("NFC", filename)
+    )
+    return comparable if case_sensitive else comparable.casefold()
+
+
+def _prepare_upload_targets(
+    directory: Path,
+    files: list[UploadFile],
+) -> tuple[list[tuple[UploadFile, str, Path]], list[str]]:
+    """Validate upload names and collect conflicts before writing files."""
+    upload_targets: list[tuple[UploadFile, str, Path]] = []
+    seen_names: set[str] = set()
+    conflicts: list[str] = []
+    case_sensitive, normalization_sensitive = _filesystem_name_rules(
+        directory,
+    )
+    for upload in files:
+        filename = upload.filename or ""
+        if "/" in filename or "\\" in filename:
+            raise HTTPException(
+                status_code=400,
+                detail="Upload filename must not contain a path",
+            )
+        try:
+            target = resolve_workspace_path(
+                directory,
+                filename,
+                portable=True,
+            )
+        except InvalidWorkspacePath as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        comparable_name = _upload_name_key(
+            filename,
+            case_sensitive=case_sensitive,
+            normalization_sensitive=normalization_sensitive,
+        )
+        if target.exists() or comparable_name in seen_names:
+            conflicts.append(filename)
+        seen_names.add(comparable_name)
+        upload_targets.append((upload, filename, target))
+    return upload_targets, conflicts
+
+
+@router.post(
+    "/file-upload",
+    summary="Stream ordinary files into one workspace directory",
+)
+async def upload_workspace_files(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    path: str = Query(default=""),
+    root: str = Query(default="project"),
+    conflict: str | None = Query(default=None),
+) -> dict:
+    """Upload files, requesting a policy only when names conflict."""
+    if conflict is not None and conflict not in {
+        "overwrite",
+        "skip",
+        "rename",
+    }:
+        raise HTTPException(
+            status_code=400,
+            detail="conflict must be overwrite, skip, or rename",
+        )
+    workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
+    root_access = access.workspace if root == "workspace" else access.project
+    if root not in {"workspace", "project"}:
+        raise HTTPException(
+            status_code=400,
+            detail="root must be project or workspace",
+        )
+    _require_files_root_write(root_access)
+    files_root = root_access.path
+
+    def _resolve_directory() -> Path:
+        directory = resolve_workspace_path(
+            files_root,
+            path,
+            allow_root=True,
+        )
+        if not directory.is_dir():
+            raise NotADirectoryError(path)
+        return directory
+
+    try:
+        directory = await asyncio.to_thread(_resolve_directory)
+    except InvalidWorkspacePath as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, NotADirectoryError) as exc:
+        raise HTTPException(
+            status_code=404,
+            detail="Upload directory not found",
+        ) from exc
+
+    upload_targets, conflicts = await asyncio.to_thread(
+        _prepare_upload_targets,
+        directory,
+        files,
+    )
+
+    if conflicts and conflict is None:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_conflict",
+                "files": conflicts,
+            },
+        )
+
+    try:
+        allocated, reservations = await asyncio.to_thread(
+            _reserve_upload_targets,
+            upload_targets,
+            conflict,
+        )
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "upload_conflict",
+                "files": [str(exc)],
+            },
+        ) from exc
+
+    results: list[dict] = []
+    try:
+        for upload, filename, target, requested_target in allocated:
+            if target is None:
+                results.append(
+                    {
+                        "name": filename,
+                        "path": requested_target.relative_to(
+                            files_root,
+                        ).as_posix(),
+                        "status": "skipped",
+                    },
+                )
+                continue
+            async with _FILESYSTEM_SEMAPHORE:
+                size = await asyncio.to_thread(
+                    _write_reserved_upload,
+                    upload,
+                    target,
+                )
+                reservations.discard(target)
+
+            results.append(
+                {
+                    "name": filename,
+                    "path": target.relative_to(files_root).as_posix(),
+                    "size": size,
+                    "status": "uploaded",
+                },
+            )
+    finally:
+        await asyncio.to_thread(
+            _cleanup_upload_reservations,
+            reservations,
+        )
+    return {"files": results}
+
+
+@router.get(
+    "/code-files",
+    summary="List all workspace files (Coding Mode)",
+)
+async def list_code_files(request: Request) -> list[dict]:
+    """List every non-hidden file in the active coding project directory."""
+    workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
+    return await asyncio.to_thread(
+        lambda: _list_all_files(access.project.path),
+    )
+
+
+_CODE_FILE_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+_BINARY_FILE_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
+_MIME_MAP: dict[str, str] = {
+    # Images
+    "png": "image/png",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "gif": "image/gif",
+    "webp": "image/webp",
+    "svg": "image/svg+xml",
+    "ico": "image/x-icon",
+    "bmp": "image/bmp",
+    # Documents
+    "pdf": "application/pdf",
+    # Data
+    "csv": "text/csv",
+}
+
+
+@router.get(
+    "/binary-files/{file_path:path}",
+    summary="Serve a binary workspace file (images, PDFs) for preview",
+)
+async def read_binary_file(
+    file_path: str,
+    request: Request,
+) -> StreamingResponse:
+    """Return the raw bytes of *file_path* with the appropriate Content-Type.
+
+    Intended for the IDE preview panel (images, PDFs, CSV).
+    Rejects files that are not in ``_MIME_MAP`` or exceed 50 MB.
+    """
+    workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
+    target = await asyncio.to_thread(
+        lambda: safe_join(access.project.path, file_path),
+    )
+
+    ext = target.suffix.lstrip(".").lower()
+    mime = _MIME_MAP.get(ext)
+    if mime is None:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Preview not supported for .{ext} files",
+        )
+
+    try:
+        size = await asyncio.to_thread(lambda: target.stat().st_size)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if size > _BINARY_FILE_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"File too large for preview ({size // 1024 // 1024} MB"
+                f" > {_BINARY_FILE_MAX_BYTES // 1024 // 1024} MB limit)"
+            ),
+        )
+
+    def _iter_chunks(chunk_size: int = 64 * 1024):
+        with open(target, "rb") as fh:
+            while True:
+                data = fh.read(chunk_size)
+                if not data:
+                    break
+                yield data
+
+    return StreamingResponse(
+        _iter_chunks(),
+        media_type=mime,
+        headers={"Content-Length": str(size)},
+    )
+
+
+def _file_etag(stat_result: os.stat_result) -> str:
+    """Build a weak ETag from mtime+size — cheap and good enough for IDE."""
+    return f'W/"{stat_result.st_mtime_ns}-{stat_result.st_size}"'
+
+
+@router.get(
+    "/code-files/{file_path:path}",
+    summary="Read any workspace file (Coding Mode)",
+)
+async def read_code_file(file_path: str, request: Request):
+    """Return the text content of *file_path* inside the workspace.
+
+    Adds a weak ETag (mtime_ns + size) so repeat opens of an unchanged file
+    short-circuit to ``304 Not Modified`` and skip the read entirely.
+    Returns HTTP 413 if the file exceeds ``_CODE_FILE_MAX_BYTES`` (5 MB) to
+    avoid flooding the browser with huge binary or log files.
+    """
+    workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
+    target = await asyncio.to_thread(
+        lambda: safe_join(access.project.path, file_path),
+    )
+
+    def _stat() -> os.stat_result:
+        return target.stat()
+
+    try:
+        st = await asyncio.to_thread(_stat)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="File not found") from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if not stat.S_ISREG(st.st_mode):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    etag = _file_etag(st)
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+
+    if st.st_size > _CODE_FILE_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"File too large to open in editor "
+                f"({st.st_size // 1024 // 1024} MB"
+                f" > {_CODE_FILE_MAX_BYTES // 1024 // 1024} MB limit)"
+            ),
+        )
+
+    def _read() -> str:
+        return target.read_text(encoding="utf-8", errors="replace")
+
+    try:
+        content = await asyncio.to_thread(_read)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return ORJSONResponse(
+        {"path": file_path, "content": content},
+        headers={"ETag": etag},
+    )
+
+
+@router.put(
+    "/code-files/{file_path:path}",
+    summary="Write any workspace file (Coding Mode)",
+)
+async def write_code_file(
+    file_path: str,
+    request: Request,
+    body: dict = Body(...),
+) -> dict:
+    """Overwrite *file_path* inside the workspace with the provided content.
+
+    Request body::
+
+        {"content": "<new file content>"}
+    """
+    workspace = await get_agent_for_request(request)
+    access = await _resolve_files_access(request, workspace)
+    _require_files_root_write(access.project)
+    target = await asyncio.to_thread(
+        lambda: safe_join(access.project.path, file_path),
+    )
+    content = body.get("content", "")
+    if not isinstance(content, str):
+        raise HTTPException(status_code=422, detail="content must be a string")
+
+    def _write() -> int:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return target.stat().st_size
+
+    try:
+        size = await asyncio.to_thread(_write)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"path": file_path, "size": size}
+
+
+@router.get(
+    "/watch",
+    summary="SSE stream for agent workspace file changes",
+)
+async def watch_workspace_files(
+    request: Request,
+    root: str = Query(default="project"),
+) -> StreamingResponse:
+    """Server-Sent Events that emit file-change notifications.
+
+    Each SSE payload has the form::
+
+        {"type": "file_change", "events": [{"change": "modified", "path": "..."}]}  # noqa: E501
+
+    A heartbeat comment (``": heartbeat"``) is sent every 30 s when idle.
+    """
+    workspace = await get_agent_for_request(request)
+    watch_dir = await _resolve_files_root(request, workspace, root)
+
+    return StreamingResponse(
+        workspace_watch_events(request, watch_dir),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+async def workspace_watch_events(
+    request: Request,
+    watch_dir: Path,
+) -> AsyncIterator[str]:
+    """Yield workspace file changes without cancelling the watcher on idle."""
+    yield 'data: {"type": "connected"}\n\n'
+    watcher = awatch(
+        watch_dir,
+        rust_timeout=_WATCH_POLL_TIMEOUT_MS,
+        yield_on_timeout=True,
+    )
+    last_emit = asyncio.get_running_loop().time()
+    try:
+        while True:
+            if await request.is_disconnected():
+                break
+            try:
+                raw_changes = await watcher.__anext__()
+            except (
+                StopAsyncIteration,
+                asyncio.CancelledError,
+                GeneratorExit,
+            ):
+                break
+
+            events = []
+            for change_type, path in raw_changes:
+                try:
+                    rel = Path(path).relative_to(watch_dir)
+                except ValueError:
+                    continue
+                if _should_skip(rel.parts):
+                    continue
+                change_name = (
+                    "added"
+                    if change_type is Change.added
+                    else "deleted"
+                    if change_type is Change.deleted
+                    else "modified"
+                )
+                events.append(
+                    {"change": change_name, "path": rel.as_posix()},
+                )
+
+            now = asyncio.get_running_loop().time()
+            if events:
+                payload = json.dumps(
+                    {"type": "file_change", "events": events},
+                    ensure_ascii=False,
+                )
+                yield f"data: {payload}\n\n"
+                last_emit = now
+            elif now - last_emit >= _WATCH_HEARTBEAT_SECONDS:
+                yield ": heartbeat\n\n"
+                last_emit = now
+    except (asyncio.CancelledError, GeneratorExit):
+        pass
+    finally:
+        try:
+            await watcher.aclose()
+        except Exception:
+            pass
 
 
 @router.get(
@@ -169,68 +1341,149 @@ async def write_working_file(
 )
 async def list_memory_files(
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
 ) -> list[MdFileInfo]:
     """List memory directory markdown files."""
     try:
-        workspace = await get_agent_for_request(request)
-        workspace_manager = AgentMdManager(
-            str(workspace.workspace_dir),
-            agent_id=workspace.agent_id,
+        memory_root, _can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=False,
         )
-        files = [
-            MdFileInfo.model_validate(file)
-            for file in workspace_manager.list_memory_mds()
-        ]
+        workspace_manager = AgentMdManager(
+            str(memory_root),
+            agent_id=memory_root.name,
+        )
+        raw_files = await asyncio.to_thread(
+            workspace_manager.list_memory_mds,
+            section,
+        )
+        files = [MdFileInfo.model_validate(file) for file in raw_files]
         return files
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get(
-    "/memory/{md_name}",
+    "/memory/{md_path:path}",
     response_model=MdFileContent,
     summary="Read a memory file",
     description="Read a memory markdown file (uses active agent)",
 )
 async def read_memory_file(
-    md_name: str,
+    md_path: str,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
 ) -> MdFileContent:
     """Read a memory directory markdown file."""
     try:
-        workspace = await get_agent_for_request(request)
-        workspace_manager = AgentMdManager(
-            str(workspace.workspace_dir),
-            agent_id=workspace.agent_id,
+        memory_root, _can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=False,
         )
-        content = workspace_manager.read_memory_md(md_name)
+        workspace_manager = AgentMdManager(
+            str(memory_root),
+            agent_id=memory_root.name,
+        )
+        content = await asyncio.to_thread(
+            workspace_manager.read_memory_md,
+            md_path,
+            section,
+        )
         return MdFileContent(content=content)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.put(
-    "/memory/{md_name}",
+    "/memory/{md_path:path}",
     response_model=dict,
     summary="Write a memory file",
     description="Create or update a memory file (uses active agent)",
 )
 async def write_memory_file(
-    md_name: str,
+    md_path: str,
     body: MdFileContent,
     request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
 ) -> dict:
     """Write a memory directory markdown file."""
     try:
-        workspace = await get_agent_for_request(request)
-        workspace_manager = AgentMdManager(
-            str(workspace.workspace_dir),
-            agent_id=workspace.agent_id,
+        memory_root, can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=True,
         )
-        workspace_manager.write_memory_md(md_name, body.content)
+        if not can_edit:
+            raise HTTPException(status_code=403, detail="forbidden")
+        workspace_manager = AgentMdManager(
+            str(memory_root),
+            agent_id=memory_root.name,
+        )
+        await asyncio.to_thread(
+            workspace_manager.write_memory_md,
+            md_path,
+            body.content,
+            section,
+        )
         return {"written": True}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.post(
+    "/memory/{md_path:path}",
+    response_model=dict,
+    status_code=201,
+    summary="Create a memory file",
+    description="Create a new memory file without overwriting an existing file",
+)
+async def create_memory_file(
+    md_path: str,
+    body: MdFileContent,
+    request: Request,
+    section: Literal["daily", "digest"] | None = Query(default=None),
+    scope: MemoryScope = Query(default=MemoryScope.PUBLIC),
+) -> dict:
+    """Create a memory file using the server-resolved scope."""
+    try:
+        memory_root, can_edit = await _resolve_memory_workspace(
+            request,
+            scope,
+            write=True,
+        )
+        if not can_edit:
+            raise HTTPException(status_code=403, detail="forbidden")
+        workspace_manager = AgentMdManager(
+            str(memory_root),
+            agent_id=memory_root.name,
+        )
+        await asyncio.to_thread(
+            workspace_manager.create_memory_md,
+            md_path,
+            body.content,
+            section,
+        )
+        return {"created": True}
+    except FileExistsError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Memory file already exists: {md_path}",
+        ) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -238,11 +1491,17 @@ async def write_memory_file(
 @router.get(
     "/language",
     summary="Get agent language",
-    description="Get the language setting for agent MD files (en/zh/ru)",
+    description="Get the language setting for agent MD files.",
 )
 async def get_agent_language(request: Request) -> dict:
     """Get agent language setting for current agent."""
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
     agent_config = load_agent_config(workspace.agent_id)
     return {
         "language": agent_config.language,
@@ -254,7 +1513,7 @@ async def get_agent_language(request: Request) -> dict:
     "/language",
     summary="Update agent language",
     description=(
-        "Update the language for agent MD files (en/zh/ru). "
+        "Update the language for agent MD files. "
         "Optionally copies MD files for the new language to agent workspace."
     ),
 )
@@ -262,12 +1521,15 @@ async def put_agent_language(
     request: Request,
     body: dict = Body(
         ...,
-        description='Language setting, e.g. {"language": "zh"}',
+        description='Language setting, e.g. {"language": "id"}',
     ),
 ) -> dict:
     """
     Update agent language and optionally re-copy MD files to agent workspace.
     """
+    _require_complete_running_config_view(
+        _runtime_config_access(request, ""),
+    )
     language = (body.get("language") or "").strip().lower()
     valid = SUPPORTED_AGENT_LANGUAGES
     if language not in valid:
@@ -279,7 +1541,13 @@ async def put_agent_language(
             ),
         )
 
-    workspace = await get_agent_for_request(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.update",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
     agent_id = workspace.agent_id
 
     agent_config = load_agent_config(agent_id)
@@ -307,169 +1575,192 @@ async def put_agent_language(
     }
 
 
-@router.get(
-    "/audio-mode",
-    summary="Get audio mode",
-    description=(
-        "Get the audio handling mode for incoming voice messages. "
-        'Values: "auto", "native".'
-    ),
-)
-async def get_audio_mode() -> dict:
-    """Get audio mode setting."""
-    config = load_config()
-    return {"audio_mode": config.agents.audio_mode}
+def _require_voice_manage(request):
+    from .providers import _require_global_model_manage
+    _require_global_model_manage(request)
 
 
-@router.put(
-    "/audio-mode",
-    summary="Update audio mode",
+@router.get("/voice-transcription")
+async def get_voice_transcription(request: Request) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import management_view
+    return await management_view(load_config())
+
+
+@router.put("/voice-transcription")
+async def put_voice_transcription(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings
+    return await save_settings(body, load=load_config, save=save_config)
+
+
+@router.get("/audio-mode")
+async def get_audio_mode(request: Request) -> dict:
+    _require_voice_manage(request)
+    return {"audio_mode": load_config().agents.audio_mode}
+
+
+@router.put("/audio-mode")
+async def put_audio_mode(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings, http_error
+    if set(body) != {"audio_mode"}:
+        raise http_error("INVALID_VOICE_SETTINGS")
+    result = await save_settings(body, load=load_config, save=save_config, partial=True)
+    return {"audio_mode": result["settings"]["audio_mode"]}
+
+
+@router.get("/transcription-provider-type")
+async def get_transcription_provider_type(request: Request) -> dict:
+    _require_voice_manage(request)
+    return {"transcription_provider_type": load_config().agents.transcription_provider_type}
+
+
+@router.put("/transcription-provider-type")
+async def put_transcription_provider_type(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings, http_error
+    if set(body) != {"transcription_provider_type"}:
+        raise http_error("INVALID_VOICE_SETTINGS")
+    result = await save_settings(body, load=load_config, save=save_config, partial=True)
+    return {"transcription_provider_type": result["settings"]["transcription_provider_type"]}
+
+
+@router.get("/local-whisper-status")
+async def get_local_whisper_status(request: Request) -> dict:
+    _require_voice_manage(request)
+    from ...agents.utils.audio_transcription import check_local_whisper_available
+    return check_local_whisper_available(load_config().agents.transcription_local_model)
+
+
+@router.get("/transcription-providers")
+async def get_transcription_providers(request: Request) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import management_view
+    result = await management_view(load_config())
+    return {"providers": result["providers"],
+            "configured_provider_id": result["settings"]["transcription_provider_id"]}
+
+
+@router.put("/transcription-provider")
+async def put_transcription_provider(request: Request, body: dict = Body(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import save_settings, http_error
+    if set(body) != {"provider_id"}:
+        raise http_error("INVALID_VOICE_SETTINGS")
+    result = await save_settings({"transcription_provider_id": body["provider_id"]},
+                                 load=load_config, save=save_config, partial=True)
+    return {"provider_id": result["settings"]["transcription_provider_id"]}
+
+
+@router.get("/transcription-status")
+async def get_transcription_status(request: Request) -> dict:
+    from ..voice_service import transcription_status
+    return await transcription_status(request)
+
+
+@router.post("/transcribe")
+async def post_transcribe_audio(request: Request, file: UploadFile = File(...)) -> dict:
+    from ..voice_service import transcribe_upload
+    return await transcribe_upload(request, file)
+
+
+@router.post("/transcription-test")
+async def post_transcription_test(request: Request, file: UploadFile = File(...)) -> dict:
+    _require_voice_manage(request)
+    from ..voice_service import transcribe_upload
+    return await transcribe_upload(request, file, admin_test=True)
+
+
+@router.post(
+    "/embedding/test",
+    response_model=EmbeddingTestResponse,
+    summary="Test embedding configuration",
     description=(
-        "Update how incoming audio/voice messages are handled. "
-        '"auto": transcribe if provider available, else file placeholder; '
-        '"native": send audio directly to model (may need ffmpeg).'
+        "Create an AgentScope embedding model, perform a real request, and "
+        "validate the returned dimensions"
     ),
 )
-async def put_audio_mode(
-    body: dict = Body(
-        ...,
-        description='Audio mode, e.g. {"audio_mode": "auto"}',
-    ),
-) -> dict:
-    """Update audio mode setting."""
-    raw = body.get("audio_mode")
-    audio_mode = (str(raw) if raw is not None else "").strip().lower()
-    valid = {"auto", "native"}
-    if audio_mode not in valid:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid audio_mode '{audio_mode}'. "
-                f"Must be one of: {', '.join(sorted(valid))}"
-            ),
+async def test_embedding_configuration(
+    embedding_config: EmbeddingModelConfig = Body(...),
+    request: Request = None,
+) -> EmbeddingTestResponse:
+    """Test unsaved embedding settings and stage the model for hot apply."""
+    workspace = await get_governed_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.embedding.test",
+    )
+    require_running_config_editor(request)
+    memory_manager = workspace.memory_manager
+    if memory_manager is not None and hasattr(
+        memory_manager,
+        "test_and_stage_embedding",
+    ):
+        result = await memory_manager.test_and_stage_embedding(
+            embedding_config,
         )
-    config = load_config()
-    config.agents.audio_mode = audio_mode
-    save_config(config)
-    return {"audio_mode": audio_mode}
+    else:
+        _model, result = await test_embedding_model(embedding_config)
 
-
-@router.get(
-    "/transcription-provider-type",
-    summary="Get transcription provider type",
-    description=(
-        "Get the transcription provider type. "
-        'Values: "disabled", "whisper_api", "local_whisper".'
-    ),
-)
-async def get_transcription_provider_type() -> dict:
-    """Get transcription provider type setting."""
-    config = load_config()
-    return {
-        "transcription_provider_type": (
-            config.agents.transcription_provider_type
-        ),
-    }
-
-
-@router.put(
-    "/transcription-provider-type",
-    summary="Set transcription provider type",
-    description=(
-        "Set the transcription provider type. "
-        '"disabled": no transcription; '
-        '"whisper_api": remote Whisper endpoint; '
-        '"local_whisper": locally installed openai-whisper.'
-    ),
-)
-async def put_transcription_provider_type(
-    body: dict = Body(
-        ...,
-        description=(
-            "Provider type, e.g. "
-            '{"transcription_provider_type": "whisper_api"}'
-        ),
-    ),
-) -> dict:
-    """Set the transcription provider type."""
-    raw = body.get("transcription_provider_type")
-    provider_type = (str(raw) if raw is not None else "").strip().lower()
-    valid = {"disabled", "whisper_api", "local_whisper"}
-    if provider_type not in valid:
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                f"Invalid transcription_provider_type '{provider_type}'. "
-                f"Must be one of: {', '.join(sorted(valid))}"
-            ),
-        )
-    config = load_config()
-    config.agents.transcription_provider_type = provider_type
-    save_config(config)
-    return {"transcription_provider_type": provider_type}
-
-
-@router.get(
-    "/local-whisper-status",
-    summary="Check local whisper availability",
-    description=(
-        "Check whether the local whisper provider can be used. "
-        "Returns availability of ffmpeg and openai-whisper."
-    ),
-)
-async def get_local_whisper_status() -> dict:
-    """Check local whisper dependencies."""
-    from ...agents.utils.audio_transcription import (
-        check_local_whisper_available,
+    message = result.message
+    if embedding_config.api_key:
+        message = message.replace(embedding_config.api_key, "***")
+    return EmbeddingTestResponse(
+        success=result.success,
+        configured_dimensions=result.configured_dimensions,
+        actual_dimensions=result.actual_dimensions,
+        latency_ms=result.latency_ms,
+        message=message,
     )
 
-    return check_local_whisper_available()
+
+@router.get(
+    "/access",
+    response_model=RunningConfigAccess,
+    summary="Get current Agent configuration access",
+)
+async def get_running_config_access(request: Request) -> RunningConfigAccess:
+    """Return the caller's access capability without exposing configuration."""
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    return _runtime_config_access(request, workspace.agent_id)
 
 
 @router.get(
-    "/transcription-providers",
-    summary="List transcription providers",
-    description=(
-        "List providers capable of audio transcription (Whisper API). "
-        "Returns available providers and the configured selection."
-    ),
+    "/running-config/summary",
+    response_model=RunningConfigSummary,
+    summary="Get safe Agent running config summary",
 )
-async def get_transcription_providers() -> dict:
-    """List transcription-capable providers and configured selection."""
-    from ...agents.utils.audio_transcription import (
-        get_configured_transcription_provider_id,
-        list_transcription_providers,
+async def get_running_config_summary(request: Request) -> RunningConfigSummary:
+    """Return non-sensitive effective fields for read-only Agent users."""
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
     )
-
-    return {
-        "providers": list_transcription_providers(),
-        "configured_provider_id": (get_configured_transcription_provider_id()),
-    }
-
-
-@router.put(
-    "/transcription-provider",
-    summary="Set transcription provider",
-    description=(
-        "Set the provider to use for audio transcription. "
-        'Use empty string "" to unset.'
-    ),
-)
-async def put_transcription_provider(
-    body: dict = Body(
-        ...,
-        description=(
-            'Provider ID, e.g. {"provider_id": "openai"} '
-            'or {"provider_id": ""} to unset'
+    access = _runtime_config_access(request, workspace.agent_id)
+    _require_running_config_view(access)
+    agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
+    active_model = agent_config.active_model
+    return RunningConfigSummary(
+        agent_id=workspace.agent_id,
+        name=agent_config.name,
+        language=agent_config.language,
+        timezone=load_config().user_timezone,
+        active_model=(
+            {
+                "provider_id": active_model.provider_id,
+                "model": active_model.model,
+            }
+            if active_model is not None
+            else None
         ),
-    ),
-) -> dict:
-    """Set the transcription provider."""
-    provider_id = (body.get("provider_id") or "").strip()
-    config = load_config()
-    config.agents.transcription_provider_id = provider_id
-    save_config(config)
-    return {"provider_id": provider_id}
+        model_switchable=True,
+        access_role=access.access_role,
+        can_edit=access.can_edit,
+        read_only_reason=("仅使用权限" if not access.can_edit else None),
+    )
 
 
 @router.get(
@@ -480,13 +1771,227 @@ async def put_transcription_provider(
 )
 async def get_agents_running_config(
     request: Request,
+    response: Response = None,
 ) -> AgentsRunningConfig:
     """Get agent running configuration."""
-    workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    agent_config = await run_sync_io(load_agent_config, workspace.agent_id)
     running = agent_config.running or AgentsRunningConfig()
     running.approval_level = getattr(agent_config, "approval_level", "AUTO")
+    if is_multi_user_enabled():
+        try:
+            revision = await PostgresAgentConfigRepository(
+                schema=get_identity_schema(),
+            ).get_current(workspace.agent_id)
+            version = revision.version
+        except KeyError:
+            version = 1
+        if response is not None:
+            response.headers["ETag"] = f'"{version}"'
+            response.headers["X-Config-Version"] = str(version)
     return running
+
+
+@router.get(
+    "/running-config/version",
+    summary="Get running config version",
+)
+async def get_agents_running_config_version(request: Request) -> dict[str, int]:
+    """Return the optimistic-concurrency version for the active Agent."""
+    if not is_multi_user_enabled():
+        return {"version": 1}
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    try:
+        revision = await PostgresAgentConfigRepository(
+            schema=get_identity_schema(),
+        ).get_current(workspace.agent_id)
+        return {"version": revision.version}
+    except KeyError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
+
+
+@router.get(
+    "/running-config/runtime-status",
+    response_model=RunningConfigRuntimeStatus,
+    summary="Get running config runtime status",
+)
+async def get_running_config_runtime_status(
+    request: Request,
+) -> RunningConfigRuntimeStatus:
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.view",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    return get_agent_reload_status(request, workspace.agent_id)
+
+
+@router.post(
+    "/running-config/reload",
+    response_model=RunningConfigRuntimeStatus,
+    summary="Retry applying the saved running config",
+)
+async def retry_running_config_reload(
+    request: Request,
+) -> RunningConfigRuntimeStatus:
+    _require_complete_running_config_view(
+        _runtime_config_access(request, ""),
+    )
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.reload",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    return await reload_agent_and_track(request, workspace.agent_id)
+
+
+class _ConfigRollbackConflict(RuntimeError):
+    """Raised when a field changed again after this request persisted it."""
+
+    def __init__(self, paths: list[str]):
+        super().__init__("configuration changed concurrently")
+        self.paths = paths
+
+
+def _conditionally_restore_config_changes(
+    current: BaseModel,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Three-way rollback without overwriting unrelated concurrent edits."""
+    candidate = current.model_copy(deep=True)
+    conflicts: list[str] = []
+
+    def restore(
+        target: BaseModel,
+        old: BaseModel,
+        saved: BaseModel,
+        prefix: str,
+    ) -> None:
+        for name in type(saved).model_fields:
+            old_value = getattr(old, name)
+            saved_value = getattr(saved, name)
+            if old_value == saved_value:
+                continue
+            current_value = getattr(target, name)
+            path = f"{prefix}.{name}" if prefix else name
+            if (
+                isinstance(current_value, BaseModel)
+                and isinstance(old_value, BaseModel)
+                and isinstance(saved_value, BaseModel)
+                and type(current_value) is type(old_value) is type(saved_value)
+            ):
+                restore(current_value, old_value, saved_value, path)
+            elif current_value == saved_value:
+                setattr(target, name, copy.deepcopy(old_value))
+            else:
+                conflicts.append(path)
+
+    restore(candidate, before, submitted, "")
+    if conflicts:
+        raise _ConfigRollbackConflict(conflicts)
+    for field_name in type(current).model_fields:
+        setattr(current, field_name, getattr(candidate, field_name))
+
+
+async def _apply_embedding_runtime(
+    memory_manager: Any,
+    embedding_config: EmbeddingModelConfig,
+    agent_id: str,
+) -> bool:
+    """Apply an embedding config to a running memory manager."""
+    if hasattr(memory_manager, "apply_tested_embedding"):
+        try:
+            if await memory_manager.apply_tested_embedding(embedding_config):
+                return True
+        except Exception as exc:
+            logger.warning(
+                "Embedding hot update failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            return bool(await memory_manager.reload_embedding_config())
+        except Exception as exc:
+            logger.warning(
+                "Embedding runtime reload failed for agent '%s': %s",
+                agent_id,
+                exc,
+                exc_info=True,
+            )
+    return False
+
+
+async def _rollback_embedding_update(
+    agent_id: str,
+    memory_manager: Any,
+    before: BaseModel,
+    submitted: BaseModel,
+) -> None:
+    """Roll back persistence and runtime after an embedding update fails."""
+    rollback_conflict: _ConfigRollbackConflict | None = None
+
+    def rollback_config(current_config: BaseModel) -> None:
+        _conditionally_restore_config_changes(
+            current_config,
+            before,
+            submitted,
+        )
+
+    try:
+        await update_agent_config_async(agent_id, rollback_config)
+    except _ConfigRollbackConflict as exc:
+        rollback_conflict = exc
+
+    runtime_restored = False
+    if hasattr(memory_manager, "reload_embedding_config"):
+        try:
+            runtime_restored = bool(
+                await memory_manager.reload_embedding_config(),
+            )
+        except Exception:
+            logger.exception(
+                "Failed to restore the previous embedding runtime "
+                "for agent '%s'",
+                agent_id,
+            )
+
+    raise HTTPException(
+        status_code=409 if rollback_conflict else 503,
+        detail={
+            "message": (
+                "Embedding configuration was not applied; "
+                + (
+                    "rollback was skipped because the configuration "
+                    "changed concurrently"
+                    if rollback_conflict
+                    else "the persisted changes were rolled back"
+                )
+            ),
+            "persisted": rollback_conflict is not None,
+            "runtime_applied": False,
+            "runtime_restored": runtime_restored,
+            "conflicts": rollback_conflict.paths if rollback_conflict else [],
+        },
+    )
 
 
 @router.put(
@@ -501,19 +2006,152 @@ async def put_agents_running_config(
         description="Updated agent running configuration",
     ),
     request: Request = None,
+    response: Response = None,
 ) -> AgentsRunningConfig:
     """Update agent running configuration."""
-    workspace = await get_agent_for_request(request)
-    agent_config = load_agent_config(workspace.agent_id)
+    if getattr(request, "headers", {}).get("X-Agent-Governance") is None:
+        _require_complete_running_config_view(
+            _runtime_config_access(request, ""),
+        )
+    expected_version: int | None = None
+    actor = None
+    if is_multi_user_enabled():
+        raw_if_match = request.headers.get("if-match", "").strip().strip('"')
+        if not raw_if_match.isdigit():
+            raise HTTPException(
+                status_code=428,
+                detail="If-Match configuration version is required",
+            )
+        expected_version = int(raw_if_match)
+        actor = get_actor(request)
+    workspace = await get_running_config_workspace(
+        request,
+        action="agent.admin.runtime_config.update",
+    )
+    _require_complete_running_config_view(
+        _runtime_config_access(request, workspace.agent_id),
+    )
+    memory_manager = workspace.memory_manager
+    workspace_dir = getattr(workspace, "workspace_dir", ".")
+    config_path = Path(workspace_dir) / "agent.json"
+    async with get_path_lock(config_path):
+        revision_repository = None
+        if is_multi_user_enabled():
+            revision_repository = PostgresAgentConfigRepository(
+                schema=get_identity_schema(),
+            )
+            try:
+                current_revision = await revision_repository.get_current(
+                    workspace.agent_id
+                )
+            except KeyError as exc:
+                raise HTTPException(status_code=403, detail="forbidden") from exc
+            if current_revision.version != expected_version:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "config_version_conflict",
+                        "message": "Configuration changed by another editor",
+                        "expected_version": expected_version,
+                        "current_version": current_revision.version,
+                    },
+                )
+        old_agent_config = None
+        embedding_changed = False
+        memory_manager_backend_changed = False
+        new_embedding_config = (
+            running_config.reme_light_memory_config.embedding_model_config
+        )
+        new_memory_manager_backend = running_config.memory_manager_backend
 
-    if running_config.approval_level is not None:
-        agent_config.approval_level = running_config.approval_level
+        def persist_running_config(agent_config):
+            nonlocal old_agent_config, embedding_changed
+            nonlocal memory_manager_backend_changed
+            old_agent_config = agent_config.model_copy(deep=True)
+            old_running_config = agent_config.running or AgentsRunningConfig()
+            memory_manager_backend_changed = (
+                old_running_config.memory_manager_backend
+                != new_memory_manager_backend
+            )
+            old_memory_config = old_running_config.reme_light_memory_config
+            old_embedding_config = old_memory_config.embedding_model_config
+            vector_space_changed = embedding_vector_space_fingerprint(
+                old_embedding_config,
+            ) != embedding_vector_space_fingerprint(new_embedding_config)
+            running_config.reme_light_memory_config.needs_reindex = (
+                old_memory_config.needs_reindex or vector_space_changed
+            )
+            embedding_changed = old_embedding_config != new_embedding_config
+            if (
+                embedding_changed
+                and not memory_manager_backend_changed
+                and new_memory_manager_backend == "remelight"
+                and memory_manager is not None
+                and getattr(memory_manager, "is_reindexing", False) is True
+            ):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Embedding configuration cannot change while the "
+                        "memory index is rebuilding"
+                    ),
+                )
+            if running_config.approval_level is not None:
+                agent_config.approval_level = running_config.approval_level
+            running_config.approval_level = None
+            agent_config.running = running_config
 
-    running_config.approval_level = None
-    agent_config.running = running_config
-    save_agent_config(workspace.agent_id, agent_config)
+        agent_config = await update_agent_config_async(
+            workspace.agent_id,
+            persist_running_config,
+        )
 
-    schedule_agent_reload(request, workspace.agent_id)
+        if (
+            embedding_changed
+            and not memory_manager_backend_changed
+            and new_memory_manager_backend == "remelight"
+            and memory_manager is not None
+        ):
+            embedding_updated = await _apply_embedding_runtime(
+                memory_manager,
+                new_embedding_config,
+                workspace.agent_id,
+            )
+            if not embedding_updated:
+                assert old_agent_config is not None
+                await _rollback_embedding_update(
+                    workspace.agent_id,
+                    memory_manager,
+                    old_agent_config,
+                    agent_config,
+                )
+
+        if revision_repository is not None:
+            assert actor is not None and actor.user_id is not None
+            try:
+                saved_revision = await revision_repository.save_revision(
+                    agent_key=workspace.agent_id,
+                    expected_version=expected_version or 1,
+                    structured_config=running_config.model_dump(mode="json"),
+                    changed_by=actor.user_id,
+                )
+            except AgentConfigVersionConflict as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "config_version_conflict",
+                        "message": "Configuration changed by another editor",
+                        "expected_version": exc.expected_version,
+                        "current_version": exc.current_version,
+                    },
+                ) from exc
+            if response is not None:
+                response.headers["ETag"] = f'"{saved_revision.version}"'
+                response.headers["X-Config-Version"] = str(
+                    saved_revision.version
+                )
+
+    await reload_agent_and_track(request, workspace.agent_id)
 
     running_config.approval_level = agent_config.approval_level
     return running_config
@@ -549,6 +2187,7 @@ async def put_system_prompt_files(
 ) -> list[str]:
     """Update list of enabled system prompt files."""
     workspace = await get_agent_for_request(request)
+    _require_workspace_write_access(request, workspace)
     agent_config = load_agent_config(workspace.agent_id)
     agent_config.system_prompt_files = files
     save_agent_config(workspace.agent_id, agent_config)
@@ -573,7 +2212,7 @@ def _validate_zip_data(data: bytes, workspace_dir: Path) -> None:
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         for name in zf.namelist():
             resolved = (workspace_dir / name).resolve()
-            if not str(resolved).startswith(str(workspace_dir)):
+            if not resolved.is_relative_to(workspace_dir.resolve()):
                 raise HTTPException(
                     status_code=400,
                     detail=f"Zip contains unsafe path: {name}",
@@ -637,7 +2276,13 @@ async def download_workspace(request: Request):
     """Stream agent workspace as a zip file."""
 
     agent = await get_agent_for_request(request)
-    workspace_dir = agent.workspace_dir
+    access = await _resolve_files_access(request, agent)
+    role, _historical = get_agent_access_state(request)
+    workspace_dir = (
+        access.project.path
+        if role is AgentResourceRole.USER
+        else access.workspace.path
+    )
 
     if not workspace_dir.is_dir():
         raise HTTPException(
@@ -695,7 +2340,15 @@ async def upload_workspace(
         )
 
     agent = await get_agent_for_request(request)
-    workspace_dir = agent.workspace_dir
+    access = await _resolve_files_access(request, agent)
+    role, _historical = get_agent_access_state(request)
+    root_access = (
+        access.project
+        if role is AgentResourceRole.USER
+        else access.workspace
+    )
+    _require_files_root_write(root_access)
+    workspace_dir = root_access.path
     data = await file.read()
 
     try:
@@ -708,3 +2361,36 @@ async def upload_workspace(
             status_code=500,
             detail=f"Failed to merge workspace: {exc}",
         ) from exc
+
+
+@router.get("/commands/available")
+async def get_available_commands(request: Request):
+    """Return all slash commands registered for the workspace.
+
+    Merges built-in system commands with plugin-registered ones
+    so the frontend can dynamically populate the slash menu.
+    """
+    agent = await get_agent_for_request(request)
+    registry = getattr(
+        getattr(agent, "plugins", None),
+        "slash_command_registry",
+        None,
+    )
+    commands = []
+    if registry is not None:
+        for name in registry.names():
+            match = registry.resolve(f"/{name}")
+            desc = ""
+            category = ""
+            if match:
+                spec, _ = match
+                desc = spec.help_text or ""
+                category = spec.category or ""
+            commands.append(
+                {
+                    "name": name,
+                    "description": desc,
+                    "category": category,
+                },
+            )
+    return ORJSONResponse({"commands": commands})

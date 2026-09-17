@@ -26,6 +26,8 @@ export const commandsApi = {
     requestId: string,
     sessionId: string,
     reason?: string,
+    scope?: "exact" | "similar",
+    conversationId?: string,
   ): Promise<ApprovalCommandResponse> => {
     console.log(
       `[commandsApi] Sending ${action} for request:`,
@@ -34,6 +36,8 @@ export const commandsApi = {
       sessionId,
       "reason:",
       reason,
+      "scope:",
+      scope,
     );
 
     // Use dedicated approval API endpoint (bypasses chat/session system)
@@ -42,7 +46,10 @@ export const commandsApi = {
       body: JSON.stringify({
         request_id: requestId,
         session_id: sessionId,
+        conversation_id: conversationId,
         reason: reason || undefined,
+        // scope only meaningful for approve; omitted on deny.
+        scope: action === "approve" ? scope : undefined,
       }),
     });
   },

@@ -5,11 +5,17 @@ from __future__ import annotations
 
 from typing import Any, List, Optional
 
-from agentscope_runtime.engine.schemas.exception import (
+from fastapi import APIRouter, HTTPException, Request, Depends
+
+from ...access.capabilities import Capability
+from ...access.dependencies import get_actor
+from ...access.service import AuthorizationDeniedError, AuthorizationService
+from ...identity.runtime import is_multi_user_enabled
+from pydantic import BaseModel, Field
+
+from qwenpaw.exceptions import (
     AppBaseException,
 )
-from fastapi import APIRouter, HTTPException, Request, Depends
-from pydantic import BaseModel, Field
 
 from ...local_models import (
     DownloadSource,
@@ -20,15 +26,32 @@ from ...local_models import (
 from ...providers.provider import ModelInfo
 from ...providers.provider_manager import ProviderManager
 
-router = APIRouter(prefix="/local-models", tags=["local-models"])
+
+def _require_local_model_manage(request: Request) -> None:
+    if not is_multi_user_enabled():
+        return
+    try:
+        AuthorizationService().require(
+            get_actor(request),
+            Capability.MODELS_MANAGE,
+        )
+    except AuthorizationDeniedError as exc:
+        raise HTTPException(status_code=403, detail="forbidden") from exc
 
 
-def get_local_model_manager(request: Request) -> LocalModelManager:
+router = APIRouter(
+    prefix="/local-models",
+    tags=["local-models"],
+    dependencies=[Depends(_require_local_model_manage)],
+)
+
+
+async def get_local_model_manager(request: Request) -> LocalModelManager:
     """Helper to get the LocalModelManager instance from app state."""
     return request.app.state.local_model_manager
 
 
-def get_provider_manager(request: Request) -> ProviderManager:
+async def get_provider_manager(request: Request) -> ProviderManager:
     """Helper to get the ProviderManager instance from app state."""
     return request.app.state.provider_manager
 
@@ -427,8 +450,15 @@ async def cancel_local_model_download(
 async def delete_local_model(
     model_id: str,
     manager: LocalModelManager = Depends(get_local_model_manager),
+    provider_manager: ProviderManager = Depends(get_provider_manager),
 ) -> ActionResponse:
     """Delete a downloaded local model by repo id."""
+    from ...models.runtime import require_no_model_references
+
+    try:
+        await require_no_model_references(provider_manager, "qwenpaw-local", model_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     server_state = manager.get_llamacpp_server_status()
     if (
         server_state.get("running")

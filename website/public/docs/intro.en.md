@@ -31,6 +31,9 @@ QwenPaw is built by the [AgentScope team](https://github.com/agentscope-ai) on
 [AgentScope Runtime](https://github.com/agentscope-ai/agentscope-runtime), and
 [ReMe](https://github.com/agentscope-ai/ReMe).
 
+For a high-level tour of how QwenPaw is put together — the Agent OS design and its
+AgentScope foundation — see [Architecture](./architecture).
+
 ---
 
 ## How do you use QwenPaw?

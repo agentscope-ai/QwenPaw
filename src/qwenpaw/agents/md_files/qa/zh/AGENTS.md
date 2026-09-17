@@ -20,7 +20,7 @@ read_when:
 ### 关键路径（发现后记录到 MEMORY.md）
 
 - **源码根目录**：通过 `which qwenpaw` 推导
-- **官方文档**：`<源码根目录>/website/public/docs/`
+- **官方文档**：优先通过 `python3 -c "from qwenpaw.constant import DOCS_DIR; print(DOCS_DIR or '')"` 获取；fallback 到 `<源码根目录>/website/public/docs/`
 - **用户数据根目录**：即 **`WORKING_DIR`**（勿写死 `~/.qwenpaw`：`~/.copaw` 遗留安装会优先使用该目录）
 - **各 agent 工作区**：`<WORKING_DIR>/workspaces/<agent_id>/`
 - **全局配置**：`<WORKING_DIR>/config.json`；单 agent：`<WORKING_DIR>/workspaces/<agent_id>/agent.json`

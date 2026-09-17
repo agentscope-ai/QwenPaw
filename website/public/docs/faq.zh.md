@@ -24,7 +24,7 @@ irm https://qwenpaw.agentscope.io/install.ps1 | iex
 
 2. pip 安装
 
-Python环境要求版本号 >= 3.10，<3.14
+Python环境要求版本号 >= 3.11，<3.14
 
 ```
 pip install qwenpaw
@@ -104,10 +104,7 @@ docker run -p 127.0.0.1:8088:8088 \
   agentscope/qwenpaw:latest
 ```
 
-5. 如果你使用的是桌面版（exe/zip），目前需要卸载后重新安装：
-   - 在电脑中卸载 QwenPaw
-   - 下载最新版本：https://qwenpaw.agentscope.io/downloads
-   - 重新安装
+5. 如果你使用的是桌面版（Tauri 版），已内置应用内更新：应用启动时会自动检测新版本并在界面中提示，你可以选择「安装并重启」立即更新，或「稍后更新」在后台下载。也可从下载页手动获取最新版本：https://qwenpaw.agentscope.io/downloads
 
 升级后重启服务 qwenpaw app。
 
@@ -190,6 +187,52 @@ netsh int ipv4 set dynamicport tcp start=49152 num=16384
 
 > ⚠️ **警告**：这会更改系统级端口配置，请确保了解相关影响后再操作。
 
+### WSL2 NAT 网络环境下 APITimeoutError 超时报错
+
+在 WSL2 中运行 QwenPaw 时，如果使用 NAT 网络模式（尤其是 Windows 宿主机上安装了 VPN），可能会遇到反复超时：
+
+```
+agent error: APITimeoutError: Request timed out.
+```
+
+**根本原因：** WSL2 默认网络接口的 MTU（1500）对 NAT 隧道来说过大，在使用 VPN 或特定网络配置时会导致数据包被静默丢弃。
+
+**解决方案：** 将 WSL2 网络接口的 MTU 降低为 **1350**。
+
+1. **在 WSL2 内查看当前 MTU：**
+
+   ```bash
+   ip link show eth0 | grep mtu
+   ```
+
+2. **临时设置 MTU 为 1350（重启后失效）：**
+
+   ```bash
+   sudo ip link set eth0 mtu 1350
+   ```
+
+3. **永久生效** — 在 `/etc/wsl.conf` 中添加启动命令：
+
+   ```ini
+   [boot]
+   command = /sbin/ip link set eth0 mtu 1350
+   ```
+
+   然后在 PowerShell 或 CMD 中重启 WSL2：
+
+   ```powershell
+   wsl --shutdown
+   ```
+
+4. **验证**修改是否生效：
+
+   ```bash
+   ip link show eth0 | grep mtu
+   # 应显示: mtu 1350
+   ```
+
+完成上述操作后，QwenPaw 应能正常与各模型服务商通信。
+
 ### 开源地址
 
 QwenPaw 已开源，官方仓库地址：
@@ -220,7 +263,7 @@ QwenPaw-Flash 模型目前已经在 [ModelScope](https://www.modelscope.cn/organ
 
 QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
 
-**QwenPaw Local (llama.cpp)**
+#### QwenPaw Local (llama.cpp)
 
 直接在 QwenPaw Local 的模型界面中选择下载 QwenPaw-Flash 模型并启动即可。
 
@@ -229,7 +272,7 @@ QwenPaw 内置的本地提供商均可接入 QwenPaw-Flash 模型：
 > QwenPaw Local 目前仍处于测试阶段，对不同设备的兼容性以及运行稳定性仍在持续优化中，如果你在使用过程中遇到任何问题，欢迎随时在 GitHub 上提 issue 反馈。
 > 如果无法正常使用 QwenPaw Local，建议先使用 Ollama 或 LM Studio 部署 QwenPaw-Flash 模型。
 
-**Ollama**:
+#### Ollama
 
 1. 从 [ModelScope](https://www.modelscope.cn/organization/AgentScope?tab=model) 或 [Hugging Face](https://huggingface.co/agentscope-ai/models) 下载 QwenPaw-Flash 量化版模型，这些模型后缀为 `Q8_0` 或 `Q4_K_M`，例如 [QwenPaw-Flash-4B-Q4_K_M](https://www.modelscope.cn/models/AgentScope/QwenPaw-Flash-4B-Q4_K_M)。
 
@@ -270,7 +313,7 @@ ollama create qwenpaw-flash -f qwenpaw-flash.txt
 
 4. 在 QwenPaw 的模型配置中选择 Ollama 提供商，并在模型页面中自动获取模型即可。
 
-**LM Studio**:
+#### LM Studio
 
 1. 参考 Ollama 的步骤 1 下载合适的 QwenPaw-Flash 量化版模型。
 
@@ -352,7 +395,7 @@ lms import /path/to/your/qwenpaw-xxx.gguf -c -y --user-repo AgentScope/QwenPaw-F
 
 ### 如何管理Skill
 
-进入控制台 **智能体 → 技能**，可以启用/禁用技能、创建自定义技能、以及从 Skills Hub 中导入技能。详情请见文档 [Skills](https://qwenpaw.agentscope.io/docs/skills)。
+进入控制台 **智能体 → 技能**，可以启用/禁用技能，并通过 **添加技能** 入口创建技能、通过Zip/URL上传、或浏览技能市场。详情请见文档 [Skills](https://qwenpaw.agentscope.io/docs/skills)。
 
 ### 如何配置MCP
 

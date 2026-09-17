@@ -1,0 +1,946 @@
+# -*- coding: utf-8 -*-
+import json
+import logging
+import platform
+import re
+from datetime import datetime, timezone
+from typing import List, Optional, Union
+from urllib.parse import unquote, urlparse
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from agentscope.message import Msg
+from qwenpaw.agents.context.scroll.serialize import strip_headline
+from qwenpaw.schemas import (
+    Message,
+    TextContent,
+    ImageContent,
+    AudioContent,
+    VideoContent,
+    FileContent,
+    DataContent,
+    FunctionCall,
+    FunctionCallOutput,
+    MessageType,
+)
+from qwenpaw.exceptions import (
+    AgentRuntimeErrorException,
+)
+
+from ...config import load_config
+from ...runtime.message_convert import AUDIO_ATTACHMENT_METADATA_KEY
+from ...constant import (
+    QWENPAW_MESSAGE_TAG_KEY,
+    SCROLL_MEMORY_MESSAGE_TAG,
+    SYNTHETIC_USER_MESSAGE_TAGS,
+)
+
+logger = logging.getLogger(__name__)
+
+
+def _process_local_tz():
+    """Return the process-local timezone used by ``datetime.now()``."""
+    return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def _normalize_msg_timestamp(ts_value: str, user_tz: ZoneInfo) -> str:
+    """Normalize a Msg timestamp string into the user's timezone.
+
+    AgentScope writes ``Msg.created_at`` with ``datetime.now().isoformat()``,
+    so a naive value is a process-local wall clock — not UTC and not
+    ``user_timezone``. Aware values keep their encoded offset.
+    Unparseable inputs are returned unchanged.
+    """
+    try:
+        dt_obj = datetime.fromisoformat(ts_value)
+        if dt_obj.tzinfo is None:
+            dt_obj = dt_obj.replace(tzinfo=_process_local_tz())
+        return dt_obj.astimezone(user_tz).isoformat()
+    except (ValueError, TypeError):
+        return ts_value
+
+
+def _is_scroll_memory_placeholder(msg: Msg) -> bool:
+    """Return whether *msg* is model-only Scroll context, not transcript.
+
+    New placeholders carry an explicit metadata tag. The structural fallback
+    hides already-persisted sessions created before that tag existed, while
+    remaining narrow enough not to suppress an ordinary user message that
+    merely discusses ``[context compressed]``.
+    """
+    metadata = getattr(msg, "metadata", None)
+    if (
+        isinstance(metadata, dict)
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY) == SCROLL_MEMORY_MESSAGE_TAG
+    ):
+        return True
+
+    if msg.role != "user" or msg.name != "memory":
+        return False
+    text = msg.get_text_content() or ""
+    return (
+        text.lstrip().startswith("<system-info>")
+        and "[context compressed]" in text
+    )
+
+
+# Visual compression collapses history/context ranges into user-role
+# messages with these names. They are model-only reconstructions.
+_VISUAL_PLACEHOLDER_NAMES = frozenset(
+    {"visual_context", "visual_history"},
+)
+
+
+def _is_synthetic_user_message(msg: Msg) -> bool:
+    """Return whether *msg* is a runtime-injected user-role message.
+
+    Loop gates, stop handlers, and rubric evaluation append tagged
+    ``role="user"`` stubs to keep a turn going; visual compression
+    collapses history into ``visual_history`` / ``visual_context``
+    user messages. None of them is user transcript — rendering them as
+    user cards made the original instruction appear rewritten after a
+    session switch.
+    """
+    if msg.role != "user":
+        return False
+    if msg.name in _VISUAL_PLACEHOLDER_NAMES:
+        return True
+    # Legacy document injections predate the explicit runtime-context tag.
+    if msg.name == "system" and (msg.get_text_content() or "").startswith(
+        "# 本轮引用的文件资料\n\n以下内容已经服务端按当前登录用户和当前 Agent 授权校验。",
+    ):
+        return True
+    metadata = getattr(msg, "metadata", None)
+    return (
+        isinstance(metadata, dict)
+        and metadata.get(QWENPAW_MESSAGE_TAG_KEY)
+        in SYNTHETIC_USER_MESSAGE_TAGS
+    )
+
+
+def parse_legacy_memory_state(
+    memory_raw: dict,
+) -> tuple[List[Msg], str]:
+    """Parse a 1.x ``InMemoryMemory.state_dict()`` payload.
+
+    1.x stored ``{"content": [[msg_dict, marks], ...],
+    "_compressed_summary": str}``.  2.0 keeps messages on
+    ``AgentState.context`` instead, so this helper exists only for
+    sessions on disk that pre-date the migration.  ``marks`` are dropped
+    (only ``HINT`` / ``COMPRESSED`` were used and neither is reachable
+    from the new state schema).
+
+    Returns ``(messages, summary)``; either may be empty.
+    """
+    messages: List[Msg] = []
+    for item in memory_raw.get("content", []) or []:
+        if isinstance(item, (list, tuple)) and len(item) == 2:
+            payload = item[0]
+        else:
+            payload = item
+        if isinstance(payload, dict):
+            messages.append(Msg.from_dict(payload))
+        elif isinstance(payload, Msg):
+            messages.append(payload)
+    summary = memory_raw.get("_compressed_summary") or ""
+    return messages, summary
+
+
+def build_env_context(
+    session_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
+    channel: Optional[str] = None,
+    working_dir: Optional[str] = None,
+    add_hint: bool = True,
+    default_shell: Optional[str] = None,
+    project_dir: Optional[str] = None,
+    active_model_name: Optional[str] = None,
+    agent_id: Optional[str] = None,
+    task_output_dir: Optional[str] = None,
+) -> str:
+    """
+    Build environment context with current request context prepended.
+
+    Args:
+        session_id: Current session ID
+        user_id: Current user ID
+        user_name: Optional human-readable sender name (e.g. IM nickname).
+            Only rendered when provided by the channel via channel_meta.
+        channel: Current channel name
+        working_dir: Working directory path
+        add_hint: Whether to add hint context
+        default_shell: Shell executable used by execute_shell_command.
+            When provided, included in the context so the LLM can
+            generate syntax appropriate for that shell.
+        project_dir: When set, the agent's "Working
+            directory" line is replaced with an explicit
+            "Project directory" + "Agent workspace (internal)" pair
+            so the LLM stops treating the workspace as home.
+        active_model_name: Current active model name for runtime
+            identity (e.g. "qwen-max", "gpt-4o").
+
+    Returns:
+        Formatted environment context string
+    """
+    parts = []
+
+    # Runtime identity
+    powered = f", powered by {active_model_name}" if active_model_name else ""
+    parts.append(
+        f"- About: You are a personal AI assistant{powered}. "
+        f"You operate in QwenPaw, an open-source agent "
+        f"framework built by AgentScope team from Qwen lab.",
+    )
+    parts.append(
+        "- GitHub: https://github.com/agentscope-ai/QwenPaw",
+    )
+    parts.append(
+        "- Docs: https://qwenpaw.agentscope.io/",
+    )
+    user_tz = load_config().user_timezone or "UTC"
+    try:
+        now = datetime.now(ZoneInfo(user_tz))
+    except (ZoneInfoNotFoundError, KeyError):
+        logger.warning("Invalid timezone %r, falling back to UTC", user_tz)
+        now = datetime.now(timezone.utc)
+        user_tz = "UTC"
+
+    if session_id is not None:
+        parts.append(f"- Session ID: {session_id}")
+    if user_id is not None:
+        parts.append(f"- User ID: {user_id}")
+    if user_name:
+        parts.append(f"- User Name: {user_name}")
+    if channel is not None:
+        parts.append(f"- Channel: {channel}")
+
+    parts.append(
+        f"- OS: {platform.system()} {platform.release()} "
+        f"({platform.machine()})",
+    )
+
+    if default_shell:
+        parts.append(f"- Default Shell: {default_shell}")
+
+    if project_dir:
+        parts.append(
+            f"- Project directory (relative files and commands resolve "
+            f"here): {project_dir}",
+        )
+        if working_dir is not None and str(working_dir) != str(project_dir):
+            parts.append(
+                f"- Agent workspace (internal — do NOT touch unless "
+                f"the user explicitly asks): {working_dir}",
+            )
+    elif working_dir is not None:
+        parts.append(f"- Working directory: {working_dir}")
+    from ...identity.runtime import is_multi_user_enabled
+
+    if is_multi_user_enabled() and user_id and agent_id:
+        from uuid import UUID
+        from ...workspaces.resolver import WorkspaceKind, WorkspaceResolver
+
+        private_workspace = WorkspaceResolver().resolve(
+            kind=WorkspaceKind.USER_RUNTIME,
+            resource_id=agent_id,
+            actor_user_id=UUID(str(user_id)),
+        )
+        parts.append(
+            f"- Current user's artifact directory: {task_output_dir or private_workspace.path / 'artifacts'}\n"
+            "  Save final reports, images and documents directly in this task "
+            "output directory; do not create another artifacts directory inside it. "
+            "Keep intermediate files in its .work subdirectory, which is not archived. "
+            "The platform automatically registers final files from this task directory. "
+            "This applies to "
+            "administrators too. Skill examples using relative output paths "
+            "must be adapted to this directory (e.g. --output-dir). Do not put "
+            "personal output in the shared Agent workspace or skill directory. "
+            "Keep skill scripts in their installed location and use absolute "
+            "paths to invoke them. send_file_to_user can explicitly deliver files; "
+            "view_image only previews images."
+        )
+    parts.append(
+        f"- Current date: {now.strftime('%Y-%m-%d')} "
+        f"{user_tz} ({now.strftime('%A')})",
+    )
+
+    if add_hint:
+        parts.append(
+            "- Important:\n"
+            "  1. Prefer using skills when completing tasks "
+            "(e.g. use the cron skill for scheduled tasks). "
+            "Consult the relevant skill documentation if unsure.\n"
+            "  2. When using write_file, if you want to avoid overwriting "
+            "existing content, use read_file first to inspect the file, "
+            "then use edit_file for partial updates or appending.\n"
+            "  3. Use tool calls to perform actions. A response without a "
+            "tool call indicates the task is complete. To continue a task, "
+            "you must generate a tool call or provide useful feedback if "
+            "you are blocked.\n",
+        )
+
+    return (
+        "====================\n" + "\n".join(parts) + "\n===================="
+    )
+
+
+def _is_local_file_url(url: str) -> bool:
+    """True if url is a local file reference (file:// or absolute path)."""
+    if not url or not isinstance(url, str):
+        return False
+    s = url.strip()
+    if not s:
+        return False
+    lower = s.lower()
+
+    # Check for remote URLs
+    if lower.startswith(("http://", "https://", "data:")):
+        return False
+
+    # Check for local file patterns: file://, Unix paths, or Windows drives
+    return (
+        lower.startswith("file:")
+        or (s.startswith("/") and not s.startswith("//"))
+        or (len(s) >= 2 and s[1] == ":" and s[0].isalpha())
+    )
+
+
+def _abspath_from_url(url: str) -> str:
+    """Extract absolute path from file:// URL.
+
+    Percent-decodes the path so non-ASCII filenames resolve correctly.
+    """
+    s = url.strip()
+    if s.lower().startswith("file:"):
+        parsed = urlparse(s)
+        if parsed.netloc and parsed.netloc.lower() != "localhost":
+            if len(parsed.netloc) == 2 and parsed.netloc[1] == ":":
+                s = f"{parsed.netloc}{parsed.path}"
+            else:
+                s = f"//{parsed.netloc}{parsed.path}"
+        else:
+            s = parsed.path
+    s = unquote(s)
+    if re.match(r"^/[A-Za-z]:[/\\]", s):
+        return s[1:]
+    return s
+
+
+def _resolve_content_url(url: str) -> str:
+    """If url is local, return filename only; frontend builds URL."""
+    if not isinstance(url, str):
+        return url
+    if not _is_local_file_url(url):
+        return url
+    return _abspath_from_url(url)
+
+
+# pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
+def _build_media_message_from_block(
+    block: dict,
+    role: str,
+    metadata: dict,
+) -> Message:
+    output = block.get("output")
+    media_message = None
+    if isinstance(output, list):
+
+        def _resolve_media_type(item):
+            if not isinstance(item, dict):
+                return None
+            t = item.get("type")
+            if t in ("image", "audio", "video", "file"):
+                return t
+            if t == "data":
+                src = item.get("source") or {}
+                mt = src.get("media_type", "") if isinstance(src, dict) else ""
+                for prefix in ("image", "audio", "video"):
+                    if mt.startswith(f"{prefix}/"):
+                        return prefix
+                return "file"
+            return None
+
+        media_items = [
+            item for item in output if _resolve_media_type(item) is not None
+        ]
+        if media_items:
+            media_message = Message(
+                type=MessageType.MESSAGE,
+                role=role,
+            )
+            media_message.metadata = metadata
+
+            for item in media_items:
+                itype = _resolve_media_type(item)
+
+                if itype == "image":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["image_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "image/jpeg",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "image_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    media_message.add_content(
+                        new_content=ImageContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "audio":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        url = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                        kwargs["data"] = url
+                        try:
+                            kwargs["format"] = urlparse(
+                                url,
+                            ).path.split(
+                                ".",
+                            )[-1]
+                        except (
+                            AttributeError,
+                            IndexError,
+                            ValueError,
+                        ):
+                            kwargs["format"] = None
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get("media_type")
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "data"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                        kwargs["format"] = media_type
+                    media_message.add_content(
+                        new_content=AudioContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "video":
+                    kwargs = {}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["video_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "video/mp4",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "video_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    media_message.add_content(
+                        new_content=VideoContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+
+                elif itype == "file":
+                    kwargs = {"filename": item.get("filename", "")}
+                    source = item.get("source")
+                    if (
+                        isinstance(source, dict)
+                        and source.get("type") == "url"
+                    ):
+                        kwargs["file_url"] = _resolve_content_url(
+                            source.get("url", ""),
+                        )
+                    elif (
+                        isinstance(source, dict)
+                        and source.get("type") == "base64"
+                    ):
+                        media_type = source.get(
+                            "media_type",
+                            "application/octet-stream",
+                        )
+                        base64_data = source.get("data", "")
+                        kwargs[
+                            "file_url"
+                        ] = f"data:{media_type};base64,{base64_data}"
+                    elif isinstance(source, str):
+                        kwargs["file_url"] = _resolve_content_url(
+                            source,
+                        )
+                    media_message.add_content(
+                        new_content=FileContent(
+                            delta=False,
+                            index=None,
+                            **kwargs,
+                        ),
+                    )
+    return media_message
+
+
+# Matches the trailing <skill> block appended to a user message by
+# slash-command skill expansion
+# (runtime.builtin_commands._skill_fallback_handler).
+_INJECTED_SKILL_BLOCK_RE = re.compile(
+    r"\s*<skill\b[^>]*>.*</skill>\s*$",
+    re.DOTALL,
+)
+
+
+def strip_injected_skill_block(text: str, role: str) -> str:
+    """Hide the system-injected <skill> block from display.
+
+    Slash-command skill expansion keeps the user's typed text at the
+    head of the message and appends the skill body in a trailing
+    <skill> block. The block is model-facing context; transcripts
+    should show only what the user typed.
+    """
+    if role != "user" or "<skill" not in text:
+        return text
+    return _INJECTED_SKILL_BLOCK_RE.sub("", text)
+
+
+def clean_display_text(text: str, role: str) -> str:
+    """Hide model-facing artifacts from the transcript: the ``⟦ … ⟧``
+    headline fence and the injected ``<skill>`` block. The SSE stream already
+    strips the headline; the HTTP history path didn't, so it reappeared on
+    reload — do both here so every display path matches. Headline first: the
+    ``<skill>`` regex is ``$``-anchored, so a trailing headline would leave it
+    un-anchored.
+    """
+    return strip_injected_skill_block(strip_headline(text) or "", role)
+
+
+# pylint: disable=too-many-branches,too-many-statements, too-many-nested-blocks
+def agentscope_msg_to_message(
+    messages: Union[Msg, List[Msg]],
+) -> List[Message]:
+    """
+    Convert AgentScope Msg(s) into one or more runtime Message objects.
+
+    Args:
+        messages: AgentScope message(s) from streaming.
+
+    Returns:
+        List[Message]: One or more constructed runtime Message objects.
+    """
+    if isinstance(messages, Msg):
+        msgs = [messages]
+    elif isinstance(messages, list):
+        msgs = messages
+    else:
+        raise AgentRuntimeErrorException(
+            code="INVALID_MESSAGE_TYPE",
+            message=(
+                f"Expected Msg or list[Msg], got {type(messages).__name__}"
+            ),
+        )
+
+    results: List[Message] = []
+
+    user_tz_name = load_config().user_timezone or "UTC"
+    try:
+        user_tz = ZoneInfo(user_tz_name)
+    except (ZoneInfoNotFoundError, KeyError):
+        user_tz = timezone.utc
+
+    for msg in msgs:
+        if _is_scroll_memory_placeholder(msg):
+            continue
+        if _is_synthetic_user_message(msg):
+            continue
+        role = msg.role or "assistant"
+
+        ts_value = msg.timestamp
+        if ts_value:
+            ts_value = _normalize_msg_timestamp(ts_value, user_tz)
+
+        metadata = {
+            "original_id": msg.id,
+            "original_name": msg.name,
+            "metadata": msg.metadata,
+            "timestamp": ts_value,
+        }
+
+        display_text = (msg.metadata or {}).get("qwenpaw_display_text") if isinstance(msg.metadata, dict) and role == "user" else None
+        content = msg.content
+        if isinstance(display_text, str) and len(display_text) <= 100000:
+            # Presentation only: never mutate the model's persisted context.
+            content = [{"type": "text", "text": display_text}] + [
+                block for block in content if isinstance(block, dict) and block.get("type") != "text"
+            ] if isinstance(content, list) else display_text
+
+        if isinstance(content, str):
+            message = Message(type=MessageType.MESSAGE, role=role)
+            message.metadata = metadata
+            text_content = TextContent(
+                delta=False,
+                index=None,
+                text=clean_display_text(content, role),
+            )
+            message.add_content(new_content=text_content)
+            results.append(message)
+            continue
+
+        current_message = None
+        current_type = None
+
+        for block in content:
+            # Normalize pydantic block models to dict so the rest of
+            # this conversion (which uses .get) handles both shapes.
+            if hasattr(block, "model_dump"):
+                block = block.model_dump()
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type", "text")
+
+            # DataBlock (2.0): map type="data" to concrete media type
+            if btype == "data":
+                source = block.get("source") or {}
+                mt = (
+                    source.get("media_type", "")
+                    if isinstance(source, dict)
+                    else ""
+                )
+                if mt.startswith("image/"):
+                    btype = "image"
+                elif mt.startswith("audio/"):
+                    btype = "audio"
+                elif mt.startswith("video/"):
+                    btype = "video"
+                else:
+                    btype = "file"
+
+            if btype == "text":
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                text_content = TextContent(
+                    delta=False,
+                    index=None,
+                    text=clean_display_text(
+                        block.get("text", ""),
+                        role,
+                    ),
+                )
+                current_message.add_content(new_content=text_content)
+
+            elif btype == "thinking":
+                if current_type != MessageType.REASONING:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.REASONING,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.REASONING
+
+                text_content = TextContent(
+                    delta=False,
+                    index=None,
+                    text=block.get("thinking", ""),
+                )
+                current_message.add_content(new_content=text_content)
+
+            elif btype in ("tool_use", "tool_call"):
+                if current_message:
+                    results.append(current_message.completed())
+
+                current_message = Message(
+                    type=MessageType.PLUGIN_CALL,
+                    role=role,
+                )
+                current_message.metadata = metadata
+                current_type = MessageType.PLUGIN_CALL
+
+                if isinstance(block.get("input"), (dict, list)):
+                    arguments = json.dumps(
+                        block.get("input"),
+                        ensure_ascii=False,
+                    )
+                else:
+                    arguments = block.get("input")
+
+                call_data = FunctionCall(
+                    call_id=block.get("id"),
+                    name=block.get("name"),
+                    arguments=arguments,
+                ).model_dump()
+
+                data_content = DataContent(
+                    delta=False,
+                    index=None,
+                    data=call_data,
+                )
+                current_message.add_content(new_content=data_content)
+
+            elif btype == "tool_result":
+                if current_message:
+                    results.append(current_message.completed())
+
+                current_message = Message(
+                    type=MessageType.PLUGIN_CALL_OUTPUT,
+                    role=role,
+                )
+                current_message.metadata = metadata
+                current_type = MessageType.PLUGIN_CALL_OUTPUT
+
+                if isinstance(block.get("output"), (dict, list)):
+                    output = json.dumps(
+                        block.get("output"),
+                        ensure_ascii=False,
+                    )
+                else:
+                    output = block.get("output")
+
+                output_data = FunctionCallOutput(
+                    call_id=block.get("id"),
+                    name=block.get("name"),
+                    output=output,
+                ).model_dump(exclude_none=True)
+
+                tool_state = block.get("state")
+                if hasattr(tool_state, "value"):
+                    tool_state = tool_state.value
+                if tool_state is not None:
+                    output_data["state"] = tool_state
+
+                data_content = DataContent(
+                    delta=False,
+                    index=None,
+                    data=output_data,
+                )
+                current_message.add_content(new_content=data_content)
+
+            elif btype == "image":
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                kwargs = {}
+                if (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source", {}).get("type") == "url"
+                ):
+                    url = block.get("source", {}).get("url")
+                    url = _resolve_content_url(url)
+                    kwargs["image_url"] = url
+
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source").get("type") == "base64"
+                ):
+                    media_type = block.get("source", {}).get(
+                        "media_type",
+                        "image/jpeg",
+                    )
+                    base64_data = block.get("source", {}).get("data", "")
+                    url = f"data:{media_type};base64,{base64_data}"
+                    kwargs["image_url"] = url
+
+                image_content = ImageContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=image_content)
+
+            elif btype == "audio":
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                kwargs = {}
+                attachment_ids = (msg.metadata or {}).get(AUDIO_ATTACHMENT_METADATA_KEY, {})
+                attachment_id = attachment_ids.get(block.get("id")) if isinstance(attachment_ids, dict) else None
+                if isinstance(attachment_id, str) and re.fullmatch(
+                    r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", attachment_id,
+                ):
+                    # Inference bytes stay in context; history follows the original attachment.
+                    kwargs["data"] = f"/api/console/attachments/{attachment_id}"
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source", {}).get("type") == "url"
+                ):
+                    url = block.get("source", {}).get("url")
+                    url = _resolve_content_url(url)
+                    kwargs["data"] = url
+                    try:
+                        kwargs["format"] = urlparse(url).path.split(".")[-1]
+                    except (AttributeError, IndexError, ValueError):
+                        kwargs["format"] = None
+
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source").get("type") == "base64"
+                ):
+                    media_type = block.get("source", {}).get("media_type")
+                    base64_data = block.get("source", {}).get("data", "")
+                    url = f"data:{media_type};base64,{base64_data}"
+                    kwargs["data"] = url
+                    kwargs["format"] = media_type
+
+                audio_content = AudioContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=audio_content)
+
+            elif btype == "video":
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                kwargs = {}
+                if (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source", {}).get("type") == "url"
+                ):
+                    url = block.get("source", {}).get("url")
+                    url = _resolve_content_url(url)
+                    kwargs["video_url"] = url
+
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source").get("type") == "base64"
+                ):
+                    media_type = block.get("source", {}).get(
+                        "media_type",
+                        "video/mp4",
+                    )
+                    base64_data = block.get("source", {}).get("data", "")
+                    url = f"data:{media_type};base64,{base64_data}"
+                    kwargs["video_url"] = url
+
+                video_content = VideoContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=video_content)
+
+            elif btype == "file":
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                kwargs = {
+                    "filename": block.get("filename") or block.get("name"),
+                }
+                if (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source", {}).get("type") == "url"
+                ):
+                    url = block.get("source", {}).get("url")
+                    url = _resolve_content_url(url)
+                    kwargs["file_url"] = url
+
+                elif (
+                    isinstance(block.get("source"), dict)
+                    and block.get("source").get("type") == "base64"
+                ):
+                    media_type = block.get("source", {}).get(
+                        "media_type",
+                        "application/octet-stream",
+                    )
+                    base64_data = block.get("source", {}).get("data", "")
+                    url = f"data:{media_type};base64,{base64_data}"
+                    kwargs["file_url"] = url
+                elif isinstance(block.get("source"), str):
+                    url = _resolve_content_url(block.get("source", ""))
+                    kwargs["file_url"] = url
+
+                file_content = FileContent(
+                    delta=False,
+                    index=None,
+                    **kwargs,
+                )
+                current_message.add_content(new_content=file_content)
+
+            else:
+                if current_type != MessageType.MESSAGE:
+                    if current_message:
+                        results.append(current_message.completed())
+                    current_message = Message(
+                        type=MessageType.MESSAGE,
+                        role=role,
+                    )
+                    current_message.metadata = metadata
+                    current_type = MessageType.MESSAGE
+
+                text_content = TextContent(
+                    delta=False,
+                    index=None,
+                    text=str(block),
+                )
+                current_message.add_content(new_content=text_content)
+
+        if current_message:
+            results.append(current_message.completed())
+
+    return results

@@ -8,6 +8,14 @@ import {
 interface ChannelIconProps {
   channelKey: string;
   size?: number;
+  iconUrl?: string;
+}
+
+/** Render guard: only use the given URL when it's a usable http(s)
+ *  link; otherwise fall back to the default channel icon (handles
+ *  empty / mistyped / non-http values gracefully). */
+function isUsableIconUrl(url?: string): boolean {
+  return !!url && /^https?:\/\//i.test(url.trim());
 }
 
 /**
@@ -17,8 +25,11 @@ interface ChannelIconProps {
 export const ChannelIcon: React.FC<ChannelIconProps> = ({
   channelKey,
   size = 32,
+  iconUrl,
 }) => {
-  const imageUrl = getChannelIconUrl(channelKey);
+  const imageUrl = isUsableIconUrl(iconUrl)
+    ? (iconUrl as string).trim()
+    : getChannelIconUrl(channelKey);
   const [imageFailed, setImageFailed] = useState(false);
 
   const borderRadius = size * 0.25;

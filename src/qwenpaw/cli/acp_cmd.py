@@ -26,10 +26,30 @@ import click
     default=False,
     help="Enable debug logging to stderr",
 )
+@click.option(
+    "--local-diagnostics",
+    is_flag=True,
+    default=False,
+    help=(
+        "Surface raw unexpected error text to the ACP client. Intended for "
+        "local clients that own this ACP subprocess, such as the TUI."
+    ),
+)
+@click.option(
+    "--runtime-provider",
+    type=click.Choice(["openai-env"], case_sensitive=False),
+    default=None,
+    help=(
+        "Use an ephemeral provider from OPENAI_BASE_URL, "
+        "OPENAI_API_KEY, and OPENAI_MODEL."
+    ),
+)
 def acp_cmd(
     agent: str | None,
     workspace: str | None,
     debug: bool,
+    local_diagnostics: bool,
+    runtime_provider: str | None,
 ) -> None:
     """Start QwenPaw as an ACP agent (stdio)."""
     from pathlib import Path
@@ -41,6 +61,16 @@ def acp_cmd(
     )
 
     workspace_dir = Path(workspace) if workspace else None
+    provider_config = None
+    if runtime_provider == "openai-env":
+        from ..agents.acp.runtime_provider import (
+            OpenAIRuntimeProviderConfig,
+        )
+
+        try:
+            provider_config = OpenAIRuntimeProviderConfig.from_env()
+        except ValueError as exc:
+            raise click.UsageError(str(exc)) from exc
 
     from ..agents.acp.server import run_qwenpaw_agent
 
@@ -48,5 +78,7 @@ def acp_cmd(
         run_qwenpaw_agent(
             agent_id=agent,
             workspace_dir=workspace_dir,
+            local_diagnostics=local_diagnostics,
+            runtime_provider=provider_config,
         ),
     )

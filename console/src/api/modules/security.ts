@@ -18,7 +18,20 @@ export interface ToolGuardConfig {
   denied_tools: string[];
   custom_rules: ToolGuardRule[];
   disabled_rules: string[];
+  auto_denied_rules: string[];
   shell_evasion_checks: Record<string, boolean>;
+}
+
+// ── Sandbox switch types ──────────────────────────────
+
+export interface SandboxSetting {
+  enabled: boolean;
+}
+
+export interface SandboxStatusResponse {
+  enabled: boolean;
+  effective: boolean;
+  reason: string | null;
 }
 
 // ── File Guard types ──────────────────────────────────────────────
@@ -26,11 +39,13 @@ export interface ToolGuardConfig {
 export interface FileGuardResponse {
   enabled: boolean;
   paths: string[];
+  allow_preview_outside_workspace: boolean;
 }
 
 export interface FileGuardUpdateBody {
   enabled?: boolean;
   paths?: string[];
+  allow_preview_outside_workspace?: boolean;
 }
 
 // ── Skill Scanner types ────────────────────────────────────────────
@@ -75,6 +90,28 @@ export interface SecurityScanErrorResponse {
   findings: BlockedSkillFinding[];
 }
 
+export interface SecurityPolicy {
+  tool_guard: ToolGuardConfig;
+  file_guard: {
+    enabled: boolean;
+    sensitive_files: string[];
+    allow_preview_outside_workspace: boolean;
+  };
+  skill_scanner: SkillScannerConfig;
+  sandbox_enabled: boolean;
+  allow_no_auth_hosts: string[];
+  trusted_proxies: string[];
+}
+
+export interface SecurityPolicyResponse {
+  scope: "platform" | "agent";
+  agent_id: string | null;
+  platform_locked_fields: string[];
+  platform_baseline: SecurityPolicy;
+  agent_override: SecurityPolicy | null;
+  effective_policy: SecurityPolicy;
+}
+
 // ── Allow No Auth Hosts types ──────────────────────────────────────
 
 export interface AllowNoAuthHostsResponse {
@@ -86,6 +123,11 @@ export interface AllowNoAuthHostsUpdateBody {
 }
 
 export const securityApi = {
+  getSecurityPolicy: (agentId: string) =>
+    request<SecurityPolicyResponse>(
+      `/agents/${encodeURIComponent(agentId)}/config/security/policy`,
+    ),
+
   // ── Tool Guard ──────────────────────────────────────────────────
 
   getToolGuard: () => request<ToolGuardConfig>("/config/security/tool-guard"),
@@ -98,6 +140,21 @@ export const securityApi = {
 
   getBuiltinRules: () =>
     request<ToolGuardRule[]>("/config/security/tool-guard/builtin-rules"),
+
+  // ── Sandbox switch ───────────────────────────
+
+  getSandbox: (enabled?: boolean) =>
+    request<SandboxStatusResponse>(
+      enabled !== undefined
+        ? `/config/security/sandbox?enabled=${enabled}`
+        : "/config/security/sandbox",
+    ),
+
+  updateSandbox: (body: SandboxSetting) =>
+    request<SandboxStatusResponse>("/config/security/sandbox", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
 
   // ── File Guard ─────────────────────────────────────────────────
 

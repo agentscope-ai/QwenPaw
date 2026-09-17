@@ -1,0 +1,95 @@
+.queueItem {
+  padding: 8px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: rgba(20, 20, 19, 0.88);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+.queueItemTop {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+
+.queueItemMeta {
+  color: rgba(20, 20, 19, 0.45);
+}
+
+.queueItemMessage {
+  color: rgba(20, 20, 19, 0.65);
+  word-break: break-word;
+}
+
+.queueItemActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.statusTag {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.queued {
+  background: rgba(239, 240, 243, 0.9);
+  color: rgba(20, 20, 19, 0.55);
+}
+
+.installing {
+  background: rgba(255, 127, 22, 0.1);
+  color: #d48806;
+}
+
+.completed {
+  background: rgba(82, 196, 26, 0.12);
+  color: #389e0d;
+}
+
+.failed {
+  background: rgba(245, 34, 45, 0.08);
+  color: #cf1322;
+}
+
+.cancelled {
+  background: rgba(239, 240, 243, 0.9);
+  color: rgba(20, 20, 19, 0.45);
+}
+
+/* ─── Dark mode ──────────────────────────────────────────────────────────── */
+:global(.dark-mode) {
+  .queueItem {
+    color: rgba(255, 255, 255, 0.88);
+    border-bottom-color: rgba(255, 255, 255, 0.06);
+  }
+
+  .queueItemMeta {
+    color: rgba(255, 255, 255, 0.45);
+  }
+
+  .queueItemMessage {
+    color: rgba(255, 255, 255, 0.65);
+  }
+
+  .queued {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .cancelled {
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.45);
+  }
+}

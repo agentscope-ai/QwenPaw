@@ -18,7 +18,7 @@
 
 - [ ] Core / Backend (app, agents, config, providers, utils, local_models)
 - [ ] Console (frontend web UI)
-- [ ] Channels (DingTalk, Feishu, QQ, Discord, iMessage, etc.)
+- [ ] Channels (DingTalk, Lark, QQ, Discord, iMessage, etc.)
 - [ ] Skills
 - [ ] CLI
 - [ ] Documentation (website)
@@ -34,7 +34,7 @@
 - [ ] Documentation updated (if needed)
 - [ ] Ready for review
 
-### For Channel Changes (DingTalk, Feishu, QQ, Console, etc.)
+### For Channel Changes (DingTalk, Lark, QQ, Console, etc.)
 
 - [ ] I ran `./scripts/check-channels.sh` (or `./scripts/check-channels.sh --changed`) and it passes
 - [ ] **Contract test** exists in `tests/contract/channels/test_<channel>_contract.py` (REQUIRED)
@@ -46,7 +46,22 @@
 
 [How to test these changes]
 
-## Local Verification Evidence
+## Evidence
+
+<!-- Required for external contributors. The CI "Real behavior proof" check
+     will block your PR if this section is missing or empty. Template
+     comments (like this one) do NOT count as evidence.
+
+     Keep the section headings "## Description" and "## Evidence" verbatim
+     — the CI check matches these headings by name. If you rename them,
+     your PR will be flagged as missing context even if you filled in the
+     content. -->
+
+Examples of valid evidence:
+- Terminal transcript of the test run (e.g. `pytest tests/unit/app/chats/ -q` output)
+- Screenshot of the Console UI showing the fix
+- CI artifact link
+- `pre-commit run --all-files` summary
 
 ```bash
 pre-commit run --all-files

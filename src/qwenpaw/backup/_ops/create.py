@@ -10,6 +10,7 @@ from typing import Any, AsyncGenerator
 
 from .._utils.constants import META_FILE, zip_path
 from .._utils.meta import finalize_backup_meta
+from .._utils.signing import replace_meta_with_local_signature
 from ..models import BackupMeta, CreateBackupRequest
 from ...config.utils import load_config
 from ...constant import BACKUP_DIR
@@ -109,6 +110,8 @@ def _write_meta_and_finalize(
 ) -> None:
     """Finalize *meta*, emit a saving event, and write meta.json into *zf*."""
     finalize_backup_meta(meta, agent_count)
+    meta.accepted_via_trust = False
+    meta.signature = None
     put({"type": "saving", "percent": 90})
     zf.writestr(META_FILE, meta.model_dump_json(indent=2))
 
@@ -212,7 +215,10 @@ def _compress_to_tmp(
         )
         return
 
-    tmp.replace(dest)  # atomic on both Windows and Linux
+    signed_meta = replace_meta_with_local_signature(tmp, meta, dest_zip=dest)
+    meta.signature = signed_meta.signature
+    meta.accepted_via_trust = signed_meta.accepted_via_trust
+    tmp.unlink(missing_ok=True)
     put(
         {"type": "done", "meta": meta.model_dump(mode="json"), "percent": 100},
     )

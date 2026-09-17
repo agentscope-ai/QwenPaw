@@ -34,7 +34,8 @@ $QWENPAW_WORKING_DIR/                      # Default ~/.qwenpaw
 │   │   ├── skills/                      # Workspace-local skills
 │   │   ├── skill.json                   # Skill enabled state and config
 │   │   ├── memory/                      # Daily memory files
-│   │   └── browser/                     # Browser user data (cookies, cache, etc.)
+│   │   ├── .browser-profile/            # Browser persistent profile (unified browser)
+│   │   └── browser/                     # Browser user data (legacy implementation)
 │   └── abc123/                          # Other agent workspace
 │       └── ...
 └── skill_pool/                          # Local shared skill pool
@@ -59,21 +60,22 @@ $QWENPAW_SECRET_DIR/                       # Default ~/.qwenpaw.secret
 
 **Agent Workspace (`~/.qwenpaw/workspaces/{agent_id}/`)**
 
-| File / Directory   | Purpose                                                      |
-| ------------------ | ------------------------------------------------------------ |
-| `agent.json`       | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
-| `chats.json`       | Conversation history                                         |
-| `jobs.json`        | Cron job list                                                |
-| `token_usage.json` | Token usage records                                          |
-| `AGENTS.md`        | Persona file (see [Agent Persona](./persona))                |
-| `SOUL.md`          | Persona file (see [Agent Persona](./persona))                |
-| `PROFILE.md`       | Persona file (see [Agent Persona](./persona))                |
-| `BOOTSTRAP.md`     | Initial setup guide (auto-deleted after completion)          |
-| `MEMORY.md`        | Long-term memory (see [Memory](./memory))                    |
-| `skills/`          | Skills available in this workspace                           |
-| `skill.json`       | Skill enabled state, channel routing, and config             |
-| `memory/`          | Daily memory files (see [Memory](./memory))                  |
-| `browser/`         | Browser user data (cookies, cache, localStorage, etc.)       |
+| File / Directory    | Purpose                                                      |
+| ------------------- | ------------------------------------------------------------ |
+| `agent.json`        | Agent config (channels, heartbeat, tools, skills, MCP, etc.) |
+| `chats.json`        | Conversation history                                         |
+| `jobs.json`         | Cron job list                                                |
+| `token_usage.json`  | Token usage records                                          |
+| `AGENTS.md`         | Persona file (see [Agent Persona](./persona))                |
+| `SOUL.md`           | Persona file (see [Agent Persona](./persona))                |
+| `PROFILE.md`        | Persona file (see [Agent Persona](./persona))                |
+| `BOOTSTRAP.md`      | Initial setup guide (auto-deleted after completion)          |
+| `MEMORY.md`         | Long-term memory (see [Memory](./memory))                    |
+| `skills/`           | Skills available in this workspace                           |
+| `skill.json`        | Skill enabled state, channel routing, and config             |
+| `memory/`           | Daily memory files (see [Memory](./memory))                  |
+| `.browser-profile/` | Browser persistent profile (see [Browser](./browser))        |
+| `browser/`          | Browser user data of the legacy implementation               |
 
 > **Persona files:** Agent behavior and personality are defined by persona files. Running `qwenpaw init` automatically creates template files based on your chosen language (`zh` / `en` / `ru`). For detailed explanation and management, see [Agent Persona](./persona).
 
@@ -87,25 +89,28 @@ You can customize paths and behavior via environment variables:
 
 **Path-related:**
 
-| Variable                   | Default             | Description                                                                                                 |
-| -------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | Working directory root path                                                                                 |
-| `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | Sensitive data directory (stores `providers.json` and `envs.json`). Docker default is `/app/working.secret` |
-| `QWENPAW_CONFIG_FILE`      | `config.json`       | Config file name (relative to `QWENPAW_WORKING_DIR`)                                                        |
-| `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | Heartbeat file name (relative to agent workspace)                                                           |
-| `QWENPAW_JOBS_FILE`        | `jobs.json`         | Cron jobs file name (relative to agent workspace)                                                           |
-| `QWENPAW_CHATS_FILE`       | `chats.json`        | Conversation history file name (relative to agent workspace)                                                |
-| `QWENPAW_TOKEN_USAGE_FILE` | `token_usage.json`  | Token usage record file name (relative to agent workspace)                                                  |
+| Variable                   | Default             | Description                                                                                                                                                                                                                                                                              |
+| -------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `QWENPAW_WORKING_DIR`      | `~/.qwenpaw`        | Working directory root path                                                                                                                                                                                                                                                              |
+| `QWENPAW_SECRET_DIR`       | `~/.qwenpaw.secret` | Sensitive data directory (stores `providers.json` and `envs.json`). Docker default is `/app/working.secret`                                                                                                                                                                              |
+| `QWENPAW_KEYRING_ACCOUNT`  | _(auto)_            | OS keychain account name for the master key. Defaults to `master_key`; when `QWENPAW_WORKING_DIR`/`QWENPAW_SECRET_DIR` are set (e.g. a dev checkout) it auto-derives a per-install account so a dev install never overwrites the stable install's key. Set explicitly to name a profile. |
+| `QWENPAW_CONFIG_FILE`      | `config.json`       | Config file name (relative to `QWENPAW_WORKING_DIR`)                                                                                                                                                                                                                                     |
+| `QWENPAW_HEARTBEAT_FILE`   | `HEARTBEAT.md`      | Heartbeat file name (relative to agent workspace)                                                                                                                                                                                                                                        |
+| `QWENPAW_JOBS_FILE`        | `jobs.json`         | Cron jobs file name (relative to agent workspace)                                                                                                                                                                                                                                        |
+| `QWENPAW_CHATS_FILE`       | `chats.json`        | Conversation history file name (relative to agent workspace)                                                                                                                                                                                                                             |
+| `QWENPAW_TOKEN_USAGE_FILE` | `token_usage.json`  | Token usage record file name (relative to agent workspace)                                                                                                                                                                                                                               |
 
 **Other configuration:**
 
-| Variable                             | Default         | Description                                                                 |
-| ------------------------------------ | --------------- | --------------------------------------------------------------------------- |
-| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)             |
-| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                            |
-| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                          |
-| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size) |
-| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                          |
+| Variable                             | Default         | Description                                                                  |
+| ------------------------------------ | --------------- | ---------------------------------------------------------------------------- |
+| `QWENPAW_LOG_LEVEL`                  | `info`          | Log level (`debug` / `info` / `warning` / `error` / `critical`)              |
+| `QWENPAW_LOG_MAX_SIZE`               | `5MiB`          | Maximum active log size; accepts bytes or suffixes such as `10MB` and `1GiB` |
+| `QWENPAW_LOG_MAX_BACKUPS`            | `3`             | Number of rotated log backups to retain; `0` disables backups                |
+| `QWENPAW_MEMORY_COMPACT_THRESHOLD`   | `100000`        | Character threshold to trigger memory compaction                             |
+| `QWENPAW_MEMORY_COMPACT_KEEP_RECENT` | `3`             | Number of recent messages to keep after compaction                           |
+| `QWENPAW_MEMORY_COMPACT_RATIO`       | `0.7`           | Threshold ratio for triggering compaction (relative to context window size)  |
+| `QWENPAW_CONSOLE_STATIC_DIR`         | _(auto-detect)_ | Console frontend static files path                                           |
 
 **Security & Authentication:**
 
@@ -116,13 +121,6 @@ You can customize paths and behavior via environment variables:
 | `QWENPAW_AUTH_PASSWORD`      | -       | Admin password for auto-registration (optional)    |
 | `QWENPAW_TOOL_GUARD_ENABLED` | `true`  | Whether to enable tool guard                       |
 | `QWENPAW_SKILL_SCAN_MODE`    | `warn`  | Skill scanning mode (`block` / `warn` / `off`)     |
-
-**Memory & Retrieval:**
-
-| Variable               | Default | Description                                                     |
-| ---------------------- | ------- | --------------------------------------------------------------- |
-| `FTS_ENABLED`          | `true`  | Whether to enable BM25 full-text search                         |
-| `MEMORY_STORE_BACKEND` | `auto`  | Memory storage backend (`auto` / `local` / `chroma` / `sqlite`) |
 
 Example — use a different working dir for this shell:
 
@@ -243,6 +241,7 @@ Each agent has an independent `agent.json` in its workspace directory (`~/.qwenp
     "enabled": false,
     "every": "30m",
     "target": "main",
+    "timeoutSeconds": 300,
     "activeHours": null
   },
   "running": {
@@ -306,7 +305,7 @@ Each channel has common fields (like `enabled`, `bot_prefix`, access control pol
 - **mattermost** — Mattermost
 - **matrix** — Matrix
 - **wecom** — WeCom (WeChat Work)
-- **weixin** — WeChat Personal (iLink)
+- **wechat** — WeChat Personal (iLink)
 - **xiaoyi** — Huawei XiaoYi
 - **mqtt** — MQTT
 - **voice** — Voice
@@ -335,12 +334,13 @@ Management: Console (Agent → MCP) or directly edit `agent.json`.
 
 Heartbeat is a scheduled self-check feature that executes tasks from `HEARTBEAT.md` at regular intervals.
 
-| Field         | Type           | Default  | Description                                                                                                  |
-| ------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
-| `enabled`     | bool           | `false`  | Whether to enable heartbeat feature                                                                          |
-| `every`       | string         | `"30m"`  | Run interval. Supports `Nh`, `Nm`, `Ns` combos, e.g. `"1h"`, `"30m"`, `"2h30m"`, `"90s"`                     |
-| `target`      | string         | `"main"` | `"main"` = run in main session only; `"last"` = dispatch result to the last channel/user that sent a message |
-| `activeHours` | object \| null | `null`   | Optional time window (if set, heartbeat only runs during this period)                                        |
+| Field            | Type           | Default  | Description                                                                                                  |
+| ---------------- | -------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `enabled`        | bool           | `false`  | Whether to enable heartbeat feature                                                                          |
+| `every`          | string         | `"30m"`  | Run interval. Supports `Nh`, `Nm`, `Ns` combos, e.g. `"1h"`, `"30m"`, `"2h30m"`, `"90s"`                     |
+| `target`         | string         | `"main"` | `"main"` = run in main session only; `"last"` = dispatch result to the last channel/user that sent a message |
+| `timeoutSeconds` | int            | `300`    | Maximum execution time for one heartbeat run, in seconds. Valid range: `1`–`3600`                            |
+| `activeHours`    | object \| null | `null`   | Optional time window (if set, heartbeat only runs during this period)                                        |
 
 **`heartbeat.activeHours`** (when not null):
 
@@ -359,11 +359,12 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Basic Runtime:**
 
-| Field                        | Type  | Default | Description                                                                                                                 |
-| ---------------------------- | ----- | ------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `max_iters`                  | int   | `100`   | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                                 |
-| `shell_command_timeout`      | float | `60.0`  | Default timeout in seconds for `execute_shell_command`. The LLM may still override this per-call via the timeout parameter  |
-| `auto_continue_on_text_only` | bool  | `false` | When enabled, the agent automatically retries up to two extra reasoning passes if the model responds with text but no tools |
+| Field                        | Type  | Default | Description                                                                                                                                                                                                                      |
+| ---------------------------- | ----- | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `max_iters`                  | int   | `100`   | Maximum number of reasoning-acting iterations for ReAct agent (must be ≥ 1)                                                                                                                                                      |
+| `shell_command_timeout`      | float | `60.0`  | Default timeout in seconds for `execute_shell_command`. The LLM may still override this per-call via the timeout parameter                                                                                                       |
+| `shell_command_executable`   | str   | `""`    | Path to the shell used by `execute_shell_command` on Unix/macOS (e.g. `/bin/bash`, `/bin/zsh`). On Windows, supports `powershell.exe` / `pwsh.exe`. When empty, falls back to `$SHELL`, then `/bin/sh` (or `cmd.exe` on Windows) |
+| `auto_continue_on_text_only` | bool  | `false` | When enabled, the agent automatically retries up to two extra reasoning passes if the model responds with text but no tools                                                                                                      |
 
 **LLM Retry & Rate Limiting:**
 
@@ -399,60 +400,111 @@ Controls agent runtime behavior, retry strategies, context management, and memor
 
 **Light Context Compaction (`light_context_config.context_compact_config` object):**
 
-| Field                         | Type  | Default | Description                                                               |
-| ----------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
-| `enabled`                     | bool  | `true`  | Whether to enable automatic context compaction                            |
-| `compact_threshold_ratio`     | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
-| `reserve_threshold_ratio`     | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
-| `compact_with_thinking_block` | bool  | `true`  | Whether to include thinking blocks during compaction                      |
+| Field                     | Type  | Default | Description                                                               |
+| ------------------------- | ----- | ------- | ------------------------------------------------------------------------- |
+| `enabled`                 | bool  | `true`  | Whether to enable automatic context compaction                            |
+| `compact_threshold_ratio` | float | `0.8`   | Threshold ratio (relative to `max_input_length`) that triggers compaction |
+| `reserve_threshold_ratio` | float | `0.1`   | Ratio of recent context to preserve after compaction for continuity       |
 
 **Light Tool Result Pruning (`light_context_config.tool_result_pruning_config` object):**
 
-| Field                          | Type | Default | Description                                      |
-| ------------------------------ | ---- | ------- | ------------------------------------------------ |
-| `enabled`                      | bool | `true`  | Whether to enable tool result pruning            |
-| `pruning_recent_n`             | int  | `2`     | Number of recent messages using higher threshold |
-| `pruning_old_msg_max_bytes`    | int  | `3000`  | Byte threshold for older tool results            |
-| `pruning_recent_msg_max_bytes` | int  | `50000` | Byte threshold for recent tool results           |
-| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files       |
+| Field                          | Type | Default | Description                                                                                                 |
+| ------------------------------ | ---- | ------- | ----------------------------------------------------------------------------------------------------------- |
+| `enabled`                      | bool | `true`  | Whether to enable tool result pruning                                                                       |
+| `pruning_recent_n`             | int  | `2`     | Number of recent tool-result-bearing messages kept at the recent preview threshold before scroll compaction |
+| `pruning_old_msg_max_bytes`    | int  | `3000`  | Compact preview byte threshold for tool results retained in live context after scroll compaction            |
+| `pruning_recent_msg_max_bytes` | int  | `50000` | Recent/execution preview byte threshold for tool results before and shortly after entering context          |
+| `offload_retention_days`       | int  | `5`     | Number of days to retain tool result files                                                                  |
 
 **ReMeLight Memory Configuration (`reme_light_memory_config` object):**
 
-| Field                           | Type        | Default        | Description                                                            |
-| ------------------------------- | ----------- | -------------- | ---------------------------------------------------------------------- |
-| `summarize_when_compact`        | bool        | `true`         | Whether to enable memory summarization during compaction               |
-| `auto_memory_interval`          | int \| null | `null`         | Auto memory every N user queries. null disables periodic auto memory   |
-| `dream_cron`                    | string      | `"0 23 * * *"` | Cron expression for dream-based memory optimization (empty to disable) |
-| `rebuild_memory_index_on_start` | bool        | `false`        | Whether to rebuild memory search index on startup                      |
-| `recursive_file_watcher`        | bool        | `false`        | Whether to watch memory directory recursively                          |
-| `auto_memory_search_config`     | object      | _(see below)_  | Auto memory search configuration                                       |
-| `embedding_model_config`        | object      | _(see below)_  | Embedding model configuration                                          |
+| Field                            | Type        | Default          | Description                                                                                                                                                                      |
+| -------------------------------- | ----------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metadata_dir`                   | string      | `"mem_metadata"` | Subdirectory for ReMe persistent state                                                                                                                                           |
+| `session_dir`                    | string      | `"mem_session"`  | Subdirectory for ReMe source conversation logs used by auto-memory                                                                                                               |
+| `mem_session_dir`                | string      | `"mem_agent"`    | Subdirectory for ReMe internal memory-agent sessions                                                                                                                             |
+| `resource_dir`                   | string      | `"resource"`     | Raw-asset directory used by Daily Paper and future knowledge workflows                                                                                                           |
+| `daily_dir`                      | string      | `"memory"`       | Subdirectory for daily memory                                                                                                                                                    |
+| `digest_dir`                     | string      | `"digest"`       | Subdirectory for digest memory                                                                                                                                                   |
+| `auto_memory_inbox_push_enabled` | bool        | `true`           | Whether to push Auto-Memory results to the inbox                                                                                                                                 |
+| `auto_dream_inbox_push_enabled`  | bool        | `true`           | Whether to push Auto-Dream results to the inbox                                                                                                                                  |
+| `daily_paper_inbox_push_enabled` | bool        | `true`           | Whether to push Daily Paper results to the inbox                                                                                                                                 |
+| `auto_memory_interval`           | int \| null | `5`              | Auto memory every N user queries. `None` or `<= 0` disables periodic auto memory                                                                                                 |
+| `dream_cron_enabled`             | bool        | `true`           | Whether to enable the scheduled dream-based memory optimization job                                                                                                              |
+| `dream_cron`                     | string      | `"0 23 * * *"`   | Valid 5-field cron expression for dream-based memory optimization (required when enabled); scheduled runs start after a random delay of 0–60 seconds to avoid simultaneous calls |
+| `daily_paper_cron_enabled`       | bool        | `false`          | Whether to enable the scheduled Daily Paper job                                                                                                                                  |
+| `daily_paper_cron`               | string      | `"0 9 * * *"`    | Valid 5-field cron expression for Daily Paper (required when enabled)                                                                                                            |
+| `daily_paper_use_hf_mirror`      | bool        | `false`          | Whether to fetch Daily Paper information through the Hugging Face mirror                                                                                                         |
+| `daily_paper_topics`             | string      | `""`             | Topics to prioritize when selecting Daily Paper papers                                                                                                                           |
+| `memory_search_enabled`          | bool        | `true`           | Whether to expose the `memory_search` tool to the agent; independent from automatic memory search                                                                                |
+| `auto_memory_search_config`      | object      | _(see below)_    | Auto memory search configuration                                                                                                                                                 |
+| `embedding_model_config`         | object      | _(see below)_    | Embedding model configuration                                                                                                                                                    |
+| `needs_reindex`                  | bool        | `false`          | Runtime-maintained flag indicating that the saved vector space changed and a manual index rebuild is required                                                                    |
+
+> `rebuild_memory_index_on_start` is no longer supported. Rebuild an index only when needed from the Console or the
+> maintenance API described in [Rebuilding the Memory Search Index](./memory#Rebuilding-the-Index).
+
+The deprecated `inbox_push_enabled` field is accepted only for migration. Its value initializes any missing per-job
+Inbox switches, then the field is excluded from serialized configuration.
 
 **Auto Memory Search Configuration (`reme_light_memory_config.auto_memory_search_config` object):**
 
-| Field         | Type  | Default | Description                                                |
-| ------------- | ----- | ------- | ---------------------------------------------------------- |
-| `enabled`     | bool  | `false` | Whether to auto search memory on every conversation turn   |
-| `max_results` | int   | `1`     | Maximum results for auto memory search                     |
-| `min_score`   | float | `0.1`   | Minimum relevance score for auto memory search (0.0 - 1.0) |
-| `timeout`     | float | `10.0`  | Timeout in seconds for auto memory search                  |
+| Field         | Type | Default | Description                                              |
+| ------------- | ---- | ------- | -------------------------------------------------------- |
+| `enabled`     | bool | `false` | Whether to auto search memory on every conversation turn |
+| `max_results` | int  | `2`     | Maximum results for auto memory search                   |
 
 **Embedding Configuration (`reme_light_memory_config.embedding_model_config` object):**
 
-| Field              | Type   | Default    | Description                                             |
-| ------------------ | ------ | ---------- | ------------------------------------------------------- |
-| `backend`          | string | `"openai"` | Embedding backend type (e.g., `"openai"`)               |
-| `api_key`          | string | `""`       | API key for the embedding provider                      |
-| `base_url`         | string | `""`       | Custom API URL (optional)                               |
-| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`) |
-| `dimensions`       | int    | `1024`     | Embedding vector dimensions                             |
-| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                       |
-| `use_dimensions`   | bool   | `false`    | Whether to use custom dimensions                        |
-| `max_cache_size`   | int    | `3000`     | Maximum cache size                                      |
-| `max_input_length` | int    | `8192`     | Maximum input length for embeddings                     |
-| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                 |
+| Field              | Type   | Default    | Description                                                                                    |
+| ------------------ | ------ | ---------- | ---------------------------------------------------------------------------------------------- |
+| `backend`          | string | `"openai"` | Embedding backend type: `openai`, `dashscope`, `dashscope_multimodal`, `gemini`, `ollama`      |
+| `api_key`          | string | `""`       | API key for the embedding provider. Required for OpenAI-compatible and Gemini backends         |
+| `base_url`         | string | `""`       | Optional custom API URL for OpenAI-compatible backends. For Ollama, this is passed as the host |
+| `model_name`       | string | `""`       | Embedding model name (e.g., `"text-embedding-3-small"`)                                        |
+| `dimensions`       | int    | `1024`     | Expected Embedding vector dimensions, used for response validation, indexes, and caches        |
+| `enable_cache`     | bool   | `true`     | Whether to enable embedding cache                                                              |
+| `use_dimensions`   | bool   | `false`    | Whether the OpenAI backend sends the `dimensions` parameter in API requests                    |
+| `max_cache_size`   | int    | `10000`    | Maximum cache size                                                                             |
+| `max_input_length` | int    | `8192`     | Approximate character budget per Embedding input, not an exact token limit                     |
+| `max_batch_size`   | int    | `10`       | Maximum batch size for batch processing                                                        |
 
-These settings can also be changed in the Console under **Agent → Runtime Config**. Changes apply to new LLM requests after saving; restarting the service is not required.
+`use_dimensions` only controls whether OpenAI-compatible requests include the `dimensions` parameter. When it is
+disabled, `dimensions` is still used to validate returned vectors and configure indexes and caches, so it must match
+the model's actual output dimensions. Disable `use_dimensions` for OpenAI-compatible services, including some vLLM
+deployments, that do not support this request parameter.
+
+Each Embedding input is truncated separately before the request according to `max_input_length`. This is a
+character-based estimate: Chinese, CJK, and other full-width characters use a more conservative weight with a safety
+margin. ReMe does not invoke the model tokenizer to calculate an exact token count.
+
+Vector retrieval is enabled only when the selected backend has the minimum runnable configuration. These conditions are aligned with AgentScope credential requirements:
+
+| Backend                                         | Enable condition                              | Credential mapping              |
+| ----------------------------------------------- | --------------------------------------------- | ------------------------------- |
+| `openai` / `dashscope` / `dashscope_multimodal` | Both `model_name` and `api_key` are non-empty | `api_key`; optional `base_url`  |
+| `gemini`                                        | Both `model_name` and `api_key` are non-empty | `api_key`                       |
+| `ollama`                                        | `model_name` is non-empty                     | optional `host` from `base_url` |
+
+When the enable condition is not met, ReMe still keeps keyword indexes and wikilink graph indexes, but the embedding vector index is disabled.
+
+These settings can also be changed in the Console under **Agent → Runtime Config**. Fields read on demand, such as
+auto-memory cadence and auto-search limits, apply to later turns after saving. An Embedding save is
+transactional: QwenPaw persists the submitted running config, then tries to apply it to the live ReMe runtime. If the
+current service fingerprint was successfully tested, the running embedding model can be replaced in place; otherwise
+QwenPaw recreates the embedded ReMe application. If neither path succeeds, it rolls back the submitted fields when it
+can do so without overwriting a concurrent edit and reports an error. Saving always schedules the normal Agent reload,
+so no manual restart is required. An Embedding change is rejected with HTTP `409` while an index rebuild is active.
+
+Changes to `backend`, normalized `base_url`, `model_name`, `dimensions`, or `use_dimensions` set `needs_reindex=true`.
+Changing only the API key or cache/batch limits does not. A hot vector-space change clears the Embedding cache, but it
+does **not** rebuild existing file vectors automatically. Complete the explicit Console or maintenance-API rebuild;
+only a successful rebuild for the still-current vector-space fingerprint clears `needs_reindex`.
+
+The Console's Embedding **Enabled/Disabled** status is calculated in real time from the current unsaved form. It only
+indicates whether the Backend, model name, and required credentials meet the enable conditions above; it does not prove
+that the service is reachable or that the draft has been applied to the running agent. **Verified** means a real test
+request succeeded. Changes affect runtime state only after the configuration is saved.
 
 ---
 
@@ -500,16 +552,6 @@ Specifies the model used by this agent.
 | `model`       | string | `""`    | Model name (e.g., `"qwen-max"`, `"gpt-4"`)          |
 
 When `null`, uses the global default model. Can be configured in Console (Agent → Model Settings).
-
----
-
-#### `plan` — Plan mode configuration
-
-| Field     | Type | Default | Description                 |
-| --------- | ---- | ------- | --------------------------- |
-| `enabled` | bool | `false` | Whether to enable plan mode |
-
-When enabled, the agent supports `/plan` commands for structured task planning and execution. See [Plan Mode](./plan) for detailed documentation.
 
 ---
 
@@ -644,6 +686,43 @@ can read them via `os.environ`.
 
 ---
 
+## Browser
+
+Browser settings live in the `browser` block of the global
+`~/.qwenpaw/config.json` and apply to every agent:
+
+```json
+{
+  "browser": {
+    "experimental": true,
+    "backend": "auto",
+    "identity": "auto",
+    "headless": "auto"
+  }
+}
+```
+
+Common fields:
+
+| Field          | Type   | Default  | Description                                                                               |
+| -------------- | ------ | -------- | ----------------------------------------------------------------------------------------- |
+| `experimental` | bool   | `true`   | Use the new unified browser; `false` returns to the legacy one. **Requires a restart**    |
+| `backend`      | string | `"auto"` | How the standalone browser is obtained: `auto` / `launch` / `managed_cdp` / `connect_cdp` |
+| `identity`     | string | `"auto"` | Browser identity: `auto` / `user` / `avatar` / `guest`                                    |
+| `headless`     | string | `"auto"` | `auto` runs headless in containers or without a display; `"true"` / `"false"` force it    |
+
+Browser data is isolated per agent workspace under
+`workspaces/{agent_id}/.browser-profile/` (`managed_cdp` uses `.browser-cdp/`,
+and the legacy implementation uses `browser/`). The `user` identity uses your
+own Chrome profile and writes to none of these.
+
+> **Full reference:** for every field — launch arguments, viewport, proxy, idle
+> reclamation — and for choosing an identity and backend, see
+> [Browser](./browser). Using your own Chrome requires the
+> [Chrome extension](./chrome).
+
+---
+
 ## Skills
 
 Skills extend the agent's capabilities. Skill files are distributed across two locations:
@@ -680,17 +759,11 @@ Memory files are stored in the agent workspace:
 
 ### Embedding Configuration
 
-Memory search relies on vector embeddings for semantic retrieval. Configuration priority: **config file > env var > default**.
+Memory search relies on vector embeddings for semantic retrieval.
 
-Recommended to configure in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports more parameters (e.g., `use_dimensions`). Environment variables serve as fallback only:
+Configure embeddings in `agent.json` under `running.reme_light_memory_config.embedding_model_config`, which supports backend selection and parameters such as `use_dimensions`:
 
-| Variable (Fallback)    | Description                       | Default |
-| ---------------------- | --------------------------------- | ------- |
-| `EMBEDDING_API_KEY`    | API key for the embedding service | ``      |
-| `EMBEDDING_BASE_URL`   | Embedding service URL             | ``      |
-| `EMBEDDING_MODEL_NAME` | Embedding model name              | ``      |
-
-> `api_key`, `model_name`, and `base_url` must all be non-empty to enable vector search in hybrid retrieval. See [Memory](./memory#embedding-configuration-optional) for full configuration details.
+> The vector-search enable condition is aligned with AgentScope credential requirements: OpenAI-compatible and Gemini backends require `model_name` plus `api_key`; Ollama only requires `model_name`. `base_url` is optional for OpenAI-compatible endpoints and is used as Ollama `host` when set. See [Embedding Models](./embedding) for full configuration details.
 
 ---
 
@@ -704,7 +777,7 @@ Recommended to configure in `agent.json` under `running.reme_light_memory_config
 - Agent personality is defined by Markdown files in the workspace directory. See [Agent Persona](./persona) for details.
 - LLM providers are globally configured via `qwenpaw init` or the Console.
 - Config changes are **auto-reloaded** without restart (polled every 2 seconds).
-- Call the Agent API: **POST** `/api/agent/process` with `X-Agent-Id` header, JSON body, SSE streaming; see [Quick start — Verify install](./quickstart#verify-install-optional) for examples.
+- Call the Agent API: **POST** `/api/console/chat` with JSON body, SSE streaming; see [Quick start — Verify install](./quickstart#verify-install-optional) for examples.
 
 ---
 

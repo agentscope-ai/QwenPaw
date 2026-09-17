@@ -1,12 +1,15 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Form, Input } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { LockOutlined, UserOutlined } from "@ant-design/icons";
 import { authApi } from "../../api/modules/auth";
-import { setAuthToken } from "../../api/config";
+import { setApiAuthMode } from "../../api/config";
+import { useAuthStore } from "../../stores/authStore";
 import { useTheme } from "../../contexts/ThemeContext";
+import { getPostLoginHref } from "../../utils/navigationMode";
+import { PRODUCT_NAME } from "../../config/brand";
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -17,13 +20,39 @@ export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
   const { message } = useAppMessage();
+  const login = useAuthStore((state) => state.login);
+  const register = useAuthStore((state) => state.register);
+  const rawRedirect = searchParams.get("redirect") || "/chat";
+  const redirect =
+    rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
+      ? rawRedirect
+      : "/chat";
+
+  const finishNavigation = useCallback(
+    (target: string) => {
+      const osHref = getPostLoginHref(window.location.pathname, target);
+      if (osHref) {
+        window.location.replace(osHref);
+        return;
+      }
+      navigate(target, { replace: true });
+    },
+    [navigate],
+  );
 
   useEffect(() => {
     authApi
       .getStatus()
       .then((res) => {
+        const mode = res.mode ?? "legacy";
+        setApiAuthMode(mode);
+        useAuthStore.setState({
+          authEnabled: res.enabled,
+          mode,
+          phase: "anonymous",
+        });
         if (!res.enabled) {
-          navigate("/chat", { replace: true });
+          finishNavigation(redirect);
           return;
         }
         setHasUsers(res.has_users);
@@ -32,40 +61,31 @@ export default function LoginPage() {
         }
       })
       .catch(() => {});
-  }, [navigate]);
+  }, [finishNavigation, redirect]);
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const raw = searchParams.get("redirect") || "/chat";
-      const redirect =
-        raw.startsWith("/") && !raw.startsWith("//") ? raw : "/chat";
-
       if (isRegister) {
-        const res = await authApi.register(values.username, values.password);
-        if (res.token) {
-          setAuthToken(res.token);
-          message.success(t("login.registerSuccess"));
-          navigate(redirect, { replace: true });
-        }
+        await register(values.username, values.password);
+        message.success(t("login.registerSuccess"));
+        finishNavigation(redirect);
       } else {
-        const res = await authApi.login(values.username, values.password);
-        if (res.token) {
-          setAuthToken(res.token);
-          navigate(redirect, { replace: true });
-        } else {
-          message.info(t("login.authNotEnabled"));
-          navigate(redirect, { replace: true });
-        }
+        await login(values.username, values.password);
+        finishNavigation(redirect);
       }
     } catch (err) {
-      message.error(
-        isRegister
-          ? err instanceof Error
-            ? err.message
-            : t("login.registerFailed")
-          : t("login.failed"),
-      );
+      let errorMsg = t("login.failed");
+
+      // Check if it's an Error object and use the backend message directly
+      if (err instanceof Error) {
+        // Use the backend message directly without complex parsing
+        errorMsg = err.message;
+      } else if (isRegister) {
+        errorMsg = t("login.registerFailed");
+      }
+
+      message.error(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -95,11 +115,18 @@ export default function LoginPage() {
         }}
       >
         <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <img
-            src={isDark ? "/logo-dark.svg" : "/logo-light.svg"}
-            alt="QwenPaw"
-            style={{ height: 48, marginBottom: 12 }}
-          />
+          <div
+            aria-label={PRODUCT_NAME}
+            style={{
+              marginBottom: 12,
+              color: isDark ? "#fff" : "#1f1f1f",
+              fontSize: 28,
+              fontWeight: 700,
+              letterSpacing: "0.01em",
+            }}
+          >
+            {PRODUCT_NAME}
+          </div>
           <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
             {isRegister ? t("login.registerTitle") : t("login.title")}
           </h2>

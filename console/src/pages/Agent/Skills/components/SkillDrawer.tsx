@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Drawer, Form, Input, Button, Select } from "@agentscope-ai/design";
-import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { useTranslation } from "react-i18next";
 import { ThunderboltOutlined, StopOutlined } from "@ant-design/icons";
 import type { FormInstance } from "antd";
-import type { SkillSpec } from "../../../../api/types";
+import type { SkillDetail } from "../../../../api/types";
 import { MarkdownCopy } from "../../../../components/MarkdownCopy/MarkdownCopy";
-import { api } from "../../../../api";
+import { useSkillRuntime } from "../useSkillRuntime";
+import { deriveInstalledFromLabel } from "../../../../utils/skill";
 
 /** Parse YAML frontmatter from a `---`-delimited content string. */
 export function parseFrontmatter(
@@ -64,16 +64,22 @@ export interface SkillDrawerFormValues {
 
 interface SkillDrawerProps {
   open: boolean;
-  editingSkill: SkillSpec | null;
+  editing: boolean;
+  editingName?: string;
+  loading?: boolean;
+  editingSkill: SkillDetail | null;
   form: FormInstance<SkillDrawerFormValues>;
   availableTags?: string[];
   onClose: () => void;
-  onSubmit: (values: SkillSpec) => void;
+  onSubmit: (values: SkillDetail) => void;
   onContentChange?: (content: string) => void;
 }
 
 export function SkillDrawer({
   open,
+  editing,
+  editingName = "",
+  loading = false,
   editingSkill,
   form,
   availableTags = [],
@@ -88,7 +94,7 @@ export function SkillDrawer({
   const abortControllerRef = useRef<AbortController | null>(null);
   const [configText, setConfigText] = useState("{}");
   const [configError, setConfigError] = useState("");
-  const { message } = useAppMessage();
+  const { scope, api, message } = useSkillRuntime();
 
   const validateFrontmatter = useCallback(
     (_: unknown, value: string) => {
@@ -114,15 +120,10 @@ export function SkillDrawer({
   );
 
   useEffect(() => {
-    if (editingSkill) {
+    if (editing && editingSkill) {
       const channels = editingSkill.channels || ["all"];
-      const fallbackConfigText = JSON.stringify(
-        editingSkill.config || {},
-        null,
-        2,
-      );
       setContentValue(editingSkill.content);
-      setConfigText(fallbackConfigText);
+      setConfigText(JSON.stringify(editingSkill.config || {}, null, 2));
       form.setFieldsValue({
         name: editingSkill.name,
         content: editingSkill.content,
@@ -131,27 +132,13 @@ export function SkillDrawer({
         source: editingSkill.source,
       });
       setConfigError("");
-      let active = true;
-      api
-        .getSkillConfig(editingSkill.name)
-        .then((res) => {
-          if (!active) return;
-          setConfigText(JSON.stringify(res.config || {}, null, 2));
-        })
-        .catch(() => {
-          if (!active) return;
-          setConfigText(fallbackConfigText);
-        });
-      return () => {
-        active = false;
-      };
-    } else {
+    } else if (!editing) {
       setContentValue("");
       setConfigText("{}");
       setConfigError("");
       form.resetFields();
     }
-  }, [editingSkill, form, t]);
+  }, [editing, editingSkill, form, t]);
 
   const handleSubmit = async (values: SkillDrawerFormValues) => {
     let parsedConfig: Record<string, unknown> | undefined;
@@ -185,7 +172,18 @@ export function SkillDrawer({
     }
   };
 
+  useEffect(() => {
+    if (!open) {
+      abortControllerRef.current?.abort();
+      setOptimizing(false);
+    }
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, [open, scope]);
+
   const handleOptimize = async () => {
+    if (!scope.current() || !scope.canEdit) return;
     if (!contentValue.trim()) {
       message.warning(t("skills.noContentToOptimize"));
       return;
@@ -200,6 +198,8 @@ export function SkillDrawer({
       await api.streamOptimizeSkill(
         originalContent,
         (textChunk) => {
+          if (!scope.current() || abortControllerRef.current?.signal.aborted)
+            return;
           setContentValue((prev) => {
             const newContent = prev + textChunk;
             form.setFieldsValue({ content: newContent });
@@ -209,7 +209,7 @@ export function SkillDrawer({
         abortControllerRef.current.signal,
         i18n.language, // Pass current language to API
       );
-      message.success(t("skills.optimizeSuccess"));
+      if (scope.current()) message.success(t("skills.optimizeSuccess"));
     } catch (error: unknown) {
       const aborted =
         error instanceof DOMException && error.name === "AbortError";
@@ -219,6 +219,7 @@ export function SkillDrawer({
         );
       }
     } finally {
+      if (!scope.current()) return;
       setOptimizing(false);
       abortControllerRef.current = null;
     }
@@ -232,7 +233,7 @@ export function SkillDrawer({
     }
   };
 
-  const drawerFooter = !editingSkill ? (
+  const drawerFooter = !editing ? (
     <div
       style={{
         display: "flex",
@@ -271,7 +272,7 @@ export function SkillDrawer({
   ) : (
     <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
       <Button onClick={onClose}>{t("common.cancel")}</Button>
-      <Button type="primary" onClick={() => form.submit()}>
+      <Button type="primary" onClick={() => form.submit()} disabled={loading}>
         {t("common.save")}
       </Button>
     </div>
@@ -281,104 +282,120 @@ export function SkillDrawer({
     <Drawer
       width={520}
       placement="right"
-      title={editingSkill ? t("skills.viewSkill") : t("skills.createSkill")}
+      title={
+        editing
+          ? `${t("skills.viewSkill")}${editingName ? `: ${editingName}` : ""}`
+          : t("skills.createSkill")
+      }
       open={open}
       onClose={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={drawerFooter}
     >
-      <Form form={form} layout="vertical" onFinish={handleSubmit}>
-        {!editingSkill ? (
-          <Form.Item
-            name="name"
-            label="Name"
-            rules={[{ required: true, message: t("skills.pleaseInputName") }]}
-          >
-            <Input placeholder={t("skills.skillNamePlaceholder")} />
-          </Form.Item>
-        ) : (
-          <Form.Item name="name" label="Name">
-            <Input />
-          </Form.Item>
-        )}
-
-        <Form.Item
-          name="content"
-          label="Content"
-          rules={[{ required: true, validator: validateFrontmatter }]}
-        >
-          <MarkdownCopy
-            content={contentValue}
-            showMarkdown={showMarkdown}
-            onShowMarkdownChange={setShowMarkdown}
-            editable={true}
-            onContentChange={handleContentChange}
-            textareaProps={{
-              ...(!editingSkill && {
-                placeholder: t("skills.contentPlaceholder"),
-              }),
-              rows: 12,
-            }}
-          />
-        </Form.Item>
-
-        <Form.Item name="channels" label={t("skills.channels")}>
-          <Select mode="multiple" options={CHANNEL_OPTIONS} />
-        </Form.Item>
-
-        <Form.Item
-          name="tags"
-          label={t("skillPool.tags")}
-          rules={[
-            {
-              validator: (_, value: string[] | undefined) => {
-                const bad = (value || []).find(
-                  (v) => v.length > MAX_TAG_LENGTH,
-                );
-                if (bad)
-                  return Promise.reject(
-                    t("skillPool.tagTooLong", { max: MAX_TAG_LENGTH }),
-                  );
-                return Promise.resolve();
-              },
-            },
-          ]}
-        >
-          <Select
-            mode="tags"
-            options={availableTags.map((tag) => ({
-              label: tag,
-              value: tag,
-            }))}
-            placeholder={t("skillPool.tagsPlaceholder")}
-            maxCount={MAX_TAGS}
-          />
-        </Form.Item>
-
-        <Form.Item
-          label={t("skills.config")}
-          validateStatus={configError ? "error" : undefined}
-          help={configError || undefined}
-        >
-          <Input.TextArea
-            rows={4}
-            value={configText}
-            onChange={(e) => {
-              setConfigText(e.target.value);
-              setConfigError("");
-            }}
-            placeholder={t("skills.configPlaceholder")}
-          />
-        </Form.Item>
-
-        {editingSkill && (
-          <>
-            <Form.Item name="source" label={t("skills.type")}>
-              <Input disabled />
+      {loading ? (
+        <div style={{ padding: 24, textAlign: "center" }}>
+          {t("common.loading")}
+        </div>
+      ) : (
+        <Form form={form} layout="vertical" onFinish={handleSubmit}>
+          {!editing ? (
+            <Form.Item
+              name="name"
+              label="Name"
+              rules={[{ required: true, message: t("skills.pleaseInputName") }]}
+            >
+              <Input placeholder={t("skills.skillNamePlaceholder")} />
             </Form.Item>
-          </>
-        )}
-      </Form>
+          ) : (
+            <Form.Item name="name" label="Name">
+              <Input />
+            </Form.Item>
+          )}
+
+          <Form.Item
+            name="content"
+            label="Content"
+            rules={[{ required: true, validator: validateFrontmatter }]}
+          >
+            <MarkdownCopy
+              content={contentValue}
+              showMarkdown={showMarkdown}
+              onShowMarkdownChange={setShowMarkdown}
+              editable={true}
+              onContentChange={handleContentChange}
+              textareaProps={{
+                ...(!editing && {
+                  placeholder: t("skills.contentPlaceholder"),
+                }),
+                rows: 12,
+              }}
+            />
+          </Form.Item>
+
+          <Form.Item name="channels" label={t("skills.channels")}>
+            <Select mode="multiple" options={CHANNEL_OPTIONS} />
+          </Form.Item>
+
+          <Form.Item
+            name="tags"
+            label={t("skillPool.tags")}
+            rules={[
+              {
+                validator: (_, value: string[] | undefined) => {
+                  const bad = (value || []).find(
+                    (v) => v.length > MAX_TAG_LENGTH,
+                  );
+                  if (bad)
+                    return Promise.reject(
+                      t("skillPool.tagTooLong", { max: MAX_TAG_LENGTH }),
+                    );
+                  return Promise.resolve();
+                },
+              },
+            ]}
+          >
+            <Select
+              mode="tags"
+              options={availableTags.map((tag) => ({
+                label: tag,
+                value: tag,
+              }))}
+              placeholder={t("skillPool.tagsPlaceholder")}
+              maxCount={MAX_TAGS}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label={t("skills.config")}
+            validateStatus={configError ? "error" : undefined}
+            help={configError || undefined}
+          >
+            <Input.TextArea
+              rows={4}
+              value={configText}
+              onChange={(e) => {
+                setConfigText(e.target.value);
+                setConfigError("");
+              }}
+              placeholder={t("skills.configPlaceholder")}
+            />
+          </Form.Item>
+
+          {editing && editingSkill && (
+            <>
+              <Form.Item name="source" label={t("skills.type")}>
+                <Input disabled />
+              </Form.Item>
+              <Form.Item label={t("skills.installedFrom")}>
+                <Input
+                  disabled
+                  value={deriveInstalledFromLabel(editingSkill.installed_from)}
+                />
+              </Form.Item>
+            </>
+          )}
+        </Form>
+      )}
     </Drawer>
   );
 }

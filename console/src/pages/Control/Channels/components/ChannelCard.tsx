@@ -9,12 +9,14 @@ interface ChannelCardProps {
   channelKey: ChannelKey;
   config: Record<string, unknown>;
   onClick: () => void;
+  iconUrl?: string;
 }
 
 export const ChannelCard = React.memo(function ChannelCard({
   channelKey,
   config,
   onClick,
+  iconUrl,
 }: ChannelCardProps) {
   const { t } = useTranslation();
   const [isHover, setIsHover] = useState(false);
@@ -26,7 +28,7 @@ export const ChannelCard = React.memo(function ChannelCard({
   const botPrefix = getConfigString("bot_prefix");
 
   const getChannelIcon = () => (
-    <ChannelIcon channelKey={channelKey} size={32} />
+    <ChannelIcon channelKey={channelKey} size={32} iconUrl={iconUrl} />
   );
 
   const getCardClassNames = () => {

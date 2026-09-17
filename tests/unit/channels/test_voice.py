@@ -15,6 +15,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+from qwenpaw.app.channels.renderer import ChannelDisplayConfig
+
 
 # =============================================================================
 # Fixtures
@@ -69,9 +71,10 @@ def voice_channel(mock_process):
 
     channel = VoiceChannel(
         process=mock_process,
-        show_tool_details=True,
-        filter_tool_messages=False,
-        filter_thinking=False,
+        display_config=ChannelDisplayConfig(
+            show_tool_calls=True,
+            show_tool_results=True,
+        ),
     )
     return channel
 
@@ -90,15 +93,18 @@ class TestVoiceChannelInit:
 
         channel = VoiceChannel(
             process=mock_process,
-            show_tool_details=True,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
         assert channel._process == mock_process
-        assert channel._show_tool_details is True
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is True
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_init_creates_required_data_structures(self, mock_process):
         """Constructor should initialize required internal data structures."""
@@ -181,14 +187,18 @@ class TestVoiceChannelFromConfig:
         channel = VoiceChannel.from_config(
             process=mock_process,
             config=config,
-            show_tool_details=False,
-            filter_tool_messages=True,
-            filter_thinking=True,
+            display_config=ChannelDisplayConfig(
+                show_tool_details=False,
+                show_thinking=False,
+                show_tool_calls=False,
+                show_tool_results=False,
+            ),
         )
 
-        assert channel._show_tool_details is False
-        assert channel._filter_tool_messages is True
-        assert channel._filter_thinking is True
+        assert channel._display_config.show_tool_details is False
+        assert channel._display_config.show_tool_calls is False
+        assert channel._display_config.show_tool_results is False
+        assert not channel._display_config.show_thinking
 
     def test_from_config_creates_twilio_manager(self, mock_process):
         """from_config creates TwilioManager when credentials provided."""

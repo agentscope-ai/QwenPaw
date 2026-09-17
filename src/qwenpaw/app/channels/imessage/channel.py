@@ -15,7 +15,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, Optional, List
 
-from agentscope_runtime.engine.schemas.agent_schemas import (
+from qwenpaw.schemas import (
     TextContent,
     ContentType,
 )
@@ -26,6 +26,7 @@ from ....constant import DEFAULT_MEDIA_DIR
 from ..utils import file_url_to_local_path
 from ....agents.utils.file_handling import download_file_from_url
 
+from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
     OnReplySent,
@@ -50,14 +51,15 @@ class IMessageChannel(BaseChannel):
         workspace_dir: Path | None = None,
         max_decoded_size: int = 10 * 1024 * 1024,  # 10MB default
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
         dm_policy: str = "open",
         group_policy: str = "open",
         allow_from: Optional[list] = None,
         deny_message: str = "",
         require_mention: bool = False,
+        access_control_dm: bool = False,
+        access_control_group: bool = False,
     ):
         # group_policy and require_mention are accepted for channel
         # interface consistency but currently inactive — iMessage
@@ -65,14 +67,15 @@ class IMessageChannel(BaseChannel):
         super().__init__(
             process,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config,
+            no_text_debounce=no_text_debounce,
             dm_policy=dm_policy,
             group_policy=group_policy,
             allow_from=allow_from,
             deny_message=deny_message,
             require_mention=require_mention,
+            access_control_dm=access_control_dm,
+            access_control_group=access_control_group,
         )
         self.enabled = enabled
         self.db_path = os.path.expanduser(db_path)
@@ -143,9 +146,8 @@ class IMessageChannel(BaseChannel):
         process: ProcessHandler,
         config: IMessageChannelConfig,
         on_reply_sent: OnReplySent = None,
-        show_tool_details: bool = True,
-        filter_tool_messages: bool = False,
-        filter_thinking: bool = False,
+        display_config: ChannelDisplayConfig | None = None,
+        no_text_debounce: bool = True,
         workspace_dir: Path | None = None,
     ) -> "IMessageChannel":
         return cls(
@@ -158,14 +160,20 @@ class IMessageChannel(BaseChannel):
             workspace_dir=workspace_dir,
             max_decoded_size=config.max_decoded_size,
             on_reply_sent=on_reply_sent,
-            show_tool_details=show_tool_details,
-            filter_tool_messages=filter_tool_messages,
-            filter_thinking=filter_thinking,
+            display_config=display_config
+            or ChannelDisplayConfig.from_config(config),
+            no_text_debounce=no_text_debounce,
             dm_policy=config.dm_policy,
             group_policy=config.group_policy,
             allow_from=config.allow_from,
             deny_message=config.deny_message,
             require_mention=config.require_mention,
+            access_control_dm=bool(
+                getattr(config, "access_control_dm", False),
+            ),
+            access_control_group=bool(
+                getattr(config, "access_control_group", False),
+            ),
         )
 
     def _ensure_imsg(self) -> str:
@@ -219,25 +227,6 @@ class IMessageChannel(BaseChannel):
         if self._enqueue is not None:
             self._enqueue(request)
 
-    def _send_deny_if_blocked(self, sender: str) -> bool:
-        """Return True if sender is allowed, False if blocked."""
-        allowed, error_msg = self._check_allowlist(
-            sender,
-            is_group=False,
-        )
-        if allowed:
-            return True
-        logger.info("imessage allowlist blocked: sender=%s", sender)
-        if error_msg:
-            try:
-                self._send_sync(sender, error_msg)
-            except Exception:
-                logger.debug(
-                    "imessage reject send failed sender=%s",
-                    sender,
-                )
-        return False
-
     def _watcher_loop(self) -> None:
         logger.info(
             "watcher thread started (poll=%.2fs, db=%s)",
@@ -276,9 +265,6 @@ ORDER BY m.ROWID ASC
                             continue
                         sender = (r["sender"] or "").strip()
                         if not sender:
-                            continue
-
-                        if not self._send_deny_if_blocked(sender):
                             continue
 
                         content_parts = [

@@ -1,3 +1,4 @@
+import type { SkillScope } from "../api/skillScope";
 import { Modal } from "@agentscope-ai/design";
 import React from "react";
 import type {
@@ -84,55 +85,88 @@ function renderFindings(findings: BlockedSkillFinding[], t: TFunction) {
   );
 }
 
+type ScanScope = Pick<SkillScope, "current" | "signal">;
+
+function showScopedScanModal(
+  kind: "error" | "warning",
+  options: Parameters<typeof Modal.error>[0],
+  scope?: ScanScope,
+) {
+  if (scope && !scope.current()) return;
+  const close = () => {
+    instance.update({ content: null, title: null });
+    instance.destroy();
+  };
+  const instance = Modal[kind]({
+    ...options,
+    afterClose: () => scope?.signal.removeEventListener("abort", close),
+  });
+  scope?.signal.addEventListener("abort", close, { once: true });
+}
+
 export function showScanErrorModal(
   scanError: SecurityScanErrorResponse,
   t: TFunction,
+  scope?: ScanScope,
 ) {
   const findings = scanError.findings || [];
-  Modal.error({
-    title: t("security.skillScanner.scanError.title"),
-    width: 640,
-    content: React.createElement(
-      "div",
-      null,
-      React.createElement(
-        "p",
+  showScopedScanModal(
+    "error",
+    {
+      title: t("security.skillScanner.scanError.title"),
+      width: 640,
+      content: React.createElement(
+        "div",
         null,
-        t("security.skillScanner.scanError.description"),
+        React.createElement(
+          "p",
+          null,
+          t("security.skillScanner.scanError.description"),
+        ),
+        renderFindings(findings, t),
       ),
-      renderFindings(findings, t),
-    ),
-  });
+    },
+    scope,
+  );
 }
 
 export function showScanWarnModal(
   findings: BlockedSkillFinding[],
   t: TFunction,
+  scope?: ScanScope,
 ) {
-  Modal.warning({
-    title: t("security.skillScanner.scanError.title"),
-    width: 640,
-    content: React.createElement(
-      "div",
-      null,
-      React.createElement(
-        "p",
+  showScopedScanModal(
+    "warning",
+    {
+      title: t("security.skillScanner.scanError.title"),
+      width: 640,
+      content: React.createElement(
+        "div",
         null,
-        t("security.skillScanner.scanError.warnDescription"),
+        React.createElement(
+          "p",
+          null,
+          t("security.skillScanner.scanError.warnDescription"),
+        ),
+        renderFindings(findings, t),
       ),
-      renderFindings(findings, t),
-    ),
-  });
+    },
+    scope,
+  );
 }
 
 /**
  * Check an error for a scan failure, show the modal if found, and return
  * whether it was handled.
  */
-export function handleScanError(error: unknown, t: TFunction): boolean {
+export function handleScanError(
+  error: unknown,
+  t: TFunction,
+  scope?: ScanScope,
+): boolean {
   const scanError = tryParseScanError(error);
   if (scanError) {
-    showScanErrorModal(scanError, t);
+    showScanErrorModal(scanError, t, scope);
     return true;
   }
   return false;
@@ -147,13 +181,15 @@ export async function checkScanWarnings(
   fetchAlerts: () => Promise<BlockedSkillRecord[]>,
   fetchScannerCfg: () => Promise<SkillScannerConfig>,
   t: TFunction,
+  scope?: ScanScope,
 ): Promise<void> {
+  if (scope && !scope.current()) return;
   try {
     const [alerts, scannerCfg] = await Promise.all([
       fetchAlerts(),
       fetchScannerCfg(),
     ]);
-    if (!alerts.length) return;
+    if ((scope && !scope.current()) || !alerts.length) return;
     if (
       scannerCfg?.whitelist?.some(
         (w: { skill_name: string }) => w.skill_name === skillName,
@@ -165,7 +201,7 @@ export async function checkScanWarnings(
       .filter((a) => a.skill_name === skillName && a.action === "warned")
       .pop();
     if (!latestForSkill) return;
-    showScanWarnModal(latestForSkill.findings || [], t);
+    showScanWarnModal(latestForSkill.findings || [], t, scope);
   } catch {
     // best-effort; don't break the caller on failure
   }

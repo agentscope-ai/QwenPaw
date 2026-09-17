@@ -9,17 +9,11 @@ from acp.schema import AllowedOutcome, DeniedOutcome, RequestPermissionResponse
 
 from .core import SuspendedPermission
 
-BLOCKED_COMMAND_PATTERNS = (
-    "rm -rf /",
-    "sudo rm -rf",
-    "mkfs",
-    "dd if=",
-)
-
 
 class ACPPermissionAdapter:
-    def __init__(self, cwd: str):
+    def __init__(self, cwd: str, *, trusted: bool = False):
         self.cwd = str(Path(cwd).expanduser().resolve())
+        self._trusted = trusted
 
     def build_suspended_permission(
         self,
@@ -147,6 +141,20 @@ class ACPPermissionAdapter:
                 ]
                 if parts:
                     return " ".join(parts)
+        # Fallback: when rawInput has no command/argv, use title for
+        # execute-kind calls.  Title is human-readable text (e.g. "Shutdown
+        # the dev server") so hard-block regexes like \bshutdown\b may
+        # false-positive here.  This is an accepted trade-off: blocking a
+        # benign title is safer than letting an unvetted command through.
+        kind = tool_call.get("kind")
+        title = tool_call.get("title")
+        if (
+            isinstance(kind, str)
+            and kind.strip().lower() == "execute"
+            and isinstance(title, str)
+            and title.strip()
+        ):
+            return title.strip()
         return None
 
     def _paths(self, tool_call: dict[str, Any]) -> list[str]:
@@ -203,18 +211,23 @@ class ACPPermissionAdapter:
             return value
 
     def _is_hard_blocked(self, tool_call: dict[str, Any]) -> bool:
-        command = str(self._command(tool_call) or "").lower()
-        if any(pattern in command for pattern in BLOCKED_COMMAND_PATTERNS):
+        from qwenpaw.security.tool_guard.safety_checks import (
+            is_command_destructive,
+            is_path_outside_boundary,
+        )
+
+        command = str(self._command(tool_call) or "")
+        # Pass ACP session cwd so relative rm targets (e.g. ``../``) resolve
+        # against the same root as path-boundary checks.
+        if is_command_destructive(command, cwd=self.cwd):
             return True
 
         for path_value in self._paths(tool_call):
-            candidate = Path(path_value).expanduser()
-            if not candidate.is_absolute():
-                candidate = Path(self.cwd) / candidate
-            try:
-                resolved = candidate.resolve()
-            except OSError:
-                return True
-            if not str(resolved).startswith(self.cwd):
+            # self.cwd is resolve()'d in __init__ — skip re-resolving it.
+            if is_path_outside_boundary(
+                path_value,
+                self.cwd,
+                cwd_is_resolved=True,
+            ):
                 return True
         return False

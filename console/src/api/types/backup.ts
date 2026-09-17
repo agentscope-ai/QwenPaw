@@ -5,6 +5,8 @@ export interface BackupScope {
   include_skill_pool: boolean;
 }
 
+export type BackupTrustMode = "legacy" | "foreign";
+
 export interface BackupMeta {
   id: string;
   name: string;
@@ -12,6 +14,8 @@ export interface BackupMeta {
   created_at: string;
   scope: BackupScope;
   agent_count: number;
+  signature?: string | null;
+  accepted_via_trust?: boolean | null;
 }
 
 export interface BackupDetail extends BackupMeta {
@@ -29,6 +33,7 @@ export interface CreateBackupRequest {
 }
 
 export interface RestoreBackupRequest {
+  confirmation_token?: string | null;
   include_agents: boolean;
   agent_ids: string[];
   include_global_config: boolean;
@@ -36,6 +41,25 @@ export interface RestoreBackupRequest {
   include_skill_pool: boolean;
   default_workspace_dir?: string | null;
   mode?: "full" | "custom";
+  preserve_local_protected_config?: boolean | null;
+  trust_mode?: BackupTrustMode | null;
+}
+
+export interface RestoreImpact {
+  backup_id: string;
+  mode: "full" | "custom";
+  agents: string[];
+  components: string[];
+  platform_manifest: Record<string, unknown>;
+  requires_pre_restore_backup: boolean;
+  confirmation_token: string;
+  expires_at: number;
+}
+
+export interface RestoreBackupResponse {
+  ok: boolean;
+  preserved_local_keys: string[];
+  pre_restore_backup_id?: string | null;
 }
 
 /**
@@ -77,4 +101,10 @@ export interface BackupConflictResponse {
   detail: "backup_conflict";
   existing: BackupMeta;
   pending_token: string;
+}
+
+export interface BackupValidationDetail {
+  code: string;
+  message: string;
+  locked_paths?: string[];
 }

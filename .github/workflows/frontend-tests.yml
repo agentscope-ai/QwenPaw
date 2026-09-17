@@ -1,0 +1,58 @@
+name: Frontend Tests
+
+on:
+  push:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - '.github/workflows/frontend-tests.yml'
+  pull_request:
+    branches: [main, master, dev, develop]
+    paths:
+      - 'console/**'
+      - '.github/workflows/frontend-tests.yml'
+
+jobs:
+  spam-gate:
+    name: PR Spam Gate
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/pr-spam-gate.yml
+    with:
+      author: ${{ github.event.pull_request.user.login }}
+
+  vitest:
+    name: Vitest Unit Tests
+    needs: [spam-gate]
+    if: |
+      always() &&
+      (needs.spam-gate.result == 'skipped' || needs.spam-gate.outputs.blocked != 'true')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:run
+
+      - name: Coverage ratchet (blocks PR on regression)
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: console/coverage/
+          retention-days: 7

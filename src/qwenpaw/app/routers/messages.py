@@ -5,11 +5,12 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from agentscope_runtime.engine.schemas.exception import (
-    AppBaseException,
-)
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
+
+from qwenpaw.exceptions import (
+    AppBaseException,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -153,12 +154,15 @@ async def send_message(
 
     # Send the message via channel manager
     try:
+        meta: dict = {"_api_send": True}
+        if x_agent_id:
+            meta["agent_id"] = x_agent_id
         await channel_manager.send_text(
             channel=request.channel,
             user_id=request.target_user,
             session_id=request.target_session,
             text=request.text,
-            meta={"agent_id": x_agent_id} if x_agent_id else None,
+            meta=meta,
         )
 
         return SendMessageResponse(

@@ -15,13 +15,16 @@ Uses only Python stdlib (hashlib, hmac, secrets) to avoid adding new
 dependencies.  The password is stored as a salted SHA-256 hash in
 ``auth.json`` under ``SECRET_DIR``.
 """
+
 from __future__ import annotations
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from typing import Optional
@@ -29,7 +32,13 @@ from typing import Optional
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from ..access.actor import ActorContext, ActorType, actor_from_request
 from ..constant import SECRET_DIR, EnvVarLoader
+from ..identity.runtime import get_identity_runtime, is_multi_user_enabled
+from ..persistence.repository_provider import (
+    CutoverDomain,
+    assert_legacy_write_allowed,
+)
 from ..security.secret_store import (
     AUTH_SECRET_FIELDS,
     decrypt_dict_fields,
@@ -53,19 +62,23 @@ _PUBLIC_PATHS: frozenset[str] = frozenset(
         "/api/auth/login",
         "/api/auth/status",
         "/api/auth/register",
+        "/api/auth/refresh",
+        "/api/auth/logout",
+        "/api/desktop/shutdown",
         "/api/version",
         "/api/settings/language",
-        "/api/plugins",
+        "/api/settings/upload-limit",
     },
 )
 
-# Prefixes that do NOT require authentication (static assets)
+# Prefixes that do NOT require authentication (console static assets).
 _PUBLIC_PREFIXES: tuple[str, ...] = (
     "/assets/",
     "/logo.png",
     "/qwenpaw-symbol.svg",
-    "/api/plugins/",  # plugin JS bundles served to unauthenticated login page
 )
+
+_PUBLIC_GET_PATHS: frozenset[str] = frozenset({"/api/mcp/oauth/callback"})
 
 
 # ---------------------------------------------------------------------------
@@ -225,13 +238,12 @@ def _load_auth_data() -> dict:
                 for field in AUTH_SECRET_FIELDS
             )
             data = decrypt_dict_fields(data, AUTH_SECRET_FIELDS)
-            if needs_rewrite:
+            if needs_rewrite and not is_multi_user_enabled():
                 try:
                     _save_auth_data(data)
                 except Exception as enc_err:
                     logger.debug(
-                        "Deferred plaintext→encrypted migration for"
-                        " auth.json: %s",
+                        "Deferred plaintext→encrypted migration for" " auth.json: %s",
                         enc_err,
                     )
             return data
@@ -246,6 +258,7 @@ def _save_auth_data(data: dict) -> None:
 
     Sensitive fields (``jwt_secret``) are encrypted before writing.
     """
+    assert_legacy_write_allowed(CutoverDomain.IDENTITY)
     _prepare_secret_parent(AUTH_FILE)
     encrypted_data = encrypt_dict_fields(data, AUTH_SECRET_FIELDS)
     with open(AUTH_FILE, "w", encoding="utf-8") as f:
@@ -560,81 +573,265 @@ def revoke_all_tokens() -> bool:
 
 
 # ---------------------------------------------------------------------------
-# FastAPI middleware
+# FastAPI middleware — client IP resolution with trusted proxy verification
 # ---------------------------------------------------------------------------
+
+_LOOPBACK = frozenset({"127.0.0.1", "::1"})
+_BRACKETED = re.compile(r"^\[([^\]]+)\](?::\d+)?$")
+_V4_PORT = re.compile(r"^(\d{1,3}(?:\.\d{1,3}){3}):\d+$")
+
+_MAX_WARN_IPS = 1024
+_warned_untrusted_ips: set[str] = set()
+
+
+def _normalize_ip(raw: str) -> str | None:
+    """Strip brackets, port, zone-id and validate. None on failure."""
+    if not raw:
+        return None
+    s = raw.strip()
+    m = _BRACKETED.match(s) or _V4_PORT.match(s)
+    if m:
+        s = m.group(1)
+    if "%" in s:
+        s = s.split("%", 1)[0]
+    try:
+        return str(ipaddress.ip_address(s))
+    except ValueError:
+        return None
+
+
+def _parse_networks(entries: list[str]) -> list:
+    """Parse CIDR/IP strings into network objects."""
+    nets = []
+    for entry in entries:
+        try:
+            nets.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            continue
+    return nets
+
+
+def _ip_in_networks(ip_str: str, networks: list) -> bool:
+    """Check if a normalized IP string falls within any network."""
+    try:
+        addr = ipaddress.ip_address(ip_str)
+    except ValueError:
+        return False
+    for net in networks:
+        if addr.version == net.version and addr in net:
+            return True
+    return False
+
+
+# Cached config for hot-path auth checks (avoids disk read per request)
+_auth_config_cache: tuple = (0, None, [])
+
+
+def _get_config_cached():
+    """Return (config, trusted_networks) with mtime-based cache."""
+    global _auth_config_cache  # noqa: PLW0603
+    from ..config import load_config
+    from ..config.utils import get_config_path
+
+    config_path = get_config_path()
+    try:
+        mtime_ns = config_path.stat().st_mtime_ns
+    except OSError:
+        mtime_ns = 0
+    if mtime_ns != _auth_config_cache[0] or _auth_config_cache[1] is None:
+        cfg = load_config()
+        nets = _parse_networks(cfg.security.trusted_proxies)
+        _auth_config_cache = (mtime_ns, cfg, nets)
+    return _auth_config_cache[1], _auth_config_cache[2]
+
+
+def _resolve_client_ip(request: Request) -> str:
+    """Return the real client IP.
+
+    Only trusts proxy headers when the direct TCP peer is in
+    trusted_proxies. XFF is parsed right-to-left, skipping
+    trusted IPs.
+    """
+    direct_raw = request.client.host if request.client else ""
+    direct_ip = _normalize_ip(direct_raw) or direct_raw
+
+    _cfg, networks = _get_config_cached()
+    if not networks or not _ip_in_networks(direct_ip, networks):
+        # Log once per untrusted source to avoid flooding
+        has_proxy_hdr = request.headers.get(
+            "x-forwarded-for",
+        ) or request.headers.get("x-real-ip")
+        if (
+            has_proxy_hdr
+            and direct_ip not in _warned_untrusted_ips
+            and len(_warned_untrusted_ips) < _MAX_WARN_IPS
+        ):
+            _warned_untrusted_ips.add(direct_ip)
+            logger.warning(
+                "Ignoring proxy headers from untrusted source"
+                " %s (add to security.trusted_proxies if"
+                " legitimate)",
+                direct_ip,
+            )
+        return direct_ip
+
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        for token in reversed(xff.split(",")):
+            norm = _normalize_ip(token)
+            if norm is None:
+                break
+            if not _ip_in_networks(norm, networks):
+                return norm
+
+    real_ip = _normalize_ip(
+        request.headers.get("x-real-ip", ""),
+    )
+    return real_ip or direct_ip
+
+
+resolve_client_ip = _resolve_client_ip
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware that checks Bearer token on protected routes."""
 
-    async def dispatch(
-        self,
-        request: Request,
-        call_next,
-    ) -> Response:
-        """Check Bearer token on protected API routes; skip public paths."""
+    async def dispatch(self, request: Request, call_next):
         if self._should_skip_auth(request):
+            if self._is_compatibility_no_auth_request(request):
+                request.state.actor = ActorContext(
+                    user_id=None,
+                    actor_type=ActorType.SERVICE,
+                    platform_role=None,
+                    admin_mode=False,
+                    request_id=(
+                        request.headers.get("x-request-id", "").strip()
+                        or secrets.token_hex(16)
+                    ),
+                )
             return await call_next(request)
 
         token = self._extract_token(request)
         if not token:
             return Response(
-                content=json.dumps({"detail": "Not authenticated"}),
+                content='{"detail":"Not authenticated"}',
                 status_code=401,
                 media_type="application/json",
             )
 
+        if is_multi_user_enabled():
+            authenticated = await get_identity_runtime().sessions.authenticate_access(
+                token
+            )
+            if authenticated is None:
+                return Response(
+                    content='{"detail":"Invalid or expired token"}',
+                    status_code=401,
+                    media_type="application/json",
+                )
+            request.state.authenticated_session = authenticated
+            request.state.user = authenticated.user.username
+            request.state.actor = actor_from_request(request, multi_user=True)
+            return await call_next(request)
+
         user = verify_token(token)
         if user is None:
             return Response(
-                content=json.dumps(
-                    {"detail": "Invalid or expired token"},
-                ),
+                content='{"detail":"Invalid or expired token"}',
                 status_code=401,
                 media_type="application/json",
             )
 
         request.state.user = user
+        request.state.actor = actor_from_request(request, multi_user=False)
         return await call_next(request)
 
     @staticmethod
-    def _should_skip_auth(request: Request) -> bool:
-        """Return ``True`` when the request does not require auth."""
-        if not is_auth_enabled() or not has_registered_users():
-            return True
-
+    def _is_compatibility_no_auth_request(request: Request) -> bool:
+        """Identify a protected API admitted by the legacy IP allow-list."""
+        if (
+            is_multi_user_enabled()
+            or not is_auth_enabled()
+            or not has_registered_users()
+        ):
+            return False
         path = request.url.path
+        return not (
+            request.method == "OPTIONS"
+            or (request.method == "GET" and path in _PUBLIC_GET_PATHS)
+            or path in _PUBLIC_PATHS
+            or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+            or not path.startswith("/api/")
+        )
 
-        if request.method == "OPTIONS":
-            return True
-
-        if path in _PUBLIC_PATHS or any(
-            path.startswith(p) for p in _PUBLIC_PREFIXES
+    @staticmethod
+    def _should_skip_auth(  # pylint: disable=too-many-return-statements
+        request: Request,
+    ) -> bool:
+        if not is_multi_user_enabled() and (
+            not is_auth_enabled() or not has_registered_users()
         ):
             return True
 
-        # Only protect /api/ routes
-        if not path.startswith("/api/"):
+        path = request.url.path
+        if (
+            request.method == "OPTIONS"
+            or (request.method == "GET" and path in _PUBLIC_GET_PATHS)
+            or path in _PUBLIC_PATHS
+            or any(path.startswith(p) for p in _PUBLIC_PREFIXES)
+            or not path.startswith("/api/")
+        ):
             return True
 
-        # Check if client host is in allow_no_auth_hosts whitelist
-        from ..config import load_config
+        if is_multi_user_enabled():
+            return False
 
-        client_host = request.client.host if request.client else ""
-        config = load_config()
-        allowed_hosts = config.security.allow_no_auth_hosts
-        return client_host in allowed_hosts
+        cfg, _ = _get_config_cached()
+        allowed = cfg.security.allow_no_auth_hosts
+        client_ip = resolve_client_ip(request)
+        norm = _normalize_ip(client_ip) or client_ip
+        if norm not in allowed:
+            return False
+
+        # Defense-in-depth: loopback whitelist requires
+        # direct TCP peer also be loopback.
+        if norm in _LOOPBACK:
+            peer = _normalize_ip(
+                request.client.host if request.client else "",
+            )
+            if peer not in _LOOPBACK:
+                logger.warning(
+                    "Auth skip blocked: client_ip=%s but"
+                    " direct peer %s is not loopback",
+                    norm,
+                    peer,
+                )
+                return False
+        return True
 
     @staticmethod
     def _extract_token(request: Request) -> Optional[str]:
-        """Extract Bearer token from header or WebSocket query param."""
-        auth_header = request.headers.get("Authorization", "")
-        if auth_header.startswith("Bearer "):
-            return auth_header[7:]
-        if "upgrade" in request.headers.get("connection", "").lower():
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[7:]
+        conn = request.headers.get("connection", "")
+        if "upgrade" in conn.lower():
             return request.query_params.get("token")
+        return request.query_params.get("token") or None
 
-        token = request.query_params.get("token")
-        if token:
-            return token
-        return None
+
+def check_proxy_config_sanity() -> None:
+    """Log a warning at startup if proxy config looks suspect."""
+    try:
+        cfg, _ = _get_config_cached()
+    except (OSError, ValueError):
+        return
+    sec = cfg.security
+    has_non_loopback = any(h not in _LOOPBACK for h in sec.allow_no_auth_hosts)
+    if has_non_loopback and not sec.trusted_proxies:
+        logger.warning(
+            "allow_no_auth_hosts contains non-loopback entries"
+            " but trusted_proxies is empty. If behind a reverse"
+            " proxy, add proxy IPs to"
+            " security.trusted_proxies.",
+        )

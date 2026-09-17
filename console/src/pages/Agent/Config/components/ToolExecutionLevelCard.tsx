@@ -93,7 +93,14 @@ export function ToolExecutionLevelCard({
                 cursor: "pointer",
                 transition: "all 0.3s",
               }}
-              onClick={() => !disabled && onChange(option.value)}
+              onClick={(event) => {
+                if (
+                  !disabled &&
+                  !(event.target as HTMLElement).closest(".ant-radio-wrapper")
+                ) {
+                  onChange(option.value);
+                }
+              }}
               hoverable
             >
               <Radio value={option.value} style={{ width: "100%" }}>

@@ -173,3 +173,79 @@ class TestMasterKeyGeneration:
             key = mod._get_master_key()
 
         assert key == bytes.fromhex(key_hex)
+
+
+class TestKeyringAccountIsolation:
+    """The keychain account must isolate relocated (dev) installs from the
+    default install so they cannot overwrite each other's master key."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_relocation_env(self, monkeypatch):
+        for var in (
+            "QWENPAW_KEYRING_ACCOUNT",
+            "COPAW_KEYRING_ACCOUNT",
+            "QWENPAW_WORKING_DIR",
+            "COPAW_WORKING_DIR",
+            "QWENPAW_SECRET_DIR",
+            "COPAW_SECRET_DIR",
+        ):
+            monkeypatch.delenv(var, raising=False)
+
+    def test_default_install_uses_legacy_account(self, monkeypatch):
+        import qwenpaw.security.secret_store as mod
+
+        # No relocation env vars → historical account preserved verbatim so
+        # existing installs are untouched.
+        monkeypatch.setattr(
+            mod,
+            "_get_secret_dir",
+            lambda: Path("~/.qwenpaw.secret").expanduser(),
+        )
+        assert mod._keyring_account() == "master_key"
+
+    def test_explicit_override_wins(self, monkeypatch):
+        import qwenpaw.security.secret_store as mod
+
+        monkeypatch.setenv("QWENPAW_KEYRING_ACCOUNT", "dev-profile")
+        monkeypatch.setenv("QWENPAW_WORKING_DIR", "/tmp/whatever")
+        assert mod._keyring_account() == "dev-profile"
+
+    def test_relocated_install_is_namespaced(self, monkeypatch, tmp_path):
+        import qwenpaw.security.secret_store as mod
+
+        monkeypatch.setenv("QWENPAW_WORKING_DIR", str(tmp_path / ".devdata"))
+        monkeypatch.setattr(
+            mod,
+            "_get_secret_dir",
+            lambda: tmp_path / ".devdata.secret",
+        )
+        account = mod._keyring_account()
+        assert account != "master_key"
+        assert account.startswith("master_key:")
+
+    def test_distinct_secret_dirs_get_distinct_accounts(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        monkeypatch.setenv("QWENPAW_SECRET_DIR", "set-to-mark-relocated")
+
+        monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path / "a")
+        account_a = mod._keyring_account()
+        monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path / "b")
+        account_b = mod._keyring_account()
+
+        assert account_a != account_b
+
+    def test_account_is_stable_for_same_secret_dir(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        import qwenpaw.security.secret_store as mod
+
+        monkeypatch.setenv("QWENPAW_SECRET_DIR", "set-to-mark-relocated")
+        monkeypatch.setattr(mod, "_get_secret_dir", lambda: tmp_path / "x")
+        assert mod._keyring_account() == mod._keyring_account()

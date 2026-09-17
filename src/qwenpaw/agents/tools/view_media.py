@@ -6,13 +6,39 @@ import mimetypes
 import os
 import unicodedata
 import urllib.parse
+from urllib.parse import unquote
 from pathlib import Path
 from typing import Optional
 
-from agentscope.message import ImageBlock, TextBlock, VideoBlock
-from agentscope.tool import ToolResponse
+from agentscope.message import (
+    DataBlock,
+    TextBlock,
+    URLSource,
+    ToolResultState,
+)
+from agentscope.tool import ToolChunk
+
+from ...runtime.tool_registry import tool_descriptor
+from ...utils.io_utils import run_sync_io
+from .file_io import _path_to_file_url, _resolve_file_path
+from ..utils.image_freezing import freeze_local_image
 
 logger = logging.getLogger(__name__)
+
+
+def _media_data_block(url: str, modality: str) -> DataBlock:
+    """Build a DataBlock from a URL, inferring ``media_type`` from the path.
+
+    Mirrors the behaviour of the deleted ``_compat.message.ImageBlock`` /
+    ``VideoBlock`` shim: when ``mimetypes.guess_type`` can't decide we
+    fall back to a wildcard like ``image/*`` so the formatter still
+    routes the block as the right modality.
+    """
+    media_type, _ = mimetypes.guess_type(url)
+    if not media_type:
+        media_type = f"{modality}/*"
+    return DataBlock(source=URLSource(url=url, media_type=media_type))
+
 
 _IMAGE_EXTENSIONS = {
     ".png",
@@ -44,10 +70,10 @@ def _validate_url_extension(
     url: str,
     allowed_extensions: set[str],
     mime_prefix: str,
-) -> Optional[ToolResponse]:
+) -> Optional[ToolChunk]:
     """Optionally validate that the URL path has an allowed extension.
 
-    Returns an error ``ToolResponse`` when the extension is clearly
+    Returns an error ``ToolChunk`` when the extension is clearly
     unsupported, or ``None`` to let it through (including when the URL
     has no recognisable extension, e.g. dynamic endpoints).
     """
@@ -59,7 +85,9 @@ def _validate_url_extension(
     if ext not in allowed_extensions and (
         not mime or not mime.startswith(f"{mime_prefix}/")
     ):
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -75,20 +103,23 @@ def _validate_media_path(
     file_path: str,
     allowed_extensions: set[str],
     mime_prefix: str,
-) -> tuple[Path, Optional[ToolResponse]]:
+) -> tuple[Path, Optional[ToolChunk]]:
     """Validate a local media file path.
 
     Returns ``(resolved_path, None)`` on success or
     ``(_, error_response)`` on failure.
     """
+    file_path = unquote(file_path)
     file_path = unicodedata.normalize(
         "NFC",
         os.path.expanduser(file_path),
     )
-    resolved = Path(file_path).resolve()
+    resolved = Path(_resolve_file_path(file_path))
 
     if not resolved.exists() or not resolved.is_file():
-        return resolved, ToolResponse(
+        return resolved, ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -103,7 +134,9 @@ def _validate_media_path(
     if ext not in allowed_extensions and (
         not mime or not mime.startswith(f"{mime_prefix}/")
     ):
-        return resolved, ToolResponse(
+        return resolved, ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
                 TextBlock(
                     type="text",
@@ -114,6 +147,21 @@ def _validate_media_path(
         )
 
     return resolved, None
+
+
+def _load_local_image(
+    image_path: str,
+) -> tuple[Path, DataBlock | None, ToolChunk | None, str | None]:
+    """Resolve, validate, and freeze one local image transaction."""
+    resolved, validation_error = _validate_media_path(
+        image_path,
+        _IMAGE_EXTENSIONS,
+        "image",
+    )
+    if validation_error is not None:
+        return resolved, None, validation_error, None
+    frozen, freeze_error = freeze_local_image(resolved)
+    return resolved, frozen, None, freeze_error
 
 
 async def _probe_multimodal_if_needed(
@@ -294,10 +342,22 @@ def _get_multimodal_fallback_hint(media_type: str, path: str) -> str:
     )
 
 
-async def view_image(image_path: str) -> ToolResponse:
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="image_path",
+    policy_name="ViewImage",
+    default_policy="allow",
+    policy_reason="Image view (global)",
+    ui_description="Load an image into LLM context for visual analysis",
+    ui_icon="🖼️",
+    display_to_user=False,
+)
+async def view_image(image_path: str) -> ToolChunk:
     """Load an image file into the LLM context so the model can see it.
 
-    Use this after desktop_screenshot, browser_use, or any tool that
+    Use this after desktop_screenshot or any tool that
     produces an image file path.  Also accepts an HTTP(S) URL for
     online images — the URL is passed directly to the model without
     downloading.
@@ -313,7 +373,7 @@ async def view_image(image_path: str) -> ToolResponse:
             Local path or HTTP(S) URL of the image to view.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             An ImageBlock the model can inspect, or an error message.
     """
     # Determine whether we need a fallback hint
@@ -336,39 +396,59 @@ async def view_image(image_path: str) -> ToolResponse:
             if fallback_hint
             else f"Image loaded from URL: {image_path}"
         )
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
-                ImageBlock(
-                    type="image",
-                    source={"type": "url", "url": image_path},
-                ),
+                _media_data_block(image_path, "image"),
                 TextBlock(type="text", text=text_msg),
             ],
         )
 
-    resolved, err = _validate_media_path(
+    resolved, frozen_image, validation_error, freeze_error = await run_sync_io(
+        _load_local_image,
         image_path,
-        _IMAGE_EXTENSIONS,
-        "image",
     )
-    if err is not None:
-        return err
+    if validation_error is not None:
+        return validation_error
+    if freeze_error is not None or frozen_image is None:
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
+            content=[
+                TextBlock(
+                    type="text",
+                    text=freeze_error or f"Error: failed to load {resolved}",
+                ),
+            ],
+        )
 
     text_msg = (
         fallback_hint if fallback_hint else f"Image loaded: {resolved.name}"
     )
-    return ToolResponse(
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
-            ImageBlock(
-                type="image",
-                source={"type": "url", "url": str(resolved)},
-            ),
+            frozen_image,
             TextBlock(type="text", text=text_msg),
         ],
     )
 
 
-async def view_video(video_path: str) -> ToolResponse:
+@tool_descriptor(
+    requires_sandbox=("file_read",),
+    async_execution=True,
+    tool_type="file",
+    target_param="video_path",
+    policy_name="ViewVideo",
+    default_policy="allow",
+    policy_reason="Video view (global)",
+    ui_description="Load a video into LLM context for visual analysis",
+    ui_icon="🎥",
+    display_to_user=False,
+)
+async def view_video(video_path: str) -> ToolChunk:
     """Load a video file into the LLM context so the model can see it.
 
     Use this when the user asks about a video file or when another
@@ -384,7 +464,7 @@ async def view_video(video_path: str) -> ToolResponse:
             Local path or HTTP(S) URL of the video to view.
 
     Returns:
-        `ToolResponse`:
+        `ToolChunk`:
             A VideoBlock the model can inspect, or an error message.
     """
     fallback_hint: str | None = None
@@ -406,12 +486,11 @@ async def view_video(video_path: str) -> ToolResponse:
             if fallback_hint
             else f"Video loaded from URL: {video_path}"
         )
-        return ToolResponse(
+        return ToolChunk(
+            is_last=True,
+            state=ToolResultState.SUCCESS,
             content=[
-                VideoBlock(
-                    type="video",
-                    source={"type": "url", "url": video_path},
-                ),
+                _media_data_block(video_path, "video"),
                 TextBlock(type="text", text=text_msg),
             ],
         )
@@ -424,15 +503,15 @@ async def view_video(video_path: str) -> ToolResponse:
     if err is not None:
         return err
 
+    file_url = _path_to_file_url(str(resolved))
     text_msg = (
         fallback_hint if fallback_hint else f"Video loaded: {resolved.name}"
     )
-    return ToolResponse(
+    return ToolChunk(
+        is_last=True,
+        state=ToolResultState.SUCCESS,
         content=[
-            VideoBlock(
-                type="video",
-                source={"type": "url", "url": str(resolved)},
-            ),
+            _media_data_block(file_url, "video"),
             TextBlock(type="text", text=text_msg),
         ],
     )

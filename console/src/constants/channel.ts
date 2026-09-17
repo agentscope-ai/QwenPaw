@@ -5,6 +5,7 @@ export const CHANNELS = {
   feishu: "feishu",
   qq: "qq",
   telegram: "telegram",
+  slack: "slack",
   mattermost: "mattermost",
   mqtt: "mqtt",
   console: "console",
@@ -13,6 +14,7 @@ export const CHANNELS = {
   sip: "sip",
   wecom: "wecom",
   xiaoyi: "xiaoyi",
+  yuanbao: "yuanbao",
 };
 
 export const CHANNEL_COLORS: Record<string, string> = {
@@ -22,6 +24,7 @@ export const CHANNEL_COLORS: Record<string, string> = {
   feishu: "volcano",
   qq: "gold",
   telegram: "geekblue",
+  slack: "purple",
   mattermost: "purple",
   mqtt: "orange",
   console: "green",
@@ -30,4 +33,5 @@ export const CHANNEL_COLORS: Record<string, string> = {
   sip: "cyan",
   wecom: "olive",
   xiaoyi: "cyan",
+  yuanbao: "lime",
 };

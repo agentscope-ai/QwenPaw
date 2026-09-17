@@ -1,0 +1,31 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "enables the default permissions",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
+  "permissions": [
+    "backend",
+    "backend-download",
+    "core:default",
+    "core:webview:allow-internal-toggle-devtools",
+    "desktop-updater-check",
+    "desktop-updater-install",
+    "devtools",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "open-external-link",
+    "tray",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-outer-position",
+    "core:window:allow-outer-size",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-scale-factor",
+    "core:window:allow-current-monitor",
+    "core:window:allow-close",
+    "core:window:allow-destroy"
+  ]
+}
