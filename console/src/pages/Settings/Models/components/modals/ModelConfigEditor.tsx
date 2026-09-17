@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, InputNumber, Slider, Switch } from "@agentscope-ai/design";
 import { Segmented } from "antd";
-import { RotateCcw } from "lucide-react";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
+import { ContextLengthField, OutputTokenLimitField } from "./ModelTokenFields";
 import { JsonConfigEditor } from "./JsonConfigEditor";
 
 function requestMaxTokens(model: ModelInfo): number | null {
@@ -97,10 +97,6 @@ export function ModelConfigEditor({
     model.reasoning_effort,
   ]);
 
-  const effectiveMaxInputLength = model.effective_max_input_length ?? null;
-  const windowSource = model.effective_max_input_length_source ?? null;
-  const inputLengthOverridden = model.max_input_length != null;
-
   const handleChange = useCallback((val: string) => {
     setText(val);
     setDirty(true);
@@ -175,119 +171,24 @@ export function ModelConfigEditor({
 
   return (
     <div style={{ padding: "8px 0 4px" }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              ...labelStyle,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span>{t("models.maxTokensLabel", "Max Tokens")}</span>
-            {maxTokens !== null && (
-              <Button
-                type="text"
-                size="small"
-                icon={<RotateCcw size={14} />}
-                aria-label={t("models.resetMaxTokens", "Reset to auto")}
-                title={t("models.resetMaxTokens", "Reset to auto")}
-                onClick={() => handleMaxTokensChange(null)}
-              />
-            )}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
-            value={maxTokens}
-            placeholder={t("models.providerDefault", "Provider default")}
-            onChange={handleMaxTokensChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--app-text-quaternary)",
-              marginTop: 2,
-            }}
-          >
-            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
-            <br />
-            {t("models.maxOutputCapabilityLabel", "Model capability")}:{" "}
-            {model.max_output_length?.toLocaleString() ??
-              t("models.unknown", "Unknown")}
-            {model.max_output_length_source &&
-              model.max_output_length_source !== "unknown" && (
-                <> · {model.max_output_length_source}</>
-              )}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div
-            style={{
-              ...labelStyle,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span>{t("models.maxInputLengthLabel", "Max Context Length")}</span>
-            {inputLengthOverridden && (
-              <Button
-                type="text"
-                size="small"
-                icon={<RotateCcw size={14} />}
-                aria-label={t(
-                  "models.resetMaxInputLength",
-                  "Clear override",
-                )}
-                title={t("models.resetMaxInputLength", "Clear override")}
-                onClick={() => handleMaxInputLengthChange(null)}
-              />
-            )}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1000}
-            step={1024}
-            value={maxInputLength}
-            placeholder={
-              effectiveMaxInputLength != null
-                ? String(effectiveMaxInputLength)
-                : undefined
-            }
-            onChange={handleMaxInputLengthChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--app-text-quaternary)",
-              marginTop: 2,
-            }}
-          >
-            {t(
-              "models.maxInputLengthHint",
-              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
-            )}
-            {!inputLengthOverridden && effectiveMaxInputLength != null && (
-              <>
-                <br />
-                {t("models.maxInputLengthInherited", {
-                  defaultValue:
-                    "Inherited · effective {{value}} · from {{source}}",
-                  value: effectiveMaxInputLength.toLocaleString(),
-                  source: t(
-                    `models.maxInputLengthSource_${
-                      windowSource ?? "default"
-                    }`,
-                    windowSource ?? "default",
-                  ),
-                })}
-              </>
-            )}
-          </div>
-        </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: 16,
+          marginBottom: 12,
+        }}
+      >
+        <OutputTokenLimitField
+          value={maxTokens}
+          onChange={handleMaxTokensChange}
+          model={model}
+        />
+        <ContextLengthField
+          value={maxInputLength}
+          onChange={handleMaxInputLengthChange}
+          model={model}
+        />
       </div>
       {/* Enable Thinking (only for providers that support thinking config) */}
       {thinkingParamStyle && (

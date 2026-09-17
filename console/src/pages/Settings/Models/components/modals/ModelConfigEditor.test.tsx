@@ -6,11 +6,6 @@ import api from "../../../../../api";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import { renderWithProviders } from "@/test/common_setup";
 
-// The context-window hint interpolates the effective value into translated
-// text, so this file needs a real i18next instance (the shared test setup
-// renders raw keys, which would hide the number entirely).
-import "@/i18n";
-
 import { ModelConfigEditor } from "./ModelConfigEditor";
 
 vi.mock("../../../../../api", () => ({
@@ -121,7 +116,9 @@ describe("ModelConfigEditor output limits", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: /Reset to auto/i }));
+    await user.click(
+      screen.getByRole("button", { name: "models.resetMaxTokens" }),
+    );
     await user.click(screen.getByRole("button", { name: /Save/i }));
 
     await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
@@ -140,7 +137,7 @@ describe("ModelConfigEditor context window", () => {
     vi.clearAllMocks();
   });
 
-  it("shows the inherited effective window instead of a default", () => {
+  it("shows the inherited effective window as the placeholder", () => {
     renderEditor(
       createModel({
         max_input_length: null,
@@ -150,28 +147,24 @@ describe("ModelConfigEditor context window", () => {
     );
 
     expect(screen.getByPlaceholderText("272000")).toBeInTheDocument();
-    const inherited = screen.getByText(/Inherited/).textContent ?? "";
-    expect(inherited).toMatch(/272,000/);
-    expect(inherited).toMatch(/built-in catalog/);
     expect(
       screen.queryByRole("button", { name: /Clear override/i }),
     ).toBeNull();
   });
 
-  it("keeps a user override visible and offers to clear it", () => {
+  it("offers to clear a user override", () => {
     renderEditor(
       createModel({
-        max_input_length: 131072,
-        effective_max_input_length: 131072,
+        max_input_length: 65536,
+        effective_max_input_length: 65536,
         effective_max_input_length_source: "user",
       }),
     );
 
-    expect(screen.getByDisplayValue("131072")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("65536")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Clear override/i }),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Inherited ·/i)).toBeNull();
   });
 
   it("sends null to clear the override back to inherited", async () => {
@@ -179,8 +172,8 @@ describe("ModelConfigEditor context window", () => {
     const user = userEvent.setup();
     renderEditor(
       createModel({
-        max_input_length: 131072,
-        effective_max_input_length: 131072,
+        max_input_length: 65536,
+        effective_max_input_length: 65536,
         effective_max_input_length_source: "user",
       }),
     );

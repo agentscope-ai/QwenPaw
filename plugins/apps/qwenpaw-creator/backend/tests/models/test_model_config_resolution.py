@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+import json
 
 import pytest
 
@@ -369,3 +370,89 @@ def test_turn_budget_scales_with_element_count() -> None:
     assert scale_mainline_max_model_turns(64, 12) == 64
     # Negative counts (defensive) fall back to the base.
     assert scale_mainline_max_model_turns(24, -3) == 24
+
+
+@pytest.mark.parametrize("case", ["encrypted", "mixed", "unavailable"])
+def test_persisted_secrets_are_decoded_when_supported(
+    tmp_path,
+    monkeypatch,
+    case,
+):
+    # pylint: disable=protected-access
+    data = {
+        "llm": {
+            "api_key": "ENC:llm-key",
+            "base_url": "https://example.com/v1",
+        },
+        "oss": {
+            "access_key_secret": "ENC:oss-secret",
+            "policy_api_key": "ENC:policy-key",
+        },
+    }
+    if case == "mixed":
+        data.update(
+            image={"api_key": "plaintext-image-key"},
+            oss={"access_key_secret": "", "policy_api_key": None},
+        )
+    config_file = tmp_path / "model_config.json"
+    config_file.write_text(json.dumps(data), encoding="utf-8")
+    monkeypatch.setattr(config, "_get_model_config_path", lambda: config_file)
+    monkeypatch.setattr(
+        config,
+        "_SECRET_STORE_AVAILABLE",
+        case != "unavailable",
+    )
+    monkeypatch.setattr(
+        config,
+        "_secret_is_encrypted",
+        lambda value: value.startswith("ENC:"),
+    )
+    monkeypatch.setattr(config, "_secret_decrypt", lambda value: value[4:])
+    expected = {
+        section: {
+            key: (
+                value[4:]
+                if case != "unavailable"
+                and isinstance(value, str)
+                and value.startswith("ENC:")
+                else value
+            )
+            for key, value in fields.items()
+        }
+        for section, fields in data.items()
+    }
+    config._clear_user_config_cache()
+    try:
+        assert config._get_user_config() == expected
+    finally:
+        config._clear_user_config_cache()
+
+
+def test_live_operation_defaults_on_and_persisted_disable_wins(
+    tmp_path,
+    monkeypatch,
+):
+    """Enabled by default (no settings UI exists yet to turn it on), while
+    persisted config remains the authoritative off-switch over environment."""
+    # pylint: disable=protected-access
+    config_path = tmp_path / "model_config.json"
+    monkeypatch.setenv("CREATOR_MODEL_CONFIG_PATH", str(config_path))
+    monkeypatch.delenv("CREATOR_LIVE_OPERATION_ENABLED", raising=False)
+    monkeypatch.delenv("CREATOR_COMPUTER_USE_ENABLED", raising=False)
+    config._clear_user_config_cache()
+    try:
+        assert config.get_live_operation_enabled() is True
+        assert config.get_computer_use_enabled() is False
+
+        monkeypatch.setenv("CREATOR_LIVE_OPERATION_ENABLED", "0")
+        assert config.get_live_operation_enabled() is False
+
+        config_path.write_text(
+            '{"live_operation":{"enabled":"false"}}',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("CREATOR_LIVE_OPERATION_ENABLED", "1")
+        config._clear_user_config_cache()
+        assert config.get_live_operation_enabled() is False
+    finally:
+        config._clear_user_config_cache()

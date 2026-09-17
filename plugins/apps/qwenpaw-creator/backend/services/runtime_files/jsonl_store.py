@@ -336,6 +336,10 @@ class DurableJsonlStore(Generic[T]):
             for envelope in self.read_all()
         ]
 
+    def forward_reader(self, after_seq: int = 0) -> JsonlReadCursor[T]:
+        """Create a bounded, sequential reader for one durable subscription."""
+        return JsonlReadCursor(self, after_seq)
+
     def read_records_after(
         self,
         after_seq: int,
@@ -485,3 +489,83 @@ class DurableJsonlStore(Generic[T]):
         # authoritative.
         tail = self._tail_envelope_unlocked(repair=False)
         return tail.seq if tail is not None else 0
+
+
+class JsonlReadCursor(Generic[T]):
+    """Follow complete lines once, retaining an offset instead of the history.
+
+    Fresh subscriptions must replay old events to reconstruct detached work.
+    Repeating a reverse tail scan for every page makes that replay quadratic.
+    This per-subscription cursor validates each line once and keeps at most one
+    requested page in memory. It reopens the file for each read, so disconnects
+    and cancelled worker calls cannot leak a retained file descriptor.
+    """
+
+    # pylint: disable=too-few-public-methods,protected-access
+    def __init__(self, store: DurableJsonlStore[T], after_seq: int) -> None:
+        self.store = store
+        self.after_seq = max(0, after_seq)
+        self.offset = 0
+        self.seq = 0
+        self.identity: tuple[int, int] | None = None
+
+    def read(self, limit: int = 200) -> list[T]:
+        """Read the next bounded page, or [] at a possibly incomplete tail."""
+        if limit < 1:
+            raise ValueError("JSONL page limit must be positive")
+        try:
+            handle = self.store.path.open("rb")
+        except FileNotFoundError:
+            if self.identity is not None:
+                raise JsonlCorruptionError(
+                    self.store.path,
+                    "durable stream disappeared during replay",
+                ) from None
+            return []
+        records: list[T] = []
+        with handle:
+            stat = os.fstat(handle.fileno())
+            identity = (stat.st_dev, stat.st_ino)
+            if (
+                self.identity is not None and self.identity != identity
+            ) or stat.st_size < self.offset:
+                raise JsonlCorruptionError(
+                    self.store.path,
+                    "durable stream was replaced or truncated during replay",
+                )
+            self.identity = identity
+            handle.seek(self.offset)
+            while len(records) < limit:
+                raw = handle.readline()
+                if not raw or not raw.endswith(b"\n"):
+                    # Do not advance past a concurrent write or crash fragment.
+                    # The next append may complete or repair this same offset.
+                    break
+                try:
+                    envelope = JsonlEnvelope.model_validate(
+                        strict_json_loads(raw),
+                    )
+                except (
+                    UnicodeDecodeError,
+                    ValueError,
+                    PydanticValidationError,
+                ) as error:
+                    raise JsonlCorruptionError(
+                        self.store.path,
+                        f"complete line {self.seq + 1} is invalid: {error}",
+                    ) from error
+                if envelope.seq != self.seq + 1:
+                    raise JsonlCorruptionError(
+                        self.store.path,
+                        f"line {self.seq + 1} has seq {envelope.seq}, "
+                        f"expected {self.seq + 1}",
+                    )
+                record = self.store._validate_record(
+                    envelope.record,
+                    line_number=envelope.seq,
+                )
+                self.offset = handle.tell()
+                self.seq = envelope.seq
+                if self.seq > self.after_seq:
+                    records.append(record)
+        return records

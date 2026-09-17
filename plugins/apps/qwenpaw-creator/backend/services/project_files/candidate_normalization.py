@@ -52,7 +52,222 @@ def _collection_items(node: Any) -> dict[str, Any]:
     return items if isinstance(items, dict) else {}
 
 
-def normalize_project_candidate(candidate: Any) -> list[str]:
+def _span_intersects(start1: int, dur1: int, start2: int, dur2: int) -> bool:
+    """Check if two spans [start, start+dur) intersect."""
+    return start1 < start2 + dur2 and start2 < start1 + dur1
+
+
+def _is_overlay_element(element: Any) -> bool:
+    """Check if an element is an overlay (creation.type == 'overlay')."""
+    if not isinstance(element, dict):
+        return False
+    creation = element.get("creation")
+    if not isinstance(creation, dict):
+        return False
+    return creation.get("type") == "overlay"
+
+
+def _get_element_span(element: Any) -> tuple[int, int] | None:
+    """Extract (start_tick, duration_tick) from an element's span."""
+    if not isinstance(element, dict):
+        return None
+    span = element.get("span")
+    if not isinstance(span, dict):
+        return None
+    start = span.get("start_tick")
+    dur = span.get("duration_tick")
+    if not isinstance(start, int) or not isinstance(dur, int):
+        return None
+    return (start, dur)
+
+
+def _extract_overlay_shot_prefix(element_id: str) -> str | None:
+    """Extract shot number prefix from overlay element_id.
+
+    Convention: subtitle:XXY:Z → XX (e.g., subtitle:03b:6 → "03")
+    Returns None if the pattern doesn't match.
+    """
+    parts = element_id.split(":")
+    if len(parts) >= 2 and parts[0] in ("subtitle", "overlay"):
+        middle = parts[1]
+        prefix = ""
+        for ch in middle:
+            if ch.isdigit():
+                prefix += ch
+            else:
+                break
+        return prefix if prefix else None
+    return None
+
+
+def _collect_shot_candidates(
+    elements: dict[str, Any],
+) -> tuple[list[tuple[str, int, int]], dict[str, tuple[str, int, int]]]:
+    """Collect non-overlay elements as shot candidates.
+
+    Returns (shot_candidates, shot_by_prefix) where shot_by_prefix maps
+    shot number prefixes to their info.
+    """
+    shot_candidates: list[tuple[str, int, int]] = []
+    shot_by_prefix: dict[str, tuple[str, int, int]] = {}
+    for elem_id, elem in elements.items():
+        if _is_overlay_element(elem):
+            continue
+        span_info = _get_element_span(elem)
+        if span_info is None:
+            continue
+        shot_info = (elem_id, span_info[0], span_info[1])
+        shot_candidates.append(shot_info)
+        parts = elem_id.split(":")
+        if len(parts) >= 2:
+            prefix = ""
+            for ch in parts[1]:
+                if ch.isdigit():
+                    prefix += ch
+                else:
+                    break
+            if prefix:
+                shot_by_prefix[prefix] = shot_info
+    return shot_candidates, shot_by_prefix
+
+
+def _find_target_shot_for_overlay(
+    elem_id: str,
+    overlay_span: tuple[int, int],
+    shot_candidates: list[tuple[str, int, int]],
+    shot_by_prefix: dict[str, tuple[str, int, int]],
+) -> tuple[str, int, int] | None:
+    """Find the target shot for an overlay element.
+
+    Uses prefix matching first, then falls back to fitting heuristic.
+    Returns None if no unambiguous match is found.
+    """
+    ov_start, ov_dur = overlay_span
+    ov_end = ov_start + ov_dur
+
+    overlay_prefix = _extract_overlay_shot_prefix(elem_id)
+    if overlay_prefix and overlay_prefix in shot_by_prefix:
+        shot_info = shot_by_prefix[overlay_prefix]
+        _shot_id, shot_start, shot_dur = shot_info
+        if ov_start >= 0 and ov_end <= shot_dur:
+            corrected_start = ov_start + shot_start
+            if _span_intersects(corrected_start, ov_dur, shot_start, shot_dur):
+                return shot_info
+
+    fitting_shots: list[tuple[str, int, int]] = []
+    for shot_info in shot_candidates:
+        _shot_id, shot_start, shot_dur = shot_info
+        if ov_start >= 0 and ov_end <= shot_dur:
+            corrected_start = ov_start + shot_start
+            if _span_intersects(corrected_start, ov_dur, shot_start, shot_dur):
+                fitting_shots.append(shot_info)
+    if len(fitting_shots) == 1:
+        return fitting_shots[0]
+    return None
+
+
+def _correct_overlay_ticks_for_timeline(
+    timeline_id: str,
+    elements: dict[str, Any],
+    base_element_ids: set[str],
+) -> list[str]:
+    """Process a single timeline and correct overlay ticks.
+
+    Returns receipts for all corrections applied.
+    """
+    receipts: list[str] = []
+    shot_candidates, shot_by_prefix = _collect_shot_candidates(elements)
+    if not shot_candidates:
+        return receipts
+
+    for elem_id, elem in elements.items():
+        if elem_id in base_element_ids:
+            continue
+        if not _is_overlay_element(elem):
+            continue
+        overlay_span = _get_element_span(elem)
+        if overlay_span is None:
+            continue
+
+        target_shot = _find_target_shot_for_overlay(
+            elem_id,
+            overlay_span,
+            shot_candidates,
+            shot_by_prefix,
+        )
+        if target_shot is None:
+            continue
+
+        shot_id, shot_start, _shot_dur = target_shot
+        elem["span"]["start_tick"] = overlay_span[0] + shot_start
+        element_pointer = (
+            f"/timelines/items/{_escape_pointer_token(timeline_id)}"
+            f"/elements_by_id/{_escape_pointer_token(elem_id)}"
+            f"/span/start_tick"
+        )
+        receipts.append(
+            f"{element_pointer} (corrected local→global: "
+            f"+{shot_start} via {shot_id})",
+        )
+    return receipts
+
+
+def correct_overlay_local_ticks(
+    candidate: Any,
+    base: Any | None = None,
+) -> list[str]:
+    """Detect and correct overlay elements with shot-local tick values.
+
+    The AI editing director sometimes writes overlay span.start_tick as a
+    shot-relative offset instead of an absolute global timeline tick. This
+    function detects such cases and applies the correct offset.
+
+    Detection uses two signals:
+    1. Element ID prefix matching (e.g., subtitle:03b:6 → shot:03)
+    2. "Fits locally" heuristic (overlay ticks fit within shot duration)
+
+    Correction is applied only when both signals agree on a single target.
+
+    Returns JSON Pointer receipts for all corrections applied.
+    """
+    receipts: list[str] = []
+    if not isinstance(candidate, dict):
+        return receipts
+
+    base_elements_by_timeline: dict[str, set[str]] = {}
+    if isinstance(base, dict):
+        base_timelines = _collection_items(base.get("timelines"))
+        for timeline_id, base_timeline in base_timelines.items():
+            base_elements = base_timeline.get("elements_by_id")
+            if isinstance(base_elements, dict):
+                base_elements_by_timeline[timeline_id] = set(
+                    base_elements.keys(),
+                )
+
+    timelines = _collection_items(candidate.get("timelines"))
+    for timeline_id, timeline in timelines.items():
+        if not isinstance(timeline, dict):
+            continue
+        elements = timeline.get("elements_by_id")
+        if not isinstance(elements, dict):
+            continue
+
+        base_element_ids = base_elements_by_timeline.get(timeline_id, set())
+        receipts.extend(
+            _correct_overlay_ticks_for_timeline(
+                timeline_id,
+                elements,
+                base_element_ids,
+            ),
+        )
+
+    return receipts
+
+
+def normalize_project_candidate(
+    candidate: Any,
+    base: Any | None = None,
+) -> list[str]:
     """Strip redundant identity echoes from a jq output candidate in place.
 
     Returns the JSON Pointers of every removed field. The candidate is the
@@ -141,7 +356,11 @@ def normalize_project_candidate(candidate: Any) -> list[str]:
                 element_pointer,
                 receipts,
             )
+
+    tick_correction_receipts = correct_overlay_local_ticks(candidate, base)
+    receipts.extend(tick_correction_receipts)
+
     return receipts
 
 
-__all__ = ["normalize_project_candidate"]
+__all__ = ["normalize_project_candidate", "correct_overlay_local_ticks"]

@@ -30,7 +30,11 @@ from services.media_files.image_execution import (
 from services.project_files.facade import CreatorFileServices
 from services.project_files.models import Project
 from services.project_files.store import ProjectSnapshot
-from services.runtime_files.models import ChangeOrigin, ReviewPolicy
+from services.runtime_files.models import (
+    ChangeOrigin,
+    ReviewPolicy,
+    ReviewStatus,
+)
 from utils.exceptions import ModelError
 
 from .conftest import make_r2v_element, r2v_project_services
@@ -155,6 +159,92 @@ def _execute(services, provider, key="storyboard-key"):
     )
 
 
+@pytest.mark.parametrize("contention", ["read", "write", "cancel"])
+def test_materialized_image_lock_retry_preserves_output_and_cancellation(
+    tmp_path,
+    monkeypatch,
+    contention,
+):
+    from domain.enums import TaskStatus
+    from services.runtime_files.errors import LockTimeoutError
+
+    services = _services(tmp_path, monkeypatch)
+    provider = _CountingProvider()
+    worker = FileImageExecutionService(services, provider=provider)
+    # Observe the boundary after bytes exist, before their Task record write.
+    # pylint: disable-next=protected-access
+    original_materialize = worker._materialize_and_publish
+    original_get = worker.executions.get_task
+    original_transition = worker.executions.transition_task
+    materialized = False
+    injected = False
+
+    async def materialize(*, base, resolved, task, ids, output):
+        nonlocal materialized
+        result = await original_materialize(
+            base=base,
+            resolved=resolved,
+            task=task,
+            ids=ids,
+            output=output,
+        )
+        materialized = True
+        return result
+
+    def get_task(project_id, task_id, **kwargs):
+        nonlocal injected
+        if materialized and not injected and contention == "read":
+            injected = True
+            raise LockTimeoutError(tmp_path / "project.lock", 10)
+        return original_get(project_id, task_id, **kwargs)
+
+    def transition(project_id, task_id, **kwargs):
+        nonlocal injected
+        if (
+            materialized
+            and not injected
+            and contention != "read"
+            and kwargs.get("updates", {}).get("result") is not None
+        ):
+            injected = True
+            if contention == "cancel":
+                original_transition(
+                    project_id,
+                    task_id,
+                    expected_status=TaskStatus.RUNNING,
+                    status=TaskStatus.CANCELLED,
+                )
+            raise LockTimeoutError(tmp_path / "project.lock", 10)
+        return original_transition(project_id, task_id, **kwargs)
+
+    monkeypatch.setattr(worker, "_materialize_and_publish", materialize)
+    monkeypatch.setattr(worker.executions, "get_task", get_task)
+    monkeypatch.setattr(worker.executions, "transition_task", transition)
+    request = {
+        "project_id": PROJECT_ID,
+        "command": "GENERATE_STORYBOARD_IMAGE",
+        "target_ref": f"element:{ELEMENT_ID}",
+        "arguments": {},
+        "idempotency_key": "materialized-lock-retry",
+    }
+    if contention == "cancel":
+        with pytest.raises(ConflictError, match="取消"):
+            asyncio.run(worker.execute(**request))
+        project = services.projects.read(PROJECT_ID).project
+        assert not project.assets.artifact_versions_by_id
+    else:
+        result = asyncio.run(worker.execute(**request))
+        replay = asyncio.run(worker.execute(**request))
+        assert result.artifact_version_id == replay.artifact_version_id
+        assert replay.replayed
+        project = services.projects.read(PROJECT_ID).project
+        assert (
+            result.artifact_version_id
+            in project.assets.artifact_versions_by_id
+        )
+    assert injected and provider.calls == 1
+
+
 def test_transient_failure_reopens_a_retry_slot(tmp_path, monkeypatch):
     services = _services(tmp_path, monkeypatch)
 
@@ -167,6 +257,220 @@ def test_transient_failure_reopens_a_retry_slot(tmp_path, monkeypatch):
     # The identical retry must run again instead of hitting the wall.
     result = _execute(services, _CountingProvider())
     assert result.replayed is False and result.artifact_version_id
+
+
+def test_unclaimed_running_task_recovers_into_a_retry_slot(
+    tmp_path,
+    monkeypatch,
+):
+    """An executor死于 claim 前留下的 RUNNING 记录必须可自愈重派。
+
+    2026-09-10 现场：四个场景空镜在 claim_sync 的 lifecycle 锁超时后停在
+    RUNNING（无 provider-claim.json），节点被判 RUNNING 永不重派。无 claim
+    即无消费，超过宽限期后清为 retryable FAILED，重试槽只再付费一次。
+    """
+
+    from domain.enums import TaskStatus
+    from services.runtime_files.errors import LockTimeoutError
+
+    services = _services(tmp_path, monkeypatch)
+    provider = _CountingProvider()
+    worker = FileImageExecutionService(services, provider=provider)
+
+    async def dead_claim(task):
+        del task
+        raise LockTimeoutError(tmp_path / "project.lock", 10)
+
+    monkeypatch.setattr(worker, "_claim_provider", dead_claim)
+    request = {
+        "project_id": PROJECT_ID,
+        "command": "GENERATE_STORYBOARD_IMAGE",
+        "target_ref": f"element:{ELEMENT_ID}",
+        "arguments": {},
+        "idempotency_key": "scene-anchor",
+    }
+    with pytest.raises(LockTimeoutError):
+        asyncio.run(worker.execute(**request))
+
+    executions = worker.executions
+    stuck = executions.list_tasks(PROJECT_ID)[0]
+    claim = image_execution.provider_claim_path(
+        services.projects.project_root(PROJECT_ID),
+        stuck.task_id,
+    )
+    assert stuck.status.value == "RUNNING"
+    assert not claim.exists()
+    assert provider.calls == 0
+
+    # Within the grace window the record stays walled: a live executor may
+    # legitimately sit between admission and its provider claim.
+    fresh_worker = FileImageExecutionService(services, provider=provider)
+    with pytest.raises(ConflictError, match="已由另一个执行者领取"):
+        asyncio.run(fresh_worker.execute(**request))
+
+    # Past the grace the zombie closes as retryable; the next slot runs and
+    # pays the provider exactly once.
+    monkeypatch.setattr(
+        image_execution,
+        "_UNCLAIMED_RUNNING_GRACE_SECONDS",
+        0.0,
+    )
+    result = asyncio.run(fresh_worker.execute(**request))
+    assert provider.calls == 1
+    assert result.artifact_version_id
+    swept = executions.get_task(PROJECT_ID, stuck.task_id)
+    assert swept.status is TaskStatus.FAILED
+    assert swept.error["retryable"] is True
+    assert "timed out" in swept.error["message"]
+    # The zombie's SpecialistRun must reach a terminal state too, or the
+    # UI keeps deriving background activity forever.
+    from domain.enums import SpecialistRunStatus
+
+    assert (
+        executions.get_run(PROJECT_ID, swept.run_id).status
+        is SpecialistRunStatus.FAILED
+    )
+    # Recovery tombstones the claim boundary: a still-alive zombie executor
+    # that wakes up later loses the claim race and aborts before paying.
+    assert claim.exists()
+    # pylint: disable-next=protected-access
+    assert asyncio.run(fresh_worker._claim_provider(swept)) is False
+
+    # The scheduler sweep shares the predicate: a claimed RUNNING record is
+    # provider spend in flight and must never be touched.
+    claimed = stuck.model_copy(update={"task_id": "task-claimed"})
+    claim_file = image_execution.provider_claim_path(
+        services.projects.project_root(PROJECT_ID),
+        claimed.task_id,
+    )
+    claim_file.parent.mkdir(parents=True, exist_ok=True)
+    claim_file.write_text("{}", encoding="utf-8")
+    assert (
+        image_execution.recover_unclaimed_image_tasks(
+            services,
+            PROJECT_ID,
+            [claimed],
+        )
+        is False
+    )
+
+
+@pytest.mark.parametrize("terminal_status", ["cancelled", "failed"])
+# pylint: disable-next=too-many-statements
+def test_manual_workgraph_retry_reuses_one_new_media_task(
+    tmp_path,
+    monkeypatch,
+    terminal_status,
+):
+    import httpx
+    from fastapi import FastAPI
+
+    from api import work_graph_routes
+    from api.file_session_routes import _cancel_active_project_tasks_sync
+    from domain.enums import TaskStatus
+    from services.file_agent_runtime.work_graph import derive_work_graph
+    from services.file_agent_runtime.work_scheduler import WorkGraphScheduler
+    from services.runtime_files.execution_store import ProjectExecutionStore
+
+    services = _services(tmp_path, monkeypatch)
+
+    # pylint: disable-next=too-many-statements
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        provider = _CountingProvider()
+        generate = provider.generate
+        fail_first = terminal_status == "failed"
+
+        async def controlled_generate(**kwargs):
+            started.set()
+            await release.wait()
+            if fail_first:
+                raise RuntimeError("reference preparation failed")
+            return await generate(**kwargs)
+
+        provider.generate = controlled_generate
+        monkeypatch.setattr(
+            image_execution,
+            "ExistingImageProvider",
+            lambda: provider,
+        )
+        executions = ProjectExecutionStore(services.root)
+        snapshot = services.projects.read(PROJECT_ID)
+        node = next(
+            node
+            for node in derive_work_graph(snapshot.project).nodes
+            if node.kind == "storyboard"
+        )
+        first = asyncio.create_task(
+            WorkGraphScheduler(services).dispatch_node(PROJECT_ID, node),
+        )
+        await asyncio.wait_for(started.wait(), timeout=3)
+        if fail_first:
+            release.set()
+            with pytest.raises(RuntimeError, match="reference preparation"):
+                await first
+            # Automatic dispatch must retain the failure barrier. Only the
+            # manual HTTP route below grants a fresh attempt.
+            with pytest.raises(ConflictError, match="FAILED"):
+                await WorkGraphScheduler(services).dispatch_node(
+                    PROJECT_ID,
+                    node,
+                )
+        else:
+            first.cancel()
+            await asyncio.gather(first, return_exceptions=True)
+            _cancel_active_project_tasks_sync(services, PROJECT_ID)
+        previous = executions.list_tasks(PROJECT_ID)[0]
+        expected = TaskStatus.FAILED if fail_first else TaskStatus.CANCELLED
+        assert previous.status is expected
+        fail_first = False
+        release.clear()
+
+        app = FastAPI()
+        app.include_router(work_graph_routes.router)
+        app.dependency_overrides[
+            work_graph_routes.project_file_services
+        ] = lambda: services
+        started.clear()
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://test",
+        ) as client:
+            path = (
+                f"/projects/{PROJECT_ID}/work-graph/nodes/"
+                f"{node.node_id}/dispatch"
+            )
+            retry = asyncio.create_task(client.post(path))
+            await asyncio.wait_for(started.wait(), timeout=3)
+            repeated = await client.post(path)
+            assert repeated.status_code == 200
+            assert repeated.json()["dispatched"] is False
+            release.set()
+            response = await retry
+            assert response.status_code == 200
+            assert response.json()["dispatched"] is True
+            # DONE nodes now re-roll on explicit request (same-prompt
+            # regeneration is a user right); with the fresh result still
+            # awaiting review, the re-roll is refused loudly instead of
+            # being swallowed as "already up to date".
+            completed = await client.post(path)
+            assert completed.status_code == 409
+            assert completed.json()["code"] == "WAITING_REVIEW"
+        tasks = executions.list_tasks(PROJECT_ID)
+        assert len(tasks) == 2
+        assert provider.calls == 1
+        assert (
+            executions.get_task(
+                PROJECT_ID,
+                previous.task_id,
+            ).status
+            is expected
+        )
+        assert sum(t.status is TaskStatus.SUCCEEDED for t in tasks) == 1
+
+    asyncio.run(scenario())
 
 
 def test_deterministic_rejection_keeps_the_terminal_wall(
@@ -256,8 +560,7 @@ def test_redispatch_rescues_quarantined_stale_result(
         _execute(services, provider)
     assert provider.calls == 1
 
-    # The element comes back (same id), making the stored result valid
-    # again — the shape of the fan-out incident after its inputs settle.
+    # Restoring the identical input makes the paid result reusable.
     base = services.projects.read(PROJECT_ID)
     candidate = base.project.model_dump(mode="json")
     timeline = candidate["timelines"]["items"]["timeline:main"]
@@ -268,12 +571,244 @@ def test_redispatch_rescues_quarantined_stale_result(
         origin=ChangeOrigin.RUNTIME_TASK,
         review_policy=ReviewPolicy.AUTO_FIX,
     )
-
     result = _execute(services, provider)
-
     assert provider.calls == 1  # no second render, no second bill
     assert result.replayed is True
     assert result.artifact_version_id
+
+
+def test_unrescuable_quarantine_allows_fresh_dispatch(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """When a quarantined task's stored result can't be imported (inputs
+    changed permanently), the next dispatch creates a fresh task instead
+    of raising CONFLICT."""
+
+    services = _services(tmp_path, monkeypatch)
+
+    def permanently_change_inputs(candidate: dict) -> None:
+        timeline = candidate["timelines"]["items"]["timeline:main"]
+        timeline["elements_by_id"][ELEMENT_ID]["creation"][
+            "storyboard_prompt"
+        ] = "完全不同的提示词，旧结果无法复用"
+
+    provider = _MutatingImageProvider(services, permanently_change_inputs)
+    with pytest.raises(ConflictError, match="结果已隔离"):
+        _execute(services, provider)
+    assert provider.calls == 1
+
+    result = _execute(services, provider)
+    assert provider.calls == 2
+    assert not result.replayed
+    assert result.artifact_version_id
+
+
+@pytest.mark.parametrize(
+    "field,stale",
+    [
+        ("storyboard_prompt", True),
+        ("narrative", True),
+        ("video_prompt", False),
+    ],
+)
+def test_storyboard_rechecks_its_own_inputs_at_publication(
+    tmp_path,
+    monkeypatch,
+    field,
+    stale,
+):
+    services = _services(tmp_path, monkeypatch)
+
+    def mutate(candidate):
+        candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+            ELEMENT_ID
+        ]["creation"][field] = "新的创作要求：头顶应改成蓝色帽子"
+
+    provider = _MutatingImageProvider(services, mutate)
+    if stale:
+        with pytest.raises(ConflictError, match="结果已隔离"):
+            _execute(services, provider)
+        element = (
+            services.projects.read(PROJECT_ID)
+            .project.timelines.items["timeline:main"]
+            .elements_by_id[ELEMENT_ID]
+        )
+        assert not element.outputs
+    else:
+        assert _execute(services, provider).artifact_version_id
+    assert provider.calls == 1
+
+
+@pytest.mark.parametrize("change", ["prompt", "references"])
+def test_asset_rechecks_variant_prompt_and_reference_order(
+    tmp_path,
+    monkeypatch,
+    change,
+):
+    services = _services(tmp_path, monkeypatch)
+    source = _with_remote_variant_refs(
+        _snapshot(
+            variants={
+                "items": {
+                    "var:hero": {
+                        "variant_id": "var:hero",
+                        "prompt": "头顶橘子的角色设定图",
+                    },
+                },
+                "order": ["var:hero"],
+            },
+        ),
+        "var:hero",
+        2,
+    )
+    base = services.projects.read(PROJECT_ID)
+    candidate = base.project.model_dump(mode="json")
+    candidate["visual"] = source.project.visual.model_dump(mode="json")
+    candidate["assets"]["source_versions_by_id"].update(
+        source.project.model_dump(mode="json")["assets"][
+            "source_versions_by_id"
+        ],
+    )
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin=ChangeOrigin.RUNTIME_TASK,
+    )
+    monkeypatch.setattr(
+        image_execution,
+        "_validate_public_remote_url",
+        lambda value: value,
+    )
+
+    def mutate(raw):
+        variant = raw["visual"]["entities"]["items"]["char:haaland"][
+            "variants"
+        ]["items"]["var:hero"]
+        if change == "prompt":
+            variant["prompt"] = "头顶西瓜的角色设定图"
+        else:
+            variant["reference_asset_version_ids"].reverse()
+
+    provider = _MutatingImageProvider(services, mutate)
+    with pytest.raises(ConflictError, match="结果已隔离"):
+        asyncio.run(
+            FileImageExecutionService(
+                services,
+                provider=provider,
+                image_model_name="qwen-image-2.0-pro",
+            ).execute(
+                project_id=PROJECT_ID,
+                command="GENERATE_ASSET",
+                target_ref="asset:char:haaland",
+                arguments={"variantId": "var:hero"},
+                idempotency_key="asset-input-guard",
+            ),
+        )
+    current = services.projects.read(PROJECT_ID).project
+    assert (
+        current.visual.entities.items["char:haaland"]
+        .variants.items["var:hero"]
+        .selected_artifact_version_id
+        is None
+    )
+    # All frozen versions remain available: their mere existence is insufficient.
+    assert all(
+        version in current.assets.source_versions_by_id
+        for version in ("ref-1", "ref-2")
+    )
+    assert provider.calls == 1
+
+
+def test_storyboard_rejects_changed_selected_anchor_even_if_old_version_survives(
+    tmp_path,
+    monkeypatch,
+):
+    services = _services(tmp_path, monkeypatch)
+    base = services.projects.read(PROJECT_ID)
+    candidate = base.project.model_dump(mode="json")
+    candidate["visual"] = _snapshot(
+        variants={
+            "items": {
+                "hero": {"variant_id": "hero", "prompt": "动画角色身份图"},
+            },
+            "order": ["hero"],
+        },
+    ).project.visual.model_dump(mode="json")
+    candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        ELEMENT_ID
+    ]["creation"]["character_refs"] = ["char:haaland"]
+    candidate["timelines"]["items"]["timeline:main"]["elements_by_id"][
+        ELEMENT_ID
+    ]["creation"]["storyboard_prompt"] = "[Image 1] 提供角色身份，画出球员入场。"
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin=ChangeOrigin.RUNTIME_TASK,
+    )
+    anchor = asyncio.run(
+        FileImageExecutionService(
+            services,
+            provider=_CountingProvider(),
+        ).execute(
+            project_id=PROJECT_ID,
+            command="GENERATE_ASSET",
+            target_ref="asset:char:haaland",
+            arguments={"variantId": "hero"},
+            idempotency_key="anchor",
+        ),
+    )
+    from .conftest import accept_pending_reviews
+
+    accept_pending_reviews(services, PROJECT_ID)
+    base = services.projects.read(PROJECT_ID)
+    candidate = base.project.model_dump(mode="json")
+    old_version = candidate["assets"]["artifact_versions_by_id"][
+        anchor.artifact_version_id
+    ]
+    candidate["assets"]["artifact_versions_by_id"]["anchor-alternative"] = {
+        **old_version,
+        "version_id": "anchor-alternative",
+    }
+    candidate["assets"]["artifact_slots_by_id"][old_version["slot_id"]][
+        "version_ids"
+    ].append("anchor-alternative")
+    candidate["visual"]["entities"]["items"]["char:haaland"]["variants"][
+        "items"
+    ]["hero"]["generated_artifact_version_ids"].append("anchor-alternative")
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin=ChangeOrigin.RUNTIME_TASK,
+    )
+
+    def change_selection(raw):
+        entity = raw["visual"]["entities"]["items"]["char:haaland"]
+        entity["selected_artifact_version_id"] = "anchor-alternative"
+        entity["variants"]["items"]["hero"][
+            "selected_artifact_version_id"
+        ] = "anchor-alternative"
+        raw["assets"]["artifact_slots_by_id"][old_version["slot_id"]][
+            "selected_version_id"
+        ] = "anchor-alternative"
+
+    provider = _MutatingImageProvider(services, change_selection)
+    provider.model_name = "qwen-image-2.0-pro"
+    with pytest.raises(ConflictError, match="结果已隔离"):
+        _execute(services, provider)
+    current = services.projects.read(PROJECT_ID).project
+    assert anchor.artifact_version_id in current.assets.artifact_versions_by_id
+    assert (
+        current.assets.artifact_versions_by_id[
+            anchor.artifact_version_id
+        ].checksum
+        == old_version["checksum"]
+    )
+    assert (
+        not current.timelines.items["timeline:main"]
+        .elements_by_id[ELEMENT_ID]
+        .outputs
+    )
 
 
 def _execute_safety(service, *, key, reference_urls=()):
@@ -485,9 +1020,21 @@ def _with_remote_variant_refs(
     )
 
 
+@pytest.mark.parametrize(
+    ("model_name", "limit"),
+    [
+        ("qwen-image-3.0", 3),
+        ("wan2.7-image-pro", 9),
+        ("wan2.7-image", 9),
+        ("wan2.6-image", 4),
+        ("z-image-turbo", 0),
+    ],
+)
 def test_resolved_reference_budget_reports_automatic_and_explicit_refs(
     tmp_path,
     monkeypatch,
+    model_name,
+    limit,
 ) -> None:
     snapshot = _snapshot(
         variants={
@@ -500,7 +1047,7 @@ def test_resolved_reference_budget_reports_automatic_and_explicit_refs(
             "order": ["var:budget"],
         },
     )
-    budget_snapshot = _with_remote_variant_refs(snapshot, "var:budget", 3)
+    budget_snapshot = _with_remote_variant_refs(snapshot, "var:budget", limit)
     monkeypatch.setattr(
         image_execution,
         "_validate_public_remote_url",
@@ -517,9 +1064,12 @@ def test_resolved_reference_budget_reports_automatic_and_explicit_refs(
             image_model_name=model_name,
         )
 
+    request = resolve(model_name, {"variantId": "var:budget"})
+    assert len(request.reference_image_urls) == limit
+
     with pytest.raises(ImageReferenceBudgetError) as captured:
         resolve(
-            "qwen-image-3.0",
+            model_name,
             {
                 "variantId": "var:budget",
                 "referenceImageUrls": ["https://images.example/explicit.png"],
@@ -528,12 +1078,10 @@ def test_resolved_reference_budget_reports_automatic_and_explicit_refs(
 
     error = captured.value
     assert error.code == "IMAGE_REFERENCE_BUDGET_EXCEEDED"
-    assert error.details["limit"] == 3
-    assert error.details["resolvedCount"] == 4
+    assert error.details["limit"] == limit
+    assert error.details["resolvedCount"] == limit + 1
     assert error.details["automaticReferenceVersionIds"] == [
-        "ref-1",
-        "ref-2",
-        "ref-3",
+        f"ref-{index}" for index in range(1, limit + 1)
     ]
     assert error.details["explicitReferenceUrls"] == [
         "https://images.example/explicit.png",
@@ -541,13 +1089,17 @@ def test_resolved_reference_budget_reports_automatic_and_explicit_refs(
     assert error.details["documentationUrl"].startswith("https://")
 
     openai_request = resolve("gpt-image-2", {"variantId": "var:budget"})
-    assert len(openai_request.reference_image_urls) == 3
+    assert len(openai_request.reference_image_urls) == limit
 
+    unknown_arguments = {
+        "variantId": "var:budget",
+        "referenceImageUrls": ["https://images.example/explicit.png"],
+    }
     with pytest.raises(ImageModelCapabilityError):
-        resolve("private-gateway-alias", {"variantId": "var:budget"})
+        resolve("private-gateway-alias", unknown_arguments)
 
     with pytest.raises(ImageModelCapabilityError) as empty_model:
-        resolve("", {"variantId": "var:budget"})
+        resolve("", unknown_arguments)
     assert empty_model.value.details["modelName"] == "未配置"
 
 
@@ -676,11 +1228,18 @@ def test_image_reference_marker_spec_follows_provider_docs() -> None:
         assert spec.render_index(2) == "图2"
         assert "qwen-image-edit-guide" in spec.documentation_url
 
+    for model in ("wan2.7-image-pro", "wan2.7-image", "wan2.6-image"):
+        spec = image_reference_marker_spec(model)
+        assert spec is not None
+        assert spec.render_index(2) == "图2"
+        assert "wan-image-generation" in spec.documentation_url
+
     # gpt-image takes many references but documents array order only, so
     # inventing a marker would be text it has no contract for.
     assert image_reference_marker_spec("gpt-image-2") is None
     assert image_reference_marker_spec("gpt-image-1") is None
     # Nothing to disambiguate at zero or one reference.
+    assert image_reference_marker_spec("z-image-turbo") is None
     assert image_reference_marker_spec("qwen-image") is None
     assert image_reference_marker_spec("qwen-mt-image") is None
     assert (
@@ -756,3 +1315,201 @@ def test_multi_reference_image_prompt_is_labelled_and_rendered() -> None:
         image_model_name="qwen-image-3.0-pro",
         has_explicit_urls=False,
     )
+
+
+@pytest.mark.parametrize("mode", ["required", "auto_approve"])
+def test_media_review_mode_controls_storyboard_publication(
+    tmp_path,
+    monkeypatch,
+    mode,
+):
+    services = _services(tmp_path, monkeypatch)
+    if mode == "auto_approve":
+        monkeypatch.setattr(
+            "services.media_files.review_admission.get_media_review_mode",
+            lambda: mode,
+        )
+    provider = _CountingProvider()
+    result = _execute(services, provider)
+    assert provider.calls == 1
+    review = services.reviews.active(PROJECT_ID)
+    if mode == "required":
+        assert review is not None
+        assert review.status is ReviewStatus.PENDING
+    else:
+        assert review is None
+        slots = services.projects.read(
+            PROJECT_ID,
+        ).project.assets.artifact_slots_by_id
+        assert any(
+            slot.kind == "r2v_storyboard_image"
+            and slot.selected_version_id == result.artifact_version_id
+            for slot in slots.values()
+        )
+
+
+def test_style_anchor_resolves_to_base_selection_at_dispatch():
+    """Dispatch reads the base variant's current image through the anchor;
+    a regressed (unselected) base fails closed instead of rendering blind."""
+
+    from services.project_files.models import (
+        EntityCollection,
+        VisualEntity,
+        VisualVariant,
+    )
+
+    project = Project.new(project_id="p-anchor", name="Anchor")
+    base = VisualVariant(
+        variant_id="var:base",
+        selected_artifact_version_id="art-base-1",
+    )
+    dependent = VisualVariant(
+        variant_id="var:door",
+        reference_artifact_version_ids=[
+            "visual:scene:home:var:base",
+            "art-plain-9",
+        ],
+    )
+    project.visual.entities = EntityCollection(
+        items={
+            "scene:home": VisualEntity(
+                entity_id="scene:home",
+                kind="scene",
+                name="家",
+                required_variant_ids=["var:base"],
+                variants=EntityCollection(
+                    items={"var:base": base},
+                    order=["var:base"],
+                ),
+            ),
+            "scene:door": VisualEntity(
+                entity_id="scene:door",
+                kind="scene",
+                name="家门口",
+                required_variant_ids=["var:door"],
+                variants=EntityCollection(
+                    items={"var:door": dependent},
+                    order=["var:door"],
+                ),
+            ),
+        },
+        order=["scene:home", "scene:door"],
+    )
+
+    # pylint: disable-next=protected-access
+    assert image_execution._resolved_artifact_reference_ids(
+        project,
+        dependent,
+    ) == ["art-base-1", "art-plain-9"]
+
+    base.selected_artifact_version_id = None
+    with pytest.raises(ValidationError, match="风格锚点"):
+        # pylint: disable-next=protected-access
+        image_execution._resolved_artifact_reference_ids(project, dependent)
+
+
+@pytest.mark.parametrize("start_before_claim", [False, True])
+def test_direct_asset_command_waits_for_anchor_before_provider_spend(
+    tmp_path,
+    monkeypatch,
+    start_before_claim,
+):
+    from domain.enums import TaskStatus
+    from services.runtime_files.errors import LockTimeoutError
+    from .conftest import accept_pending_reviews
+
+    services = _services(tmp_path, monkeypatch)
+    source = _snapshot(
+        variants={
+            "items": {
+                "var:base": {"variant_id": "var:base", "prompt": "角色基准图"},
+                "var:door": {
+                    "variant_id": "var:door",
+                    "prompt": "角色在门口",
+                    "reference_artifact_version_ids": [
+                        "visual:char:haaland:var:base",
+                    ],
+                },
+            },
+            "order": ["var:base", "var:door"],
+        },
+    )
+    snapshot = services.projects.read(PROJECT_ID)
+    candidate = snapshot.project.model_dump(mode="json")
+    candidate["visual"] = source.project.visual.model_dump(mode="json")
+    services.commits.commit(
+        base=snapshot,
+        candidate=candidate,
+        origin=ChangeOrigin.RUNTIME_TASK,
+    )
+    provider = _CountingProvider()
+    worker = FileImageExecutionService(services, provider=provider)
+    base_request = {
+        "project_id": PROJECT_ID,
+        "command": "GENERATE_ASSET",
+        "target_ref": "asset:char:haaland",
+        "arguments": {"variantId": "var:base"},
+        "idempotency_key": "initial-anchor",
+    }
+    asyncio.run(worker.execute(**base_request))
+    accept_pending_reviews(services, PROJECT_ID)
+    assert provider.calls == 1
+    stalled = FileImageExecutionService(services, provider=provider)
+
+    async def dead_claim(_task):
+        raise LockTimeoutError(tmp_path / "project.lock", 10)
+
+    monkeypatch.setattr(stalled, "_claim_provider", dead_claim)
+
+    async def start_anchor():
+        with pytest.raises(LockTimeoutError):
+            await stalled.execute(
+                **{**base_request, "idempotency_key": "repaint-anchor"},
+            )
+
+    if start_before_claim:
+        original_start = worker._start  # pylint: disable=protected-access
+
+        async def start_with_anchor(*, run, task, resolved, ids):
+            task = await original_start(
+                run=run,
+                task=task,
+                resolved=resolved,
+                ids=ids,
+            )
+            await start_anchor()
+            return task
+
+        monkeypatch.setattr(worker, "_start", start_with_anchor)
+    else:
+        asyncio.run(start_anchor())
+
+    dependent_request = {
+        **base_request,
+        "arguments": {"variantId": "var:door"},
+        "idempotency_key": "dependent-anchor",
+    }
+    with pytest.raises(ValidationError, match="风格锚点"):
+        asyncio.run(worker.execute(**dependent_request))
+    assert provider.calls == 1
+    if start_before_claim:
+        monkeypatch.setattr(worker, "_start", original_start)
+    for task in worker.executions.list_tasks(PROJECT_ID):
+        if task.metadata.get("variantId") == "var:door":
+            assert task.status is TaskStatus.FAILED
+            assert not image_execution.provider_claim_path(
+                services.projects.project_root(PROJECT_ID),
+                task.task_id,
+            ).exists()
+        elif task.status is TaskStatus.RUNNING:
+            worker.executions.transition_task(
+                PROJECT_ID,
+                task.task_id,
+                expected_status=TaskStatus.RUNNING,
+                status=TaskStatus.CANCELLED,
+            )
+    # Cancelling the repaint settles the selected base; the same request
+    # can now retry without duplicating any paid dependent generation.
+    result = asyncio.run(worker.execute(**dependent_request))
+    assert result.artifact_version_id
+    assert provider.calls == 2

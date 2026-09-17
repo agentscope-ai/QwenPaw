@@ -9,6 +9,12 @@ from pathlib import Path
 
 import pytest
 
+from services.run_review.rubric_prompts import (
+    build_appeal_system_prompt,
+    build_image_check_system_prompt,
+    build_scene_check_system_prompt,
+    render_taste_principles,
+)
 from vendor.media_toolkit import frame_stats, review_gates
 from vendor.media_toolkit.review_rubrics import (
     APPEAL_RUBRIC_ROWS,
@@ -91,3 +97,33 @@ def test_loudness_flags_silence_and_clean_clip_passes(tmp_path: Path) -> None:
     assert set(stats) == {"y_mean", "y_range", "sat_mean"}
     judgment = frame_stats.judge_stats(stats)
     assert set(judgment) == {"exposure", "contrast", "saturation"}
+
+
+def test_appeal_prompt_embeds_verbatim_rows_without_veto() -> None:
+    text_prompt = build_appeal_system_prompt("text")
+    for row in APPEAL_RUBRIC_ROWS[:3]:
+        assert row.anchor_questions in text_prompt
+    motion_prompt = build_appeal_system_prompt("motion")
+    assert APPEAL_RUBRIC_ROWS[3].anchor_questions in motion_prompt
+    # The upstream veto semantics must never reach a prompt: advisory only.
+    for prompt in (text_prompt, motion_prompt):
+        assert "一票否决" not in prompt
+        assert "建议不是门禁" in prompt
+    scene = build_scene_check_system_prompt()
+    for check in SCENE_REVIEW_CHECKS:
+        assert check.key in scene
+        assert check.description in scene
+    image = build_image_check_system_prompt()
+    for key in ("devices", "type_fonts", "composition_safety", "craft"):
+        assert key in image
+
+
+def test_prompt_files_carry_derived_taste_principles() -> None:
+    prompts = (
+        Path(__file__).resolve().parents[2]
+        / "services/file_agent_runtime/prompts"
+    )
+    for role in ("creator_agent", "ai_editing_director"):
+        content = (prompts / f"{role}.system.txt").read_text(encoding="utf-8")
+        assert "# 创作品味准则" in content, role
+        assert render_taste_principles(role) in content, role

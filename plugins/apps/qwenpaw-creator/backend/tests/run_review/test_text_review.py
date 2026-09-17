@@ -156,6 +156,20 @@ def test_sync_review_lifecycle_rounds_dedup_cap_and_reset(
     assert not (tmp_path / "runtime").exists()
 
     monkeypatch.setenv("CREATOR_SYNC_REVIEW_ENABLED", "1")
+    # Turning the switch on must not review unchanged historical content.
+    # A later no-op or unrelated commit still has no reviewable changes.
+    for pointers in ([], ["/name"]):
+        assert (
+            maybe_sync_review(
+                project_id="project-run-review",
+                project_root=tmp_path,
+                project_json=PROJECT_JSON,
+                changed_pointers=pointers,
+                transaction_id="txn-after-toggle",
+            )
+            is None
+        )
+    assert not (tmp_path / "runtime").exists()
     weak = _advisory_payload(weak_concept=True)
     clean = _advisory_payload(weak_concept=False)
     calls = _stub_model(monkeypatch, [weak, weak, clean])
@@ -187,7 +201,113 @@ def test_sync_review_lifecycle_rounds_dedup_cap_and_reset(
         raise RuntimeError("model exploded")
 
     monkeypatch.setattr(text_model, "chat_completion", _boom)
-    assert _review("版本五", "txn-5") is None
+    failure = _review("版本五", "txn-5")
+    assert failure["status"] == "unavailable"
+    assert failure["review_errors"] == ["RuntimeError"]
+    assert failure["scores"] == []
+
+
+def test_review_deadline_cancels_call_and_backs_off_changed_content(
+    tmp_path,
+    monkeypatch,
+):
+    import time
+
+    monkeypatch.setenv("CREATOR_SYNC_REVIEW_ENABLED", "1")
+    monkeypatch.setattr(text_review, "_SYNC_REVIEW_BUDGET_SECONDS", 0.01)
+    calls = []
+    cancelled = []
+
+    async def slow(*args, **kwargs):
+        calls.append(True)
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.append(True)
+
+    monkeypatch.setattr(text_model, "chat_completion", slow)
+    start = time.monotonic()
+    first = _sync_review(tmp_path, txn="timeout")
+    assert time.monotonic() - start < 2
+    assert first["status"] == "unavailable"
+    assert first["review_errors"] == ["TimeoutError"]
+    assert len(cancelled) == 1
+    changed = {**PROJECT_JSON, "strategy": {"creative_brief": "新的创意"}}
+    second = _sync_review(tmp_path, txn="skip", project_json=changed)
+    assert second["review_errors"] == ["REVIEW_COOLDOWN"]
+    assert len(calls) == 1
+    state_path = tmp_path / "runtime/run-review/sync/state.json"
+    state = json.loads(state_path.read_text())
+    assert state["strategy"].get("hashes", []) == []
+    assert state["strategy"]["failures"] == 1
+    state["strategy"]["retry_after"] = 1
+    state_path.write_text(json.dumps(state))
+    recovered = _stub_model(
+        monkeypatch,
+        [_advisory_payload(weak_concept=False)],
+    )
+    assert (
+        _sync_review(tmp_path, txn="recovered", project_json=changed) is None
+    )
+    assert len(recovered) == 1
+    assert json.loads(state_path.read_text())["strategy"]["failures"] == 0
+
+
+def test_script_timeout_keeps_completed_appeal_and_reports_partial(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("CREATOR_SYNC_REVIEW_ENABLED", "1")
+    monkeypatch.setattr(text_review, "_SYNC_REVIEW_BUDGET_SECONDS", 0.01)
+    monkeypatch.setattr(text_review, "_script_check_enabled", lambda: True)
+    _stub_model(monkeypatch, [_advisory_payload(weak_concept=False)])
+
+    async def slow_script(**kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        "services.run_review.script_review.run_script_check",
+        slow_script,
+    )
+    project = {
+        **PROJECT_JSON,
+        "timelines": {
+            "items": {
+                "t": {
+                    "elements_by_id": {
+                        "e": {
+                            "creation": {
+                                "type": "r2v",
+                                "narrative": "小猫迈出脚步",
+                                "storyboard_prompt": "画出迈步过程",
+                                "video_prompt": "缓缓迈步",
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+    # Exercise parent-pointer expansion and the shared two-call budget.
+    result = maybe_sync_review(
+        project_id="project-run-review",
+        project_root=tmp_path,
+        project_json=project,
+        changed_pointers=["/timelines/items/t/elements_by_id/e"],
+        transaction_id="partial",
+    )
+    payloads = result.get("advisories", [result])
+    partial = next(
+        payload for payload in payloads if payload.get("status") == "partial"
+    )
+    assert len(partial["scores"]) == 3
+    assert partial["script_check"]["status"] == "unavailable"
+    assert partial["review_errors"] == ["SCRIPT_CHECK_UNAVAILABLE"]
+    # Deterministic prompt findings still reach the agent during degradation.
+    assert any(
+        (payload.get("prompt_check") or {}).get("findings")
+        for payload in payloads
+    )
 
 
 def test_mixed_strategy_and_shots_commit_still_runs_script_check(
@@ -358,13 +478,42 @@ def test_whole_element_create_expands_nested_generation_text() -> None:
         },
     }
     root = "/timelines/items/timeline:main/elements_by_id/elem:one"
-    expanded = reviewable_changed_pointers(project, [root])
+    snapshot_id = "snapshot:timeline:main:1"
+    snapshot_root = f"/timelines/items/{snapshot_id}"
+    # An automatic copy can retain prompts invalid under current rules.
+    # Saving it must not create fresh review or repair work for old content.
+    project["timelines"]["items"][snapshot_id] = {
+        "elements_by_id": {
+            f"{snapshot_id}:elem:old": {
+                "creation": {
+                    "type": "r2v",
+                    "storyboard_prompt": "",
+                    "video_prompt": "",
+                    "intent": "Historical text only",
+                },
+            },
+        },
+    }
+    expanded = reviewable_changed_pointers(project, [root, snapshot_root])
+    assert expanded == reviewable_changed_pointers(project, ["/timelines"])
     assert f"{root}/creation/narrative" in expanded
     assert f"{root}/creation/storyboard_prompt" in expanded
     assert f"{root}/creation/video_prompt" in expanded
+    assert not any(snapshot_id in pointer for pointer in expanded)
     groups = classify_pointer_groups(expanded)
     assert groups
     assert groups[0][0] == "generation_content"
+    assert not reviewable_changed_pointers(project, [snapshot_root])
+    assert not check_changed_r2v_prompt_contracts(
+        project,
+        [snapshot_root],
+    )["applicable"]
+    assert check_changed_r2v_prompt_contracts(
+        project,
+        ["/timelines"],
+    )[
+        "checked_elements"
+    ] == ["elem:one"]
 
 
 def test_empty_r2v_prompt_is_reported_without_calling_review_model(

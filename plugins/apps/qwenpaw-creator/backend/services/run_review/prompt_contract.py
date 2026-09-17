@@ -198,7 +198,11 @@ def check_changed_r2v_prompt_contracts(
     checked_elements: list[str] = []
     reviewed_pointers: list[str] = []
     for timeline_id, timeline in timeline_items.items():
-        if not isinstance(timeline, Mapping):
+        if str(timeline_id).startswith("snapshot:") or not isinstance(
+            timeline,
+            Mapping,
+        ):
+            # Historical copies are immutable and have no generation nodes.
             continue
         elements = timeline.get("elements_by_id")
         if not isinstance(elements, Mapping):

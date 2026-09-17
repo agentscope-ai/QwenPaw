@@ -77,7 +77,8 @@ def _patch_dependencies(monkeypatch):
     """Avoid touching the real provider manager / retry wrappers."""
     formatter_provider_ids = []
 
-    def install_formatter(model, provider_id=None):
+    def install_formatter(model, provider_id=None, *, model_info=None):
+        del model_info
         formatter_provider_ids.append(provider_id)
         formatter = "formatter"
         if hasattr(model, "formatter"):
@@ -95,6 +96,10 @@ def _patch_dependencies(monkeypatch):
         SimpleNamespace(
             get_instance=lambda: SimpleNamespace(
                 get_provider=lambda provider_id: SimpleNamespace(
+                    get_model_info=lambda model_id: provider_module.ModelInfo(
+                        id=model_id,
+                        name=model_id,
+                    ),
                     id=provider_id,
                     get_chat_model_instance=(
                         lambda model_name: _FakeChatModel(
@@ -236,6 +241,10 @@ def test_factory_uses_resolved_provider_id(
     wrapper_provider_ids = []
     manager = SimpleNamespace(
         get_provider=lambda _provider_id: SimpleNamespace(
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             id="canonical-provider",
             get_chat_model_instance=lambda _model_name: canonical_model,
         ),
@@ -512,6 +521,10 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     )
     providers = {
         "default-provider": SimpleNamespace(
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
                 f"default-provider/{model_name}"
             ),
@@ -563,7 +576,7 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
         lambda models: models,
     )
     monkeypatch.setattr(
-        provider_module,
+        model_factory,
         "agent_thinking_level",
         record_thinking_level,
     )
@@ -600,6 +613,10 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     )
     providers = {
         "default-provider": SimpleNamespace(
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
                 f"default-provider/{model_name}"
             ),
@@ -622,7 +639,8 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
     )
     installed = []
 
-    def install(model, provider_id=None):  # noqa: ARG001
+    def install(model, provider_id=None, *, model_info=None):
+        del model_info
         installed.append((model, provider_id))
         return f"formatter:{model}"
 
@@ -665,6 +683,10 @@ def test_model_override_disables_persisted_fallback_chain(monkeypatch):
     )
     providers = {
         "override-provider": SimpleNamespace(
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
                 f"override-provider/{model_name}"
             ),
@@ -722,6 +744,10 @@ def test_invalid_fallback_slots_are_skipped(monkeypatch):
     )
     providers = {
         "default-provider": SimpleNamespace(
+            get_model_info=lambda model_id: provider_module.ModelInfo(
+                id=model_id,
+                name=model_id,
+            ),
             get_chat_model_instance=lambda model_name: (
                 f"default-provider/{model_name}"
             ),

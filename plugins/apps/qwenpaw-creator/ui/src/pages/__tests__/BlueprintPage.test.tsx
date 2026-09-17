@@ -87,7 +87,7 @@ describe("BlueprintPage narrative shapes", () => {
     expect(
       screen.queryByRole("button", { name: "返回" }),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("剧集蓝图")).toBeInTheDocument();
+    expect(screen.getByText("视频脚本")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /调研与素材/ }),
     ).toBeInTheDocument();
@@ -97,7 +97,7 @@ describe("BlueprintPage narrative shapes", () => {
     expect(
       screen.getByRole("button", { name: "下载 / 导出" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("暂无进行中的生产任务")).toBeInTheDocument();
+    expect(screen.queryByText("暂无进行中的生产任务")).not.toBeInTheDocument();
   });
 
   it("renders the linear episode card grid for multi-timeline projects without edges", () => {

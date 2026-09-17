@@ -159,6 +159,7 @@ export interface CreateCustomProviderRequest {
   id: string;
   name: string;
   default_base_url?: string;
+  api_key?: string;
   api_key_prefix?: string;
   chat_model?: CustomChatModelName;
   models?: ModelInfo[];

@@ -19,6 +19,7 @@ from typing import Any, Final
 from uuid import uuid4
 
 from pydantic import ValidationError
+from domain.errors import BadRequestError
 from services.runtime_files.atomic_store import (
     atomic_replace_path,
     fsync_directory as runtime_fsync_directory,
@@ -28,6 +29,7 @@ from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
 
 from .models import Project
+from .archive import write_project_archive
 from .serialization import (
     CanonicalJsonError,
     load_project_json_with_etag,
@@ -577,7 +579,7 @@ class ProjectStore:
         logger.info("project deleted: %s", safe_id)
 
     def export(self, project_id: str) -> tuple[int, Iterator[bytes]]:
-        """Compress the whole Project folder into a zip under ``CREATOR_DATA_ROOT``/exports/.
+        """Archive the Project and recoverable Runtime under ``CREATOR_DATA_ROOT``/exports/.
         Returns the archive byte size plus an iterator yielding the contents
         in 8192-byte chunks, so HTTP callers can advertise Content-Length for
         download progress without loading the whole file into memory.
@@ -598,15 +600,17 @@ class ProjectStore:
         # files are atomically replaced, and export is explicitly a best-effort
         # snapshot. Holding the global mutation boundary across ZIP I/O caused
         # common 10-second lock timeouts on large Projects.
-        self.read(safe_id)
+        snapshot = self.read(safe_id)
         try:
-            archive_path = shutil.make_archive(
-                str(export_root / zip_file_stem),
-                "zip",
-                root_dir=str(self.root),
-                base_dir=safe_id,
+            archive_path = str(export_root / f"{zip_file_stem}.zip")
+            write_project_archive(
+                self.project_root(safe_id),
+                snapshot.project,
+                Path(archive_path),
             )
             logger.info(f"export file path:{archive_path}")
+        except BadRequestError:
+            raise
         except Exception as e:
             logger.error(
                 f"failed to create export file for project {safe_id}",

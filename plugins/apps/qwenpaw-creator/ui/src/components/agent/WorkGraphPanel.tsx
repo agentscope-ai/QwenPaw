@@ -8,6 +8,7 @@ import type {
 } from "@/contracts/creator/workGraph";
 import { navigateToLocator } from "@/routing/locators";
 import { creatorWorkNodeLabel } from "@/lib/creatorPresentation";
+import { taskProgressPercent } from "@/lib/taskPresentation";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import { useWorkGraphStore } from "@/store/workGraphStore";
 
@@ -51,7 +52,7 @@ function NodeRow({
     Number.isFinite(node.progress) &&
     node.progress >= 0 &&
     node.progress <= 1
-      ? Math.round(node.progress * 100)
+      ? taskProgressPercent(node.progress, node.kind)
       : null;
   const Icon =
     node.status === "running"
