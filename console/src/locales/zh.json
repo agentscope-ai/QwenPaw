@@ -3501,7 +3501,6 @@
       "subagents": "与子智能体的对话",
       "subagentShort": "子智能体",
       "subagentsHint": "由子智能体执行任务时创建的独立对话，默认收起并固定在列表底部",
-      "loadMore": "加载更多 · 还有 {{count}} 条",
       "pin": "置顶分组",
       "unpin": "取消置顶分组",
       "pinned": "已置顶分组",
@@ -3518,7 +3517,12 @@
     },
     "sessionPanel": {
       "searchConversations": "搜索对话…",
-      "noConversations": "暂无对话"
+      "noConversations": "暂无对话",
+      "noMatchingConversations": "无匹配对话",
+      "groupBy": "分组方式",
+      "groupByTime": "按时间",
+      "groupBySource": "按来源",
+      "groupByNone": "不分组"
     },
     "conversationHistory": "历史对话",
     "history": {

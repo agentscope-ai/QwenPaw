@@ -2843,8 +2843,7 @@
     "newTask": "新しいタスク",
     "groups": {
       "cronShort": "定期タスク",
-      "subagentShort": "サブエージェント",
-      "loadMore": "さらに読み込む · 残り {{count}} 件"
+      "subagentShort": "サブエージェント"
     },
     "fileReference": {
       "codeSnippet": "コードスニペット · {{count}} 行"
@@ -2984,7 +2983,12 @@
     },
     "sessionPanel": {
       "searchConversations": "会話を検索…",
-      "noConversations": "会話なし"
+      "noConversations": "会話なし",
+      "noMatchingConversations": "一致する会話がありません",
+      "groupBy": "グループ化",
+      "groupByTime": "時間順",
+      "groupBySource": "ソース順",
+      "groupByNone": "グループなし"
     },
     "conversationHistory": "会話履歴",
     "history": {

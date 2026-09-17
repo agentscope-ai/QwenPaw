@@ -181,6 +181,7 @@ class CreateCustomProviderRequest(BaseModel):
     id: str = Field(...)
     name: str = Field(...)
     default_base_url: str = Field(default="")
+    api_key: str = Field(default="")
     api_key_prefix: str = Field(default="")
     chat_model: CustomChatModelName = Field(default="OpenAIChatModel")
     models: List[ModelInfo] = Field(default_factory=list)
@@ -407,6 +408,7 @@ async def create_custom_provider_endpoint(
                 id=body.id,
                 name=body.name,
                 base_url=body.default_base_url,
+                api_key=body.api_key,
                 api_key_prefix=body.api_key_prefix,
                 chat_model=body.chat_model,
                 extra_models=body.models,

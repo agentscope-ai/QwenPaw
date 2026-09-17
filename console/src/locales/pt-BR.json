@@ -3094,8 +3094,7 @@
     "newTask": "Nova tarefa",
     "groups": {
       "cronShort": "Agendado",
-      "subagentShort": "Subagente",
-      "loadMore": "Carregar mais · {{count}} restantes"
+      "subagentShort": "Subagente"
     },
     "fileReference": {
       "codeSnippet": "Trecho de código · {{count}} linhas"
@@ -3235,7 +3234,12 @@
     },
     "sessionPanel": {
       "searchConversations": "Pesquisar…",
-      "noConversations": "Sem conversas"
+      "noConversations": "Sem conversas",
+      "noMatchingConversations": "Nenhuma conversa correspondente",
+      "groupBy": "Agrupar por",
+      "groupByTime": "Por tempo",
+      "groupBySource": "Por origem",
+      "groupByNone": "Sem agrupamento"
     },
     "conversationHistory": "Histórico de conversas",
     "history": {

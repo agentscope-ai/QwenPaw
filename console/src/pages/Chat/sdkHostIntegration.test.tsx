@@ -1611,6 +1611,13 @@ describe("ChatPage coverage", () => {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
+    await waitFor(() =>
+      expect(holdOwnershipLock).toHaveBeenCalledWith(
+        "test-session",
+        expect.any(Function),
+        expect.any(AbortSignal),
+      ),
+    );
 
     // Rendering the SDK does not imply that this tab owns the send lock.
     await waitFor(() => expect(acquireOwnership).toBeTypeOf("function"));
