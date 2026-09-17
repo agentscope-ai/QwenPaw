@@ -1,5 +1,4 @@
-import { screen, fireEvent, waitFor } from "@testing-library/react";
-import { message } from "antd";
+import { screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithProviders } from "@/test/common_setup";
@@ -34,14 +33,17 @@ describe("GeneralSettings language persistence", () => {
 
   it("surfaces a rejected remote write to the user", async () => {
     mocks.updateLanguage.mockRejectedValue(new Error("HTTP 400"));
-    const errorSpy = vi
-      .spyOn(message, "error")
-      .mockImplementation(() => ({}) as never);
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     renderWithProviders(<GeneralSettings />);
 
-    fireEvent.mouseDown(screen.getByRole("combobox"));
+    // General Settings now hosts several Select controls (language,
+    // theme palette, close behaviour), so scope to the language row
+    // instead of querying the first combobox on the page.
+    const languageRow = screen
+      .getByText("sidebar.settings.language")
+      .closest("div")!;
+    fireEvent.mouseDown(within(languageRow).getByRole("combobox"));
     fireEvent.click(await screen.findByText("Tiếng Việt"));
 
     expect(mocks.changeLanguage).toHaveBeenCalledWith("vi");
@@ -49,8 +51,13 @@ describe("GeneralSettings language persistence", () => {
     // The selector still switched locally, so without this toast the
     // user has no way to learn the server kept the old preference.
     expect(localStorage.getItem("language")).toBe("vi");
+    // Assert on the rendered notice rather than spying on a message
+    // instance: the component takes message from App.useApp(), so a
+    // spy on the statically imported one would miss it.
     await waitFor(() =>
-      expect(errorSpy).toHaveBeenCalledWith("agentConfig.languageSaveFailed"),
+      expect(
+        screen.getByText("agentConfig.languageSaveFailed"),
+      ).toBeInTheDocument(),
     );
   });
 });
