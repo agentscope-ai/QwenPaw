@@ -592,7 +592,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
         access_security.record_attempt("registration", client_ip)
         try:
             mode = await run_in_threadpool(hub_auth.registration_mode)
-            if mode == "invite" and hub_auth.user_count() > 0:
+            if mode == "invite" and await run_in_threadpool(
+                hub_auth.user_count,
+            ):
                 user, token = await run_in_threadpool(
                     invitations.redeem,
                     body.invite_code or "",

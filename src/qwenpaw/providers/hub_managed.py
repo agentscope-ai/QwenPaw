@@ -42,6 +42,21 @@ def directory() -> dict:
 class ManagedProvider(OpenAIProvider):
     """Use the existing OpenAI adapter while exporting only safe metadata."""
 
+    def supports_agent_thinking(self, model_id: str) -> bool:
+        """Use the Hub's capability instead of guessing from opaque aliases."""
+        info = self.get_model_info(model_id)
+        return bool(info and info.supports_agent_thinking)
+
+    def _map_agent_thinking_level(
+        self,
+        effective: dict,
+        model_id: str,
+        level: str,
+        budget: int,
+    ) -> None:
+        """Let the Hub translate the level using trusted upstream metadata."""
+        effective.setdefault("extra_body", {})["hub_thinking_level"] = level
+
     def get_chat_model_instance(self, model_id):
         """Disable SDK retries so each admission is one upstream attempt."""
         if not self.has_model(model_id):
@@ -82,6 +97,7 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 max_input_length_configured=True,
                 max_output_length=m["output_token_limit"],
                 max_output_length_source="adapter",
+                supports_agent_thinking=m["supports_agent_thinking"],
             )
             for m in catalog["models"]
         ],

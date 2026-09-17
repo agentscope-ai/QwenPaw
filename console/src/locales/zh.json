@@ -2162,6 +2162,7 @@
     "fallbackActive": "实际处理模型：{{provider}} / {{model}}"
   },
   "models": {
+    "partialLoadWarning": "部分模型信息暂时不可用，仍可管理个人供应商。",
     "discoveryOriginApi": "API 检测",
     "discoveryOriginCatalog": "官方目录",
     "discoveryOriginBoth": "API + 目录",

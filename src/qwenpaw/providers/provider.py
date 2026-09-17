@@ -836,6 +836,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             )
         )
 
+    def get_agent_thinking_kwargs(self, model_id: str, level: str) -> dict:
+        """Map an explicit level without merging unrelated model settings."""
+        result: dict = {}
+        if level != "inherit" and self.supports_agent_thinking(model_id):
+            self._map_agent_thinking_level(
+                result,
+                model_id,
+                level,
+                AGENT_THINKING_BUDGETS.get(level, 0),
+            )
+        return result
+
     def _apply_agent_thinking_level(
         self,
         effective: Dict[str, Any],

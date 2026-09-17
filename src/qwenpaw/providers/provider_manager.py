@@ -164,8 +164,20 @@ class ProviderManager(
 
         provider_infos = await asyncio.gather(*tasks)
         if hub_mode():
-            provider = await run_sync_io(managed_provider)
-            provider_infos.insert(0, await provider.get_info())
+            try:
+                provider = await run_sync_io(managed_provider)
+                hub_info = await provider.get_info()
+            except ProviderError:
+                hub_info = ProviderInfo(
+                    id=PROVIDER_ID,
+                    name="Hub",
+                    require_api_key=False,
+                    models_last_sync_error=(
+                        "Organization model directory unavailable; "
+                        "contact admin"
+                    ),
+                )
+            provider_infos.insert(0, hub_info)
         return list(provider_infos) + (
             self._plugin_registry.list_provider_infos()
         )

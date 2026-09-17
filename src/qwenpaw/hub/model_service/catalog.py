@@ -11,6 +11,7 @@ import uuid
 from ...providers.openai_provider import token_limit_kwargs
 from ..database import utc_now
 from ..invitations import secret_digest
+from .provider_setup import model_provider
 
 _SYSTEM = "__qwenpaw_hub_system__"
 _SCOPE = "organization-models"
@@ -284,15 +285,21 @@ class ModelCatalog:
                     continue
                 items.append(
                     {
-                        k: model[k]
-                        for k in (
-                            "id",
-                            "name",
-                            "description",
-                            "supports_image",
-                            "input_token_limit",
-                            "output_token_limit",
-                        )
+                        "supports_agent_thinking": model_provider(
+                            model,
+                            connections[model["connection_id"]],
+                        ).supports_agent_thinking(model["upstream_model"]),
+                        **{
+                            k: model[k]
+                            for k in (
+                                "id",
+                                "name",
+                                "description",
+                                "supports_image",
+                                "input_token_limit",
+                                "output_token_limit",
+                            )
+                        },
                     },
                 )
         return {

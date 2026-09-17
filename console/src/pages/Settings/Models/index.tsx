@@ -7,6 +7,7 @@ import {
 } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Button, Input, Modal } from "@agentscope-ai/design";
+import { Alert } from "antd";
 import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
 import { useProviders } from "./useProviders";
 import {
@@ -36,7 +37,8 @@ import styles from "./index.module.less";
 function ModelsPage() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { providers, activeModels, loading, error, fetchAll } = useProviders();
+  const { providers, activeModels, loading, error, warning, fetchAll } =
+    useProviders();
   const activeProvider = providers.find(
     (provider) => provider.id === activeModels?.active_llm?.provider_id,
   );
@@ -312,6 +314,18 @@ function ModelsPage() {
           />
           {/* ---- Scrollable Content ---- */}
           <div className={styles.content}>
+            {warning && (
+              <Alert
+                type="warning"
+                message={t("models.partialLoadWarning")}
+                description={warning}
+                action={
+                  <Button onClick={() => fetchAll(false)}>
+                    {t("common.retry")}
+                  </Button>
+                }
+              />
+            )}
             {/* ---- Providers Section ---- */}
             <div className={styles.providersBlock}>
               <div className={styles.sectionHeaderRow}>

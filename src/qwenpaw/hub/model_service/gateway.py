@@ -89,7 +89,7 @@ class ModelGateway:
                 attempt,
                 model,
                 connection,
-                upstream_payload(body, model, cap),
+                upstream_payload(body, model, cap, connection),
             )
         except BaseException as exc:
             await attempt.close(error="upstream_failed")
