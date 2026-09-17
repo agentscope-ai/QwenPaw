@@ -29,7 +29,9 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sys
 from pathlib import Path
+from types import ModuleType
 from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -3596,83 +3598,81 @@ class TestProcessQuotedMessage:
 _CJK_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff]")
 
 
-@pytest.fixture
-def real_lark_sdk():
-    """Restore the real lark_oapi SDK for CardKit payload assertions.
+class _RecordedRequest:
+    """Stand-in for a lark_oapi request builder that records its setters.
 
-    tests/conftest.py replaces ``sys.modules["lark_oapi"]`` with a MagicMock,
-    which breaks the lazily imported CardKit request builders the channel
-    uses. lark-oapi is a required dependency, so tests asserting on the
-    emitted payload temporarily restore it.
+    tests/conftest.py replaces ``lark_oapi`` with a MagicMock, whose
+    submodules do not resolve, so the channel's lazily imported CardKit
+    builders are unavailable. Importing the real SDK is not an option
+    either: its vendored protobuf namespace calls
+    ``pkg_resources.declare_namespace``, which setuptools >= 81 removed.
+    Recording the builder calls keeps the emitted payload assertable
+    without relying on either.
     """
-    import sys
 
-    saved = {
-        key: sys.modules.pop(key)
-        for key in list(sys.modules)
-        if key == "lark_oapi" or key.startswith("lark_oapi.")
-    }
-    try:
-        import lark_oapi.api.cardkit.v1  # noqa: F401
-    except ImportError:
-        sys.modules.update(saved)
-        pytest.skip("lark_oapi without the CardKit v1 API")
-    try:
-        yield
-    finally:
-        for key in [
-            key
-            for key in sys.modules
-            if key == "lark_oapi" or key.startswith("lark_oapi.")
-        ]:
-            sys.modules.pop(key, None)
-        sys.modules.update(saved)
+    def __init__(self) -> None:
+        self.fields: dict = {}
+
+    def __getattr__(self, name: str):
+        if name == "build":
+            return lambda: dict(self.fields)
+
+        def _record(value=None):
+            self.fields[name] = value
+            return self
+
+        return _record
 
 
-def _card_client(card_id: str = "card_1") -> MagicMock:
-    """Return a client mock whose CreateCard call succeeds."""
-    client = MagicMock()
-    resp = MagicMock()
-    resp.success.return_value = True
-    resp.data.card_id = card_id
-    client.cardkit.v1.card.acreate = AsyncMock(return_value=resp)
-    return client
+@pytest.fixture
+def cardkit_sdk(monkeypatch):
+    """Resolve the channel's lazy CardKit imports to recording builders.
+
+    Each request is handed to the client as a plain dict of the fields the
+    channel set, e.g. ``{"request_body": {"data": "<card_json>"}}``.
+    """
+    module = ModuleType("lark_oapi.api.cardkit.v1")
+    for name in (
+        "CreateCardRequest",
+        "CreateCardRequestBody",
+        "PatchCardElementRequest",
+        "PatchCardElementRequestBody",
+    ):
+        fake = MagicMock()
+        fake.builder = _RecordedRequest
+        setattr(module, name, fake)
+    # Parent packages must resolve for the dotted import to succeed.
+    for name in ("lark_oapi.api", "lark_oapi.api.cardkit"):
+        monkeypatch.setitem(sys.modules, name, ModuleType(name))
+    monkeypatch.setitem(sys.modules, "lark_oapi.api.cardkit.v1", module)
 
 
-def _created_card_json(client: MagicMock) -> dict:
-    """Parse the card_json the channel sent to the CreateCard API."""
-    req = client.cardkit.v1.card.acreate.await_args.args[0]
-    return json.loads(req.request_body.data)
+def _created_card_json(client: MagicMock, index: int = 0) -> dict:
+    """Parse the card_json of the index-th CreateCard call."""
+    req = client.cardkit.v1.card.acreate.await_args_list[index].args[0]
+    return json.loads(req["request_body"]["data"])
 
 
 class TestReasoningPanel:
-    """The reasoning stream card renders in a collapsible panel."""
+    """Collapsible reasoning panel: card shape and streaming wiring.
 
-    @pytest.mark.asyncio
-    async def test_reasoning_card_wraps_markdown_in_a_panel(
-        self,
-        feishu_channel,
-        real_lark_sdk,
-    ):
+    The first group asserts the card JSON built by
+    ``build_streaming_card_json``; the rest drive the channel hooks and the
+    CardKit calls they emit.
+    """
+
+    def test_reasoning_card_wraps_markdown_in_a_panel(self):
+        from qwenpaw.app.channels.feishu.channel import (
+            build_streaming_card_json,
+        )
         from qwenpaw.app.channels.feishu.constants import (
             FEISHU_REASONING_PANEL_ELEMENT_ID,
             FEISHU_REASONING_PANEL_ICON_TOKEN,
             FEISHU_STREAM_ELEMENT_ID,
         )
 
-        client = _card_client()
-        feishu_channel._client = client
-        feishu_channel._send_message = AsyncMock(return_value="msg_r")
+        body = build_streaming_card_json("...", collapsible=True)
 
-        info = await feishu_channel._create_streaming_card(
-            "chat_id",
-            "oc_1",
-            initial_text="...",
-            collapsible=True,
-        )
-
-        assert info == {"card_id": "card_1", "message_id": "msg_r"}
-        body = _created_card_json(client)
         assert body["config"] == {"streaming_mode": True}
         (top,) = body["body"]["elements"]
         assert top["tag"] == "collapsible_panel"
@@ -3694,46 +3694,30 @@ class TestReasoningPanel:
         assert inner["element_id"] == FEISHU_STREAM_ELEMENT_ID
         assert inner["content"] == "..."
 
-    @pytest.mark.asyncio
-    async def test_answer_card_stays_plain_markdown(
-        self,
-        feishu_channel,
-        real_lark_sdk,
-    ):
-        client = _card_client()
-        feishu_channel._client = client
-        feishu_channel._send_message = AsyncMock(return_value="msg_1")
-
-        await feishu_channel._create_streaming_card(
-            "chat_id",
-            "oc_1",
-            initial_text="...",
+    def test_answer_card_stays_plain_markdown(self):
+        from qwenpaw.app.channels.feishu.channel import (
+            build_streaming_card_json,
         )
 
-        body = _created_card_json(client)
+        body = build_streaming_card_json("...")
+
         (top,) = body["body"]["elements"]
         assert top["tag"] == "markdown"
         assert "collapsible_panel" not in json.dumps(body)
 
-    @pytest.mark.asyncio
-    async def test_panel_copy_contains_no_chinese(
-        self,
-        feishu_channel,
-        real_lark_sdk,
-    ):
+    def test_card_copy_contains_no_chinese(self):
         """Card copy must stay English for an international product."""
-        client = _card_client()
-        feishu_channel._client = client
-        feishu_channel._send_message = AsyncMock(return_value="msg_r")
-
-        await feishu_channel._create_streaming_card(
-            "chat_id",
-            "oc_1",
-            initial_text="...",
-            collapsible=True,
+        from qwenpaw.app.channels.feishu.channel import (
+            build_streaming_card_json,
         )
 
-        payload = json.dumps(_created_card_json(client), ensure_ascii=False)
+        payload = json.dumps(
+            [
+                build_streaming_card_json("...", collapsible=True),
+                build_streaming_card_json("..."),
+            ],
+            ensure_ascii=False,
+        )
         assert not _CJK_RE.search(payload)
 
     @pytest.mark.asyncio
@@ -3795,7 +3779,7 @@ class TestReasoningPanel:
     async def test_answer_card_is_posted_after_the_reasoning_card(
         self,
         feishu_channel,
-        real_lark_sdk,
+        cardkit_sdk,
     ):
         """Regression for the reported inversion.
 
@@ -3845,8 +3829,10 @@ class TestReasoningPanel:
         assert cards["message"]["collapsible"] is False
 
         payloads = [
-            json.loads(call.args[0].request_body.data)
-            for call in client.cardkit.v1.card.acreate.await_args_list
+            _created_card_json(client, index)
+            for index in range(
+                len(client.cardkit.v1.card.acreate.await_args_list),
+            )
         ]
         assert payloads[0]["body"]["elements"][0]["tag"] == "collapsible_panel"
         assert payloads[1]["body"]["elements"][0]["tag"] == "markdown"
@@ -3949,7 +3935,12 @@ class TestReasoningPanel:
 
     @pytest.mark.asyncio
     async def test_answer_end_never_collapses(self, feishu_channel):
-        """Answer cards keep the pre-existing finalize path exactly."""
+        """Answer cards keep the pre-existing finalize path exactly.
+
+        Auto-collapse is switched on here, so the card type alone has to
+        keep the answer card out of the collapse path.
+        """
+        feishu_channel.auto_collapse_thinking = True
         send_meta = {
             "_fs_stream": {
                 "cards": {
@@ -3981,7 +3972,7 @@ class TestReasoningPanel:
     async def test_collapse_sends_expanded_false_via_element_patch(
         self,
         feishu_channel,
-        real_lark_sdk,
+        cardkit_sdk,
     ):
         from qwenpaw.app.channels.feishu.constants import (
             FEISHU_REASONING_PANEL_ELEMENT_ID,
@@ -4002,20 +3993,20 @@ class TestReasoningPanel:
         )
 
         req = client.cardkit.v1.card_element.apatch.await_args.args[0]
-        assert req.card_id == "card_r"
-        assert req.element_id == FEISHU_REASONING_PANEL_ELEMENT_ID
-        assert isinstance(req.request_body.partial_element, str)
-        assert json.loads(req.request_body.partial_element) == {
+        assert req["card_id"] == "card_r"
+        assert req["element_id"] == FEISHU_REASONING_PANEL_ELEMENT_ID
+        assert isinstance(req["request_body"]["partial_element"], str)
+        assert json.loads(req["request_body"]["partial_element"]) == {
             "expanded": False,
         }
-        assert req.request_body.sequence == 8
-        assert req.request_body.uuid
+        assert req["request_body"]["sequence"] == 8
+        assert req["request_body"]["uuid"]
 
     @pytest.mark.asyncio
     async def test_collapse_failure_never_raises(
         self,
         feishu_channel,
-        real_lark_sdk,
+        cardkit_sdk,
     ):
         bad = MagicMock()
         bad.success.return_value = False

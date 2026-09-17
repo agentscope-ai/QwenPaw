@@ -197,6 +197,54 @@ _MSG_TYPE_LABEL: Dict[str, str] = {
 }
 
 
+def build_streaming_card_json(
+    initial_text: str,
+    collapsible: bool = False,
+) -> Dict[str, Any]:
+    """Build the Card JSON 2.0 payload of a streaming card.
+
+    With ``collapsible`` the streaming markdown is wrapped in a
+    ``collapsible_panel`` that starts expanded, so reasoning can be folded
+    away once it is finished. The inner markdown keeps
+    ``FEISHU_STREAM_ELEMENT_ID``, so streaming content updates are unaffected.
+    """
+    markdown_element = {
+        "tag": "markdown",
+        "content": initial_text,
+        "element_id": FEISHU_STREAM_ELEMENT_ID,
+    }
+    top_element: Dict[str, Any] = markdown_element
+    if collapsible:
+        top_element = {
+            "tag": "collapsible_panel",
+            "element_id": FEISHU_REASONING_PANEL_ELEMENT_ID,
+            "expanded": True,
+            "header": {
+                "title": {
+                    "tag": "plain_text",
+                    "content": FEISHU_REASONING_PANEL_TITLE,
+                },
+                "icon": {
+                    "tag": "standard_icon",
+                    "token": FEISHU_REASONING_PANEL_ICON_TOKEN,
+                    "size": "16px 16px",
+                },
+                "icon_position": "follow_text",
+                "icon_expanded_angle": 180,
+            },
+            "border": {
+                "color": "grey",
+                "corner_radius": "5px",
+            },
+            "elements": [markdown_element],
+        }
+    return {
+        "schema": "2.0",
+        "config": {"streaming_mode": True},
+        "body": {"elements": [top_element]},
+    }
+
+
 class FeishuChannel(BaseChannel):
     """Feishu/Lark channel: WebSocket receive, Open API send.
 
@@ -2056,10 +2104,8 @@ class FeishuChannel(BaseChannel):
     ) -> Optional[Dict[str, str]]:
         """Create a CardKit streaming card and send it as a message.
 
-        With ``collapsible`` the streaming markdown is wrapped in a JSON 2.0
-        ``collapsible_panel`` that starts expanded, so reasoning can be folded
-        away once it is finished. The inner markdown keeps
-        ``FEISHU_STREAM_ELEMENT_ID``, so content updates are unaffected.
+        ``collapsible`` is forwarded to :func:`build_streaming_card_json` and
+        selects the reasoning variant of the card.
 
         Returns ``{"card_id": ..., "message_id": ...}`` or ``None``.
         """
@@ -2071,44 +2117,7 @@ class FeishuChannel(BaseChannel):
             CreateCardRequestBody,
         )
 
-        markdown_element = {
-            "tag": "markdown",
-            "content": initial_text,
-            "element_id": FEISHU_STREAM_ELEMENT_ID,
-        }
-        if collapsible:
-            # The header arrow carries the expand/collapse affordance, so the
-            # label never has to change and no localized "done" copy is needed.
-            top_element: Dict[str, Any] = {
-                "tag": "collapsible_panel",
-                "element_id": FEISHU_REASONING_PANEL_ELEMENT_ID,
-                "expanded": True,
-                "header": {
-                    "title": {
-                        "tag": "plain_text",
-                        "content": FEISHU_REASONING_PANEL_TITLE,
-                    },
-                    "icon": {
-                        "tag": "standard_icon",
-                        "token": FEISHU_REASONING_PANEL_ICON_TOKEN,
-                        "size": "16px 16px",
-                    },
-                    "icon_position": "follow_text",
-                    "icon_expanded_angle": 180,
-                },
-                "border": {
-                    "color": "grey",
-                    "corner_radius": "5px",
-                },
-                "elements": [markdown_element],
-            }
-        else:
-            top_element = markdown_element
-        card_json = {
-            "schema": "2.0",
-            "config": {"streaming_mode": True},
-            "body": {"elements": [top_element]},
-        }
+        card_json = build_streaming_card_json(initial_text, collapsible)
 
         try:
             create_req = (
