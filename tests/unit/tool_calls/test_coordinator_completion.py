@@ -1529,5 +1529,4 @@ async def test_drain_logs_handler_exception(_coordinator_caplog, caplog):
         and "Tool handler failed" in record.getMessage()
     ]
     assert len(error_records) == 1
-    assert error_records[0].exc_info is not None
-    assert error_records[0].exc_info[0] is RuntimeError
+    assert "RuntimeError: handler exploded" in caplog.text
