@@ -9,6 +9,7 @@ import pytest
 
 from qwenpaw.hub.credentials import TenantCredentialVault
 from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
+from qwenpaw.hub.python_environment import python_executable
 from tests.unit.hub.factories import runtime_record as _record
 
 
@@ -211,7 +212,10 @@ def test_local_runtime_filters_untrusted_control_environment(
     )
     assert environment["OPENAI_API_KEY"] == "tenant-key"
     assert "LANGFUSE_SECRET_KEY" not in environment
-    assert environment.get("PATH") == os.environ.get("PATH")
+    assert environment["PATH"].split(os.pathsep, 1) == [
+        str(python_executable(record).parent),
+        os.environ.get("PATH", ""),
+    ]
 
 
 def test_credential_metadata_pages_are_tenant_scoped_and_filterable(

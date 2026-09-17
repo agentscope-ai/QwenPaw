@@ -4207,6 +4207,7 @@
         "memberCount_other": "{{count, number}} 位成员",
         "availableModels": "可用模型",
         "capabilities": "模型能力",
+        "estimatedTokenLimits": "模型上限尚未完全确认。缺少上下文信息时使用 QwenPaw 默认的 131072 Tokens；输出限制可留空，使用供应商默认值，其实际上限未知。",
         "completeCapabilities": "请补充缺失的 Token 信息，输出限制不能超过模型能力上限。",
         "responseLimit": "限制回复长度（可选）",
         "modelSection": "模型与能力",

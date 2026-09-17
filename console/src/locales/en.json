@@ -4350,6 +4350,7 @@
         "memberCount_other": "{{count, number}} members",
         "availableModels": "Available models",
         "capabilities": "Model capabilities",
+        "estimatedTokenLimits": "Model limits are not fully confirmed. Missing context metadata uses QwenPaw’s default of 131,072 tokens. Leave the output limit empty to use the provider default; the actual maximum is unknown.",
         "completeCapabilities": "Complete the missing token limits. The response limit must not exceed the model capability.",
         "responseLimit": "Limit response length (optional)",
         "modelSection": "Model and capabilities",
