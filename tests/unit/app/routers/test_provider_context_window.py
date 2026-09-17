@@ -54,7 +54,7 @@ async def test_configure_model_only_forwards_submitted_fields() -> None:
 async def test_configure_model_forwards_null_as_a_clear() -> None:
     """An explicit null must reach the provider (clear the override), while an
     omitted field must not appear in the payload at all."""
-    captured = None
+    captured: dict = {}
 
     async def update_model_config(**kwargs):
         nonlocal captured

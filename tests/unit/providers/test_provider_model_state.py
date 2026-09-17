@@ -12,9 +12,15 @@ from qwenpaw.providers.provider_model_state import (
 
 
 def _migrate_context_windows(model: dict[str, Any]) -> dict[str, Any]:
-    snapshot = {"snapshot_schema_version": 2, "models": [deepcopy(model)]}
+    snapshot: dict[str, Any] = {
+        "snapshot_schema_version": 2,
+        "models": [deepcopy(model)],
+    }
     assert migrate_provider_snapshot(snapshot) is True
-    migrated = snapshot["models"][0]
+    models = snapshot["models"]
+    assert isinstance(models, list)
+    migrated = models[0]
+    assert isinstance(migrated, dict)
     assert "max_input_length_configured" not in migrated
     return migrated
 
