@@ -17,6 +17,8 @@ import {
 } from "../../../stores/backgroundTasksStore";
 import {
   cancelBackgroundTask,
+  startBackgroundTaskStream,
+  stopBackgroundTaskStream,
   stopBackgroundTaskWatcher,
 } from "../../../hooks/useBackgroundTaskWatcher";
 import { message } from "antd";
@@ -120,6 +122,23 @@ export default function BackgroundTaskPanel({
   useEffect(() => {
     if (expandedId && !expandedTask) setExpandedId(null);
   }, [expandedId, expandedTask]);
+
+  const expandedToolCallId = expandedTask?.toolCallId;
+  const expandedSessionId = expandedTask?.sessionId;
+  const expandedStatus = expandedTask?.status;
+
+  useEffect(() => {
+    if (
+      !showBody ||
+      !expandedToolCallId ||
+      !expandedSessionId ||
+      expandedStatus !== "running"
+    ) {
+      return;
+    }
+    startBackgroundTaskStream(expandedSessionId, expandedToolCallId);
+    return () => stopBackgroundTaskStream(expandedToolCallId);
+  }, [showBody, expandedToolCallId, expandedSessionId, expandedStatus]);
 
   useLayoutEffect(() => {
     if (!showBody) return;
