@@ -69,9 +69,11 @@ import styles from "./sidebarSessionList.module.less";
 /**
  * Fixed row metrics of the virtualized session list. The CSS in
  * sessionItem / SessionGroupHeader / SessionDateHeader must render
- * exactly these heights (row = padding + line-height + margin).
+ * exactly these outer heights (row = padding + line-height + margin),
+ * otherwise the row margin collapses into the next row and adjacent
+ * hover/active backgrounds touch.
  */
-const SESSION_ROW_HEIGHT = 36;
+const SESSION_ROW_HEIGHT = 38;
 const GROUP_HEADER_HEIGHT = 36;
 const DATE_HEADER_HEIGHT = 20;
 

@@ -759,7 +759,7 @@ describe("SidebarSessionList", () => {
       }));
     }
 
-    it("allocates 36px session rows and 36px group headers", async () => {
+    it("allocates 38px session rows and 36px group headers", async () => {
       localStorage.setItem("qwenpaw_session_group_mode", "source");
       mockData(conversationFixture(12));
       renderWithProviders(<SidebarSessionList />);
@@ -768,10 +768,11 @@ describe("SidebarSessionList", () => {
       });
       const list = mockListProps.current;
       expect(list).toBeTruthy();
-      // rows: groupHeader(default, 12) followed by all 12 sessions
+      // rows: groupHeader(default, 12) followed by all 12 sessions;
+      // session pitch includes the 2px row margin
       expect(list!.itemSize(0)).toBe(36);
-      expect(list!.itemSize(1)).toBe(36);
-      expect(list!.itemSize(11)).toBe(36);
+      expect(list!.itemSize(1)).toBe(38);
+      expect(list!.itemSize(11)).toBe(38);
     });
 
     it("allocates 20px date headers in date mode", async () => {
@@ -783,7 +784,7 @@ describe("SidebarSessionList", () => {
       const list = mockListProps.current!;
       // rows: dateHeader(today), session
       expect(list.itemSize(0)).toBe(20);
-      expect(list.itemSize(1)).toBe(36);
+      expect(list.itemSize(1)).toBe(38);
     });
   });
 
