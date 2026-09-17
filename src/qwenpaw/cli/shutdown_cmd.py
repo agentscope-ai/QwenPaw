@@ -18,7 +18,6 @@ from .process_utils import (
 )
 from .windows_shutdown import signal_shutdown_event
 
-
 _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 _CONSOLE_DIR = (_PROJECT_ROOT / "console").resolve()
 _SIGTERM = signal.SIGTERM
@@ -290,9 +289,29 @@ def _force_terminate_windows_process(pid: int) -> None:
 def _terminate_pid(
     pid: int,
     timeout_sec: float = _GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
+    process: subprocess.Popen[str] | None = None,
 ) -> bool:
-    """Terminate a process tree gracefully, then force kill if needed."""
-    if not _pid_exists(pid):
+    """Terminate a process tree gracefully, then force kill if needed.
+
+    When the process is our child, wait on Popen to reap its exit status.
+    A departed, unreaped child still appears to exist to os.kill(pid, 0).
+    """
+
+    def has_exited() -> bool:
+        if process is not None:
+            return process.poll() is not None
+        return not _pid_exists(pid)
+
+    def wait_for_exit(timeout: float, interval: float) -> bool:
+        if process is not None:
+            try:
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                return False
+            return True
+        return _wait_for_pid_exit(pid, timeout, interval)
+
+    if has_exited():
         return True
 
     deadline = time.monotonic() + timeout_sec
@@ -305,22 +324,18 @@ def _terminate_pid(
     else:
         _signal_process_tree_unix(pid, _SIGTERM)
 
-    if _wait_for_pid_exit(
-        pid,
-        max(0.0, deadline - time.monotonic()),
-        0.2,
-    ):
+    if wait_for_exit(max(0.0, deadline - time.monotonic()), 0.2):
         return True
 
     if sys.platform == "win32":
         _terminate_process_tree_windows(pid, force=True, timeout_sec=2.0)
-        if _wait_for_pid_exit(pid, 2.0, 0.1):
+        if wait_for_exit(2.0, 0.1):
             return True
         _force_terminate_windows_process(pid)
     else:
         _signal_process_tree_unix(pid, _SIGKILL)
 
-    return _wait_for_pid_exit(pid, 2.0, 0.1)
+    return wait_for_exit(2.0, 0.1)
 
 
 def _stop_pid_set(pids: set[int]) -> tuple[list[int], list[int]]:

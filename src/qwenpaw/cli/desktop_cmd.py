@@ -189,10 +189,7 @@ def _stream_reader(in_stream, out_stream) -> None:
 def _shutdown_backend_process(proc: subprocess.Popen[str]) -> bool:
     """Gracefully stop a desktop backend, with the shared force fallback."""
     try:
-        if not _terminate_pid(proc.pid):
-            return False
-        proc.wait(timeout=1.0)
-        return True
+        return _terminate_pid(proc.pid, process=proc)
     except (ProcessLookupError, OSError, subprocess.TimeoutExpired):
         return False
 
