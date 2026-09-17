@@ -47,6 +47,9 @@ def test_sync_loaded_qwenpaw_constant_cors_origins(monkeypatch):
 
 
 def test_install_certifi_env_sets_bundle_paths(monkeypatch, tmp_path):
+    # The helper writes directly to os.environ. Isolate the mapping so absent
+    # keys are restored too; delenv alone cannot undo keys added by the helper.
+    monkeypatch.setattr(os, "environ", os.environ.copy())
     cert_file = tmp_path / "cacert.pem"
     cert_file.write_text("test cert", encoding="utf-8")
     monkeypatch.delenv("SSL_CERT_FILE", raising=False)

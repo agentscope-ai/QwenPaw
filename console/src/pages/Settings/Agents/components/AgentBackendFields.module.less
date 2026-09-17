@@ -11,13 +11,13 @@
   --abf-icon: #79685b;
   --abf-icon-muted: #9a8d83;
 
-  --abf-accent: #d45f00;
-  --abf-accent-border: rgba(255, 127, 22, 0.55);
+  --abf-accent: var(--app-accent);
+  --abf-accent-border: var(--app-accent-border);
   --abf-accent-border-selected: var(--app-accent);
-  --abf-accent-bg: #fff6ed;
-  --abf-accent-bg-soft: #ffe8d3;
-  --abf-accent-bg-faint: rgba(255, 127, 22, 0.035);
-  --abf-accent-bg-hover: rgba(255, 127, 22, 0.1);
+  --abf-accent-bg: var(--app-accent-soft);
+  --abf-accent-bg-soft: var(--app-accent-soft-hover);
+  --abf-accent-bg-faint: var(--app-accent-faint);
+  --abf-accent-bg-hover: var(--app-accent-soft-hover);
 
   --abf-surface: #fffdfa;
   --abf-surface-hover: #fffdfa;
@@ -41,7 +41,7 @@
   --abf-ok-text: #357544;
 
   --abf-shadow-hover: 0 8px 24px rgba(186, 83, 0, 0.09);
-  --abf-shadow-selected: inset 0 0 0 1px rgba(255, 127, 22, 0.14);
+  --abf-shadow-selected: inset 0 0 0 1px var(--app-accent-border);
   --abf-shadow-card: 0 5px 16px rgba(186, 83, 0, 0.08);
 }
 
@@ -495,13 +495,13 @@
   --abf-icon: #bca99a;
   --abf-icon-muted: #8f837a;
 
-  --abf-accent: #ff9a47;
-  --abf-accent-border: rgba(255, 127, 22, 0.68);
-  --abf-accent-border-selected: #e87313;
-  --abf-accent-bg: rgba(255, 127, 22, 0.12);
-  --abf-accent-bg-soft: rgba(255, 127, 22, 0.16);
-  --abf-accent-bg-faint: rgba(255, 127, 22, 0.06);
-  --abf-accent-bg-hover: rgba(255, 127, 22, 0.12);
+  --abf-accent: var(--app-accent);
+  --abf-accent-border: var(--app-accent-border);
+  --abf-accent-border-selected: var(--app-accent);
+  --abf-accent-bg: var(--app-accent-soft);
+  --abf-accent-bg-soft: var(--app-accent-soft-hover);
+  --abf-accent-bg-faint: var(--app-accent-faint);
+  --abf-accent-bg-hover: var(--app-accent-soft-hover);
 
   --abf-surface: #211e1b;
   --abf-surface-hover: #26211d;
@@ -510,8 +510,8 @@
   --abf-panel-from: #211d19;
   --abf-panel-to: #191817;
   --abf-provider-bg: rgba(255, 255, 255, 0.025);
-  --abf-provider-bg-hover: rgba(255, 127, 22, 0.07);
-  --abf-provider-bg-selected: rgba(255, 127, 22, 0.09);
+  --abf-provider-bg-hover: var(--app-accent-faint);
+  --abf-provider-bg-selected: var(--app-accent-soft);
   --abf-provider-bg-disabled: rgba(255, 255, 255, 0.018);
   --abf-row-bg: rgba(255, 255, 255, 0.035);
   --abf-radio-bg: #211d19;

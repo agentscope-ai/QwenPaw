@@ -41,6 +41,14 @@ function formatDateLabel(dateStr: string, crossesYear: boolean): string {
   return crossesYear ? date.format("YY/MM-DD") : date.format("MM-DD");
 }
 
+function readCssColor(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  return (
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim() ||
+    fallback
+  );
+}
+
 function getColumnConfig(
   chartData: ChartDataItem[],
   series: ColumnSeries[],
@@ -100,6 +108,7 @@ function AgentStatsPage() {
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const { isDark: isDarkMode } = useTheme();
+  const accentColor = readCssColor("--app-accent", "#ff7f16");
   const { selectedAgent, agents } = useAgentStore();
   const selectedAgentInfo = agents.find((a) => a.id === selectedAgent);
   const agentName = selectedAgentInfo
@@ -199,11 +208,11 @@ function AgentStatsPage() {
           { key: "chats", label: t("agentStats.newSessions") },
           { key: "activeSessions", label: t("agentStats.activeSessions") },
         ],
-        ["#ff7f16", "#3b82f6"],
+        [accentColor, "#3b82f6"],
         isDarkMode,
         crossesYear,
       ),
-    [chartData, t, isDarkMode, crossesYear],
+    [accentColor, chartData, t, isDarkMode, crossesYear],
   );
 
   const agentTokenColumnConfig = useMemo(() => {

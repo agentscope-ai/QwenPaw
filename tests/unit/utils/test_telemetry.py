@@ -20,6 +20,13 @@ from qwenpaw.utils.telemetry import (
     mark_telemetry_collected,
 )
 
+
+@pytest.fixture
+def telemetry_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exercise normal telemetry behavior with mocked uploads only."""
+    monkeypatch.delenv("QWENPAW_TELEMETRY_DISABLED", raising=False)
+
+
 # ---------------------------------------------------------------------------
 # _safe_get
 # ---------------------------------------------------------------------------
@@ -116,22 +123,26 @@ def test_has_collected_corrupt_marker(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("telemetry_enabled")
 def test_opted_out_no_marker(tmp_path: Path) -> None:
     assert is_telemetry_opted_out(tmp_path) is False
 
 
+@pytest.mark.usefixtures("telemetry_enabled")
 def test_opted_out_true(tmp_path: Path) -> None:
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text(json.dumps({"opted_out": True}))
     assert is_telemetry_opted_out(tmp_path) is True
 
 
+@pytest.mark.usefixtures("telemetry_enabled")
 def test_opted_out_false(tmp_path: Path) -> None:
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text(json.dumps({"opted_out": False}))
     assert is_telemetry_opted_out(tmp_path) is False
 
 
+@pytest.mark.usefixtures("telemetry_enabled")
 def test_opted_out_corrupt(tmp_path: Path) -> None:
     marker = tmp_path / TELEMETRY_MARKER_FILE
     marker.write_text("{bad json")
@@ -273,6 +284,7 @@ def test_detect_gpu_no_gpu_found(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("telemetry_enabled")
 def test_collect_and_upload_success(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -298,6 +310,7 @@ def test_collect_and_upload_success(
     assert (tmp_path / TELEMETRY_MARKER_FILE).exists()
 
 
+@pytest.mark.usefixtures("telemetry_enabled")
 def test_collect_and_upload_failure_still_marks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -2,7 +2,7 @@
 name: make-skill
 description: "Create a focused workspace Skill from reusable decisions, knowledge, templates, or workflows in the current conversation. Use for /make-skill with a focus argument and requests such as save this workflow or turn this into a skill; do not use for one-off summaries or ordinary file creation."
 metadata:
-  builtin_skill_version: "2.0"
+  builtin_skill_version: "2.1"
   qwenpaw:
     emoji: "✍️"
     requires: {}
@@ -10,9 +10,23 @@ metadata:
 
 # Make Skill
 
-Create one new workspace Skill from the raw current conversation. Use the scripts in this directory for the lifecycle below; do not rely on a make-skill-specific core tool, mode, or state store.
+Create one new workspace Skill from the current conversation through planning, user approval, draft authoring, validation, and publication.
 
-Run each documented `python scripts/...` command through `execute_shell_command`, setting `cwd` to this Skill's `<dir>` from the available-skills entry; every script reads one JSON object from stdin (or `--input <file>`) and writes one JSON object to stdout.
+Resolve `<workspace>` from the runtime directory context: use the current agent's absolute workspace path (also the working directory when no separate project is configured). Pass that same value throughout the lifecycle, independently of the task's project directory and the script `cwd`. Lifecycle artifacts belong under `<workspace>/.qwenpaw/make-skill/`; published Skills belong under `<workspace>/skills/`.
+
+## Script interface
+
+Run `python scripts/<script>` through `execute_shell_command`, setting `cwd` to this Skill's `<dir>` from the available-skills entry. Each script reads one JSON object from stdin (or `--input <file>`) and returns one JSON object. Every input includes `workspace`; the table lists the other top-level fields.
+
+| Operation | Script | Other input fields | Successful result |
+|---|---|---|---|
+| Create a plan | `create_plan.py` | `plan` | `plan_id`, normalized `plan` |
+| Revise that plan | `create_plan.py` | `plan_id`, complete new `plan` | Same `plan_id`, normalized `plan` |
+| Initialize after approval | `init_draft.py` | `plan_id` | `draft_id`, `skill_dir` |
+| Validate a draft | `validate_skill.py` | `draft_id` | `digest` |
+| Publish a validated draft | `publish_skill.py` | `draft_id`, `expected_digest` from validation | Publication result |
+
+`plan_id` identifies one editable plan; keep it across revisions, including renames. `draft_id` identifies the initialized draft for validation, testing, and publication; `skill_dir` is where its package files belong. Use the returned values unchanged, not IDs inferred from names or paths.
 
 ## Plan
 
@@ -24,27 +38,34 @@ Read [primary type and package](references/type-and-package.md), then choose one
 
 A stored batch is a parameterized `run_tool_batch` program bundled with a workflow Skill. Use `batch: true` when a reusable region's actions, branches, and success condition can be stated before execution and one stored entrypoint saves meaningful agent-tool round trips. The region may be the whole workflow, one substantial helper, or one semantic tool-native action; action count is not the criterion. Runtime data, observations, and a final agent review do not prevent batching when the rule for handling them is already known.
 
-Use `batch: false` only when execution must invent the next action or success condition at runtime, or a shared entrypoint has no practical reuse value. If the user explicitly requests Batch, treat it as an approved plan refinement and revise the plan without reopening eligibility.
+Use `batch: false` only when execution must invent the next action or success condition at runtime, or a shared entrypoint has no practical reuse value. If the user explicitly requests Batch, apply that choice to the plan without reopening eligibility.
 
 Only after selecting `batch: true`, read [run batch](references/run-batch.md) before finalizing the workflow and file tree. When `batch: false`, do not read it.
 
-Planning is read-only except for running `python scripts/create_plan.py`: use conversation evidence and existing artifacts, but do not execute or probe the proposed workflow, create files, or initialize a draft. Pass the candidate through stdin:
+### Save and review the plan
+
+Planning is read-only except for saving the plan through `create_plan.py`: use conversation evidence and existing artifacts, but do not execute or probe the proposed workflow, create package files, or initialize a draft. For first creation, omit `plan_id` and pass a complete candidate:
 
 ```json
 {
-  "revision": 1,
-  "focus": "One-sentence extraction scope",
-  "name": "lowercase-hyphen-name",
-  "goal": "Outcome for a future agent",
-  "type": "workflow",
-  "batch": true,
-  "steps": ["A user-reviewable workflow step"],
-  "package": ["SKILL.md", "scripts/run.batch.json"],
-  "execution": "foreground",
-  "test": {"mode": "off", "target": ""},
-  "warnings": []
+  "workspace": "<workspace>",
+  "plan": {
+    "revision": 1,
+    "focus": "One-sentence extraction scope",
+    "name": "lowercase-hyphen-name",
+    "goal": "Outcome for a future agent",
+    "type": "workflow",
+    "batch": true,
+    "steps": ["A user-reviewable workflow step"],
+    "package": ["SKILL.md", "scripts/run.batch.json"],
+    "execution": "foreground",
+    "test": {"mode": "off", "target": ""},
+    "warnings": []
+  }
 }
 ```
+
+To revise, add the returned `plan_id` to the top-level input above and replace `plan` with the complete revised candidate, not a partial patch. This updates the existing plan without creating a copy. If an update reports `missing-plan`, return to planning and approval instead of building. A saved plan is not evidence of user approval.
 
 Render the normalized plan in English and show the selected value together with every available choice so the user can revise it without knowing the schema. The user-visible plan must contain this compact options table; do not replace it with prose or an approval hint. Omit the `Batch` row for a non-workflow:
 
@@ -55,21 +76,21 @@ Render the normalized plan in English and show the selected value together with 
 | Execution | foreground or background | foreground / background |
 | Behavior test | current English label | off / smoke / eval (full behavioral evaluation) |
 
-Also show the name, goal, workflow, complete file tree, test target when applicable, and warnings. Pass the internal values `instruction/template/workflow`, `true/false`, `foreground/background`, and `off/smoke/eval` to the script. Do not invent a `full` enum or any choice outside the script schema. Do not show a Batch closing reason, schema, revision, or internal enum. Ask the user to approve, modify, or cancel, then end the response without further tool calls. Continue in a later turn only after a new user message clearly approves the displayed revision.
+Also show the name, goal, workflow, complete file tree, test target when applicable, and warnings. Pass the internal values `instruction/template/workflow`, `true/false`, `foreground/background`, and `off/smoke/eval` to the script. Do not invent a `full` enum or any choice outside the script schema. Do not show a Batch closing reason, schema, revision, or internal enum. Ask the user to approve, modify, or cancel, then end the response without further tool calls.
 
-- After a modification, merge the latest feedback, increment `revision`, rerun `create_plan.py`, and show the complete returned plan.
-- Stop on cancellation; ask one short confirmation for an ambiguous reply.
+Only a new user message explicitly approving the latest displayed `create_plan.py` result permits Build. Invoking `/make-skill` starts planning; earlier task discussion or a hand-written outline does not replace this plan and approval step.
+
+- After a modification, merge the feedback, increment `revision`, and update the same plan. Revise serially within the current conversation, then show the complete returned plan for approval; earlier approval does not carry over.
+- Stop on cancellation, retaining the plan without creating a draft. Distinguish acknowledgment from approval; if the user's intent is unclear, ask one brief confirmation and wait.
 - Do not ask separately about execution or testing.
 
 This version creates new Skills only. Resolve a name conflict through a newly approved revision; never overwrite an existing Skill.
 
 ## Build
 
-After approval, run `python scripts/init_draft.py` with JSON through stdin:
+After approval, run `init_draft.py` with the saved `plan_id`. Initialization snapshots the current plan into a new draft; later plan edits do not update that draft. It does not accept an inline replacement. If the plan is missing or invalid, return to planning instead of proceeding to Build.
 
-```json
-{"workspace": "/workspace/path", "plan": {"...": "complete normalized plan"}}
-```
+`execution` selects whether the current agent or a background subagent completes Skill creation. After initialization, for `background`, use `spawn_subagent` with `background: true` and give the generic subagent the complete approved plan, latest corrections, `workspace`, `draft_id`, and `skill_dir` to author the files, validate, run the approved behavior test, and publish without requesting approval again. Report the creation result when finished; running the generated Skill outside the approved behavior test requires a separate user request.
 
 Create only approved files under the returned `skill_dir`. Start the generated `SKILL.md` with valid frontmatter:
 
@@ -84,22 +105,12 @@ Keep the body to essential procedure and constraints without repeating the descr
 
 Before validation, read the package from the perspective of a future agent that cannot see the source conversation. Remove references to source task directories, prior outputs, temporary IDs, current-case examples, or make-skill draft/publish language unless that resource is deliberately packaged and reusable. When adapting an existing helper, generalize its paths, docstrings, and reporting, and check that its implementation still matches the final reusable rules. Keep this as one authoring pass; do not add case-specific lifecycle checks.
 
-For background execution, give the generic subagent the complete approved plan, latest corrections, draft path, and the remaining gates; it must not request approval again.
-
 ## Validate, test, and publish
 
-Before executing any draft script or batch, run `python scripts/validate_skill.py` with JSON through stdin:
-
-```json
-{"workspace": "/workspace/path", "draft_id": "returned-draft-id"}
-```
+Before executing any draft script or batch, run `validate_skill.py` for the initialized draft.
 
 Fix reported static or security errors in the draft and validate again. Testing is independent of Batch: run exactly the approved behavior test according to [behavior testing](references/behavior-testing.md), and let `off` perform no draft execution. When a test or Batch run fails, retain the draft, report the concrete error, revise the Skill if the correction is clear, then validate again; do not hide the failure behind a fallback.
 
-Publish the unchanged validated draft by running `python scripts/publish_skill.py` with JSON through stdin:
-
-```json
-{"workspace": "/workspace/path", "draft_id": "returned-draft-id", "expected_digest": "digest-from-validation"}
-```
+Publish the unchanged validated draft with `publish_skill.py`, using the validation result's `digest` as `expected_digest`.
 
 On success, report the package tree, validation summary, test result when one ran, and invocation `/<name>`. On conflict or failure, retain the draft and report the error. Publishing a Skill is already persistent; do not also write it to `MEMORY.md` or daily memory unless the user separately asks.

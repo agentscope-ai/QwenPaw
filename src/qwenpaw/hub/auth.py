@@ -14,6 +14,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from typing import NoReturn
 
 from .credentials import TenantCredentialVault
 from .database import (
@@ -25,6 +26,10 @@ from .database import (
 
 _PASSWORD_ITERATIONS = 600_000
 _TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60
+
+
+class HubDatabaseBusyError(RuntimeError):
+    """Raised when SQLite cannot acquire the Hub write lock in time."""
 
 
 @dataclass(frozen=True)
@@ -64,6 +69,17 @@ class HubUser:
         }
 
 
+@dataclass(frozen=True)
+class _PreparedUser:
+    """Password material prepared before opening a write transaction."""
+
+    user_id: str
+    username: str
+    password_hash: str
+    password_salt: str
+    created_at: str
+
+
 class HubAuthService:
     """Persist users and issue versioned HMAC bearer tokens."""
 
@@ -96,11 +112,7 @@ class HubAuthService:
 
     def user_count(self) -> int:
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT COUNT(*) AS count FROM hub_users "
-                "WHERE deleted_at IS NULL",
-            ).fetchone()
-        return int(row["count"])
+            return self._user_count(connection)
 
     def has_enabled_admin(self) -> bool:
         """Return whether public startup has an initialized administrator."""
@@ -114,35 +126,67 @@ class HubAuthService:
 
     def registration_enabled(self) -> bool:
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT value_json FROM hub_settings WHERE key = ?",
-                ("registration_enabled",),
-            ).fetchone()
-        return row is not None and bool(json.loads(str(row["value_json"])))
+            return self._registration_enabled(connection)
 
     def register(self, username: str, password: str) -> tuple[HubUser, str]:
         """Bootstrap the first admin or register a user when enabled."""
-        with self._registration_lock:
-            first_user = self.user_count() == 0
-            if not first_user and not self.registration_enabled():
-                raise PermissionError("Registration is disabled.")
-            user = self.create_user(
-                username=username,
-                password=password,
-                role=(
-                    "admin"
-                    if first_user
-                    else self._registration_default_role()
-                ),
-            )
-            return user, self.create_token(user)
-
-    def _registration_default_role(self) -> str:
         with self._connect() as connection:
-            row = connection.execute(
-                "SELECT value_json FROM hub_settings WHERE key = ?",
-                ("registration_default_role",),
-            ).fetchone()
+            has_users = self._user_count(connection) > 0
+            if has_users and not self._registration_enabled(connection):
+                raise PermissionError("Registration is disabled.")
+        prepared = self._prepare_user(username, password)
+        with self._registration_lock:
+            try:
+                with self._connect() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    first_user = self._user_count(connection) == 0
+                    if not first_user and not self._registration_enabled(
+                        connection,
+                    ):
+                        raise PermissionError("Registration is disabled.")
+                    role = (
+                        "admin"
+                        if first_user
+                        else self._registration_default_role(connection)
+                    )
+                    user = self._insert_user(connection, prepared, role)
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Username already exists: {prepared.username}",
+                ) from exc
+            except sqlite3.OperationalError as exc:
+                self._raise_database_busy(exc)
+        return user, self.create_token(user)
+
+    def initialize_admin(self, username: str, password: str) -> HubUser:
+        """Create the first administrator from a trusted local command."""
+        prepared = self._prepare_user(username, password)
+        with self._registration_lock:
+            try:
+                with self._connect() as connection:
+                    connection.execute("BEGIN IMMEDIATE")
+                    if self._user_count(connection) > 0:
+                        raise PermissionError("Hub is already initialized.")
+                    return self._insert_user(
+                        connection,
+                        prepared,
+                        "admin",
+                    )
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(
+                    f"Username already exists: {prepared.username}",
+                ) from exc
+            except sqlite3.OperationalError as exc:
+                self._raise_database_busy(exc)
+
+    @staticmethod
+    def _registration_default_role(
+        connection: sqlite3.Connection,
+    ) -> str:
+        row = connection.execute(
+            "SELECT value_json FROM hub_settings WHERE key = ?",
+            ("registration_default_role",),
+        ).fetchone()
         if row is None:
             return "user"
         return str(json.loads(str(row["value_json"])))
@@ -155,53 +199,100 @@ class HubAuthService:
         role: str = "user",
     ) -> HubUser:
         """Create an account with a stable ID and PBKDF2 password hash."""
-        normalized_username = username.strip()
-        self._validate_credentials(normalized_username, password)
+        prepared = self._prepare_user(username, password)
         if role not in {"admin", "user"}:
             raise ValueError(f"Invalid role: {role}")
-        salt = secrets.token_bytes(16)
-        password_hash = self._hash_password(password, salt)
-        now = utc_now()
-        user_id = uuid.uuid4().hex
         try:
             with self._connect() as connection:
-                tenant_id = f"personal-{user_id}"
-                ensure_tenant(
-                    connection,
-                    tenant_id,
-                    tenant_type="personal",
-                    display_name=normalized_username,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO hub_users(
-                        user_id, username, password_hash, password_salt,
-                        role, disabled, token_version, profile_json,
-                        preferences_json, metadata_json, revision,
-                        created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?, ?, 1, ?, ?)
-                    """,
-                    (
-                        user_id,
-                        normalized_username,
-                        password_hash,
-                        salt.hex(),
-                        role,
-                        '{"schema_version":1}',
-                        '{"schema_version":1}',
-                        '{"schema_version":1}',
-                        now,
-                        now,
-                    ),
-                )
+                return self._insert_user(connection, prepared, role)
         except sqlite3.IntegrityError as exc:
             raise ValueError(
-                f"Username already exists: {normalized_username}",
+                f"Username already exists: {prepared.username}",
             ) from exc
-        user = self.get_user(user_id)
-        if user is None:
-            raise RuntimeError(f"Failed to load created user: {user_id}")
-        return user
+
+    def _prepare_user(self, username: str, password: str) -> _PreparedUser:
+        """Validate and hash credentials before a database write lock."""
+        normalized_username = username.strip()
+        self._validate_credentials(normalized_username, password)
+        salt = secrets.token_bytes(16)
+        return _PreparedUser(
+            user_id=uuid.uuid4().hex,
+            username=normalized_username,
+            password_hash=self._hash_password(password, salt),
+            password_salt=salt.hex(),
+            created_at=utc_now(),
+        )
+
+    def _insert_user(
+        self,
+        connection: sqlite3.Connection,
+        prepared: _PreparedUser,
+        role: str,
+    ) -> HubUser:
+        """Insert one prepared user through the caller-owned transaction."""
+        ensure_tenant(
+            connection,
+            f"personal-{prepared.user_id}",
+            tenant_type="personal",
+            display_name=prepared.username,
+        )
+        connection.execute(
+            """
+            INSERT INTO hub_users(
+                user_id, username, password_hash, password_salt,
+                role, disabled, token_version, profile_json,
+                preferences_json, metadata_json, revision,
+                created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, 0, 1, ?, ?, ?, 1, ?, ?)
+            """,
+            (
+                prepared.user_id,
+                prepared.username,
+                prepared.password_hash,
+                prepared.password_salt,
+                role,
+                '{"schema_version":1}',
+                '{"schema_version":1}',
+                '{"schema_version":1}',
+                prepared.created_at,
+                prepared.created_at,
+            ),
+        )
+        row = connection.execute(
+            "SELECT * FROM hub_users WHERE user_id = ?",
+            (prepared.user_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"Failed to load created user: {prepared.user_id}",
+            )
+        return self._user_from_row(row)
+
+    @staticmethod
+    def _user_count(connection: sqlite3.Connection) -> int:
+        row = connection.execute(
+            "SELECT COUNT(*) AS count FROM hub_users "
+            "WHERE deleted_at IS NULL",
+        ).fetchone()
+        return int(row["count"])
+
+    @staticmethod
+    def _registration_enabled(connection: sqlite3.Connection) -> bool:
+        row = connection.execute(
+            "SELECT value_json FROM hub_settings WHERE key = ?",
+            ("registration_enabled",),
+        ).fetchone()
+        return row is not None and bool(json.loads(str(row["value_json"])))
+
+    @staticmethod
+    def _raise_database_busy(exc: sqlite3.OperationalError) -> NoReturn:
+        error_code = getattr(exc, "sqlite_errorcode", None)
+        base_code = error_code & 0xFF if isinstance(error_code, int) else None
+        if base_code in {sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED}:
+            raise HubDatabaseBusyError(
+                "Hub database is busy; retry shortly.",
+            ) from exc
+        raise exc
 
     def authenticate(
         self,

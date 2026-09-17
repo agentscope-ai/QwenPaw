@@ -60,6 +60,8 @@
 
 ## Новости
 
+- [2026-09-10] **v2.2.1** | Рабочее пространство Blueprint в Creator 1.2, маршрутизация моделей для отдельных агентов и единое управление средой. [Release Notes v2.2.1 →](https://qwenpaw.agentscope.io/release-notes#v2.2.1)
+
 - [2026-09-03] **v2.2.0** | Самостоятельно размещаемый многопользовательский QwenPaw Hub, QwenPaw Mail, нативный QwenPaw Data, единая маршрутизация моделей, Creator 1.1 и крупные улучшения Market, Console, Skills, каналов и надежности. [Release Notes v2.2.0 →](https://qwenpaw.agentscope.io/release-notes#v2.2.0)
 
 - [2026-08-13] **v2.1.0** | QwenPaw OS Shell, единое файловое пространство, QwenPaw Creator, интеграция агентов Codex/Qoder, Browser-use, Computer-use, контрольные точки и продолжение длительных задач в диалоге. [Release Notes v2.1.0 →](https://qwenpaw.agentscope.io/release-notes#v2.1.0)

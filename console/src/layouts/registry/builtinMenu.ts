@@ -28,6 +28,7 @@ import {
   SparkDataLine,
   SparkDateLine,
   SparkDebugLine,
+  SparkDownloadLine,
   SparkEmailLine,
   SparkFile2Line,
   SparkHistoryLine,
@@ -72,6 +73,14 @@ export const BUILTIN_MENU: MenuItem[] = [
     icon: SparkMyApplicationLine,
     route: "core.marketplace",
     order: 15,
+  },
+  {
+    id: "core.import",
+    location: "primary.agentScoped",
+    label: navLabel("nav.import", "Import"),
+    icon: SparkDownloadLine,
+    route: "core.import",
+    order: 17,
   },
 
   // control-group

@@ -24,6 +24,7 @@ import type {
   CronJobExecutionRecord,
   CronJobSpecOutput,
 } from "../../../api/types";
+import { requiresCronImportReview } from "../../../api/types";
 import { useTranslation } from "react-i18next";
 import api from "../../../api";
 import {
@@ -70,6 +71,8 @@ function CronJobsPage() {
     deleteJob,
     toggleEnabled,
     executeNow,
+    promoteImportedJob,
+    promotingJobIds,
   } = useCronJobs();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingJob, setEditingJob] = useState<CronJob | null>(null);
@@ -218,6 +221,10 @@ function CronJobsPage() {
       ...job,
       request: {
         ...job.request,
+        model_slot_override:
+          job.request?.model_slot_override ??
+          job.request?.request_context?.model_slot_override ??
+          null,
         input: job.request?.input
           ? JSON.stringify(job.request.input, null, 2)
           : "",
@@ -289,6 +296,19 @@ function CronJobsPage() {
       cancelText: t("cronJobs.cancelText"),
       onOk: async () => {
         await executeNow(job.id);
+      },
+    });
+  };
+
+  const handlePromoteImported = (job: CronJob) => {
+    Modal.confirm({
+      title: t("cronJobs.importReviewTitle"),
+      content: t("cronJobs.importReviewContent", { name: job.name }),
+      okText: t("cronJobs.importReviewConfirm"),
+      okType: "primary",
+      cancelText: t("cronJobs.cancelText"),
+      onOk: async () => {
+        await promoteImportedJob(job.id);
       },
     });
   };
@@ -392,6 +412,16 @@ function CronJobsPage() {
         processedValues.request = {};
       }
 
+      if (processedValues.request.model_slot_override === null) {
+        delete processedValues.request.model_slot_override;
+        if (processedValues.request.request_context) {
+          processedValues.request.request_context = {
+            ...processedValues.request.request_context,
+          };
+          delete processedValues.request.request_context.model_slot_override;
+        }
+      }
+
       // Parse request input JSON
       if (
         processedValues.request?.input &&
@@ -426,9 +456,11 @@ function CronJobsPage() {
   const columns = createColumns({
     onToggleEnabled: handleToggleEnabled,
     onExecuteNow: handleExecuteNow,
+    onPromoteImported: handlePromoteImported,
     onViewHistory: handleViewHistory,
     onEdit: handleEdit,
     onDelete: handleDelete,
+    promotingJobIds,
     t,
   });
 
@@ -650,7 +682,11 @@ function CronJobsPage() {
                   <span className={styles.mobileJobName}>{job.name}</span>
                   <span
                     className={`${styles.mobileJobStatus} ${
-                      job.enabled ? styles.enabled : ""
+                      requiresCronImportReview(job)
+                        ? styles.importReview
+                        : job.enabled
+                        ? styles.enabled
+                        : ""
                     }`}
                   >
                     <span
@@ -658,16 +694,32 @@ function CronJobsPage() {
                         job.enabled ? styles.enabled : styles.disabled
                       }`}
                     />
-                    {job.enabled ? t("common.enabled") : t("common.disabled")}
+                    {requiresCronImportReview(job)
+                      ? t("cronJobs.importReviewBadge")
+                      : job.enabled
+                      ? t("common.enabled")
+                      : t("common.disabled")}
                   </span>
                 </div>
                 <div className={styles.mobileJobSchedule}>
                   {formatSchedule(job)}
                 </div>
                 <div className={styles.mobileJobActions}>
+                  {requiresCronImportReview(job) && (
+                    <Button
+                      size="small"
+                      type="primary"
+                      className={styles.mobileActionBtn}
+                      loading={promotingJobIds.has(job.id)}
+                      onClick={() => handlePromoteImported(job)}
+                    >
+                      {t("cronJobs.importReviewApprove")}
+                    </Button>
+                  )}
                   <Button
                     size="small"
                     className={styles.mobileActionBtn}
+                    disabled={requiresCronImportReview(job)}
                     onClick={() => toggleEnabled(job)}
                   >
                     {job.enabled ? t("cronJobs.disable") : t("common.enable")}
@@ -675,6 +727,7 @@ function CronJobsPage() {
                   <Button
                     size="small"
                     className={styles.mobileActionBtn}
+                    disabled={requiresCronImportReview(job)}
                     onClick={() => executeNow(job.id as string)}
                   >
                     {t("cronJobs.executeNow")}

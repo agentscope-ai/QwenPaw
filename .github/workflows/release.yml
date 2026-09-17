@@ -722,8 +722,27 @@ jobs:
             --meta "Cache-Control:public, max-age=60, must-revalidate"
 
   # ── Finalize: flip the draft to published LAST (pinned to the built SHA) ────
+  # ── Release-time full test gate (plan v1.6 item 1-6) ─────────────────────
+  # Runs the complete backend matrix (4 OS x unit/contract/integration p0-p2)
+  # plus the reviewed E2E blocking set against the exact SHA being released.
+  # Invokes full-tests-nightly.yml in its "release" form so no matrix is
+  # duplicated. finalize needs this job, so a red gate means the draft is
+  # never flipped to published.
+  #
+  # E2E scope in this form (maintainer decision 2026-09-09): the p0 blocking
+  # set only (64 reviewed node ids, see .github/ci/e2e-release-gate-manifest.md);
+  # the 7 currently-red p0 cases run as report-only (e2e-release-watch) and
+  # p1/p2 stay in the nightly form. Backend tiers are fully blocking here.
+  full-test-gate:
+    needs: [resolve]
+    uses: ./.github/workflows/full-tests-nightly.yml
+    with:
+      form: release
+      coverage_platforms: all
+    secrets: inherit
+
   finalize:
-    needs: [resolve, publish-pypi, push-docker, publish-desktop, publish-plugins]
+    needs: [resolve, publish-pypi, push-docker, publish-desktop, publish-plugins, full-test-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Publish the release

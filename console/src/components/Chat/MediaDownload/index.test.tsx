@@ -20,22 +20,24 @@ vi.mock("../../../utils/downloadFileFromUrl", () => ({
   downloadFileFromUrl,
 }));
 
-vi.mock("@agentscope-ai/chat/lib/DefaultCards/Audios", () => ({
-  default: () => (
-    <div data-testid="audio-card">
-      <div className="spark-media-player-controller">
-        <button type="button" data-testid="play-button">
-          play
-        </button>
-        <button type="button" data-testid="volume-button">
-          volume
-        </button>
-        <span>00:00</span>
-        <div className="spark-media-progress-container" />
-        <span>00:00</span>
+vi.mock("@agentscope-ai/chat", () => ({
+  DefaultCards: {
+    Audios: () => (
+      <div data-testid="audio-card">
+        <div className="spark-media-player-controller">
+          <button type="button" data-testid="play-button">
+            play
+          </button>
+          <button type="button" data-testid="volume-button">
+            volume
+          </button>
+          <span>00:00</span>
+          <div className="spark-media-progress-container" />
+          <span>00:00</span>
+        </div>
       </div>
-    </div>
-  ),
+    ),
+  },
 }));
 
 vi.mock("react-i18next", () => ({

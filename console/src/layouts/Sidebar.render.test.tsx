@@ -6,7 +6,7 @@
  * the full component with mocked registries/child panels.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { screen, fireEvent, waitFor } from "@testing-library/react";
+import { act, screen, fireEvent, waitFor } from "@testing-library/react";
 import React from "react";
 import { renderWithProviders } from "@/test/common_setup";
 import { useLocation } from "react-router-dom";
@@ -263,20 +263,49 @@ function renderSidebar(
   );
 }
 
+/**
+ * Mutable viewport state so a test can resize the window and notify the
+ * media-query listener the sidebar subscribes to on mount.
+ */
+const viewportState = {
+  matches: false,
+  listeners: [] as Array<() => void>,
+};
+
 function mockMobileViewport(matches: boolean) {
+  viewportState.matches = matches;
+  viewportState.listeners = [];
   vi.mocked(window.matchMedia).mockImplementation(
     (query) =>
       ({
-        matches: matches && query === "(max-width: 768px)",
+        get matches() {
+          return viewportState.matches && query === "(max-width: 768px)";
+        },
         media: query,
         onchange: null,
         addListener: vi.fn(),
         removeListener: vi.fn(),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
+        addEventListener: (_type: string, listener: () => void) => {
+          viewportState.listeners.push(listener);
+        },
+        removeEventListener: (_type: string, listener: () => void) => {
+          viewportState.listeners = viewportState.listeners.filter(
+            (current) => current !== listener,
+          );
+        },
         dispatchEvent: vi.fn(),
-      }) as MediaQueryList,
+      }) as unknown as MediaQueryList,
   );
+}
+
+/** Resize the viewport and fire the sidebar's media-query change event. */
+function resizeViewport(matches: boolean) {
+  viewportState.matches = matches;
+  act(() => {
+    for (const listener of [...viewportState.listeners]) {
+      listener();
+    }
+  });
 }
 
 async function openAccountModal() {
@@ -309,6 +338,7 @@ const modelsItem = {
 describe("Sidebar", () => {
   beforeEach(() => {
     mockMobileViewport(false);
+    localStorage.removeItem("qwenpaw_sidebar_collapsed");
     mocks.sidebar.focusItemIds = ["core.workspace", "core.models"];
     mocks.sidebar.hiddenPluginItemIds = [];
     mocks.menuItems = [workspaceItem, inboxItem, modelsItem];
@@ -583,5 +613,122 @@ describe("Sidebar", () => {
     // The inbox label is wrapped in a Badge span with a ref callback
     const inboxSpans = screen.getAllByText("Inbox");
     expect(inboxSpans.length).toBeGreaterThan(0);
+  });
+
+  // TC-CON-01 checkpoint 3: the collapsed/expanded state must survive a
+  // page reload through localStorage.
+  describe("collapsed state persistence", () => {
+    function renderedSider() {
+      return document.querySelector<HTMLElement>(".ant-layout-sider");
+    }
+
+    it("restores the collapsed state after a reload", async () => {
+      const view = renderSidebar();
+      await waitFor(() => {
+        expect(screen.getByText("Workspace")).toBeTruthy();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+      await waitFor(() => {
+        expect(screen.queryByText("Workspace")).toBeNull();
+      });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBe("true");
+      view.unmount();
+
+      // Remount simulates the reload: it must start collapsed (72px).
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+      expect(screen.queryByText("Workspace")).toBeNull();
+      expect(screen.getByTestId("app-brand")).not.toBeVisible();
+    });
+
+    it("restores the expanded state after a reload", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      const view = renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Expand sidebar" }),
+      );
+      await waitFor(() => {
+        expect(screen.getByText("Workspace")).toBeTruthy();
+      });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+      view.unmount();
+
+      // Remount simulates the reload: it must start expanded (280px).
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({
+        width: "280px",
+        minWidth: "280px",
+      });
+      expect(screen.getByText("Workspace")).toBeTruthy();
+    });
+
+    it("keeps the mobile collapse transient so desktop is not pinned", async () => {
+      mockMobileViewport(true);
+      renderSidebar();
+
+      expect(renderedSider()).toHaveStyle({ width: "56px", minWidth: "56px" });
+      // A viewport-driven collapse must not write the user preference.
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+    });
+
+    it("does not override the stored preference on mobile", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      mockMobileViewport(true);
+      renderSidebar();
+
+      expect(renderedSider()).toHaveStyle({ width: "56px", minWidth: "56px" });
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBe("true");
+    });
+
+    it("restores the stored collapsed preference when back on desktop", async () => {
+      localStorage.setItem("qwenpaw_sidebar_collapsed", "true");
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({ width: "72px", minWidth: "72px" });
+
+      resizeViewport(true);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "56px",
+          minWidth: "56px",
+        });
+      });
+
+      resizeViewport(false);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "72px",
+          minWidth: "72px",
+        });
+      });
+    });
+
+    it("re-expands on desktop when no collapsed preference is stored", async () => {
+      renderSidebar();
+      expect(renderedSider()).toHaveStyle({
+        width: "280px",
+        minWidth: "280px",
+      });
+
+      resizeViewport(true);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "56px",
+          minWidth: "56px",
+        });
+      });
+      // The viewport override must stay transient.
+      expect(localStorage.getItem("qwenpaw_sidebar_collapsed")).toBeNull();
+
+      resizeViewport(false);
+      await waitFor(() => {
+        expect(renderedSider()).toHaveStyle({
+          width: "280px",
+          minWidth: "280px",
+        });
+      });
+    });
   });
 });
