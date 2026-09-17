@@ -151,8 +151,23 @@ vi.mock("../components/SessionGroupHeader", () => ({
 }));
 
 vi.mock("../components/SessionDateHeader", () => ({
-  default: ({ label }: { label: string }) => (
-    <div data-testid="date-header">{label}</div>
+  default: ({
+    label,
+    collapsed,
+    onToggle,
+  }: {
+    label: string;
+    collapsed?: boolean;
+    onToggle?: () => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="date-header"
+      aria-expanded={collapsed === undefined ? undefined : !collapsed}
+      onClick={onToggle}
+    >
+      {label}
+    </button>
   ),
 }));
 
@@ -821,5 +836,42 @@ describe("SidebarSessionList", () => {
     // the empty cron group renders no header at all
     expect(screen.queryByTestId("group-header-cron")).toBeNull();
     expect(mockListProps.current!.itemCount).toBe(2);
+  });
+
+  it("folds and unfolds date sections like group sections", async () => {
+    const older = {
+      ...sessionA,
+      id: "sess-old",
+      name: "Older Chat",
+      updatedAt: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+    };
+    mockData([sessionA, older]);
+    renderWithProviders(<SidebarSessionList />);
+
+    // two date sections, both expanded
+    await waitFor(() => {
+      expect(screen.getAllByTestId("date-header")).toHaveLength(2);
+    });
+    expect(screen.getByTestId("session-item-sess-old")).toBeTruthy();
+
+    const headers = screen.getAllByTestId("date-header");
+    expect(headers[0]).toHaveAttribute("aria-expanded", "true");
+
+    // fold the "older" section (second header)
+    fireEvent.click(headers[1]);
+    await waitFor(() => {
+      expect(screen.queryByTestId("session-item-sess-old")).toBeNull();
+    });
+    expect(screen.getByTestId("session-item-sess-a")).toBeTruthy();
+    expect(screen.getAllByTestId("date-header")[1]).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+
+    // unfold again
+    fireEvent.click(screen.getAllByTestId("date-header")[1]);
+    await waitFor(() => {
+      expect(screen.getByTestId("session-item-sess-old")).toBeTruthy();
+    });
   });
 });

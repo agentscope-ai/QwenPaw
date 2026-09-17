@@ -11,6 +11,28 @@
   white-space: nowrap;
 }
 
+.interactive {
+  cursor: pointer;
+
+  &:hover {
+    color: var(--app-text-secondary);
+  }
+}
+
+.chevron {
+  display: inline-flex;
+  flex-shrink: 0;
+  transition: transform 0.16s ease;
+}
+
+.chevronCollapsed {
+  transform: rotate(-90deg);
+}
+
+.label {
+  flex-shrink: 0;
+}
+
 .line {
   height: 1px;
   flex: 1;

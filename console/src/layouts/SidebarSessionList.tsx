@@ -33,7 +33,7 @@ import {
   syncSessionsGlobal,
   type ExtendedSession,
 } from "../stores/sessionListStore";
-import { findSessionRowIndex } from "../utils/sessionGrouping";
+import { findSessionRowIndex, getDateGroup } from "../utils/sessionGrouping";
 import {
   getSessionGroupModePreference,
   setSessionGroupModePreference,
@@ -49,6 +49,7 @@ import {
   type ChatDateGroup,
 } from "../utils/chatGroups";
 import { useCollapsedChatGroups } from "../hooks/useCollapsedChatGroups";
+import { useCollapsedDateGroups } from "../hooks/useCollapsedDateGroups";
 import { useRevealActiveChatGroup } from "../hooks/useRevealActiveChatGroup";
 import { useChatGroups } from "../hooks/useChatGroups";
 import SessionItem from "../components/SessionItem";
@@ -89,6 +90,7 @@ type FlatRow =
       kind: "dateHeader";
       dateGroup: ChatDateGroup;
       label: string;
+      collapsed: boolean;
     }
   | { kind: "session"; session: ExtendedChatSession; groupId: string };
 
@@ -126,6 +128,7 @@ interface VirtualRowData {
   handleEditCancel: () => void;
   groups: ChatGroup[];
   toggleGroup: (key: string) => void;
+  toggleDateGroup: (key: string) => void;
   renameGroup: (groupId: string, name: string) => void;
   pinGroup: (groupId: string, pinned: boolean) => void;
   deleteGroup: (groupId: string) => void;
@@ -193,7 +196,12 @@ const VirtualRow = React.memo(function VirtualRow({
     // drag-and-drop targets.
     return (
       <div style={style}>
-        <SessionDateHeader dateGroup={row.dateGroup} label={row.label} />
+        <SessionDateHeader
+          dateGroup={row.dateGroup}
+          label={row.label}
+          collapsed={row.collapsed}
+          onToggle={() => data.toggleDateGroup(row.dateGroup)}
+        />
       </div>
     );
   }
@@ -303,6 +311,8 @@ export default function SidebarSessionList({
     expandGroup,
     initializeCollapsedGroups,
   } = useCollapsedChatGroups();
+  const { collapsedDateGroups, toggleDateGroup, expandDateGroup } =
+    useCollapsedDateGroups();
   const {
     groups: chatGroups,
     createGroup,
@@ -533,10 +543,12 @@ export default function SidebarSessionList({
           kind: "dateHeader" as const,
           dateGroup: dateGroup.key,
           label: t(`chat.group.${dateGroup.key}`),
+          collapsed:
+            isSessionDragging || collapsedDateGroups.has(dateGroup.key),
         },
         sessions: dateGroup.sessions,
         groupId: null,
-        collapsed: false,
+        collapsed: isSessionDragging || collapsedDateGroups.has(dateGroup.key),
       }));
     }
     if (groupMode === "none") {
@@ -577,6 +589,7 @@ export default function SidebarSessionList({
         };
       });
   }, [
+    collapsedDateGroups,
     collapsedGroups,
     filteredSessions,
     groupMode,
@@ -656,6 +669,20 @@ export default function SidebarSessionList({
   }, [defaultCollapsedGroupIds, initializeCollapsedGroups, loading]);
 
   useRevealActiveChatGroup(currentSessionId, sortedSessions, expandGroup);
+
+  // Keep the date section holding the active conversation open.
+  useEffect(() => {
+    if (!currentSessionId) return;
+    const session = sortedSessions.find(
+      (item) =>
+        item.id === currentSessionId || item.realId === currentSessionId,
+    );
+    if (!session) return;
+    const key = session.pinned
+      ? "pinned"
+      : getDateGroup(session.updatedAt ?? session.createdAt);
+    expandDateGroup(key);
+  }, [currentSessionId, expandDateGroup, sortedSessions]);
 
   /** Flatten sections into a single array of rows for virtual list */
   const flatRows = useMemo<FlatRow[]>(() => {
@@ -754,6 +781,7 @@ export default function SidebarSessionList({
       handleEditSubmit,
       handleEditCancel,
       toggleGroup,
+      toggleDateGroup,
       groups: visibleChatGroups,
       renameGroup,
       pinGroup,
