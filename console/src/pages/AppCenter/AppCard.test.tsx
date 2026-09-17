@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi, afterEach } from "vitest";
 
 import { AppCard, type AppCardData } from "./AppCard";
 
@@ -112,5 +112,46 @@ describe("AppCard", () => {
     expect(
       screen.getByRole("button", { name: "appCenter.openApp" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("protected PawApp icons", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    localStorage.clear();
+  });
+  it("fetches private icons with Bearer before rendering a blob", async () => {
+    localStorage.setItem("qwenpaw_auth_token", "icon-token");
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue({ ok: true, blob: async () => new Blob(["icon"]) });
+    const revoke = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    vi.stubGlobal(
+      "URL",
+      class extends URL {
+        static createObjectURL = () => "blob:app-icon";
+        static revokeObjectURL = revoke;
+      },
+    );
+    const view = render(
+      <AppCard
+        app={makeApp({
+          icon_url: "/api/frontend_plugin/demo-app/files/icon.png",
+        })}
+        onClick={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(view.container.querySelector("img")).toHaveAttribute(
+        "src",
+        "blob:app-icon",
+      ),
+    );
+    expect(fetcher.mock.calls[0][1].headers.Authorization).toBe(
+      "Bearer icon-token",
+    );
+    view.unmount();
+    expect(revoke).toHaveBeenCalledWith("blob:app-icon");
   });
 });

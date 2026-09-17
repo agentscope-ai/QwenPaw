@@ -28,6 +28,10 @@ from .process_isolation import (
     platform_process_isolator,
 )
 from .windows_reverse_tunnel import WindowsReverseTunnelBroker
+from .python_environment import (
+    apply_python_environment,
+    ensure_python_environment,
+)
 
 _START_TIMEOUT_SECONDS = 30.0
 _STOP_TIMEOUT_SECONDS = 10.0
@@ -154,13 +158,14 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         ):
             path.mkdir(parents=True, exist_ok=True)
 
+        python = str(ensure_python_environment(record))
         log_handle = record.log_file.open(
             "a",
             encoding="utf-8",
             buffering=1,
         )
         command = [
-            sys.executable,
+            python,
             "-m",
             "qwenpaw",
             "app",
@@ -179,7 +184,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
             tunnel = WindowsReverseTunnelBroker(record.host, port)
             tunnel.start()
             command = [
-                sys.executable,
+                python,
                 "-m",
                 "qwenpaw.hub.windows_runtime_bridge",
                 "--control-port",
@@ -189,7 +194,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
                 "--target-port",
                 str(internal_port),
                 "--",
-                sys.executable,
+                python,
                 "-m",
                 "qwenpaw",
                 "app",
@@ -417,6 +422,7 @@ class LocalProcessRuntimeProvisioner(RuntimeProvisioner):
         for name in ("QWENPAW_HUB_MODEL_URL", "QWENPAW_HUB_MODEL_TOKEN"):
             if credentials.get(name):
                 environment[name] = credentials[name]
+        apply_python_environment(record, environment)
         environment["PYTHONUNBUFFERED"] = "1"
         environment["PYTHONIOENCODING"] = "utf-8"
         return environment

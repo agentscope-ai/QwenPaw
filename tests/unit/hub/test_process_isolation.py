@@ -18,6 +18,10 @@ from qwenpaw.hub.local_provisioner import (
     allocate_loopback_port,
 )
 from qwenpaw.hub.models import RuntimeRecord, RuntimeState
+from qwenpaw.hub.python_environment import (
+    ensure_python_environment,
+    python_executable,
+)
 from qwenpaw.hub.process_isolation import (
     IsolatedLaunch,
     LinuxBubblewrapIsolator,
@@ -423,7 +427,7 @@ def test_windows_runtime_uses_outbound_reverse_tunnel(
     assert command[command.index("--control-port") + 1] == "9100"
     assert command[command.index("--token") + 1] == "tunnel-token"
     assert command[separator + 1 : separator + 4] == [
-        sys.executable,
+        str(python_executable(started)),
         "-m",
         "qwenpaw",
     ]
@@ -516,6 +520,7 @@ def test_runtime_parent_thread_survives_request_worker(
         launcher_threads.append(threading.current_thread())
         return _Process()
 
+    ensure_python_environment(_record(tmp_path))
     monkeypatch.setattr(
         "qwenpaw.hub.local_provisioner.subprocess.Popen",
         popen,

@@ -70,7 +70,9 @@ def _runtime_logs(hub_root: Path) -> str:
 
 def _hub_environment(hub_root: Path) -> dict[str, str]:
     environment = dict(os.environ)
-    environment.pop("PYTHONPATH", None)
+    environment["PYTHONPATH"] = str(
+        Path(__file__).resolve().parents[2] / "src",
+    )
     environment["QWENPAW_HUB_DIR"] = str(hub_root)
     return environment
 

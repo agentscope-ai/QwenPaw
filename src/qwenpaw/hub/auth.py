@@ -80,7 +80,7 @@ class _PreparedUser:
     created_at: str
 
 
-class HubAuthService:
+class HubAuthService:  # pylint: disable=too-many-public-methods
     """Persist users and issue versioned HMAC bearer tokens."""
 
     def __init__(
@@ -358,6 +358,10 @@ class HubAuthService:
             "iat": now,
             "exp": now + _TOKEN_TTL_SECONDS,
         }
+        return self.sign_token_payload(payload)
+
+    def sign_token_payload(self, payload: dict[str, object]) -> str:
+        """Sign a payload; callers must validate its purpose on receipt."""
         encoded = base64.urlsafe_b64encode(
             json.dumps(payload, separators=(",", ":")).encode("utf-8"),
         ).decode("ascii")
@@ -368,8 +372,8 @@ class HubAuthService:
         ).hexdigest()
         return f"{encoded}.{signature}"
 
-    def verify_token(self, token: str) -> HubUser | None:
-        """Verify signature, expiry, disabled state, and token version."""
+    def read_token_payload(self, token: str) -> dict[str, object] | None:
+        """Verify signature and expiry before interpreting token claims."""
         try:
             encoded, signature = token.split(".", 1)
             expected = hmac.new(
@@ -379,19 +383,33 @@ class HubAuthService:
             ).hexdigest()
             if not hmac.compare_digest(signature, expected):
                 return None
-            payload = json.loads(
-                base64.urlsafe_b64decode(encoded.encode("ascii")),
-            )
-            if int(payload["exp"]) < int(time.time()):
+            payload = json.loads(base64.urlsafe_b64decode(encoded))
+            if not isinstance(payload, dict):
                 return None
+            if int(payload["exp"]) <= int(time.time()):
+                return None
+            return payload
+        except (KeyError, TypeError, ValueError):
+            return None
+
+    def token_user(self, payload: dict[str, object]) -> HubUser | None:
+        """Apply account revocation to every signed token purpose."""
+        try:
             user = self.get_user(str(payload["sub"]))
             if user is None or user.disabled:
                 return None
-            if user.token_version != int(payload["ver"]):
+            if user.token_version != int(str(payload["ver"])):
                 return None
             return user
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        except (KeyError, TypeError, ValueError):
             return None
+
+    def verify_token(self, token: str) -> HubUser | None:
+        """Accept account tokens only, never scoped resource sessions."""
+        payload = self.read_token_payload(token)
+        if payload is None or "purpose" in payload:
+            return None
+        return self.token_user(payload)
 
     def list_users(self) -> list[HubUser]:
         with self._connect() as connection:

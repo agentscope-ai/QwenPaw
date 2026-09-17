@@ -1,3 +1,4 @@
+import { PawAppAccessGate } from "../../../plugins/PawAppAccessGate";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, Empty, Spin, Button, Tag, Typography, Space } from "antd";
@@ -127,7 +128,9 @@ export default function PawAppsPage() {
                         type="link"
                         icon={<ExternalLink size={14} />}
                         onClick={() => {
-                          const src = getIframeSrc(selectedApp);
+                          const src = `/apps/${encodeURIComponent(
+                            selectedApp.id,
+                          )}`;
                           if (src) window.open(src, "_blank");
                         }}
                       >
@@ -136,12 +139,14 @@ export default function PawAppsPage() {
                     )}
                   </div>
                   {selectedApp.home_page ? (
-                    <iframe
-                      className={styles.appIframe}
-                      src={getIframeSrc(selectedApp) || ""}
-                      title={selectedApp.name}
-                      sandbox="allow-scripts allow-forms allow-same-origin"
-                    />
+                    <PawAppAccessGate appId={selectedApp.id}>
+                      <iframe
+                        className={styles.appIframe}
+                        src={getIframeSrc(selectedApp) || ""}
+                        title={selectedApp.name}
+                        sandbox="allow-scripts allow-forms allow-same-origin"
+                      />
+                    </PawAppAccessGate>
                   ) : (
                     <Empty
                       description={t(

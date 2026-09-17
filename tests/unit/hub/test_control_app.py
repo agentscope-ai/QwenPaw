@@ -22,6 +22,7 @@ from websockets.sync.server import ServerConnection, serve
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.hub.auth import HubAuthService, HubUser
+from qwenpaw.hub.pawapp_access import COOKIE_PREFIX, resource_app_id
 from qwenpaw.hub.config import (
     AccessSecurityConfig,
     ControlPlaneConfig,
@@ -1427,3 +1428,178 @@ def test_regular_runtime_callback_still_requires_login(
     )
 
     assert response.status_code == 401
+
+
+@pytest.fixture(name="browser")
+def pawapp_browser(tmp_path: Path):
+    requests = []
+
+    def upstream(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path == "/api/pawapps/qwenpaw-creator":
+            return httpx.Response(200, json={"id": "qwenpaw-creator"})
+        if request.url.path.startswith("/api/pawapps/"):
+            return httpx.Response(404)
+        if request.headers.get("range"):
+            return httpx.Response(206, stream=_ProxyStream())
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(upstream)) as client:
+        token = _register(client, "owner")
+        yield client, token, requests
+
+
+def _prepare(client, token):
+    return client.post(
+        "/api/hub/pawapps/qwenpaw-creator/session",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+
+def test_creator_navigation_and_child_resources(browser):
+    client, token, requests = browser
+    path = "/api/frontend_plugin/qwenpaw-creator/files/ui/index.html"
+    assert client.get(path).status_code == 401
+    response = _prepare(client, token)
+    assert response.status_code == 200
+    cookie = response.headers["set-cookie"]
+    assert "HttpOnly" in cookie and "SameSite=strict" in cookie
+    assert "Path=/api/" in cookie
+    for resource in (
+        path,
+        "/api/frontend_plugin/qwenpaw-creator/files/ui/chunk.js",
+        "/api/frontend_plugin/qwenpaw-creator/files/ui/style.css",
+        "/api/qwenpaw-creator/events",
+        "/api/qwenpaw-creator/media/video.mp4",
+    ):
+        assert client.get(resource).status_code == 200
+        assert "cookie" not in requests[-1].headers
+        assert requests[-1].headers["x-qwenpaw-runtime-token"]
+    assert (
+        client.get(
+            "/api/qwenpaw-creator/media/video.mp4",
+            headers={"Range": "bytes=0-4"},
+        ).status_code
+        == 206
+    )
+    assert client.head(path).status_code == 200
+
+
+def test_read_session_cannot_write_cross_apps_or_be_used_as_bearer(browser):
+    client, token, _ = browser
+    assert _prepare(client, token).status_code == 200
+    cookie = client.cookies.get(f"{COOKIE_PREFIX}qwenpaw-creator")
+    for method, path, headers in (
+        ("POST", "/api/qwenpaw-creator/projects", {}),
+        ("GET", "/api/other-app/projects", {}),
+        ("GET", "/api/hub/me", {}),
+        ("GET", "/api/models", {}),
+        (
+            "GET",
+            "/api/qwenpaw-creator/projects",
+            {"Authorization": "Bearer invalid"},
+        ),
+        (
+            "GET",
+            "/api/hub/me",
+            {"Authorization": f"Bearer {cookie}"},
+        ),
+    ):
+        assert client.request(method, path, headers=headers).status_code == 401
+    assert (
+        client.post("/api/hub/pawapps/qwenpaw-creator/session").status_code
+        == 401
+    )
+    assert (
+        client.post(
+            "/api/hub/pawapps/unknown/session",
+            headers={"Authorization": f"Bearer {token}"},
+        ).status_code
+        == 404
+    )
+
+
+def test_expiry_revocation_and_logout(browser):
+    client, token, _ = browser
+    _prepare(client, token)
+    name = f"{COOKIE_PREFIX}qwenpaw-creator"
+    auth = client.app.state.auth_service
+    payload = auth.read_token_payload(client.cookies.get(name).strip(chr(34)))
+    payload["exp"] = int(time.time()) - 1
+    client.cookies.clear()
+    client.cookies.set(
+        name,
+        auth.sign_token_payload(payload),
+        domain="testserver.local",
+        path="/api/",
+    )
+    assert client.get("/api/qwenpaw-creator/events").status_code == 401
+    _prepare(client, token)
+    user = auth.verify_token(token)
+    auth.change_password(user.user_id, "another-safe-password")
+    assert client.get("/api/qwenpaw-creator/events").status_code == 401
+    assert client.delete("/api/hub/pawapps/sessions").status_code == 204
+    assert client.cookies.get(name) is None
+
+
+def test_sessions_follow_the_authenticated_owner(browser):
+    client, token, requests = browser
+    _prepare(client, token)
+    first_host = requests[-1].url.port
+    _, other_token = _create_user(client, "second")
+    _prepare(client, other_token)
+    assert client.get("/api/qwenpaw-creator/events").status_code == 200
+    # Each user's proxy credential is distinct, even with a fake shared port.
+    other_boundary = requests[-1].headers["x-qwenpaw-runtime-token"]
+    _prepare(client, token)
+    assert client.get("/api/qwenpaw-creator/events").status_code == 200
+    assert requests[-1].url.port == first_host
+    assert requests[-1].headers["x-qwenpaw-runtime-token"] != other_boundary
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "qwenpaw-creator/../models",
+        "qwenpaw-creator/%2e%2e/models",
+        "qwenpaw-creator/%252e%252e/models",
+        "qwenpaw-creator\\models",
+        "qwenpaw-creator//models",
+        "frontend_plugin/other/files/../secret",
+    ],
+)
+def test_resource_scope_rejects_ambiguous_paths(path):
+    assert resource_app_id(path) is None
+
+
+@pytest.mark.parametrize(
+    "claim,value",
+    [
+        ("runtime", "other-runtime"),
+        ("created", "old-generation"),
+        ("app", "other-app"),
+    ],
+)
+def test_pawapp_session_scope_cannot_change(browser, claim, value):
+    client, token, _ = browser
+    _prepare(client, token)
+    name = f"{COOKIE_PREFIX}qwenpaw-creator"
+    auth = client.app.state.auth_service
+    payload = auth.read_token_payload(client.cookies.get(name).strip(chr(34)))
+    payload[claim] = value
+    client.cookies.clear()
+    client.cookies.set(
+        name,
+        auth.sign_token_payload(payload),
+        domain="testserver.local",
+        path="/api/",
+    )
+    assert client.get("/api/qwenpaw-creator/events").status_code == 401
+
+
+def test_disabled_user_loses_pawapp_read_access(browser):
+    client, _, _ = browser
+    user, token = _create_user(client, "app-reader")
+    assert _prepare(client, token).status_code == 200
+    client.app.state.auth_service.update_user(user.user_id, disabled=True)
+    assert client.get("/api/qwenpaw-creator/events").status_code == 401

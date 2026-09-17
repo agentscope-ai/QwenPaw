@@ -35,6 +35,14 @@ from ..app.exception_handlers import register_exception_handlers
 from ..utils.http import is_loopback_host
 from ..utils.oauth_callback import HUB_OAUTH_CALLBACK_URL_HEADER
 from .access_security import HubAccessSecurity
+from .pawapp_access import (
+    SESSION_SECONDS,
+    clear_sessions,
+    issue_session,
+    read_session,
+    require_session_runtime,
+    validate_app_id,
+)
 from .api_models import (
     AdminUserCreateBody,
     AdminUserPatchBody,
@@ -280,6 +288,12 @@ def create_hub_app(  # pylint: disable=too-many-statements
         request: Request,
         authorization: str | None = Header(default=None),
     ) -> HubUser:
+        if authorization is None:
+            session = read_session(hub_auth, request, path)
+            if session is not None:
+                user, payload = session
+                request.state.pawapp_session = payload
+                return user
         # Match decoding by the Runtime ASGI server and file preview router.
         normalized_path = unquote(unquote(path)).replace("\\", "/")
         # Native file previews cannot attach an Authorization header.
@@ -1332,6 +1346,62 @@ def create_hub_app(  # pylint: disable=too-many-statements
             headers=response_headers,
         )
 
+    @app.delete("/api/hub/pawapps/sessions", status_code=204)
+    async def clear_pawapp_sessions(request: Request) -> Response:
+        response = Response(status_code=204)
+        clear_sessions(request, response)
+        return response
+
+    @app.post("/api/hub/pawapps/{app_id}/session")
+    async def prepare_pawapp_session(
+        app_id: str,
+        request: Request,
+        user: HubUser = Depends(require_user),
+    ) -> Response:
+        validate_app_id(app_id)
+        record = await ensure_personal_runtime(user)
+        internal_token = await run_in_threadpool(
+            credential_vault.get_runtime_secret,
+            tenant_id=record.tenant_id,
+            runtime_id=record.runtime_id,
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+        )
+        if not internal_token:
+            raise HTTPException(
+                status_code=503,
+                detail="Runtime boundary token unavailable",
+            )
+        async with httpx.AsyncClient(
+            transport=proxy_transport,
+            trust_env=False,
+        ) as client:
+            upstream = await client.get(
+                runtime_url(
+                    record,
+                    scheme="http",
+                    path=f"/api/pawapps/{app_id}",
+                ),
+                headers={"X-QwenPaw-Runtime-Token": internal_token},
+                timeout=10,
+            )
+        if upstream.status_code != 200:
+            raise HTTPException(
+                status_code=upstream.status_code,
+                detail="PawApp is unavailable",
+            )
+        if upstream.json().get("id") != app_id:
+            raise HTTPException(status_code=502, detail="Invalid PawApp")
+        response = JSONResponse({"expires_in": SESSION_SECONDS})
+        issue_session(
+            hub_auth,
+            user,
+            record,
+            app_id,
+            response,
+            secure=request.url.scheme == "https",
+        )
+        return response
+
     @app.api_route(
         "/api/{path:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
@@ -1344,6 +1414,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
     ) -> Response:
         require_model_route(path)
         record = await ensure_personal_runtime(user)
+        require_session_runtime(request, record)
         await run_in_threadpool(
             require_model_runtime,
             governance,
@@ -1384,6 +1455,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
 
         excluded_request_headers = {
             "authorization",
+            "cookie",
             "connection",
             "content-length",
             "host",
@@ -1492,6 +1564,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
             for name, value in upstream.headers.items()
             if name.lower() not in excluded_response_headers
         }
+
+        # Personal runtime URLs are reused when the browser changes account.
+        response_headers["cache-control"] = "private, no-store"
 
         async def stream_upstream() -> AsyncIterator[bytes]:
             try:

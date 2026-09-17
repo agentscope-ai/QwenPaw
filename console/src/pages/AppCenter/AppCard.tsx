@@ -4,7 +4,9 @@
 import { Button, Card, Typography } from "antd";
 import { AppWindow, Play, Trash2 } from "lucide-react";
 import type { FC, KeyboardEvent } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { buildAuthHeaders } from "../../api/authHeaders";
+import { getApiUrl } from "../../api/config";
 import { useTranslation } from "react-i18next";
 import styles from "./index.module.less";
 
@@ -81,6 +83,39 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
   const iconSrc = [app.icon_url ?? "", app.icon].find((ref) =>
     imageRef.test(ref),
   );
+  const protectedIcon = iconSrc?.startsWith("/api/frontend_plugin/");
+  const [iconBlob, setIconBlob] = useState<{ src: string; url: string } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!protectedIcon || !iconSrc) return;
+    const controller = new AbortController();
+    let objectUrl: string | undefined;
+    setIconFailed(false);
+    void fetch(getApiUrl(iconSrc.slice(4)), {
+      headers: buildAuthHeaders(),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("App icon unavailable");
+        const blob = await response.blob();
+        if (controller.signal.aborted) return;
+        objectUrl = URL.createObjectURL(blob);
+        setIconBlob({ src: iconSrc, url: objectUrl });
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setIconFailed(true);
+      });
+    return () => {
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [iconSrc, protectedIcon]);
+  const displayIcon = protectedIcon
+    ? iconBlob && iconBlob.src === iconSrc
+      ? iconBlob.url
+      : undefined
+    : iconSrc;
   const isImageIcon = !!iconSrc && !iconFailed;
   const emojiIcon = !isImageIcon && !imageRef.test(app.icon) ? app.icon : "";
 
@@ -104,7 +139,7 @@ export const AppCard: FC<AppCardProps> = ({ app, onClick, onUninstall }) => {
         <div className={styles.cardIcon}>
           {isImageIcon ? (
             <img
-              src={iconSrc}
+              src={displayIcon}
               alt=""
               className={styles.cardIconImage}
               onError={() => setIconFailed(true)}
