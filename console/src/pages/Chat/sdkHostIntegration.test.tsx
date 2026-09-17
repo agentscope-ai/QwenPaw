@@ -1605,6 +1605,14 @@ describe("ChatPage coverage", () => {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
+    const { holdOwnershipLock } = await import("@/stores/messageQueueStore");
+    await waitFor(() =>
+      expect(holdOwnershipLock).toHaveBeenCalledWith(
+        "test-session",
+        expect.any(Function),
+        expect.any(AbortSignal),
+      ),
+    );
 
     const beforeSubmit = capturedOptions?.sender?.beforeSubmit;
     expect(typeof beforeSubmit).toBe("function");
