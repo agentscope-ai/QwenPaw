@@ -8,6 +8,7 @@ from qwenpaw.app.crons.models import (
     CronJobSpec,
     DispatchSpec,
     DispatchTarget,
+    JobsFile,
     ScheduleSpec,
     _crontab_dow_to_name,
 )
@@ -63,6 +64,21 @@ def test_dow_range_with_step():
     assert _crontab_dow_to_name("1-5/2") == "mon,wed,fri"
 
 
+def test_dow_named_range_with_numeric_step_passthrough():
+    # A digit in the step must not reclassify a named range as numeric.
+    # ``fri-sun`` wraps the week in crontab numbering (5 > 0) but is
+    # APS-safe as names (Fri=4 … Sun=6 on the ISO calendar).
+    assert _crontab_dow_to_name("fri-sun/1") == "fri-sun/1"
+    assert _crontab_dow_to_name("mon-fri/2") == "mon-fri/2"
+
+
+def test_dow_numeric_seven_preserved_through_expand():
+    assert _crontab_dow_to_name("1-7") == "mon,tue,wed,thu,fri,sat,sun"
+    assert _crontab_dow_to_name("5-7") == "fri,sat,sun"
+    assert _crontab_dow_to_name("0-7") == "*"
+    assert _crontab_dow_to_name("7") == "sun"
+
+
 # ---------------------------------------------------------------------------
 # ScheduleSpec — cron type
 # ---------------------------------------------------------------------------
@@ -81,6 +97,11 @@ def test_schedule_cron_normalizes_4_fields():
 def test_schedule_cron_named_dow_unchanged():
     spec = ScheduleSpec(type="cron", cron="0 9 * * mon")
     assert spec.cron == "0 9 * * mon"
+
+
+def test_schedule_cron_named_range_with_step_unchanged():
+    spec = ScheduleSpec(type="cron", cron="0 9 * * fri-sun/1")
+    assert spec.cron == "0 9 * * fri-sun/1"
 
 
 def test_schedule_cron_rejects_empty():
@@ -208,3 +229,20 @@ def test_schedule_cron_sunday_range_builds_aps_trigger():
         day_of_week=dow,
         timezone="UTC",
     )
+
+
+def test_jobs_file_loads_legacy_named_dow_range_with_step():
+    """jobs.json saved before this fix still validates (CronManager boot)."""
+    legacy = make_cron_job_spec(job_id="legacy", name="Legacy").model_dump(
+        mode="json",
+    )
+    legacy["schedule"]["cron"] = "0 9 * * fri-sun/1"
+    other = make_cron_job_spec(job_id="other", name="Other").model_dump(
+        mode="json",
+    )
+
+    jobs_file = JobsFile.model_validate({"version": 2, "jobs": [legacy, other]})
+
+    assert len(jobs_file.jobs) == 2
+    assert jobs_file.jobs[0].schedule.cron == "0 9 * * fri-sun/1"
+    assert jobs_file.jobs[1].id == "other"
