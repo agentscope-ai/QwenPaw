@@ -256,7 +256,6 @@ Local 当前使用 Linux Bubblewrap、macOS Seatbelt 或 Windows AppContainer + 
 
 后续版本计划继续完善按用户配额、资源用量统计、Kubernetes、多机调度、弹性扩缩容和更强的租户隔离。后续进展敬请期待，也欢迎阅读[贡献指南](/docs/contributing)，直接参与实现。
 
-
 ## 组织模型、邀请注册与 Token 预算
 
 管理员在 Hub 管理页的「模型」中保存上游连接与 Key，创建模型展示名称、授权范围及组织默认模型。首期支持 OpenAI Chat Completions 协议。成员在现有模型页面的「Hub」Provider 中选择组织授权模型，无需配置 Key；组织连接、上游地址和 Key 不对成员展示。成员也可在同一页面按原有方式配置个人供应商，两者可以同时使用。Hub 作为独立模型网关，只计量经过自己的组织模型请求；个人连接的调用不占用 Hub 预算，也不进入 Hub 用量报表。

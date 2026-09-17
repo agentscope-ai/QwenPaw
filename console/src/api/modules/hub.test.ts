@@ -63,7 +63,10 @@ describe("hubApi pagination", () => {
       version: 1 as const,
       control_plane: {
         public_base_url: "https://hub.example.com",
-        registration: { mode: "closed" as const, default_role: "user" as const },
+        registration: {
+          mode: "closed" as const,
+          default_role: "user" as const,
+        },
         security: {
           ip_blacklist: [],
           trusted_proxy_ips: [],
