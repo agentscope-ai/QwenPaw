@@ -176,7 +176,7 @@ export default function Sidebar({
     [focusItemIdSet, hiddenPluginItemIdSet, rawSettingsMenu],
   );
 
-  const selectedFlatNav = useMemo(() => {
+  const selectedFlatNav = (() => {
     const entries = [
       ...flattenMenu(agentMenu, routes, 16),
       ...flattenMenu(selectedSettingsMenu, routes, 16),
@@ -185,7 +185,7 @@ export default function Sidebar({
       ...new Map(entries.map((entry) => [entry.key, entry])).values(),
     ];
     return orderSidebarEntries(uniqueEntries, focusItemIds);
-  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu]);
+  })();
   const inboxEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );

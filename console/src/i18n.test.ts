@@ -32,6 +32,7 @@ describe("i18n initial language (#1604)", () => {
     }
 
     expect(i18n.language).toBe("zh");
+    expect(i18n.t("common.loading")).toBe("加载中...");
   });
 
   it("falls back to navigator.language when nothing is persisted", async () => {
@@ -45,7 +46,36 @@ describe("i18n initial language (#1604)", () => {
     // ja-JP resolves into the Japanese bundle (nonExplicitSupportedLngs)
     expect(i18n.language).toBe("ja-JP");
     expect(i18n.language.startsWith("ja")).toBe(true);
+    expect(i18n.t("common.loading")).toBe("読み込み中...");
     spy.mockRestore();
+  });
+
+  it("loads a new locale when the language changes", async () => {
+    const i18n = await freshI18n();
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+
+    await i18n.changeLanguage("pt-BR");
+
+    expect(i18n.t("common.loading")).toBe("Carregando...");
+  });
+
+  it("uses the initialized instance for built-in menu labels", async () => {
+    localStorage.setItem("language", "zh");
+
+    const i18n = await freshI18n();
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+
+    const { BUILTIN_MENU } = await import("./layouts/registry/builtinMenu");
+    const inbox = BUILTIN_MENU.find((item) => item.id === "core.inbox");
+
+    expect(typeof inbox?.label).toBe("function");
+    expect(typeof inbox?.label === "function" ? inbox.label() : null).toBe(
+      "收件箱",
+    );
   });
 
   it("defaults to en when neither localStorage nor navigator gives a language", async () => {

@@ -29,12 +29,20 @@ const mocks = vi.hoisted(() => ({
   restartRuntime: vi.fn().mockResolvedValue({}),
   setSelectedAgent: vi.fn(),
   refreshAgents: vi.fn().mockResolvedValue(undefined),
+  language: "en",
 }));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string, fallback?: string) => fallback ?? key,
-    i18n: { language: "en" },
+    i18n: {
+      get language() {
+        return mocks.language;
+      },
+      get resolvedLanguage() {
+        return mocks.language;
+      },
+    },
   }),
 }));
 
@@ -357,6 +365,7 @@ describe("Sidebar", () => {
     mocks.restartRuntime.mockClear().mockResolvedValue({});
     mocks.setSelectedAgent.mockClear();
     mocks.refreshAgents.mockClear().mockResolvedValue(undefined);
+    mocks.language = "en";
   });
 
   it("renders the unified desktop sidebar with agent and settings menus", async () => {
@@ -368,6 +377,29 @@ describe("Sidebar", () => {
     // Menu labels resolve from the mocked menu registry
     expect(screen.getByText("Workspace")).toBeTruthy();
     expect(screen.getByText("Models")).toBeTruthy();
+  });
+
+  it("resolves menu labels again when the language changes", async () => {
+    mocks.menuItems = [
+      {
+        ...workspaceItem,
+        label: () => (mocks.language === "ja" ? "ワークスペース" : "Workspace"),
+      },
+    ];
+
+    const view = renderSidebar();
+    expect(await screen.findByText("Workspace")).toBeVisible();
+
+    mocks.language = "ja";
+    view.rerender(
+      <>
+        <Sidebar selectedKey="core.workspace" />
+        <LocationProbe />
+      </>,
+    );
+
+    expect(await screen.findByText("ワークスペース")).toBeVisible();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
   });
 
   it("navigates to the chat path from the sticky chat button", async () => {

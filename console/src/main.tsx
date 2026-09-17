@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
-import "./i18n";
+import { i18nReady } from "./i18n";
 import { installHostExternals } from "./plugins/hostExternals";
 // Bare side-effect imports: each file self-registers its data into
 // menuRegistry / routeRegistry so consumers' first render sees them.
@@ -52,4 +52,10 @@ if (typeof window !== "undefined") {
   };
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+i18nReady
+  .catch((error: unknown) => {
+    console.error("Failed to initialize translations:", error);
+  })
+  .finally(() => {
+    createRoot(document.getElementById("root")!).render(<App />);
+  });
