@@ -21,37 +21,93 @@ from ..channels.schema import DEFAULT_CHANNEL
 # 5th cron field to abbreviations at validation time.
 # ---------------------------------------------------------------------------
 
+# Crontab DOW numbering: 0/7=Sun … 6=Sat. APScheduler CronTrigger uses
+# ISO weekdays (0=Mon … 6=Sun). Named abbreviations are unambiguous in both
+# systems; numeric ranges/steps must be expanded to names so we never emit
+# APS-invalid forms like ``sun-sat`` or leave ``*/2`` on the ISO calendar.
+_CRONTAB_DOW_NAMES: tuple[str, ...] = (
+    "sun",
+    "mon",
+    "tue",
+    "wed",
+    "thu",
+    "fri",
+    "sat",
+)
 _CRONTAB_NUM_TO_NAME: dict[str, str] = {
-    "0": "sun",
-    "1": "mon",
-    "2": "tue",
-    "3": "wed",
-    "4": "thu",
-    "5": "fri",
-    "6": "sat",
-    "7": "sun",
+    str(index): name for index, name in enumerate(_CRONTAB_DOW_NAMES)
+}
+_CRONTAB_NUM_TO_NAME["7"] = "sun"
+_CRONTAB_NAME_TO_NUM: dict[str, int] = {
+    name: index for index, name in enumerate(_CRONTAB_DOW_NAMES)
 }
 
 
-def _crontab_dow_to_name(field: str) -> str:
-    """Convert the day-of-week field from crontab numbers to abbreviations.
+def _parse_crontab_dow_atom(atom: str) -> int:
+    """Parse one crontab DOW atom (digit or abbreviation) to 0=Sun…6=Sat."""
+    key = atom.strip().lower()
+    if key in _CRONTAB_NAME_TO_NUM:
+        return _CRONTAB_NAME_TO_NUM[key]
+    if key in _CRONTAB_NUM_TO_NAME:
+        return _CRONTAB_NAME_TO_NUM[_CRONTAB_NUM_TO_NAME[key]]
+    raise ValueError(f"invalid cron day-of-week value: {atom}")
 
-    Handles: ``*``, single values, comma-separated lists, and ranges.
-    Already-named values (``mon``, ``tue``, …) are passed through unchanged.
+
+def _expand_crontab_dow_token(tok: str) -> list[int]:
+    """Expand one DOW token (value / range / step) to crontab weekday ints."""
+    raw = tok.strip()
+    if not raw:
+        raise ValueError("empty cron day-of-week token")
+
+    step = 1
+    base = raw
+    if "/" in raw:
+        base, step_s = raw.rsplit("/", 1)
+        if not step_s.isdigit() or int(step_s) < 1:
+            raise ValueError(f"invalid cron day-of-week step: {tok}")
+        step = int(step_s)
+        if base == "":
+            raise ValueError(f"invalid cron day-of-week token: {tok}")
+
+    if base == "*":
+        start, end = 0, 6
+    elif "-" in base:
+        left, right = base.split("-", 1)
+        start = _parse_crontab_dow_atom(left)
+        end = _parse_crontab_dow_atom(right)
+        if start > end:
+            raise ValueError(f"invalid cron day-of-week range: {tok}")
+    else:
+        start = _parse_crontab_dow_atom(base)
+        if "/" not in raw:
+            return [start]
+        end = 6
+
+    return list(range(start, end + 1, step))
+
+
+def _crontab_dow_to_name(field: str) -> str:
+    """Convert crontab DOW numbers to APS-safe weekday abbreviations.
+
+    Handles ``*``, singles, comma lists, ranges, and steps. Numeric forms are
+    expanded to an explicit comma list (crontab 0=Sun) so APScheduler never
+    sees ISO-ambiguous ``*/2`` or invalid ``sun-sat`` ranges. Pure named
+    values (``mon``, ``mon-fri``, …) pass through unchanged.
     """
     if field == "*":
         return field
+    # Named-only expressions are already unambiguous for CronTrigger.
+    if not any(ch.isdigit() for ch in field):
+        return field
 
-    def _convert_token(tok: str) -> str:
-        if "/" in tok:
-            base, step = tok.rsplit("/", 1)
-            return f"{_convert_token(base)}/{step}"
-        if "-" in tok:
-            parts = tok.split("-", 1)
-            return "-".join(_CRONTAB_NUM_TO_NAME.get(p, p) for p in parts)
-        return _CRONTAB_NUM_TO_NAME.get(tok, tok)
-
-    return ",".join(_convert_token(t) for t in field.split(","))
+    days: set[int] = set()
+    for token in field.split(","):
+        days.update(_expand_crontab_dow_token(token))
+    if not days:
+        raise ValueError(f"cron day-of-week matched no days: {field}")
+    if days == set(range(7)):
+        return "*"
+    return ",".join(_CRONTAB_DOW_NAMES[day] for day in sorted(days))
 
 
 class ScheduleSpec(BaseModel):

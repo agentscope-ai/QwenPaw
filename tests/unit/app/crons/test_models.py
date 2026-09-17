@@ -40,12 +40,27 @@ def test_dow_comma_list():
 
 
 def test_dow_range():
-    assert _crontab_dow_to_name("1-5") == "mon-fri"
+    # Expand to an explicit list so APS never sees sun-anchored name ranges.
+    assert _crontab_dow_to_name("1-5") == "mon,tue,wed,thu,fri"
 
 
-def test_dow_step():
-    # */2 on DOW field: wildcard base with step
-    assert _crontab_dow_to_name("*/2") == "*/2"
+def test_dow_step_star_uses_crontab_sunday_origin():
+    # Crontab */2 on DOW is Sun,Tue,Thu,Sat — not APS ISO Mon,Wed,Fri,Sun.
+    assert _crontab_dow_to_name("*/2") == "sun,tue,thu,sat"
+
+
+def test_dow_full_numeric_range_becomes_wildcard():
+    assert _crontab_dow_to_name("0-6") == "*"
+    assert _crontab_dow_to_name("0-6/2") == "sun,tue,thu,sat"
+
+
+def test_dow_sunday_anchored_range_is_aps_safe():
+    # Former naive convert emitted "sun-fri", which APScheduler rejects.
+    assert _crontab_dow_to_name("0-5") == "sun,mon,tue,wed,thu,fri"
+
+
+def test_dow_range_with_step():
+    assert _crontab_dow_to_name("1-5/2") == "mon,wed,fri"
 
 
 # ---------------------------------------------------------------------------
@@ -143,3 +158,53 @@ def test_cron_job_spec_text_rejects_silent_delivery():
                 silent=True,
             ),
         )
+
+
+def test_schedule_cron_star_step_dow_matches_crontab_weekdays():
+    """``*/2`` must keep crontab Sunday-origin days after normalization."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from apscheduler.triggers.cron import CronTrigger
+
+    spec = ScheduleSpec(type="cron", cron="0 9 * * */2")
+    assert spec.cron == "0 9 * * sun,tue,thu,sat"
+    minute, hour, day, month, dow = spec.cron.split()
+    trigger = CronTrigger(
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=dow,
+        timezone="UTC",
+    )
+    tz = ZoneInfo("UTC")
+    start = datetime(2026, 9, 13, 0, 0, tzinfo=tz)  # Sunday
+    end = start + timedelta(days=8)
+    seen: set[str] = set()
+    cursor = start
+    while cursor < end:
+        nxt = trigger.get_next_fire_time(None, cursor)
+        if nxt is None or nxt >= end:
+            break
+        seen.add(nxt.strftime("%a"))
+        cursor = nxt + timedelta(seconds=1)
+    assert seen == {"Sun", "Tue", "Thu", "Sat"}
+
+
+def test_schedule_cron_sunday_range_builds_aps_trigger():
+    """Numeric ranges that start on Sunday must remain schedulable."""
+    from apscheduler.triggers.cron import CronTrigger
+
+    spec = ScheduleSpec(type="cron", cron="0 9 * * 0-5")
+    assert spec.cron == "0 9 * * sun,mon,tue,wed,thu,fri"
+    minute, hour, day, month, dow = spec.cron.split()
+    # Must not raise ValueError(min > max) from sun-fri.
+    CronTrigger(
+        minute=minute,
+        hour=hour,
+        day=day,
+        month=month,
+        day_of_week=dow,
+        timezone="UTC",
+    )
