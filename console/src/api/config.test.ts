@@ -1,11 +1,5 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import {
-  getApiUrl,
-  getApiToken,
-  setAuthToken,
-  clearAuthToken,
-  updateBrowserSession,
-} from "./config";
+import { describe, it, expect, beforeEach } from "vitest";
+import { getApiUrl, getApiToken, setAuthToken, clearAuthToken } from "./config";
 
 // VITE_API_BASE_URL / TOKEN are declared globals in config.ts — set via globalThis
 const setViteBase = (v: string) => {
@@ -78,38 +72,5 @@ describe("setAuthToken / clearAuthToken", () => {
     setAuthToken("my-token");
     clearAuthToken();
     expect(getApiToken()).toBe("");
-  });
-});
-
-describe("browser session cookie ordering", () => {
-  afterEach(() => vi.unstubAllGlobals());
-  it("clears old grants before preparing the next account", async () => {
-    const order: string[] = [];
-    let release!: () => void;
-    const first = updateBrowserSession(
-      () =>
-        new Promise<void>((resolve) => {
-          release = () => {
-            order.push("old response");
-            resolve();
-          };
-        }),
-    );
-    await Promise.resolve();
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        order.push("clear cookies");
-        return new Response();
-      }),
-    );
-    clearAuthToken();
-    const next = updateBrowserSession(async () => {
-      order.push("new session");
-    });
-    release();
-    await first;
-    await next;
-    expect(order).toEqual(["old response", "clear cookies", "new session"]);
   });
 });

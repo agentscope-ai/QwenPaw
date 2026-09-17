@@ -155,6 +155,10 @@ Creator 还有 jq、FFmpeg、Playwright 浏览器、模型/OSS 配置等独立�
 
 ## 5. 实施与验证记录
 
+按用户 review 要求，本 PR 不新增单测：新增测试文件及追加到既有文件中的测试用例已移除，仅保留既有测试为适配实现所需的调整。以下新增测试的执行记录属于移除前的验证历史，不代表最终 PR 包含这些测试。
+
+移除后复核：既有 Hub control app / process isolation 测试 52 项通过；既有 Console config / AppCard / AppCenter 测试 35 项通过；本次涉及文件的 pre-commit 检查通过。
+
 - 按用户最终要求直接修改 `feat/fix_hub`，未使用 subagent。
 - Python 环境模块显式共享基础包目录，移除宿主环境选择变量；初次创建失败可重试，完成环境复用，基础环境变化拒绝静默继续。Hub 不在隔离边界外执行已有用户 Python。
 - Hub 复用原有 token 签名和用户撤销逻辑，签发 15 分钟的 App 读取 Cookie。读取响应设置 private/no-store，防止跨账号缓存复用；会话 Cookie 不传入 runtime。
