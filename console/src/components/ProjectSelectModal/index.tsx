@@ -2,39 +2,35 @@
  * ProjectSelectModal
  *
  * Shown when the user first enters Coding Mode (or clicks "Switch Project").
- * Four tabs:
- *   1. Default Workspace  – use the agent's default workspace_dir
- *   2. Clone Repository   – git clone a public URL with SSE progress
- *   3. Open Local Path    – enter an absolute path
- *   4. New Project        – create an empty dir + git init
+ * Five tabs:
+ *   1. Project Folders    – manage the ordered Agent default directory list
+ *   2. Default Workspace  – use the agent's default workspace_dir
+ *   3. Clone Repository   – git clone a public URL with SSE progress
+ *   4. Import Local       – copy a local directory into managed storage
+ *   5. New Project        – create an empty dir + git init
  */
 
 import { useState, useRef, useEffect } from "react";
 import { Modal, Tabs, Input, Button, Alert, List } from "antd";
 import {
-  ChevronRight,
-  Eye,
-  EyeOff,
-  Folder,
   FolderOpen,
   FolderSymlink,
   GitBranch,
   HardDrive,
-  Home,
   PlusCircle,
-  RotateCcw,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   projectDirectoryApi,
-  type BrowseDirsResponse,
   type ProjectListItem,
 } from "../../api/modules/projectDirectory";
+import SessionProjectDirectory from "../../features/project-directory/SessionProjectDirectory";
 import { useProjectDir } from "../../stores/projectDirectoryStore";
 import styles from "./index.module.less";
 
 interface ProjectSelectModalProps {
+  agentId: string;
   open: boolean;
   onClose: () => void;
   onConfirm: (path: string | null) => void;
@@ -85,7 +81,7 @@ function WorkspaceTab({
         onClick={() => onSelect(null)}
         className={styles.actionBtn}
       >
-        {t("codingMode.confirmBtn")}
+        {t("common.apply")}
       </Button>
     </div>
   );
@@ -180,7 +176,6 @@ function CloneTab({ onDone }: { onDone: (path: string) => void }) {
       {logs.length > 0 && (
         <div className={styles.logBox}>
           {logs.map((l, i) => (
-            // eslint-disable-next-line react/no-array-index-key
             <div key={i} className={styles.logLine}>
               {l}
             </div>
@@ -430,213 +425,6 @@ function LocalPathTab({ onSelect }: { onSelect: (path: string) => void }) {
 }
 
 // ---------------------------------------------------------------------------
-// Tab: Open Existing Directory (server-side file browser, no copy)
-// ---------------------------------------------------------------------------
-
-function OpenDirTab({ onSelect }: { onSelect: (path: string) => void }) {
-  const { t } = useTranslation();
-  const [browsePath, setBrowsePath] = useState<string>("~");
-  const [data, setData] = useState<BrowseDirsResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showHidden, setShowHidden] = useState(false);
-  const listRef = useRef<HTMLDivElement>(null);
-  const navSeq = useRef(0);
-
-  const navigate = (path: string) => {
-    const seq = ++navSeq.current;
-    setBrowsePath(path);
-    setLoading(true);
-    setError(null);
-    projectDirectoryApi
-      .browseDirs(path, showHidden)
-      .then((res) => {
-        if (seq !== navSeq.current) return;
-        setData(res);
-        listRef.current?.scrollTo(0, 0);
-      })
-      .catch((err: unknown) => {
-        if (seq !== navSeq.current) return;
-        setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (seq === navSeq.current) setLoading(false);
-      });
-  };
-
-  useEffect(() => {
-    navigate("~");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Re-fetch current directory when the hidden-folders toggle changes.
-  // navSeq already discards stale responses, so unconditional re-fetch is safe.
-  useEffect(() => {
-    navigate(browsePath);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showHidden]);
-
-  const breadcrumbParts = data?.current.split("/").filter(Boolean) ?? [];
-
-  return (
-    <div className={styles.tabContent}>
-      <Alert
-        type="info"
-        showIcon
-        message={t("codingMode.openDirDesc")}
-        className={styles.alert}
-      />
-
-      {/* Quick-access shortcuts */}
-      <div className={styles.browseShortcuts}>
-        <Button
-          size="small"
-          type="text"
-          icon={<Home size={13} />}
-          onClick={() => navigate("~")}
-        >
-          {t("codingMode.openDirHome")}
-        </Button>
-        <Button
-          size="small"
-          type="text"
-          icon={<RotateCcw size={13} />}
-          onClick={() => navigate(browsePath)}
-        >
-          {t("codingMode.openDirRefresh")}
-        </Button>
-        <Button
-          size="small"
-          type={showHidden ? "primary" : "text"}
-          icon={showHidden ? <Eye size={13} /> : <EyeOff size={13} />}
-          onClick={() => setShowHidden((v) => !v)}
-        >
-          {t("codingMode.openDirHiddenFolders")}
-        </Button>
-      </div>
-
-      {/* Breadcrumb */}
-      {data && (
-        <div className={styles.browseBreadcrumb}>
-          <span
-            className={styles.breadcrumbSeg}
-            onClick={() => navigate("/")}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                navigate("/");
-              }
-            }}
-          >
-            /
-          </span>
-          {breadcrumbParts.map((seg, i) => {
-            const segPath = "/" + breadcrumbParts.slice(0, i + 1).join("/");
-            const isLast = i === breadcrumbParts.length - 1;
-            return (
-              <span key={segPath} className={styles.breadcrumbItem}>
-                <ChevronRight size={11} className={styles.breadcrumbSep} />
-                <span
-                  className={`${styles.breadcrumbSeg} ${
-                    isLast ? styles.breadcrumbCurrent : ""
-                  }`}
-                  onClick={() => !isLast && navigate(segPath)}
-                  role={isLast ? undefined : "button"}
-                  tabIndex={isLast ? undefined : 0}
-                  onKeyDown={(e) => {
-                    if (!isLast && (e.key === "Enter" || e.key === " ")) {
-                      e.preventDefault();
-                      navigate(segPath);
-                    }
-                  }}
-                >
-                  {seg}
-                </span>
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Directory listing */}
-      <div className={styles.browseList} ref={listRef}>
-        {loading && (
-          <div className={styles.browseEmpty}>
-            {t("codingMode.openDirLoading")}
-          </div>
-        )}
-        {error && (
-          <Alert
-            type="error"
-            message={error}
-            showIcon
-            className={styles.alert}
-          />
-        )}
-        {!loading && !error && data && (
-          <>
-            {data.parent && (
-              <div
-                className={styles.browseItem}
-                onClick={() => navigate(data.parent!)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    navigate(data.parent!);
-                  }
-                }}
-              >
-                <Folder size={15} className={styles.browseItemIcon} />
-                <span className={styles.browseItemName}>..</span>
-              </div>
-            )}
-            {data.dirs.length === 0 && !data.parent && (
-              <div className={styles.browseEmpty}>
-                {t("codingMode.openDirEmpty")}
-              </div>
-            )}
-            {data.dirs.map((dir) => (
-              <div
-                key={dir.path}
-                className={styles.browseItem}
-                onClick={() => navigate(dir.path)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    navigate(dir.path);
-                  }
-                }}
-              >
-                <Folder size={15} className={styles.browseItemIcon} />
-                <span className={styles.browseItemName}>{dir.name}</span>
-                <ChevronRight size={13} className={styles.browseItemChevron} />
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-
-      {/* Confirm button */}
-      {data && !loading && data.selectable !== false && (
-        <Button
-          type="primary"
-          onClick={() => onSelect(data.current)}
-          className={styles.actionBtn}
-        >
-          {t("codingMode.openDirBtn")}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Tab: New Project
 // ---------------------------------------------------------------------------
 
@@ -727,6 +515,7 @@ function RecentProjects({
 // ---------------------------------------------------------------------------
 
 export default function ProjectSelectModal({
+  agentId,
   open,
   onClose,
   onConfirm,
@@ -734,7 +523,7 @@ export default function ProjectSelectModal({
   const { t } = useTranslation();
   const { setProjectDir } = useProjectDir();
   const [projects, setProjects] = useState<ProjectListItem[]>([]);
-  const [activeTab, setActiveTab] = useState("workspace");
+  const [activeTab, setActiveTab] = useState("folders");
   // The agent's default workspace directory (fetched from backend)
   const [workspaceDir, setWorkspaceDir] = useState<string | null>(null);
 
@@ -788,12 +577,43 @@ export default function ProjectSelectModal({
     onConfirm(path);
   };
 
+  const handleDefaultDirsChanged = async () => {
+    try {
+      const defaults = await projectDirectoryApi.getDirs();
+      const primary =
+        defaults.source === "workspace_fallback"
+          ? null
+          : defaults.project_dirs[0]?.path ?? null;
+      setProjectDir(primary);
+      onConfirm(primary);
+    } catch {
+      onClose();
+    }
+  };
+
   const handleNewDone = (path: string) => {
     setProjectDir(path);
     onConfirm(path);
   };
 
   const tabItems = [
+    {
+      key: "folders",
+      label: (
+        <span className={styles.tabLabel}>
+          <FolderSymlink size={13} />
+          {t("agentConfig.manageDefaultFolders")}
+        </span>
+      ),
+      children: (
+        <SessionProjectDirectory
+          scope={{ kind: "agent", agentId }}
+          multiAgentDefault
+          inline
+          onChanged={() => void handleDefaultDirsChanged()}
+        />
+      ),
+    },
     {
       key: "workspace",
       label: (
@@ -818,16 +638,6 @@ export default function ProjectSelectModal({
         </span>
       ),
       children: <CloneTab onDone={(p) => void handleCloneDone(p)} />,
-    },
-    {
-      key: "opendir",
-      label: (
-        <span className={styles.tabLabel}>
-          <FolderSymlink size={13} />
-          {t("codingMode.tabOpenDir")}
-        </span>
-      ),
-      children: <OpenDirTab onSelect={(p) => void handlePathSelected(p)} />,
     },
     {
       key: "local",
@@ -868,10 +678,12 @@ export default function ProjectSelectModal({
         items={tabItems}
         size="small"
       />
-      <RecentProjects
-        projects={projects}
-        onSelect={(p) => void handlePathSelected(p)}
-      />
+      {activeTab !== "folders" && (
+        <RecentProjects
+          projects={projects}
+          onSelect={(p) => void handlePathSelected(p)}
+        />
+      )}
     </Modal>
   );
 }

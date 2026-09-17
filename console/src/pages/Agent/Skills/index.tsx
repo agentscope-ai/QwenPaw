@@ -24,6 +24,8 @@ import { LockKeyhole, Sparkles } from "lucide-react";
 function SkillsPage() {
   const { t } = useTranslation();
   const {
+    channelOptions,
+    getChannelName,
     skills,
     providerSkills,
     visibleSkills,
@@ -110,6 +112,7 @@ function SkillsPage() {
       <SkillListItem
         key={skill.name}
         skill={skill}
+        getChannelName={getChannelName}
         batchModeEnabled={batchModeEnabled}
         isSelected={selectedSkills.has(skill.name)}
         onSelect={() => toggleSelect(skill.name)}
@@ -122,6 +125,7 @@ function SkillsPage() {
       />
     ),
     [
+      getChannelName,
       batchModeEnabled,
       selectedSkills,
       toggleSelect,
@@ -249,6 +253,7 @@ function SkillsPage() {
                     <SkillCard
                       key={skill.name}
                       skill={skill}
+                      getChannelName={getChannelName}
                       selected={
                         batchModeEnabled
                           ? selectedSkills.has(skill.name)
@@ -390,6 +395,7 @@ function SkillsPage() {
       {conflictRenameModal}
 
       <SkillDrawer
+        channelOptions={channelOptions}
         open={drawerOpen}
         editing={drawerLoading || editingSkill !== null}
         editingName={editingSkillName}
