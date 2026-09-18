@@ -356,6 +356,44 @@ def test_context_size_api_wins_over_catalog_slot():
     assert p.get_context_size("catalog-only-model") == 3_000_000
 
 
+def test_context_size_catalog_slot_falls_back_to_discovered_metadata():
+    """A fetch-reported window lands in the discovery entry's catalog slot.
+
+    For a configured model that entry is the only place the value lives (a
+    fetch must not write the override slot), so the catalog lookup has to fall
+    back to it the same way the API-detected lookup does.
+    """
+    p = _CatalogProvider()
+    p._info = ModelInfo(id="vendor/model", name="Configured")
+    p.get_discovered_model_info = lambda _model_id: ModelInfo(
+        id="vendor/model",
+        name="Discovered",
+        max_input_length_catalog=512_000,
+    )
+
+    details = p.get_context_window_details("vendor/model")
+
+    assert details.value == 512_000
+    assert details.source == "catalog"
+
+
+def test_context_size_configured_catalog_slot_wins_over_discovered():
+    """The window documented for the configured model stays authoritative."""
+    p = _CatalogProvider()
+    p._info = ModelInfo(
+        id="vendor/model",
+        name="Configured",
+        max_input_length_catalog=1_000_000,
+    )
+    p.get_discovered_model_info = lambda _model_id: ModelInfo(
+        id="vendor/model",
+        name="Discovered",
+        max_input_length_catalog=512_000,
+    )
+
+    assert p.get_context_size("vendor/model") == 1_000_000
+
+
 def test_context_size_user_override_wins_over_discovered_metadata():
     p = _CatalogProvider()
     p._info = ModelInfo(
