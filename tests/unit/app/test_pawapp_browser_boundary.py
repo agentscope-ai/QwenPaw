@@ -17,12 +17,14 @@ def test_scoped_cookie_cannot_read_core_or_another_app(monkeypatch):
     registry.set_plugin_http_app(app)
     app.state.plugin_registry = registry
 
+    @app.get("/api/agents/collision")
     @app.get("/api/agents/core")
     def core():
         return {"core": True}
 
     router = APIRouter()
 
+    @router.get("/collision")
     @router.get("/value")
     def value():
         return {"value": True}
@@ -55,37 +57,14 @@ def test_scoped_cookie_cannot_read_core_or_another_app(monkeypatch):
             client.post("/api/agents/value", headers=headers).status_code
             == 401
         )
+        assert (
+            client.get(
+                "/api/agents/collision",
+                headers=headers,
+            ).status_code
+            == 401
+        )
         registry.unregister_plugin("my_app")
         assert (
             client.get("/api/agents/value", headers=headers).status_code == 401
         )
-
-
-def test_core_route_collision_is_not_owned_by_plugin(monkeypatch):
-    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "boundary")
-    app = FastAPI()
-    app.add_middleware(RuntimeBoundaryMiddleware)
-    registry = PluginRegistry()
-    registry.set_plugin_http_app(app)
-    app.state.plugin_registry = registry
-
-    @app.get("/api/agents/value")
-    def core():
-        return {"core": True}
-
-    router = APIRouter()
-    router.add_api_route("/value", lambda: {"app": True})
-    registry.register_plugin_manifest(
-        "agents",
-        {"meta": {"pawapp": {"name": "App"}}},
-    )
-    registry.register_http_router("agents", router, prefix="/agents")
-    with TestClient(app) as client:
-        response = client.get(
-            "/api/agents/value",
-            headers={
-                "X-QwenPaw-Runtime-Token": "boundary",
-                PAWAPP_SCOPE_HEADER: "agents",
-            },
-        )
-        assert response.status_code == 401

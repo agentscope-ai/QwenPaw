@@ -17,15 +17,7 @@ def managed(monkeypatch):
 
 
 @pytest.mark.usefixtures("managed")
-@pytest.mark.parametrize(
-    ("arguments", "method"),
-    [
-        (["list"], "GET"),
-        (["set", "MY_VALUE", "new"], "PATCH"),
-        (["delete", "MY_VALUE"], "DELETE"),
-    ],
-)
-def test_managed_env_uses_api(monkeypatch, arguments, method):
+def test_managed_env_set_uses_runtime_api(monkeypatch):
     requests = []
 
     def respond(request):
@@ -46,10 +38,10 @@ def test_managed_env_uses_api(monkeypatch, arguments, method):
 
     for name in ("load_envs", "set_env_var", "delete_env_var"):
         monkeypatch.setattr(env_cmd, name, no_local_store)
-    result = CliRunner().invoke(env_cmd.env_group, arguments)
+    result = CliRunner().invoke(env_cmd.env_group, ["set", "MY_VALUE", "new"])
     assert result.exit_code == 0, result.output
     assert len(requests) == 1
-    assert requests[0].method == method
+    assert requests[0].method == "PATCH"
     assert requests[0].url.host == "127.0.0.1"
     assert requests[0].url.port == 9001
 

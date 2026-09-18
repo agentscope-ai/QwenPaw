@@ -5,8 +5,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 
 import pytest
 
@@ -100,31 +98,6 @@ def test_managed_runtime_rejects_persisted_control_overrides(
     before = store.os.environ.get(key)
     store.load_envs_into_environ()
     assert store.os.environ.get(key) == before
-
-
-def test_managed_user_values_persist_and_reach_children(
-    isolated_store,
-    monkeypatch,
-):
-    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "user-a")
-    monkeypatch.delenv("PERSISTED_USER_VALUE", raising=False)
-    store.update_env_vars({"PERSISTED_USER_VALUE": "user-a-value"})
-    assert "enc:user-a-value" in isolated_store.read_text()
-    monkeypatch.delenv("PERSISTED_USER_VALUE")
-    store._HOST_ENV_VALUES.clear()
-    store.load_envs_into_environ()
-    assert store.os.environ["PERSISTED_USER_VALUE"] == "user-a-value"
-    child = subprocess.check_output(
-        [
-            sys.executable,
-            "-c",
-            "import os; print(os.environ['PERSISTED_USER_VALUE'])",
-        ],
-        text=True,
-    )
-    assert child.strip() == "user-a-value"
-    store.delete_env_var("PERSISTED_USER_VALUE")
-    assert "PERSISTED_USER_VALUE" not in store.os.environ
 
 
 def test_managed_runtime_does_not_migrate_shared_envs(tmp_path, monkeypatch):

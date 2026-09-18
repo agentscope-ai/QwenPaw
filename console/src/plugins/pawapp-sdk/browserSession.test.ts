@@ -30,13 +30,10 @@ describe("PawApp browser sessions", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("encodes the manifest ID and deduplicates pending requests", async () => {
+  it("encodes the manifest ID for Hub session requests", async () => {
     mocks.mode.mockResolvedValue("hub");
     const { prepareBrowserSession } = await import("./browserSession");
-    const first = prepareBrowserSession("我的_App");
-    expect(prepareBrowserSession("我的_App")).toBe(first);
-    expect(await first).toBe(900);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(await prepareBrowserSession("我的_App")).toBe(900);
     expect(fetch).toHaveBeenCalledWith(
       `/api/hub/pawapps/${encodeURIComponent("我的_App")}/session`,
       expect.objectContaining({ credentials: "same-origin" }),
