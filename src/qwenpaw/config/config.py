@@ -2970,6 +2970,13 @@ class FileGuardConfig(BaseModel):
     enabled: bool = True
     sensitive_files: List[str] = Field(default_factory=list)
     allow_preview_outside_workspace: bool = True
+    protect_skills: bool = Field(
+        default=True,
+        description=(
+            "Whether to protect agent skill directories from "
+            "modification or deletion."
+        ),
+    )
 
 
 class SkillScannerWhitelistEntry(BaseModel):

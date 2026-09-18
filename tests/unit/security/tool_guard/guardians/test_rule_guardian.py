@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Tests for qwenpaw.security.tool_guard.guardians.rule_guardian."""
+
 # pylint: disable=redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -25,7 +26,6 @@ from qwenpaw.security.tool_guard.models import (
     GuardThreatCategory,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -34,9 +34,12 @@ from qwenpaw.security.tool_guard.models import (
 @pytest.fixture
 def mock_config_rules():
     """Patch _load_config_rules to return empty rules and no disabled IDs."""
-    with patch(
+    target = (
         "qwenpaw.security.tool_guard.guardians.rule_guardian"
-        "._load_config_rules",
+        "._load_config_rules"
+    )
+    with patch(
+        target,
         return_value=([], set()),
     ):
         yield
@@ -45,9 +48,12 @@ def mock_config_rules():
 @pytest.fixture
 def mock_workspace_root(tmp_path):
     """Patch _get_workspace_root to return tmp_path."""
-    with patch(
+    target = (
         "qwenpaw.security.tool_guard.guardians.rule_guardian"
-        "._get_workspace_root",
+        "._get_workspace_root"
+    )
+    with patch(
+        target,
         return_value=tmp_path,
     ):
         yield tmp_path
@@ -690,9 +696,12 @@ class TestRuleBasedToolGuardianInit:
         (tmp_path / "rules.yaml").write_text(
             yaml.dump([sample_rule_data]),
         )
-        with patch(
+        target = (
             "qwenpaw.security.tool_guard.guardians.rule_guardian"
-            "._load_config_rules",
+            "._load_config_rules"
+        )
+        with patch(
+            target,
             return_value=([], {"TEST_001"}),
         ):
             guardian = RuleBasedToolGuardian(rules_dir=tmp_path)
@@ -1165,3 +1174,43 @@ class TestRuleBasedToolGuardianReload:
         # After reload, the new file should be loaded
         # (custom dir loads all yaml files)
         assert guardian.rule_count >= initial_count
+
+
+class TestDangerousShellCommandExpansion:
+    """Verify dangerous shell rules cover directory and skill deletion."""
+
+    def test_rm_rule_matches_rmdir_and_rd(self, mock_config_rules):
+        guardian = RuleBasedToolGuardian()
+        for cmd in (
+            "rmdir /s /q test",
+            "rd /s /q test",
+            "erase file.txt",
+            "ri -r test",
+        ):
+            findings = guardian.guard(
+                "execute_shell_command",
+                {"command": cmd},
+            )
+            assert any(
+                f.rule_id == "TOOL_CMD_DANGEROUS_RM" for f in findings
+            ), f"Failed on {cmd}"
+
+    def test_skill_destruction_rule_matches(self, mock_config_rules):
+        guardian = RuleBasedToolGuardian()
+        win_path = (
+            "del /f /q C:\\Users\\Admin\\.qwenpaw\\workspaces\\default"
+            "\\skills\\SKILL.md"
+        )
+        for cmd in (
+            "rm -rf /path/to/skills",
+            "rmdir /s /q ~/.qwenpaw/workspaces/default/skills",
+            win_path,
+            "python3 -c \"import shutil; shutil.rmtree('skills')\"",
+        ):
+            findings = guardian.guard(
+                "execute_shell_command",
+                {"command": cmd},
+            )
+            assert any(
+                f.rule_id == "TOOL_CMD_SKILL_DESTRUCTION" for f in findings
+            ), f"Failed on {cmd}"
