@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from urllib.parse import unquote
 from fastapi import APIRouter, HTTPException
 from starlette.responses import FileResponse
 
@@ -65,7 +64,8 @@ async def preview_file(
     filepath: str,
 ):
     """Preview file."""
-    normalized = unquote(filepath)
+    # ASGI already decoded the URL path; a second pass changes literal %xx.
+    normalized = filepath
 
     # Normalize /C:/... to C:/... on Windows.
     if (

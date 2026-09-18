@@ -408,3 +408,16 @@ describe("toDisplayUrl", () => {
     expect(toDisplayUrl(dataUrl)).not.toContain("/files/preview");
   });
 });
+
+describe("file URI versus filesystem path", () => {
+  it("decodes a file URI once before passing a filesystem path to preview", () => {
+    expect(toDisplayUrl("file:///tmp/literal%2520name.txt")).toBe(
+      "http://localhost:8000/tmp/literal%20name.txt",
+    );
+  });
+  it("keeps a raw filesystem percent escape literal", () => {
+    expect(toDisplayUrl("/tmp/literal%20name.txt")).toBe(
+      "http://localhost:8000/tmp/literal%20name.txt",
+    );
+  });
+});
