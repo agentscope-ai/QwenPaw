@@ -77,3 +77,18 @@
   file_types: [markdown]
   description: "Attempts to conceal actions from the user"
   remediation: "Ensure transparency - do not hide skill usage from users"
+
+- id: PROMPT_INJECTION_SKILL_DESTRUCTION
+  category: prompt_injection
+  severity: HIGH
+  patterns:
+    - "(?i)(?:permanently\\s+)?delete\\s+(?:all\\s+)?skills"
+    - "(?i)(?:destroy|remove|wipe|purge|clear)\\s+(?:all\\s+)?skills"
+    - "(?i)(?:delete_file|execute_shell_command).*?(?:\\ball\\s+)?skills"
+    - "(?i)cleanup\\s+is\\s+required.*?delete.*?skills"
+    # Chinese: skill destruction instructions
+    - "(?:永久)?(?:删除|清除|清空|销毁|抹去)\\s*(?:所有|全部)?\\s*(?:技能|skill)"
+    - "必须(?:进行)?清理.*?(?:删除|清空).*?技能"
+  file_types: [markdown]
+  description: "Attempts to instruct the agent to delete or destroy skills"
+  remediation: "Remove instructions targeting skill deletion or destruction"

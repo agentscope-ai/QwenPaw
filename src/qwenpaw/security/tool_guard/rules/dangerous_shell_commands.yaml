@@ -19,10 +19,30 @@
     - "\\brm\\b"
     - "\\bdel\\b"
     - "\\bRemove-Item\\b"
+    - "\\brmdir\\b"
+    - "\\brd\\b"
+    - "\\berase\\b"
+    - "\\bri\\b"
   exclude_patterns:
     - "^\\s*#"
   description: "Shell command contains 'rm' which may cause data loss"
   remediation: "Confirm with the user before removing files or directories"
+
+# ── Skills & Knowledge Asset Destruction ──────────────────────────────
+- id: TOOL_CMD_SKILL_DESTRUCTION
+  tools: [execute_shell_command]
+  params: [command]
+  category: command_injection
+  severity: HIGH
+  patterns:
+    - "(?i)\\b(rm|del|rmdir|rd|erase|Remove-Item|ri|unlink)\\b.*[\\/\\\\](skills|skill_pool)\\b"
+    - "(?i)\\b(rm|del|rmdir|rd|erase|Remove-Item|ri|unlink)\\b.*\\bSKILL\\.md\\b"
+    - "(?i)shutil\\.(rmtree|rm)\\s*\\(.*(skills|skill_pool|SKILL\\.md)"
+    - "(?i)>\\s*.*[\\/\\\\](skills|skill_pool)[\\/\\\\].*\\bSKILL\\.md\\b"
+  exclude_patterns:
+    - "^\\s*#"
+  description: "Shell command targets deletion or destruction of agent skills directory or SKILL.md"
+  remediation: "Block command. Agent skills are critical knowledge assets and must not be deleted or truncated via shell."
 
 # ── find -delete: bypasses rm detection ───────────────────────────────
 - id: TOOL_CMD_FIND_DELETE

@@ -1189,12 +1189,14 @@ class FileGuardResponse(BaseModel):
     enabled: bool = True
     paths: List[str] = []
     allow_preview_outside_workspace: bool = False
+    protect_skills: bool = True
 
 
 class FileGuardUpdateBody(BaseModel):
     enabled: Optional[bool] = None
     paths: Optional[List[str]] = None
     allow_preview_outside_workspace: Optional[bool] = None
+    protect_skills: Optional[bool] = None
 
 
 @router.get(
@@ -1214,6 +1216,7 @@ async def get_file_guard() -> FileGuardResponse:
         enabled=fg.enabled,
         paths=paths,
         allow_preview_outside_workspace=fg.allow_preview_outside_workspace,
+        protect_skills=getattr(fg, "protect_skills", True),
     )
 
 
@@ -1239,6 +1242,8 @@ async def put_file_guard(
             file_guard.allow_preview_outside_workspace = (
                 body.allow_preview_outside_workspace
             )
+        if body.protect_skills is not None:
+            file_guard.protect_skills = body.protect_skills
 
     config = await run_sync_io(mutate_config, apply_file_guard)
     fg = config.security.file_guard
@@ -1252,6 +1257,7 @@ async def put_file_guard(
         enabled=fg.enabled,
         paths=fg.sensitive_files,
         allow_preview_outside_workspace=fg.allow_preview_outside_workspace,
+        protect_skills=getattr(fg, "protect_skills", True),
     )
 
 
