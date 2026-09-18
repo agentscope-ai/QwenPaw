@@ -19,6 +19,7 @@ from typing import Any
 
 from .credentials import runtime_credential_name_allowed
 from .models import RuntimeRecord, RuntimeState
+from .user_profile import runtime_workspace
 from .provisioner import (
     RuntimeModelNetwork,
     RuntimeProvisioner,
@@ -105,7 +106,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         operating_system = client.info().get("OperatingSystem", "")
         if "docker desktop" in operating_system.lower():
             return RuntimeModelNetwork("127.0.0.1", "host.docker.internal")
-        network = client.networks.get("bridge")
+        network = self._get_network()
         for config in network.attrs.get("IPAM", {}).get("Config", []):
             gateway = config.get("Gateway")
             if not gateway:
@@ -191,6 +192,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         ):
             path.mkdir(parents=True, exist_ok=True)
 
+        workspace = runtime_workspace(record)
         environment = {
             name: value
             for name, value in credentials.items()
@@ -198,8 +200,9 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         }
         environment.update(
             {
+                "HOME": workspace,
                 "QWENPAW_RUNNING_IN_CONTAINER": "true",
-                "QWENPAW_WORKING_DIR": "/app/working",
+                "QWENPAW_WORKING_DIR": workspace,
                 "QWENPAW_SECRET_DIR": "/app/working.secret",
                 "QWENPAW_BACKUP_DIR": "/app/working.backups",
                 "QWENPAW_RUNTIME_ID": record.runtime_id,
@@ -214,6 +217,8 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         container = self._get_client().containers.run(
             launch_image,
             detach=True,
+            network=self._get_network().id,
+            working_dir=workspace,
             environment=environment,
             init=True,
             labels=labels,
@@ -223,7 +228,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             security_opt=["no-new-privileges:true"],
             volumes={
                 str(record.working_dir): {
-                    "bind": "/app/working",
+                    "bind": workspace,
                     "mode": "rw",
                 },
                 str(record.secret_dir): {
@@ -452,6 +457,32 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             "size": int(image.attrs.get("Size") or 0),
             "downloaded": True,
         }
+
+    def _get_network(self) -> Any:
+        """Keep managed containers off the shared, inter-connected bridge."""
+        with self._client_lock:
+            client = self._get_client()
+            name = f"qwenpaw-hub-{self._instance_id}"
+            try:
+                network = client.networks.get(name)
+            except _DockerNotFound:
+                network = client.networks.create(
+                    name,
+                    driver="bridge",
+                    options={"com.docker.network.bridge.enable_icc": "false"},
+                    labels={"qwenpaw.hub.instance": self._instance_id},
+                )
+            if (
+                network.attrs.get("Options", {}).get(
+                    "com.docker.network.bridge.enable_icc",
+                )
+                != "false"
+            ):
+                raise RuntimeError(
+                    f"Docker network {name} must disable container-to-"
+                    "container communication.",
+                )
+            return network
 
     def _get_client(self) -> Any:
         with self._client_lock:

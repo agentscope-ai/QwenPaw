@@ -187,6 +187,13 @@ def create_hub_app(  # pylint: disable=too-many-statements
         values["QWENPAW_HUB_MODEL_TOKEN"] = model_catalog.issue_token(record)
         return values
 
+    def user_profile(record):
+        owner = hub_auth.get_user(record.owner_user_id)
+        if owner is None:
+            raise ValueError("Runtime owner is unavailable")
+        return owner.profile
+
+    runtime_service.profile_provider = user_profile
     runtime_service.credential_provider = managed_credentials
     operations = HubOperationsStore(
         runtime_service.registry.database_path,
@@ -845,6 +852,11 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 role=body.role,
                 disabled=body.disabled,
                 actor_user_id=admin.user_id,
+                profile=(
+                    body.profile.model_dump(exclude_unset=True)
+                    if body.profile is not None
+                    else None
+                ),
             )
         except KeyError as exc:
             raise HTTPException(
@@ -1141,7 +1153,9 @@ def create_hub_app(  # pylint: disable=too-many-statements
                     "Hub runtime.create failure audit was not persisted",
                 )
 
-        reserved_metadata = {"local", "docker"} & set(body.metadata)
+        reserved_metadata = {"local", "docker", "user_profile"} & set(
+            body.metadata,
+        )
         if reserved_metadata:
             await audit_creation_failure(
                 "Runtime backend settings are administrator-controlled."
@@ -1529,7 +1543,7 @@ def create_hub_app(  # pylint: disable=too-many-statements
             app_id,
             response,
             secure=request.url.scheme == "https",
-            prefixes=upstream.json()["browser_prefixes"],
+            prefixes=upstream.json().get("browser_prefixes", []),
         )
         return response
 

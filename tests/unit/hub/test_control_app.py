@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 from starlette.websockets import WebSocketDisconnect
@@ -22,6 +23,7 @@ from websockets.sync.server import ServerConnection, serve
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.hub.auth import HubAuthService, HubUser
+from qwenpaw.app.routers import files
 from qwenpaw.hub.config import (
     AccessSecurityConfig,
     ControlPlaneConfig,
@@ -695,6 +697,14 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
             headers=_headers(admin_token),
         )
         assert demoted.status_code == 409
+        assert current.json()["profile"]["workspace_dir"] == "/workspace"
+        updated = client.patch(
+            f"/api/hub/admin/users/{user_id}",
+            json={"profile": {"workspace_dir": "/data/owner"}},
+            headers=_headers(admin_token),
+        )
+        assert updated.status_code == 200
+        assert updated.json()["profile"]["workspace_dir"] == "/data/owner"
 
 
 def test_settings_apply_immediately_and_reject_stale_revision(
@@ -1869,3 +1879,77 @@ def test_pawapp_cleanup_cors_uses_explicit_origins(tmp_path):
             )
             assert denied.status_code == 400
             assert "access-control-allow-origin" not in denied.headers
+
+
+def test_preview_query_auth_reaches_real_file_route(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "preview 中文.html"
+    target.write_text("<html>preview-ok</html>", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private", encoding="utf-8")
+    monkeypatch.setattr(files, "_ALLOWED_ROOT", workspace)
+    monkeypatch.setattr(
+        files,
+        "_is_preview_outside_workspace_allowed",
+        lambda: False,
+    )
+    runtime = FastAPI()
+    runtime.include_router(files.router, prefix="/api")
+    with _client(tmp_path, httpx.ASGITransport(app=runtime)) as client:
+        token = _register(client, "owner")
+        url = f"/api/files/preview/{target}"
+        assert client.get(url).status_code == 401
+        assert client.get(url, params={"token": "invalid"}).status_code == 401
+        response = client.get(url, params={"token": token})
+        assert response.status_code == 200
+        assert response.text == "<html>preview-ok</html>"
+        assert client.head(url, params={"token": token}).status_code == 200
+        assert (
+            client.get(
+                url,
+                params={"token": token},
+                headers={"Authorization": "Bearer invalid"},
+            ).status_code
+            == 401
+        )
+        assert (
+            client.get(
+                f"/api/files/preview/{outside}",
+                params={"token": token},
+            ).status_code
+            == 403
+        )
+        assert (
+            client.get(
+                "/api/agents",
+                params={"token": token},
+            ).status_code
+            == 401
+        )
+
+
+def test_legacy_pawapp_grant_is_static_only(tmp_path):
+    async def proxy_handler(request):
+        if request.url.path == "/api/pawapps/old_app":
+            return httpx.Response(200, json={"id": "old_app"})
+        assert request.url.path == "/api/pawapps/old_app/static/index.html"
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        token = _register(client, "owner")
+        granted = client.post(
+            "/api/hub/pawapps/old_app/session",
+            headers=_headers(token),
+        )
+        assert granted.status_code == 200
+        assert client.get(
+            "/api/pawapps/old_app/static/index.html",
+        ).json() == {"product": "QwenPaw"}
+        assert client.get("/api/agents").status_code == 401
+        assert (
+            client.get(
+                "/api/pawapps/other/static/index.html",
+            ).status_code
+            == 401
+        )

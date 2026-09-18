@@ -46,7 +46,9 @@ def _linux_boundary(runtime_id: str) -> bool:
         return False
     expected = {
         "/": str(root),
-        "/workspace": str(root.parent / "working"),
+        os.environ.get("QWENPAW_WORKING_DIR", ""): str(
+            root.parent / "working",
+        ),
         "/secrets": str(root.parent / "secrets"),
         "/backups": str(root.parent / "backups"),
     }

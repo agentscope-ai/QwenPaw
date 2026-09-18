@@ -94,6 +94,13 @@ class _FakeClient:
         self.containers = _FakeContainers()
         self.images = _FakeImages()
         self.api = SimpleNamespace()
+        network = SimpleNamespace(
+            id="isolated-network",
+            attrs={
+                "Options": {"com.docker.network.bridge.enable_icc": "false"},
+            },
+        )
+        self.networks = SimpleNamespace(get=lambda name: network)
 
     def ping(self) -> bool:
         return True
@@ -133,7 +140,10 @@ def test_engine_model_access_uses_detected_bridge(
     gateway: str,
 ) -> None:
     network = SimpleNamespace(
-        attrs={"IPAM": {"Config": [{"Gateway": gateway}]}},
+        attrs={
+            "IPAM": {"Config": [{"Gateway": gateway}]},
+            "Options": {"com.docker.network.bridge.enable_icc": "false"},
+        },
     )
     client = SimpleNamespace(
         info=lambda: {"OperatingSystem": "Ubuntu"},
@@ -159,7 +169,10 @@ def test_engine_model_access_rejects_unusable_gateway(
     gateway: str,
 ) -> None:
     network = SimpleNamespace(
-        attrs={"IPAM": {"Config": [{"Gateway": gateway}]}},
+        attrs={
+            "IPAM": {"Config": [{"Gateway": gateway}]},
+            "Options": {"com.docker.network.bridge.enable_icc": "false"},
+        },
     )
     client = SimpleNamespace(
         info=lambda: {},
@@ -215,7 +228,10 @@ def test_container_launch_applies_persistence_security_and_limits(
     )
 
     running = provisioner.start(
-        _record(tmp_path),
+        _record(
+            tmp_path,
+            metadata={"user_profile": {"workspace_dir": "/data/member"}},
+        ),
         {
             "QWENPAW_RUNTIME_INTERNAL_TOKEN": "runtime-token",
             "PYTHONPATH": "/",
@@ -225,6 +241,8 @@ def test_container_launch_applies_persistence_security_and_limits(
 
     launch = client.containers.run_kwargs
     assert launch["image"] == "docker.io/agentscope/qwenpaw:latest"
+    assert launch["network"] == "isolated-network"
+    assert launch["working_dir"] == "/data/member"
     assert launch["nano_cpus"] == 2_500_000_000
     assert launch["mem_limit"] == "3072m"
     assert launch["pids_limit"] == 512
@@ -233,6 +251,8 @@ def test_container_launch_applies_persistence_security_and_limits(
     environment = launch["environment"]
     assert isinstance(environment, dict)
     assert "PYTHONPATH" not in environment
+    assert environment["HOME"] == "/data/member"
+    assert environment["QWENPAW_WORKING_DIR"] == "/data/member"
     assert environment["OPENAI_API_KEY"] == "tenant-key"
     assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "runtime-token"
     volumes = launch["volumes"]
@@ -242,6 +262,7 @@ def test_container_launch_applies_persistence_security_and_limits(
         str(running.secret_dir),
         str(running.backup_dir),
     }
+    assert volumes[str(running.working_dir)]["bind"] == "/data/member"
     assert running.metadata["docker"]["image_id"] == ("sha256:resolved-image")
     assert running.metadata["docker"]["boundary_mode"] == "token"
 

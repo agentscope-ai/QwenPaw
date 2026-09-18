@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
+from .user_profile import HubUserProfile
 from .credentials import TenantCredentialVault
 from .database import (
     connect_hub_database,
@@ -92,6 +93,13 @@ class HubAuthService:  # pylint: disable=too-many-public-methods
         self.credential_vault = credential_vault
         self._registration_lock = threading.Lock()
         initialize_hub_database(database_path)
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE hub_users SET profile_json = json_set("
+                "profile_json, '$.workspace_dir', ?) "
+                "WHERE json_type(profile_json, '$.workspace_dir') IS NULL",
+                (HubUserProfile().workspace_dir,),
+            )
         self._token_secret = self.credential_vault.get_or_create_system_secret(
             "TOKEN_SIGNING_SECRET",
         ).encode("ascii")
@@ -271,7 +279,7 @@ class HubAuthService:  # pylint: disable=too-many-public-methods
                 prepared.password_hash,
                 prepared.password_salt,
                 role,
-                '{"schema_version":1}',
+                HubUserProfile().model_dump_json(),
                 '{"schema_version":1}',
                 '{"schema_version":1}',
                 prepared.created_at,
@@ -491,6 +499,7 @@ class HubAuthService:  # pylint: disable=too-many-public-methods
         role: str | None = None,
         disabled: bool | None = None,
         actor_user_id: str | None = None,
+        profile: dict[str, object] | None = None,
     ) -> HubUser:
         """Update authorization state and invalidate all existing tokens."""
         with self._connect() as connection:
@@ -503,6 +512,9 @@ class HubAuthService:  # pylint: disable=too-many-public-methods
             if row is None:
                 raise KeyError(user_id)
             current = self._user_from_row(row)
+            next_profile = HubUserProfile.model_validate(
+                {**current.profile, **(profile or {})},
+            ).model_dump_json()
             next_role = role if role is not None else current.role
             next_disabled = (
                 disabled if disabled is not None else current.disabled
@@ -530,12 +542,18 @@ class HubAuthService:  # pylint: disable=too-many-public-methods
                     )
             connection.execute(
                 """
-                UPDATE hub_users SET role = ?, disabled = ?,
+                UPDATE hub_users SET role = ?, disabled = ?, profile_json = ?,
                     token_version = token_version + 1,
                     revision = revision + 1, updated_at = ?
                 WHERE user_id = ?
                 """,
-                (next_role, int(next_disabled), utc_now(), user_id),
+                (
+                    next_role,
+                    int(next_disabled),
+                    next_profile,
+                    utc_now(),
+                    user_id,
+                ),
             )
             updated_row = connection.execute(
                 "SELECT * FROM hub_users WHERE user_id = ? "
@@ -601,7 +619,9 @@ class HubAuthService:  # pylint: disable=too-many-public-methods
             role=str(row["role"]),
             disabled=bool(row["disabled"]),
             token_version=int(row["token_version"]),
-            profile=json.loads(str(row["profile_json"])),
+            profile=HubUserProfile.model_validate_json(
+                str(row["profile_json"]),
+            ).model_dump(),
             preferences=json.loads(str(row["preferences_json"])),
             metadata=json.loads(str(row["metadata_json"])),
             revision=int(row["revision"]),

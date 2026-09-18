@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from typing import IO, Any, Mapping, Protocol, Sequence
 
+from .user_profile import runtime_workspace
 from .models import RuntimeRecord
 
 
@@ -150,6 +151,7 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
                 "Local isolation requires bubblewrap (bwrap) on Linux.",
             )
         runtime_root = _runtime_root(record)
+        workspace = runtime_workspace(record)
         filesystem_root = runtime_root / "filesystem"
         filesystem_root.mkdir(exist_ok=True)
         args = [
@@ -176,10 +178,17 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             if Path(path).exists():
                 args.extend(["--ro-bind", path, path])
         for path in _read_roots():
+            mount_path = Path(workspace)
+            if mount_path.is_relative_to(path) or path.is_relative_to(
+                mount_path,
+            ):
+                raise ProcessIsolationError(
+                    "User workspace overlaps the shared runtime installation.",
+                )
             args.extend(["--ro-bind", str(path), str(path)])
         args.extend(["--tmpfs", "/tmp"])
         for source, target in (
-            (record.working_dir, "/workspace"),
+            (record.working_dir, workspace),
             (record.secret_dir, "/secrets"),
             (record.backup_dir, "/backups"),
         ):
@@ -191,7 +200,7 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
                 "--proc",
                 "/proc",
                 "--chdir",
-                "/workspace",
+                workspace,
                 "--",
                 *command,
             ],
@@ -199,12 +208,12 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
         sandbox_environment = dict(environment)
         sandbox_environment.update(
             {
-                "HOME": "/workspace",
-                "PWD": "/workspace",
-                "TMP": "/workspace/tmp",
-                "TEMP": "/workspace/tmp",
-                "TMPDIR": "/workspace/tmp",
-                "QWENPAW_WORKING_DIR": "/workspace",
+                "HOME": workspace,
+                "PWD": workspace,
+                "TMP": f"{workspace}/tmp",
+                "TEMP": f"{workspace}/tmp",
+                "TMPDIR": f"{workspace}/tmp",
+                "QWENPAW_WORKING_DIR": workspace,
                 "QWENPAW_SECRET_DIR": "/secrets",
                 "QWENPAW_BACKUP_DIR": "/backups",
             },
@@ -227,8 +236,7 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             *runtime_args[: separator + 1],
             "/bin/sh",
             "-c",
-            "test -r /workspace/.isolation-probe "
-            '&& test "$HOME" = /workspace && test "$PWD" = /workspace '
+            'test -r "$HOME/.isolation-probe" && test "$PWD" = "$HOME" '
             '&& test ! -e "$1"',
             "probe",
             str(marker),

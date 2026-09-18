@@ -142,11 +142,16 @@ def test_provisioner_preflight_reports_isolation_failure(
     assert availability.reason == "required isolation unavailable"
 
 
+@pytest.mark.parametrize("workspace", ["/workspace", "/data/member"])
 def test_linux_command_mounts_only_runtime_root_writable(
     tmp_path: Path,
     monkeypatch,
+    workspace,
 ) -> None:
-    record = _record(tmp_path)
+    record = _record(
+        tmp_path,
+        metadata={"user_profile": {"workspace_dir": workspace}},
+    )
     isolator = LinuxBubblewrapIsolator("/usr/bin/bwrap")
     monkeypatch.setattr(isolator, "_probe", lambda *args: None)
 
@@ -172,14 +177,14 @@ def test_linux_command_mounts_only_runtime_root_writable(
     }
     assert {target: source for target, (source, _) in mounts.items()} == {
         "/": str(record.working_dir.parent / "filesystem"),
-        "/workspace": str(record.working_dir.resolve()),
+        workspace: str(record.working_dir.resolve()),
         "/secrets": str(record.secret_dir.resolve()),
         "/backups": str(record.backup_dir.resolve()),
     }
-    assert mounts["/"][1] < tmp_index < mounts["/workspace"][1]
-    assert args[args.index("--chdir") + 1] == "/workspace"
-    assert launch.environment["HOME"] == "/workspace"
-    assert launch.environment["QWENPAW_WORKING_DIR"] == "/workspace"
+    assert mounts["/"][1] < tmp_index < mounts[workspace][1]
+    assert args[args.index("--chdir") + 1] == workspace
+    assert launch.environment["HOME"] == workspace
+    assert launch.environment["QWENPAW_WORKING_DIR"] == workspace
     assert str(record.working_dir.parent.parent) not in args
     assert str(repository / "packages" / "qwenpawmail-mcp" / "src") in (
         read_only_sources
@@ -641,9 +646,16 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Requires bubblewrap")
-def test_linux_runtime_filesystem_is_shared_and_persistent(tmp_path):
+@pytest.mark.parametrize("workspace", ["/workspace", "/data/member"])
+def test_linux_runtime_filesystem_is_shared_and_persistent(
+    tmp_path,
+    workspace,
+):
     """All tools share user-created directories across runtime restarts."""
-    record = _record(tmp_path)
+    record = _record(
+        tmp_path,
+        metadata={"user_profile": {"workspace_dir": workspace}},
+    )
     (record.working_dir / "tmp").mkdir()
     other = _record(tmp_path, runtime_id="other-user")
     environment = LocalProcessRuntimeProvisioner.runtime_environment(
@@ -659,18 +671,18 @@ def test_linux_runtime_filesystem_is_shared_and_persistent(tmp_path):
         from qwenpaw.agents.tools.shell import _execute_in_sandbox
         from qwenpaw.sandbox import SandboxConfig, SandboxMode
 
-        assert Path.cwd() == Path('/workspace')
-        assert Path.home() == Path('/workspace')
+        assert Path.cwd() == Path('{workspace}')
+        assert Path.home() == Path('{workspace}')
         assert not Path({str(record.working_dir)!r}).exists()
         assert not Path({str(other.working_dir)!r}).exists()
         Path('/user-created').mkdir()
         asyncio.run(write_file('/user-created/hello.svg', 'file-tool'))
         config = SandboxConfig(
             mode=SandboxMode.BUBBLEWRAP,
-            workspace_dir='/workspace',
+            workspace_dir='{workspace}',
         )
         command = (
-            'test "$(pwd)" = /workspace && '
+            'test "$(pwd)" = {workspace} && '
             'test "$(cat /user-created/hello.svg)" = file-tool && '
             'printf shell > /user-created/from-shell && '
             'python -c "from pathlib import Path; '
@@ -679,7 +691,7 @@ def test_linux_runtime_filesystem_is_shared_and_persistent(tmp_path):
             'qwenpaw --version'
         )
         result = asyncio.run(_execute_in_sandbox(
-            command, config, 30, '/workspace', dict(os.environ),
+            command, config, 30, '{workspace}', dict(os.environ),
         ))
         assert result.exit_code == 0, result.stderr
         assert Path('/user-created/from-python').read_text() == 'python'
