@@ -3092,6 +3092,7 @@
   },
   "chat": {
     "newTask": "Nova tarefa",
+    "newChat": "Novo chat",
     "groups": {
       "cronShort": "Agendado",
       "subagentShort": "Subagente"
@@ -3205,6 +3206,7 @@
       "rename": "Rename",
       "pin": "Pin",
       "unpin": "Unpin",
+      "copyId": "Copiar ID da conversa",
       "delete": "Excluir"
     },
     "queue": {
