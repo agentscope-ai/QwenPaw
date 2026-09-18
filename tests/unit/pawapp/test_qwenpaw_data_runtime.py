@@ -148,6 +148,10 @@ def test_provision_engine_mcp_without_token_sends_no_auth_header(
     assert entries[0]["mcp_config"]["headers"] == {}
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX mode bits are not enforced on Windows",
+)
 def test_provision_engine_mcp_creates_file_with_private_mode(
     tmp_path: Path,
 ) -> None:
@@ -162,6 +166,10 @@ def test_provision_engine_mcp_creates_file_with_private_mode(
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX mode bits are not enforced on Windows",
+)
 def test_provision_engine_mcp_corrects_existing_file_mode(
     tmp_path: Path,
 ) -> None:
@@ -174,6 +182,23 @@ def test_provision_engine_mcp_corrects_existing_file_mode(
     runtime.provision_engine_mcp(tmp_path, "http://cm.local", "test-token")
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_provision_engine_mcp_tolerates_windows_like_missing_fchmod(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _load_runtime_module()
+    monkeypatch.delattr(runtime.os, "fchmod", raising=False)
+
+    path = runtime.provision_engine_mcp(
+        tmp_path,
+        "http://cm.local",
+        "test-token",
+    )
+
+    entries = json.loads(path.read_text(encoding="utf-8"))
+    assert entries[0]["name"] == runtime.DATABRIDGE_MCP_NAME
 
 
 def test_provision_engine_mcp_rejects_symlink_target(

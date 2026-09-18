@@ -26,6 +26,7 @@ export default function LoginPage() {
   const [isRegister, setIsRegister] = useState(false);
   const [hasUsers, setHasUsers] = useState(true);
   const [registrationEnabled, setRegistrationEnabled] = useState(false);
+  const [invitationEnabled, setInvitationEnabled] = useState(false);
   const [isHub, setIsHub] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [termsOpen, setTermsOpen] = useState(false);
@@ -33,6 +34,7 @@ export default function LoginPage() {
   const [pendingCredentials, setPendingCredentials] = useState<{
     username: string;
     password: string;
+    invite_code?: string;
   } | null>(null);
   const { message } = useAppMessage();
   const rawRedirect = searchParams.get("redirect") || "/chat";
@@ -64,6 +66,7 @@ export default function LoginPage() {
         setHasUsers(res.has_users);
         setRegistrationEnabled(Boolean(res.registration_enabled));
         setIsHub(res.mode === "hub");
+        setInvitationEnabled(res.registration_mode === "invite");
         if (!res.has_users) {
           setIsRegister(true);
         }
@@ -74,11 +77,16 @@ export default function LoginPage() {
   const submitCredentials = async (values: {
     username: string;
     password: string;
+    invite_code?: string;
   }) => {
     setLoading(true);
     try {
       if (isRegister) {
-        const res = await authApi.register(values.username, values.password);
+        const res = await authApi.register(
+          values.username,
+          values.password,
+          values.invite_code,
+        );
         if (res.token) {
           setAuthToken(res.token);
           message.success(t("login.registerSuccess"));
@@ -111,7 +119,11 @@ export default function LoginPage() {
     }
   };
 
-  const onFinish = async (values: { username: string; password: string }) => {
+  const onFinish = async (values: {
+    username: string;
+    password: string;
+    invite_code?: string;
+  }) => {
     if (isHub && !disclaimerAccepted) {
       setPendingCredentials(values);
       openTerms();
@@ -184,7 +196,7 @@ export default function LoginPage() {
             style={{ height: 48, marginBottom: 12 }}
           />
           <h2 style={{ margin: 0, fontWeight: 600, fontSize: 20 }}>
-            {isRegister ? t("login.registerTitle") : t("login.title")}
+            {t(isRegister ? "login.registerTitle" : "login.title")}
           </h2>
           {!hasUsers && (
             <p
@@ -240,6 +252,15 @@ export default function LoginPage() {
             />
           </Form.Item>
 
+          {isRegister && hasUsers && invitationEnabled && (
+            <Form.Item name="invite_code" rules={[{ required: true }]}>
+              <Input
+                autoComplete="off"
+                maxLength={128}
+                placeholder={t("login.invitationCode")}
+              />
+            </Form.Item>
+          )}
           {isHub && (
             <div className={styles.hubDisclaimer}>
               <div className={styles.disclaimerHeading}>
@@ -279,7 +300,7 @@ export default function LoginPage() {
               block
               style={{ height: 44, borderRadius: 8, fontWeight: 500 }}
             >
-              {isRegister ? t("login.register") : t("login.submit")}
+              {t(isRegister ? "login.register" : "login.submit")}
             </Button>
           </Form.Item>
         </Form>

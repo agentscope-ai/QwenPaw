@@ -39,11 +39,11 @@
   &:focus-visible,
   &:global(.ant-popover-open) {
     outline: none;
-    background: rgba(255, 127, 22, 0.08);
+    background: var(--app-accent-faint);
     color: rgba(26, 23, 22, 0.94);
 
     > svg {
-      color: #e96f0b;
+      color: var(--app-accent);
     }
   }
 }
@@ -80,7 +80,7 @@
 }
 
 .check {
-  color: #e96f0b !important;
+  color: var(--app-accent) !important;
 }
 
 .dangerItem {
@@ -128,7 +128,7 @@
   .panel,
   .flyoutPanel,
   .choicePanel {
-    background: #242321;
+    background: var(--app-surface);
   }
 
   .menuItem,
@@ -142,7 +142,7 @@
     &:hover,
     &:focus-visible,
     &:global(.ant-popover-open) {
-      background: rgba(255, 127, 22, 0.13);
+      background: var(--app-accent-soft);
       color: rgba(255, 255, 255, 0.96);
     }
   }

@@ -9,6 +9,8 @@ export interface HostModelInfo {
   id: string;
   name: string;
   is_free?: boolean;
+  supports_image?: boolean | null;
+  supports_video?: boolean | null;
 }
 
 export interface HostProviderInfo {

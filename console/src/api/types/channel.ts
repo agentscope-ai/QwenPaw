@@ -51,6 +51,7 @@ export interface FeishuConfig extends BaseChannelConfig {
   domain?: "feishu" | "lark";
   streaming_enabled?: boolean;
   share_session_in_group?: boolean;
+  auto_collapse_thinking?: boolean;
 }
 
 export interface QQConfig extends BaseChannelConfig {

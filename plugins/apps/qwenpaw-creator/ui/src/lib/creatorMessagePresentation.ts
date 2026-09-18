@@ -790,6 +790,7 @@ export interface ToolCallPresentation {
   productionOutcome?:
     | "waiting_review"
     | "not_started"
+    | "cancelled"
     | "unconfirmed"
     | "incomplete";
   /** True only after execution started, never inferred from argument bytes. */
@@ -865,6 +866,7 @@ const BEFORE_PRODUCTION_REASONS = new Set([
   "MODEL_RENDER_REVIEW_ENABLED",
   "INPUTS_NOT_READY",
   "APPROVED_INPUTS_CHANGED",
+  "AUTHORIZATION_EXPIRED",
 ]);
 
 function productionOutcome(
@@ -881,6 +883,20 @@ function productionOutcome(
   if (status === "PARTIAL") return "incomplete";
   if (status !== "BLOCKED") return undefined;
   if (!Array.isArray(items) || items.length === 0) return "unconfirmed";
+  if (
+    items.some(
+      (item) => isRecord(item) && item.reason === "AUTHORIZATION_REJECTED",
+    ) &&
+    items.every(
+      (item) =>
+        isRecord(item) &&
+        item.status === "BLOCKED" &&
+        !item.taskId &&
+        (item.reason === "AUTHORIZATION_REJECTED" ||
+          BEFORE_PRODUCTION_REASONS.has(String(item.reason))),
+    )
+  )
+    return "cancelled";
   if (
     items.every(
       (item) =>

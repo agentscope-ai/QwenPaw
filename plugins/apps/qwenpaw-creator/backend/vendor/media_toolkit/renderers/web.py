@@ -24,6 +24,19 @@ from typing import Any
 _MERGE_THRESHOLD = 0.4
 
 
+def _launch_chromium(playwright):
+    executable = os.environ.get("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH")
+    if executable:
+        return playwright.chromium.launch(
+            headless=True,
+            executable_path=executable,
+        )
+    try:
+        return playwright.chromium.launch(headless=True, channel="chrome")
+    except Exception:  # pylint: disable=broad-except
+        return playwright.chromium.launch(headless=True)
+
+
 def render(path: str, **opts: Any) -> list[dict[str, Any]]:
     try:
         from playwright.sync_api import sync_playwright
@@ -50,10 +63,7 @@ def render(path: str, **opts: Any) -> list[dict[str, Any]]:
     label = os.path.basename(path)
 
     with sync_playwright() as p:
-        try:
-            browser = p.chromium.launch(headless=True, channel="chrome")
-        except Exception:  # pylint: disable=broad-except
-            browser = p.chromium.launch(headless=True)
+        browser = _launch_chromium(p)
 
         page = browser.new_page(viewport={"width": vw, "height": vh})
         page.goto(url, wait_until="domcontentloaded", timeout=60000)

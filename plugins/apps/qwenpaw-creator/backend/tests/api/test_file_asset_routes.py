@@ -448,3 +448,168 @@ def test_remote_asset_url_validation_fails_closed_on_ssrf_vectors() -> None:
         )
         == "https://assets.example/video.mp4?version=1"
     )
+
+
+def _session_app(tmp_path):
+    """A ``project-1`` whose Runtime Session mirrors real project creation."""
+
+    services = CreatorFileServices.create(tmp_path.resolve())
+    services.projects.create(
+        Project.new(project_id="project-1", name="One"),
+        initialize_staged_project=lambda staged_root: (
+            services.sessions.initialize_staged_project(
+                staged_root,
+                "project-1",
+                session_id="session-1",
+                conversation_id="conversation-1",
+            )
+        ),
+    )
+    app = FastAPI()
+    app.add_exception_handler(CreatorError, creator_error_handler)
+    app.include_router(router)
+    app.include_router(media_router)
+    app.dependency_overrides[project_file_services] = lambda: services
+    return app, services
+
+
+def _install_notification_capture(services, monkeypatch):
+    # pylint: disable=import-outside-toplevel
+    from types import SimpleNamespace
+
+    from services.file_agent_runtime.notifications import (
+        RuntimeNotificationBus,
+    )
+
+    wakes: list[str] = []
+    bus = RuntimeNotificationBus(services, wake_dispatcher=wakes.append)
+    monkeypatch.setattr(
+        file_asset_routes,
+        "get_creator_agent_runtime",
+        lambda: SimpleNamespace(notifications=bus),
+    )
+    return wakes
+
+
+def _uploaded_notifications(services):
+    return [
+        item
+        for item in services.sessions.list_messages(
+            "project-1",
+            "session-1",
+            after_seq=0,
+            limit=None,
+        )
+        if item.metadata.get("notificationKind") == "source_assets_uploaded"
+    ]
+
+
+def test_asset_uploads_steer_the_agent_once_per_ingest(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+    run_scenario,
+) -> None:
+    """One steer per ingest, gated on the session having a first message:
+    launch-flow uploads stay silent (their refs ride the initial message),
+    multipart replays stay silent, URL assets notify once the background
+    download lands, and composer-staged uploads (notifyAgent=false) ride
+    their outgoing message instead."""
+
+    app, services = _session_app(tmp_path)
+    _install_remote_transport(monkeypatch, chunks=[b"12", b"34"])
+    wakes = _install_notification_capture(services, monkeypatch)
+
+    async def scenario(client):
+        # Launch flow: the session has no messages yet — stay silent.
+        launch = await client.post(
+            "/projects/project-1/assets",
+            headers={"Idempotency-Key": "launch-upload"},
+            data={
+                "clientRequestId": "launch-upload",
+                "postIngestAction": "NONE",
+            },
+            files={"file": ("cover.png", b"png-bytes-0", "image/png")},
+        )
+        assert launch.status_code == 202
+        assert wakes == []
+        assert (
+            services.sessions.list_messages(
+                "project-1",
+                "session-1",
+                after_seq=0,
+                limit=None,
+            )
+            == []
+        )
+        services.sessions.append_message(
+            "project-1",
+            "session-1",
+            "conversation-1",
+            role="user",
+            content_parts=[{"type": "text", "text": "做一条视频"}],
+            source="user",
+        )
+        first = await client.post(
+            "/projects/project-1/assets",
+            headers={"Idempotency-Key": "upload-1"},
+            data={
+                "clientRequestId": "upload-1",
+                "postIngestAction": "ATTACH_SOURCE",
+            },
+            files={"file": ("lulu.png", b"png-bytes", "image/png")},
+        )
+        replay = await client.post(
+            "/projects/project-1/assets",
+            headers={"Idempotency-Key": "upload-1"},
+            data={
+                "clientRequestId": "upload-1",
+                "postIngestAction": "ATTACH_SOURCE",
+            },
+            files={"file": ("lulu.png", b"png-bytes", "image/png")},
+        )
+        remote = await client.post(
+            "/projects/project-1/assets",
+            headers={"Idempotency-Key": "remote-1"},
+            json={
+                "clientRequestId": "remote-1",
+                "kind": "url",
+                "name": "clip.mp4",
+                "value": "https://assets.example/clip.mp4",
+                "postIngestAction": "ATTACH_SOURCE",
+            },
+        )
+        pending = list(file_asset_routes._REMOTE_INGEST_TASKS.values())
+        if pending:
+            await asyncio.gather(*pending)
+        # Composer-staged uploads ride the outgoing message instead:
+        # notifyAgent=false must stay silent.
+        staged = await client.post(
+            "/projects/project-1/assets",
+            headers={"Idempotency-Key": "staged-1"},
+            data={
+                "clientRequestId": "staged-1",
+                "postIngestAction": "ATTACH_SOURCE",
+                "notifyAgent": "false",
+            },
+            files={"file": ("staged.png", b"png-bytes-2", "image/png")},
+        )
+        return first, replay, remote, staged
+
+    first, replay, remote, staged = run_scenario(app, scenario)
+
+    assert first.status_code == 202
+    assert replay.status_code == 202
+    assert remote.status_code == 202
+    assert staged.status_code == 202
+    notes = _uploaded_notifications(services)
+    assert len(notes) == 2
+    upload_note, remote_note = notes
+    assert upload_note.role == "user"
+    assert "lulu.png" in upload_note.content_parts[0].text
+    assert upload_note.metadata["assetVersionRefs"] == [
+        f"asset-version:{first.json()['assetVersionId']}",
+    ]
+    assert remote_note.metadata["assetVersionRefs"] == [
+        f"asset-version:{remote.json()['assetVersionId']}",
+    ]
+    assert wakes == ["project-1", "project-1"]

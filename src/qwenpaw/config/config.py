@@ -52,6 +52,70 @@ logger = logging.getLogger(__name__)
 
 AUTO_FIN_MAX_WINDOW_HOURS = 168
 
+_CSS_HEX_COLOR_RE = re.compile(
+    r"^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$",
+)
+_CSS_COLOR_FUNCTION_RE = re.compile(
+    r"^(rgb|rgba|hsl|hsla)\(([^()]*)\)$",
+    re.IGNORECASE,
+)
+_CSS_NUMBER_PATTERN = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)"
+_CSS_NUMBER_RE = re.compile(rf"^{_CSS_NUMBER_PATTERN}$")
+_CSS_PERCENT_RE = re.compile(rf"^{_CSS_NUMBER_PATTERN}%$")
+_CSS_HUE_RE = re.compile(
+    rf"^{_CSS_NUMBER_PATTERN}(?:deg|grad|rad|turn)?$",
+    re.IGNORECASE,
+)
+_CSS_RADIUS_RE = re.compile(r"^(?:0|(?:0|[1-9]\d*)(?:\.\d+)?px)$")
+
+
+def _is_safe_css_color(value: str) -> bool:
+    """Return whether a value is a supported standalone CSS color."""
+    normalized = value.strip()
+    if _CSS_HEX_COLOR_RE.fullmatch(normalized):
+        return True
+
+    match = _CSS_COLOR_FUNCTION_RE.fullmatch(normalized)
+    if match is None:
+        return False
+
+    function_name, body = match.groups()
+    if "," in body:
+        parts = [part.strip() for part in body.split(",")]
+        channels = parts[:3]
+        alpha = parts[3] if len(parts) == 4 else None
+        valid_syntax = "/" not in body and len(parts) in (3, 4) and all(parts)
+    else:
+        slash_parts = body.split("/")
+        channels = slash_parts[0].split()
+        alpha = slash_parts[1].strip() if len(slash_parts) == 2 else None
+        valid_syntax = (
+            len(slash_parts) <= 2
+            and len(channels) == 3
+            and (alpha is None or bool(alpha))
+        )
+
+    if not valid_syntax:
+        return False
+
+    if alpha is not None and not (
+        _CSS_NUMBER_RE.fullmatch(alpha) or _CSS_PERCENT_RE.fullmatch(alpha)
+    ):
+        return False
+
+    if function_name.lower().startswith("rgb"):
+        return all(
+            _CSS_NUMBER_RE.fullmatch(channel)
+            or _CSS_PERCENT_RE.fullmatch(channel)
+            for channel in channels
+        )
+    return bool(
+        _CSS_HUE_RE.fullmatch(channels[0])
+        and _CSS_PERCENT_RE.fullmatch(channels[1])
+        and _CSS_PERCENT_RE.fullmatch(channels[2]),
+    )
+
+
 # A legacy field can be present in the root config and in several agent
 # profiles, all of which may be validated repeatedly during one process
 # lifetime.  The migration reminder is useful once, but repeating it for
@@ -349,6 +413,8 @@ class FeishuConfig(BaseChannelConfig):
     domain: 'feishu' for China, 'lark' for international.
     streaming_enabled: enable CardKit streaming card updates for real-time
     typewriter-style text output.
+    auto_collapse_thinking: collapse the reasoning panel when its stream
+    finishes (the panel stays manually collapsible either way).
     share_session_in_group: if True, all group members share one session;
     if False (default), each member gets an independent session.
     """
@@ -372,6 +438,9 @@ class FeishuConfig(BaseChannelConfig):
 
     streaming_enabled: bool = False
     share_session_in_group: bool = False
+    # Auto-collapse the reasoning panel once a stream finishes. The panel is
+    # always collapsible by hand; this only controls the automatic collapse.
+    auto_collapse_thinking: bool = False
 
 
 class QQConfig(BaseChannelConfig):
@@ -2240,9 +2309,13 @@ class AgentProfileConfig(BaseModel):
     project_dir: Optional[str] = Field(
         default=None,
         description=(
-            "Default project directory for tools and project files. "
+            "Primary default project directory (legacy single-path view). "
             "None means use workspace_dir."
         ),
+    )
+    project_dirs: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Ordered default project directories, primary first.",
     )
     backend: str = Field(
         default="qwenpaw",
@@ -3113,6 +3186,47 @@ class BrowserConfig(BaseModel):
         return value
 
 
+class ThemeDarkConfig(BaseModel):
+    """Optional theme overrides used when the console is in dark mode."""
+
+    accent: Optional[str] = None
+    accent_bg: Optional[str] = None
+    surface: Optional[str] = None
+
+    @field_validator("accent", "accent_bg", "surface")
+    @classmethod
+    def _validate_color(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not _is_safe_css_color(value):
+            raise ValueError("must be a CSS color")
+        return value.strip() if value is not None else None
+
+
+class ThemeConfig(BaseModel):
+    """User-configurable Console appearance tokens."""
+
+    accent: Optional[str] = None
+    accent_hover: Optional[str] = None
+    accent_bg: Optional[str] = None
+    radius: Optional[str] = None
+    dark: Optional[ThemeDarkConfig] = None
+
+    @field_validator("accent", "accent_hover", "accent_bg")
+    @classmethod
+    def _validate_color(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and not _is_safe_css_color(value):
+            raise ValueError("must be a CSS color")
+        return value.strip() if value is not None else None
+
+    @field_validator("radius")
+    @classmethod
+    def _validate_radius(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            value = value.strip()
+            if not _CSS_RADIUS_RE.fullmatch(value):
+                raise ValueError("must be a pixel value or 0")
+        return value
+
+
 class Config(BaseModel):
     """Root config (config.json)."""
 
@@ -3125,6 +3239,7 @@ class Config(BaseModel):
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     acp: ACPConfig = Field(default_factory=ACPConfig)
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
+    theme: Optional[ThemeConfig] = None
     show_tool_details: bool = True
     user_timezone: str = Field(
         default_factory=detect_system_timezone,

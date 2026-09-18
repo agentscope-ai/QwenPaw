@@ -1,9 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   PawHandoffRequest,
   PawSdk,
+  PawSdkFactory,
 } from "../../../../../console/src/plugins/pawapp-sdk/types";
 import { EmbeddedDataConsole } from "./EmbeddedDataConsole";
+
+type PawHostWindow = Window & {
+  QwenPaw?: {
+    paw?: PawSdkFactory;
+  };
+};
 
 export function dataRouteFromHandoff(handoff: PawHandoffRequest): string {
   const project = handoff.context.project_ref;
@@ -22,7 +29,13 @@ export function dataRouteFromHandoff(handoff: PawHandoffRequest): string {
  * branding, language, model setup (Agent Configuration), channels, and
  * the DataBridge service configuration. The shell only mounts it.
  */
-export function App({ paw }: { paw: PawSdk }) {
+export function App({ paw }: { paw?: PawSdk } = {}) {
+  const sdk = useMemo(
+    () =>
+      paw ??
+      (window as PawHostWindow).QwenPaw?.paw?.forApp("qwenpaw-data"),
+    [paw],
+  );
   const handoffId = new URLSearchParams(window.location.search).get("handoff");
   const [route, setRoute] = useState<string | null>(
     handoffId ? null : "/console",
@@ -31,8 +44,12 @@ export function App({ paw }: { paw: PawSdk }) {
 
   useEffect(() => {
     if (!handoffId) return;
+    if (!sdk) {
+      setError(true);
+      return;
+    }
     let active = true;
-    void paw.apps
+    void sdk.apps
       .resolveHandoff(handoffId)
       .then((handoff) => {
         if (active) setRoute(dataRouteFromHandoff(handoff));
@@ -43,7 +60,7 @@ export function App({ paw }: { paw: PawSdk }) {
     return () => {
       active = false;
     };
-  }, [handoffId, paw]);
+  }, [handoffId, sdk]);
 
   return (
     <div className="qwenpaw-data-app">

@@ -122,6 +122,19 @@ describe("Sidebar overflow layout", () => {
     expect(stylesSource).toContain(".newTask");
   });
 
+  it("uses the configured accent tokens for the new-task button", () => {
+    const taskStart = stylesSource.indexOf(".newTask {");
+    const taskRule = stylesSource.slice(
+      taskStart,
+      stylesSource.indexOf(".navigationItems {", taskStart),
+    );
+
+    expect(taskRule).toContain("background: var(--app-accent-soft);");
+    expect(taskRule).toContain("color: var(--app-accent-text);");
+    expect(taskRule).toContain("background: var(--app-accent-soft-hover);");
+    expect(taskRule).not.toContain("#ff7f16");
+  });
+
   it("pins more settings below shortcuts and preserves the return path", () => {
     const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
     const moreSettingsStart = sidebarSource.indexOf(

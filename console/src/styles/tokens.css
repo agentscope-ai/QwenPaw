@@ -20,6 +20,7 @@
  */
 
 :root {
+  --app-radius: 8px;
   /* Surfaces */
   --app-bg: #f9f8f4;
   --app-surface: #ffffff;
@@ -49,18 +50,22 @@
   --app-text-quaternary: rgba(20, 20, 19, 0.25);
   --app-text-inverse: #ffffff;
 
-  /* Brand accent — identical in both themes (matches OS shell ACCENT) */
+  /* Built-in brand accent (matches the OS shell accent). */
   --app-accent: #ff7f16;
   --app-accent-hover: #ff9d4d;
-  --app-accent-active: #d96806;
-  /* Accent used as text: darkened in light mode so small labels stay legible
-   * on an accent-soft background. */
-  --app-accent-text: #bd5100;
-  --app-accent-faint: rgba(255, 127, 22, 0.04);
-  --app-accent-soft: rgba(255, 127, 22, 0.1);
-  --app-accent-soft-hover: rgba(255, 127, 22, 0.16);
-  --app-accent-border: rgba(255, 127, 22, 0.42);
-  --app-accent-ring: rgba(255, 127, 22, 0.2);
+  --app-accent-active: color-mix(in srgb, var(--app-accent) 80%, black);
+  /* Accent text is mixed toward black for contrast on light surfaces. */
+  --app-accent-text: color-mix(in srgb, var(--app-accent) 72%, black);
+  --app-accent-faint: color-mix(in srgb, var(--app-accent) 4%, transparent);
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 10%, transparent);
+  --app-accent-soft-hover: color-mix(
+    in srgb,
+    var(--app-accent-hover) 16%,
+    transparent
+  );
+  --app-accent-border: color-mix(in srgb, var(--app-accent) 42%, transparent);
+  --app-accent-ring: color-mix(in srgb, var(--app-accent) 20%, transparent);
+  --app-focus-ring: var(--app-accent-text);
 
   /* Navigation selection stays neutral in the light shell. */
   --app-nav-selected-bg: rgba(43, 18, 0, 0.08);
@@ -142,12 +147,17 @@ html.dark-mode {
   --app-text-tertiary: rgba(255, 255, 255, 0.45);
   --app-text-quaternary: rgba(255, 255, 255, 0.35);
 
-  /* Accent softs need more opacity to read on dark surfaces */
-  --app-accent-text: #ff9a47;
-  --app-accent-faint: rgba(255, 127, 22, 0.08);
-  --app-accent-soft: rgba(255, 127, 22, 0.16);
-  --app-accent-soft-hover: rgba(255, 127, 22, 0.22);
-  --app-accent-border: rgba(255, 127, 22, 0.5);
+  /* Accent text is mixed toward white for contrast on dark surfaces. */
+  --app-accent-text: color-mix(in srgb, var(--app-accent) 60%, white);
+  --app-accent-faint: color-mix(in srgb, var(--app-accent) 8%, transparent);
+  --app-accent-soft: color-mix(in srgb, var(--app-accent) 16%, transparent);
+  --app-accent-soft-hover: color-mix(
+    in srgb,
+    var(--app-accent-hover) 22%,
+    transparent
+  );
+  --app-accent-border: color-mix(in srgb, var(--app-accent) 50%, transparent);
+  --app-focus-ring: var(--app-accent-text);
 
   /* Dark navigation uses the brand accent for a clear active state. */
   --app-nav-selected-bg: var(--app-accent-soft);

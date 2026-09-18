@@ -2,6 +2,7 @@
 """Runtime admission policy tests for QwenPaw Hub."""
 
 import asyncio
+import json
 from collections.abc import Mapping
 from concurrent.futures import Future
 from dataclasses import replace
@@ -534,3 +535,59 @@ def test_runtime_page_refreshes_only_returned_records(tmp_path: Path) -> None:
     provisioner = service.provisioners["local"]
     assert isinstance(provisioner, _FakeProvisioner)
     assert provisioner.status_calls == 2
+
+
+def test_start_is_idempotent_after_previous_operation_finishes(tmp_path):
+    service = _service(tmp_path, HubConfig())
+    try:
+        service.create(_spec("idempotent"))
+        first = service.submit("start", "idempotent").result(timeout=2)
+        second = service.start("idempotent")
+        assert first == second
+        assert service.provisioners["local"].start_calls == 1
+    finally:
+        service.close()
+
+
+def test_user_profile_updates_owned_workspace_paths_on_restart(tmp_path):
+    service, _, _ = _backend_service(
+        tmp_path,
+        config=_docker_config("custom:test"),
+    )
+    service.profile_provider = lambda _: {"workspace_dir": "/data/member"}
+    record = service.create(_spec("profile-path"))
+    config_path = record.working_dir / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "agents": {
+                    "profiles": {
+                        "default": {
+                            "workspace_dir": "/app/working/workspaces/default",
+                        },
+                    },
+                },
+                "project_dir": "/app/working/projects/demo",
+                "description": "/app/working is user text",
+            },
+        ),
+        encoding="utf-8",
+    )
+    try:
+        started = service.start(record.runtime_id)
+        assert (
+            started.metadata["user_profile"]["workspace_dir"] == "/data/member"
+        )
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        assert (
+            config["agents"]["profiles"]["default"]["workspace_dir"]
+            == "/data/member/workspaces/default"
+        )
+        assert config["project_dir"] == "/data/member/projects/demo"
+        assert config["description"] == "/app/working is user text"
+        service.profile_provider = lambda _: {"workspace_dir": "/home/user"}
+        service.restart(record.runtime_id)
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+        assert config["project_dir"] == "/home/user/projects/demo"
+    finally:
+        service.close()

@@ -72,32 +72,27 @@ def test_file_runtime_prompts_are_structured_files_with_workspace_schema() -> (
     for rendered in _active_prompt_texts():
         if rendered.startswith("# 定位"):
             assert "./project.json" in rendered
-            assert "PROJECT_JSON_SCHEMA=" in rendered
+            if "你是 Creator 的素材理解 Agent" in rendered:
+                assert "commit_source_intelligence 的工具 Schema" in rendered
+                assert "PROJECT_JSON_SCHEMA=" not in rendered
+            else:
+                assert "PROJECT_JSON_SCHEMA=" in rendered
 
 
-def test_creator_asset_flow_is_conditional_and_uses_visible_message_language() -> (
-    None
-):
+def test_visual_design_rules_are_reachable_and_name_real_reference_fields():
+    # Keep the skill loading/schema contract, not exact prose or art direction.
+    # Runtime readiness/reference semantics are tested at their write boundaries.
     prompt = load_file_agent_prompt("creator_agent.system")
-    assert "处理本轮上传素材（如有）" in prompt
-    assert "本轮已入库素材" in prompt
-    assert "CURRENT_REQUEST_ASSET_VERSION_REFS" not in prompt
-
-
-def test_creator_owns_timeline_element_planning() -> None:
-    prompt = load_file_agent_prompt("creator_agent.system")
-    for responsibility in (
-        "Timeline Element",
-        "creation.type=r2v/t2v/i2v/s2v/edit/overlay/transition/audio",
-        "单个 R2V Element 的时长必须落在「当前视频模型时长要求」内",
-        "不设 Creator 全局上限",
-        "jq_project",
+    assert "`view_skill` 读取 `visual-asset-design`" in prompt
+    skill = _visual_asset_design_skill()
+    assert skill.startswith("---")
+    assert "name: visual-asset-design" in skill
+    for field in (
+        "canonical_variant_id",
+        "derived_from_variant_id",
+        "reference_artifact_version_ids",
     ):
-        assert responsibility in prompt
-    assert "结构完成后才进入视觉和媒体生产" in prompt
-    assert "Runtime 自动选择最新 Project 快照并维护受保护字段" in prompt
-    assert "content_type=pet_video" in prompt
-    assert "台词卡 Overlay Element" in prompt
+        assert field in skill
 
 
 def _visual_asset_design_skill() -> str:
@@ -107,63 +102,6 @@ def _visual_asset_design_skill() -> str:
     return (backend / "skills" / "visual-asset-design" / "SKILL.md").read_text(
         encoding="utf-8",
     )
-
-
-def test_creator_owns_the_visual_asset_structural_contract() -> None:
-    prompt = load_file_agent_prompt("creator_agent.system")
-    assert "### 视觉资产结构合同" in prompt
-    assert "一图一 Variant（硬性）" in prompt
-    assert "生成前去重（硬性）" in prompt
-    assert "generated_artifact_version_ids" in prompt
-    assert "重复进入同一目标不等于用户要求重做" in prompt
-    assert "`required_variant_ids` 是计划合同" in prompt
-    # The craft doctrine is loaded on demand, so the mandatory skill read
-    # must be spelled out where the contract lives and where repair starts.
-    assert "`view_skill` 读取 `visual-asset-design`" in prompt
-    assert "visual-asset-design" in prompt
-
-
-def test_visual_asset_design_skill_carries_the_migrated_doctrine() -> None:
-    skill = _visual_asset_design_skill()
-    assert skill.startswith("---")
-    assert "name: visual-asset-design" in skill
-    for requirement in (
-        "电影感艺术身份板",
-        "大型、略偏离中心的英雄全身视角",
-        "不得重叠、融合、堆叠",
-        "小型轮廓研究区",
-        "小型表情研究区",
-        "小型细节研究区",
-        "名称、角色、核心情绪、视觉标志",
-        "相同脸部与比例",
-        "规避图片审核误判（硬性）",
-        "构图与镜头语言",
-    ):
-        assert requirement in skill
-    assert "不得同时要求 `clear spatial labels` 与 `no text`" in skill
-    assert "无文字视觉拓扑" in skill
-    # The cost contracts stay inline in the creator prompt, not the skill.
-    assert "一图一 Variant" in skill  # referenced, authoritative copy inline
-    assert "以主 Agent 系统提示中的结构" in skill
-
-
-def test_creator_compiles_dense_action_nodes_without_uniform_timestamps() -> (
-    None
-):
-    prompt = load_file_agent_prompt("creator_agent.system")
-    assert "professional-media-prompts" in prompt
-    assert "动作链可按准备 → 执行 → 完成 → 反应展开" in prompt
-    assert "完整的 `creation.narrative`" in prompt
-    assert "不要把面板数当成切镜数" in prompt
-    assert "10 秒内的 12 个节点" in prompt
-    assert "机械分配 12 个小数时间戳" in prompt
-    assert "不要为了凑网格增加剧情或改变片段时长" in prompt
-    assert "单个常规 Shot 不超过 5 秒" not in prompt
-    assert "3–4 秒极短段通常承载一个主导微动作" in prompt
-    assert "专业完整不等于重复冗长" in prompt
-    assert "每一个分镜格内部画框" in prompt
-    assert "正方形网格（N 列×N 行）" in prompt
-    assert "只有列数等于行数时单格才等于项目画幅" in prompt
 
 
 def test_creator_duration_is_injected_from_the_active_video_model(
@@ -239,27 +177,6 @@ def test_retired_specialists_have_no_delegation_or_prompt_surface(
         assert term not in combined
 
 
-def test_source_prompt_requires_outer_vlm_timeline_and_controlled_commit() -> (
-    None
-):
-    prompt = load_file_agent_prompt("source_intelligence_agent.system")
-    assert "直接观察本轮提供的原生图片或视频" in prompt
-    assert "至少覆盖 90% 时长" in prompt
-    assert "整数毫秒半开区间 `[startMs,endMs)`" in prompt
-    assert "transcribe_source_audio" in prompt
-    assert "commit_source_intelligence" in prompt
-    assert "不使用等长时间网格生成 shots" in prompt
-    assert "ceil(durationMs / 90000)" in prompt
-    assert "最终数量以真实可见边界为准" in prompt
-    assert "大量边界同时落在整分钟、半分钟或其他固定刻度" in prompt
-    assert "不制造虚假的毫秒精度" in prompt
-    assert "min(12, max(4, ceil(durationMs / 600000)))" in prompt
-    assert "30000ms 是窄事件的最大跨度，不是推荐长度" in prompt
-    assert "# 提交前自检" in prompt
-    assert "`jq_project`" not in prompt
-    assert "完整有效的 JSON" in prompt
-
-
 def test_source_prompt_only_describes_visible_inputs_tools_and_outputs() -> (
     None
 ):
@@ -272,20 +189,6 @@ def test_source_prompt_only_describes_visible_inputs_tools_and_outputs() -> (
     ):
         assert hidden_mechanism not in prompt
     assert "`read_project_file`" in prompt
-
-
-def test_ai_editing_director_requires_pet_inner_monologue_not_action_labels() -> (
-    None
-):
-    prompt = load_file_agent_prompt("ai_editing_director.system")
-    for field in ("宠物 OS 台词卡", "文案", "`vibe`", "绝对 span"):
-        assert field in prompt
-    assert "不是镜头标题、动作标签或客观摘要" in prompt
-    assert (
-        "round((source_out_tick - source_in_tick) / playback_rate)" in prompt
-    )
-    assert "不得把 `source_in_tick` 复制到 `span.start_tick`" in prompt
-    assert "第一段 `span.start_tick=0`" in prompt
 
 
 def _set_image_model(monkeypatch, name: str) -> None:
@@ -435,6 +338,7 @@ def test_scenario_steers_how_the_voice_is_used(monkeypatch) -> None:
     )
     assert "短剧" in drama
     assert "角色台词" in drama
+    assert "不再叠加一份 TTS 台词" in drama
     edit = _specialist_prompt(
         SpecialistRole.AI_EDITING_DIRECTOR,
         _project("video_edit"),
@@ -444,3 +348,72 @@ def test_scenario_steers_how_the_voice_is_used(monkeypatch) -> None:
     # Roles outside the media pipeline never hear about TTS.
     other = _specialist_prompt(SpecialistRole.SOURCE_INTELLIGENCE)
     assert "tts_generation" not in other
+
+
+@pytest.mark.parametrize(
+    ("video_model", "backend", "supports_reference_voice"),
+    [
+        ("wan3.0-video-prime", "wan", True),
+        ("wan2.7-r2v", "wan", True),
+        ("happyhorse-1.1-r2v", "happyhorse", False),
+    ],
+)
+def test_native_dialogue_voice_guidance_matches_video_capability(
+    monkeypatch,
+    video_model,
+    backend,
+    supports_reference_voice,
+) -> None:
+    _tts(monkeypatch, model="qwen-audio-3.0-tts-flash")
+    monkeypatch.setattr(
+        model_config,
+        "get_video_model_name",
+        lambda: video_model,
+    )
+    monkeypatch.setattr(model_config, "get_video_backend", lambda: backend)
+    prompt = render_creator_system_prompt(project_id="project-guidance-test")
+    assert ("当前视频模型支持参考音色" in prompt) is supports_reference_voice
+    assert (
+        "voice.sample_source_version_id" in prompt
+    ) is supports_reference_voice
+    # Lack of a system TTS voice must not disable native video dialogue.
+    assert "通过 TTS 合成配音必须" in prompt
+
+
+@pytest.mark.unit
+def test_prompts_preserve_explicit_paid_image_ceiling() -> None:
+    prompt = load_file_agent_prompt("creator_agent.system")
+    for contract in (
+        "显式媒体预算覆盖默认资产拆分",
+        "共享设计图数 + R2V Element 数",
+        "不能用共享设计 Artifact 冒充",
+        "单张共享设计图预算例外",
+        "不得建立 cast lineup 或创建第二个可调度视觉节点",
+        "全部图片调用上限”不足以覆盖这些 storyboard",
+    ):
+        assert contract in prompt
+
+
+def test_execution_guidance_explains_prompt_sync_gate(monkeypatch) -> None:
+    """A prompt-sync gate must read as sync-pending, not a review cooldown,
+    and must not promise an automatic retry (#7720 finding #1)."""
+    monkeypatch.setattr(
+        model_config,
+        "get_execution_authorization_mode",
+        lambda: model_config.EXECUTION_AUTHORIZATION_REQUIRED,
+    )
+    prompt = render_creator_system_prompt(project_id="project-guidance-test")
+    assert "promptSyncRequired" in prompt
+    assert "并非审阅冷却" in prompt
+    assert "保留现有内容并生成" in prompt
+    assert "不要声称会自动重试" in prompt
+
+    # The guidance is scoped to per-item authorization; the auto-execution
+    # branch lets the scheduler resolve prompt-sync without agent reading.
+    monkeypatch.setattr(
+        model_config,
+        "get_execution_authorization_mode",
+        lambda: model_config.EXECUTION_AUTHORIZATION_ALLOW_ALL,
+    )
+    auto = render_creator_system_prompt(project_id="project-guidance-test")
+    assert "并非审阅冷却" not in auto

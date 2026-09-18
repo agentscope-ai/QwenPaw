@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 # Load .env file from project root before reading any env vars
 _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
-if _env_path.exists():
+if not os.environ.get("QWENPAW_RUNTIME_ID") and _env_path.exists():
     load_dotenv(_env_path)
 
 
@@ -97,7 +97,7 @@ else:
 # over the user-level file because load_dotenv(..., override=False) keeps
 # existing values.
 _user_env_path = WORKING_DIR / ".env"
-if _user_env_path.exists():
+if not os.environ.get("QWENPAW_RUNTIME_ID") and _user_env_path.exists():
     load_dotenv(_user_env_path)
 
 SECRET_DIR = (
@@ -119,6 +119,7 @@ PROJECT_NAME = "QwenPaw"
 # Message metadata tags shared across agent middleware and memory managers.
 QWENPAW_MESSAGE_TAG_KEY = "qwenpaw_tag"
 QWENPAW_CLIENT_MESSAGE_ID_KEY = "qwenpaw_client_message_id"
+QWENPAW_USER_CONTENT_KEY = "qwenpaw_original_user_content"
 SCROLL_MEMORY_MESSAGE_TAG = "scroll_memory"
 AUTO_MEMORY_SEARCH_BLOCK_IDS_KEY = "auto_memory_search_block_ids"
 EXTERNAL_USER_QUERY_MESSAGE_TAG = "external_user_query"

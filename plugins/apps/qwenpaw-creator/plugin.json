@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-creator",
   "name": "QwenPaw Creator",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "app",
   "description": "An agentic video creation platform. Start from an idea or existing footage: an Agent team of screenwriting, directing, visual, motion, and editing Specialists handles planning, generation, editing, and composition; select anything in the project and hand it to the Agent for a precise change, with every key decision staying in your hands.",
   "description_i18n": {
@@ -48,6 +48,11 @@
       ]
     }
   },
+  "pack_requires": [
+    "backend/skills/edu-math-tutorial/SKILL.md",
+    "backend/skills/professional-media-prompts/SKILL.md",
+    "backend/skills/visual-asset-design/SKILL.md"
+  ],
   "pack_exclude": [
     "backend/tests",
     "backend/scripts",

@@ -51,7 +51,7 @@ export function HarvestCard({
             size={90}
             percent={Math.round(countdown.percentage)}
             format={() => timeText}
-            strokeColor={countdown.isOverdue ? "#FFD700" : "#FF7F16"}
+            strokeColor={countdown.isOverdue ? "#FFD700" : "var(--app-accent)"}
           />
           <div className={styles.countdownInfo}>
             <div className={styles.statusText}>

@@ -169,7 +169,7 @@
   }
 
   &:focus-visible {
-    outline: 2px solid color-mix(in srgb, #ff7f16 38%, transparent);
+    outline: 2px solid color-mix(in srgb, var(--app-accent) 38%, transparent);
     outline-offset: 1px;
   }
 }
@@ -198,8 +198,8 @@
   --sidebar-create-bg: rgba(255, 255, 255, 0.035);
   --sidebar-create-text: rgba(255, 255, 255, 0.62);
   --sidebar-create-hover-border: rgba(255, 143, 50, 0.5);
-  --sidebar-create-hover-bg: rgba(255, 127, 22, 0.1);
-  --sidebar-create-hover-text: #ff8f32;
+  --sidebar-create-hover-bg: var(--app-accent-soft);
+  --sidebar-create-hover-text: var(--app-accent-text);
   --sidebar-sticky-bg: color-mix(
     in srgb,
     var(--app-surface-subtle) 96%,

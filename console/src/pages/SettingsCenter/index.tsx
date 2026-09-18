@@ -12,6 +12,7 @@ import {
   Bot,
   Bug,
   Cpu,
+  Download,
   Gauge,
   Globe,
   HeartPulse,
@@ -36,6 +37,8 @@ import { useTheme } from "@/contexts/ThemeContext";
 import { useMenuItems, useRoutes } from "@/plugins/registry/hooks";
 import { usePlugins } from "@/plugins/PluginContext";
 import { findMenuItem, flattenMenu } from "@/layouts/registry/adapter";
+import { useAgentStore } from "@/stores/agentStore";
+import { supportsPortabilityImport } from "@/utils/agentBackend";
 import GeneralSettings from "./GeneralSettings";
 import NavigationSettings from "./NavigationSettings";
 import PawAppAccessSettings from "./PawAppAccessSettings";
@@ -157,6 +160,16 @@ const SETTINGS_GROUPS: SettingsGroupDefinition[] = [
         descriptionFallback: "Configure ACP agents",
         routeId: "core.acp",
         Icon: ScanLine,
+      },
+      {
+        key: "import",
+        labelKey: "nav.import",
+        fallback: "Import",
+        descriptionKey: "portabilityImport.description",
+        descriptionFallback:
+          "Bring conversations and tool settings from other AI applications into QwenPaw.",
+        routeId: "core.import",
+        Icon: Download,
       },
       {
         key: "agent-config",
@@ -281,6 +294,11 @@ export default function SettingsCenter() {
   const routes = useRoutes();
   const { loading: pluginsLoading } = usePlugins();
   const rawSettingsMenu = useMenuItems("primary.settings");
+  const canImport = useAgentStore(({ selectedAgent, agents }) =>
+    supportsPortabilityImport(
+      agents.find((agent) => agent.id === selectedAgent),
+    ),
+  );
   const [query, setQuery] = useState("");
 
   const componentByRouteId = useMemo(() => {
@@ -353,17 +371,21 @@ export default function SettingsCenter() {
   };
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
-  const visibleGroups = normalizedQuery
+  const filterNavigation = normalizedQuery !== "" || !canImport;
+  const visibleGroups = filterNavigation
     ? availableGroups
         .map((group) => ({
           ...group,
-          pages: group.pages.filter((page) =>
-            `${searchablePageLabel(page)} ${t(
-              page.descriptionKey,
-              page.descriptionFallback,
-            )}`
-              .toLocaleLowerCase()
-              .includes(normalizedQuery),
+          pages: group.pages.filter(
+            (page) =>
+              (page.routeId !== "core.import" || canImport) &&
+              (!normalizedQuery ||
+                `${searchablePageLabel(page)} ${t(
+                  page.descriptionKey,
+                  page.descriptionFallback,
+                )}`
+                  .toLocaleLowerCase()
+                  .includes(normalizedQuery)),
           ),
         }))
         .filter((group) => group.pages.length > 0)
@@ -455,7 +477,9 @@ export default function SettingsCenter() {
                       onClick={() => openPage(page)}
                     >
                       {page.icon ?? (Icon ? <Icon size={16} /> : null)}
-                      <strong>{pageLabel(page)}</strong>
+                      <span className={styles.navItemLabel}>
+                        {pageLabel(page)}
+                      </span>
                     </button>
                   );
                 })}

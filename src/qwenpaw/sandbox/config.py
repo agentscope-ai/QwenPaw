@@ -50,6 +50,8 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from .runtime_boundary import has_runtime_boundary
+
 logger = logging.getLogger(__name__)
 
 
@@ -646,6 +648,16 @@ def _probe_linux_bubblewrap() -> SandboxCapability:
         )
 
 
+def _inherits_runtime_boundary() -> bool:
+    """Identify descendants of a Hub-launched, isolated Local runtime."""
+    return bool(
+        os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local"
+        and os.environ.get("QWENPAW_RUNTIME_ID")
+        and os.environ.get("QWENPAW_RUNTIME_INTERNAL_TOKEN")
+        and has_runtime_boundary(os.environ["QWENPAW_RUNTIME_ID"]),
+    )
+
+
 @functools.lru_cache(maxsize=1)
 def probe_sandbox_support() -> SandboxCapability:
     """Probes current platform sandbox support.
@@ -659,6 +671,17 @@ def probe_sandbox_support() -> SandboxCapability:
     Returns:
         ``SandboxCapability`` describing available isolation.
     """
+    if _inherits_runtime_boundary():
+        modes = {
+            "darwin": SandboxMode.SEATBELT,
+            "linux": SandboxMode.BUBBLEWRAP,
+            "win32": SandboxMode.WINDOWS,
+        }
+        return SandboxCapability(
+            supported=True,
+            mode=modes[sys.platform],
+            reason="OS sandbox inherited from the Local runtime",
+        )
     if sys.platform == "darwin":
         return _probe_macos_seatbelt()
     elif sys.platform == "linux":
@@ -714,6 +737,14 @@ def create_sandbox(  # pylint: disable=too-many-return-statements
     Raises:
         ValueError: If ``config.mode`` is unknown.
     """
+    if _inherits_runtime_boundary():
+        from .local_sandbox import NoneSandbox
+
+        # Hub has already established the user boundary before launching
+        # this process. Children inherit it; do not nest native sandboxes.
+        logger.debug("Using the inherited Local runtime OS sandbox")
+        return NoneSandbox(config)
+
     # Platform compatibility guard: downgrade incompatible modes to the
     # platform default to prevent crashes from missing OS-specific APIs.
     _PLATFORM_MODE_REQUIREMENTS = {

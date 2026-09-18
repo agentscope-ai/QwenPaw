@@ -45,7 +45,76 @@ describe("SettingsCenter responsive layout", () => {
     expect(compactDesktopRule).toContain("width: calc(100% - 48px);");
   });
 
-  it("keeps navigation helpers legible in dark mode", () => {
+  it("keeps theme controls compact, aligned and responsive", () => {
+    const fieldsStart = stylesSource.indexOf(".themeFields {");
+    const fieldsRule = stylesSource.slice(
+      fieldsStart,
+      stylesSource.indexOf("\n}", fieldsStart) + 2,
+    );
+    const fieldStart = stylesSource.indexOf(".themeField {");
+    const fieldRule = stylesSource.slice(
+      fieldStart,
+      stylesSource.indexOf(".themePresetField", fieldStart),
+    );
+    const mobileStart = stylesSource.indexOf("@media (max-width: 768px)");
+    const mobileRule = stylesSource.slice(mobileStart);
+
+    expect(fieldsRule).toContain(
+      "grid-template-columns: repeat(2, minmax(0, 1fr));",
+    );
+    expect(fieldsRule).toContain("gap: 18px 20px;");
+    expect(fieldRule).toContain("height: 36px;");
+    expect(fieldRule).toContain("width: 100%;");
+    expect(fieldRule).toContain(
+      "box-shadow: 0 0 0 2px var(--app-accent-ring);",
+    );
+    expect(mobileRule).toContain("grid-template-columns: 1fr;");
+    expect(mobileRule).toContain("margin: 18px 0 0;");
+  });
+
+  it("uses a compact theme palette swatch", () => {
+    const optionStart = stylesSource.indexOf(".themePresetOption {");
+    const swatchStart = stylesSource.indexOf(".themePresetSwatch {");
+    const optionRule = stylesSource.slice(
+      optionStart,
+      stylesSource.indexOf("\n}", optionStart) + 2,
+    );
+    const swatchRule = stylesSource.slice(
+      swatchStart,
+      stylesSource.indexOf("\n}", swatchStart) + 2,
+    );
+
+    expect(optionRule).toContain("gap: 8px;");
+    expect(swatchRule).toContain("width: 24px;");
+    expect(swatchRule).toContain("height: 24px;");
+    expect(swatchRule).toContain("font-size: 13px;");
+  });
+
+  it("adapts navigation helpers to dark mode via semantic tokens", () => {
+    const navRules = stylesSource.slice(
+      stylesSource.indexOf("\n.navItem {"),
+      stylesSource.indexOf("\n.noResults {"),
+    );
+    const backButtonRule = stylesSource.slice(
+      stylesSource.indexOf("\n.backButton {"),
+      stylesSource.indexOf("\n.searchInput {"),
+    );
+    const sidebarRule = stylesSource.slice(
+      stylesSource.indexOf("\n.sidebar {"),
+      stylesSource.indexOf("\n.backButton {"),
+    );
+
+    expect(navRules).toContain("color: var(--app-text);");
+    expect(navRules).toContain(".navItemLabel {");
+    expect(navRules).not.toContain("font-weight: 500;");
+    expect(navRules).toContain("background: var(--app-fill);");
+    expect(navRules).toContain("background: var(--app-nav-selected-bg);");
+    expect(backButtonRule).toContain("color: var(--app-text-secondary);");
+    expect(sidebarRule).toContain("background: var(--app-shell-bg);");
+    expect(sidebarRule).toContain("var(--app-border-subtle)");
+  });
+
+  it("keeps the dark override block free of hardcoded colours", () => {
     const darkStart = stylesSource.indexOf(".rootDark {");
     const darkRule = stylesSource.slice(
       darkStart,
@@ -53,11 +122,8 @@ describe("SettingsCenter responsive layout", () => {
     );
 
     expect(darkStart).toBeGreaterThanOrEqual(0);
-    expect(darkRule).toContain(".backButton");
-    expect(darkRule).toContain(".settingsAgentSelect");
-    expect(darkRule).toContain(".navItem {");
-    expect(darkRule).toContain("color: rgba(255, 255, 255, 0.75);");
-    expect(darkRule).toContain("rgba(255, 255, 255, 0.12)");
+    expect(darkRule).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+    expect(darkRule).not.toMatch(/rgba?\(/);
   });
 
   it("keeps general and sidebar controls legible in dark mode", () => {

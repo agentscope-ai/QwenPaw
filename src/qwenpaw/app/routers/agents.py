@@ -836,7 +836,9 @@ async def create_agent(
         try:
             from ...providers import ProviderManager
 
-            global_model = ProviderManager.get_instance().get_active_model()
+            global_model = await run_sync_io(
+                ProviderManager.get_instance().get_active_model,
+            )
             if global_model and global_model.provider_id:
                 active_model = global_model
         except Exception:

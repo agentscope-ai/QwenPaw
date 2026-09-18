@@ -3,7 +3,109 @@
 
 from __future__ import annotations
 
-from qwenpaw.plugins.download_catalog import _is_entry_compatible
+import http.client
+from unittest.mock import patch
+
+import pytest
+
+from qwenpaw.plugins.download_catalog import (
+    _is_entry_compatible,
+    build_plugin_catalog,
+)
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ConnectionResetError("connection reset"),
+        http.client.IncompleteRead(b"partial", 10),
+    ],
+)
+def test_main_catalog_transport_failure_returns_fallback(
+    failure: Exception,
+) -> None:
+    with patch(
+        "qwenpaw.plugins.download_catalog._fetch_json",
+        side_effect=failure,
+    ):
+        result = build_plugin_catalog()
+
+    assert not result["plugins"]
+    assert result["error"] == "Failed to fetch plugin catalog index"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ConnectionResetError("connection reset"),
+        http.client.IncompleteRead(b"partial", 10),
+    ],
+)
+def test_plugins_catalog_transport_failure_returns_fallback(
+    failure: Exception,
+) -> None:
+    main_index = {"products": {"plugins": {"index_url": "/plugins.json"}}}
+    with patch(
+        "qwenpaw.plugins.download_catalog._fetch_json",
+        side_effect=[main_index, failure],
+    ):
+        result = build_plugin_catalog()
+
+    assert not result["plugins"]
+    assert result["error"] == "Failed to fetch plugins metadata"
+
+
+def test_build_plugin_catalog_returns_normalized_plugins() -> None:
+    main_index = {"products": {"plugins": {"index_url": "/plugins.json"}}}
+    plugins_index = {
+        "updated_at": "2026-09-14T00:00:00Z",
+        "files": {
+            "demo-1.0.0": {
+                "id": "demo-1.0.0",
+                "plugin_id": "demo",
+                "name": {"en-US": "Demo"},
+                "description": {"en-US": "A demo plugin"},
+                "version": "1.0.0",
+                "platform": "python",
+                "url": "/plugins/demo-1.0.0.zip",
+            },
+        },
+    }
+    with (
+        patch(
+            "qwenpaw.plugins.download_catalog._fetch_json",
+            side_effect=[main_index, plugins_index],
+        ),
+        patch(
+            "qwenpaw.plugins.download_catalog._installed_plugin_ids",
+            return_value={},
+        ),
+    ):
+        result = build_plugin_catalog()
+
+    assert result["error"] is None
+    assert result["updated_at"] == "2026-09-14T00:00:00Z"
+    assert result["plugins"] == [
+        {
+            "id": "demo-1.0.0",
+            "plugin_id": "demo",
+            "name": "Demo",
+            "description": "A demo plugin",
+            "description_i18n": {"en-US": "A demo plugin"},
+            "version": "1.0.0",
+            "author": "",
+            "kind": "python",
+            "size": "",
+            "sha256": "",
+            "install_url": (
+                "https://download.qwenpaw.agentscope.io"
+                "/plugins/demo-1.0.0.zip"
+            ),
+            "installed": False,
+            "installed_version": None,
+            "upgrade_available": False,
+        },
+    ]
 
 
 def test_entry_with_qwenpaw_version_compatible() -> None:

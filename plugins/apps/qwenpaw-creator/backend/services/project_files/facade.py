@@ -609,15 +609,29 @@ class CreatorFileServices:
         if journal.rejection_feedback is not None:
             return render_rejection_feedback_message(journal)
         accepted_targets = self._accepted_artifact_targets(journal)
-        if not accepted_targets or not all(
+        if not all(
             item.decision == "ACCEPT" for item in journal.decisions
+        ) or (
+            not accepted_targets
+            and journal.review_before.interrupted_run_id is not None
         ):
+            # Interrupted text changes already have a mainline-resume
+            # message queued behind the review; do not duplicate it.
             return None
         # A batch can expose several media Reviews at once. Queue exactly
         # one continuation, after the last pending Review resolves, so a
         # multi-image approval does not fan out into duplicate Agent runs.
         if self.reviews.active(project_id) is not None:
             return None
+        if not accepted_targets:
+            return (
+                "【系统自动消息 · 审阅已通过】\n"
+                "用户已保留本轮创作修改。请回顾原始请求和最近的反馈，"
+                "从因审阅而暂停的下一步继续，不要重复改写已保留内容。"
+                "如果原始请求已经完成，请简短确认；如果还需要生成媒体，"
+                "请继续提交生成请求并遵守现有的生成授权与产物审阅要求，"
+                "不要把保留创作修改当作付费生成的授权。"
+            )
         return self._render_review_approval_message(
             accepted_targets,
             auto_continued=auto_continued or [],
@@ -786,10 +800,11 @@ class CreatorFileServices:
                 "不要重新生成已通过产物，也不要要求用户输入 continue。"
             ),
             (
-                "若通过的产物是某 R2V Element 的分镜图，其视频不会自动开始："
-                "请立即对该 Element 重新委派 R2V 生成 Director 以继续生成视频；"
-                "这不算重新生成已通过产物。其他被暂停的 Specialist 同理，"
-                "需重新委派同一目标才会继续后续步骤。"
+                "若通过的是分镜图，核对该 Element 的视频制作状态："
+                "要求执行授权且视频尚未开始时，用 request_workgraph_execution "
+                "请求该 Element 的 video 阶段；允许自动执行时由调度器继续。"
+                "此前已返回阻塞的请求不会自行恢复，需要在条件满足后重新请求。"
+                "不要用重新委派 Director 代替媒体调度，已在运行的任务不重复请求。"
             ),
             "已通过产物：",
         ]
@@ -801,7 +816,7 @@ class CreatorFileServices:
         if auto_continued:
             lines.append(
                 "以下 Element 的视频已由 Runtime 自动开始生成，"
-                "请勿重新委派这些 Element，继续其他未完成步骤即可：",
+                "请勿重复请求这些 Element，继续其他未完成步骤即可：",
             )
             lines.extend(f"- {target}" for target in auto_continued)
         return "\n".join(lines)
