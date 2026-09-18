@@ -13,7 +13,11 @@ directly; the provider-level wiring (the field reaching
 # pylint: disable=protected-access
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
+from agentscope.formatter import OpenAIResponseFormatter
+from agentscope.message import Msg, TextBlock
 
 from qwenpaw.providers.capping_formatter import (
     MAX_INLINE_MEDIA_BYTES,
@@ -21,6 +25,7 @@ from qwenpaw.providers.capping_formatter import (
     _CappingDashScopeFormatter,
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
+    _CappingOpenAIResponseFormatter,
     inline_media_size,
 )
 
@@ -295,3 +300,81 @@ def test_non_http_remote_scheme_passthrough() -> None:
         source = URLSource(url=scheme_url, media_type="image/png")
         # inline_media_size must return None (not try getsize)
         assert inline_media_size(source) is None
+
+
+# ---------------------------------------------------------------------------
+# Responses API prompt-cache breakpoints
+# ---------------------------------------------------------------------------
+
+
+def _text_msg(
+    role: Literal["user", "assistant", "system"],
+    *texts: str,
+) -> Msg:
+    return Msg(
+        name=role,
+        role=role,
+        content=[TextBlock(type="text", text=text) for text in texts],
+    )
+
+
+async def test_response_cache_breakpoint_marks_stable_system_prefix() -> None:
+    messages = [
+        _text_msg("system", "stable one", "stable two"),
+        _text_msg("user", "volatile user input"),
+    ]
+    original = [msg.model_dump(mode="json") for msg in messages]
+
+    result = await _CappingOpenAIResponseFormatter(
+        enable_prompt_cache_breakpoint=True,
+    ).format(messages)
+
+    assert result == [
+        {
+            "role": "system",
+            "content": [
+                {"type": "input_text", "text": "stable one"},
+                {
+                    "type": "input_text",
+                    "text": "stable two",
+                    "prompt_cache_breakpoint": {"mode": "explicit"},
+                },
+            ],
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "volatile user input"},
+            ],
+        },
+    ]
+    assert [msg.model_dump(mode="json") for msg in messages] == original
+
+
+async def test_response_cache_breakpoint_is_disabled_by_default() -> None:
+    messages = [
+        _text_msg("system", "stable prompt"),
+        _text_msg("user", "latest input"),
+    ]
+
+    expected = await OpenAIResponseFormatter().format(messages)
+    result = await _CappingOpenAIResponseFormatter().format(messages)
+
+    assert result == expected
+
+
+async def test_response_cache_breakpoint_requires_system_prefix() -> None:
+    messages = [_text_msg("user", "latest input")]
+
+    result = await _CappingOpenAIResponseFormatter(
+        enable_prompt_cache_breakpoint=True,
+    ).format(messages)
+
+    assert result == [
+        {
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": "latest input"},
+            ],
+        },
+    ]
