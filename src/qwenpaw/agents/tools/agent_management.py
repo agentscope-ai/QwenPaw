@@ -1125,9 +1125,13 @@ async def _build_subagent_request_context(
         if subagent_model is not None:
             rc["model_slot_override"] = subagent_model.model_dump()
     except Exception:  # pylint: disable=broad-exception-caught
-        # Subagents must remain usable when an optional per-agent model
-        # override cannot be loaded from a stale or synthetic test identity.
-        pass
+        # Subagents remain usable, but a dropped configured override must be
+        # diagnosable instead of looking like an unset field.
+        logger.warning(
+            "Failed to load subagent model override for agent=%s",
+            current_agent_id,
+            exc_info=True,
+        )
     if extra:
         rc.update(extra)
     if allowed_tools is not None:
