@@ -478,12 +478,16 @@ export function useRealtimeVoice({
             case "input_turn.committed":
               hasPendingInputRef.current = false;
               pendingInputTextRef.current = "";
+              inputPreviewPrefixRef.current = "";
+              setInputTranscript("");
               setPendingInputState("idle");
               setPendingInputError(null);
               break;
             case "input_turn.rejected":
               hasPendingInputRef.current = false;
               pendingInputTextRef.current = "";
+              inputPreviewPrefixRef.current = "";
+              setInputTranscript("");
               setPendingInputState("idle");
               setPendingInputError(null);
               setError(
