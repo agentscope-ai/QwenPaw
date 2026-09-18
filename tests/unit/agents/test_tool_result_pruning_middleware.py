@@ -337,6 +337,7 @@ async def test_multi_block_tool_response_keeps_metadata_isolated(tmp_path):
         total_lines=129,
         max_bytes=1200,
         file_path="/tmp/second.txt",
+        block_index=1,
     )
     response = ToolResponse(
         id="call-1",
@@ -529,9 +530,8 @@ def test_retruncate_uses_metadata(tmp_path):
 
     first, metadata = pruner.prune_text(text, max_bytes=2000)
     info = metadata[TRUNCATION_METADATA_KEY]["0"]
-    corrupted = first.replace("starts at line 1", "starts at line 999")
     second, updated = pruner.prune_text(
-        corrupted,
+        first,
         max_bytes=500,
         metadata=metadata,
     )
@@ -543,7 +543,7 @@ def test_retruncate_uses_metadata(tmp_path):
     assert second.endswith(new_info["notice"])
 
 
-def test_retruncate_with_incomplete_metadata_fails_open_without_error():
+def test_retruncate_with_incomplete_metadata_truncates_as_fresh():
     text = (
         "\n".join(f"line-{i}: " + "x" * 60 for i in range(100))
         + TRUNCATION_NOTICE_MARKER
@@ -564,8 +564,9 @@ def test_retruncate_with_incomplete_metadata_fails_open_without_error():
         metadata=malformed,
     )
 
-    assert result == text
-    assert not patch
+    info = patch[TRUNCATION_METADATA_KEY]["0"]
+    assert result[: -len(info["notice"])] == text[:300]
+    assert info["excerpt_bytes"] == 300
 
 
 def test_historical_multi_block_metadata_is_isolated(tmp_path):
@@ -581,6 +582,7 @@ def test_historical_multi_block_metadata_is_isolated(tmp_path):
         total_lines=129,
         max_bytes=1200,
         file_path="/tmp/historical-second.txt",
+        block_index=1,
     )
     result_block = ToolResultBlock(
         id="call-1",
@@ -852,3 +854,109 @@ def test_scroll_pruning_disabled_leaves_current_result_unbounded(tmp_path):
     assert result.content[0].text == text
     assert TRUNCATION_NOTICE_MARKER not in result.content[0].text
     assert not list((tmp_path / "tool_results").glob("*"))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "y" * 30000 + TRUNCATION_NOTICE_MARKER + "z" * 30000,
+        TRUNCATION_NOTICE_MARKER + "x" * 60000,
+        "x" * 60000 + TRUNCATION_NOTICE_MARKER,
+        ("中文" + TRUNCATION_NOTICE_MARKER) * 4000,
+        "prefix"
+        + TRUNCATION_NOTICE_MARKER
+        + " contains 100 lines in total starts at line 1"
+        + " covers the next 50000 bytes start_line=2 to read more "
+        + "z" * 60000,
+    ],
+)
+def test_literal_truncation_markers_are_bounded_and_saved(tmp_path, text):
+    result, metadata = truncate_text_output(
+        text,
+        start_line=7,
+        total_lines=100,
+        max_bytes=50000,
+        file_path="/original.txt",
+    )
+    info = metadata[TRUNCATION_METADATA_KEY]["0"]
+    expected = text.encode()[:50000].decode(errors="ignore")
+    assert result[: -len(info["notice"])] == expected
+    assert info["file_path"] == "/original.txt"
+    assert info["start_line"] == 7
+    assert len(result.encode()) <= 50000 + MAX_TRUNCATION_NOTICE_BYTES
+
+    pruner = ToolResultPruner(tmp_path)
+    first, metadata = pruner.prune_text(text, max_bytes=50000)
+    info = metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert Path(info["file_path"]).read_text(encoding="utf-8") == text
+    assert first[: -len(info["notice"])] == expected
+    unchanged, patch = pruner.prune_text(
+        first,
+        max_bytes=50000,
+        metadata=metadata,
+    )
+    assert unchanged == first
+    assert not patch
+    second, updated = pruner.prune_text(
+        first,
+        max_bytes=1000,
+        metadata=metadata,
+    )
+    new_info = updated[TRUNCATION_METADATA_KEY]["0"]
+    assert new_info["file_path"] == info["file_path"]
+    assert second[: -len(new_info["notice"])] == (
+        text.encode()[:1000].decode(errors="ignore")
+    )
+
+
+@pytest.mark.parametrize(
+    "damage",
+    ["notice", "excerpt_bytes", "start_line", "oversized_notice", "block"],
+)
+def test_invalid_truncation_record_saves_complete_visible_text(
+    tmp_path,
+    damage,
+):
+    pruner = ToolResultPruner(tmp_path)
+    first, metadata = pruner.prune_text("x" * 6000, max_bytes=2000)
+    info = metadata[TRUNCATION_METADATA_KEY]["0"]
+    original_path = info["file_path"]
+    if damage == "notice":
+        first = first.replace("starts at line 1", "starts at line 999")
+    elif damage == "excerpt_bytes":
+        info["excerpt_bytes"] = 1
+    elif damage == "start_line":
+        info["start_line"] = "invalid"
+    elif damage == "oversized_notice":
+        info["notice"] += "z" * 6000
+        first += "z" * 6000
+    else:
+        metadata[TRUNCATION_METADATA_KEY]["1"] = metadata[
+            TRUNCATION_METADATA_KEY
+        ].pop("0")
+    result, patch = pruner.prune_text(first, max_bytes=300, metadata=metadata)
+    new_info = patch[TRUNCATION_METADATA_KEY]["0"]
+    assert new_info["file_path"] != original_path
+    assert Path(new_info["file_path"]).read_text(encoding="utf-8") == first
+    assert result[: -len(new_info["notice"])] == first[:300]
+
+
+def test_small_literal_marker_output_is_unchanged():
+    text = "a literal " + TRUNCATION_NOTICE_MARKER
+    assert truncate_text_output(text, max_bytes=100) == (text, {})
+
+
+def test_current_tool_response_with_literal_marker_is_bounded(tmp_path):
+    text = "y" * 30000 + TRUNCATION_NOTICE_MARKER + "z" * 30000
+    middleware = ToolResultPruningMiddleware(
+        recent_max_bytes=50000,
+        tool_results_dir=str(tmp_path),
+    )
+    response = ToolResponse(
+        id="marker-output",
+        content=[TextBlock(text=text)],
+    )
+    result = middleware.prune_tool_response(response)
+    info = result.metadata[TRUNCATION_METADATA_KEY]["0"]
+    assert result.content[0].text[: -len(info["notice"])] == text[:50000]
+    assert Path(info["file_path"]).read_text(encoding="utf-8") == text
