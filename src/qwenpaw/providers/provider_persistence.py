@@ -19,6 +19,7 @@ from .provider import Provider
 from .provider_model_state import (
     PROVIDER_SNAPSHOT_SCHEMA_VERSION,
     prune_model_overrides,
+    strip_derived_model_state,
 )
 
 
@@ -47,8 +48,9 @@ def write_provider_snapshot(
     """Encrypt and atomically write one provider snapshot."""
     data = provider.model_dump(exclude={"models_syncing"})
     # Keep the persisted state consistent with the model schema: names in
-    # ``config_overrides`` whose field no longer exists are dropped here, at
-    # the single write path, so existing snapshots converge on the next save.
+    # ``config_overrides`` whose field no longer exists, and response-only
+    # window projections, are dropped here at the single write path, so
+    # existing snapshots converge on the next save.
     for collection_name in ("models", "extra_models", "discovered_models"):
         models = data.get(collection_name)
         if not isinstance(models, list):
@@ -56,6 +58,7 @@ def write_provider_snapshot(
         for model in models:
             if isinstance(model, dict):
                 prune_model_overrides(model)
+                strip_derived_model_state(model)
     data["snapshot_schema_version"] = PROVIDER_SNAPSHOT_SCHEMA_VERSION
     data = encrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
     write_snapshot_payload(data, provider_path)

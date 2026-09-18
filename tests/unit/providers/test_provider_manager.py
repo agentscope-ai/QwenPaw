@@ -1864,6 +1864,69 @@ def test_legacy_builtin_context_window_moves_to_the_catalog_slot(
     assert reloaded.get_context_size("gpt-4o") == saved_length
 
 
+async def test_context_override_set_and_clear_survive_a_reload(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """The console's set/clear round-trip has to reach disk and come back.
+
+    ``manager.update_model_config`` merges the change through the persisted
+    snapshot (``_copy_model_fields``), so a dropped ``None`` -- or a stale
+    ``config_overrides`` entry -- would silently keep the old override after a
+    restart.
+    """
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    inherited = provider.get_context_size("gpt-5")
+    assert inherited != 65_536
+
+    await manager.update_model_config(
+        "openai",
+        "gpt-5",
+        {"max_input_length": 65_536},
+    )
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "_instance",
+        None,
+    )
+    reloaded = ProviderManager().get_provider("openai")
+    assert reloaded is not None
+    model = reloaded.get_model_info("gpt-5")
+    assert model is not None
+    assert model.max_input_length == 65_536
+    assert "max_input_length" in model.config_overrides
+    assert reloaded.get_context_size("gpt-5") == 65_536
+
+    await manager.update_model_config(
+        "openai",
+        "gpt-5",
+        {"max_input_length": None},
+    )
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "_instance",
+        None,
+    )
+    cleared = ProviderManager().get_provider("openai")
+    assert cleared is not None
+    model = cleared.get_model_info("gpt-5")
+    assert model is not None
+    assert model.max_input_length is None
+    assert model.config_overrides == []
+    assert cleared.get_context_size("gpt-5") == inherited
+
+    stored = json.loads(
+        manager._provider_config_path("openai").read_text(encoding="utf-8"),
+    )
+    saved = next(model for model in stored["models"] if model["id"] == "gpt-5")
+    assert saved["max_input_length"] is None
+    assert saved["config_overrides"] == []
+
+
 def test_builtin_capability_probe_results_survive_storage_reload(
     isolated_secret_dir,
 ) -> None:

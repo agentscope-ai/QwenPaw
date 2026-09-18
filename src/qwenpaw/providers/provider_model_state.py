@@ -37,6 +37,15 @@ PERSISTED_MODEL_STATE_FIELDS = (
     "config_overrides",
 )
 
+# Response-only projections of the runtime window resolution. They are derived
+# into every provider response and must never be persisted, so the snapshot
+# writer drops them; a validator on ModelInfo cannot do it, because responses
+# validate through the same class.
+DERIVED_MODEL_STATE_FIELDS = (
+    "effective_max_input_length",
+    "effective_max_input_length_source",
+)
+
 
 def _migrate_legacy_model_output_limit(
     model: dict[str, Any],
@@ -87,6 +96,18 @@ def prune_model_overrides(model: dict[str, Any]) -> None:
     ]
 
 
+def strip_derived_model_state(model: dict[str, Any]) -> None:
+    """Drop response-only derived fields from a persisted model payload.
+
+    ``effective_max_input_length`` and its source are projections that the
+    response builders fill on purpose; persisting them would let a stale value
+    come back as "the effective window" on any path that does not recompute
+    the projection. Snapshots converge on their next save.
+    """
+    for field in DERIVED_MODEL_STATE_FIELDS:
+        model.pop(field, None)
+
+
 def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
     """Upgrade a provider snapshot to the current output-limit schema."""
     version = data.get("snapshot_schema_version", 1)
@@ -117,9 +138,7 @@ def migrate_provider_snapshot(data: dict[str, Any]) -> bool:
 def serialize_model_state(model: ModelInfo) -> dict[str, Any]:
     """Return the mutable state which must survive a manager restart."""
     state = {
-        field: getattr(model, field)
-        for field in PERSISTED_MODEL_STATE_FIELDS
-        if field != "config_overrides"
+        field: getattr(model, field) for field in PERSISTED_MODEL_STATE_FIELDS
     }
     state["config_overrides"] = list(model.config_overrides)
     prune_model_overrides(state)

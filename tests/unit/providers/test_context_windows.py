@@ -424,8 +424,10 @@ def test_provider_info_serialization_does_not_rescan_per_model():
     the model collections, which made one response quadratic -- and since the
     method never awaits, it blocked the event loop for ~40 ms with 800 models.
     Counting id comparisons keeps this deterministic: a per-model scan gives
-    2N^2 comparisons (80,000 at 200 models), while a linear number of lookups
-    stays within a small multiple of N.
+    N*(N_models+N_extra+N_discovered) comparisons (120,000 at 200 models per
+    collection), while a linear number of lookups stays within a small
+    multiple of N. All three collections are populated so no counter is
+    vacuously zero.
     """
     import asyncio
 
@@ -443,16 +445,23 @@ def test_provider_info_serialization_does_not_rescan_per_model():
                 counts["cmp"] += len(self.discovered_models)
                 return super().get_discovered_model_info(model_id)
 
+        def models(source: str) -> list[ModelInfo]:
+            return [
+                ModelInfo(
+                    id=f"gpt-5-mini-{index}",
+                    name=f"m{index}",
+                    source=source,
+                )
+                for index in range(model_count)
+            ]
+
         provider = _Counting(
             id="openai",
             name="OpenAI",
             api_key="sk-test",
-            models=[
-                ModelInfo(id=f"gpt-5-mini-{index}", name=f"m{index}")
-                for index in range(model_count)
-            ],
-            extra_models=[],
-            discovered_models=[],
+            models=models("builtin"),
+            extra_models=models("user"),
+            discovered_models=models("discovered"),
         )
         asyncio.run(provider.get_info())
         return counts["cmp"]

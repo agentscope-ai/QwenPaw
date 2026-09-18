@@ -25,6 +25,7 @@ from qwenpaw.exceptions import ProviderError
 
 from .context_windows import (
     ContextWindowResolution,
+    ContextWindowSource,
     resolve_context_window_details,
 )
 
@@ -485,7 +486,7 @@ class ModelInfo(BaseModel):
             "as input."
         ),
     )
-    effective_max_input_length_source: str | None = Field(
+    effective_max_input_length_source: ContextWindowSource | None = Field(
         default=None,
         description=(
             "Read-only provenance of effective_max_input_length: 'user', "
