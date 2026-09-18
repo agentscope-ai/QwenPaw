@@ -16,6 +16,8 @@ import {
   ProviderGroupCard,
   CustomProviderModal,
   ModelsSection,
+  RealtimeVoiceModelsSection,
+  RealtimeVoiceModelModal,
   ProviderConfigModal,
   ModelManageModal,
 } from "./components";
@@ -60,12 +62,16 @@ function ModelsPage() {
     useState<ProviderInfo | null>(null);
   const [modelsModalProvider, setModelsModalProvider] =
     useState<ProviderInfo | null>(null);
+  const [realtimeModalProvider, setRealtimeModalProvider] =
+    useState<ProviderInfo | null>(null);
   const [variantSelectGroup, setVariantSelectGroup] = useState<{
     key: string;
     name: string;
     providers: ProviderInfo[];
   } | null>(null);
   const [llmModalOpen, setLlmModalOpen] = useState(false);
+  const [realtimeDefaultModalOpen, setRealtimeDefaultModalOpen] =
+    useState(false);
   const [activeTab, setActiveTab] = useState<"cloud" | "local">(() => {
     const stored = localStorage.getItem("models_tab");
     return stored === "local" ? "local" : "cloud";
@@ -75,16 +81,22 @@ function ModelsPage() {
   useEffect(() => {
     const providerParam = searchParams.get("provider");
     const manageModels = searchParams.get("manageModels") === "true";
+    const openRealtimeVoice = searchParams.get("realtimeVoice") === "1";
     if (providerParam && providers.length > 0) {
       const target = providers.find((p) => p.id === providerParam);
       if (target) {
         if (manageModels || target.id === "hub-managed") {
           setModelsModalProvider(target);
+        } else if (openRealtimeVoice && target.realtime_voice) {
+          setRealtimeModalProvider(target);
         } else {
           setConfigModalProvider(target);
         }
         setSearchParams({}, { replace: true });
       }
+    } else if (openRealtimeVoice) {
+      setRealtimeDefaultModalOpen(true);
+      setSearchParams({}, { replace: true });
     }
   }, [providers, searchParams, setSearchParams]);
 
@@ -116,12 +128,25 @@ function ModelsPage() {
     }
   }, [providers, configModalProvider]);
 
+  useEffect(() => {
+    if (realtimeModalProvider) {
+      const fresh = providers.find((p) => p.id === realtimeModalProvider.id);
+      if (fresh && fresh !== realtimeModalProvider) {
+        setRealtimeModalProvider(fresh);
+      }
+    }
+  }, [providers, realtimeModalProvider]);
+
   const handleOpenConfig = useCallback((provider: ProviderInfo) => {
     setConfigModalProvider(provider);
   }, []);
 
   const handleOpenModels = useCallback((provider: ProviderInfo) => {
     setModelsModalProvider(provider);
+  }, []);
+
+  const handleOpenRealtimeVoice = useCallback((provider: ProviderInfo) => {
+    setRealtimeModalProvider(provider);
   }, []);
 
   // P1: Defer search filtering to avoid blocking input responsiveness
@@ -296,6 +321,7 @@ function ModelsPage() {
         onSaved={refreshProvidersSilently}
         onOpenConfig={handleOpenConfig}
         onOpenModels={handleOpenModels}
+        onOpenRealtimeVoice={handleOpenRealtimeVoice}
       />
     ));
 
@@ -361,6 +387,34 @@ function ModelsPage() {
                       {activeHubModel?.name ||
                         activeModels?.active_llm?.model ||
                         "—"}
+                    </span>
+                    <span className={styles.llmPillEdit}>
+                      {t("common.edit")}
+                    </span>
+                  </div>
+                  <div
+                    className={[
+                      styles.llmPill,
+                      activeModels?.active_realtime_voice
+                        ? styles.llmPillOn
+                        : styles.llmPillOff,
+                    ].join(" ")}
+                    onClick={() => setRealtimeDefaultModalOpen(true)}
+                  >
+                    <span
+                      className={
+                        activeModels?.active_realtime_voice
+                          ? styles.llmPillDot
+                          : styles.llmPillDotOff
+                      }
+                    />
+                    <span className={styles.llmPillLabel}>
+                      {t("realtimeVoice.settings")}:
+                    </span>
+                    <span className={styles.llmPillValue}>
+                      {activeModels?.active_realtime_voice?.provider_id || "—"}
+                      {" / "}
+                      {activeModels?.active_realtime_voice?.model || "—"}
                     </span>
                     <span className={styles.llmPillEdit}>
                       {t("common.edit")}
@@ -456,6 +510,7 @@ function ModelsPage() {
                             onSaved={refreshProvidersSilently}
                             onOpenConfig={handleOpenConfig}
                             onOpenModels={handleOpenModels}
+                            onOpenRealtimeVoice={handleOpenRealtimeVoice}
                           />
                         ))}
                         {renderProviderCards(cloudConfiguredUngrouped)}
@@ -592,6 +647,24 @@ function ModelsPage() {
               />
             </Modal>
 
+            <Modal
+              open={realtimeDefaultModalOpen}
+              title={t("realtimeVoice.settings")}
+              footer={null}
+              onCancel={() => setRealtimeDefaultModalOpen(false)}
+              destroyOnClose
+              width={520}
+            >
+              <RealtimeVoiceModelsSection
+                providers={providers}
+                activeModels={activeModels}
+                onSaved={() => {
+                  fetchAll();
+                  setRealtimeDefaultModalOpen(false);
+                }}
+              />
+            </Modal>
+
             {/* Shared Modal instances — one each for the entire page */}
             {configModalProvider && (
               <ProviderConfigModal
@@ -609,6 +682,14 @@ function ModelsPage() {
                 onClose={() => setModelsModalProvider(null)}
                 onSaved={refreshProvidersSilently}
                 onProviderUpdated={(p) => setModelsModalProvider(p)}
+              />
+            )}
+            {realtimeModalProvider && (
+              <RealtimeVoiceModelModal
+                provider={realtimeModalProvider}
+                open={!!realtimeModalProvider}
+                onClose={() => setRealtimeModalProvider(null)}
+                onSaved={refreshProvidersSilently}
               />
             )}
 

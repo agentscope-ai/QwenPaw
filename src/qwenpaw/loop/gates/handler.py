@@ -60,6 +60,10 @@ class StopHandler:
         """Reset turn-local state without ending mode sessions."""
         self._reset_gates("reset_turn")
 
+    def reset_reply_cycle(self) -> None:
+        """Reset only gate state scoped to one independent reply."""
+        self._reset_gates("reset_reply_cycle")
+
     def reset_session(self) -> None:
         """Remove current-session state from all gates."""
         self._reset_gates("reset_session")

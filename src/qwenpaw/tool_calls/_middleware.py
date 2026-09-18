@@ -140,17 +140,38 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
         agent_id = request_context.get("agent_id", "")
         root_session_id = request_context.get("root_session_id", "")
         root_agent_id = request_context.get("root_agent_id", "")
+        is_voice_turn = request_context.get("source") == "realtime_voice"
+        results = request_context.get("_background_results")
+        reply_cycle = getattr(agent, "_reply_cycle_context", None)
+        route = (
+            results.bind_call(reply_cycle.bind_call(tool_call.id), tool_call)
+            if results is not None and reply_cycle is not None
+            else None
+        )
 
         # Fallback refresh (e.g. flows that bypass on_reasoning).
         _capture_f1_reasoning(agent)
 
-        async for item in self._coordinator.execute(
+        stream = self._coordinator.execute(
             tool_call=tool_call,
             next_handler=next_handler,
             session_id=session_id,
             agent_id=agent_id,
             root_session_id=root_session_id,
             root_agent_id=root_agent_id,
+            # Keep the Agent turn alive while Voice tools run so speech and
+            # keyboard follow-ups can steer it. This is foreground only from
+            # the Agent lifecycle perspective; realtime media remains async.
+            offload_on_deadline=False if is_voice_turn else None,
             background_result_processor=self._background_result_processor,
-        ):
-            yield item
+            result_route=route,
+        )
+        try:
+            async for item in stream:
+                yield item
+        finally:
+            await stream.aclose()
+            if route is not None:
+                route.finish_receipt()
+                for work_id in route.reported_results:
+                    agent.accept_background_tool_result(work_id)

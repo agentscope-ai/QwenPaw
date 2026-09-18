@@ -26,8 +26,7 @@ import GenericToolCard from "../cards/GenericToolCard";
 // ---------------------------------------------------------------------------
 
 const STREAM_INPUT_PREVIEW_CHARS = 4 * 1024;
-const ERROR_STATUSES = new Set(["failed", "rejected", "canceled"]);
-const TOOL_ERROR_STATES = new Set(["error", "interrupted", "denied"]);
+const ERROR_STATUSES = new Set(["failed", "rejected"]);
 
 /**
  * Derive the tool execution status from V1 message data.
@@ -44,13 +43,22 @@ function deriveToolStatus(
 
   const resultData = (resultItem?.data ?? {}) as Record<string, unknown>;
   const toolState = resultData.state as string;
-  if (toolState && TOOL_ERROR_STATES.has(toolState)) {
-    return "error";
+  switch (toolState) {
+    case "interrupted":
+      return "interrupted";
+    case "success":
+      return "done";
+    case "running":
+      return "calling";
+    case "error":
+    case "denied":
+      return "error";
   }
 
   const rawStatus =
     (data.status as string) || (resultItem.status as string) || "";
   if (rawStatus === "completed") return "done";
+  if (rawStatus === "canceled") return "interrupted";
   if (ERROR_STATUSES.has(rawStatus)) return "error";
   return "calling";
 }

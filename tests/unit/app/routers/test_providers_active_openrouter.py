@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Route tests for provider active-model endpoints and OpenRouter routes.
 
-Covers ``_validate_model_slot``, ``_load_agent_model``,
+Covers ``_validate_model_slot``, ``_load_agent_model_slots``,
 ``_should_auto_discover``, ``list_all_providers``, the three OpenRouter
 endpoints (series / discover-extended / models filter), and the
 GET/PUT ``/active`` model endpoints with their scope handling.
@@ -26,6 +26,18 @@ from qwenpaw.providers.provider import (
 
 def _make_manager() -> MagicMock:
     return MagicMock(name="ProviderManager")
+
+
+def _agent_config(
+    active_model: ModelSlotConfig | None = None,
+    active_realtime_model: ModelSlotConfig | None = None,
+    active_voice_router_model: ModelSlotConfig | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        active_model=active_model,
+        active_realtime_model=active_realtime_model,
+        active_voice_router_model=active_voice_router_model,
+    )
 
 
 def _openrouter_provider() -> OpenRouterProvider:
@@ -171,7 +183,7 @@ class TestShouldAutoDiscover:
 
 
 # ---------------------------------------------------------------------------
-# list_all_providers / _load_agent_model
+# list_all_providers / _load_agent_model_slots
 # ---------------------------------------------------------------------------
 
 
@@ -183,7 +195,7 @@ async def test_list_all_providers_returns_manager_listing() -> None:
     assert result == info
 
 
-async def test_load_agent_model_returns_configured_slot(
+async def test_load_agent_model_slots_returns_configured_slots(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     workspace = SimpleNamespace(agent_id="agent-1")
@@ -193,14 +205,22 @@ async def test_load_agent_model_returns_configured_slot(
         AsyncMock(return_value=workspace),
     )
     slot = ModelSlotConfig(provider_id="p", model="m")
+    voice = ModelSlotConfig(provider_id="p", model="voice")
+    router = ModelSlotConfig(provider_id="p", model="router")
     monkeypatch.setattr(
         providers_mod,
         "load_agent_config",
-        MagicMock(return_value=SimpleNamespace(active_model=slot)),
+        MagicMock(
+            return_value=SimpleNamespace(
+                active_model=slot,
+                active_realtime_model=voice,
+                active_voice_router_model=router,
+            ),
+        ),
     )
     request = MagicMock()
-    result = await providers_mod._load_agent_model(request, "agent-1")
-    assert result == slot
+    result = await providers_mod._load_agent_model_slots(request, "agent-1")
+    assert result == (slot, voice, router)
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +494,8 @@ class TestGetActiveModels:
     def _manager_with_global(self, slot: ModelSlotConfig | None) -> MagicMock:
         manager = _make_manager()
         manager.get_active_model.return_value = slot
+        manager.get_active_realtime_model.return_value = None
+        manager.get_active_voice_router_model.return_value = None
         provider = MagicMock()
         provider.get_context_size.return_value = 4096
         manager.get_provider.return_value = provider
@@ -528,7 +550,7 @@ class TestGetActiveModels:
         monkeypatch.setattr(
             providers_mod,
             "load_agent_config",
-            MagicMock(return_value=SimpleNamespace(active_model=slot)),
+            MagicMock(return_value=_agent_config(slot)),
         )
         result = await providers_mod.get_active_models(
             request=MagicMock(),
@@ -554,7 +576,7 @@ class TestGetActiveModels:
         monkeypatch.setattr(
             providers_mod,
             "load_agent_config",
-            MagicMock(return_value=SimpleNamespace(active_model=agent_slot)),
+            MagicMock(return_value=_agent_config(agent_slot)),
         )
         result = await providers_mod.get_active_models(
             request=MagicMock(),
@@ -579,7 +601,7 @@ class TestGetActiveModels:
         monkeypatch.setattr(
             providers_mod,
             "load_agent_config",
-            MagicMock(return_value=SimpleNamespace(active_model=None)),
+            MagicMock(return_value=_agent_config()),
         )
         result = await providers_mod.get_active_models(
             request=MagicMock(),
@@ -631,6 +653,8 @@ class TestSetActiveModel:
             provider_id="p",
             model="m",
         )
+        manager.get_active_realtime_model.return_value = None
+        manager.get_active_voice_router_model.return_value = None
         return manager
 
     async def test_global_scope_provider_not_found_maps_to_404(self) -> None:
@@ -690,7 +714,7 @@ class TestSetActiveModel:
         configs: list = []
 
         async def fake_update(agent_id, mutator):
-            cfg = SimpleNamespace(active_model=None)
+            cfg = _agent_config()
             mutator(cfg)
             configs.append(cfg)
             return cfg
@@ -740,7 +764,7 @@ class TestSetActiveModel:
         existing = ModelSlotConfig(provider_id="other", model="keep-me")
 
         async def fake_update(agent_id, mutator):
-            cfg = SimpleNamespace(active_model=existing)
+            cfg = _agent_config(existing)
             mutator(cfg)
             return cfg
 
@@ -840,7 +864,7 @@ class TestSetActiveModel:
         configs: list = []
 
         async def fake_update(agent_id, mutator):
-            cfg = SimpleNamespace(active_model=None)
+            cfg = _agent_config()
             mutator(cfg)
             configs.append(cfg)
             return cfg

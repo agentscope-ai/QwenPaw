@@ -144,6 +144,7 @@ vi.mock("@/api/modules/chat", () => ({
   chatApi: {
     uploadFile: mockUploadFile,
     getChatStatus: mockGetChatStatus,
+    getChatSpec: vi.fn(async (id: string) => ({ id, meta: {} })),
     filePreviewUrl: mockFilePreviewUrl,
     stopChat: vi.fn(() => Promise.resolve()),
   },
@@ -202,6 +203,10 @@ vi.mock("./sessionApi", () => ({
     })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
+    preloadSession: vi.fn(async () => ({
+      session: { id: "test-session", messages: [] },
+      realId: null,
+    })),
     setLastUserMessage: vi.fn(),
     discardLastUserMessage: vi.fn(),
     lastActiveChatId: "last-chat-1",
@@ -979,8 +984,8 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  // ── responseParser: turn_usage → null ──────────────────────────────────
-  it("responseParser returns null for turn_usage payload", async () => {
+  // ── responseParser: turn_usage → heartbeat ─────────────────────────────
+  it("responseParser keeps turn_usage out of the runtime protocol", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -990,7 +995,7 @@ describe("ChatPage coverage", () => {
       const parsed = capturedOptions.api.responseParser(
         JSON.stringify({ type: "turn_usage", tokens: 1234 }),
       );
-      expect(parsed).toBeNull();
+      expect(parsed).toEqual({ object: "message", type: "heartbeat" });
     }
   });
 
@@ -1031,7 +1036,7 @@ describe("ChatPage coverage", () => {
           ],
         }),
       );
-      expect(parsed).toBeNull();
+      expect(parsed).toEqual({ object: "message", type: "heartbeat" });
     }
   });
 

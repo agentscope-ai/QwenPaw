@@ -955,6 +955,78 @@ class ProviderManagerPersistenceMixin(
         except Exception:
             return None
 
+    def _save_voice_model_slot(
+        self,
+        filename: str,
+        active_model: ModelSlotConfig,
+    ) -> None:
+        """Atomically persist a global voice-related model slot."""
+        target = self.root_path / filename
+        fd, temp_name = tempfile.mkstemp(
+            prefix=f".{target.stem}.",
+            suffix=".tmp",
+            dir=self.root_path,
+            text=True,
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(
+                    active_model.model_dump(),
+                    handle,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                handle.flush()
+                os.fsync(handle.fileno())
+            provider_persistence.replace_with_retry(temp_name, str(target))
+            try:
+                os.chmod(target, 0o600)
+            except OSError:
+                pass
+        finally:
+            if os.path.exists(temp_name):
+                try:
+                    os.remove(temp_name)
+                except OSError:
+                    pass
+
+    def save_active_realtime_model(
+        self, active_model: ModelSlotConfig
+    ) -> None:
+        self._save_voice_model_slot("active_realtime_model.json", active_model)
+
+    def save_active_voice_router_model(
+        self,
+        active_model: ModelSlotConfig,
+    ) -> None:
+        self._save_voice_model_slot(
+            "active_voice_router_model.json",
+            active_model,
+        )
+
+    def clear_active_voice_router_model(self) -> None:
+        self.active_voice_router_model = None
+        try:
+            (self.root_path / "active_voice_router_model.json").unlink()
+        except (FileNotFoundError, OSError):
+            pass
+
+    def _load_voice_model_slot(self, filename: str) -> ModelSlotConfig | None:
+        path = self.root_path / filename
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                return ModelSlotConfig.model_validate(json.load(handle))
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def load_active_realtime_model(self) -> ModelSlotConfig | None:
+        return self._load_voice_model_slot("active_realtime_model.json")
+
+    def load_active_voice_router_model(self) -> ModelSlotConfig | None:
+        return self._load_voice_model_slot("active_voice_router_model.json")
+
     def _migrate_copaw_config(self) -> None:
         """Migrate copaw-local provider config to qwenpaw-local."""
         # 1. Migrate active model configuration (only provider_id)
@@ -1115,6 +1187,12 @@ class ProviderManagerPersistenceMixin(
         active_model = self.load_active_model()
         if active_model:
             self.active_model = active_model
+        active_realtime_model = self.load_active_realtime_model()
+        if active_realtime_model:
+            self.active_realtime_model = active_realtime_model
+        active_voice_router_model = self.load_active_voice_router_model()
+        if active_voice_router_model:
+            self.active_voice_router_model = active_voice_router_model
 
         # Migrate copaw-local to qwenpaw-local for backwards compatibility
         self._migrate_copaw_config()
@@ -1132,6 +1210,11 @@ class ProviderManagerPersistenceMixin(
             builtin.auth_mode = provider.auth_mode
         if provider.custom_headers:
             builtin.custom_headers = provider.custom_headers
+        if provider.realtime_models:
+            builtin.realtime_models = [
+                model.model_copy(deep=True)
+                for model in provider.realtime_models
+            ]
         if hasattr(builtin, "max_inline_media_bytes"):
             builtin.max_inline_media_bytes = provider.max_inline_media_bytes
 

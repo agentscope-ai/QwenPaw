@@ -39,6 +39,7 @@ const {
   mockFetchActiveLoopMode,
   mockSessionProjectDirectory,
   mockHydrateBackgroundTasksForSession,
+  mockUpdateMessage,
 } = vi.hoisted(() => ({
   mockListProviders: vi.fn(),
   mockGetActiveModels: vi.fn(),
@@ -58,6 +59,7 @@ const {
   mockFetchActiveLoopMode: vi.fn(() => Promise.resolve(null)),
   mockSessionProjectDirectory: vi.fn(),
   mockHydrateBackgroundTasksForSession: vi.fn(() => Promise.resolve()),
+  mockUpdateMessage: vi.fn(),
 }));
 
 let capturedOptions: any = null;
@@ -109,6 +111,7 @@ vi.mock("@agentscope-ai/chat", () => ({
         getSessionMessages: vi.fn(() => []),
         getMessages: vi.fn(() => []),
         setSessionMessages: vi.fn(),
+        updateMessage: mockUpdateMessage,
       },
       execution: {
         execute: mockRuntimeSubmit,
@@ -160,6 +163,7 @@ vi.mock("@/api/modules/chat", () => ({
     uploadFile: mockUploadFile,
     filePreviewUrl: mockFilePreviewUrl,
     getChatStatus: mockGetChatStatus,
+    getChatSpec: vi.fn(() => Promise.resolve({ source: "chat" })),
     stopChat: vi.fn(() => Promise.resolve()),
   },
 }));
@@ -204,6 +208,13 @@ vi.mock("@/contexts/ThemeContext", () => ({
 }));
 
 vi.mock("./sessionApi", () => ({
+  convertMessages: vi.fn((messages: Array<Record<string, unknown>>) =>
+    messages.map((message) => ({
+      id: String(message.id),
+      role: message.role,
+      cards: [],
+    })),
+  ),
   default: {
     onSessionIdResolved: null,
     onSessionRemoved: null,
@@ -222,6 +233,9 @@ vi.mock("./sessionApi", () => ({
     refreshSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
+    preloadSession: vi.fn(() =>
+      Promise.resolve({ session: { messages: [] }, realId: null }),
+    ),
     setLastUserMessage: vi.fn(),
     discardLastUserMessage: vi.fn(),
     lastActiveChatId: "last-chat-1",
@@ -545,6 +559,7 @@ describe("ChatPage coverage", () => {
     mockFetchActiveLoopMode.mockClear();
     mockSessionProjectDirectory.mockClear();
     mockHydrateBackgroundTasksForSession.mockClear();
+    mockUpdateMessage.mockClear();
     mockHoldOwnershipLock.mockReset();
     mockHoldOwnershipLock.mockImplementation((_key: string, cb: () => void) => {
       cb();
@@ -914,7 +929,7 @@ describe("ChatPage coverage", () => {
   });
 
   // ── responseParser: turn_usage → null ──────────────────────────────────
-  it("responseParser returns null for turn_usage payload", async () => {
+  it("responseParser maps turn_usage to a stream heartbeat", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -925,25 +940,75 @@ describe("ChatPage coverage", () => {
       const parsed = capturedOptions.api.responseParser(
         JSON.stringify({ type: "turn_usage", tokens: 1234 }),
       );
-      expect(parsed).toBeNull();
+      expect(parsed).toEqual({ object: "message", type: "heartbeat" });
     }
   });
 
-  // ── responseParser: replay_end → heartbeat ─────────────────────────────
-  it("responseParser maps replay_end to heartbeat", async () => {
+  // ── responseParser: host lifecycle markers → heartbeat ────────────────
+  it.each(["run_started", "replay_end", "run_sealed"])(
+    "responseParser keeps %s out of the AgentScope runtime protocol",
+    async (type) => {
+      renderWithProviders(<ChatPage />, {
+        initialEntries: ["/chat/test-session"],
+      });
+      await screen.findByTestId("chat-ui");
+
+      if (capturedOptions?.api?.responseParser) {
+        const parsed = capturedOptions.api.responseParser(
+          JSON.stringify({ type }),
+        );
+        expect(parsed).toEqual({ object: "message", type: "heartbeat" });
+      }
+    },
+  );
+
+  it("keeps replayed user input out of the assistant response", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
 
-    if (capturedOptions?.api?.responseParser) {
-      const parsed = capturedOptions.api.responseParser(
-        JSON.stringify({ type: "replay_end" }),
-      );
-      expect(parsed).toBeTruthy();
-      expect(parsed.type).toBe("heartbeat");
-    }
+    const parser = capturedOptions?.api?.responseParser;
+    expect(parser).toBeTypeOf("function");
+    parser(JSON.stringify({ type: "run_started", replay: true }));
+    const parsed = parser(
+      JSON.stringify({
+        id: "voice-input-1",
+        object: "message",
+        role: "user",
+        type: "message",
+        status: "completed",
+        content: [{ type: "text", text: "check the previous result" }],
+      }),
+    );
+
+    expect(parsed).toEqual({ object: "message", type: "heartbeat" });
+    expect(mockUpdateMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "voice-input-1", role: "user" }),
+    );
+  });
+
+  it("does not rewrite user events from a direct request stream", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+
+    const parser = capturedOptions?.api?.responseParser;
+    expect(parser).toBeTypeOf("function");
+    parser(JSON.stringify({ type: "run_started", replay: false }));
+    const payload = {
+      id: "direct-input-1",
+      object: "message",
+      role: "user",
+      type: "message",
+      status: "completed",
+      content: [{ type: "text", text: "hello" }],
+    };
+
+    expect(parser(JSON.stringify(payload))).toEqual(payload);
+    expect(mockUpdateMessage).not.toHaveBeenCalled();
   });
 
   // ── responseParser: rate_limited → null ────────────────────────────────
@@ -968,7 +1033,7 @@ describe("ChatPage coverage", () => {
           ],
         }),
       );
-      expect(parsed).toBeNull();
+      expect(parsed).toEqual({ object: "message", type: "heartbeat" });
     }
   });
 
@@ -1412,6 +1477,7 @@ describe("ChatPage coverage", () => {
   });
 
   it("allows a fresh SDK admission after switching sessions", async () => {
+    const { chatApi } = await import("@/api/modules/chat");
     const sourceChatId = "33322222-2222-4222-8222-222222222224";
     const targetChatId = "33322222-2222-4222-8222-222222222225";
 
@@ -1444,6 +1510,13 @@ describe("ChatPage coverage", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Switch session" }));
     });
+
+    await waitFor(() =>
+      expect(chatApi.getChatSpec).toHaveBeenCalledWith(
+        targetChatId,
+        expect.objectContaining({ include_app_owned: false }),
+      ),
+    );
 
     let second: unknown;
     await act(async () => {

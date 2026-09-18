@@ -31,15 +31,19 @@ export interface ChatSpec {
   root_session_id?: string | null;
 }
 
+export function isRealtimeVoiceChat(chat: Pick<ChatSpec, "meta">): boolean {
+  const voice = chat.meta?.realtime_voice;
+  return typeof voice === "object" && voice !== null && !Array.isArray(voice);
+}
+
 export interface Message {
   role: string;
   content: unknown;
   [key: string]: unknown;
 }
 
-export interface ChatHistory {
+export interface ChatHistory extends ChatSpec {
   messages: Message[];
-  status?: ChatStatus; // Conversation status: idle or running
 }
 
 export interface ChatUpdateRequest {

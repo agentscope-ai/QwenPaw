@@ -126,6 +126,14 @@ class StopGate(ABC):
         for stateless gates.
         """
 
+    def reset_reply_cycle(self) -> None:
+        """Reset only state that must not cross independent replies.
+
+        One Agent turn may contain multiple queued user inputs.  Most limits
+        intentionally span that whole run; gates with reply-local detection
+        state override this narrower hook.
+        """
+
     def reset_session(self) -> None:
         """Remove state for the current conversation session."""
 

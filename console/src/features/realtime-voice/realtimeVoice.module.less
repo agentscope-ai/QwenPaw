@@ -1,0 +1,168 @@
+.controlArea {
+  display: grid;
+  gap: 10px;
+  padding: 4px 4px 12px;
+}
+
+.voiceDock {
+  min-height: 64px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px 11px 15px;
+  border: 1px solid var(--ant-color-border-secondary);
+  border-radius: 14px;
+  background: linear-gradient(
+    135deg,
+    var(--ant-color-fill-quaternary),
+    transparent 72%
+  );
+  box-shadow: inset 3px 0 0 var(--ant-color-primary);
+}
+
+.voiceDockActive {
+  box-shadow: inset 3px 0 0 var(--ant-color-success);
+}
+
+.voiceDockError {
+  box-shadow: inset 3px 0 0 var(--ant-color-error);
+}
+
+.statusSummary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.statusIcon {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--ant-color-primary);
+  background: var(--ant-color-primary-bg);
+  font-size: 18px;
+}
+
+.statusIcon.idle {
+  color: var(--ant-color-primary);
+  background: var(--ant-color-primary-bg);
+}
+
+.statusIcon.listening,
+.statusIcon.user_speaking {
+  color: var(--ant-color-success);
+  background: var(--ant-color-success-bg);
+}
+
+.statusIcon.assistant_speaking {
+  color: var(--ant-color-primary);
+  background: var(--ant-color-primary-bg);
+}
+
+.statusIcon.agent_working,
+.statusIcon.connecting,
+.statusIcon.reconnecting {
+  color: var(--ant-color-warning);
+  background: var(--ant-color-warning-bg);
+}
+
+.statusIcon.error {
+  color: var(--ant-color-error);
+  background: var(--ant-color-error-bg);
+}
+
+.statusCopy {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  column-gap: 14px;
+}
+
+.statusHeading {
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.statusHint {
+  display: block;
+  margin-top: 0;
+  line-height: 1.35;
+}
+
+.liveTranscript {
+  min-width: 0;
+  overflow: hidden;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  span {
+    margin-right: 6px;
+    color: var(--ant-color-text-tertiary);
+  }
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.primaryAction {
+  min-width: 154px;
+  border-radius: 10px;
+  font-weight: 600;
+  box-shadow: 0 5px 14px
+    color-mix(in srgb, var(--ant-color-primary) 24%, transparent);
+}
+
+.secondaryAction,
+.stopAction {
+  border-radius: 9px;
+}
+
+.settingsAction {
+  color: var(--ant-color-text-secondary);
+}
+
+.deviceSelect {
+  width: 168px;
+  max-width: 100%;
+}
+
+.admissionSelect {
+  width: 124px;
+  max-width: 100%;
+}
+
+.alert {
+  width: 100%;
+}
+
+@media (max-width: 720px) {
+  .voiceDock {
+    padding: 12px;
+  }
+
+  .actions {
+    justify-content: flex-start;
+  }
+
+  .statusCopy {
+    grid-template-columns: 1fr;
+    row-gap: 3px;
+  }
+
+  .primaryAction {
+    flex: 1;
+  }
+}

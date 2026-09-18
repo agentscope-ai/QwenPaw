@@ -12,16 +12,22 @@ Covers:
 - wait_all_done() returns True when idle, False on timeout
 - global status counters update via run lifecycle
 """
-# pylint: disable=protected-access,redefined-outer-name,unused-argument
+
 from __future__ import annotations
 
+# pylint: disable=protected-access,redefined-outer-name,unused-argument
 import asyncio
 import json
 
 import pytest
 
-from qwenpaw.app.task_tracker import TaskTracker
-
+from qwenpaw.app.task_tracker import (
+    RunInput,
+    RunOutcome,
+    RunStarted,
+    TaskTracker,
+)
+from qwenpaw.runtime.reply_cycle import InputStateEvent
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -31,8 +37,10 @@ from qwenpaw.app.task_tracker import TaskTracker
 async def _drain(queue: asyncio.Queue, n: int) -> list:
     """Read up to ``n`` items from ``queue`` with a small timeout."""
     items = []
-    for _ in range(n):
-        items.append(await asyncio.wait_for(queue.get(), timeout=1))
+    while len(items) < n:
+        item = await asyncio.wait_for(queue.get(), timeout=1)
+        if item is None or isinstance(item, str):
+            items.append(item)
     return items
 
 
@@ -57,6 +65,92 @@ async def test_get_status_idle_for_unknown_run_key():
     assert await tracker.get_status("missing") == "idle"
     assert await tracker.has_active_tasks() is False
     assert await tracker.list_active_tasks() == []
+
+
+@pytest.mark.asyncio
+async def test_released_chat_rejects_delayed_admission_at_the_writer_lock():
+    tracker = TaskTracker()
+    old = tracker.input_context("deleted")
+    old.register_execution("one", "first")
+    async with tracker.lock:
+        pending = asyncio.create_task(
+            tracker.submit_or_start(
+                "deleted",
+                {},
+                _make_stream([]),
+                RunInput(("late",), "late"),
+            )
+        )
+        await asyncio.sleep(0)
+        tracker.release_input_context("deleted")
+    with pytest.raises(RuntimeError, match="released"):
+        await pending
+    old.observe_state(InputStateEvent("old", ("one",), "processing"))
+    assert old.state("one") is None
+    assert await tracker.get_status("deleted") == "idle"
+    assert tracker.input_context("different") is not old
+
+
+def test_workspace_release_retires_all_contexts():
+    tracker = TaskTracker()
+    contexts = [tracker.input_context(name) for name in ("one", "two")]
+    tracker.close_input_contexts()
+    for name, context in zip(("one", "two"), contexts):
+        with pytest.raises(RuntimeError, match="released"):
+            tracker.input_context(name)
+        context.register_execution("late", "late")
+        assert context.capture(("late",)) == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload,status",
+    [
+        (
+            {
+                "object": "response",
+                "status": "failed",
+                "error": {"message": "unavailable"},
+            },
+            "failed",
+        ),
+        (
+            {"object": "message", "type": "tool_call", "status": "failed"},
+            "completed",
+        ),
+    ],
+)
+async def test_outcome_distinguishes_run_failure_from_tool_failure(
+    payload, status
+):
+    tracker = TaskTracker()
+    queue, _ = await tracker.attach_or_start(
+        "chat", None, _make_stream([f"data: {json.dumps(payload)}\n\n"])
+    )
+    events = [
+        event
+        async for event in tracker.stream_events_from_queue(queue, "chat")
+    ]
+    assert isinstance(events[-1], RunOutcome)
+    assert events[-1].status == status
+
+
+@pytest.mark.asyncio
+async def test_stop_before_producer_starts_still_publishes_outcome():
+    tracker = TaskTracker()
+    queue, _ = await tracker.attach_or_start("chat", None, _make_stream([]))
+    await tracker.request_stop("chat")
+
+    async def collect():
+        return [
+            item
+            async for item in tracker.stream_events_from_queue(queue, "chat")
+        ]
+
+    events = await asyncio.wait_for(collect(), 1)
+    assert isinstance(events[0], RunStarted)
+    assert len(events) == 2 and events[-1].status == "cancelled"
+    assert not tracker._runs
 
 
 @pytest.mark.asyncio
@@ -119,11 +213,15 @@ async def test_attach_or_start_streams_events_and_marks_completion():
     assert is_new is True
 
     # Drain the two real events plus the SENTINEL terminator.
+    assert isinstance(await queue.get(), RunStarted)
     a = await asyncio.wait_for(queue.get(), timeout=1)
     b = await asyncio.wait_for(queue.get(), timeout=1)
+    outcome = await asyncio.wait_for(queue.get(), timeout=1)
     sentinel = await asyncio.wait_for(queue.get(), timeout=1)
 
     assert [a, b] == events
+    assert isinstance(outcome, RunOutcome)
+    assert outcome.status == "completed"
     assert sentinel is None
 
     # After completion the tracker cleans up the run.
@@ -146,11 +244,34 @@ async def test_attach_or_start_reports_completion_before_becoming_idle():
         stream_fn=_make_stream([]),
         on_finished=on_finished,
     )
+    assert isinstance(
+        await asyncio.wait_for(queue.get(), timeout=1), RunStarted
+    )
+    assert isinstance(
+        await asyncio.wait_for(queue.get(), timeout=1), RunOutcome
+    )
     assert await asyncio.wait_for(queue.get(), timeout=1) is None
 
     assert len(completions) == 1
     assert completions[0][0] == "run-with-callback"
     assert await tracker.get_status("run-with-callback") == "idle"
+
+
+@pytest.mark.asyncio
+async def test_attach_or_start_publishes_initial_events_before_producer():
+    tracker = TaskTracker()
+    initial = "data: user\n\n"
+    produced = "data: assistant\n\n"
+
+    queue, is_new = await tracker.attach_or_start(
+        "run-initial",
+        payload=None,
+        stream_fn=_make_stream([produced]),
+        initial_events=[initial],
+    )
+
+    assert is_new is True
+    assert await _drain(queue, 3) == [initial, produced, None]
 
 
 @pytest.mark.asyncio
@@ -187,6 +308,7 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
     assert new_b is False
 
     # queue_b should be pre-filled with the buffered first event.
+    assert isinstance(await queue_b.get(), RunStarted)
     first_b = await asyncio.wait_for(queue_b.get(), timeout=1)
     assert first_b == "data: first\n\n"
 
@@ -195,10 +317,70 @@ async def test_attach_or_start_existing_run_returns_buffer_replay():
 
     # Both queues see the remaining events and the terminator.
     rest_a = await _drain(queue_a, 3)  # first, second, SENTINEL
-    rest_b = await _drain(queue_b, 2)  # second, SENTINEL
+    rest_b = await _drain(queue_b, 3)  # replay boundary, second, SENTINEL
 
     assert rest_a == ["data: first\n\n", "data: second\n\n", None]
-    assert rest_b == ["data: second\n\n", None]
+    assert rest_b[0] == 'data: {"type": "replay_end"}\n\n'
+    assert rest_b[1:] == ["data: second\n\n", None]
+
+
+@pytest.mark.asyncio
+async def test_attach_live_does_not_replay_prior_output():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stream(_payload):
+        yield "data: old\n\n"
+        started.set()
+        await release.wait()
+        yield "data: new\n\n"
+
+    original, _ = await tracker.attach_or_start("live", None, stream)
+    await asyncio.wait_for(started.wait(), timeout=1)
+    await asyncio.sleep(0)
+    live = await tracker.attach_live("live")
+    assert live is not None and live.empty()
+
+    release.set()
+    assert await _drain(live, 2) == ["data: new\n\n", None]
+    assert await _drain(original, 3) == [
+        "data: old\n\n",
+        "data: new\n\n",
+        None,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_named_live_subscriber_is_unique_per_run():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def stream(_payload):
+        started.set()
+        await release.wait()
+        yield "data: final\n\n"
+
+    original, _ = await tracker.attach_or_start("named", None, stream)
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    first = await tracker.attach_live_once("named", "voice-projection")
+    second = await tracker.attach_live_once("named", "voice-projection")
+
+    assert first is not None
+    assert second is None
+
+    await tracker.detach_subscriber("named", first)
+    replacement = await tracker.attach_live_once(
+        "named",
+        "voice-projection",
+    )
+    assert replacement is not None
+
+    release.set()
+    assert await _drain(replacement, 2) == ["data: final\n\n", None]
+    assert await _drain(original, 2) == ["data: final\n\n", None]
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +423,119 @@ async def test_request_stop_returns_false_when_no_run():
     assert await tracker.request_stop("missing") is False
 
 
+@pytest.mark.asyncio
+async def test_submit_or_start_is_atomic_and_idempotent():
+    tracker = TaskTracker()
+    started = asyncio.Event()
+    release = asyncio.Event()
+    captured_payload = None
+
+    async def producer(payload):
+        nonlocal captured_payload
+        captured_payload = payload
+        started.set()
+        await release.wait()
+        yield "data: done\n\n"
+
+    payload = {"meta": {"request_context": {}}}
+    initial_sse = 'data: {"id":"client-initial","role":"user"}\n\n'
+
+    async def reserve_order():
+        return 12
+
+    queue, status, run_id = await tracker.submit_or_start(
+        "steer-run",
+        payload,
+        producer,
+        RunInput(("initial",), "initial"),
+        accepted_sse=initial_sse,
+        reserve_timeline_order=reserve_order,
+    )
+    assert status == "started"
+    assert run_id
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    accepted_sse = 'data: {"id":"client-evt-1","role":"user"}\n\n'
+    live_queue, status, accepted_run_id = await tracker.submit_or_start(
+        "steer-run",
+        payload,
+        producer,
+        RunInput(("one",), "evt-1"),
+        accepted_sse=accepted_sse,
+    )
+    assert status == "accepted"
+    assert accepted_run_id == run_id
+    duplicate_queue, status, duplicate_run_id = await tracker.submit_or_start(
+        "steer-run",
+        payload,
+        producer,
+        RunInput(("ignored",), "evt-1"),
+    )
+    assert status == "duplicate"
+    assert duplicate_run_id == run_id
+    mailbox = captured_payload["meta"]["request_context"]["_run_input_mailbox"]
+    reply_cycle = captured_payload["meta"]["request_context"][
+        "_reply_cycle_context"
+    ]
+    assert reply_cycle.run_id == run_id
+    assert reply_cycle.snapshot.group_id == "initial"
+    assert (await reply_cycle.start_occurrence()).timeline_order == 12
+    assert [item.content_parts for item in mailbox.drain_after_reply()] == [
+        ("one",),
+    ]
+    assert await _drain(queue, 2) == [initial_sse, accepted_sse]
+
+    await tracker.detach_subscriber("steer-run", live_queue)
+    await tracker.detach_subscriber("steer-run", duplicate_queue)
+    release.set()
+    async for _ in tracker.stream_from_queue(queue, "steer-run"):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_attach_or_start_waits_for_finishing_run_then_starts_next():
+    tracker = TaskTracker()
+    first_started = asyncio.Event()
+    release_first = asyncio.Event()
+    payload = {"meta": {"request_context": {}}}
+
+    async def first_stream(_payload):
+        first_started.set()
+        await release_first.wait()
+        yield "data: first\n\n"
+
+    first_queue, first_is_new = await tracker.attach_or_start(
+        "same-chat",
+        payload,
+        first_stream,
+    )
+    assert first_is_new is True
+    await asyncio.wait_for(first_started.wait(), timeout=1)
+    payload["meta"]["request_context"]["_run_input_mailbox"].close()
+
+    async def second_stream(_payload):
+        yield "data: second\n\n"
+
+    next_start = asyncio.create_task(
+        tracker.attach_or_start(
+            "same-chat",
+            {"meta": {"request_context": {}}},
+            second_stream,
+        ),
+    )
+    await asyncio.sleep(0)
+    assert not next_start.done()
+
+    release_first.set()
+    second_queue, second_is_new = await asyncio.wait_for(
+        next_start,
+        timeout=1,
+    )
+    assert second_is_new is True
+    assert await _drain(first_queue, 2) == ["data: first\n\n", None]
+    assert await _drain(second_queue, 2) == ["data: second\n\n", None]
+
+
 # ---------------------------------------------------------------------------
 # Error path: producer exception broadcasts an error SSE.
 # ---------------------------------------------------------------------------
@@ -263,12 +558,16 @@ async def test_producer_exception_emits_error_sse():
         stream_fn=boom,
     )
 
+    assert isinstance(await queue.get(), RunStarted)
     err = await asyncio.wait_for(queue.get(), timeout=1)
+    outcome = await asyncio.wait_for(queue.get(), timeout=1)
     sentinel = await asyncio.wait_for(queue.get(), timeout=1)
 
     assert err.startswith("data: ")
     payload = json.loads(err[len("data: ") :].rstrip("\n"))
     assert payload == {"error": "internal server error"}
+    assert outcome.status == "failed"
+    assert outcome.error == "kaboom"
     assert sentinel is None
 
 
@@ -507,6 +806,7 @@ async def test_attach_appends_replay_end_marker_after_buffer():
 
     queue_b = await tracker.attach("run-replay")
     assert queue_b is not None
+    assert isinstance(await queue_b.get(), RunStarted)
 
     first = await asyncio.wait_for(queue_b.get(), timeout=1)
     marker = await asyncio.wait_for(queue_b.get(), timeout=1)
@@ -522,3 +822,28 @@ async def test_attach_appends_replay_end_marker_after_buffer():
     # The original (non-reconnect) subscriber never sees the marker.
     rest_a = await _drain(queue_a, 3)
     assert rest_a == ["data: first\n\n", "data: second\n\n", None]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("saved", ["saved", "failed"])
+async def test_reconnect_after_retirement_preserves_storage_result(saved):
+    tracker = TaskTracker()
+    payload = {"meta": {"request_context": {}}}
+
+    async def stream(data):
+        data["meta"]["request_context"]["_session_save_result"].status = saved
+        yield "data: output\n\n"
+
+    await tracker.attach_or_start("chat", payload, stream)
+    assert await tracker.wait_all_done(timeout=2)
+    queue = await tracker.attach("chat", include_finished=True)
+    events = [
+        item
+        async for item in tracker.stream_from_queue(
+            queue, "chat", lifecycle=True
+        )
+    ]
+    event = json.loads(events[0][len("data: ") :])
+    assert event["type"] == "run_sealed"
+    assert event["persistence"] == saved
+    assert await tracker.get_status("chat") == "idle"

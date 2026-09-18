@@ -72,6 +72,7 @@ def make_agent(tracker: SeenTracker) -> QwenPawAgent:
     agent._context_manager = tracker
     agent._gate_pending_stop = None
     agent._request_context = {}
+    agent._run_input_mailbox = None
     agent.state = SimpleNamespace(context=[], reply_id="reply")
     agent.name = "agent"
     agent.model = SimpleNamespace(model_key=None)

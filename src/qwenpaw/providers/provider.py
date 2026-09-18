@@ -16,6 +16,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from qwenpaw.exceptions import ProviderError
 
 from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
+from .realtime_voice import (
+    RealtimeVoiceCapabilityInfo,
+    RealtimeVoiceModelConfig,
+)
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -386,6 +390,14 @@ class ProviderInfo(BaseModel):
     model_sync_mode: Literal["startup", "manual", "disabled"] = Field(
         default="manual",
         description="When model discovery runs automatically.",
+    )
+    realtime_models: List[RealtimeVoiceModelConfig] = Field(
+        default_factory=list,
+        description="Configured realtime voice models for this provider",
+    )
+    realtime_voice: RealtimeVoiceCapabilityInfo | None = Field(
+        default=None,
+        description="Optional sanitized realtime voice capability",
     )
 
     api_key_prefix: str = Field(
@@ -1253,6 +1265,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             discovery_support_reason=self.discovery_support_reason,
             discovery_requires_auth=self.discovery_requires_auth,
             model_sync_mode=self.model_sync_mode,
+            realtime_models=[m.model_dump() for m in self.realtime_models],
+            realtime_voice=self.realtime_voice,
             api_key_prefix=self.api_key_prefix,
             api_key_prefixes=self.api_key_prefixes,
             is_local=self.is_local,

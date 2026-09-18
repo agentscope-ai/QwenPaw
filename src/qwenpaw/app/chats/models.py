@@ -163,6 +163,12 @@ class ChatSpec(BaseModel):
         return self.archived_at is not None
 
 
+def is_realtime_voice_chat(chat: ChatSpec) -> bool:
+    """Return whether a regular Chat carries realtime voice capability."""
+    voice = chat.meta.get("realtime_voice")
+    return isinstance(voice, dict)
+
+
 class ChatUpdate(BaseModel):
     """Mutable chat fields accepted from external clients.
 
@@ -216,14 +222,10 @@ class ChatGroupOrderUpdate(BaseModel):
     group_ids: list[str] = Field(min_length=2)
 
 
-class ChatHistory(BaseModel):
+class ChatHistory(ChatSpec):
     """Complete chat view with spec and state."""
 
     messages: list[Message] = Field(default_factory=list)
-    status: str = Field(
-        default="idle",
-        description="Conversation status: idle or running",
-    )
 
 
 class BatchFailure(BaseModel):

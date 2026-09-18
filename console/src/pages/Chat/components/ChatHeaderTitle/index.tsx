@@ -2,24 +2,37 @@ import React, { useState } from "react";
 import { Dropdown } from "antd";
 import { useChatAnywhereSessionsState } from "@agentscope-ai/chat";
 import { Check } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { useCodingMode } from "../../../../stores/codingModeStore";
 import type { ExtendedSession } from "../../../../stores/sessionListStore";
-import { buildChatPath } from "../../../../utils/sessionRoute";
+import {
+  buildChatPath,
+  getSessionIdFromPath,
+} from "../../../../utils/sessionRoute";
 import sessionApi from "../../sessionApi";
 import styles from "./index.module.less";
 
 const ChatHeaderTitle: React.FC = () => {
-  const { sessions, currentSessionId } = useChatAnywhereSessionsState();
+  const { sessions } = useChatAnywhereSessionsState();
   const navigate = useNavigate();
   const { codingMode } = useCodingMode();
-  const currentSession = sessions.find(
-    (s) =>
-      !!currentSessionId &&
-      (s.id === currentSessionId ||
-        (s as ExtendedSession).realId === currentSessionId),
-  );
-  const chatName = currentSession?.name || "New Chat";
+  const { t } = useTranslation();
+  // The route is the display source of truth. ChatPage writes the SDK
+  // selection from the route in an effect, so it lags by at least one render.
+  const routeChatId = getSessionIdFromPath(useLocation().pathname);
+  const currentSession = routeChatId
+    ? (sessions as ExtendedSession[]).find(
+        (s) =>
+          s.id === routeChatId ||
+          s.realId === routeChatId ||
+          s.sessionId === routeChatId,
+      )
+    : undefined;
+  const chatName =
+    !currentSession && routeChatId
+      ? t("common.loading")
+      : currentSession?.name || "New Chat";
 
   const [open, setOpen] = useState(false);
 
