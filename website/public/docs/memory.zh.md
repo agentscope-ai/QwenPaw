@@ -377,7 +377,7 @@ BM25 擅长“宁德时代”“CATL”“碳酸锂”这类明确名称；向�
 
 ## 参数配置
 
-默认的 `remelight` backend 在 QwenPaw 进程内运行，并复用当前 Agent 的模型完成记忆抽取和整理。你可以在控制台配置，也可以编辑 `agent.json` 中的 `running.reme_light_memory_config`。
+默认的 `remelight` backend 在 QwenPaw 进程内运行，并复用当前 Agent 的模型完成记忆抽取和整理；也可以配置独立的 `memory_model` 让记忆写入使用更轻量的模型。你可以在控制台配置，也可以编辑 `agent.json` 中的 `running.reme_light_memory_config`。
 
 ### 常用配置
 
