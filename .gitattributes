@@ -1,3 +1,6 @@
 *.bat text eol=crlf
 scripts/check-channels.sh text eol=lf
 .github/workflows/tests.yml text eol=lf
+plugins/apps/qwenpaw-data/scripts/data-console/patches/console-embed.patch text eol=lf
+plugins/apps/qwenpaw-data/scripts/data-console/paw-bridge.js text eol=lf
+plugins/apps/qwenpaw-data/ui/public/data-console/** -text
