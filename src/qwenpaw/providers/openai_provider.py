@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import time
+import uuid
 from typing import TYPE_CHECKING, Any, ClassVar, List
 from urllib.parse import urlparse
 
@@ -916,6 +917,24 @@ class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
             "nemotron-3-super-free",
         },
     )
+    _SESSION_HEADER: ClassVar[str] = "x-opencode-session"
+
+    def _build_default_headers(self) -> dict:
+        """Attach the conversation id OpenCode Go requires.
+
+        The Go endpoint rejects a request without ``x-opencode-session``
+        (``400 MissingParameter``-style ``MissingSessionID``), and OpenCode
+        asks for "a stable session ID ... for each conversation" so it can
+        route and cache prompts.  Headers are built once per client or chat
+        model instance and reused for that object's lifetime, so minting the
+        id here keeps it stable for one conversation while a later build —
+        another session — gets its own.  A user-supplied header always wins.
+        """
+        headers = super()._build_default_headers()
+        if any(key.lower() == self._SESSION_HEADER for key in headers):
+            return headers
+        headers[self._SESSION_HEADER] = uuid.uuid4().hex
+        return headers
 
     async def fetch_models(
         self,
