@@ -30,6 +30,17 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
   const percent = overview.total_runtimes
     ? ((running / overview.total_runtimes) * 100).toFixed(1)
     : null;
+  const capacity = (used: number, total: number, available: number) => {
+    const format = (bytes: number) =>
+      `${(bytes / 1024 ** 3).toLocaleString(i18n.language, {
+        maximumFractionDigits: 1,
+      })} GiB`;
+    return t("hub.overview.capacity", {
+      used: format(used),
+      total: format(total),
+      available: format(available),
+    });
+  };
   return (
     <section className={styles.overview}>
       <header className={styles.heading}>
@@ -172,13 +183,24 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
               label: t("hub.overview.memory"),
               value: overview.host.memory_percent,
               Icon: MemoryStick,
+              detail: capacity(
+                overview.host.memory_used,
+                overview.host.memory_total,
+                overview.host.memory_available,
+              ),
             },
             {
               label: t("hub.overview.dataDisk"),
               value: overview.host.disk_percent,
               Icon: HardDrive,
+              detail: capacity(
+                overview.host.disk_used,
+                overview.host.disk_total,
+                overview.host.disk_free,
+              ),
+              path: overview.host.disk_path,
             },
-          ].map(({ label, value, Icon }) => (
+          ].map(({ label, value, Icon, detail, path }) => (
             <div className={styles.resource} key={label}>
               <div>
                 <Icon size={19} />
@@ -194,6 +216,14 @@ export default function OverviewPanel({ overview, onNavigate }: Props) {
                 max={100}
                 value={value}
               />
+              {detail && (
+                <small className={styles.resourceDetail}>{detail}</small>
+              )}
+              {path && (
+                <small className={styles.resourceDetail} title={path}>
+                  {path}
+                </small>
+              )}
             </div>
           ))}
         </div>

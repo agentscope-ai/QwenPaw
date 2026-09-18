@@ -97,6 +97,13 @@ export interface HubOverview {
     cpu_percent: number;
     memory_percent: number;
     disk_percent: number;
+    memory_used: number;
+    memory_total: number;
+    memory_available: number;
+    disk_used: number;
+    disk_total: number;
+    disk_free: number;
+    disk_path: string;
   };
   recent_events: HubAuditEvent[];
 }

@@ -4048,6 +4048,7 @@
       "failedCount": "{{count}} runtimes need attention",
       "totalUsers": "Hub users",
       "managedLocally": "Local identity and access management",
+      "capacity": "Used {{used}} / {{total}} total · {{available}} available",
       "hostResources": "Host resources",
       "liveSnapshot": "Current live snapshot",
       "memory": "Memory",

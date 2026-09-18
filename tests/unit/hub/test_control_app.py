@@ -1561,6 +1561,13 @@ def test_operations_overview_and_audit_are_real_and_sanitized(
             "cpu_percent",
             "memory_percent",
             "disk_percent",
+            "memory_used",
+            "memory_total",
+            "memory_available",
+            "disk_used",
+            "disk_total",
+            "disk_free",
+            "disk_path",
         }
         assert audit.status_code == 200
         assert audit.json()["total"] == 3

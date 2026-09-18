@@ -3905,6 +3905,7 @@
       "failedCount": "{{count}} 个实例需要关注",
       "totalUsers": "Hub 用户",
       "managedLocally": "本地身份与权限管理",
+      "capacity": "已用 {{used}} / 共 {{total}} · 可用 {{available}}",
       "hostResources": "主机资源",
       "liveSnapshot": "当前实时快照",
       "memory": "内存",
