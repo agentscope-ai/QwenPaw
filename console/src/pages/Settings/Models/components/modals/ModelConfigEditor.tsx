@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { ContextLengthField, OutputTokenLimitField } from "./ModelTokenFields";
 import { JsonConfigEditor } from "./JsonConfigEditor";
+import { ModelCapabilitiesFields, type CapabilityOverrides } from "./ModelCapabilitiesFields";
 
 function requestMaxTokens(model: ModelInfo): number | null {
   const value = model.generate_kwargs?.max_tokens;
@@ -45,13 +46,16 @@ export function ModelConfigEditor({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
+  const [capabilities, setCapabilities] = useState<CapabilityOverrides>({});
   const configuredMaxTokens = requestMaxTokens(model);
 
   const [maxTokens, setMaxTokens] = useState<number | null>(
     configuredMaxTokens,
   );
+  const resolvedContext =
+    model.effective_max_input_length ?? model.max_input_length;
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
-    model.max_input_length ?? 131072,
+    resolvedContext,
   );
   const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
   const [relayReasoning, setRelayReasoning] = useState<boolean>(
@@ -78,9 +82,10 @@ export function ModelConfigEditor({
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
+    setCapabilities({});
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
-    setMaxInputLength(model.max_input_length ?? 131072);
+    setMaxInputLength(resolvedContext);
     setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
     setThinkingEnabled(model.thinking_enabled ?? null);
@@ -90,14 +95,15 @@ export function ModelConfigEditor({
   }, [
     initialText,
     configuredMaxTokens,
-    model.max_input_length,
+    resolvedContext,
     model.relay_reasoning,
     model.thinking_enabled,
     model.thinking_budget,
     model.reasoning_effort,
   ]);
 
-  const effectiveMaxInputLength = maxInputLength ?? 131072;
+  const effectiveMaxInputLength =
+    maxInputLength ?? model.automatic_max_input_length ?? resolvedContext;
 
   const handleChange = useCallback((val: string) => {
     setText(val);
@@ -139,9 +145,8 @@ export function ModelConfigEditor({
     setSaving(true);
     try {
       const updated = await api.configureModel(providerId, model.id, {
-        ...(maxInputLengthDirty
-          ? { max_input_length: effectiveMaxInputLength }
-          : {}),
+        ...capabilities,
+        ...(maxInputLengthDirty ? { max_input_length: maxInputLength } : {}),
         generate_kwargs: parsed,
         relay_reasoning: relayReasoning,
         thinking_enabled: thinkingEnabled,
@@ -173,6 +178,11 @@ export function ModelConfigEditor({
 
   return (
     <div style={{ padding: "8px 0 4px" }}>
+      <ModelCapabilitiesFields
+        model={model}
+        changes={capabilities}
+        onChange={(value) => { setCapabilities(value); setDirty(true); }}
+      />
       <div
         style={{
           display: "grid",
@@ -185,10 +195,24 @@ export function ModelConfigEditor({
           value={maxTokens}
           onChange={handleMaxTokensChange}
           model={model}
+          chatModel={chatModel}
         />
         <ContextLengthField
-          value={maxInputLength}
+          value={effectiveMaxInputLength}
           onChange={handleMaxInputLengthChange}
+          source={
+            maxInputLengthDirty && maxInputLength !== null
+              ? "user"
+              : maxInputLength === null
+              ? "automatic"
+              : model.context_length_source
+          }
+          onReset={
+            model.max_input_length_configured ||
+            (maxInputLengthDirty && maxInputLength !== null)
+              ? () => handleMaxInputLengthChange(null)
+              : undefined
+          }
         />
       </div>
       {/* Enable Thinking (only for providers that support thinking config) */}

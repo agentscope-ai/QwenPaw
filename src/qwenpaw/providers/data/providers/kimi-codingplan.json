@@ -1,0 +1,29 @@
+{
+  "api_urls": [
+    "https://api.kimi.com/coding/v1"
+  ],
+  "remote_id": null,
+  "template_owner": false,
+  "default_model_ids": [
+    "kimi-for-coding"
+  ],
+  "models": [
+    {
+      "id": "kimi-for-coding",
+      "name": "Kimi for Coding",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid"
+    }
+  ]
+}

@@ -29,7 +29,7 @@ class ProviderDiscoveryPolicy:
     """One provider's model catalog acquisition policy."""
 
     strategy: DiscoveryStrategy
-    sync_mode: ModelSyncMode = "manual"
+    sync_mode: ModelSyncMode = f"startup"
     requires_auth: bool = True
     reason: str = ""
 
@@ -42,6 +42,7 @@ _OPENAI_FREE = ProviderDiscoveryPolicy(
 )
 _CATALOG_PLAN = ProviderDiscoveryPolicy(
     "catalog_only",
+    sync_mode=f"manual",
     reason="The service does not expose a stable model-list API.",
 )
 
@@ -79,6 +80,7 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "openai-response": _OPENAI_DYNAMIC,
     "azure-openai": ProviderDiscoveryPolicy(
         "catalog_only",
+        sync_mode=f"manual",
         reason="Azure deployment discovery requires Azure Resource Manager.",
     ),
     "anthropic": ProviderDiscoveryPolicy("anthropic_models"),
@@ -140,6 +142,7 @@ def apply_custom_discovery_policy(provider: Provider) -> None:
     if policy is None:
         policy = ProviderDiscoveryPolicy(
             "unsupported",
+            sync_mode=f"disabled",
             reason=(
                 "This chat protocol does not expose a supported model "
                 "listing strategy."

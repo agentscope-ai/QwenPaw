@@ -9,6 +9,7 @@ from typing import Any
 
 from agentscope.model import ChatModelBase, OpenAIResponseModel
 
+from .adapters.usage import UsageStream, cache_usage
 from .capping_formatter import _CappingOpenAIResponseFormatter
 from .openai_provider import OpenAIProvider
 from .provider import ModelConnectionResult
@@ -87,10 +88,28 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         self,
         *,
         extra_generate_kwargs: dict[str, Any] | None = None,
+        request_policy: Any = None,
         **kwargs: Any,
     ) -> None:
         self._extra_generate_kwargs = extra_generate_kwargs or {}
+        self._request_policy = request_policy
         super().__init__(**kwargs)
+
+    def _parse_completion_response(self, start_datetime, response):
+        """Retain Responses cache writes as well as cache reads."""
+        parsed = super()._parse_completion_response(start_datetime, response)
+        cache_usage(parsed.usage, getattr(response, f"usage", None))
+        return parsed
+
+    async def _parse_stream_response(self, start_datetime, response):
+        """Read counters from the completed response exactly once."""
+        captured = UsageStream(response)
+        async for parsed in super()._parse_stream_response(
+            start_datetime,
+            captured,
+        ):
+            cache_usage(parsed.usage, captured.usage, captured.headers)
+            yield parsed
 
     async def _call_api(
         self,
@@ -107,6 +126,8 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
         ):
             generate_kwargs["max_output_tokens"] = max_tokens
         merged = {**self._extra_generate_kwargs, **generate_kwargs}
+        if self._request_policy is not None:
+            merged = self._request_policy(model_name, f"responses", merged)
         disable_thinking = merged.pop("disable_thinking", False)
         inherited_max_tokens = merged.pop("max_tokens", None)
         if (
@@ -154,6 +175,8 @@ class OpenAIResponseProvider(OpenAIProvider):
     providers where the Responses API does not support video
     (e.g. DashScope).
     """
+
+    wire_protocol = f"responses"
 
     async def check_model_connection(
         self,
@@ -297,7 +320,7 @@ class OpenAIResponseProvider(OpenAIProvider):
         timeout: float,
         *,
         start_time: float,
-    ) -> tuple[bool, str] | None:
+    ) -> tuple[bool | None, str] | None:
         """Try a single video URL via the Responses API.
 
         Returns None to signal the caller should try the next
@@ -359,7 +382,10 @@ class OpenAIResponseProvider(OpenAIProvider):
                 )
                 return None
             elapsed = time.monotonic() - start_time
-            is_kw = _is_media_keyword_error(e)
+            is_kw = getattr(e, f"status_code", None) in {
+                400,
+                422,
+            } and _is_media_keyword_error(e)
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
                 "Video probe error: model=%s %s %.2fs",
@@ -367,7 +393,7 @@ class OpenAIResponseProvider(OpenAIProvider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Video {label}: {e}"
+            return (False if is_kw else None), f"Video {label}: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -408,7 +434,14 @@ class OpenAIResponseProvider(OpenAIProvider):
             context_size=self._get_context_size(model_id),
             client_kwargs=client_kwargs,
             extra_generate_kwargs=gen_kwargs or None,
+            request_policy=self.prepare_request,
             formatter=_CappingOpenAIResponseFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=bool(
+                    gen_kwargs.get(
+                        f"enable_prompt_cache_breakpoint",
+                        False,
+                    )
+                ),
             ),
         )

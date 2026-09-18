@@ -1,0 +1,47 @@
+{
+  "api_urls": [
+    "https://models.github.ai/inference"
+  ],
+  "remote_id": null,
+  "template_owner": false,
+  "default_model_ids": [
+    "openai/gpt-4o-mini",
+    "openai/gpt-4o"
+  ],
+  "models": [
+    {
+      "id": "openai/gpt-4o-mini",
+      "name": "GPT-4o Mini",
+      "supports_image": true,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": true,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "free"
+    },
+    {
+      "id": "openai/gpt-4o",
+      "name": "GPT-4o",
+      "supports_image": true,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": true,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_input_length": 131072,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "free"
+    }
+  ]
+}

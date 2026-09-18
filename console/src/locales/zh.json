@@ -2203,8 +2203,20 @@
     "modelConfigSaved": "模型 {{name}} 的配置已保存",
     "modelConfigSaveFailed": "保存模型配置失败",
     "modelConfigLabel": "模型配置",
-    "maxTokensLabel": "最大输出 Tokens",
-    "maxTokensHint": "每次响应的最大输出 token 数",
+    "resetContextLength": "恢复自动上下文",
+    "automatic": "自动",
+    "metadataSource": {
+      "api": "供应商 API",
+      "catalog": "模型目录",
+      "template": "模型模板（可按 endpoint 实际限制覆盖）",
+      "user": "手动覆盖",
+      "adapter": "供应商适配器",
+      "default": "默认值（暂无模型信息）",
+      "unknown": "未知",
+      "automatic": "自动解析"
+    },
+    "maxTokensLabel": "单次输出上限（可选）",
+    "maxTokensHint": "留空使用供应商默认值；下方显示模型的最大输出能力。",
     "providerDefault": "服务商默认",
     "resetMaxTokens": "恢复为自动",
     "maxOutputCapabilityLabel": "模型能力上限",
@@ -2492,7 +2504,35 @@
     "modalityVideo": "视频",
     "modalityFile": "文件",
     "perMillionIn": "/1M 输入",
-    "perMillionOut": "/1M 输出"
+    "perMillionOut": "/1M 输出",
+    "modelTemplate": "模型模板（可选）",
+    "modelInfoUnavailable": "暂时无法读取模型信息，可以继续手动添加。",
+    "remoteMissing": "远端不再返回",
+    "enablePaidModel": "确认启用付费使用",
+    "billing": {
+      "paid": "付费",
+      "unknown": "价格未知"
+    },
+    "anthropicOutputHint": "自动模式由适配器提供输出预算，并遵守模型上限和 thinking 预算约束。",
+    "capabilities": {
+      "supports_image": "图片输入",
+      "supports_audio": "音频输入",
+      "supports_video": "视频输入",
+      "supports_tool_calling": "工具调用",
+      "auto": "自动识别",
+      "supported": "支持",
+      "unsupported": "不支持"
+    },
+    "recommendation": {
+      "unranked": "暂无已核对评分，仅手动添加",
+      "estimated_score": "评分为估计值，仅手动添加",
+      "below_quality_threshold": "未达到推荐分数，仅手动添加",
+      "tools_unverified": "工具调用能力未确认",
+      "unavailable": "当前连接不可用",
+      "billing_unknown": "免费状态待确认",
+      "billing_paid": "付费模型",
+      "ranking_version_mismatch": "评分版本待更新"
+    }
   },
   "files": {
     "title": "文件",

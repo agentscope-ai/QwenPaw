@@ -7,7 +7,13 @@ from typing import Literal
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from .provider_setup import supported_presets
 
@@ -38,9 +44,10 @@ class PolicyBody(StrictBody):
 
 
 class ConnectionBody(StrictBody):
-    """Server-owned Chat Completions connection."""
+    """Server-owned provider connection with isolated credentials."""
 
     revision: int | None = Field(default=None, ge=1)
+    protocol: Literal["chat", "responses", "anthropic"] = f"chat"
     name: str = Field(min_length=1, max_length=120)
     provider_id: str | None = None
     base_url: str = Field(max_length=2048)
@@ -49,6 +56,13 @@ class ConnectionBody(StrictBody):
     quota_scope: str = Field(min_length=1, max_length=120)
     requests_per_minute: int = Field(default=0, ge=0, le=100000)
     concurrency: int = Field(default=0, ge=0, le=1000)
+
+    @model_validator(mode=f"after")
+    def preset_protocol(self):
+        """A built-in provider owns its protocol; custom connections choose."""
+        if self.provider_id:
+            self.protocol = supported_presets()[self.provider_id].wire_protocol
+        return self
 
     @field_validator("provider_id")
     @classmethod
@@ -98,6 +112,26 @@ class ModelBody(StrictBody):
     ] = "max_tokens"
     budget_verified: bool = False
     supports_image: bool | None = None
+    supports_audio: bool | None = None
+    supports_video: bool | None = None
+    supports_tool_calling: bool | None = None
+    template_id: str | None = None
+    cache_settings: dict = Field(default_factory=dict)
+
+    @field_validator(f"cache_settings")
+    @classmethod
+    def validate_cache_settings(cls, value: dict) -> dict:
+        """Cache policy cannot override routing, credentials or budgets."""
+        if set(value) - {
+            f"prompt_cache_key",
+            f"prompt_cache_options",
+            f"prompt_cache_retention",
+            f"enable_prompt_cache_breakpoint",
+            f"cache_control",
+        }:
+            raise ValueError(f"Unsupported cache setting")
+        return value
+
     requests_per_minute: int = Field(default=0, ge=0, le=100000)
     concurrency: int = Field(default=0, ge=0, le=1000)
 

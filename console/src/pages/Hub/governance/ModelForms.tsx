@@ -53,6 +53,7 @@ export function ConnectionFields({
             form.setFieldsValue({
               name,
               base_url: selected?.base_url ?? "",
+              protocol: selected?.protocol ?? "chat",
               api_key: undefined,
             });
           }}
@@ -75,6 +76,21 @@ export function ConnectionFields({
           ]}
         />
       </Form.Item>
+      {!providerId && (
+        <Form.Item
+          name="protocol"
+          label={t("models.protocol")}
+          initialValue="chat"
+        >
+          <Select
+            options={[
+              { value: "chat", label: "Chat Completions" },
+              { value: "responses", label: "Responses" },
+              { value: "anthropic", label: "Anthropic Messages" },
+            ]}
+          />
+        </Form.Item>
+      )}
       <Form.Item
         name="name"
         label={t("hub.governance.models.connectionName")}

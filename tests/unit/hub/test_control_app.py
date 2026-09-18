@@ -115,12 +115,12 @@ def _client(
             tenant_id=record.tenant_id,
             runtime_id=record.runtime_id,
         )
-        environment[
-            "QWENPAW_RUNTIME_INTERNAL_TOKEN"
-        ] = vault.get_or_create_runtime_secret(
-            tenant_id=record.tenant_id,
-            runtime_id=record.runtime_id,
-            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+        environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] = (
+            vault.get_or_create_runtime_secret(
+                tenant_id=record.tenant_id,
+                runtime_id=record.runtime_id,
+                name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
+            )
         )
         return environment
 
@@ -1816,3 +1816,84 @@ def test_regular_runtime_callback_still_requires_login(
     )
 
     assert response.status_code == 401
+
+
+@pytest.mark.parametrize(f"protocol", [f"responses", f"anthropic"])
+def test_hub_native_provider_dispatch_and_settlement(admin_client, protocol):
+    client, token = admin_client
+    headers = _headers(token)
+    received = []
+
+    def upstream(request):
+        received.append(request)
+        body = json.loads(request.content)
+        if protocol == f"anthropic":
+            assert request.url.path.endswith(f"/messages")
+            assert request.headers[f"x-api-key"] == f"isolated-key"
+            assert body[f"max_tokens"] == 16
+            payload = {
+                f"id": f"msg-1",
+                f"content": [{f"type": f"text", f"text": f"OK"}],
+                f"stop_reason": f"end_turn",
+                f"usage": {
+                    f"input_tokens": 3,
+                    f"output_tokens": 1,
+                    f"cache_read_input_tokens": 10,
+                },
+            }
+        else:
+            assert request.url.path.endswith(f"/responses")
+            assert request.headers[f"authorization"] == f"Bearer isolated-key"
+            assert body[f"max_output_tokens"] == 16
+            payload = {
+                f"id": f"resp-1",
+                f"status": f"completed",
+                f"output": [
+                    {
+                        f"type": f"message",
+                        f"content": [
+                            {f"type": f"output_text", f"text": f"OK"},
+                        ],
+                    }
+                ],
+                f"usage": {f"input_tokens": 13, f"output_tokens": 1},
+            }
+        return httpx.Response(200, json=payload)
+
+    client.app.state.model_gateway.transport = httpx.MockTransport(upstream)
+    connection = client.post(
+        f"/api/hub/admin/model-connections",
+        headers=headers,
+        json={
+            f"name": f"Custom",
+            f"protocol": protocol,
+            f"base_url": f"https://custom.example/v1",
+            f"api_key": f"isolated-key",
+            f"quota_scope": f"custom",
+        },
+    )
+    assert connection.status_code == 200, connection.text
+    model = client.post(
+        f"/api/hub/admin/models",
+        headers=headers,
+        json={
+            f"connection_id": connection.json()[f"id"],
+            f"upstream_model": f"private-model",
+            f"name": f"Shared model",
+            f"input_token_limit": 4000,
+            f"output_token_limit": 128,
+            f"budget_verified": True,
+        },
+    )
+    assert model.status_code == 200, model.text
+    response = client.post(
+        f"/api/hub/admin/models/{model.json()['id']}/test",
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()[f"usage"][f"total_tokens"] == 14
+    assert response.json()[f"choices"][0][f"message"][f"content"] == f"OK"
+    assert len(received) == 1
+    with client.app.state.model_catalog.store.connect() as db:
+        row = db.execute(f"SELECT status FROM hub_model_requests").fetchone()
+        assert row[f"status"] != f"dispatched"

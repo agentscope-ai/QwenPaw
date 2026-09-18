@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import Any, List, Optional
+from typing import ClassVar, Any, List, Optional
 
 from agentscope.model import ChatModelBase
 from openai import APIError, AsyncOpenAI
@@ -45,6 +45,19 @@ class OpenRouterProvider(Provider):
         "X-OpenRouter-Categories": _OPENROUTER_CATEGORIES,
         "User-Agent": "QwenPaw/1.1",
     }
+
+    session_header_name: ClassVar[str] = f"x-session-id"
+    cache_documentation: ClassVar[str] = (
+        f"https://openrouter.ai/docs/guides/best-practices/prompt-caching"
+    )
+
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Use the routed model vendor's documented cache syntax."""
+        if model_id.startswith((f"anthropic/", f"qwen/")):
+            return frozenset({f"implicit", f"anthropic"})
+        if model_id.startswith(f"openai/"):
+            return frozenset({f"implicit", f"openai"})
+        return frozenset({f"implicit"})
 
     def request_headers(self) -> dict:
         """Return provider headers for an externally owned HTTP transport."""
@@ -115,6 +128,8 @@ class OpenRouterProvider(Provider):
     @staticmethod
     def _is_free_model(pricing: dict[str, str]) -> bool:
         """Determine whether a model is free based on pricing fields."""
+        if not {f"prompt", f"completion"}.issubset(pricing):
+            return False
         numeric_values: list[Decimal] = []
         for value in pricing.values():
             text = str(value).strip()
@@ -123,7 +138,7 @@ class OpenRouterProvider(Provider):
             try:
                 numeric_values.append(Decimal(text))
             except InvalidOperation:
-                continue
+                return False
 
         return bool(numeric_values) and all(
             value == 0 for value in numeric_values
@@ -169,6 +184,15 @@ class OpenRouterProvider(Provider):
                     getattr(row, "pricing", None),
                 )
                 is_free = OpenRouterProvider._is_free_model(pricing_dict)
+                billing = f"free" if is_free else f"unknown"
+                try:
+                    if any(
+                        Decimal(pricing_dict.get(field, f"0")) > 0
+                        for field in (f"prompt", f"completion")
+                    ):
+                        billing = f"paid"
+                except InvalidOperation:
+                    pass
                 # OpenRouter's /models reports authoritative context metadata.
                 # Store it as auto-detected so it wins over catalog and static
                 # values without becoming an explicit user override.
@@ -183,9 +207,14 @@ class OpenRouterProvider(Provider):
                     # Keep the legacy field populated for API compatibility;
                     # provenance still marks this as discovered metadata.
                     window_kwargs["max_input_length"] = context_length
-                    window_kwargs[
-                        "max_input_length_auto_detected"
-                    ] = context_length
+                    window_kwargs["max_input_length_auto_detected"] = (
+                        context_length
+                    )
+
+                top_provider = getattr(row, f"top_provider", None) or {}
+                output_limit = top_provider.get(f"max_completion_tokens")
+                if type(output_limit) is int and output_limit > 0:
+                    window_kwargs[f"max_output_length"] = output_limit
 
                 if include_extended:
                     # Get architecture and pricing from the API response
@@ -213,6 +242,7 @@ class OpenRouterProvider(Provider):
                         supports_video=supports_video,
                         probe_source="documentation",
                         is_free=is_free,
+                        billing=billing,
                         provider=provider,
                         input_modalities=input_modalities,
                         output_modalities=output_modalities,
@@ -224,6 +254,7 @@ class OpenRouterProvider(Provider):
                         id=model_id,
                         name=model_name,
                         is_free=is_free,
+                        billing=billing,
                         **window_kwargs,
                     )
 
@@ -263,8 +294,6 @@ class OpenRouterProvider(Provider):
                 include_extended=include_extended,
             )
             return models
-        except APIError:
-            return []
         finally:
             await self._close_client(client)
 
@@ -454,15 +483,25 @@ class OpenRouterProvider(Provider):
             api_key=self.api_key,
             base_url=self.base_url,
         )
+        gen_kwargs = self.get_effective_generate_kwargs(model_id)
         return OpenAIChatModelCompat(
             credential=credential,
             provider_id=self.id,
+            usage_guard=lambda: self.check_model_billing(model_id),
+            request_policy=self.prepare_request,
             model=model_id,
             stream=True,
+            extra_generate_kwargs=gen_kwargs,
             default_headers=self._build_default_headers() or None,
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=bool(
+                    gen_kwargs.get(
+                        f"enable_prompt_cache_breakpoint",
+                        False,
+                    )
+                ),
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )

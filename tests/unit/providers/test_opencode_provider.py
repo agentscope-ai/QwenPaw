@@ -94,12 +94,13 @@ class TestOpenCodeProvider:
         assert provider.id == PROVIDER_OPENCODE.id
         assert isinstance(provider, OpenAIProvider)
 
-    def test_get_info_returns_all_models(self):
-        """get_info() should return the maintained OpenCode models."""
+    def test_get_info_keeps_unranked_free_models_discoverable(self):
+        """Unranked free models require manual selection."""
         import asyncio
 
         provider = PROVIDER_OPENCODE.model_copy()
         info = asyncio.run(provider.get_info())
-        assert len(info.models) == len(OPENCODE_MODELS)
-        model_ids = {m.id for m in info.models}
+        assert info.models == []
+        model_ids = {m.id for m in info.discovered_models}
         assert model_ids == {m.id for m in OPENCODE_MODELS}
+        assert all(m.recommendation_reason for m in info.discovered_models)

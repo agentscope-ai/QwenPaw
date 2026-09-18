@@ -6,9 +6,11 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock
 
+from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider import ModelInfo
 from qwenpaw.providers.provider_catalog import BUILTIN_PROVIDERS
 from qwenpaw.providers.provider_discovery_policy import (
+    apply_custom_discovery_policy,
     BUILTIN_DISCOVERY_POLICIES,
     CUSTOM_CHAT_MODEL_NAMES,
     CUSTOM_DISCOVERY_POLICIES,
@@ -120,3 +122,24 @@ async def test_startup_sync_runs_only_eligible_providers(
     assert "ollama" in synced_ids
     assert "github-models" not in synced_ids
     assert "aliyun-tokenplan" not in synced_ids
+
+
+async def test_startup_includes_authenticated_custom_and_cloud_providers(
+    isolated_secret_dir,
+) -> None:
+    manager = ProviderManager()
+    manager.get_provider(f"openai").api_key = f"test-key"
+    custom = OpenAIProvider(
+        id=f"custom",
+        name=f"Custom",
+        is_custom=True,
+        api_key=f"test-key",
+        base_url=f"https://gateway.example/v1",
+    )
+    apply_custom_discovery_policy(custom)
+    manager.custom_providers[custom.id] = custom
+    eligible = manager.startup_sync_provider_ids()
+    assert f"openai" in eligible
+    assert f"custom" in eligible
+    custom.api_key = f""
+    assert f"custom" not in manager.startup_sync_provider_ids()

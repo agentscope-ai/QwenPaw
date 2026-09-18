@@ -39,6 +39,8 @@ from ...providers.provider_discovery_policy import (
 )
 from ...config.config import ActiveModelsInfo
 from ...providers.provider_manager import ProviderManager
+from ...providers.model_metadata import list_model_templates
+from ...providers.model_resolution import resolve_model_info
 from ...providers.hub_managed import (
     PROVIDER_ID,
     directory,
@@ -160,7 +162,11 @@ def _should_auto_discover(
     if not getattr(provider, "support_model_discovery", False):
         return False
     api_key = getattr(provider, "api_key", None)
-    require_api_key = getattr(provider, "require_api_key", True)
+    require_api_key = getattr(
+        provider,
+        f"discovery_requires_auth",
+        getattr(provider, f"require_api_key", True),
+    )
     return bool(api_key or not require_api_key)
 
 
@@ -194,6 +200,7 @@ class CreateCustomProviderRequest(BaseModel):
 
 
 class AddModelRequest(BaseModel):
+    template_id: str | None = None
     id: str = Field(...)
     name: str = Field(...)
     is_free: bool = Field(
@@ -219,8 +226,15 @@ class AddModelRequest(BaseModel):
 
 
 class ModelConfigRequest(BaseModel):
+    supports_image: bool | None = None
+    supports_video: bool | None = None
+    supports_audio: bool | None = None
+    supports_tool_calling: bool | None = None
+    template_id: str | None = None
+    confirm_paid: bool = False
     max_input_length: Optional[int] = Field(
         default=None,
+        ge=1000,
         description="Maximum input context window size (tokens).",
     )
     generate_kwargs: Optional[dict] = Field(
@@ -329,6 +343,36 @@ async def list_all_providers(
     return await manager.list_provider_info()
 
 
+@router.get(f"/model-templates")
+async def model_templates() -> list[dict[str, str]]:
+    """List exact model templates available for deployment aliases."""
+    return await run_sync_io(list_model_templates)
+
+
+@router.get(f"/{{provider_id}}/model-info", response_model=ModelInfo)
+async def preview_model_info(
+    provider_id: str,
+    model_id: str,
+    template_id: str | None = None,
+    manager: ProviderManager = Depends(get_provider_manager),
+) -> ModelInfo:
+    """Resolve model metadata locally before adding a deployment."""
+    provider = await run_sync_io(manager.get_provider, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Provider not found")
+    model = provider.get_model_info(model_id) or ModelInfo(
+        id=model_id,
+        name=model_id,
+    )
+    model = model.model_copy(update={f"template_id": template_id})
+    return await run_sync_io(
+        resolve_model_info,
+        provider,
+        model,
+        provider.get_discovered_model_info(model_id),
+    )
+
+
 @router.put(
     "/{provider_id}/config",
     response_model=ProviderInfo,
@@ -399,6 +443,7 @@ async def configure_provider(
     status_code=201,
 )
 async def create_custom_provider_endpoint(
+    background_tasks: BackgroundTasks,
     manager: ProviderManager = Depends(get_provider_manager),
     body: CreateCustomProviderRequest = Body(...),
 ) -> ProviderInfo:
@@ -417,6 +462,16 @@ async def create_custom_provider_endpoint(
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    provider = await run_sync_io(manager.get_provider, body.id)
+    if _should_auto_discover(ProviderConfigRequest(), provider):
+        prepared = await manager.prepare_provider_model_discovery(body.id)
+        if prepared is not None:
+            background_tasks.add_task(
+                manager.discover_provider_models,
+                body.id,
+                prepared_discovery=prepared,
+            )
+            provider_info = await manager.get_provider_info(body.id)
     return provider_info
 
 
@@ -669,6 +724,7 @@ async def add_model_endpoint(
             "supports_video",
             "probe_source",
             "is_free",
+            f"template_id",
         ):
             if field in body.model_fields_set:
                 model_payload[field] = getattr(body, field)
@@ -703,16 +759,16 @@ async def set_model_visibility(
 
 
 class ProbeMultimodalResponse(BaseModel):
-    supports_image: bool = Field(
-        default=False,
+    supports_image: bool | None = Field(
+        default=None,
         description="Whether the model supports image input",
     )
-    supports_video: bool = Field(
-        default=False,
+    supports_video: bool | None = Field(
+        default=None,
         description="Whether the model supports video input",
     )
-    supports_multimodal: bool = Field(
-        default=False,
+    supports_multimodal: bool | None = Field(
+        default=None,
         description="Whether the model supports any multimodal input",
     )
     image_message: str = Field(

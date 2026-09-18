@@ -24,6 +24,7 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
+from .model_catalog import catalog_documents
 from .multimodal_prober import evaluate_video_probe_answer
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES, _CappingOpenAIFormatter
@@ -153,6 +154,15 @@ class OpenAIProvider(Provider):
         ),
     )
 
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Enable OpenAI cache controls only on the documented service."""
+        if urlparse(self.base_url).hostname == f"api.openai.com":
+            modes = {f"implicit", f"openai"}
+            if model_id == f"gpt-5.6" or model_id.startswith(f"gpt-5.6-"):
+                modes.add(f"openai_explicit")
+            return frozenset(modes)
+        return super().cache_capabilities(model_id)
+
     def request_headers(self) -> dict:
         """Return provider headers for an externally owned HTTP transport."""
         return self._build_default_headers()
@@ -194,6 +204,7 @@ class OpenAIProvider(Provider):
                 "context_length",
                 "max_model_len",
                 "max_context_length",
+                f"context_window",
             ):
                 value = getattr(row, field, None)
                 if isinstance(value, (int, float)) and value >= 1000:
@@ -202,6 +213,7 @@ class OpenAIProvider(Provider):
             output_limit = getattr(row, "max_output_tokens", None)
             if isinstance(output_limit, (int, float)) and output_limit > 0:
                 metadata["max_output_length"] = int(output_limit)
+                metadata[f"max_output_length_source"] = f"api"
             models.append(
                 ModelInfo(id=model_id, name=model_name, **metadata),
             )
@@ -245,10 +257,6 @@ class OpenAIProvider(Provider):
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(payload)
             return models
-        except Exception:
-            if self.is_custom:
-                raise
-            return []
         finally:
             await self._close_client(client)
 
@@ -536,6 +544,9 @@ class OpenAIProvider(Provider):
         return OpenAIChatModelCompat(
             credential=credential,
             provider_id=self.id,
+            usage_guard=lambda: self.check_model_billing(model_id),
+            request_policy=self.prepare_request,
+            capture_cache_status=self.capture_cache_headers,
             model=model_id,
             parameters=parameters,
             stream=True,
@@ -549,6 +560,12 @@ class OpenAIProvider(Provider):
             context_size=self._get_context_size(model_id),
             formatter=_CappingOpenAIFormatter(
                 max_bytes=self.max_inline_media_bytes,
+                enable_prompt_cache_breakpoint=bool(
+                    gen_kwargs.get(
+                        f"enable_prompt_cache_breakpoint",
+                        False,
+                    )
+                ),
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
         )
@@ -572,8 +589,8 @@ class OpenAIProvider(Provider):
         # guess the correct color keyword, causing false positives.
         if not img_ok:
             return ProbeResult(
-                supports_image=False,
-                supports_video=False,
+                supports_image=img_ok,
+                supports_video=None,
                 image_message=img_msg,
                 video_message="Skipped: image probe failed",
             )
@@ -599,7 +616,7 @@ class OpenAIProvider(Provider):
         self,
         model_id: str,
         timeout: float = 15,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe image support by sending a solid-red 16x16 PNG.
 
         Uses a two-stage check:
@@ -683,9 +700,9 @@ class OpenAIProvider(Provider):
             # Other API errors are inconclusive (could be transient).
             # Use getattr because APITimeoutError lacks status_code.
             status = getattr(e, "status_code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -695,7 +712,7 @@ class OpenAIProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
         finally:
             await self._close_client(client)
 
@@ -703,7 +720,7 @@ class OpenAIProvider(Provider):
         self,
         model_id: str,
         timeout: float = 30,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe video support with automatic format fallback."""
         from .multimodal_prober import _PROBE_VIDEO_B64, _PROBE_VIDEO_URL
 
@@ -744,7 +761,7 @@ class OpenAIProvider(Provider):
         timeout: float,
         *,
         start_time: float,
-    ) -> tuple[bool, str] | None:
+    ) -> tuple[bool | None, str] | None:
         """Try a single video URL format. Return None to try next."""
         from .multimodal_prober import (
             _PROBE_VIDEO_URL,
@@ -800,7 +817,10 @@ class OpenAIProvider(Provider):
             elapsed = time.monotonic() - start_time
             # If the error message contains media-related keywords
             # (e.g. "video", "vision"), it's a definitive rejection.
-            is_kw = _is_media_keyword_error(e)
+            is_kw = getattr(e, f"status_code", None) in {
+                400,
+                422,
+            } and _is_media_keyword_error(e)
             label = "not supported" if is_kw else "inconclusive"
             logger.warning(
                 "Video probe error: model=%s type=%s msg=%s %.2fs",
@@ -809,7 +829,7 @@ class OpenAIProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Video {label}: {e}"
+            return (False if is_kw else None), f"Video {label}: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -819,7 +839,7 @@ class OpenAIProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
         finally:
             await self._close_client(client)
 
@@ -886,8 +906,8 @@ class _FreeSuffixProviderMixin:
             if api_free is None:
                 api_free = getattr(row, "is_free", None)
             is_free = (
-                bool(api_free)
-                if api_free is not None
+                api_free
+                if type(api_free) is bool
                 else model_id.endswith(suffix)
             )
             display_name = (
@@ -901,6 +921,11 @@ class _FreeSuffixProviderMixin:
                     id=model_id,
                     name=display_name,
                     is_free=is_free,
+                    billing=(
+                        f"free"
+                        if is_free
+                        else (f"paid" if api_free is False else f"unknown")
+                    ),
                 ),
             )
         return models
@@ -910,30 +935,75 @@ class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """OpenCode provider with dynamic free model detection."""
 
     _FREE_SUFFIX = "-free"
-    _UNAVAILABLE_MODEL_IDS: ClassVar[frozenset[str]] = frozenset(
-        {
-            "deepseek-v4-flash-free",
-            "nemotron-3-super-free",
-        },
-    )
+    session_header_name: ClassVar[str | None] = f"x-opencode-session"
+    cache_modes: ClassVar[frozenset[str]] = frozenset({f"implicit"})
+    cache_documentation: ClassVar[str | None] = f"https://opencode.ai/docs/go/"
 
-    async def fetch_models(
+    def model_protocol(self, model_id: str) -> str:
+        """Use reviewed model-specific routing instead of guessing names."""
+        for document, _ in reversed(catalog_documents((f"opencode",))):
+            provider = document.providers.get(f"opencode")
+            if provider and model_id in provider.protocols:
+                return provider.protocols[model_id]
+        return f"chat"
+
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Match cache syntax to the same routing used by inference."""
+        if self.model_protocol(model_id) == f"anthropic":
+            return frozenset({f"anthropic"})
+        return self.cache_modes
+
+    def _protocol_provider(self, model_id: str):
+        """Construct the native implementation with isolated service state."""
+        # Deferred to avoid the protocol subclasses' base-class import cycle.
+        from .services.opencode_protocols import protocol_provider
+
+        return protocol_provider(self, self.model_protocol(model_id))
+
+    def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
+        """Reuse the native AgentScope protocol subclass for each offering."""
+        provider = self._protocol_provider(model_id)
+        if provider is self:
+            return super().get_chat_model_instance(model_id)
+        return provider.get_chat_model_instance(model_id)
+
+    async def check_model_connection(self, model_id: str, timeout: float = 5):
+        """Probe the same protocol that inference will use."""
+        provider = self._protocol_provider(model_id)
+        if provider is self:
+            return await super().check_model_connection(model_id, timeout)
+        return await provider.check_model_connection(model_id, timeout)
+
+    async def probe_model_multimodal(
         self,
-        timeout: float = 5,
-    ) -> List[ModelInfo]:
-        """Exclude models that OpenCode lists but no longer serves."""
-        models = await super().fetch_models(timeout=timeout)
-        return [
-            model
-            for model in models
-            if model.id not in self._UNAVAILABLE_MODEL_IDS
-        ]
+        model_id: str,
+        timeout: float = 10,
+        image_only: bool = False,
+    ):
+        """Keep capability probes on the model's native protocol."""
+        provider = self._protocol_provider(model_id)
+        if provider is self:
+            return await super().probe_model_multimodal(
+                model_id,
+                timeout,
+                image_only,
+            )
+        return await provider.probe_model_multimodal(
+            model_id,
+            timeout,
+            image_only,
+        )
 
 
 class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """Kilo Code provider with dynamic free model detection."""
 
     _FREE_SUFFIX = ":free"
+    session_header_name: ClassVar[str | None] = f"X-KiloCode-TaskId"
+    cache_modes: ClassVar[frozenset[str]] = frozenset({f"implicit"})
+    cache_documentation: ClassVar[str | None] = (
+        f"https://kilo.ai/docs/gateway/authentication"
+    )
 
 
 class GitHubModelsProvider(OpenAIProvider):

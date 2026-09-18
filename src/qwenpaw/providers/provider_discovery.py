@@ -32,6 +32,16 @@ DISCOVERY_MODEL_FIELDS = (
     "supports_video",
     "probe_source",
     "is_free",
+    f"billing",
+    f"billing_source",
+    f"billing_checked_at",
+    f"supports_audio",
+    f"supports_tool_calling",
+    f"input_token_limit",
+    f"input_token_limit_source",
+    f"auto_enabled",
+    f"requires_paid_confirmation",
+    f"remote_missing",
 )
 
 
@@ -67,6 +77,8 @@ def merge_discovered_model(
         base is not None and base.max_output_length_source == "user"
     )
     for field in remote.model_fields_set:
+        if getattr(remote, field) is None:
+            continue
         if base is not None:
             if field in config_overrides:
                 continue
@@ -87,6 +99,8 @@ def merge_discovered_model(
             "name": remote.name or remote.id,
             "source": "discovered",
             "discovered_at": discovered_at,
+            f"billing_source": f"api",
+            f"billing_checked_at": discovered_at,
         },
     )
     if remote.max_output_length is not None and not user_output_capability:
@@ -111,6 +125,7 @@ def apply_discovery_metadata(
         for field in DISCOVERY_MODEL_FIELDS:
             if (
                 field in remote.model_fields_set
+                and getattr(remote, field) is not None
                 and field not in overridden
                 and not (
                     field.startswith("max_output_length")

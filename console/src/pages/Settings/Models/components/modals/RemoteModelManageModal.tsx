@@ -7,6 +7,7 @@ import {
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
+import { ModelInfoPreview } from "./ModelInfoPreview";
 import { ModelIdentityFields } from "./ModelIdentityFields";
 import {
   ChevronDown,
@@ -71,6 +72,8 @@ export function RemoteModelManageModal({
   );
   const [modelSearchQuery, setModelSearchQuery] = useState("");
   const [form] = Form.useForm();
+  const enteredModelId = Form.useWatch("id", form);
+  const [templateId, setTemplateId] = useState<string>();
   // OpenRouter filter state
   const isOpenRouter = provider.id === "openrouter";
   const [showFilters, setShowFilters] = useState(false);
@@ -98,6 +101,7 @@ export function RemoteModelManageModal({
     await api.addModel(provider.id, {
       id,
       name,
+      template_id: templateId,
       is_free: candidate?.is_free,
       supports_multimodal: candidate?.supports_multimodal,
       supports_image: candidate?.supports_image,
@@ -106,6 +110,7 @@ export function RemoteModelManageModal({
     });
     message.success(t("models.modelAdded", { name }));
     form.resetFields();
+    setTemplateId(undefined);
     setAdding(false);
     onSaved();
   };
@@ -649,7 +654,10 @@ export function RemoteModelManageModal({
           <>
             {filteredModels.slice(0, visibleCount).map((m) => {
               const isDeletable =
-                !isManaged && (provider.is_custom || extraModelIds.has(m.id));
+                !isManaged &&
+                (provider.is_custom ||
+                  extraModelIds.has(m.id) ||
+                  m.auto_enabled);
               const isConfigOpen = configOpenModelId === m.id;
               return (
                 <div key={m.id}>
@@ -660,6 +668,43 @@ export function RemoteModelManageModal({
                     </div>
                     <div className={styles.modelListItemActions}>
                       <CapabilityTags model={m} />
+                      {m.remote_missing && (
+                        <Tag>{t("models.remoteMissing")}</Tag>
+                      )}
+                      {m.requires_paid_confirmation && (
+                        <Button
+                          size="small"
+                          onClick={async () => {
+                            try {
+                              const updated = await api.configureModel(
+                                provider.id,
+                                m.id,
+                                { confirm_paid: true },
+                              );
+                              onProviderUpdated?.(updated);
+                              await onSaved();
+                            } catch {
+                              message.error(t("models.modelConfigSaveFailed"));
+                            }
+                          }}
+                        >
+                          {t("models.enablePaidModel")}
+                        </Button>
+                      )}
+                      {m.is_free &&
+                        !m.is_recommended &&
+                        m.recommendation_reason && (
+                          <Tag>
+                            {t(
+                              `models.recommendation.${m.recommendation_reason}`,
+                            )}
+                          </Tag>
+                        )}
+                      {!m.is_free && (
+                        <Tag>
+                          {t(`models.billing.${m.billing ?? "unknown"}`)}
+                        </Tag>
+                      )}
                       {m.is_free && (
                         <Tag
                           style={{
@@ -875,6 +920,12 @@ export function RemoteModelManageModal({
               <ModelIdentityFields
                 options={discoveredModelOptions}
                 loading={previewDiscovering}
+              />
+              <ModelInfoPreview
+                providerId={provider.id}
+                modelId={enteredModelId}
+                templateId={templateId}
+                onTemplateChange={setTemplateId}
               />
               <div
                 style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}

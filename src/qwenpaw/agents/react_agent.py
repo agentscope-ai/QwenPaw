@@ -47,6 +47,7 @@ from ..loop.gates import StopAction, StopHandlerResult
 from ..providers.error_utils import extract_status_code
 from ..providers.fallback_chat_model import install_fallback_notice_sink
 from ..providers.model_capability_cache import get_capability_cache
+from ..providers.adapters.request_context import model_session
 from ..utils.tool_call_extra import (
     collect_transient_tool_call_extras,
     persist_tool_call_extras,
@@ -187,6 +188,7 @@ class QwenPawAgent(CodingModeMixin, Agent):
         """
         self._agent_config = agent_config
         self._request_context = dict(request_context or {})
+        self._model_session_id = uuid.uuid4().hex
         self._workspace_dir = workspace_dir
         self._language = agent_config.language
         # Optional context-management strategy. When None, the agent keeps its
@@ -1205,8 +1207,9 @@ class QwenPawAgent(CodingModeMixin, Agent):
     async def _reply(self, **kwargs: Any) -> Any:
         """Override kept as extension point; hint injection moved to
         ``_reasoning`` so each ReAct iteration picks up new hints."""
-        async for evt in super()._reply(**kwargs):
-            yield evt
+        with model_session(self._request_context, self._model_session_id):
+            async for evt in super()._reply(**kwargs):
+                yield evt
 
     def _register_tool_call_hooks(self) -> None:
         """Register per-tool default timeouts on the ToolCoordinator."""

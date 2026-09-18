@@ -2,6 +2,7 @@
 """A Manager class to handle all providers, including built-in and custom ones.
 It provides a unified interface to manage providers, such as listing available
 providers, adding/removing custom providers, and fetching provider details."""
+
 # pylint: disable=unused-import
 
 import asyncio
@@ -23,6 +24,7 @@ from ..utils.io_utils import (
     run_async_to_completion,
     run_sync_io,
 )
+from .model_sync import invalidate_api_metadata
 from .provider import (
     ModelInfo,
     Provider,
@@ -136,7 +138,7 @@ class ProviderManager(
 
     def _init_builtins(self):
         """Register the ordered built-in provider catalog."""
-        catalog = model_catalog.load_model_catalog()
+        catalog = model_catalog.load_model_catalog(defaults_only=True)
         for provider in BUILTIN_PROVIDERS:
             builtin = provider.model_copy(deep=True)
             catalog_key = BUILTIN_PROVIDER_CATALOG_KEYS.get(provider.id)
@@ -271,6 +273,7 @@ class ProviderManager(
             candidate = self._provider_from_data(candidate.model_dump())
         if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
             self._reset_model_availability(candidate)
+            invalidate_api_metadata(candidate)
             candidate.models_syncing = False
 
         provider_path = await self._provider_config_path_async(provider_id)
@@ -344,6 +347,7 @@ class ProviderManager(
                 )
             if _CONNECTION_CONFIG_FIELDS.intersection(changed_fields):
                 self._reset_model_availability(snapshot)
+                invalidate_api_metadata(snapshot)
                 snapshot.models_syncing = False
             if changed_fields:
                 self._bump_provider_revision(provider_id)
@@ -613,7 +617,11 @@ class ProviderManager(
         provider = self.get_provider(provider_id)
         # Auto-probe multimodal if not yet probed
         for model in provider.all_models():
-            if model.id == model_id and model.supports_multimodal is None:
+            if (
+                model.id == model_id
+                and provider.model_capabilities(model).supports_multimodal
+                is None
+            ):
                 asyncio.create_task(
                     self._auto_probe_multimodal(provider_id, model_id),
                 )
@@ -842,14 +850,23 @@ class ProviderManager(
             for model in candidate.all_models():
                 if model.id != model_id:
                     continue
-                model.supports_image = probe_result.supports_image
-                if not image_only:
+                if (
+                    probe_result.supports_image is not None
+                    and f"supports_image" not in model.config_overrides
+                ):
+                    model.supports_image = probe_result.supports_image
+                if (
+                    not image_only
+                    and probe_result.supports_video is not None
+                    and f"supports_video" not in model.config_overrides
+                ):
                     model.supports_video = probe_result.supports_video
-                    model.supports_multimodal = (
-                        probe_result.supports_multimodal
-                    )
-                elif probe_result.supports_image:
-                    model.supports_multimodal = True
+                values = (model.supports_image, model.supports_video)
+                model.supports_multimodal = (
+                    True
+                    if True in values
+                    else False if all(v is False for v in values) else None
+                )
                 model.probe_source = getattr(
                     probe_result,
                     "probe_source",

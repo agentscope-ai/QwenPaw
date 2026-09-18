@@ -154,7 +154,9 @@ async def test_kilo_uses_gateway_free_flag_for_non_suffix_routes(
     close.assert_awaited_once()
 
 
-async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
+async def test_opencode_accepts_current_inventory_without_stale_blocklist(
+    monkeypatch,
+) -> None:
     provider = OpenCodeProvider(
         id="opencode",
         name="OpenCode",
@@ -179,10 +181,7 @@ async def test_opencode_excludes_unavailable_free_models(monkeypatch) -> None:
 
     models = await provider.fetch_models()
 
-    assert [model.id for model in models] == [
-        "mimo-v2.5-free",
-        "nemotron-3-ultra-free",
-    ]
+    assert [model.id for model in models] == [row.id for row in rows]
     assert all(model.is_free for model in models)
     close.assert_awaited_once()
 
@@ -333,7 +332,7 @@ async def test_multimodal_probes_close_clients_on_success_and_error(
     )
 
     assert image_result[0] is True
-    assert video_result == (False, "Probe failed: video probe failed")
+    assert video_result == (None, "Probe failed: video probe failed")
     image_close.assert_awaited_once()
     video_close.assert_awaited_once()
 

@@ -27,6 +27,7 @@ export interface ModelPolicy {
   revision: number;
 }
 export interface ModelProviderPreset {
+  protocol?: "chat" | "responses" | "anthropic";
   id: string;
   name: string;
   base_url: string;
@@ -38,6 +39,7 @@ export interface ModelProviderPreset {
 }
 
 export interface ModelConnection {
+  protocol?: "chat" | "responses" | "anthropic";
   provider_id?: string | null;
   id: string;
   name: string;
@@ -50,6 +52,10 @@ export interface ModelConnection {
   revision: number;
 }
 export interface ManagedModel {
+  template_id?: string | null;
+  supports_audio?: boolean | null;
+  supports_video?: boolean | null;
+  supports_tool_calling?: boolean | null;
   id: string;
   name: string;
   description: string;

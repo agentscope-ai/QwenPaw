@@ -326,9 +326,7 @@ class GeminiProvider(Provider):
                 error_kind=(
                     "permission_denied"
                     if status in (401, 403)
-                    else "model_not_found"
-                    if status == 404
-                    else None
+                    else "model_not_found" if status == 404 else None
                 ),
             )
         except Exception as exc:
@@ -437,7 +435,7 @@ class GeminiProvider(Provider):
         self,
         model_id: str,
         timeout: float = 15,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe image support via Gemini generateContent with inline_data.
 
         Sends a solid-red 16x16 PNG and asks the model to name the colour.
@@ -485,9 +483,9 @@ class GeminiProvider(Provider):
                 elapsed,
             )
             status = getattr(e, "code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -497,13 +495,13 @@ class GeminiProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
 
     async def _probe_video_support(
         self,
         model_id: str,
         timeout: float = 30,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe video support via Gemini generateContent with a video URL.
 
         Asks the model whether the video contains moving content.
@@ -570,9 +568,9 @@ class GeminiProvider(Provider):
                 elapsed,
             )
             status = getattr(e, "code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Video not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -582,7 +580,7 @@ class GeminiProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
 
 
 class _GeminiChatModelCompat:

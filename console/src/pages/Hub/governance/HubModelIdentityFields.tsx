@@ -10,6 +10,7 @@ import {
   type ModelProviderPreset,
 } from "../../../api/modules/hubGovernance";
 import { ModelIdentityFields } from "../../Settings/Models/components/modals/ModelIdentityFields";
+import { ModelCapabilitiesFields } from "../../Settings/Models/components/modals/ModelCapabilitiesFields";
 import { CapabilityTags } from "../../Settings/Models/components/modals/ModelCapabilityTags";
 import {
   ContextLengthField,
@@ -30,6 +31,16 @@ export function HubModelIdentityFields({
   const form = Form.useFormInstance();
   const connectionId = Form.useWatch("connection_id", form);
   const modelId = Form.useWatch("upstream_model", form);
+  const templateId = Form.useWatch("template_id", form);
+  const overrides = Form.useWatch(
+    (values) => ({
+      supports_image: values.supports_image ?? null,
+      supports_audio: values.supports_audio ?? null,
+      supports_video: values.supports_video ?? null,
+      supports_tool_calling: values.supports_tool_calling ?? null,
+    }),
+    form,
+  );
   const inputLimit = Form.useWatch("input_token_limit", form);
   const outputLimit = Form.useWatch("output_token_limit", form);
   const connection = connections.find((c) => c.id === connectionId);
@@ -40,6 +51,27 @@ export function HubModelIdentityFields({
   }>();
   const [loading, setLoading] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [preview, setPreview] = useState<ModelInfo>();
+  useEffect(() => {
+    let active = true;
+    setPreview(undefined);
+    if (!connectionId || !modelId) return;
+    const timer = setTimeout(() => {
+      const query = new URLSearchParams({ model_id: modelId });
+      if (templateId) query.set("template_id", templateId);
+      governanceRequest<ModelInfo>(
+        `admin/model-connections/${connectionId}/model-info?${query}`,
+      )
+        .then((card) => {
+          if (active) setPreview(card);
+        })
+        .catch(() => {});
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [connectionId, modelId, templateId]);
   const requestId = useRef({ value: 0 });
   const load = useCallback(async () => {
     const current = ++requestId.current.value;
@@ -74,9 +106,12 @@ export function HubModelIdentityFields({
     directory && directory.connectionId === connectionId
       ? directory.models
       : preset?.models ?? [];
-  const model = models.find((m) => m.id === modelId);
+  const model = templateId
+    ? preview
+    : models.find((m) => m.id === modelId) ?? preview;
   const catalogModel = preset?.models.find((m) => m.id === modelId);
   const knownInput =
+    model?.effective_max_input_length ??
     model?.max_input_length_auto_detected ??
     (catalogModel || model?.max_input_length_configured
       ? model?.max_input_length
@@ -114,7 +149,7 @@ export function HubModelIdentityFields({
         output == null || (!changed && output === previous?.output)
           ? knownOutput
           : output,
-      supports_image: model?.supports_image ?? original?.supports_image ?? null,
+
       name:
         !name || (!changed && name === previous?.name)
           ? model?.name || modelId
@@ -147,12 +182,17 @@ export function HubModelIdentityFields({
     () =>
       ({
         ...model,
-        supports_image: model?.supports_image ?? savedImage ?? null,
+        supports_image:
+          overrides?.supports_image ??
+          savedImage ??
+          model?.supports_image ??
+          null,
         supports_multimodal:
           model?.supports_multimodal ?? model?.supports_image ?? null,
-        supports_video: false,
+        supports_video:
+          overrides?.supports_video ?? model?.supports_video ?? null,
       }) as ModelInfo,
-    [model, savedImage],
+    [model, savedImage, overrides],
   );
   return (
     <>
@@ -261,9 +301,29 @@ export function HubModelIdentityFields({
       >
         <Input />
       </Form.Item>
-      <Form.Item name="supports_image" hidden>
-        <Input />
-      </Form.Item>
+      {[
+        "supports_image",
+        "supports_audio",
+        "supports_video",
+        "supports_tool_calling",
+      ].map((field) => (
+        <Form.Item key={field} name={field} hidden>
+          <Input />
+        </Form.Item>
+      ))}
+      {modelId && (
+        <details className={styles.advancedSettings}>
+          <summary>{t("hub.governance.models.capabilities")}</summary>
+          <Form.Item name="template_id" label={t("models.modelTemplate")}>
+            <Input placeholder="provider/model-id" allowClear />
+          </Form.Item>
+          <ModelCapabilitiesFields
+            model={capabilityModel}
+            changes={overrides ?? {}}
+            onChange={(changes) => form.setFieldsValue(changes)}
+          />
+        </details>
+      )}
       {modelId && !!knownOutput && (
         <details className={styles.advancedSettings}>
           <summary>{t("hub.governance.models.responseLimit")}</summary>

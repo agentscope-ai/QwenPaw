@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from typing import ClassVar
 
 import httpx
 
@@ -41,6 +42,8 @@ def directory() -> dict:
 
 class ManagedProvider(OpenAIProvider):
     """Use the existing OpenAI adapter while exporting only safe metadata."""
+
+    session_header_name: ClassVar[str] = f"x-qwenpaw-session"
 
     def supports_agent_thinking(self, model_id: str) -> bool:
         """Use the Hub's capability instead of guessing from opaque aliases."""
@@ -93,6 +96,9 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 name=m["name"],
                 supports_image=m["supports_image"],
                 supports_multimodal=m["supports_image"],
+                supports_audio=m.get(f"supports_audio"),
+                supports_video=m.get(f"supports_video"),
+                supports_tool_calling=m.get(f"supports_tool_calling"),
                 max_input_length=m["input_token_limit"],
                 max_input_length_configured=True,
                 max_output_length=m["output_token_limit"],

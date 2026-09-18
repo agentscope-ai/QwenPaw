@@ -1,0 +1,47 @@
+name: Model catalog canary
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/qwenpaw/providers/**"
+      - "scripts/model_catalog/**"
+      - ".github/workflows/model-catalog-canary.yml"
+  schedule:
+    - cron: "23 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-catalog-canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    if: >-
+      vars.MODEL_CANARY_ENABLED == 'true' &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install httpx==0.28.1
+      - name: Check catalogs and pinned free models
+        env:
+          MODEL_CANARY_OPENROUTER_API_KEY: ${{ secrets.MODEL_CANARY_OPENROUTER_API_KEY }}
+          MODEL_CANARY_OPENCODE_API_KEY: ${{ secrets.MODEL_CANARY_OPENCODE_API_KEY }}
+          MODEL_CANARY_KILO_API_KEY: ${{ secrets.MODEL_CANARY_KILO_API_KEY }}
+        run: >-
+          python scripts/model_catalog/canary.py --generate
+          --output canary-results/catalog.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: model-catalog-canary
+          path: canary-results/catalog.json
+          retention-days: 14

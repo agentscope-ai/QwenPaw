@@ -9,6 +9,7 @@ from .provider import ModelInfo
 PROVIDER_SNAPSHOT_SCHEMA_VERSION = 2
 
 PERSISTED_MODEL_STATE_FIELDS = (
+    f"source",
     "generate_kwargs",
     "max_output_length",
     "max_output_length_source",
@@ -31,6 +32,17 @@ PERSISTED_MODEL_STATE_FIELDS = (
     "availability_verification",
     "probe_source",
     "is_free",
+    f"billing",
+    f"billing_source",
+    f"billing_checked_at",
+    f"supports_audio",
+    f"supports_tool_calling",
+    f"template_id",
+    f"input_token_limit",
+    f"input_token_limit_source",
+    f"auto_enabled",
+    f"requires_paid_confirmation",
+    f"remote_missing",
     "config_overrides",
 )
 

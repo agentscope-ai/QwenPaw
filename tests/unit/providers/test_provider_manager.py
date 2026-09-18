@@ -178,7 +178,7 @@ def test_builtin_restore_preserves_catalog_free_flags() -> None:
     assert [model.is_free for model in builtin.models] == [True, False]
 
 
-def test_builtin_restore_drops_provider_unavailable_models() -> None:
+def test_builtin_restore_preserves_choices_until_live_refresh() -> None:
     builtin = OpenCodeProvider(
         id="opencode",
         name="OpenCode",
@@ -196,8 +196,12 @@ def test_builtin_restore_drops_provider_unavailable_models() -> None:
 
     ProviderManager._restore_builtin_provider(builtin, stored)
 
-    assert [model.id for model in builtin.extra_models] == ["user-model"]
+    assert [model.id for model in builtin.extra_models] == [
+        f"nemotron-3-super-free",
+        f"user-model",
+    ]
     assert [model.id for model in builtin.discovered_models] == [
+        f"deepseek-v4-flash-free",
         "remote-model",
     ]
 
@@ -1722,8 +1726,8 @@ async def test_sync_update_and_async_discovery_share_atomic_transaction(
     assert reloaded is not None
     assert reloaded.api_key == "new-key"
     assert not read_errors
-    assert reloaded.models_last_synced_at is not None
-    assert reloaded.get_discovered_model_info("fresh-model") is not None
+    assert reloaded.models_last_synced_at is None
+    assert reloaded.get_discovered_model_info("fresh-model") is None
 
 
 @pytest.mark.parametrize(
@@ -2315,7 +2319,7 @@ async def test_removal_invalidates_inflight_discovery(
     assert provider.get_discovered_model_info("racing-model") is None
 
 
-async def test_discovery_empty_result_surfaces_connection_error(
+async def test_discovery_empty_result_does_not_probe_generation(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -2327,7 +2331,7 @@ async def test_discovery_empty_result_surfaces_connection_error(
         return []
 
     async def check_connection(_self, timeout=5):
-        return False, "API error (status=401): invalid api key"
+        raise AssertionError(f"Discovery must not call connection probes")
 
     monkeypatch.setattr(OpenAIProvider, "fetch_models", fetch_models)
     monkeypatch.setattr(
@@ -2340,7 +2344,7 @@ async def test_discovery_empty_result_surfaces_connection_error(
 
     assert result.success is False
     assert result.used_static_fallback is True
-    assert "401" in result.error
+    assert result.error == f"Provider returned no models"
     assert provider.models_last_sync_error == result.error
 
 
@@ -3147,6 +3151,7 @@ async def test_remote_catalog_sync_runs_updates_in_threads(
 
     assert calls == ["model", "capability"]
     assert thread_calls == [
+        provider_manager_module.model_catalog.update_model_metadata,
         update_model,
         provider_manager_module.model_catalog.load_model_catalog,
         update_capability,
@@ -3188,7 +3193,7 @@ async def test_remote_catalog_sync_updates_live_manager_state(
         provider_manager_module.model_catalog,
         "load_model_catalog",
         lambda: {
-            "DEEPSEEK_MODELS": [
+            "deepseek": [
                 ModelInfo(
                     id=existing.id,
                     name="Updated Name",
@@ -3224,7 +3229,7 @@ async def test_remote_catalog_sync_respects_removed_model(
     await manager.delete_model_from_provider("deepseek", "ota-removed")
     await manager._refresh_builtin_catalog(
         {
-            "DEEPSEEK_MODELS": [
+            "deepseek": [
                 ModelInfo(id="ota-removed", name="OTA Removed"),
             ],
         },
@@ -3374,7 +3379,7 @@ async def test_discovery_fetch_override_saves_to_canonical_provider(
     ]
 
 
-async def test_discovery_failure_probe_uses_override_provider(
+async def test_discovery_failure_uses_override_without_probing(
     isolated_secret_dir,
     monkeypatch,
 ) -> None:
@@ -3412,7 +3417,7 @@ async def test_discovery_failure_probe_uses_override_provider(
     )
 
     assert result.success is False
-    assert result.error == "Temporary credential rejected"
+    assert result.error == f"Provider returned no models"
 
 
 @pytest.mark.parametrize(

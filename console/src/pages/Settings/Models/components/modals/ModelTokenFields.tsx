@@ -24,22 +24,51 @@ export function ContextLengthField({
   value,
   onChange,
   showHint = true,
-}: TokenFieldProps) {
+  source,
+  onReset,
+}: TokenFieldProps & { source?: string | null; onReset?: () => void }) {
   const { t } = useTranslation();
   return (
     <div>
-      <div style={labelStyle}>{t("models.maxInputLengthLabel")}</div>
+      <div
+        style={{
+          ...labelStyle,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span>{t("models.maxInputLengthLabel")}</span>
+        {onReset && (
+          <Button
+            type="text"
+            size="small"
+            icon={<RotateCcw size={14} />}
+            aria-label={t("models.resetContextLength")}
+            title={t("models.resetContextLength")}
+            onClick={onReset}
+          />
+        )}
+      </div>
       <InputNumber
         aria-label={t("models.maxInputLengthLabel")}
         style={{ width: "100%" }}
         min={1000}
         step={1024}
         value={value}
-        placeholder="131072"
+        placeholder={t("models.automatic")}
         onChange={onChange}
       />
       {showHint && (
-        <div style={hintStyle}>{t("models.maxInputLengthHint")}</div>
+        <div style={hintStyle}>
+          {t("models.maxInputLengthHint")}
+          {source && (
+            <>
+              <br />
+              {t(`models.metadataSource.${source}`)}
+            </>
+          )}
+        </div>
       )}
     </div>
   );
@@ -50,7 +79,9 @@ export function OutputTokenLimitField({
   onChange,
   model,
   showHint = true,
+  chatModel,
 }: TokenFieldProps & {
+  chatModel?: string;
   model?: Pick<ModelInfo, "max_output_length" | "max_output_length_source">;
 }) {
   const { t, i18n } = useTranslation();
@@ -87,14 +118,21 @@ export function OutputTokenLimitField({
       />
       {showHint && (
         <div style={hintStyle}>
-          {t("models.maxTokensHint")}
+          {t(
+            chatModel === "AnthropicChatModel"
+              ? "models.anthropicOutputHint"
+              : "models.maxTokensHint",
+          )}
           <br />
           {t("models.maxOutputCapabilityLabel")}:{" "}
           {model?.max_output_length?.toLocaleString(i18n.language) ??
             t("models.unknown")}
           {model?.max_output_length_source &&
             model.max_output_length_source !== "unknown" && (
-              <> · {model.max_output_length_source}</>
+              <>
+                {" "}
+                · {t(`models.metadataSource.${model.max_output_length_source}`)}
+              </>
             )}
         </div>
       )}

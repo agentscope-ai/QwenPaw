@@ -1,6 +1,7 @@
 import { request } from "../request";
 import type {
   ProviderInfo,
+  ModelInfo,
   ProviderConfigRequest,
   ActiveModelsInfo,
   GetActiveModelsRequest,
@@ -43,6 +44,21 @@ let listProvidersPromise: Promise<ProviderInfo[]> | null = null;
 const activeModelPromises = new Map<string, Promise<ActiveModelsInfo>>();
 
 export const providerApi = {
+  listModelTemplates: () =>
+    request<
+      { id: string; name: string; model_id: string; provider_id: string }[]
+    >("/models/model-templates"),
+  previewModelInfo: (
+    providerId: string,
+    modelId: string,
+    templateId?: string,
+  ) => {
+    const query = new URLSearchParams({ model_id: modelId });
+    if (templateId) query.set("template_id", templateId);
+    return request<ModelInfo>(
+      `/models/${encodeURIComponent(providerId)}/model-info?${query}`,
+    );
+  },
   listProviders: () => {
     if (listProvidersPromise) return listProvidersPromise;
     listProvidersPromise = request<ProviderInfo[]>("/models").finally(() => {

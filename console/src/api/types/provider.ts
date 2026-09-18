@@ -8,6 +8,12 @@ export type ModelAvailabilityStatus =
   | "unverified";
 
 export interface ModelInfo {
+  config_overrides?: string[];
+  supports_audio?: boolean | null;
+  supports_tool_calling?: boolean | null;
+  recommendation_reason?: string;
+  ranking_id?: string | null;
+  ranking?: { metric: string; version: string; score: number; estimated: boolean; source: string } | null;
   id: string;
   name: string;
   supports_multimodal: boolean | null;
@@ -20,9 +26,24 @@ export interface ModelInfo {
   discovery_origin?: "api" | "catalog" | "both" | null;
   availability_status?: ModelAvailabilityStatus;
   max_output_length?: number | null;
-  max_output_length_source?: "api" | "catalog" | "adapter" | "user" | "unknown";
+  max_output_length_source?:
+    | "api"
+    | "catalog"
+    | "adapter"
+    | "user"
+    | "template"
+    | "unknown";
   max_output_length_updated_at?: string | null;
+  template_id?: string | null;
+  input_token_limit?: number | null;
+  billing?: "free" | "paid" | "unknown";
+  auto_enabled?: boolean;
+  requires_paid_confirmation?: boolean;
+  remote_missing?: boolean;
   max_input_length: number;
+  effective_max_input_length?: number | null;
+  automatic_max_input_length?: number | null;
+  context_length_source?: string | null;
   max_input_length_configured?: boolean;
   max_input_length_auto_detected?: number | null;
   generate_kwargs: Record<string, unknown>;
@@ -155,6 +176,7 @@ export interface CreateCustomProviderRequest {
 }
 
 export interface AddModelRequest {
+  template_id?: string | null;
   id: string;
   name: string;
   is_free?: boolean;
@@ -165,7 +187,13 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
-  max_input_length?: number;
+  supports_image?: boolean | null;
+  supports_video?: boolean | null;
+  supports_audio?: boolean | null;
+  supports_tool_calling?: boolean | null;
+  template_id?: string | null;
+  confirm_paid?: boolean;
+  max_input_length?: number | null;
   generate_kwargs?: Record<string, unknown>;
   relay_reasoning?: boolean;
   thinking_enabled?: boolean | null;
@@ -273,9 +301,9 @@ export interface DiscoverModelsResponse {
 }
 
 export interface ProbeMultimodalResponse {
-  supports_image: boolean;
-  supports_video: boolean;
-  supports_multimodal: boolean;
+  supports_image: boolean | null;
+  supports_video: boolean | null;
+  supports_multimodal: boolean | null;
   image_message: string;
   video_message: string;
 }

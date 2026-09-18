@@ -15,6 +15,8 @@ const apiMocks = vi.hoisted(() => ({
   probeMultimodal: vi.fn(),
   removeModel: vi.fn(),
   discoverModels: vi.fn(),
+  listModelTemplates: vi.fn().mockResolvedValue([]),
+  previewModelInfo: vi.fn().mockResolvedValue({}),
   getOpenRouterSeries: vi.fn(),
   filterOpenRouterModels: vi.fn(),
 }));

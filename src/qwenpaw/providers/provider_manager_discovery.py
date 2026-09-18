@@ -29,6 +29,7 @@ from .provider_discovery import (
     classify_discovery_error,
     merge_discovered_model,
 )
+from .model_sync import reconcile_models, sync_due
 from .provider_model_availability import (
     ProviderModelCheckResult,
     classify_model_check,
@@ -83,27 +84,6 @@ class ProviderManagerDiscoveryMixin(
             },
         )
         return self._provider_from_data(payload)
-
-    @staticmethod
-    async def _probe_discovery_failure_reason(
-        provider: Provider,
-        timeout: float,
-    ) -> str | None:
-        """Return the real reason an empty discovery result may hide.
-
-        ``fetch_models`` may swallow transport errors and return an empty
-        list, so an empty result is ambiguous. When the provider exposes a
-        connection check, use it to distinguish an empty catalog from a
-        failed request. The probe never masks the original empty result.
-        """
-        check = getattr(provider, "check_connection", None)
-        if check is None:
-            return None
-        try:
-            ok, detail = await check(timeout=timeout)
-        except Exception:  # pylint: disable=broad-exception-caught
-            return None
-        return None if ok else (detail or None)
 
     async def _save_discovery_locked(
         self,
@@ -200,6 +180,18 @@ class ProviderManagerDiscoveryMixin(
         candidate = provider.model_copy(deep=True)
         if error is None:
             apply_discovery_metadata(candidate, fetched or [], synced_at or "")
+            by_id = {model.id: model for model in models or []}
+            for configured in candidate.models + candidate.extra_models:
+                remote = by_id.get(configured.id)
+                if remote is not None:
+                    configured.remote_missing = remote.remote_missing
+                    if configured.auto_enabled or (
+                        remote.auto_enabled and configured.source != f"user"
+                    ):
+                        configured.auto_enabled = True
+                        configured.requires_paid_confirmation = (
+                            remote.requires_paid_confirmation
+                        )
             candidate.discovered_models = [
                 model.model_copy(deep=True) for model in models or []
             ]
@@ -322,11 +314,7 @@ class ProviderManagerDiscoveryMixin(
             fetched = await fetch_provider.fetch_models(timeout=timeout)
             fetched = [model for model in fetched if model.id.strip()]
             if not fetched:
-                reason = await self._probe_discovery_failure_reason(
-                    fetch_provider,
-                    timeout,
-                )
-                raise ValueError(reason or "Provider returned no models")
+                raise ValueError(f"Provider returned no models")
             fetched = [
                 model
                 for model in fetched
@@ -367,7 +355,7 @@ class ProviderManagerDiscoveryMixin(
                     by_id[catalog_model.id] = ModelInfo.model_validate(
                         catalog_payload,
                     )
-            models = list(by_id.values())
+            models = reconcile_models(provider, list(by_id.values()), api_ids)
 
             if save:
                 committed = await self._save_discovery_locked(
@@ -537,10 +525,14 @@ class ProviderManagerDiscoveryMixin(
     def startup_sync_provider_ids(self) -> list[str]:
         """Return providers eligible for non-blocking startup discovery."""
         provider_ids: list[str] = []
-        for provider in self.builtin_providers.values():
+        for provider in (
+            *self.builtin_providers.values(),
+            *self.custom_providers.values(),
+        ):
             if (
                 provider.model_sync_mode != "startup"
                 or not provider.support_model_discovery
+                or not sync_due(provider)
             ):
                 continue
             if provider.discovery_requires_auth and not provider.api_key:
@@ -558,11 +550,14 @@ class ProviderManagerDiscoveryMixin(
         if not provider_ids:
             return
 
+        semaphore = asyncio.Semaphore(3)
+
+        async def sync_one(provider_id: str):
+            async with semaphore:
+                return await self.discover_provider_models(provider_id)
+
         results = await asyncio.gather(
-            *(
-                self.discover_provider_models(provider_id)
-                for provider_id in provider_ids
-            ),
+            *(sync_one(provider_id) for provider_id in provider_ids),
             return_exceptions=True,
         )
         for provider_id, result in zip(provider_ids, results):
@@ -575,7 +570,9 @@ class ProviderManagerDiscoveryMixin(
 
     async def sync_remote_catalogs(self) -> None:
         """Update configured OTA catalogs without blocking startup."""
-        updates: list[tuple[str, Callable[[], Any]]] = []
+        updates: list[tuple[str, Callable[[], Any]]] = [
+            (f"metadata", model_catalog.update_model_metadata),
+        ]
         if EnvVarLoader.get_str(model_catalog.CATALOG_URL_ENV):
             updates.append(
                 ("model", model_catalog.update_model_catalog),
@@ -595,7 +592,7 @@ class ProviderManagerDiscoveryMixin(
                         model_catalog.load_model_catalog,
                     )
                     await self._refresh_builtin_catalog(catalog)
-                else:
+                elif label == f"capability":
                     await asyncio.to_thread(
                         self._capability_registry.reload,
                     )

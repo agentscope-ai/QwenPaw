@@ -1,0 +1,178 @@
+{
+  "api_urls": [
+    "https://api.anthropic.com"
+  ],
+  "remote_id": "anthropic",
+  "template_owner": true,
+  "default_model_ids": [],
+  "models": [
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "claude-sonnet-4-6",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-opus-5",
+      "name": "claude-opus-5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-opus-4-5",
+      "name": "claude-opus-4-5",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "claude-fable-5-1",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-opus-4-6",
+      "name": "claude-opus-4-6",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-sonnet-4-5-20250929",
+      "name": "claude-sonnet-4-5-20250929",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+          "updated_at": "2026-09-18T00:00:00Z"
+        }
+      },
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-opus-4-7",
+      "name": "claude-opus-4-7",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "name": "claude-haiku-4-5-20251001",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-fable-5",
+      "name": "claude-fable-5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "name": "claude-haiku-4-5",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "name": "claude-sonnet-4-5",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/context-windows",
+          "updated_at": "2026-09-18T00:00:00Z"
+        }
+      },
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-opus-4-8",
+      "name": "claude-opus-4-8",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-sonnet-5",
+      "name": "claude-sonnet-5",
+      "max_input_length": 1000000,
+      "max_output_length": 128000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    },
+    {
+      "id": "claude-opus-4-5-20251101",
+      "name": "claude-opus-4-5-20251101",
+      "max_input_length": 200000,
+      "max_output_length": 64000,
+      "max_output_length_source": "catalog",
+      "supports_tool_calling": true,
+      "supports_image": true,
+      "supports_audio": false,
+      "supports_video": false
+    }
+  ]
+}

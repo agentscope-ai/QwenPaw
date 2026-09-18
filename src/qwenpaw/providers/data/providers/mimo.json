@@ -1,0 +1,49 @@
+{
+  "api_urls": [
+    "https://api.xiaomimimo.com/v1"
+  ],
+  "remote_id": null,
+  "template_owner": true,
+  "default_model_ids": [
+    "mimo-v2.5-pro",
+    "mimo-v2.5"
+  ],
+  "models": [
+    {
+      "id": "mimo-v2.5-pro",
+      "name": "MiMo V2.5 Pro",
+      "supports_image": false,
+      "supports_video": false,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_output_length": 131072,
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid"
+    },
+    {
+      "id": "mimo-v2.5",
+      "name": "MiMo V2.5",
+      "supports_image": true,
+      "supports_video": true,
+      "probe_source": "documentation",
+      "is_free": false,
+      "source": "builtin",
+      "availability_status": "unverified",
+      "availability_retryable": true,
+      "config_overrides": [],
+      "max_output_length": 131072,
+      "max_input_length": 1048576,
+      "max_input_length_configured": false,
+      "generate_kwargs": {},
+      "relay_reasoning": true,
+      "billing": "paid"
+    }
+  ]
+}

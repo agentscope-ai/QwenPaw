@@ -28,6 +28,7 @@ from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
+from .model_sync import invalidate_api_metadata
 from .provider import ModelInfo, Provider, ProviderInfo
 from .provider_manager_host import ProviderManagerHost
 from .provider_discovery import (
@@ -173,6 +174,7 @@ class ProviderManagerPersistenceMixin(
                     setattr(latest, field, getattr(result, field))
             if _CONNECTION_CONFIG_FIELDS.intersection(fields or set()):
                 self._reset_model_availability(latest)
+                invalidate_api_metadata(latest)
             return latest
         if update_kind == "discovery":
             latest.discovered_models = [
@@ -460,6 +462,7 @@ class ProviderManagerPersistenceMixin(
                     setattr(latest, field, getattr(result, field))
             if _CONNECTION_CONFIG_FIELDS.intersection(fields or set()):
                 self._reset_model_availability(latest)
+                invalidate_api_metadata(latest)
             return latest
         if update_kind == "discovery":
             latest.discovered_models = [
@@ -1136,22 +1139,12 @@ class ProviderManagerPersistenceMixin(
             builtin.max_inline_media_bytes = provider.max_inline_media_bytes
 
         builtin_model_ids = {model.id for model in builtin.models}
-        unavailable_model_ids = getattr(
-            builtin,
-            "_UNAVAILABLE_MODEL_IDS",
-            frozenset(),
-        )
         builtin.extra_models = [
             model
             for model in provider.extra_models
             if model.id not in builtin_model_ids
-            and model.id not in unavailable_model_ids
         ]
-        builtin.discovered_models = [
-            model
-            for model in provider.discovered_models
-            if model.id not in unavailable_model_ids
-        ]
+        builtin.discovered_models = list(provider.discovered_models)
         builtin.models_last_synced_at = provider.models_last_synced_at
         builtin.models_last_sync_error = provider.models_last_sync_error
         builtin.models_syncing = False

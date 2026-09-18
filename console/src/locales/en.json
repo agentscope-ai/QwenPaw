@@ -2345,8 +2345,20 @@
     "modelConfigSaved": "Configuration saved for model {{name}}",
     "modelConfigSaveFailed": "Failed to save model configuration",
     "modelConfigLabel": "Model Config",
-    "maxTokensLabel": "Max Tokens",
-    "maxTokensHint": "Maximum output tokens per response",
+    "resetContextLength": "Restore automatic context",
+    "automatic": "Automatic",
+    "metadataSource": {
+      "api": "Provider API",
+      "catalog": "Model catalog",
+      "template": "Model template (override for endpoint limits)",
+      "user": "Manual override",
+      "adapter": "Provider adapter",
+      "default": "Default (model information unavailable)",
+      "unknown": "Unknown",
+      "automatic": "Automatic resolution"
+    },
+    "maxTokensLabel": "Response output limit (optional)",
+    "maxTokensHint": "Leave empty for the provider default; model output capacity is shown below.",
     "providerDefault": "Provider default",
     "resetMaxTokens": "Reset to auto",
     "maxOutputCapabilityLabel": "Model capability",
@@ -2634,7 +2646,35 @@
     "modalityVideo": "Video",
     "modalityFile": "File",
     "perMillionIn": "/1M in",
-    "perMillionOut": "/1M out"
+    "perMillionOut": "/1M out",
+    "modelTemplate": "Model template (optional)",
+    "modelInfoUnavailable": "Model information is unavailable. You can still add the model.",
+    "remoteMissing": "No longer listed remotely",
+    "enablePaidModel": "Enable paid use",
+    "billing": {
+      "paid": "Paid",
+      "unknown": "Pricing unknown"
+    },
+    "anthropicOutputHint": "Automatic mode supplies an output budget within model capacity and thinking constraints.",
+    "capabilities": {
+      "supports_image": "Image input",
+      "supports_audio": "Audio input",
+      "supports_video": "Video input",
+      "supports_tool_calling": "Tool calling",
+      "auto": "Automatic",
+      "supported": "Supported",
+      "unsupported": "Not supported"
+    },
+    "recommendation": {
+      "unranked": "No reviewed score; add manually",
+      "estimated_score": "Estimated score; add manually",
+      "below_quality_threshold": "Below recommendation threshold; add manually",
+      "tools_unverified": "Tool support unverified",
+      "unavailable": "Connection unavailable",
+      "billing_unknown": "Free status unverified",
+      "billing_paid": "Paid model",
+      "ranking_version_mismatch": "Ranking version needs review"
+    }
   },
   "files": {
     "title": "Files",

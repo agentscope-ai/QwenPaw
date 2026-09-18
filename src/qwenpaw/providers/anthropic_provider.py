@@ -6,15 +6,14 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, ClassVar, Dict, List
 
 import httpx
 from agentscope.model import ChatModelBase
 import anthropic
 from pydantic import Field
 
-from qwenpaw.providers.multimodal_prober import (
+from .multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
     _PROBE_VIDEO_B64,
@@ -24,13 +23,14 @@ from qwenpaw.providers.multimodal_prober import (
     evaluate_image_probe_answer,
     evaluate_video_probe_answer,
 )
-from qwenpaw.providers.provider import (
+from .provider import (
     ModelConnectionResult,
     ModelInfo,
     Provider,
 )
 
 from ..utils.logging import sanitize_log_value
+from .adapters.anthropic import AnthropicModel as _AnthropicChatModelCompat
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -79,6 +79,14 @@ class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
 
 class AnthropicProvider(Provider):
     """Provider implementation for Anthropic API."""
+
+    wire_protocol: ClassVar[str] = f"anthropic"
+
+    def cache_capabilities(self, model_id: str) -> frozenset[str]:
+        """Anthropic wire format supports explicit cache breakpoints."""
+        if model_id.startswith(f"claude-"):
+            return frozenset({f"anthropic"})
+        return super().cache_capabilities(model_id)
 
     max_inline_media_bytes: int = Field(
         default=MAX_INLINE_MEDIA_BYTES,
@@ -154,15 +162,21 @@ class AnthropicProvider(Provider):
 
             if not model_id:
                 continue
-            metadata: dict[str, int] = {}
-            context_window = getattr(row, "context_window", None)
+            metadata: dict[str, Any] = {}
+            context_window = getattr(row, f"max_input_tokens", None)
             if (
                 isinstance(context_window, (int, float))
                 and context_window >= 1000
             ):
-                metadata["max_input_length_auto_detected"] = int(
-                    context_window,
+                metadata[f"max_input_length_auto_detected"] = int(
+                    context_window
                 )
+                metadata[f"input_token_limit"] = int(context_window)
+                metadata[f"input_token_limit_source"] = f"api"
+            output_limit = getattr(row, f"max_tokens", None)
+            if type(output_limit) is int and output_limit > 0:
+                metadata[f"max_output_length"] = output_limit
+                metadata[f"max_output_length_source"] = f"api"
             models.append(ModelInfo(id=model_id, name=model_name, **metadata))
 
         deduped: List[ModelInfo] = []
@@ -291,9 +305,7 @@ class AnthropicProvider(Provider):
                 error_kind=(
                     "permission_denied"
                     if status in (401, 403)
-                    else "model_not_found"
-                    if status == 404
-                    else None
+                    else "model_not_found" if status == 404 else None
                 ),
             )
         except Exception as exc:
@@ -314,7 +326,14 @@ class AnthropicProvider(Provider):
         effective_generate_kwargs = self.get_effective_generate_kwargs(
             model_id,
         )
-        max_tokens = effective_generate_kwargs.pop("max_tokens", 16384)
+        output_cap = self.resolve_model_info(model_id).max_output_length
+        default_output = min(16_384, output_cap) if output_cap else 16_384
+        max_tokens = effective_generate_kwargs.pop(f"max_tokens", None)
+        max_tokens = default_output if max_tokens is None else max_tokens
+        if output_cap and max_tokens > output_cap:
+            raise ValueError(
+                f"Output limit exceeds model capacity {output_cap}"
+            )
 
         params_kwargs: Dict[str, Any] = {"max_tokens": max_tokens}
         for key in ("thinking_enable", "thinking_budget"):
@@ -345,6 +364,9 @@ class AnthropicProvider(Provider):
             merged_headers["X-DashScope-Cdpl"] = dashscope_meta
 
         return _AnthropicChatModelCompat(
+            output_capacity=output_cap,
+            request_policy=self.prepare_request,
+            extra_generate_kwargs=effective_generate_kwargs,
             credential=credential,
             model=model_id,
             parameters=AnthropicChatModel.Parameters(**params_kwargs),
@@ -381,8 +403,8 @@ class AnthropicProvider(Provider):
         )
         if not img_ok:
             return ProbeResult(
-                supports_image=False,
-                supports_video=False,
+                supports_image=img_ok,
+                supports_video=None,
                 image_message=img_msg,
                 video_message="Skipped: image probe failed",
             )
@@ -408,7 +430,7 @@ class AnthropicProvider(Provider):
         self,
         model_id: str,
         timeout: float = 30,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe video support via Anthropic messages API.
 
         Tries a base64 probe video first; if the provider
@@ -470,7 +492,7 @@ class AnthropicProvider(Provider):
         start_time: float,
         is_http: bool = False,
         last_400: list[str] | None = None,
-    ) -> tuple[bool, str] | None:
+    ) -> tuple[bool | None, str] | None:
         """Try one video source format. Return None to try next.
 
         If a 400 error occurs and *last_400* is provided, the
@@ -543,9 +565,9 @@ class AnthropicProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            if _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Video not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             err_type = type(e).__name__
@@ -556,7 +578,7 @@ class AnthropicProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
         finally:
             await self._close_client(client)
 
@@ -564,7 +586,7 @@ class AnthropicProvider(Provider):
         self,
         model_id: str,
         timeout: float = 10,
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool | None, str]:
         """Probe image support via Anthropic messages API.
 
         Uses a two-stage check (same strategy as OpenAIProvider):
@@ -627,9 +649,9 @@ class AnthropicProvider(Provider):
                 elapsed,
             )
             status = getattr(e, "status_code", None)
-            if status == 400 or _is_media_keyword_error(e):
+            if status in {400, 422} and _is_media_keyword_error(e):
                 return False, f"Image not supported: {e}"
-            return False, f"Probe inconclusive: {e}"
+            return None, f"Probe inconclusive: {e}"
         except Exception as e:
             elapsed = time.monotonic() - start_time
             logger.warning(
@@ -639,128 +661,6 @@ class AnthropicProvider(Provider):
                 sanitize_log_value(e),
                 elapsed,
             )
-            return False, f"Probe failed: {e}"
+            return None, f"Probe failed: {e}"
         finally:
             await self._close_client(client)
-
-
-class _AnthropicChatModelCompat:
-    """Mixin wrapper around ``AnthropicChatModel`` that injects custom headers
-    and supports ``auth_token`` mode.
-
-    Constructed lazily so the import-heavy ``AnthropicChatModel`` doesn't slow
-    module load when Anthropic is not configured.
-    """
-
-    def __new__(cls, **kwargs: Any) -> Any:
-        from agentscope.model import AnthropicChatModel
-
-        default_headers = kwargs.pop("default_headers", None)
-        auth_mode = kwargs.pop("auth_mode", None)
-        strip_http_client = kwargs.pop("strip_http_client", None)
-
-        class _Compat(AnthropicChatModel):
-            _qp_default_headers = default_headers
-            _qp_auth_mode = auth_mode
-            _qp_strip_http_client = strip_http_client
-            _qp_cached_client: Any = None
-            _qp_cached_client_key: tuple = ()
-
-            def _get_or_create_client(self) -> Any:
-                """Return a cached AsyncAnthropic client, rebuilding only when
-                credential or base_url changes."""
-                key = (
-                    self.credential.base_url,
-                    self.credential.api_key.get_secret_value(),
-                    id(self._qp_default_headers),
-                    self._qp_auth_mode,
-                )
-                if (
-                    self._qp_cached_client is not None
-                    and self._qp_cached_client_key == key
-                ):
-                    return self._qp_cached_client
-
-                client_kwargs: Dict[str, Any] = {
-                    "base_url": self.credential.base_url,
-                }
-                if self._qp_default_headers:
-                    client_kwargs["default_headers"] = self._qp_default_headers
-                if self._qp_auth_mode == "auth_token":
-                    client_kwargs[
-                        "auth_token"
-                    ] = self.credential.api_key.get_secret_value()
-                    if self._qp_strip_http_client is not None:
-                        client_kwargs[
-                            "http_client"
-                        ] = self._qp_strip_http_client
-                else:
-                    client_kwargs[
-                        "api_key"
-                    ] = self.credential.api_key.get_secret_value()
-
-                self._qp_cached_client = anthropic.AsyncAnthropic(
-                    **client_kwargs,
-                )
-                self._qp_cached_client_key = key
-                return self._qp_cached_client
-
-            async def _call_api(
-                self,
-                model_name,
-                messages,
-                tools=None,
-                tool_choice=None,
-                **generate_kwargs,
-            ):
-                client = self._get_or_create_client()
-
-                # Translate the neutral ``disable_thinking`` flag
-                if generate_kwargs.pop("disable_thinking", False):
-                    generate_kwargs["thinking"] = {"type": "disabled"}
-
-                max_tokens = self.parameters.max_tokens or 8192
-                kw: Dict[str, Any] = {
-                    "model": model_name,
-                    "max_tokens": max_tokens,
-                    "stream": self.stream,
-                    **generate_kwargs,
-                }
-                if self.parameters.thinking_enable and "thinking" not in kw:
-                    budget = self.parameters.thinking_budget or (
-                        max_tokens // 2
-                    )
-                    if budget >= max_tokens:
-                        max_tokens = budget + 1024
-                        kw["max_tokens"] = max_tokens
-                    kw["thinking"] = {
-                        "type": "enabled",
-                        "budget_tokens": budget,
-                    }
-
-                fmt_tools, fmt_tc = self._format_tools(tools, tool_choice)
-                if fmt_tools:
-                    kw["tools"] = fmt_tools
-                if fmt_tc is not None:
-                    kw["tool_choice"] = fmt_tc
-
-                formatted = await self.formatter.format(messages)
-                if formatted and formatted[0]["role"] == "system":
-                    kw["system"] = formatted[0]["content"]
-                    formatted = formatted[1:]
-                kw["messages"] = formatted
-
-                start = datetime.now()
-                response = await client.messages.create(**kw)
-
-                if self.stream:
-                    return self._parse_anthropic_stream_completion_response(
-                        start,
-                        response,
-                    )
-                return await self._parse_anthropic_completion_response(
-                    start,
-                    response,
-                )
-
-        return _Compat(**kwargs)
