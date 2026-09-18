@@ -161,7 +161,10 @@ import {
 import { useCodingTabsStore } from "../../stores/codingTabsStore";
 import { RichFileReferenceInputProvider } from "./RichFileReferenceInput";
 import type { ParsedFileReference } from "./fileReferenceFormatting";
-import { scrollReverseMessageList } from "./messageScroll";
+import {
+  installReverseMessageScrollLock,
+  scrollReverseMessageList,
+} from "./messageScroll";
 import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
@@ -747,6 +750,7 @@ function renderSuggestionLabel(command: string, description?: string) {
 
 const DEFAULT_USER_ID = "default";
 const DEFAULT_CHANNEL = "console";
+const SCROLL_LOCK_STORAGE_KEY = "qwenpaw_chat_scroll_locked";
 
 // Stable fallback so an absent queue entry doesn't produce a fresh array
 // reference on every render (which would invalidate the options memo).
@@ -1388,6 +1392,30 @@ export default function ChatPage() {
     return () => {
       window.removeEventListener(CHAT_WIDE_MODE_CHANGE_EVENT, syncWideMode);
     };
+  }, []);
+  const [scrollLocked, setScrollLocked] = useState(() => {
+    try {
+      return localStorage.getItem(SCROLL_LOCK_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+  const scrollLockedRef = useRef(scrollLocked);
+  scrollLockedRef.current = scrollLocked;
+  const toggleAutoScroll = useCallback(() => {
+    setScrollLocked((prev) => {
+      const next = !prev;
+      try {
+        if (next) {
+          localStorage.setItem(SCROLL_LOCK_STORAGE_KEY, "true");
+        } else {
+          localStorage.removeItem(SCROLL_LOCK_STORAGE_KEY);
+        }
+      } catch {
+        // storage unavailable
+      }
+      return next;
+    });
   }, []);
 
   const [showModelPrompt, setShowModelPrompt] = useState(false);
@@ -3472,6 +3500,12 @@ export default function ChatPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const root = chatMessagesAreaRef.current;
+    if (!root) return;
+    return installReverseMessageScrollLock(root, () => scrollLockedRef.current);
+  }, []);
+
   const options = useMemo(() => {
     const i18nConfig = getDefaultConfig(t);
     const hostCommands: CommandSuggestion[] = [
@@ -3915,6 +3949,9 @@ export default function ChatPage() {
         colorPrimary,
         bubbleList: {
           ...defaultConfig.theme.bubbleList,
+          autoScroll: {
+            enabled: !scrollLocked,
+          },
           userMessageAnchors: userMessageAnchorsConfig,
         },
         leftHeader: mergedLeftHeader,
@@ -3938,6 +3975,8 @@ export default function ChatPage() {
             <ChatActionGroup
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
+              scrollLocked={scrollLocked}
+              onToggleAutoScroll={toggleAutoScroll}
             />
             {pluginRightHeader}
           </>
@@ -4403,6 +4442,8 @@ export default function ChatPage() {
     whisperEnabled,
     handleWhisperTranscription,
     isWideMode,
+    scrollLocked,
+    toggleAutoScroll,
     hasQueueItems,
     isQueueOnlyTab,
     showSenderBeforeUI,
