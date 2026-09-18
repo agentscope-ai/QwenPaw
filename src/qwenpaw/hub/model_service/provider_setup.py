@@ -27,7 +27,6 @@ def supported_presets():
             ),
         )
         and not provider.is_local
-        and provider.require_api_key
     }
 
 

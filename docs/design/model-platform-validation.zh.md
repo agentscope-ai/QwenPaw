@@ -69,3 +69,5 @@ ACP 的 `QWENPAW_MODEL_INFO_JSON` 可设置 `protocol`、`template_id`、模态/
 - 无 Key 公开目录 canary：OpenRouter、OpenCode、Kilo 的固定模型通过免费字段核查；均为 `skipped_requires_auth`，没有进行推理调用。
 
 Hub 三协议桥目前转换文本、图片、工具调用；原生 Responses / Messages 路由不发布 audio/video 为可用能力，避免模板宣称支持但网关无法转换。Chat Completions 透传保留服务自身模态能力。此处是网关传输能力限制，不回写或否定原模型的 model card。
+
+`b7124742c` 推送后合并回归：**2159 passed，4 skipped**；前端再次 **204 passed**，TypeScript 通过。随后资源地址复核发现并修复原生 Messages 的 `/v1` 拼接差异：统一 provider 的 `request_url` 与 SDK base URL 处理，涵盖 Anthropic 根地址、MiniMax `/anthropic` 前缀和 OpenCode `/zen/v1`。新增协议一致性测试，并将 OpenCode/Kilo 纳入 Hub 内置 preset；这组补充回归 **112 passed**。Hub 组织连接仍要求管理员配置组织 API Key，免费计费与免认证不是同一个概念。

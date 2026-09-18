@@ -7,6 +7,21 @@ import json
 from copy import deepcopy
 
 
+def anthropic_base_url(base_url: str) -> str:
+    """Give the SDK a root; it appends its own /v1 resource prefix."""
+    return base_url.rstrip(f"/").removesuffix(f"/v1")
+
+
+def protocol_url(base_url: str, protocol: str) -> str:
+    """Build the same resource URL used by the native protocol SDK."""
+    if protocol == f"anthropic":
+        return f"{anthropic_base_url(base_url)}/v1/messages"
+    paths = {f"chat": f"chat/completions", f"responses": f"responses"}
+    if protocol not in paths:
+        raise ValueError(f"Unsupported model protocol: {protocol}")
+    return f"{base_url.rstrip('/')}/{paths[protocol]}"
+
+
 class WireProtocol:
     """Keep streaming conversion state private to one admitted request."""
 

@@ -1,6 +1,6 @@
 # 模型能力、协议适配与目录维护统一方案
 
-状态：核心实现与本地验收完成，提交前最终复核。2026-09-18。实际模块、验证数据与外部验证边界见 [验收记录](model-platform-validation.zh.md)。
+状态：核心实现已提交并完成推送后复测；外部验收待配置 CI。 2026-09-18。实际模块、验证数据与外部验证边界见 [验收记录](model-platform-validation.zh.md)。
 分支：`fix/model-info-auto-discovery`。
 本方案扩展并修订 `model-info-auto-discovery.zh.md`；上一阶段测试结果不代表本次新增范围已经完成。
 用户批准实施；在线模型生成仅按 CI 有界 canary 约束执行。

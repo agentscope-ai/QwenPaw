@@ -26,6 +26,7 @@ from .model_ranking import Recommendation, recommend
 from .model_sync import automatic_models
 from .adapters.cache_policy import cache_request
 from .adapters.request_context import session_header
+from .adapters.wire_protocol import protocol_url
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -326,6 +327,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     def model_protocol(self, model_id: str) -> str:
         """Return this service's protocol for one model."""
         return self.wire_protocol
+
+    def request_url(self, model_id: str) -> str:
+        """Share SDK-compatible URL construction with externally owned I/O."""
+        return protocol_url(self.base_url, self.model_protocol(model_id))
 
     def cache_capabilities(self, model_id: str) -> frozenset[str]:
         """Require a verified service, not just a compatible wire format."""

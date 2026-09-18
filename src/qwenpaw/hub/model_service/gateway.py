@@ -103,7 +103,7 @@ class ModelGateway:
         key = await run_sync_io(self.catalog.key, connection)
         request = client.build_request(
             "POST",
-            f"{connection['base_url']}/{bridge.path}",
+            provider.request_url(model[f"upstream_model"]),
             headers={
                 **headers,
                 **(

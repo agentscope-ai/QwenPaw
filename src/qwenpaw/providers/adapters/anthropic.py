@@ -8,6 +8,7 @@ import anthropic
 from agentscope.model import AnthropicChatModel
 
 from .cache_policy import mark_stable_prefix
+from .wire_protocol import anthropic_base_url
 
 
 class AnthropicModel(AnthropicChatModel):
@@ -46,7 +47,7 @@ class AnthropicModel(AnthropicChatModel):
             return self._qp_cached_client
 
         client_kwargs: Dict[str, Any] = {
-            "base_url": self.credential.base_url,
+            "base_url": anthropic_base_url(self.credential.base_url),
         }
         if self._qp_default_headers:
             client_kwargs["default_headers"] = self._qp_default_headers

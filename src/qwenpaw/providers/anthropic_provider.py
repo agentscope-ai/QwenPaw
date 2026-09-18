@@ -13,6 +13,7 @@ from agentscope.model import ChatModelBase
 import anthropic
 from pydantic import Field
 
+from .adapters.wire_protocol import anthropic_base_url
 from .multimodal_prober import (
     ProbeResult,
     _PROBE_IMAGE_B64,
@@ -121,14 +122,14 @@ class AnthropicProvider(Provider):
         if self.auth_mode == "auth_token":
             return anthropic.AsyncAnthropic(
                 auth_token=self.api_key,
-                base_url=self.base_url,
+                base_url=anthropic_base_url(self.base_url),
                 default_headers=default_headers,
                 http_client=self._get_strip_http_client(),
                 timeout=timeout,
             )
         return anthropic.AsyncAnthropic(
             api_key=self.api_key,
-            base_url=self.base_url,
+            base_url=anthropic_base_url(self.base_url),
             default_headers=default_headers,
             timeout=timeout,
         )
@@ -342,7 +343,7 @@ class AnthropicProvider(Provider):
 
         credential = AnthropicCredential(
             api_key=self.api_key or "",
-            base_url=self.base_url,
+            base_url=anthropic_base_url(self.base_url),
         )
 
         merged_headers = self._build_default_headers()

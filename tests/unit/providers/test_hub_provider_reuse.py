@@ -103,3 +103,35 @@ def test_hub_publishes_only_modalities_supported_by_its_wire_bridge():
     assert result[f"supports_image"] is True
     assert result[f"supports_audio"] is False
     assert result[f"supports_video"] is False
+
+
+@pytest.mark.parametrize(
+    (f"provider_id", f"model", f"expected"),
+    [
+        (
+            f"anthropic",
+            f"claude-sonnet-4-5",
+            f"https://api.anthropic.com/v1/messages",
+        ),
+        (
+            f"minimax",
+            f"MiniMax-M2.7",
+            f"https://api.minimax.io/anthropic/v1/messages",
+        ),
+        (f"opencode", f"union-alpha", f"https://opencode.ai/zen/v1/messages"),
+        (f"opencode", f"gpt-5.6-sol", f"https://opencode.ai/zen/v1/responses"),
+    ],
+)
+async def test_hub_and_native_sdk_share_resource_urls(
+    provider_id, model, expected
+):
+    preset = supported_presets()[provider_id].model_copy(deep=True)
+    assert preset.request_url(model) == expected
+    if expected.endswith(f"/messages"):
+        preset.api_key = f"test-key"
+        native = preset.get_chat_model_instance(model)
+        client = native._get_or_create_client()
+        try:
+            assert str(client._prepare_url(f"/v1/messages")) == expected
+        finally:
+            await client.close()
