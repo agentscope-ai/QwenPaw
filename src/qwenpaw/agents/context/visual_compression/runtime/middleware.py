@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Callable
 
 from agentscope.middleware import MiddlewareBase
 
+from .....utils.io_utils import run_sync_io
 from ..config import effort_preset
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ class VisualCompressionMiddleware(MiddlewareBase):
             return await next_handler(
                 **input_kwargs,
             )
-        if not get_model_supports_image(current_model):
+        if not await run_sync_io(get_model_supports_image, current_model):
             self._log_skipped(
                 model_key=model_key,
                 reason="model_without_image_support",

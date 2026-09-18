@@ -5,7 +5,8 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { App } from "antd";
+import { App, Grid } from "antd";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import HubPage from ".";
@@ -19,6 +20,27 @@ import {
   page,
   runtime,
 } from "../../test/hubFixtures";
+
+vi.mock("../../api/modules/hubGovernance", () => ({
+  governanceRequest: vi.fn(async (path: string) =>
+    path === "admin/usage"
+      ? {
+          organization: {
+            period: "2026-09",
+            charged: 0,
+            reserved: 0,
+            remaining: null,
+            token_limit: null,
+            requests: 0,
+          },
+          members: [],
+          models: [],
+          daily: [],
+          timezone: "UTC",
+        }
+      : [],
+  ),
+}));
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
@@ -75,6 +97,7 @@ function renderHubPage() {
 describe("HubPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(Grid, "useBreakpoint").mockReturnValue({ md: true });
     vi.mocked(hubApi.me).mockResolvedValue(hubUser());
     vi.mocked(hubApi.getHealth).mockResolvedValue(hubHealth());
     vi.mocked(hubApi.getOverview).mockResolvedValue(hubOverview());
@@ -92,7 +115,177 @@ describe("HubPage", () => {
 
     expect(await screen.findByText("hub.overview.title")).toBeInTheDocument();
     expect(hubApi.getOverview).toHaveBeenCalledOnce();
-    expect(screen.getByText("100%", { exact: false })).toBeInTheDocument();
+    expect(
+      await screen.findByText("hub.overview.availability"),
+    ).toBeInTheDocument();
+  });
+
+  it.each([
+    ["hub.overview.availability", "runtimes"],
+    ["hub.overview.totalRuntimes", "runtimes"],
+    ["hub.overview.totalUsers", "users"],
+  ])("opens %s with the keyboard", async (label, destination) => {
+    const user = userEvent.setup();
+    renderHubPage();
+    const card = await screen.findByRole("button", {
+      name: new RegExp(label),
+    });
+    card.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => {
+      expect(
+        destination === "users" ? hubApi.listUsers : hubApi.listRuntimes,
+      ).toHaveBeenCalled();
+    });
+  });
+
+  it("filters activity by resource and clears the filter for view all", async () => {
+    vi.mocked(hubApi.getOverview).mockResolvedValue(
+      hubOverview({
+        recent_events: [
+          {
+            event_id: "event-1",
+            actor_user_id: "admin",
+            actor_username: "admin",
+            action: "user.update",
+            resource_type: "user",
+            resource_id: "member-42",
+            outcome: "success",
+            detail: {},
+            created_at: "2026-09-16T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    renderHubPage();
+    fireEvent.click(await screen.findByRole("button", { name: /member-42/ }));
+    await waitFor(() =>
+      expect(hubApi.listAuditEvents).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "member-42", action: undefined }),
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "hub.navigation.overview" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: "hub.overview.viewAll" }),
+    );
+    await waitFor(() =>
+      expect(hubApi.listAuditEvents).toHaveBeenLastCalledWith(
+        expect.objectContaining({ query: "", action: undefined }),
+      ),
+    );
+  });
+
+  it("shows an empty runtime fleet without dividing by zero", async () => {
+    vi.mocked(hubApi.getOverview).mockResolvedValue(
+      hubOverview({
+        total_runtimes: 0,
+        runtime_counts: {
+          created: 0,
+          starting: 0,
+          running: 0,
+          stopped: 0,
+          failed: 0,
+        },
+      }),
+    );
+    renderHubPage();
+    expect(
+      await screen.findByRole("button", { name: /hub.overview.availability / }),
+    ).toHaveTextContent("—");
+  });
+
+  it("opens failed runtimes from the overview attention action", async () => {
+    vi.mocked(hubApi.getOverview).mockResolvedValue(
+      hubOverview({
+        runtime_counts: {
+          created: 0,
+          starting: 0,
+          running: 1,
+          stopped: 0,
+          failed: 1,
+        },
+      }),
+    );
+    renderHubPage();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /^hub.overview.failedCount:/,
+      }),
+    );
+    await waitFor(() =>
+      expect(hubApi.listRuntimes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: "failed", query: "", owner: "" }),
+      ),
+    );
+  });
+
+  it("opens running runtimes from the real state distribution", async () => {
+    renderHubPage();
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /^hub.runtimeStates.running/,
+      }),
+    );
+    await waitFor(() =>
+      expect(hubApi.listRuntimes).toHaveBeenLastCalledWith(
+        expect.objectContaining({ state: "running" }),
+      ),
+    );
+  });
+
+  it("keeps account controls and navigation accessible on mobile", async () => {
+    vi.mocked(Grid.useBreakpoint).mockReturnValue({ md: false });
+    renderHubPage();
+    await screen.findByText("hub.overview.title");
+    expect(
+      screen.getByRole("button", { name: "common.refresh" }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "hub.navigation.workspace" }),
+    );
+    const drawer = await screen.findByRole("dialog");
+    expect(
+      within(drawer).getByRole("button", { name: "login.logout" }),
+    ).toBeVisible();
+    expect(
+      within(drawer).getByRole("button", { name: "hub.actions.useDarkTheme" }),
+    ).toBeVisible();
+    fireEvent.click(
+      within(drawer).getByRole("button", { name: "hub.navigation.runtimes" }),
+    );
+    await waitFor(() => expect(hubApi.listRuntimes).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "hub.navigation.workspace" }),
+    );
+    const reopenedDrawer = await screen.findByRole("dialog");
+    within(reopenedDrawer)
+      .getByRole("button", { name: "login.logout" })
+      .focus();
+    fireEvent.keyDown(reopenedDrawer, {
+      key: "Escape",
+      code: "Escape",
+      keyCode: 27,
+    });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("shows refresh failures and lets administrators retry", async () => {
+    renderHubPage();
+    await screen.findByText("hub.overview.title");
+    vi.mocked(hubApi.getOverview).mockRejectedValueOnce(
+      new Error("Refresh unavailable"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
+    expect(await screen.findByText("Refresh unavailable")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "common.refresh" }));
+    await waitFor(() => expect(hubApi.getOverview).toHaveBeenCalledTimes(3));
   });
 
   it("shows the backend reason when the runtime is unavailable", async () => {
@@ -262,15 +455,15 @@ describe("HubPage", () => {
 
     renderHubPage();
     fireEvent.click(await screen.findByText("hub.navigation.users"));
-    const protectedLabel = await screen.findByText(
-      "hub.users.currentAccountProtected",
+    fireEvent.click(
+      await screen.findByRole("button", { name: /owner.*hub.roles.admin/ }),
     );
-    const row = protectedLabel.closest("tr");
-
-    expect(row).not.toBeNull();
-    expect(protectedLabel).toBeInTheDocument();
-    expect(within(row!).getByRole("combobox")).toBeDisabled();
-    expect(within(row!).getByRole("switch")).toBeDisabled();
+    fireEvent.click(
+      await screen.findByRole("tab", { name: "hub.governance.users.account" }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("combobox")).toBeDisabled();
+    expect(within(dialog).getByRole("switch")).toBeDisabled();
   });
 
   it("loads and saves the complete Hub settings document", async () => {

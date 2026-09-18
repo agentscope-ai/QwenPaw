@@ -137,7 +137,7 @@ async def _initialize_single_proactive_agent(
 
     from ...prompt import get_active_model_supports_multimodal
 
-    if get_active_model_supports_multimodal():
+    if await run_sync_io(get_active_model_supports_multimodal):
         tools.append(FunctionTool(desktop_screenshot))
 
     toolkit = Toolkit(tools=tools)
