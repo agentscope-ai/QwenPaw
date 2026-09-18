@@ -98,3 +98,17 @@
 - Windows 使用进程令牌的 AppContainer 标志核验边界，本轮没有 Windows 实机验证。
 - Hub 的跨源凭据仅向 `QWENPAW_CORS_ORIGINS` 显式来源开放；cookie 保持 SameSite=Strict，适用于同站跨源部署（例如同主机不同端口），不承诺跨站嵌入。
 - 环境标记之外，Linux 检查用户命名空间、能力与挂载布局；macOS 检查 Seatbelt 是否生效；Windows 检查 AppContainer。平台检查不等同于重新审计每项沙箱规则。
+
+
+## Docker 启动失败与重试循环复核
+
+2026-09-18 远程运行实例反复报 Hub 模型连接校验失败。容器实际导入 `/app/venv/lib/python3.11/site-packages/qwenpaw`，该镜像的 providers 路由没有 `/api/models/hub-status`；宿主的新协议不能由仅更新宿主代码带入既有镜像。
+
+- [x] 核查同步边界：Docker SDK 启动在 lifecycle executor，镜像拉取在独立执行器，状态刷新通过 `run_in_threadpool`；现场轻量接口仍能快速响应，未证实持续的全局事件循环阻塞。
+- [x] 保留 Docker 启动失败状态和错误，避免正常退出的残留容器把 FAILED 覆盖成 STOPPED，进而触发健康检查重新启动。
+- [x] 普通代理请求遇到 FAILED 立即返回 503；重试由显式启动、重启或重建触发。
+- [x] 旧镜像缺少模型探测接口（404/405）或返回 SPA HTML 时跳过可选探测并记录日志，不阻止启动；接口存在时的鉴权失败与连接错误仍然报错。
+- [x] 未分配端口时不生成 `http://127.0.0.1:0`，界面显示占位符。
+- [x] 107 项后端回归通过，覆盖慢启动时控制面响应、失败后不重复启动、失败状态保持和协议错误分类。
+
+旧镜像可以启动，但跳过探测并不会给旧镜像补上 Hub 模型功能。远程服务和镜像尚未在本轮排查中更新。

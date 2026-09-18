@@ -483,6 +483,15 @@ def create_hub_app(  # pylint: disable=too-many-statements
                 else "Personal runtime is stopped. Restart it to continue."
             )
             raise HTTPException(status_code=423, detail=detail)
+        if record.state is RuntimeState.FAILED:
+            raise HTTPException(
+                status_code=503,
+                detail=record.last_error
+                or (
+                    "Personal QwenPaw failed to start. "
+                    "Resolve the failure and restart it explicitly."
+                ),
+            )
         if record.state is not RuntimeState.RUNNING:
             try:
                 record = await runtime_service.execute(
@@ -1808,7 +1817,9 @@ def _runtime_payload(
     payload = record.to_dict()
     payload["owner_username"] = owner.username if owner else None
     payload["owner_role"] = owner.role if owner else None
-    payload["endpoint"] = f"http://{record.host}:{record.port}"
+    payload["endpoint"] = (
+        f"http://{record.host}:{record.port}" if record.port else ""
+    )
     payload["security_level"] = service.security_level(record.provisioner)
     return payload
 

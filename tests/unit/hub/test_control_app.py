@@ -533,8 +533,10 @@ def test_unavailable_provisioner_keeps_control_plane_in_safe_mode(
         assert client.app.state.runtime_service.registry.list() == []
 
 
+@pytest.mark.parametrize("start_fails", [False, True])
 def test_health_starts_runtime_once_without_blocking_control_plane(
     tmp_path: Path,
+    start_fails: bool,
 ) -> None:
     provisioner = _FakeProvisioner()
     entered = threading.Event()
@@ -547,6 +549,8 @@ def test_health_starts_runtime_once_without_blocking_control_plane(
         del credentials
         entered.set()
         assert release.wait(timeout=3)
+        if start_fails:
+            raise RuntimeError("Runtime image is incompatible")
         return replace(record, state=RuntimeState.RUNNING, pid=100)
 
     with (
@@ -578,7 +582,21 @@ def test_health_starts_runtime_once_without_blocking_control_plane(
             time.sleep(0.01)
 
         ready = client.get("/api/hub/healthz", headers=headers)
-        assert ready.json()["runtime_state"] == "running"
+        assert ready.json()["runtime_state"] == (
+            "failed" if start_fails else "running"
+        )
+        if start_fails:
+            for _ in range(2):
+                response = client.get("/api/agents", headers=headers)
+                assert response.status_code == 503
+                assert "image is incompatible" in response.json()["detail"]
+            assert start.call_count == 1
+            items = client.get(
+                "/api/hub/runtimes",
+                headers=headers,
+            ).json()["items"]
+            assert items[0]["state"] == "failed"
+            assert items[0]["endpoint"] == ""
 
         event_loop_threads: list[int] = []
         registry_read_threads: list[int] = []

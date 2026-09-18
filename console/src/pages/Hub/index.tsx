@@ -786,7 +786,9 @@ export default function HubPage() {
                                 detail={runtime.owner_user_id}
                               />
                             </td>
-                            <td className={styles.mono}>{runtime.endpoint}</td>
+                            <td className={styles.mono}>
+                              {runtime.endpoint || "—"}
+                            </td>
                             <td>
                               <strong>
                                 {t(

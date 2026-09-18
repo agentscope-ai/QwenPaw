@@ -280,6 +280,8 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
 
     def status(self, record: RuntimeRecord) -> RuntimeRecord:
         """Observe a managed container by immutable Hub labels."""
+        if record.state is RuntimeState.FAILED:
+            return record
         containers = self._containers(record.runtime_id, all_containers=True)
         if not containers:
             if record.state in {RuntimeState.RUNNING, RuntimeState.STARTING}:

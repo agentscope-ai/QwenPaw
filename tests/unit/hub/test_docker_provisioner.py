@@ -5,16 +5,20 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from email.message import Message
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from qwenpaw.hub.docker_images import DockerImagePullStore
 from qwenpaw.hub import docker_provisioner as docker_module
 from qwenpaw.hub.docker_provisioner import DockerRuntimeProvisioner
+from qwenpaw.hub.models import RuntimeState
+from qwenpaw.hub.provisioner import RuntimeProvisioner
 from tests.unit.hub.factories import runtime_record
 
 _record = partial(runtime_record, provisioner="docker", port=0)
@@ -448,3 +452,58 @@ def test_pull_store_deduplicates_image_from_another_source(
     finally:
         release.set()
         store.close()
+
+
+def test_status_preserves_startup_failure_after_container_stops(
+    tmp_path,
+    monkeypatch,
+):
+    client = _FakeClient()
+    client.containers.container.status = "exited"
+    monkeypatch.setattr(
+        client.containers,
+        "list",
+        lambda **kwargs: [client.containers.container],
+    )
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
+    record = replace(
+        _record(tmp_path),
+        state=RuntimeState.FAILED,
+        last_error="Runtime image is incompatible",
+    )
+    assert provisioner.status(record) == record
+
+
+@pytest.mark.parametrize("status", [404, 200, 401])
+def test_model_probe_allows_legacy_images_but_rejects_auth_errors(
+    tmp_path,
+    monkeypatch,
+    status,
+):
+    real_client = httpx.Client
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            status,
+            text="<html>Console</html>",
+            headers={"content-type": "text/html"},
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.hub.provisioner.httpx.Client",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
+    )
+    credentials = {
+        "QWENPAW_HUB_MODEL_TOKEN": "model-token",
+        "QWENPAW_RUNTIME_INTERNAL_TOKEN": "boundary-token",
+    }
+    if status == 401:
+        with pytest.raises(RuntimeError, match="HTTP 401"):
+            RuntimeProvisioner.verify_model_connection(
+                _record(tmp_path),
+                credentials,
+            )
+    else:
+        RuntimeProvisioner.verify_model_connection(
+            _record(tmp_path),
+            credentials,
+        )
