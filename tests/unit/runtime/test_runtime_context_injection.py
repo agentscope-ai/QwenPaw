@@ -33,6 +33,7 @@ def _ctx(real_message: Msg):
         ],
         input_msgs=[real_message],
         extras={},
+        error=None,
         agent=SimpleNamespace(
             state=SimpleNamespace(context=[]),
         ),
