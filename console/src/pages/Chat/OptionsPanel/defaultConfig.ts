@@ -2,6 +2,8 @@ import type { TFunction } from "i18next";
 
 const defaultConfig = {
   theme: {
+    // The upstream chat theme generator parses this value as a HEX color.
+    // Runtime theme colors are normalized before they are passed to it.
     colorPrimary: "#FF7F16",
     darkMode: false,
     prefix: "qwenpaw",

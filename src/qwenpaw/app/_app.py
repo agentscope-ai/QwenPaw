@@ -31,6 +31,7 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
     LOG_FILE_PATH,
@@ -180,6 +181,24 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     migrate_legacy_skills_to_skill_pool()
     ensure_qa_agent_exists()
 
+    from ..config.utils import get_agent_dirs
+    from ..portability.transaction_journal import recover_import_transactions
+
+    try:
+        recovered_transactions = await recover_import_transactions(
+            get_agent_dirs(),
+        )
+    except Exception:
+        logger.exception(
+            "PawPort transaction recovery failed; continuing startup",
+        )
+        recovered_transactions = []
+    if recovered_transactions:
+        logger.warning(
+            "Recovered %d interrupted PawPort import transaction(s)",
+            len(recovered_transactions),
+        )
+
     # Migrate old conversations from sessions/*.json into each scroll agent's
     # history.db, so chats from before scroll existed stay recallable. This is
     # a one-off backfill, not core startup work: if it fails, we log and keep
@@ -274,9 +293,11 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         factory_kwargs = WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
-            extra_command_specs=_api_action_command_specs
-            if _api_action_command_specs
-            else None,
+            extra_command_specs=(
+                _api_action_command_specs
+                if _api_action_command_specs
+                else None
+            ),
         )
         # Merge factory output into workspace_registry._bootstrap_kwargs
         for key, value in factory_kwargs.items():
@@ -573,15 +594,23 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
             )
 
     _bg_task = asyncio.create_task(_background_startup())
+    daily_telemetry = start_daily_telemetry()
 
     try:
         yield
     finally:
+        await daily_telemetry.close()
         # Cancel background startup if still in progress
         if not _bg_task.done():
             _bg_task.cancel()
             with suppress(asyncio.CancelledError):
                 await _bg_task
+
+        # Import jobs can write workspaces and install plugins. Stop them
+        # before closing the services they depend on.
+        from .routers.portability_imports import PORTABILITY_IMPORT_JOBS
+
+        await PORTABILITY_IMPORT_JOBS.shutdown()
 
         logger.info("Stopping BackupManager...")
         await backup_manager.shutdown()
@@ -651,6 +680,8 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await multi_agent_mgr.stop_all()
             except Exception as e:
                 logger.error(f"Error stopping MultiAgentManager: {e}")
+
+        await PORTABILITY_IMPORT_JOBS.drain()
 
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client

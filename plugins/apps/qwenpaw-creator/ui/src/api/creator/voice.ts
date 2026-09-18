@@ -59,6 +59,8 @@ export interface RegenerateNarrationResult {
   audioVersionId: string;
   replayed: boolean;
   rebound: boolean;
+  stale?: boolean;
+  staleReason?: "INPUT_CHANGED" | "SUPERSEDED" | null;
   voice: string;
   model: string;
   durationSeconds: number | null;

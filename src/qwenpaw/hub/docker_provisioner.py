@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
+import ipaddress
 import re
+import sys
 import threading
 import time
 import urllib.error
@@ -14,12 +17,13 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-import docker
-from docker.errors import DockerException, ImageNotFound, NotFound
-
 from .credentials import runtime_credential_name_allowed
 from .models import RuntimeRecord, RuntimeState
-from .provisioner import RuntimeProvisioner, RuntimeProvisionerAvailability
+from .provisioner import (
+    RuntimeModelNetwork,
+    RuntimeProvisioner,
+    RuntimeProvisionerAvailability,
+)
 
 DOCKER_HUB_IMAGE = "docker.io/agentscope/qwenpaw"
 ALIYUN_ACR_IMAGE = (
@@ -36,6 +40,40 @@ PULL_POLICIES = frozenset({"always", "if_not_present", "never"})
 _IMAGE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,511}$")
 _START_TIMEOUT_SECONDS = 90.0
 _STOP_TIMEOUT_SECONDS = 20
+
+
+class _UnavailableDockerException(Exception):
+    """Represent a generic Docker error while the SDK is unavailable."""
+
+
+class _UnavailableDockerImageNotFound(_UnavailableDockerException):
+    """Represent a missing Docker image while the SDK is unavailable."""
+
+
+class _UnavailableDockerNotFound(_UnavailableDockerException):
+    """Represent a missing Docker object while the SDK is unavailable."""
+
+
+_DockerException: type[Exception]
+_DockerImageNotFound: type[Exception]
+_DockerNotFound: type[Exception]
+
+
+try:
+    docker: Any = importlib.import_module("docker")
+except ModuleNotFoundError as import_error:
+    if import_error.name != "docker":
+        raise
+    docker = None
+    _DOCKER_IMPORT_ERROR: ModuleNotFoundError | None = import_error
+    _DockerException = _UnavailableDockerException
+    _DockerImageNotFound = _UnavailableDockerImageNotFound
+    _DockerNotFound = _UnavailableDockerNotFound
+else:
+    _DOCKER_IMPORT_ERROR = None
+    _DockerException = docker.errors.DockerException
+    _DockerImageNotFound = docker.errors.ImageNotFound
+    _DockerNotFound = docker.errors.NotFound
 
 
 class DockerRuntimeProvisioner(RuntimeProvisioner):
@@ -59,6 +97,29 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         digest = hashlib.sha256(str(self._root_dir).encode("utf-8"))
         self._instance_id = digest.hexdigest()[:12]
 
+    def model_network(self) -> RuntimeModelNetwork:
+        """Use host forwarding on desktop OSes or the Engine bridge IP."""
+        if sys.platform in {"darwin", "win32"}:
+            return RuntimeModelNetwork("127.0.0.1", "host.docker.internal")
+        client = self._get_client()
+        operating_system = client.info().get("OperatingSystem", "")
+        if "docker desktop" in operating_system.lower():
+            return RuntimeModelNetwork("127.0.0.1", "host.docker.internal")
+        network = client.networks.get("bridge")
+        for config in network.attrs.get("IPAM", {}).get("Config", []):
+            gateway = config.get("Gateway")
+            if not gateway:
+                continue
+            address = ipaddress.ip_address(gateway)
+            if address.version == 4 and not (
+                address.is_unspecified
+                or address.is_multicast
+                or address.is_loopback
+                or address.is_global
+            ):
+                return RuntimeModelNetwork(str(address), str(address))
+        raise RuntimeError("Docker bridge has no private IPv4 gateway")
+
     def configure(self, config: Mapping[str, object]) -> None:
         """Apply validated Docker defaults and resource limits."""
         previous = self._policy
@@ -70,8 +131,16 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             raise
 
     def preflight(self, root_dir: Path) -> RuntimeProvisionerAvailability:
-        """Verify that a Linux Docker engine is reachable."""
+        """Report whether Linux Docker runtime support is available."""
         root_dir.mkdir(parents=True, exist_ok=True)
+        if _DOCKER_IMPORT_ERROR is not None:
+            return RuntimeProvisionerAvailability(
+                available=False,
+                reason=(
+                    "Docker runtime support is not installed. Install "
+                    "qwenpaw[hub] to enable it."
+                ),
+            )
         try:
             client = self._get_client()
             client.ping()
@@ -129,6 +198,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         }
         environment.update(
             {
+                "QWENPAW_RUNNING_IN_CONTAINER": "true",
                 "QWENPAW_WORKING_DIR": "/app/working",
                 "QWENPAW_SECRET_DIR": "/app/working.secret",
                 "QWENPAW_BACKUP_DIR": "/app/working.backups",
@@ -137,6 +207,9 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 "QWENPAW_RUNTIME_INTERNAL_TOKEN": runtime_token,
             },
         )
+        for name in ("QWENPAW_HUB_MODEL_URL", "QWENPAW_HUB_MODEL_TOKEN"):
+            if credentials.get(name):
+                environment[name] = credentials[name]
         labels = self._labels(record.runtime_id, record.owner_user_id)
         container = self._get_client().containers.run(
             launch_image,
@@ -176,6 +249,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
                 metadata=self._runtime_metadata(record, container),
             )
             boundary_mode = self._wait_until_ready(starting, runtime_token)
+            self.verify_model_connection(starting, environment)
             container.reload()
             return replace(
                 starting,
@@ -190,7 +264,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             self._write_container_logs(record, container)
             try:
                 container.stop(timeout=_STOP_TIMEOUT_SECONDS)
-            except DockerException:
+            except _DockerException:
                 pass
             raise
 
@@ -326,7 +400,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         """Return whether an exact image reference is available locally."""
         try:
             self._get_client().images.get(reference)
-        except ImageNotFound:
+        except _DockerImageNotFound:
             return False
         return True
 
@@ -374,6 +448,13 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
     def _get_client(self) -> Any:
         with self._client_lock:
             if self._client is None:
+                if _DOCKER_IMPORT_ERROR is not None:
+                    raise RuntimeError(
+                        "Docker runtime support is not installed. Install "
+                        "qwenpaw[hub] to enable it.",
+                    ) from _DOCKER_IMPORT_ERROR
+                if docker is None:
+                    raise RuntimeError("Docker SDK failed to load.")
                 self._client = docker.from_env()
             return self._client
 
@@ -433,7 +514,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             if container.status == "running":
                 container.stop(timeout=_STOP_TIMEOUT_SECONDS)
             container.remove(force=True)
-        except NotFound:
+        except _DockerNotFound:
             return
 
     def _labels(self, runtime_id: str, owner_user_id: str) -> dict[str, str]:
@@ -548,5 +629,5 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
             output = container.logs(tail=200).decode("utf-8", errors="replace")
             with record.log_file.open("a", encoding="utf-8") as log_file:
                 log_file.write(output)
-        except (DockerException, OSError):
+        except (_DockerException, OSError):
             return

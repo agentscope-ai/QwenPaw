@@ -124,6 +124,10 @@ class TestIsAutomationRequest:
         agent = _make_agent(source="HeartBeat")
         assert MemoryMiddleware._is_automation_request(agent) is True
 
+    def test_portability_adaptation_source(self):
+        agent = _make_agent(source="portability_adaptation")
+        assert MemoryMiddleware._is_automation_request(agent) is True
+
     def test_user_source(self):
         agent = _make_agent(source="user")
         assert MemoryMiddleware._is_automation_request(agent) is False

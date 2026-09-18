@@ -40,7 +40,7 @@ from .errors import (
     RuntimeFileValidationError,
     SequenceConflictError,
 )
-from .jsonl_store import DurableJsonlStore
+from .jsonl_store import DurableJsonlStore, JsonlReadCursor
 from .locking import DEFAULT_LOCK_TIMEOUT_SECONDS, CrossProcessFileLock
 from .models import (
     CreatorConversationRecord,
@@ -1243,12 +1243,19 @@ class ProjectRuntimeSessionStore:
 
                 boundary: ReviewBoundary | None = None
                 project_state: RuntimeProjectState | None = None
-                requires_review = self._requires_review(
-                    session,
-                    channel=resolved_channel,
-                    classification=resolved_classification,
-                    initial_creation=initial_creation,
-                    hard_stop=hard_stop,
+                # Approval is a continuation of existing work, not a new
+                # revision. Capturing an interrupt here cancels sibling media
+                # still generating when the first output is accepted. Keep
+                # its durable user-message envelope and legacy replay hash.
+                requires_review = (
+                    source != "review_approval_resume"
+                    and self._requires_review(
+                        session,
+                        channel=resolved_channel,
+                        classification=resolved_classification,
+                        initial_creation=initial_creation,
+                        hard_stop=hard_stop,
+                    )
                 )
                 if requires_review:
                     self._assert_review_active_goal_unlocked(
@@ -1437,6 +1444,20 @@ class ProjectRuntimeSessionStore:
             store = self._events_store(project_id, session_id)
             records = store.read_records_after(after_seq, limit=limit)
             return records
+
+    def event_reader(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        after_seq: int = 0,
+    ) -> JsonlReadCursor[SessionEventRecord]:
+        """Keep one forward cursor for a live SSE connection's replay."""
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        _validate_window(after_seq, None)
+        return self._events_store(project_id, session_id).forward_reader(
+            after_seq,
+        )
 
     def append_queued_message(
         self,

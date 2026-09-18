@@ -100,10 +100,11 @@ def build_scene_check_system_prompt(*, include_probes: bool = False) -> str:
 
 判定纪律（{EVIDENCE_DISCIPLINE}）：
 1. 六项各输出恰好一条 finding；passed=false 必须给出 evidence_timestamp_ms（取自证据帧时间戳或门禁证据块），无证据必须判通过。
-2. devices 检查对照给出的分镜计划上下文：计划声明的画面要素在帧上找不到即不通过。
+2. devices 检查对照计划中持续可见的主体与物件。证据是稀疏采样，不是完整视频；瞬时动作可能发生在两张证据帧之间，未采到不能等同于动作缺失，不得据此判为 major 或要求重做。只描述实际看见的内容，逐张核对证据列表的时间戳，不把相邻图片的动作或时间错配。
 3. severity 判据：黑帧/主体错误/首尾帧脏（残留 UI、半截动作）/无法辨认的文字为 major；轻微构图或动感瑕疵为 minor。
 4. 门禁证据块中的 FAIL 行必须体现在 technical 检查的 finding 中，不得忽略。
-5. 这是建议不是门禁：输出只用于驱动下一轮修订，不阻断交付。客观事实提示仅是事实而非结论，是否构成问题由你结合计划语境判断。{probe_discipline}
+5. 负面约束必须按原句范围判断，不能扩大禁令。例如「不出现纸币特写与可读面额」仍允许桌面远景出现不可读的零钱；只有实际出现特写或可读面额才算违背该约束。计划中明确保留的道具不得仅因出现就要求删除。人物动作归属须沿手臂、袖色与身体逐项核对；遮挡或透视不能确认归属时，不得把猜测当作角色互换或 major。
+6. 这是建议不是门禁：输出只用于驱动下一轮修订，不阻断交付。低全帧差异、静态机位或一张姿态静止的图片不能证明视频冻结，人物说话时的嘴型微动可能低于全帧阈值。music_detected 的频谱/节拍投票只是启发式，带音高的人声也会命中，未收到可听音频不能断言添加了背景音乐。句首到切点的距离不是口型同步测量；不得据此断言声画错位。客观提示须结合真实证据，无法确认时不驱动重做。{probe_discipline}
 
 输出格式（只输出一个 JSON 对象）：
 {{
@@ -139,8 +140,12 @@ def build_image_check_system_prompt() -> str:
 判定纪律（{EVIDENCE_DISCIPLINE}，图像以字段指针/画面区域描述代替时间戳）：
 1. 各检查行输出恰好一条 finding；passed=false 必须在 suggestion 中描述画面中的具体证据位置。
 2. 与计划上下文（分镜描述/角色引用）不一致（如角色不符、场景不符）为 major；轻微风格偏差为 minor。
-3. 画面统计（欠曝/发灰/低饱和）仅在肉眼可见劣化时才计为 finding。
-4. 这是建议不是门禁。
+3. 先按 artifact_purpose、variant_requirements 和 generation_prompt 判断当前图的用途；project_brief 是全片目标，不能要求单张人物身份板同时出现剧情场景、对白或电影画面。身份板中的独立姿态、轮廓、表情、细节和留白按参考用途评价，不按连续剧情动作评价。
+4. 画面统计是全图指标，不是主体颜色诊断。米白/白色背景、留白、黑白服装会显著拉低均值；不得仅因 sat_mean 或全图均值低而认定人物或服装发灰、欠饱和。只有具体主体区域肉眼可见且违背该图生成要求的色彩损失才可提出建议，轻微风格偏差为 minor。不要无依据要求提高饱和度来否定刻意的自然低饱和风格。
+5. 道具上的背景纹理文字与剧情必须读清的文字分开：只在用途明确要求可读、且确实影响身份或叙事时，才将不可读文字列为 major；仍要报告可见的真实结构、主体或空间矛盾。
+6. 阵容参考图（cast_lineup_reference）须按 expected_character_count 逐人计数、核对身份与道具归属。每个角色只能出现一次；不能把多角度身份板允许的重复视图套用到同框阵容。实际多出人物、复制同一人、胡须或服装身份混淆、关键道具交给错误人物，均须指出具体画面区域并报告。
+7. 负面约束按原句范围判断，不扩大禁令；「不出现纸币特写与可读面额」不等于「不得出现任何零钱」。人物动作归属须沿手臂、袖色与身体核对，不得因遮挡或透视把猜测当作人物互换。要求重做前，复核所指画面区域确实与计划冲突。
+8. 这是建议不是门禁。
 
 输出格式（只输出一个 JSON 对象）：
 {{
@@ -155,7 +160,7 @@ def render_taste_principles(role: str) -> str:
 
     Rendered once and pasted into the ``prompts/*.system.txt`` files; kept
     here so tests can assert the prompt files stay derived from the vendored
-    rubric (see ``tests/run_review/test_rubric_prompts.py``).
+    rubric (see ``tests/run_review/test_vendored_rules.py``).
     """
     concept = APPEAL_RUBRIC_ROWS[0]
     rhythm = APPEAL_RUBRIC_ROWS[2]

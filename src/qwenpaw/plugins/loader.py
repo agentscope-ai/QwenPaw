@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import tempfile
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -44,6 +45,7 @@ _IMPORT_NAME_OVERRIDES = {
     "scikit-learn": "sklearn",
     "protobuf": "google.protobuf",
 }
+_PAWPORT_MARKER = ".qwenpaw-pawport.json"
 
 
 def _is_frozen() -> bool:
@@ -145,7 +147,20 @@ def _is_disabled_plugin_dir(path: Path) -> bool:
     longer loads or installs its dependencies (issue #5550).
     """
     name = path.name
-    return name.startswith(".") or name.endswith(".disabled")
+    if name.startswith(".") or name.endswith(".disabled"):
+        return True
+    try:
+        marker = json.loads((path / _PAWPORT_MARKER).read_text())
+    except (OSError, ValueError, TypeError):
+        return False
+    return marker.get("state") == "prepared"
+
+
+def _marker_matches(marker: dict[str, Any], owner: dict[str, Any]) -> bool:
+    return all(
+        marker.get(key) == owner.get(key)
+        for key in ("owner", "provider", "source_id")
+    )
 
 
 # Re-entrancy token for PluginLoader.plugin_lifecycle.
@@ -598,7 +613,7 @@ class PluginLoader:
                 raise AttributeError(
                     "Plugin must implement 'register(api)' method",
                 )
-        except Exception:
+        except BaseException:
             self._cleanup_failed_load(
                 plugin_id,
                 module_name,
@@ -1085,6 +1100,8 @@ class PluginLoader:
         before_force_unload: Optional[Any] = None,
         after_force_unload: Optional[Any] = None,
         after_load: Optional[Any] = None,
+        pawport_owner: Optional[dict[str, Any]] = None,
+        recover_incomplete: bool = False,
     ) -> PluginRecord:
         """Copy plugin files, install deps, and load plugin at runtime.
 
@@ -1141,17 +1158,41 @@ class PluginLoader:
                     maybe_after = after_force_unload(plugin_id)
                     if inspect.isawaitable(maybe_after):
                         await maybe_after
-            record = await self._load_plugin_from_path_unlocked(
-                source_path,
-                manifest,
-                config,
-                install_dir,
-            )
-            if after_load is not None:
-                maybe_loaded = after_load(record)
-                if inspect.isawaitable(maybe_loaded):
-                    await maybe_loaded
-            return record
+            record = None
+            try:
+                record = await self._load_plugin_from_path_unlocked(
+                    source_path,
+                    manifest,
+                    config,
+                    install_dir,
+                    replace_files=force,
+                    pawport_owner=pawport_owner,
+                    recover_incomplete=recover_incomplete,
+                )
+                if after_load is not None:
+                    maybe_loaded = after_load(record)
+                    if inspect.isawaitable(maybe_loaded):
+                        await maybe_loaded
+                if pawport_owner is not None:
+                    await asyncio.to_thread(
+                        (record.source_path / _PAWPORT_MARKER).unlink,
+                        missing_ok=True,
+                    )
+                return record
+            except BaseException:
+                if record is not None and plugin_id in self._loaded_plugins:
+                    await self._unload_plugin_unlocked(
+                        plugin_id,
+                        delete_files=False,
+                    )
+                if pawport_owner is not None:
+                    await asyncio.to_thread(
+                        self._remove_incomplete_pawport_plugin,
+                        install_dir,
+                        plugin_id,
+                        pawport_owner,
+                    )
+                raise
 
     async def _load_plugin_from_path_unlocked(
         self,
@@ -1159,6 +1200,10 @@ class PluginLoader:
         manifest: PluginManifest,
         config: Optional[Dict] = None,
         install_dir: Optional[Path] = None,
+        *,
+        replace_files: bool = False,
+        pawport_owner: Optional[dict[str, Any]] = None,
+        recover_incomplete: bool = False,
     ) -> PluginRecord:
         """Install+load from path; caller must hold lifecycle for id."""
         plugin_id = manifest.id
@@ -1187,21 +1232,64 @@ class PluginLoader:
         )
 
         # Guard against path-traversal in plugin_id (e.g. "../../etc")
-        if not target_dir.is_relative_to(resolved_install_dir):
+        if (
+            target_dir == resolved_install_dir
+            or not target_dir.is_relative_to(resolved_install_dir)
+        ):
             raise ValueError(
-                f"Plugin id '{plugin_id}' resolves outside the plugin "
-                f"directory ({resolved_install_dir}). Refusing to install.",
+                f"Plugin id '{plugin_id}' does not resolve to a safe child "
+                f"of the plugin directory ({resolved_install_dir}). "
+                "Refusing to install.",
             )
 
         # Copy files when source is not already the target (off the loop).
         if source_path != target_dir:
 
-            def _replace_tree() -> None:
+            def _copy_tree() -> None:
                 if target_dir.exists():
-                    shutil.rmtree(target_dir)
-                shutil.copytree(source_path, target_dir)
+                    marker_path = target_dir / _PAWPORT_MARKER
+                    try:
+                        marker = json.loads(marker_path.read_text())
+                    except (OSError, ValueError, TypeError):
+                        marker = {}
+                    if (
+                        recover_incomplete
+                        and pawport_owner is not None
+                        and marker.get("state") == "prepared"
+                        and _marker_matches(marker, pawport_owner)
+                    ):
+                        shutil.rmtree(target_dir)
+                    if not replace_files:
+                        if target_dir.exists():
+                            raise ValueError(
+                                f"Plugin installation target already exists: "
+                                f"{target_dir}",
+                            )
+                    elif target_dir.exists():
+                        shutil.rmtree(target_dir)
+                target_dir.parent.mkdir(parents=True, exist_ok=True)
+                stage_root = Path(
+                    tempfile.mkdtemp(
+                        prefix=f".{plugin_id}.install-",
+                        dir=target_dir.parent,
+                    ),
+                )
+                stage_dir = stage_root / plugin_id
+                try:
+                    shutil.copytree(source_path, stage_dir)
+                    if pawport_owner is not None:
+                        (stage_dir / _PAWPORT_MARKER).write_text(
+                            json.dumps(
+                                {**pawport_owner, "state": "prepared"},
+                                sort_keys=True,
+                            ),
+                            encoding="utf-8",
+                        )
+                    os.rename(stage_dir, target_dir)
+                finally:
+                    shutil.rmtree(stage_root, ignore_errors=True)
 
-            await asyncio.to_thread(_replace_tree)
+            await asyncio.to_thread(_copy_tree)
             logger.info(
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
@@ -1223,6 +1311,26 @@ class PluginLoader:
         )
         del _installed_path
         return await self.load_plugin(installed_manifest, target_dir, config)
+
+    def _remove_incomplete_pawport_plugin(
+        self,
+        install_dir: Optional[Path],
+        plugin_id: str,
+        owner: dict[str, Any],
+    ) -> None:
+        base = Path(install_dir or self.plugin_dirs[0]).resolve()
+        target = (base / plugin_id).resolve()
+        if target.parent != base or not target.is_dir():
+            return
+        try:
+            marker = json.loads((target / _PAWPORT_MARKER).read_text())
+        except (OSError, ValueError, TypeError):
+            return
+        if marker.get("state") == "prepared" and _marker_matches(
+            marker,
+            owner,
+        ):
+            shutil.rmtree(target)
 
     async def unload_plugin(
         self,

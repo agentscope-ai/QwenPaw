@@ -7,7 +7,7 @@ import {
   Tag,
   Tooltip,
 } from "@agentscope-ai/design";
-import { AutoComplete } from "antd";
+import { ModelIdentityFields } from "./ModelIdentityFields";
 import {
   ChevronDown,
   CloudCog,
@@ -57,7 +57,8 @@ export function RemoteModelManageModal({
   const { t } = useTranslation();
   const iconButtonStyle = { color: "var(--app-text-secondary)" };
   const { message } = useAppMessage();
-  const supportsAutoDiscover = provider.support_model_discovery;
+  const isManaged = provider.id === "hub-managed";
+  const supportsAutoDiscover = !isManaged && provider.support_model_discovery;
   const [adding, setAdding] = useState(false);
   const [saving, setSaving] = useState(false);
   const [bulkAdding, setBulkAdding] = useState(false);
@@ -647,7 +648,8 @@ export function RemoteModelManageModal({
         ) : (
           <>
             {filteredModels.slice(0, visibleCount).map((m) => {
-              const isDeletable = provider.is_custom || extraModelIds.has(m.id);
+              const isDeletable =
+                !isManaged && (provider.is_custom || extraModelIds.has(m.id));
               const isConfigOpen = configOpenModelId === m.id;
               return (
                 <div key={m.id}>
@@ -692,69 +694,83 @@ export function RemoteModelManageModal({
                           />
                         )}
                         {t(
-                          isDeletable
+                          isManaged
+                            ? "hub.governance.provider.organization"
+                            : isDeletable
                             ? "models.userAdded"
                             : m.source === "discovered"
                             ? "models.discovered"
                             : "models.builtin",
                         )}
                       </Tag>
-                      <span
-                        className={styles.modelListItemActionDivider}
-                        style={{
-                          display: "inline-block",
-                          width: 1,
-                          height: 16,
-                          background: "var(--app-border-strong)",
-                          margin: "0 8px",
-                          flexShrink: 0,
-                        }}
-                      />
-                      <Tooltip
-                        title={t("models.probeMultimodal", "测试多模态")}
-                      >
-                        <Button
-                          type="text"
-                          size="small"
-                          className={styles.modelListActionButton}
-                          aria-label={t("models.probeMultimodal", "测试多模态")}
-                          icon={<FlaskConical size={18} />}
-                          onClick={() => handleProbeMultimodal(m.id)}
-                          loading={probingModelId === m.id}
-                          style={iconButtonStyle}
-                        />
-                      </Tooltip>
-                      <Tooltip title={t("models.testConnection")}>
-                        <Button
-                          type="text"
-                          size="small"
-                          className={styles.modelListActionButton}
-                          aria-label={t("models.testConnection")}
-                          icon={<PlugZap size={18} />}
-                          onClick={() => handleTestModel(m.id)}
-                          loading={testingModelId === m.id}
-                          style={iconButtonStyle}
-                        />
-                      </Tooltip>
-                      <Tooltip title={t("models.modelConfigLabel", "模型配置")}>
-                        <Button
-                          type="text"
-                          size="small"
-                          className={styles.modelListActionButton}
-                          aria-label={t("models.modelConfigLabel", "模型配置")}
-                          icon={
-                            isConfigOpen ? (
-                              <ChevronDown size={18} />
-                            ) : (
-                              <Settings size={18} />
-                            )
-                          }
-                          onClick={() =>
-                            setConfigOpenModelId(isConfigOpen ? null : m.id)
-                          }
-                          style={iconButtonStyle}
-                        />
-                      </Tooltip>
+                      {!isManaged && (
+                        <>
+                          <span
+                            className={styles.modelListItemActionDivider}
+                            style={{
+                              display: "inline-block",
+                              width: 1,
+                              height: 16,
+                              background: "var(--app-border-strong)",
+                              margin: "0 8px",
+                              flexShrink: 0,
+                            }}
+                          />
+                          <Tooltip
+                            title={t("models.probeMultimodal", "测试多模态")}
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              className={styles.modelListActionButton}
+                              aria-label={t(
+                                "models.probeMultimodal",
+                                "测试多模态",
+                              )}
+                              icon={<FlaskConical size={18} />}
+                              onClick={() => handleProbeMultimodal(m.id)}
+                              loading={probingModelId === m.id}
+                              style={iconButtonStyle}
+                            />
+                          </Tooltip>
+                          <Tooltip title={t("models.testConnection")}>
+                            <Button
+                              type="text"
+                              size="small"
+                              className={styles.modelListActionButton}
+                              aria-label={t("models.testConnection")}
+                              icon={<PlugZap size={18} />}
+                              onClick={() => handleTestModel(m.id)}
+                              loading={testingModelId === m.id}
+                              style={iconButtonStyle}
+                            />
+                          </Tooltip>
+                          <Tooltip
+                            title={t("models.modelConfigLabel", "模型配置")}
+                          >
+                            <Button
+                              type="text"
+                              size="small"
+                              className={styles.modelListActionButton}
+                              aria-label={t(
+                                "models.modelConfigLabel",
+                                "模型配置",
+                              )}
+                              icon={
+                                isConfigOpen ? (
+                                  <ChevronDown size={18} />
+                                ) : (
+                                  <Settings size={18} />
+                                )
+                              }
+                              onClick={() =>
+                                setConfigOpenModelId(isConfigOpen ? null : m.id)
+                              }
+                              style={iconButtonStyle}
+                            />
+                          </Tooltip>
+                        </>
+                      )}
                       {isDeletable && (
                         <Tooltip title={t("models.removeModel")}>
                           <Button
@@ -851,43 +867,15 @@ export function RemoteModelManageModal({
       )}
 
       {/* Add model section */}
-      {!isOpenRouter &&
+      {!isManaged &&
+        !isOpenRouter &&
         (adding ? (
           <div className={styles.modelAddForm}>
             <Form form={form} layout="vertical" style={{ marginBottom: 0 }}>
-              <Form.Item
-                name="id"
-                label={t("models.modelIdLabel")}
-                rules={[{ required: true, message: t("models.modelIdLabel") }]}
-                style={{ marginBottom: 12 }}
-              >
-                <AutoComplete
-                  placeholder={t("models.modelIdPlaceholder")}
-                  options={discoveredModelOptions}
-                  filterOption={(
-                    inputValue: string,
-                    option?: { value?: string },
-                  ) =>
-                    option?.value
-                      ?.toLowerCase()
-                      .includes(inputValue.toLowerCase()) ?? false
-                  }
-                  notFoundContent={
-                    previewDiscovering
-                      ? t("common.loading")
-                      : t("models.modelDiscoveryUnavailableHint")
-                  }
-                >
-                  <Input />
-                </AutoComplete>
-              </Form.Item>
-              <Form.Item
-                name="name"
-                label={t("models.modelNameLabel")}
-                style={{ marginBottom: 12 }}
-              >
-                <Input placeholder={t("models.modelNamePlaceholder")} />
-              </Form.Item>
+              <ModelIdentityFields
+                options={discoveredModelOptions}
+                loading={previewDiscovering}
+              />
               <div
                 style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}
               >

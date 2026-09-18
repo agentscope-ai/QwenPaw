@@ -29,13 +29,14 @@ from fastapi.testclient import TestClient
 from qwenpaw.app.crons import heartbeat
 from qwenpaw.app.exception_handlers import register_exception_handlers
 from qwenpaw.app.routers.config import router as config_router
-from qwenpaw.config import get_available_channels
+from qwenpaw.config import get_available_channels, load_config
 from qwenpaw.config.config import (
     ChannelConfig,
     ConsoleConfig,
     HeartbeatConfig,
     OneBotConfig,
     TelegramConfig,
+    ThemeConfig,
     ToolGuardConfig,
 )
 from qwenpaw.constant import (
@@ -562,6 +563,60 @@ def test_put_heartbeat_rejects_timeout_above_max(
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize(
+    ("non_finite_literal", "serialized_input"),
+    [
+        ("NaN", "NaN"),
+        ("Infinity", "Infinity"),
+        ("-Infinity", "-Infinity"),
+    ],
+)
+def test_put_heartbeat_serializes_non_finite_validation_input(
+    client,
+    patch_get_agent,
+    non_finite_literal,
+    serialized_input,
+):
+    """Non-finite rejected inputs remain observable in a valid 422 body."""
+    response = client.put(
+        "/api/config/heartbeat",
+        content=f'{{"timeoutSeconds": {non_finite_literal}}}',
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "timeoutSeconds"]
+    assert error["input"] == serialized_input
+
+
+@pytest.mark.parametrize(
+    ("timeout_seconds", "constraint", "limit"),
+    [
+        (0, "ge", 1),
+        (3601, "le", 3600),
+    ],
+)
+def test_put_heartbeat_preserves_finite_validation_error_details(
+    client,
+    patch_get_agent,
+    timeout_seconds,
+    constraint,
+    limit,
+):
+    """The global handler preserves ordinary Pydantic error details."""
+    response = client.put(
+        "/api/config/heartbeat",
+        json={"timeoutSeconds": timeout_seconds},
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "timeoutSeconds"]
+    assert error["input"] == timeout_seconds
+    assert error["ctx"] == {constraint: limit}
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("target", "last_dispatch"),
@@ -675,6 +730,104 @@ def test_put_tool_guard_saves_and_reloads_engine(client):
     # The handler must flip the engine flag AND ask it to reload rules.
     assert engine_mock.enabled is True
     engine_mock.reload_rules.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# /config/theme
+# ---------------------------------------------------------------------------
+
+
+def test_get_theme_returns_sparse_defaults(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = None
+    read_config = AsyncMock(return_value=fake_cfg)
+
+    with patch(
+        "qwenpaw.app.routers.config.run_sync_io",
+        new=read_config,
+    ):
+        response = client.get("/api/config/theme")
+
+    assert response.status_code == 200
+    assert response.json() == {}
+    read_config.assert_awaited_once_with(load_config)
+
+
+def test_put_theme_persists_without_agent_reload(client):
+    fake_cfg = MagicMock()
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.put(
+            "/api/config/theme",
+            json={
+                "accent": "#0b57d0",
+                "radius": "12px",
+                "dark": {"surface": "#1a1a1a"},
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "accent": "#0b57d0",
+        "radius": "12px",
+        "dark": {"surface": "#1a1a1a"},
+    }
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme.accent == "#0b57d0"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "url(javascript:alert(1))",
+        "rgb(0,0,0) url(https://example.invalid/pixel)",
+        "rgb(not-a-color)",
+        "#12345",
+    ],
+)
+def test_put_theme_rejects_invalid_css_values(client, value):
+    response = client.put(
+        "/api/config/theme",
+        json={"accent_bg": value},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "#abc",
+        "#11223380",
+        "rgb(11, 87, 208)",
+        "rgb(11 87 208 / 50%)",
+        "rgba(11, 87, 208, 0.1)",
+        "hsl(210, 90%, 43%)",
+        "hsl(210deg 90% 43% / 50%)",
+    ],
+)
+def test_theme_config_accepts_supported_css_values(value):
+    assert ThemeConfig(accent=value).accent == value
+
+
+def test_delete_theme_clears_persisted_config(client):
+    fake_cfg = MagicMock()
+    fake_cfg.theme = ThemeConfig(accent="#0b57d0")
+    calls = []
+
+    with patch(
+        "qwenpaw.app.routers.config.mutate_config",
+        side_effect=_root_transaction(fake_cfg, calls),
+    ):
+        response = client.delete("/api/config/theme")
+
+    assert response.status_code == 204
+    assert calls == [fake_cfg]
+    assert fake_cfg.theme is None
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ open `http://127.0.0.1:8088/` in your browser to enter the Console.
 - Manage MCP clients
 - Modify runtime configuration
 - Manage multiple agents
+- Import conversations and tool settings from Codex and Qoder
 - Connect mailboxes and review automatic new-mail processing
 - Configure LLM providers and select models
 - Manage environment variables required by tools
@@ -465,6 +466,19 @@ Select rows → click **Delete** in the toolbar → confirm.
 > values.
 >
 > See [Config — Environment variables](./config#environment-variables).
+
+---
+
+## Import
+
+The **Import** page brings supported local Codex and Qoder conversations, memory,
+Skills, MCP, plugins, and scheduled tasks into the selected QwenPaw agent.
+
+Select a destination agent using the native QwenPaw backend, then follow
+**Applications → Choose content → Import**. Plugins are not selected by default.
+Afterwards, check Skill/MCP activation and review imported schedules separately.
+Import endpoints allow local access only. See [Import](./import) for the
+complete workflow.
 
 ---
 

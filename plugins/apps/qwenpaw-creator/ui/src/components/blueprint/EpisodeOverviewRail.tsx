@@ -64,11 +64,13 @@ export function EntityGroup({
   entities,
   onOpen,
   onRemove,
+  onPreview,
 }: {
   label: string;
   entities: VisualEntityDocument[];
   onOpen: (entityId: string) => void;
   onRemove?: (entityId: string) => void;
+  onPreview?: (versionId: string) => void;
 }) {
   const { t } = useTranslation();
   if (entities.length === 0) return null;
@@ -99,6 +101,14 @@ export function EntityGroup({
                       src={getArtifactVersionMediaUrl(versionId)}
                       alt=""
                       loading="lazy"
+                      onClick={
+                        onPreview
+                          ? (event) => {
+                              event.stopPropagation();
+                              onPreview(versionId);
+                            }
+                          : undefined
+                      }
                       className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                     />
                   ) : (

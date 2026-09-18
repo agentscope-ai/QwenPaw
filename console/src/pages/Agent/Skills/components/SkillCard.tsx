@@ -16,10 +16,12 @@ import {
 import dayjs from "dayjs";
 import type { SkillSpec } from "../../../../api/types";
 import { useTranslation } from "react-i18next";
+import { normalizeSkillChannels } from "../../../../utils/skill";
 import styles from "../index.module.less";
 
 interface SkillCardProps {
   skill: SkillSpec;
+  getChannelName?: (key: string) => string;
   selected?: boolean;
   onSelect?: (e: React.MouseEvent) => void;
   onClick: () => void;
@@ -138,6 +140,7 @@ export const getSkillVisual = (name: string, emoji?: string) => {
 
 export const SkillCard = React.memo(function SkillCard({
   skill,
+  getChannelName,
   selected,
   onSelect,
   onClick,
@@ -242,8 +245,14 @@ export const SkillCard = React.memo(function SkillCard({
       <div className={styles.metaInfoRow}>
         <span className={styles.metaInfoLabel}>{t("skills.channels")}</span>
         <span className={styles.metaInfoValue}>
-          {(skill.channels || ["all"])
-            .map((ch) => (ch === "all" ? t("skills.allChannels") : ch))
+          {normalizeSkillChannels(skill.channels)
+            .map((ch) =>
+              getChannelName
+                ? getChannelName(ch)
+                : ch === "all"
+                ? t("skills.allChannels")
+                : ch,
+            )
             .join(", ")}
         </span>
       </div>

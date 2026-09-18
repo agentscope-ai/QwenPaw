@@ -786,9 +786,13 @@ def _feedback_message_text(
     payload = findings_feedback_payload(report)
     return (
         f"【成片自我审阅反馈 · 第 {report.round}/{MAX_REVIEW_ROUNDS} 轮】\n"
-        f"成片 {report.video_ref} 未通过自我审阅。请委派 ai_editing_director "
-        f"修订 {target_ref}：仅修复下列结构化审阅发现中列出的问题，不要扩大改动"
-        "范围，修订完成后重新合成成片。\n\n"
+        f"成片 {report.video_ref} 未通过自动自我审阅。这是系统建议，"
+        "不是新的用户要求；先核对用户当前目标与已明确保留的产物。"
+        "若用户明确要求保留现有媒体、停止效果返修或只完成交付，"
+        "记录下列缺陷并继续用户要求的合成或交付，不得据此重新生成媒体。"
+        "在用户仍允许修订的范围内，再按证据判断是否委派 "
+        f"ai_editing_director 修订 {target_ref}；仅修复下列问题，"
+        "不要扩大范围，修订完成后重新合成成片。\n\n"
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 
@@ -1047,11 +1051,17 @@ def schedule_render_review(
     convergence path (fresh render, idempotent replay, fingerprint reuse and
     crash recovery) may call it; the review-side round admission dedups
     already-reviewed and in-flight artifact versions.
+
+    Only a render that requested review when its result was created is
+    eligible. Replaying a completed or legacy result cannot opt it in.
     """
     try:
         from models.config import is_self_review_enabled
 
-        if not is_self_review_enabled():
+        if (
+            published_result.get("selfReviewEnabled") is not True
+            or not is_self_review_enabled()
+        ):
             return
         if str(published_result.get("commandType") or "") != (
             "COMPOSE_FINAL_VIDEO"

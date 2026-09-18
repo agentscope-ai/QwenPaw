@@ -2,6 +2,7 @@
 """Explicit text proposal/accept workflow; never dispatches media."""
 
 import asyncio
+from typing import Literal
 
 from fastapi import APIRouter, Depends
 from pydantic import Field
@@ -30,6 +31,7 @@ async def prompt_status(
     project_id: str,
     timeline_id: str,
     element_id: str,
+    stage: Literal["storyboard", "video"] | None = None,
     services=Depends(project_file_services),
 ):
     return await asyncio.to_thread(
@@ -37,6 +39,7 @@ async def prompt_status(
         project_id,
         timeline_id,
         element_id,
+        stage=stage,
     )
 
 
@@ -70,4 +73,20 @@ async def accept_prompts(
         timeline_id,
         element_id,
         proposal_id,
+    )
+
+
+@router.post("/prompt-sync/confirm")
+async def confirm_current_prompts(
+    project_id: str,
+    timeline_id: str,
+    element_id: str,
+    services=Depends(project_file_services),
+):
+    # Keep the existing plan/prompts and only re-stamp the sync baseline, so a
+    # user can clear the gate without commissioning an AI rewrite (#7720).
+    return await PromptSyncService(services).confirm_current(
+        project_id,
+        timeline_id,
+        element_id,
     )

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { PawPrint } from "lucide-react";
 import styles from "./ProviderIconComponent.module.less";
 import { providerIcon } from "./providerIcon";
 import {
@@ -28,6 +29,18 @@ export const ProviderIcon: React.FC<ProviderIconProps> = ({
   const [imageFailed, setImageFailed] = useState(false);
 
   const borderRadius = size * 0.25;
+
+  if (providerId === "hub-managed") {
+    return (
+      <PawPrint
+        size={size}
+        strokeWidth={1.5}
+        aria-hidden="true"
+        data-provider-id={providerId}
+        style={{ flexShrink: 0 }}
+      />
+    );
+  }
 
   if (imageUrl && !imageFailed) {
     return (

@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Iterator, Mapping
 import asyncio
 from dataclasses import replace
 import gzip
+import json
 from pathlib import Path
 import sqlite3
 import threading
@@ -30,7 +31,11 @@ from qwenpaw.hub.config import (
 )
 from qwenpaw.hub.control_app import create_hub_app, run_hub_app
 from qwenpaw.hub.credentials import TenantCredentialVault
+from qwenpaw.hub.model_service.api_models import ConnectionBody
+from qwenpaw.hub.model_service.gateway import ModelGateway
+from qwenpaw.hub.model_service.listener import ModelListener
 from qwenpaw.hub.provisioner import (
+    RuntimeModelNetwork,
     RuntimeProvisioner,
     RuntimeProvisionerAvailability,
 )
@@ -607,7 +612,7 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
             headers=_headers(admin_token),
         )
         payload = current_settings.json()
-        payload["config"]["control_plane"]["registration"]["enabled"] = True
+        payload["config"]["control_plane"]["registration"]["mode"] = "open"
         settings = client.put(
             "/api/hub/admin/settings",
             json={
@@ -719,6 +724,46 @@ def test_settings_apply_immediately_and_reject_stale_revision(
         assert "changed concurrently" in stale.json()["detail"]
 
 
+def test_settings_return_422_for_non_finite_proxy_timeout(
+    admin_client: tuple[TestClient, str],
+) -> None:
+    """Hub validation errors use the shared JSON-safe response handler."""
+    client, admin_token = admin_client
+    current = client.get(
+        "/api/hub/admin/settings",
+        headers=_headers(admin_token),
+    )
+    payload = current.json()
+    payload["config"]["control_plane"]["proxy"][
+        "request_idle_timeout_seconds"
+    ] = float("nan")
+
+    response = client.put(
+        "/api/hub/admin/settings",
+        content=json.dumps(
+            {
+                "revision": payload["revision"],
+                "config": payload["config"],
+            },
+        ),
+        headers={
+            **_headers(admin_token),
+            "content-type": "application/json",
+        },
+    )
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == [
+        "body",
+        "config",
+        "control_plane",
+        "proxy",
+        "request_idle_timeout_seconds",
+    ]
+    assert error["input"] == "NaN"
+
+
 def test_credential_api_never_returns_plaintext(tmp_path: Path) -> None:
     with _client(tmp_path) as client:
         token = _register(client, "owner")
@@ -771,6 +816,230 @@ def test_standard_api_proxies_to_personal_runtime(tmp_path: Path) -> None:
         assert runtimes["items"][0]["state"] == "running"
         assert runtimes["items"][0]["owner_user_id"]
         assert runtimes["items"][0]["metadata"]["hub_default"] is True
+
+
+@pytest.mark.parametrize("path", ["runtime-probe", "models"])
+def test_personal_api_without_model_capability(
+    tmp_path: Path,
+    path: str,
+) -> None:
+    """An already-running runtime needs no model token for personal APIs."""
+    calls = []
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        token = _register(client, "owner")
+        assert (
+            client.get(
+                "/api/runtime-probe",
+                headers=_headers(token),
+            ).status_code
+            == 200
+        )
+        store = client.app.state.model_catalog.store
+        with store.connect() as db:
+            db.execute("DELETE FROM hub_model_runtime_tokens")
+        response = client.get(f"/api/{path}", headers=_headers(token))
+
+        assert response.status_code == 200
+        assert calls == ["/api/runtime-probe", f"/api/{path}"]
+        with store.connect() as db:
+            assert (
+                db.execute(
+                    "SELECT COUNT(*) FROM hub_model_runtime_tokens",
+                ).fetchone()[0]
+                == 0
+            )
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", "catalog"),
+        ("POST", "v1/chat/completions"),
+    ],
+)
+def test_model_routes_only_exist_on_model_listener(
+    tmp_path: Path,
+    method: str,
+    path: str,
+) -> None:
+    """Model capabilities cannot reach control routes or bypass isolation."""
+    calls = []
+
+    async def proxy_handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        token = _register(client, "owner")
+        client.get("/api/runtime-probe", headers=_headers(token))
+        state = client.app.state
+        record = state.runtime_service.registry.list()[0]
+        capability = state.model_catalog.issue_token(record)
+        calls.clear()
+        url = f"/api/hub/model-runtime/{path}"
+        for credential in (token, capability):
+            response = client.request(
+                method,
+                url,
+                headers=_headers(credential),
+                json={},
+            )
+            assert response.status_code in (401, 404)
+        assert not calls
+
+        with TestClient(state.model_listener.app) as model_client:
+            for credential in ("", token):
+                response = model_client.request(
+                    method,
+                    url,
+                    headers=_headers(credential),
+                    json={},
+                )
+                assert response.status_code == 401
+            response = model_client.request(
+                method,
+                url,
+                headers=_headers(capability),
+                json={},
+            )
+            assert response.status_code == (200 if method == "GET" else 422)
+            for control_path in ("admin/model-policy", "me/models"):
+                assert (
+                    model_client.get(
+                        f"/api/hub/{control_path}",
+                        headers=_headers(capability),
+                    ).status_code
+                    == 404
+                )
+
+
+def test_model_network_snapshot_is_reused_for_credentials(
+    tmp_path: Path,
+) -> None:
+    """Binding and runtime injection share one provisioner discovery."""
+    provisioner = _FakeProvisioner()
+    network = RuntimeModelNetwork("127.0.0.1", "runtime-host.example")
+
+    async def proxy_handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with (
+        patch.object(
+            provisioner,
+            "model_network",
+            return_value=network,
+        ) as discover,
+        patch.object(provisioner, "start", wraps=provisioner.start) as start,
+        _client(
+            tmp_path,
+            httpx.MockTransport(proxy_handler),
+            runtime_provisioner=provisioner,
+        ) as client,
+    ):
+        token = _register(client, "owner")
+        assert (
+            client.get(
+                "/api/runtime-probe",
+                headers=_headers(token),
+            ).status_code
+            == 200
+        )
+        discover.assert_called_once_with()
+        credentials = start.call_args.args[1]
+        assert credentials["QWENPAW_HUB_MODEL_URL"] == network.url(
+            client.app.state.model_listener.port,
+        )
+
+
+def test_admin_model_test_keeps_shared_gateway(
+    admin_client: tuple[TestClient, str],
+) -> None:
+    """Listener separation preserves administrator model test requests."""
+    client, token = admin_client
+    with patch.object(
+        client.app.state.model_gateway,
+        "call",
+        return_value={"ok": True},
+    ) as call:
+        response = client.post(
+            "/api/hub/admin/models/model-a/test",
+            headers=_headers(token),
+        )
+    assert response.status_code == 200
+    call.assert_awaited_once()
+    identity, body = call.call_args.args
+    assert identity["runtime_id"] == "admin-test"
+    assert body["model"] == "model-a"
+
+
+def test_model_startup_io_runs_outside_event_loop(tmp_path: Path) -> None:
+    """Recovery and listener binding must not block the Hub event loop."""
+    checked = []
+    recover = ModelGateway.recover
+    bind = ModelListener._bind  # pylint: disable=protected-access
+    discover = _FakeProvisioner.model_network
+
+    def assert_worker(name: str) -> None:
+        with pytest.raises(RuntimeError, match="no running event loop"):
+            asyncio.get_running_loop()
+        checked.append(name)
+
+    def recover_off_loop(gateway: ModelGateway) -> None:
+        assert_worker("recover")
+        recover(gateway)
+
+    def bind_off_loop(listener: ModelListener, hosts):
+        assert_worker("bind")
+        return bind(listener, hosts)
+
+    def discover_off_loop(provisioner: _FakeProvisioner):
+        assert_worker("discover")
+        return discover(provisioner)
+
+    with (
+        patch.object(ModelGateway, "recover", recover_off_loop),
+        patch.object(ModelListener, "_bind", bind_off_loop),
+        patch.object(_FakeProvisioner, "model_network", discover_off_loop),
+        _client(tmp_path),
+    ):
+        assert checked == ["recover", "discover", "bind"]
+
+
+def test_model_secret_cleanup_log_is_redacted(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A cleanup failure cannot leak keys or vault references via errors."""
+    with _client(tmp_path) as client:
+        catalog = client.app.state.model_catalog
+        body = ConnectionBody(
+            name="Provider",
+            base_url="https://example.com/v1",
+            api_key="test-sensitive-key",
+            quota_scope="provider",
+        )
+        with (
+            patch.object(
+                catalog,
+                "_validate_default",
+                side_effect=ValueError("invalid default"),
+            ),
+            patch.object(
+                catalog.vault,
+                "delete",
+                side_effect=RuntimeError("MODEL_reference test-sensitive-key"),
+            ),
+            pytest.raises(ValueError, match="invalid default"),
+        ):
+            catalog.save_connection(body)
+        assert "Could not remove unused model secret" in caplog.text
+        assert "MODEL_" not in caplog.text
+        assert body.api_key not in caplog.text
 
 
 def test_runtime_create_rejects_endpoint_overrides(tmp_path: Path) -> None:
@@ -963,19 +1232,18 @@ def test_proxy_closes_upstream_client_when_request_disconnects(
     upstream_client = _DisconnectingClient()
     with _client(tmp_path) as client:
         token = _register(client, "owner")
-        with (
-            patch(
-                "qwenpaw.hub.control_app.httpx.AsyncClient",
-                return_value=upstream_client,
-            ),
-            pytest.raises(ClientDisconnect),
+        with patch(
+            "qwenpaw.hub.control_app.httpx.AsyncClient",
+            return_value=upstream_client,
         ):
-            client.post(
+            response = client.post(
                 "/api/runtime-probe",
                 content=b"partial request",
                 headers=_headers(token),
             )
 
+    assert response.status_code == 499
+    assert response.content == b""
     assert upstream_client.closed is True
 
 
@@ -1300,6 +1568,167 @@ def test_operations_overview_and_audit_are_real_and_sanitized(
             "credential.store",
             "runtime.create",
         }
+
+
+def test_login_attempts_are_audited_with_outcome_and_source(
+    tmp_path: Path,
+) -> None:
+    """Granted and rejected logins must both reach the audit log."""
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        granted = client.post(
+            "/api/auth/login",
+            json={"username": "owner", "password": "safe-password"},
+        )
+        rejected = client.post(
+            "/api/auth/login",
+            json={"username": "owner", "password": "wrong-password"},
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=auth.login&page_size=10",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert granted.status_code == 200
+        assert rejected.status_code == 401
+        assert audit.json()["total"] == 2
+        assert {event["outcome"] for event in events} == {
+            "failure",
+            "success",
+        }
+        failure = next(
+            event for event in events if event["outcome"] == "failure"
+        )
+        success = next(
+            event for event in events if event["outcome"] == "success"
+        )
+        assert failure["actor_username"] == "owner"
+        assert failure["remote_address"]
+        assert failure["detail"]["reason"]
+        assert success["actor_user_id"]
+        assert "wrong-password" not in audit.text
+
+
+def test_rejected_registration_is_audited(tmp_path: Path) -> None:
+    """A denied registration attempt must leave an audit trail."""
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        duplicate = client.post(
+            "/api/auth/register",
+            json={"username": "owner", "password": "safe-password"},
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=auth.register",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert duplicate.status_code in (403, 409)
+        assert audit.json()["total"] == 2
+        denied = next(
+            event for event in events if event["outcome"] == "failure"
+        )
+        assert denied["actor_username"] == "owner"
+        assert denied["detail"]["reason"]
+
+
+def test_failed_runtime_creation_is_audited(tmp_path: Path) -> None:
+    """A rejected runtime creation must be audited, not silently lost."""
+    with _client(tmp_path, provisioner_available=False) as client:
+        token = _register(client, "owner")
+        created = client.post(
+            "/api/hub/runtimes",
+            json={"runtime_id": "blocked-runtime"},
+            headers=_headers(token),
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=runtime.create",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert created.status_code == 503
+        assert audit.json()["total"] == 1
+        assert events[0]["outcome"] == "failure"
+        assert events[0]["resource_id"] == "blocked-runtime"
+        assert "sandbox unavailable" in events[0]["detail"]["reason"]
+
+
+def test_reserved_metadata_rejection_is_audited(tmp_path: Path) -> None:
+    """A denied backend override must be audited like other denials."""
+    with _client(tmp_path) as client:
+        token = _register(client, "owner")
+        rejected = client.post(
+            "/api/hub/runtimes",
+            json={
+                "runtime_id": "blocked",
+                "metadata": {"docker": {"image": "attacker/image"}},
+            },
+            headers=_headers(token),
+        )
+
+        audit = client.get(
+            "/api/hub/admin/audit?action=runtime.create&outcome=failure",
+            headers=_headers(token),
+        )
+        events = audit.json()["items"]
+
+        assert rejected.status_code == 400
+        assert audit.json()["total"] == 1
+        assert events[0]["resource_id"] == "blocked"
+        assert "administrator-controlled" in events[0]["detail"]["reason"]
+        assert "docker" in events[0]["detail"]["reason"]
+        assert "attacker/image" not in audit.text
+
+
+def test_audit_store_failure_never_blocks_authentication(
+    tmp_path: Path,
+) -> None:
+    """Broken telemetry must not mask the real authentication result."""
+    with _client(tmp_path) as client:
+        _register(client, "owner")
+        with patch.object(
+            client.app.state.operations,
+            "record",
+            side_effect=RuntimeError("database is locked"),
+        ):
+            granted = client.post(
+                "/api/auth/login",
+                json={"username": "owner", "password": "safe-password"},
+            )
+            rejected = client.post(
+                "/api/auth/login",
+                json={"username": "owner", "password": "wrong-password"},
+            )
+
+        assert granted.status_code == 200
+        assert granted.json()["token"]
+        assert rejected.status_code == 401
+
+
+def test_audit_store_failure_keeps_runtime_error_status(
+    tmp_path: Path,
+) -> None:
+    """Broken telemetry must not replace the real runtime error status."""
+    with _client(tmp_path, provisioner_available=False) as client:
+        token = _register(client, "owner")
+        with patch.object(
+            client.app.state.operations,
+            "record",
+            side_effect=RuntimeError("database is locked"),
+        ):
+            created = client.post(
+                "/api/hub/runtimes",
+                json={"runtime_id": "blocked-runtime"},
+                headers=_headers(token),
+            )
+
+        assert created.status_code == 503
+        assert "sandbox unavailable" in created.json()["detail"]
 
 
 @pytest.mark.parametrize(

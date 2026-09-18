@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import FileProjectReviewPanel from "@/components/agent/FileProjectReviewPanel";
+import FileProjectReviewPanel, {
+  reviewPendingUnits,
+} from "@/components/agent/FileProjectReviewPanel";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { makeReviewOperation, makeReviewRecord } from "@/test/agentFixtures";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
@@ -175,5 +177,34 @@ describe("FileProjectReviewPanel", () => {
       }),
       expect.objectContaining({ review: true }),
     );
+  });
+
+  it("keeps authoring changes visible when their old storyboard becomes stale", () => {
+    const value = review();
+    value.operations.push(
+      makeReviewOperation({
+        operation_id: "stale-storyboard",
+        json_pointer: "/assets/artifact_versions_by_id/ver-old/stale",
+        before: false,
+        after: true,
+        ui_locator: {
+          page: "element",
+          elementId: "el-1",
+          mediaType: "image",
+          artifactKind: "r2v_storyboard_image",
+          artifactVersionId: "ver-old",
+        },
+      }),
+    );
+    setup(value);
+    expect(reviewPendingUnits(value)).toBe(2);
+    expect(screen.getByText("创作修改")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "查看 当前项目 · 描述" }),
+    ).toBeVisible();
+    expect(screen.queryByText("分镜图审阅")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "查看生成详情" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -23,17 +23,8 @@
   white-space: nowrap;
   max-width: 180px;
 
-  @media (max-width: 480px) {
-    position: relative;
-    overflow: hidden;
-    text-overflow: clip;
-
-    > .marquee {
-      display: inline-block;
-      padding-left: 100%;
-      animation: modelSelectorMarquee 10s linear infinite;
-    }
-  }
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .fallbackBadge {
@@ -43,19 +34,6 @@
   padding: 2px 6px;
   border-radius: 999px;
   font-size: 11px;
-}
-
-.marquee {
-  display: inline-block;
-}
-
-@keyframes modelSelectorMarquee {
-  0% {
-    transform: translateX(0);
-  }
-  100% {
-    transform: translateX(-100%);
-  }
 }
 
 /* ---- Dropdown panel ---- */

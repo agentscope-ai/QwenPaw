@@ -91,7 +91,7 @@ export function hubSettings(overrides: Partial<HubSettings> = {}): HubSettings {
       version: 1,
       control_plane: {
         public_base_url: "https://hub.example.com",
-        registration: { enabled: false, default_role: "user" },
+        registration: { mode: "closed" as const, default_role: "user" },
         security: {
           ip_blacklist: [],
           trusted_proxy_ips: [],

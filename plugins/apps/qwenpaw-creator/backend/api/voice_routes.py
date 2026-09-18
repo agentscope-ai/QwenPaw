@@ -32,7 +32,6 @@ from services.specialist_tools import (
 
 from .dependencies import CreatorErrorRoute, project_file_services
 
-
 router = APIRouter(
     prefix="/projects/{project_id}",
     tags=["character-voice"],
@@ -120,6 +119,11 @@ async def regenerate_narration(
     from services.media_files.audio_execution import (
         execute_file_tts_command,
     )
+    from services.media_files.narration_generation import (
+        begin_narration_request,
+        narration_input,
+        narration_request_store,
+    )
     from services.project_files.commit import ProjectCommitBoundary
     from services.project_files.models import (
         AudioCreation,
@@ -128,33 +132,15 @@ async def regenerate_narration(
 
     if is_snapshot_timeline_id(timeline_id):
         raise ValidationError("历史快照是冻结副本，不能重新合成旁白")
-    snapshot = await asyncio.to_thread(services.projects.read, project_id)
-    timeline = snapshot.project.timelines.items.get(timeline_id)
-    if timeline is None:
-        raise NotFoundError(f"timeline 不存在: {timeline_id}")
-    element = timeline.elements_by_id.get(element_id)
-    if element is None:
-        raise NotFoundError(f"element 不存在: {element_id}")
-    creation = element.creation
-    if not isinstance(creation, AudioCreation) or not creation.script.strip():
-        raise ValidationError("该元素不是携带台词文稿的音频元素")
-
-    current = snapshot.project.assets.source_versions_by_id.get(
-        creation.source_asset_version_id,
-    )
-    meta: dict[str, Any] = dict(current.metadata) if current else {}
-    arguments: dict[str, Any] = {
-        "text": creation.script,
-        "label": element.label or "旁白",
-    }
-    if meta.get("voice"):
-        arguments["voice"] = meta["voice"]
-    if meta.get("characterEntityId"):
-        arguments["characterRef"] = f"asset:{meta['characterEntityId']}"
-    if creation.speech_rate is not None:
-        arguments["speechRate"] = creation.speech_rate
-
     request_key = idempotency_key or f"narration-http-{uuid4().hex}"
+    arguments, input_fingerprint, request_id = await asyncio.to_thread(
+        begin_narration_request,
+        services,
+        project_id,
+        timeline_id,
+        element_id,
+        request_key,
+    )
     result = await execute_file_tts_command(
         services,
         project_id=project_id,
@@ -163,32 +149,61 @@ async def regenerate_narration(
         idempotency_key=request_key,
     )
 
-    rebound = False
     new_version_id = result.source_asset_version_id
-    if new_version_id != creation.source_asset_version_id:
 
-        def _rebind() -> None:
+    def _rebind() -> tuple[bool, str | None]:
+        # Input validation and binding share the same lock as every Project
+        # writer; a fresh CAS baseline alone cannot protect these reads.
+        with services.projects.lifecycle_lock(project_id):
             fresh = services.projects.read(project_id)
-            candidate = fresh.project.model_copy(deep=True)
-            fresh_timeline = candidate.timelines.items.get(timeline_id)
-            target = (
-                fresh_timeline.elements_by_id.get(element_id)
-                if fresh_timeline
-                else None
+            request_store = narration_request_store(
+                services,
+                project_id,
+                timeline_id,
+                element_id,
             )
-            if target is None:
-                raise NotFoundError("元素在重新合成期间被删除")
-            if not isinstance(target.creation, AudioCreation):
-                raise ValidationError("元素类型在重新合成期间被修改")
+            record = request_store.read()
+            if record.get("latestRequestId") != request_id:
+                return False, "SUPERSEDED"
+            try:
+                _, current_fingerprint = narration_input(
+                    fresh.project,
+                    timeline_id,
+                    element_id,
+                )
+            except (NotFoundError, ValidationError):
+                return False, "INPUT_CHANGED"
+            if current_fingerprint != input_fingerprint:
+                return False, "INPUT_CHANGED"
+            candidate = fresh.project.model_copy(deep=True)
+            target = candidate.timelines.items[timeline_id].elements_by_id[
+                element_id
+            ]
+            assert isinstance(target.creation, AudioCreation)
+            if target.creation.source_asset_version_id == new_version_id:
+                return False, None
             target.creation.source_asset_version_id = new_version_id
+            # A retry may observe this request's own binding change. Record
+            # the only additional input state it is allowed to replay, before
+            # publication so a crash after commit does not break idempotency.
+            _, bound_fingerprint = narration_input(
+                candidate,
+                timeline_id,
+                element_id,
+            )
+            record["requests"][request_id][
+                "boundFingerprint"
+            ] = bound_fingerprint
+            request_store.write(record)
             ProjectCommitBoundary(services.projects).commit(
                 base=fresh,
                 candidate=candidate.model_dump(mode="json"),
                 origin="runtime_task",
+                _lifecycle_lock_held=True,
             )
+            return True, None
 
-        await asyncio.to_thread(_rebind)
-        rebound = True
+    rebound, stale_reason = await asyncio.to_thread(_rebind)
 
     runtime = get_creator_agent_runtime()
     if runtime is not None and rebound:
@@ -215,6 +230,8 @@ async def regenerate_narration(
         "audioVersionId": new_version_id,
         "replayed": result.replayed,
         "rebound": rebound,
+        "stale": stale_reason is not None,
+        "staleReason": stale_reason,
         "voice": result.voice,
         "model": result.model,
         "durationSeconds": result.duration_seconds,

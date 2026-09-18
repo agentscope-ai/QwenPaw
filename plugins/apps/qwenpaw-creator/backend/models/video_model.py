@@ -15,6 +15,7 @@ from typing import Optional
 from models.concurrency import model_slot
 from models import config as model_config
 from models.provider_tasks import note_provider_task
+from models.reference_audio import wan_voice_excerpt
 from models.media_transport import (
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
     read_reference_media,
@@ -203,6 +204,28 @@ async def _resolve_reference_media_url(
             f"Reference media transport failed for {filename}: {exc}",
             model_name=model_name,
         ) from exc
+
+
+async def _resolve_reference_media_urls(
+    urls: list[str],
+    backend: str,
+) -> list[tuple[str, str]]:
+    """Upload independent references concurrently without changing numbering."""
+    slots = asyncio.Semaphore(3)
+
+    async def resolve(url):
+        async with slots:
+            return await _resolve_reference_media_url(url, backend)
+
+    tasks = [asyncio.create_task(resolve(url)) for url in urls]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        # No upload should outlive a cancelled/failed generation admission.
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 def _seedance_spec(model_name: str) -> tuple[frozenset[str], int, int, bool]:
@@ -792,11 +815,14 @@ async def submit_video_task(
                 model_name=effective_model,
             )
         media.append({"type": "video", "url": resolved_video})
-        for img_url in unique_references:
-            resolved_url, media_kind = await _resolve_reference_media_url(
-                img_url,
-                upload_backend,
-            )
+        resolved_references = await _resolve_reference_media_urls(
+            unique_references,
+            upload_backend,
+        )
+        for img_url, (resolved_url, media_kind) in zip(
+            unique_references,
+            resolved_references,
+        ):
             if media_kind != "image":
                 raise ModelError(
                     "video_edit reference media must be images: "
@@ -817,11 +843,14 @@ async def submit_video_task(
             )
         voice_shape, voice_budget = voice_support or ("", 0)
         standalone_voices: list[str] = []
-        for img_url in unique_references:
-            resolved_url, media_kind = await _resolve_reference_media_url(
-                img_url,
-                upload_backend,
-            )
+        resolved_references = await _resolve_reference_media_urls(
+            unique_references,
+            upload_backend,
+        )
+        for img_url, (resolved_url, media_kind) in zip(
+            unique_references,
+            resolved_references,
+        ):
             if media_kind == "audio":
                 raise ModelError(
                     "audio files cannot be sent as image/video references; "
@@ -868,20 +897,33 @@ async def submit_video_task(
             media.append(entry)
         if voice_shape == REFERENCE_VOICE_STANDALONE and standalone_voices:
             if len(standalone_voices) > voice_budget:
-                logger.info(
-                    "Reference voices truncated to the %s cap of %d",
-                    effective_model,
-                    voice_budget,
+                raise ModelError(
+                    f"{effective_model} accepts at most {voice_budget} "
+                    "reference voices; split the dialogue into fewer speakers",
+                    model_name=effective_model,
+                    retryable=False,
                 )
-                standalone_voices = standalone_voices[:voice_budget]
             for voice_url in standalone_voices:
-                (
-                    resolved_voice,
-                    voice_kind,
-                ) = await _resolve_reference_media_url(
-                    voice_url,
-                    upload_backend,
-                )
+                if is_wan3_video_model(effective_model):
+                    async with wan_voice_excerpt(
+                        voice_url,
+                        voice_count=len(standalone_voices),
+                    ) as excerpt:
+                        (
+                            resolved_voice,
+                            voice_kind,
+                        ) = await _resolve_reference_media_url(
+                            excerpt,
+                            upload_backend,
+                        )
+                else:
+                    (
+                        resolved_voice,
+                        voice_kind,
+                    ) = await _resolve_reference_media_url(
+                        voice_url,
+                        upload_backend,
+                    )
                 if voice_kind != "audio":
                     raise ModelError(
                         "reference voice must be an audio file: "
@@ -892,6 +934,27 @@ async def submit_video_task(
                 # it into an audio_url content item.
                 media.append(
                     {"type": "reference_audio", "url": resolved_voice},
+                )
+            if is_wan3_video_model(effective_model):
+                # Standalone audio loses the per-image attachment used by
+                # Wan2.7. Restore its meaning using the actual wire order.
+                mappings = []
+                ordinals = {"reference_image": 0, "reference_video": 0}
+                for reference_url, item in zip(unique_references, media):
+                    kind = item["type"]
+                    ordinals[kind] += 1
+                    label = "图" if kind == "reference_image" else "视频"
+                    voice_url = voice_by_reference.get(reference_url)
+                    if voice_url in standalone_voices:
+                        audio_index = standalone_voices.index(voice_url) + 1
+                        mappings.append(
+                            f"{label}{ordinals[kind]}中的角色使用音频{audio_index}的音色",
+                        )
+                prompt += (
+                    "\n\n角色参考音色对应关系（按本次实际发送顺序）："
+                    + "；".join(mappings)
+                    + "。音频只提供对应角色的声音身份；台词与演唱内容遵循本段"
+                    "剧本，不复述试听样本，不让其他角色使用该声音。"
                 )
 
     url = ""

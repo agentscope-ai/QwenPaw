@@ -101,6 +101,8 @@ class RuntimeEventKind(StrEnum):
     NARRATION_REGENERATED = "narration_regenerated"
     # The user rolled a timeline back onto one of its snapshots.
     TIMELINE_SNAPSHOT_RESTORED = "timeline_snapshot_restored"
+    # The user ingested new source assets after the conversation began.
+    SOURCE_ASSETS_UPLOADED = "source_assets_uploaded"
 
 
 class NotificationLevel(StrEnum):
@@ -125,6 +127,9 @@ EVENT_LEVELS: dict[RuntimeEventKind, NotificationLevel] = {
     # reasoning about, and a staged record would only surface if some other
     # delivery happened to follow.
     RuntimeEventKind.TIMELINE_SNAPSHOT_RESTORED: NotificationLevel.NEXT_STEP,
+    # Not quiet: the user often uploads assets precisely because the Agent
+    # asked for them, and nothing else would tell it the material arrived.
+    RuntimeEventKind.SOURCE_ASSETS_UPLOADED: NotificationLevel.NEXT_STEP,
 }
 
 
@@ -309,7 +314,11 @@ class RuntimeNotificationBus:
                 project_id,
             )
             return False
-        if await asyncio.to_thread(
+        # An upload steer is a human act: every delivery requires a fresh
+        # user upload, so it cannot form an autonomous loop and must not be
+        # parked behind a streak that earlier autonomous events exhausted.
+        human_initiated = kind is RuntimeEventKind.SOURCE_ASSETS_UPLOADED
+        if not human_initiated and await asyncio.to_thread(
             self._autonomous_streak_exhausted,
             project_id,
             session,
@@ -713,6 +722,15 @@ class RuntimeNotificationBus:
             if item.role != "user":
                 continue
             if item.source in RUNTIME_AUTONOMOUS_SOURCES:
+                if (
+                    item.metadata.get("notificationKind")
+                    == RuntimeEventKind.SOURCE_ASSETS_UPLOADED.value
+                ):
+                    # An upload is a human act carried by the bus: it resets
+                    # the streak exactly like a typed message, otherwise a
+                    # user who only uploads (never types) would exhaust the
+                    # autonomous budget with their own actions.
+                    break
                 streak += 1
                 if streak >= NOTIFY_AUTONOMOUS_HARD_CAP:
                     return True
@@ -760,6 +778,14 @@ class RuntimeNotificationBus:
             if item.role != "user":
                 continue
             if item.source not in RUNTIME_AUTONOMOUS_SOURCES:
+                break
+            if (
+                item.metadata.get("notificationKind")
+                == RuntimeEventKind.SOURCE_ASSETS_UPLOADED.value
+            ):
+                # A delivered upload is a human act carried by the bus: it
+                # replenishes the flush budget exactly like a typed message
+                # (same judgement as the autonomous-streak fuse above).
                 break
             if item.metadata.get("idleFlush"):
                 flushes += 1

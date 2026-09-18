@@ -1,12 +1,14 @@
 import type { ProjectDocument, TimelineDocument } from "@/contracts/creator";
 import type { ProjectEditOperation } from "@/store/projectSnapshotStore";
+import { projectJsonPointer } from "@/lib/projectJsonPointer";
 
 let _counter = 0;
 function nextTimelineId(project: ProjectDocument): string {
-  _counter += 1;
-  const base = `timeline:${_counter}`;
-  if (!project.timelines.items[base]) return base;
-  return `timeline:${Date.now()}-${_counter}`;
+  let id: string;
+  do {
+    id = `timeline:${++_counter}`;
+  } while (project.timelines.items[id]);
+  return id;
 }
 
 export function createTimelineOperations(
@@ -103,20 +105,154 @@ export function duplicateTimelineOperations(
     return createTimelineOperations(project, name);
   }
   const timelineId = nextTimelineId(project);
-  const copy: TimelineDocument = {
-    ...source,
-    timeline_id: timelineId,
-    name,
-    description: source.description,
-    elements_by_id: {},
+  const copy = structuredClone(source);
+  copy.timeline_id = timelineId;
+  copy.name = name;
+  copy.title = name;
+  const usedElementIds = new Set(
+    Object.values(project.timelines.items).flatMap((timeline) =>
+      Object.keys(timeline.elements_by_id),
+    ),
+  );
+  const usedSlotIds = new Set(Object.keys(project.assets.artifact_slots_by_id));
+  const usedVersionIds = new Set(
+    Object.keys(project.assets.artifact_versions_by_id),
+  );
+  const elementIds = new Map<string, string>();
+  const slotIds = new Map<string, string>();
+  const versionIds = new Map<string, string>();
+  const owners = new Map<string, string>();
+  let sequence = 0;
+  for (const [oldId, element] of Object.entries(copy.elements_by_id)) {
+    let newId: string;
+    do {
+      newId = `${timelineId}:element:${++sequence}`;
+    } while (
+      usedElementIds.has(newId) ||
+      Object.keys(element.outputs).some((outputName) =>
+        usedSlotIds.has(`element:${newId}:${outputName}`),
+      )
+    );
+    usedElementIds.add(newId);
+    elementIds.set(oldId, newId);
+    owners.set(`element:${oldId}`, `element:${newId}`);
+    for (const [outputName, output] of Object.entries(element.outputs)) {
+      const slot = project.assets.artifact_slots_by_id[output.slot_id];
+      if (!slot) throw new Error(`Missing output slot: ${output.slot_id}`);
+      const slotId = `element:${newId}:${outputName}`;
+      usedSlotIds.add(slotId);
+      slotIds.set(slot.slot_id, slotId);
+      for (const versionId of slot.version_ids) {
+        let copiedId: string;
+        do {
+          copiedId = `artifact-version:copy:${timelineId}:${++sequence}`;
+        } while (usedVersionIds.has(copiedId));
+        usedVersionIds.add(copiedId);
+        versionIds.set(versionId, copiedId);
+      }
+    }
+  }
+
+  const references = new Map(owners);
+  for (const [oldId, newId] of versionIds) {
+    references.set(`artifact-version:${oldId}`, `artifact-version:${newId}`);
+  }
+  // Rewrite reference fields, never prose such as prompts and descriptions.
+  const remap = <T>(value: T, key = ""): T => {
+    if (typeof value === "string") {
+      // IDs are unique within their namespace, not across every namespace.
+      const field = key.replace(
+        /[A-Z]/g,
+        (letter) => `_${letter.toLowerCase()}`,
+      );
+      let mapping: Map<string, string> | undefined;
+      if (/(?:^|_)element_ids?$/.test(field)) mapping = elementIds;
+      else if (/(?:^|_)slot_ids?$/.test(field)) mapping = slotIds;
+      else if (/(?:^|_)timeline_ids?$/.test(field))
+        mapping = new Map([[sourceId, timelineId]]);
+      else if (
+        /(?:^|_)version_ids?$/.test(field) &&
+        !/(?:^|_)(?:asset|source)_version_ids?$/.test(field)
+      )
+        mapping = versionIds;
+      else if (/(?:^|_)refs?$/.test(field)) mapping = references;
+      return (mapping?.get(value) ?? value) as T;
+    }
+    if (Array.isArray(value)) return value.map((item) => remap(item, key)) as T;
+    if (value && typeof value === "object")
+      return Object.fromEntries(
+        Object.entries(value).map(([field, item]) => [
+          field,
+          // Source media stay shared even if a source ID happens to equal
+          // an output version ID in a different namespace.
+          field === "version_id" &&
+          "type" in value &&
+          value.type === "source_asset_version"
+            ? item
+            : remap(item, field),
+        ]),
+      ) as T;
+    return value;
   };
+  const operations: ProjectEditOperation[] = [];
+  for (const [oldSlotId, newSlotId] of slotIds) {
+    const slot = remap(
+      structuredClone(project.assets.artifact_slots_by_id[oldSlotId]),
+    );
+    slot.slot_id = newSlotId;
+    operations.push({
+      op: "add",
+      path: projectJsonPointer("assets", "artifact_slots_by_id", newSlotId),
+      value: slot,
+      missingBefore: true,
+    });
+    for (const originalId of project.assets.artifact_slots_by_id[oldSlotId]
+      .version_ids) {
+      const original = project.assets.artifact_versions_by_id[originalId];
+      if (!original) throw new Error(`Missing output version: ${originalId}`);
+      const version = remap(structuredClone(original));
+      // These aliases share immutable files, but do not claim that the old
+      // task generated an output for the new element or its dispatch hash.
+      version.metadata.copiedFromVersionId = originalId;
+      if (version.metadata.taskId)
+        version.metadata.copiedFromTaskId = version.metadata.taskId;
+      delete version.metadata.taskId;
+      operations.push({
+        op: "add",
+        path: projectJsonPointer(
+          "assets",
+          "artifact_versions_by_id",
+          version.version_id,
+        ),
+        value: version,
+        missingBefore: true,
+      });
+    }
+  }
+  copy.elements_by_id = Object.fromEntries(
+    Object.entries(copy.elements_by_id).map(([oldId, element]) => [
+      elementIds.get(oldId)!,
+      remap(element),
+    ]),
+  );
+  if (copy.edit_plan) {
+    copy.edit_plan = remap(copy.edit_plan);
+    for (const row of copy.edit_plan.scene_ledger) {
+      // Scene locks hash element IDs as well as content. A copied row must
+      // not claim that its old fingerprint validates the remapped elements.
+      row.status = "draft";
+      row.locked_fingerprint = null;
+      row.review_round = 0;
+    }
+  }
   const orderIndex = project.timelines.order.length;
   return {
     timelineId,
     operations: [
+      ...operations,
       {
         op: "add",
-        path: `/timelines/items/${timelineId}`,
+        path: projectJsonPointer("timelines", "items", timelineId),
         value: copy,
         missingBefore: true,
       },

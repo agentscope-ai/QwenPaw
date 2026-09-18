@@ -55,6 +55,7 @@ export function buildEligibleProviders(
       const hasModels =
         (provider.models?.length ?? 0) + (provider.extra_models?.length ?? 0) >
         0;
+      if (provider.id === "hub-managed") return hasModels;
       if (provider.is_free_tier) return true;
       if (!hasModels) return false;
       if (provider.require_api_key === false) return Boolean(provider.base_url);

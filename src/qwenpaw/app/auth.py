@@ -691,6 +691,20 @@ def _resolve_client_ip(request: Request) -> str:
 resolve_client_ip = _resolve_client_ip
 
 
+def is_loopback_ip(value: str) -> bool:
+    """Return whether an address is a loopback IP or localhost."""
+    return value == "localhost" or (_normalize_ip(value) in _LOOPBACK)
+
+
+def is_trusted_proxy(request: Request) -> bool:
+    """Return whether the direct peer is an explicitly trusted proxy."""
+    peer = request.client.host if request.client else ""
+    _cfg, networks = _get_config_cached()
+    return bool(
+        networks and _ip_in_networks(_normalize_ip(peer) or peer, networks),
+    )
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """Middleware that checks Bearer token on protected routes."""
 
@@ -725,6 +739,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return True
 
         path = request.url.path
+        if path == "/api/config/theme" and request.method == "GET":
+            return True
         if (
             request.method == "OPTIONS"
             or path in _PUBLIC_PATHS
