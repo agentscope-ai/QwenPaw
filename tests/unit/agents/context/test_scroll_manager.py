@@ -752,6 +752,109 @@ async def test_compress_keeps_active_turn_live(store: HistoryStore):
     assert names.index("memory") < live_ids.index(cur_u.id)
 
 
+@pytest.mark.parametrize("tokens", [80, 200])
+async def test_interrupted_request_survives_followup_compaction(
+    store: HistoryStore,
+    tokens: int,
+):
+    """Cancel/save/reload must not make the original task evictable (#7836)."""
+    from qwenpaw.runtime.runtime import Runtime
+
+    original = user("Audit the repository; do not modify any files")
+    tools = [
+        assistant_with_tool(f"read-{i}", "output" * 500) for i in range(8)
+    ]
+    manager = make_manager(store)
+    agent = FakeAgent([original, *tools])
+    agent._context_manager = manager
+    agent.state_dict = lambda: {
+        "state": {
+            "context": [
+                m.model_dump(mode="json") for m in agent.state.context
+            ],
+        },
+        "scroll": manager.to_dict(),
+    }
+    session = SimpleNamespace(save_session_state=AsyncMock())
+    ctx = SimpleNamespace(
+        agent=agent,
+        workspace=SimpleNamespace(session=session),
+        session_id="s",
+        request=SimpleNamespace(request_context={}, user_id="u", channel=""),
+        error=asyncio.CancelledError(),
+    )
+    await Runtime(
+        workspace=ctx.workspace,
+        app_services=None,
+    )._try_save_on_cancel(ctx)
+    saved = session.save_session_state.call_args.kwargs["agent"].data
+    restored = [Msg.model_validate(m) for m in saved["state"]["context"]]
+    manager = make_manager(store)
+    manager.load_state(saved["scroll"])
+    followup = user("Focus on the parser first")
+    context = [*restored, followup, assistant("checking the parser")]
+    agent = FakeAgent(context, tokens=tokens)
+    # Even a splitter that puts both requests in the eviction half is safe.
+    agent._split_return = (context, [])
+
+    await manager.compress(agent)
+
+    live_ids = [m.id for m in agent.state.context]
+    assert original.id in live_ids
+    assert followup.id in live_ids
+    assert live_ids.index(original.id) < live_ids.index(followup.id)
+    if tokens == 80:
+        assert agent.state.context == context
+        assert manager.last_compress["evicted"] == 0
+    else:
+        assert manager.last_compress["evicted"] == len(tools)
+        assert all(m.id not in live_ids for m in tools)
+
+
+async def test_repeated_interrupts_release_requests_after_completion(store):
+    manager = make_manager(store)
+    first = user("Audit the code without modifying it")
+    second = user("Start with the parser")
+    third = user("Also check its callers")
+    agent = FakeAgent([first, assistant_with_tool("read-a")])
+    manager.mark_interrupted_turn(agent)
+    agent.state.context.extend([second, assistant_with_tool("read-b")])
+    manager.mark_interrupted_turn(agent)
+    # A synthetic continuation must not replace the real instruction anchor.
+    agent.state.context.append(continuation_stub())
+    manager.mark_interrupted_turn(agent)
+    checkpoint = json.loads(json.dumps(manager.to_dict()))
+    manager = make_manager(store)
+    manager.load_state(checkpoint)
+    agent.state.context.extend([third, assistant("checking callers")])
+    agent._split_return = (list(agent.state.context), [])
+
+    await manager.compress(agent)
+
+    live_ids = {m.id for m in agent.state.context}
+    assert {first.id, second.id, third.id} <= live_ids
+    assert manager.to_dict()["interrupted_user_ids"] == sorted(
+        [first.id, second.id],
+    )
+    manager.complete_turn()
+    checkpoint = json.loads(json.dumps(manager.to_dict()))
+    assert checkpoint["interrupted_user_ids"] == []
+    manager = make_manager(store)
+    manager.load_state(checkpoint)
+    # Start a genuinely new turn: the completed requests can now be archived.
+    agent.state.context.append(user("New task: explain the build"))
+    agent._split_return = (list(agent.state.context), [])
+    await manager.compress(agent)
+    live_ids = {m.id for m in agent.state.context}
+    assert not {first.id, second.id, third.id} & live_ids
+
+
+def test_legacy_checkpoint_has_no_interrupted_requests(store):
+    manager = make_manager(store)
+    manager.load_state({"persisted_ids": []})
+    assert manager.to_dict()["interrupted_user_ids"] == []
+
+
 async def test_compress_does_not_evict_user_only_turn_boundary(
     store: HistoryStore,
 ):
