@@ -604,7 +604,11 @@ class ChatPage(BasePage):
         messages = self.get_ai_messages()
         return messages[-1] if messages else None
 
-    def wait_for_ai_response(self, timeout: int = 30000) -> Optional[Locator]:
+    def wait_for_ai_response(
+        self,
+        timeout: int = 30000,
+        stability_cap_ms: int = 30000,
+    ) -> Optional[Locator]:
         """
         Wait for the AI reply to truly complete (strict version, eliminate false positives).
 
@@ -619,6 +623,11 @@ class ChatPage(BasePage):
 
         Args:
             timeout: overall timeout (ms), shared budget across gates
+            stability_cap_ms: ceiling of the gate-2/3 window. The default
+                (30000) preserves the historical behaviour for every
+                existing caller. Long multi-round cases (e.g. the 25-round
+                compression case) hit transient stalls that a 30 s window
+                cannot absorb; they pass a larger cap.
 
         Returns:
             Locator of the last AI message; returns None on any gate failure.
@@ -670,7 +679,7 @@ class ChatPage(BasePage):
         #     and "button recovered" as the fast-path accelerator; whichever signal is ready first releases.
         #   - Still filter out the "Thinking / Loading" placeholder + require >= 2 real characters -> eliminates false positives.
         #   - Stability window widened to 2500ms (more stable than the original 800ms; avoids misjudging long-token streaming gaps).
-        stability_timeout = min(timeout, 30000)
+        stability_timeout = min(timeout, stability_cap_ms)
         passed_via = None
         try:
             self.page.wait_for_function(

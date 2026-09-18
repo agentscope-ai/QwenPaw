@@ -77,7 +77,17 @@ class TestLongConversationCompression:
         log_test_step("2. Send 25 short messages rapidly")
         for i in range(25):
             clean_chat_page.send_message(f"Message {i+1}: count to {i+1}")
-            ai_response = clean_chat_page.wait_for_ai_response(timeout=30000)
+            # 2026-09-18: widened per-round budget. After upstream #7382
+            # (chat SDK 1.1.73 -> 1.2.0) a round can stall while an earlier
+            # one is cancelled by the queue stabiliser; the gate-2/3 window
+            # used to be hard-capped at 30 s inside wait_for_ai_response
+            # (stability_timeout = min(timeout, 30000)), so raising only the
+            # outer timeout had no effect. The shared helper now takes
+            # stability_cap_ms (default unchanged = 30 s for all other
+            # callers); this 25-round case opts into a 60 s window.
+            ai_response = clean_chat_page.wait_for_ai_response(
+                timeout=60000, stability_cap_ms=60000
+            )
             assert ai_response is not None, f"AI response {i+1} timed out"
 
         log_test_step("3. Wait for compression to trigger")
@@ -99,7 +109,9 @@ class TestLongConversationCompression:
         clean_chat_page.send_message(
             "What was the first number I asked you to count to?"
         )
-        ai_response = clean_chat_page.wait_for_ai_response(timeout=30000)
+        ai_response = clean_chat_page.wait_for_ai_response(
+            timeout=60000, stability_cap_ms=60000
+        )
         assert ai_response is not None, "Follow-up AI response timed out"
 
         log_test_step("6. Verify AI understands context")
