@@ -16,7 +16,10 @@ from ..security.secret_store import (
 )
 from ..utils.io_utils import get_sync_path_lock
 from .provider import Provider
-from .provider_model_state import PROVIDER_SNAPSHOT_SCHEMA_VERSION
+from .provider_model_state import (
+    PROVIDER_SNAPSHOT_SCHEMA_VERSION,
+    prune_model_overrides,
+)
 
 
 def replace_with_retry(
@@ -43,6 +46,16 @@ def write_provider_snapshot(
 ) -> None:
     """Encrypt and atomically write one provider snapshot."""
     data = provider.model_dump(exclude={"models_syncing"})
+    # Keep the persisted state consistent with the model schema: names in
+    # ``config_overrides`` whose field no longer exists are dropped here, at
+    # the single write path, so existing snapshots converge on the next save.
+    for collection_name in ("models", "extra_models", "discovered_models"):
+        models = data.get(collection_name)
+        if not isinstance(models, list):
+            continue
+        for model in models:
+            if isinstance(model, dict):
+                prune_model_overrides(model)
     data["snapshot_schema_version"] = PROVIDER_SNAPSHOT_SCHEMA_VERSION
     data = encrypt_dict_fields(data, PROVIDER_SECRET_FIELDS)
     write_snapshot_payload(data, provider_path)

@@ -86,6 +86,12 @@ def merge_discovered_model(
                 continue
         payload[field] = getattr(remote, field)
     if discovered_window is not None:
+        # The catalog slot is the semantic home for a window a fetch reports:
+        # it can never become a user override (the override slot is only
+        # written by ``update_model_config``). Built-in providers also report
+        # the same window as ``max_input_length_auto_detected``, which wins by
+        # precedence, so this copy is a fallback for providers that only set
+        # ``max_input_length``.
         payload["max_input_length_catalog"] = discovered_window
     payload.update(
         {

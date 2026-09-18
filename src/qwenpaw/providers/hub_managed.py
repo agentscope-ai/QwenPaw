@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from typing import Mapping
 
 import httpx
 
@@ -42,9 +43,17 @@ def directory() -> dict:
 class ManagedProvider(OpenAIProvider):
     """Use the existing OpenAI adapter while exporting only safe metadata."""
 
-    def supports_agent_thinking(self, model_id: str) -> bool:
+    def supports_agent_thinking(
+        self,
+        model_id: str,
+        *,
+        resolved: Mapping[str, ModelInfo | None] | None = None,
+    ) -> bool:
         """Use the Hub's capability instead of guessing from opaque aliases."""
-        info = self.get_model_info(model_id)
+        if resolved is None:
+            info = self.get_model_info(model_id)
+        else:
+            info = resolved.get(model_id)
         return bool(info and info.supports_agent_thinking)
 
     def _map_agent_thinking_level(
@@ -66,12 +75,28 @@ class ManagedProvider(OpenAIProvider):
         model.client.max_retries = 0
         return model
 
+    def _projected(self, model: ModelInfo) -> ModelInfo:
+        """Return *model* with the read-only window projection attached.
+
+        The console renders ``effective_max_input_length`` and its source; this
+        response is hand-built, so the projection has to be added here instead
+        of by ``Provider.get_info``. A copy is returned so the live model never
+        carries derived state.
+        """
+        window = self.get_context_window_details(model.id)
+        return model.model_copy(
+            update={
+                "effective_max_input_length": window.value,
+                "effective_max_input_length_source": window.source,
+            },
+        )
+
     async def get_info(self, mock_secret=True) -> ProviderInfo:
         """Never expose even the runtime capability through model APIs."""
         return ProviderInfo(
             id=PROVIDER_ID,
             name="Hub",
-            models=self.models,
+            models=[self._projected(model) for model in self.models],
             api_key="",
             base_url="",
             require_api_key=False,
@@ -93,7 +118,7 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 name=m["name"],
                 supports_image=m["supports_image"],
                 supports_multimodal=m["supports_image"],
-                max_input_length=m["input_token_limit"],
+                max_input_length_catalog=m["input_token_limit"],
                 max_output_length=m["output_token_limit"],
                 max_output_length_source="adapter",
                 supports_agent_thinking=m["supports_agent_thinking"],

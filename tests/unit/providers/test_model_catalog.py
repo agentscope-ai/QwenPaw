@@ -535,3 +535,87 @@ def test_replace_retries_transient_windows_lock(
 
     assert attempts == 2
     assert destination.read_text(encoding="utf-8") == "new"
+
+
+def test_catalog_overlay_can_lower_a_documented_window(tmp_path: Path) -> None:
+    """An overlay that lowers a documented window back to 128k must take
+    effect.
+
+    A documented 128k is the generator's placeholder for "not collected", so
+    the loader normalizes it away. That normalization has to reset the catalog
+    slot explicitly: a merged catalog only overwrites fields present in
+    ``model_fields_set``, so leaving the slot untouched would keep the older,
+    larger window and the overlay could never lower it.
+    """
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "local.json"
+    _write_catalog(
+        packaged,
+        {
+            "MODELS": [
+                {
+                    "id": "model-a",
+                    "name": "A",
+                    "max_input_length": 272_000,
+                },
+            ],
+        },
+    )
+    _write_catalog(
+        ota,
+        {
+            "MODELS": [
+                {
+                    "id": "model-a",
+                    "name": "A",
+                    "max_input_length": 131_072,
+                },
+            ],
+        },
+        catalog_version="2026.09.01",
+        published_at="2026-09-01T00:00:00Z",
+    )
+
+    models = model_catalog.load_model_catalog(packaged, ota, local)["MODELS"]
+
+    assert models[0].max_input_length_catalog is None
+    assert models[0].max_input_length is None
+
+
+def test_catalog_overlay_replaces_a_larger_documented_window(
+    tmp_path: Path,
+) -> None:
+    packaged = tmp_path / "packaged.json"
+    ota = tmp_path / "ota.json"
+    local = tmp_path / "local.json"
+    _write_catalog(
+        packaged,
+        {
+            "MODELS": [
+                {
+                    "id": "model-a",
+                    "name": "A",
+                    "max_input_length": 272_000,
+                },
+            ],
+        },
+    )
+    _write_catalog(
+        ota,
+        {
+            "MODELS": [
+                {
+                    "id": "model-a",
+                    "name": "A",
+                    "max_input_length": 64_000,
+                },
+            ],
+        },
+        catalog_version="2026.09.01",
+        published_at="2026-09-01T00:00:00Z",
+    )
+
+    models = model_catalog.load_model_catalog(packaged, ota, local)["MODELS"]
+
+    assert models[0].max_input_length_catalog == 64_000

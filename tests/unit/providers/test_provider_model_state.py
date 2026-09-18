@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """Tests for provider model-state persistence and migrations."""
 
+import json
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
 from qwenpaw.providers.context_windows import DEFAULT_CONTEXT_WINDOW
@@ -122,6 +124,38 @@ def test_serialized_state_drops_dead_override_names() -> None:
         "generate_kwargs",
     ]
     assert state["max_input_length"] == 65_536
+
+
+def test_snapshot_write_drops_dead_override_names(tmp_path) -> None:
+    """The restore path filters dead names, but snapshots are written from the
+    model dump; the prune has to run on the write path too, otherwise the name
+    stays on disk forever."""
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+    from qwenpaw.providers.provider import ModelInfo
+    from qwenpaw.providers.provider_persistence import write_provider_snapshot
+
+    provider = OpenAIProvider(
+        id="openai",
+        name="OpenAI",
+        api_key="sk-test",
+        models=[
+            ModelInfo(
+                id="gpt-5",
+                name="GPT-5",
+                config_overrides=[
+                    "max_input_length_configured",
+                    "generate_kwargs",
+                ],
+            ),
+        ],
+        extra_models=[],
+    )
+    path = Path(tmp_path) / "openai.json"
+
+    write_provider_snapshot(provider, path)
+
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert written["models"][0]["config_overrides"] == ["generate_kwargs"]
 
 
 def test_migration_drops_legacy_placeholder_output_limit() -> None:

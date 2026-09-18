@@ -103,11 +103,19 @@ def _catalog_input_window(model: ModelInfo) -> dict[str, Any]:
     told apart from "not provided" (22 of 133 packaged entries are exactly
     that placeholder). Normalize it away here, at the data boundary, instead
     of teaching the resolver about the magic value.
+
+    The catalog slot is reset explicitly in both branches: a merged catalog
+    only overwrites fields present in ``model_fields_set``, so leaving the
+    slot untouched would keep an older (possibly larger) documented window and
+    an overlay could never lower it back.
     """
     if model.max_input_length is None:
         return {}
     if model.max_input_length == DEFAULT_CONTEXT_WINDOW:
-        return {"max_input_length": None}
+        return {
+            "max_input_length": None,
+            "max_input_length_catalog": None,
+        }
     return {
         "max_input_length": None,
         "max_input_length_catalog": model.max_input_length,
