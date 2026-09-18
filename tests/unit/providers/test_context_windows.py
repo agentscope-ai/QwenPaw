@@ -198,6 +198,9 @@ class _CatalogProvider:
     get_context_window_details = Provider.get_context_window_details
     _get_context_size = Provider._get_context_size
     _context_catalog_enabled = Provider._context_catalog_enabled
+    # ``_context_catalog_enabled`` delegates to this class-level hook, so a
+    # stand-in that binds the method has to bind its dependency too.
+    context_catalog_enabled = Provider.context_catalog_enabled
 
 
 class _MutableCatalogProvider(_CatalogProvider):

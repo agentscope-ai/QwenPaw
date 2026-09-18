@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from contextvars import ContextVar
 import re
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -141,6 +141,130 @@ def resolve_window_from_info(
         ),
         use_catalog=use_catalog,
     )
+
+
+def model_window_sources(
+    models: List[ModelInfo],
+    extra_models: List[ModelInfo],
+    discovered_models: List[ModelInfo],
+    removed_ids: Iterable[str] = (),
+) -> tuple[Dict[str, ModelInfo], Dict[str, ModelInfo]]:
+    """Index the entries a context window is resolved from.
+
+    One response resolves every model through these indexes instead of
+    re-scanning the collections per model (which made ``get_info()``
+    quadratic). Precedence matches :meth:`Provider.get_model_info`
+    (``extra_models`` before ``models``); removed ids are excluded.
+    """
+    removed = set(removed_ids)
+    configured: Dict[str, ModelInfo] = {}
+    for model in (*extra_models, *models):
+        if model.id not in removed:
+            configured.setdefault(model.id, model)
+    discovered = {
+        model.id: model
+        for model in discovered_models
+        if model.id not in removed
+    }
+    return configured, discovered
+
+
+def project_model_window(
+    model: ModelInfo,
+    *,
+    use_catalog: bool,
+    configured_by_id: Mapping[str, ModelInfo],
+    discovered_by_id: Mapping[str, ModelInfo],
+) -> ModelInfo:
+    """Return *model* with the read-only window projection attached.
+
+    A copy is returned so the live model never carries derived state: the
+    projection is response-only and is stripped again on the snapshot write
+    path (see :func:`.provider_model_state.strip_derived_model_state`).
+    """
+    window = resolve_window_from_info(
+        model.id,
+        configured_by_id.get(model.id),
+        discovered_by_id.get(model.id),
+        use_catalog=use_catalog,
+    )
+    return model.model_copy(
+        update={
+            "effective_max_input_length": window.value,
+            "effective_max_input_length_source": window.source,
+        },
+    )
+
+
+def project_model_windows(
+    info: ProviderInfo,
+    *,
+    use_catalog: bool,
+    configured_by_id: Mapping[str, ModelInfo] | None = None,
+    discovered_by_id: Mapping[str, ModelInfo] | None = None,
+) -> ProviderInfo:
+    """Return *info* with the window projection filled for every model.
+
+    Not every response is built by :meth:`Provider.get_info` -- the plugin
+    registration answers with a stored ``ProviderInfo`` -- and without the
+    projection the console shows no effective window for those models. A
+    caller that has no live provider (the registration path) omits the
+    indexes, which are then built from *info* itself.
+    """
+    if configured_by_id is None or discovered_by_id is None:
+        built_configured, built_discovered = model_window_sources(
+            info.models,
+            info.extra_models,
+            info.discovered_models,
+            info.removed_model_ids,
+        )
+        if configured_by_id is None:
+            configured_by_id = built_configured
+        if discovered_by_id is None:
+            discovered_by_id = built_discovered
+
+    def project(model: ModelInfo) -> ModelInfo:
+        return project_model_window(
+            model,
+            use_catalog=use_catalog,
+            configured_by_id=configured_by_id,
+            discovered_by_id=discovered_by_id,
+        )
+
+    return info.model_copy(
+        update={
+            "models": [project(model) for model in info.models],
+            "extra_models": [project(model) for model in info.extra_models],
+            "discovered_models": [
+                project(model) for model in info.discovered_models
+            ],
+        },
+    )
+
+
+def declared_window_to_catalog(models: List[ModelInfo]) -> List[ModelInfo]:
+    """Return copies of *models* with a provider-declared window in the
+    catalog slot.
+
+    A window a provider class declares in its own default models is
+    provider/catalog data, not a user override: the override slot is only
+    written by :meth:`Provider.update_model_config`. Left in the override slot
+    the declaration outranked an API-detected window and made the console
+    offer a "clear override" action the user never asked for, so the plugin
+    registration boundary moves it -- the same normalization
+    :func:`.model_catalog._catalog_input_window` applies to the packaged
+    catalog.
+    """
+    normalized: List[ModelInfo] = []
+    for model in models:
+        if model.max_input_length is None:
+            normalized.append(model)
+            continue
+        update: Dict[str, Any] = {"max_input_length": None}
+        if model.max_input_length_catalog is None:
+            update["max_input_length_catalog"] = model.max_input_length
+        normalized.append(model.model_copy(update=update))
+    return normalized
 
 
 class ModelInfo(BaseModel):
@@ -1204,6 +1328,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         support thinking are unaffected.
         """
 
+    @classmethod
+    def context_catalog_enabled(cls) -> bool:
+        """Whether the static context-window catalog applies to this type.
+
+        Class-level twin of :meth:`_context_catalog_enabled`: the plugin
+        registration path projects window values from the provider *class*
+        (it never materializes an instance), so both have to be overridden
+        together. Keep this the source of truth and let
+        :meth:`_context_catalog_enabled` delegate.
+        """
+        return True
+
     def _context_catalog_enabled(self) -> bool:
         """Whether the static context-window catalog applies here.
 
@@ -1213,7 +1349,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         ``qwen3-coder:30b`` would disable compression while the server
         silently drops the prompt head.
         """
-        return True
+        return type(self).context_catalog_enabled()
 
     def get_context_window_details(
         self,
@@ -1300,32 +1436,25 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         # discovered entries. Resolving them per model used to re-scan the
         # collections once per model, which made this response quadratic and
         # blocked the event loop for tens of milliseconds on large providers.
-        # Build the indexes once; precedence matches get_model_info
-        # (extra_models before models, removed ids excluded).
-        configured_by_id: Dict[str, ModelInfo] = {}
-        for model in (*self.extra_models, *self.models):
-            if model.id not in removed:
-                configured_by_id.setdefault(model.id, model)
-        discovered_by_id = {
-            model.id: model
-            for model in self.discovered_models
-            if model.id not in removed
-        }
+        # The shared helper builds the indexes once and excludes removed ids.
+        configured_by_id, discovered_by_id = model_window_sources(
+            self.models,
+            self.extra_models,
+            self.discovered_models,
+            removed,
+        )
         catalog_enabled = self._context_catalog_enabled()
 
         def serialize_model(model: ModelInfo) -> dict[str, Any]:
-            payload = model.model_dump()
+            payload = project_model_window(
+                model,
+                use_catalog=catalog_enabled,
+                configured_by_id=configured_by_id,
+                discovered_by_id=discovered_by_id,
+            ).model_dump()
             payload["supports_agent_thinking"] = self.supports_agent_thinking(
                 model.id,
             )
-            window = resolve_window_from_info(
-                model.id,
-                configured_by_id.get(model.id),
-                discovered_by_id.get(model.id),
-                use_catalog=catalog_enabled,
-            )
-            payload["effective_max_input_length"] = window.value
-            payload["effective_max_input_length_source"] = window.source
             return payload
 
         # Publish the index for the duration of the serialization so the

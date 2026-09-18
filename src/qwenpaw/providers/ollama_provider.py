@@ -73,12 +73,14 @@ class OllamaProvider(OpenAIProvider):
             verification="provider_only",
         )
 
-    def _context_catalog_enabled(self) -> bool:
+    @classmethod
+    def context_catalog_enabled(cls) -> bool:
         """Ollama serves models locally: the family's cloud window does not
         apply (a local ``qwen3-coder:30b`` truncates at ``num_ctx``, not at
         262k). Skip the static catalog; an explicit per-model
         ``max_input_length`` still wins, everything else gets the 128k
-        default."""
+        default. Declared on the class because the plugin registration path
+        projects windows without materializing an instance."""
         return False
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
