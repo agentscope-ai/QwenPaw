@@ -376,6 +376,50 @@ def test_private_alias_still_works():
     assert p._get_context_size("claude-sonnet-4-5") == 200_000
 
 
+def test_provider_info_serialization_does_not_rescan_per_model():
+    """Guard the response shape, not the wall clock.
+
+    ``get_info()`` used to resolve every derived per-model field by scanning
+    the model collections, which made one response quadratic -- and since the
+    method never awaits, it blocked the event loop for ~40 ms with 800 models.
+    Counting id comparisons keeps this deterministic: a per-model scan gives
+    2N^2 comparisons (80,000 at 200 models), while a linear number of lookups
+    stays within a small multiple of N.
+    """
+    import asyncio
+
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+
+    def comparisons_for(model_count: int) -> int:
+        counts = {"cmp": 0}
+
+        class _Counting(OpenAIProvider):
+            def get_model_info(self, model_id):
+                counts["cmp"] += len(self.extra_models) + len(self.models)
+                return super().get_model_info(model_id)
+
+            def get_discovered_model_info(self, model_id):
+                counts["cmp"] += len(self.discovered_models)
+                return super().get_discovered_model_info(model_id)
+
+        provider = _Counting(
+            id="openai",
+            name="OpenAI",
+            api_key="sk-test",
+            models=[
+                ModelInfo(id=f"gpt-5-mini-{index}", name=f"m{index}")
+                for index in range(model_count)
+            ],
+            extra_models=[],
+            discovered_models=[],
+        )
+        asyncio.run(provider.get_info())
+        return counts["cmp"]
+
+    model_count = 200
+    assert comparisons_for(model_count) <= 2 * model_count
+
+
 def test_provider_info_projection_matches_the_resolution():
     """The console renders this read-only projection instead of the raw
     override field (issue #7810), so it must equal what compaction uses."""

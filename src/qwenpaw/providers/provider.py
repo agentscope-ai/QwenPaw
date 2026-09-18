@@ -8,7 +8,15 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import re
 from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Type,
+)
 
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -80,6 +88,52 @@ def agent_thinking_level(level: str) -> Iterator[None]:
         yield
     finally:
         _AGENT_THINKING_LEVEL.reset(token)
+
+
+def resolve_window_from_info(
+    model_id: str,
+    configured_info: ModelInfo | None,
+    discovered_info: ModelInfo | None,
+    *,
+    use_catalog: bool,
+) -> ContextWindowResolution:
+    """Resolve a window from already-looked-up model info.
+
+    Shared by :meth:`Provider.get_context_window_details` and the per-response
+    serializer, so a caller iterating every model can pass the infos it
+    resolved once instead of re-scanning the collections per model (which made
+    ``get_info()`` quadratic). ``configured_info`` is the models/extra_models
+    entry if any, ``discovered_info`` the discovery candidate; either may be
+    None. The user override and the catalog value come from a configured model
+    when there is one, otherwise from the discovery candidate.
+    """
+    auto_detected = (
+        getattr(configured_info, "max_input_length_auto_detected", None)
+        if configured_info is not None
+        else None
+    )
+    if auto_detected is None and discovered_info is not None:
+        auto_detected = getattr(
+            discovered_info,
+            "max_input_length_auto_detected",
+            None,
+        )
+    source_info = configured_info or discovered_info
+    return resolve_context_window_details(
+        model_id,
+        override=(
+            getattr(source_info, "max_input_length", None)
+            if source_info is not None
+            else None
+        ),
+        auto_detected=auto_detected,
+        catalog=(
+            getattr(source_info, "max_input_length_catalog", None)
+            if source_info is not None
+            else None
+        ),
+        use_catalog=use_catalog,
+    )
 
 
 class ModelInfo(BaseModel):
@@ -830,11 +884,26 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         self._apply_agent_thinking_level(result, model_id)
         return result
 
-    def supports_agent_thinking(self, model_id: str) -> bool:
-        """Return whether agent-level thinking maps to this model."""
+    def supports_agent_thinking(
+        self,
+        model_id: str,
+        *,
+        resolved: Mapping[str, ModelInfo | None] | None = None,
+    ) -> bool:
+        """Return whether agent-level thinking maps to this model.
+
+        ``resolved`` is an optional id -> info index the caller already built
+        (a missing key means "no configured model with that id"). It exists so
+        the per-response serializer does not re-scan ``models`` once per
+        model, which made ``get_info()`` quadratic. Subclasses that override
+        this method must accept the same keyword.
+        """
         if self.chat_model == "DashScopeChatModel":
             return True
-        info = self.get_model_info(model_id)
+        if resolved is None:
+            info = self.get_model_info(model_id)
+        else:
+            info = resolved.get(model_id)
         if info is None:
             return False
         if (
@@ -1142,40 +1211,17 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         compression) AND the display/usage path
         (``config.get_model_max_input_length``) AND the console's read-only
         ``effective_max_input_length`` projection -- all MUST go through this
-        method so the reported usage%, the compaction trigger, and what the
-        UI shows never diverge. Resolution lives in
+        resolution so the reported usage%, the compaction trigger, and what
+        the UI shows never diverge. Priority lives in
         :func:`.context_windows.resolve_context_window_details`: user
         override > API auto-detected value > provider catalog value > static
         pattern catalog (unless :meth:`_context_catalog_enabled` opts out) >
         128k default.
         """
-        model_info = self.get_model_info(model_id)
-        discovered_info = self.get_discovered_model_info(model_id)
-        configured_info = model_info or discovered_info
-        auto_detected = (
-            getattr(model_info, "max_input_length_auto_detected", None)
-            if model_info is not None
-            else None
-        )
-        if auto_detected is None and discovered_info is not None:
-            auto_detected = getattr(
-                discovered_info,
-                "max_input_length_auto_detected",
-                None,
-            )
-        return resolve_context_window_details(
+        return resolve_window_from_info(
             model_id,
-            override=(
-                getattr(configured_info, "max_input_length", None)
-                if configured_info is not None
-                else None
-            ),
-            auto_detected=auto_detected,
-            catalog=(
-                getattr(configured_info, "max_input_length_catalog", None)
-                if configured_info is not None
-                else None
-            ),
+            self.get_model_info(model_id),
+            self.get_discovered_model_info(model_id),
             use_catalog=self._context_catalog_enabled(),
         )
 
@@ -1236,12 +1282,35 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             api_key = self.api_key
         removed = set(self.removed_model_ids)
 
+        # Every derived per-model field below needs the model's configured and
+        # discovered entries. Resolving them per model used to re-scan the
+        # collections once per model, which made this response quadratic and
+        # blocked the event loop for tens of milliseconds on large providers.
+        # Build the indexes once; precedence matches get_model_info
+        # (extra_models before models, removed ids excluded).
+        configured_by_id: Dict[str, ModelInfo] = {}
+        for model in (*self.extra_models, *self.models):
+            if model.id not in removed:
+                configured_by_id.setdefault(model.id, model)
+        discovered_by_id = {
+            model.id: model
+            for model in self.discovered_models
+            if model.id not in removed
+        }
+        catalog_enabled = self._context_catalog_enabled()
+
         def serialize_model(model: ModelInfo) -> dict[str, Any]:
             payload = model.model_dump()
             payload["supports_agent_thinking"] = self.supports_agent_thinking(
                 model.id,
+                resolved=configured_by_id,
             )
-            window = self.get_context_window_details(model.id)
+            window = resolve_window_from_info(
+                model.id,
+                configured_by_id.get(model.id),
+                discovered_by_id.get(model.id),
+                use_catalog=catalog_enabled,
+            )
             payload["effective_max_input_length"] = window.value
             payload["effective_max_input_length_source"] = window.source
             return payload
