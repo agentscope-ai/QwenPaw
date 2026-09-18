@@ -10,6 +10,7 @@ assembly.
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -106,9 +107,10 @@ def test_runtime_payload_assembly() -> None:
     payload = control_app._runtime_payload(
         FakeService(),
         FakeRecord(),
-        owner_username="alice",
+        owner=SimpleNamespace(username="alice", role="admin"),
     )
     assert payload["id"] == "rt-1"
     assert payload["owner_username"] == "alice"
+    assert payload["owner_role"] == "admin"
     assert payload["endpoint"] == "http://127.0.0.1:6199"
     assert payload["security_level"] == "local"

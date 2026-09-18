@@ -73,3 +73,28 @@
 `/tmp`、`/dev`、`/proc` 保持临时或系统挂载语义；用户工作区和沙箱根目录的用户文件持久化。共享安装的只读路径保持原样。
 
 本次部署备份位于服务器 `/mnt/weirui/qwenpaw-deploy-backups/pre-persistent-root-20260918`，包含原数据及仍存活的匿名根文件系统中的用户内容快照。
+
+## CI 与 Copilot 复核
+
+- [x] 补齐五种语言新增 Hub 翻译，修复旧集成测试参数与格式。
+- [x] PawApp URL 统一编码，跨源会话创建和清理携带凭据，Hub 使用显式 CORS 来源。
+- [x] 继承 Local 沙箱前验证内核提供的隔离状态，不仅依赖环境标记。
+- [x] 核对 CodeQL：17 项已存在于 main；新增 Cookie 告警验证签名和编码边界。
+- [x] 完成相关回归、完整前端测试和代码检查，修复纳入本分支提交。
+
+
+### CodeQL 告警归因
+
+逐项对照主分支的告警实例，17 项高危告警（51、50、49、48、47、46、35、34、32、31、30、29、28、27、26、25、24）均已存在于 main，涉及未被本 PR 修改的 `backup/_utils/safe_swap.py` 和 `backup/_utils/_mount_swap.py`。例如 [告警 51](https://github.com/agentscope-ai/QwenPaw/security/code-scanning/51) 的 main 实例可用于核对，不能把检查摘要中的 “new” 直接解释为本 PR 引入。
+
+[告警 587](https://github.com/agentscope-ai/QwenPaw/security/code-scanning/587) 为 `py/cookie-injection`：app ID 流入签名令牌后传给 `set_cookie`。人工核验判断为误报：值是 URL-safe Base64 编码的 JSON 加 HMAC-SHA256 十六进制签名，cookie 名是 app ID 的 SHA256，路径和属性固定，原始输入无法插入 cookie 分隔符。读取时验证签名和有效期。现有测试补充了含分号的 app ID、单一 Set-Cookie 头及令牌篡改拒绝断言。未抑制规则或自动关闭告警；CodeQL 门禁仍需结合扫描结果与告警归因判断。
+
+### 本轮验证与边界
+
+- 完整前端覆盖率测试：385 个文件、3859 项通过；TypeScript 检查通过。
+- 相关后端回归：92 项通过、1 项平台限定跳过；包含 macOS 原生沙箱 CLI 验证。
+- Linux 独立工作树实测：文件工具、Bash、Python 共享内容，重启持久化、CLI 可用、不同用户文件隔离通过。
+- 全量 pre-commit 定位的格式和导入顺序问题已修正；修改文件的全部 hooks 复验通过，前端 Prettier 通过。
+- Windows 使用进程令牌的 AppContainer 标志核验边界，本轮没有 Windows 实机验证。
+- Hub 的跨源凭据仅向 `QWENPAW_CORS_ORIGINS` 显式来源开放；cookie 保持 SameSite=Strict，适用于同站跨源部署（例如同主机不同端口），不承诺跨站嵌入。
+- 环境标记之外，Linux 检查用户命名空间、能力与挂载布局；macOS 检查 Seatbelt 是否生效；Windows 检查 AppContainer。平台检查不等同于重新审计每项沙箱规则。

@@ -1825,3 +1825,29 @@ def test_regular_runtime_callback_still_requires_login(
     )
 
     assert response.status_code == 401
+
+
+def test_pawapp_cleanup_cors_uses_explicit_origins(tmp_path):
+    origin = "http://localhost:5173"
+    with patch("qwenpaw.hub.control_app.CORS_ORIGINS", origin):
+        with _client(tmp_path) as client:
+            headers = {
+                "Origin": origin,
+                "Access-Control-Request-Method": "DELETE",
+            }
+            allowed = client.options(
+                "/api/hub/pawapps/sessions",
+                headers=headers,
+            )
+            assert allowed.status_code == 200
+            assert allowed.headers["access-control-allow-origin"] == origin
+            assert (
+                allowed.headers["access-control-allow-credentials"] == "true"
+            )
+            headers["Origin"] = "https://untrusted.example"
+            denied = client.options(
+                "/api/hub/pawapps/sessions",
+                headers=headers,
+            )
+            assert denied.status_code == 400
+            assert "access-control-allow-origin" not in denied.headers

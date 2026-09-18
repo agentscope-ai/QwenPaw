@@ -50,6 +50,8 @@ from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from .runtime_boundary import has_runtime_boundary
+
 logger = logging.getLogger(__name__)
 
 
@@ -651,7 +653,8 @@ def _inherits_runtime_boundary() -> bool:
     return bool(
         os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local"
         and os.environ.get("QWENPAW_RUNTIME_ID")
-        and os.environ.get("QWENPAW_RUNTIME_INTERNAL_TOKEN"),
+        and os.environ.get("QWENPAW_RUNTIME_INTERNAL_TOKEN")
+        and has_runtime_boundary(os.environ["QWENPAW_RUNTIME_ID"]),
     )
 
 

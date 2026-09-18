@@ -33,10 +33,14 @@ describe("PawApp browser sessions", () => {
   it("encodes the manifest ID for Hub session requests", async () => {
     mocks.mode.mockResolvedValue("hub");
     const { prepareBrowserSession } = await import("./browserSession");
-    expect(await prepareBrowserSession("我的_App")).toBe(900);
+    const { pawappApi } = await import("../../api/modules/pawapp");
+    expect(pawappApi.getStaticUrl("我的_App?#", "index.html")).toBe(
+      `/api/pawapps/${encodeURIComponent("我的_App?#")}/static/index.html`,
+    );
+    expect(await prepareBrowserSession("我的_App?#")).toBe(900);
     expect(fetch).toHaveBeenCalledWith(
-      `/api/hub/pawapps/${encodeURIComponent("我的_App")}/session`,
-      expect.objectContaining({ credentials: "same-origin" }),
+      `/api/hub/pawapps/${encodeURIComponent("我的_App?#")}/session`,
+      expect.objectContaining({ credentials: "include" }),
     );
   });
 });

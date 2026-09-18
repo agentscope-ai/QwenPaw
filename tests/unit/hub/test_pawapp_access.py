@@ -10,7 +10,7 @@ from tests.unit.hub.factories import runtime_record
 
 
 def test_session_uses_registered_prefix_and_safe_cookie(tmp_path):
-    app_id = "应用_App"
+    app_id = "应用_App; HttpOnly=false"
     database = tmp_path / "hub.db"
     auth = HubAuthService(
         database,
@@ -32,6 +32,9 @@ def test_session_uses_registered_prefix_and_safe_cookie(tmp_path):
         prefixes=["app-api"],
     )
     cookie = response.headers["set-cookie"].split(";", 1)[0]
+    assert app_id not in response.headers["set-cookie"]
+    assert "HttpOnly=false" not in response.headers["set-cookie"]
+    assert len(response.headers.getlist("set-cookie")) == 1
     request = Request(
         {
             "type": "http",
@@ -47,5 +50,12 @@ def test_session_uses_registered_prefix_and_safe_cookie(tmp_path):
     assert read_session(auth, request, "app-api/%2e%2e/agents") is None
     token = cookie.split("=", 1)[1]
     assert auth.verify_token(token) is None
+    tampered = Request(
+        {
+            **request.scope,
+            "headers": [(b"cookie", f"{cookie}a".encode())],
+        },
+    )
+    assert read_session(auth, tampered, "app-api/file") is None
     request.scope["method"] = "POST"
     assert read_session(auth, request, "app-api/file") is None

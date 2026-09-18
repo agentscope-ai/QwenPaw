@@ -17,7 +17,7 @@ function clearBrowserSessions(): void {
   void updateBrowserSession(() =>
     fetch(getApiUrl("/hub/pawapps/sessions"), {
       method: "DELETE",
-      credentials: "same-origin",
+      credentials: "include",
     }),
   ).catch(() => undefined);
 }

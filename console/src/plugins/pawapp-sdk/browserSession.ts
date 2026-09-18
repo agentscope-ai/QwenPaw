@@ -24,7 +24,7 @@ export function prepareBrowserSession(appId: string): Promise<number | null> {
         getApiUrl(`/hub/pawapps/${encodeURIComponent(appId)}/session`),
         {
           method: "POST",
-          credentials: "same-origin",
+          credentials: "include",
           headers: { Authorization: `Bearer ${token}` },
         },
       );

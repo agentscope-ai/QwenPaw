@@ -76,7 +76,9 @@ def test_app_initializes_only_local_hub_runtime(monkeypatch, provisioner):
     )
     monkeypatch.setattr(app_module, "configure_server_process", Mock())
     monkeypatch.setattr(
-        app_module, "_warn_if_auth_off_non_loopback_bind", Mock()
+        app_module,
+        "_warn_if_auth_off_non_loopback_bind",
+        Mock(),
     )
     monkeypatch.setattr(app_module.uvicorn, "run", Mock())
     result = CliRunner().invoke(app_module.app_cmd, [])

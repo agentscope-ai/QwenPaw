@@ -5,7 +5,6 @@ import { Card, Empty, Spin, Button, Tag, Typography, Space } from "antd";
 import { AppWindow, ExternalLink, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { pawappApi, type PawAppInfo } from "../../../api/modules/pawapp";
-import { getApiUrl } from "../../../api/config";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
@@ -38,7 +37,7 @@ export default function PawAppsPage() {
 
   const getIframeSrc = (app: PawAppInfo): string | null => {
     if (!app.home_page) return null;
-    return getApiUrl(`/pawapps/${app.id}/static/${app.home_page}`);
+    return pawappApi.getStaticUrl(app.id, app.home_page);
   };
 
   return (
