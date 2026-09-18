@@ -21,6 +21,7 @@ from qwenpaw.providers.capping_formatter import (
     _CappingDashScopeFormatter,
     _CappingGeminiFormatter,
     _CappingOpenAIFormatter,
+    _CappingOpenAIResponseFormatter,
     inline_media_size,
 )
 
@@ -29,6 +30,7 @@ _ALL_CAPPING_FORMATTERS = [
     _CappingAnthropicFormatter,
     _CappingGeminiFormatter,
     _CappingDashScopeFormatter,
+    _CappingOpenAIResponseFormatter,
 ]
 
 
@@ -114,6 +116,20 @@ def test_maybe_cap_custom_threshold() -> None:
     )
 
 
+def test_maybe_cap_uses_kind_specific_threshold() -> None:
+    video = _base64_source(4095, "video/mp4")
+    image = _base64_source(4095, "image/png")
+    formatter = _CappingDashScopeFormatter(
+        max_bytes=8192,
+        max_video_bytes=1024,
+    )
+
+    capped = formatter._maybe_cap(video, "video")
+    assert capped is not None
+    assert "exceeds inline limit of 1024 bytes" in capped["text"]
+    assert formatter._maybe_cap(image, "image") is None
+
+
 def test_maybe_cap_zero_disables() -> None:
     source = _base64_source(MAX_INLINE_MEDIA_BYTES + 4, "video/mp4")
     assert (
@@ -172,6 +188,16 @@ def test_openai_oversized_audio_capped() -> None:
     )
     assert out["type"] == "text"
     assert "omitted" in out["text"]
+
+
+def test_openai_response_uses_kind_specific_image_threshold() -> None:
+    out = _CappingOpenAIResponseFormatter(
+        max_bytes=8192,
+        max_image_bytes=1024,
+    )._format_image_source(_base64_source(4095, "image/png"))
+
+    assert out["type"] == "input_text"
+    assert "exceeds inline limit of 1024 bytes" in out["text"]
 
 
 def test_anthropic_oversized_image_capped() -> None:

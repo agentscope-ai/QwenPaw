@@ -96,7 +96,9 @@ function makeProvider(overrides: Record<string, unknown> = {}) {
 
 function renderModal(
   provider = makeProvider(),
-  activeModels: unknown = null,
+  activeModels: React.ComponentProps<
+    typeof ProviderConfigModal
+  >["activeModels"] = null,
   onSaved = vi.fn().mockResolvedValue(undefined),
 ) {
   const onClose = vi.fn();
@@ -523,9 +525,14 @@ describe("ProviderConfigModal", () => {
       expect(screen.getByDisplayValue("X-One")).toBeInTheDocument();
 
       await user.click(screen.getByText("models.addHeader"));
-      const emptyInputs = screen.getAllByDisplayValue("");
-      await user.type(emptyInputs[emptyInputs.length - 2], "X-Two");
-      await user.type(emptyInputs[emptyInputs.length - 1], "2");
+      const headerKeyInputs = screen.getAllByPlaceholderText(
+        "models.customHeaderKey",
+      );
+      const headerValueInputs = screen.getAllByPlaceholderText(
+        "models.customHeaderValue",
+      );
+      await user.type(headerKeyInputs[headerKeyInputs.length - 1], "X-Two");
+      await user.type(headerValueInputs[headerValueInputs.length - 1], "2");
       expect(screen.getByDisplayValue("X-Two")).toBeInTheDocument();
 
       const deleteIcons = document.querySelectorAll(
