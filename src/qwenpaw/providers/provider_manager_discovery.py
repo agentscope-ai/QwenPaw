@@ -570,9 +570,11 @@ class ProviderManagerDiscoveryMixin(
 
     async def sync_remote_catalogs(self) -> None:
         """Update configured OTA catalogs without blocking startup."""
-        updates: list[tuple[str, Callable[[], Any]]] = [
-            (f"metadata", model_catalog.update_model_metadata),
-        ]
+        updates: list[tuple[str, Callable[[], Any]]] = []
+        if EnvVarLoader.get_bool(model_catalog.METADATA_ENABLED_ENV, False):
+            updates.append(
+                (f"metadata", model_catalog.update_model_metadata),
+            )
         if EnvVarLoader.get_str(model_catalog.CATALOG_URL_ENV):
             updates.append(
                 ("model", model_catalog.update_model_catalog),

@@ -3151,12 +3151,39 @@ async def test_remote_catalog_sync_runs_updates_in_threads(
 
     assert calls == ["model", "capability"]
     assert thread_calls == [
-        provider_manager_module.model_catalog.update_model_metadata,
         update_model,
         provider_manager_module.model_catalog.load_model_catalog,
         update_capability,
         manager._capability_registry.reload,
     ]
+
+
+@pytest.mark.parametrize(f"enabled", [None, f"false", f"true"])
+async def test_remote_metadata_sync_requires_opt_in(
+    isolated_secret_dir,
+    monkeypatch,
+    enabled,
+) -> None:
+    manager = ProviderManager()
+    catalog = provider_manager_module.model_catalog
+    monkeypatch.delenv(catalog.METADATA_ENABLED_ENV, raising=False)
+    if enabled is not None:
+        monkeypatch.setenv(catalog.METADATA_ENABLED_ENV, enabled)
+    monkeypatch.setattr(
+        provider_manager_module.EnvVarLoader,
+        f"get_str",
+        lambda name: f"",
+    )
+    calls = []
+    monkeypatch.setattr(
+        catalog,
+        f"update_model_metadata",
+        lambda: calls.append(f"metadata"),
+    )
+
+    await manager.sync_remote_catalogs()
+
+    assert calls == ([f"metadata"] if enabled == f"true" else [])
 
 
 async def test_remote_catalog_sync_updates_live_manager_state(
