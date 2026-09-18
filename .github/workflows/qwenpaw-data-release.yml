@@ -6,12 +6,11 @@
 # only uploads to OSS when that version is not yet on the CDN. Can also be
 # run manually via the Actions tab (with an optional force flag).
 #
-# The qwenpaw-data frontend embeds the qwenpaw-data-context console as vendored
-# static assets. They are not committed to this repo, so the upload job
-# checks out the public QwenPaw-Data repository at a pinned ref and runs
-# the plugin's sync-context-ui.sh before building ui/dist. The packer's
-# pack_requires validation (declared in plugin.json) fails the run if any
-# required artifact is missing.
+# The full Data console is a reviewed snapshot tracked in this repository.
+# The qwenpaw-data-context console is generated separately, so the upload job
+# checks out public QwenPaw-Data at a pinned ref and runs sync-context-ui.sh
+# before building ui/dist. No QwenPaw-Data-Cloud access is needed. The packer's
+# pack_requires validation fails the run if either console is incomplete.
 
 name: QwenPaw Data Plugin Release
 
@@ -145,12 +144,7 @@ jobs:
           repository: agentscope-ai/QwenPaw-Data
           # Pinned for reproducible vendoring; bump together with the
           # plugin version, or override per-run via the data_ref input.
-          # Pinned to the QwenPaw-Data rename commit (PR
-          # agentscope-ai/QwenPaw-Data#32, branch chore/rename-qwenpaw-data):
-          # no tag or main commit carries the renamed
-          # packages/qwenpaw-data-context/frontend layout yet. Once #32
-          # merges and is tagged, move this default to that tag.
-          ref: ${{ github.event.inputs.data_ref || '99ef4f31f6fbf6ded6596c1e4aa7a3c8105946d7' }}
+          ref: ${{ github.event.inputs.data_ref || 'v0.3.0' }}
           path: qwenpaw-data
 
       - name: Set up Python
@@ -165,6 +159,13 @@ jobs:
           cache: npm
           cache-dependency-path: plugins/apps/qwenpaw-data/ui/package-lock.json
 
+      - name: Verify tracked Data console
+        run: |
+          python "${PLUGIN_DIR}/scripts/verify-data-console.py" \
+            "${PLUGIN_DIR}/ui/public/data-console" \
+            --canonical-bridge "${PLUGIN_DIR}/scripts/data-console/paw-bridge.js" \
+            --canonical-patch "${PLUGIN_DIR}/scripts/data-console/patches/console-embed.patch"
+
       - name: Vendor the context console
         run: |
           # Builds the qwenpaw-data-context frontend from the QwenPaw-Data
@@ -177,6 +178,13 @@ jobs:
         run: |
           npm --prefix "${PLUGIN_DIR}/ui" ci
           npm --prefix "${PLUGIN_DIR}/ui" run build
+          python "${PLUGIN_DIR}/scripts/verify-data-console.py" \
+            "${PLUGIN_DIR}/ui/dist/data-console" \
+            --canonical-bridge "${PLUGIN_DIR}/scripts/data-console/paw-bridge.js" \
+            --canonical-patch "${PLUGIN_DIR}/scripts/data-console/patches/console-embed.patch"
+          diff -qr \
+            "${PLUGIN_DIR}/ui/public/data-console" \
+            "${PLUGIN_DIR}/ui/dist/data-console"
 
       - name: Pack qwenpaw-data plugin and build index
         run: |
@@ -206,12 +214,22 @@ jobs:
             "${PLUGIN_ID}/backend/main.py" \
             "${PLUGIN_ID}/ui/dist/index.js" \
             "${PLUGIN_ID}/ui/dist/context-console/index.html" \
+            "${PLUGIN_ID}/ui/dist/data-console/index.html" \
+            "${PLUGIN_ID}/ui/dist/data-console/paw-bridge.js" \
+            "${PLUGIN_ID}/ui/dist/data-console/BUILD_INFO" \
+            "${PLUGIN_ID}/ui/dist/data-console/SHA256SUMS" \
+            "${PLUGIN_ID}/ui/dist/data-console/assets/index.js" \
+            "${PLUGIN_ID}/ui/dist/data-console/assets/style.css" \
             "${PLUGIN_ID}/ui/dist/app/logo-mark-v4.png"; do
             if ! grep -qxF "$required" <<< "$names"; then
               echo "ERROR: required file missing from zip: $required" >&2
               exit 1
             fi
           done
+          if grep -qE "^${PLUGIN_ID}/ui/dist/data-console/.*\.map$" <<< "$names"; then
+            echo "ERROR: Data console source maps must not ship." >&2
+            exit 1
+          fi
           if forbidden=$(grep -E \
             "^${PLUGIN_ID}/(ui/(src|public|node_modules)/|\.venv-qwenpaw-data/|\.qwenpaw-data-dev/)" \
             <<< "$names"); then

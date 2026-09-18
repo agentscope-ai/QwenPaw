@@ -23,10 +23,10 @@ fi
 
 echo "==> Installing qwenpaw-data runtime packages with $PYTHON_BIN"
 "$PYTHON_BIN" -m pip install --upgrade \
-  "qwenpaw-data-context>=0.1,<0.2" \
-  "qwenpaw-data-host-core>=0.1,<0.2" \
-  "qwenpaw-data-cli>=0.1,<0.2" \
-  "qwenpaw-data-skills>=0.1,<0.2"
+  "qwenpaw-data-context>=0.3,<0.4" \
+  "qwenpaw-data-host-core[service]>=0.3,<0.4" \
+  "qwenpaw-data-cli>=0.3,<0.4" \
+  "qwenpaw-data-skills>=0.3,<0.4"
 
 echo ""
 echo "==> Installed versions:"
@@ -37,8 +37,9 @@ for package_name in qwenpaw-data-context qwenpaw-data-host-core qwenpaw-data-cli
 done
 
 echo ""
-echo "==> Verifying context service entry point"
+echo "==> Verifying Context and engine service entry points"
 "$PYTHON_BIN" -c "import context_manager.api.server"
+"$PYTHON_BIN" -c "from qwenpaw_data.host.core.api.app import create_app; create_app()"
 
 echo ""
 echo "QwenPaw Data runtime is ready. Start QwenPaw with the qwenpaw-data plugin enabled."
