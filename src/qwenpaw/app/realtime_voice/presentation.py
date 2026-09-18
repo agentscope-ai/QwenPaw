@@ -22,12 +22,13 @@ class PresentationIntent:
     missing_information: str = ""
     completion: asyncio.Future[ProviderResponseResult] | None = None
     changed_ids: tuple[str, ...] = ()
+    admission_turn_ids: tuple[str, ...] = ()
     timeline_order: int = 0
     history_user_text: str = ""
 
     @property
     def cost(self) -> int:
-        return max(1, len(self.changed_ids))
+        return max(1, len(self.changed_ids), len(self.admission_turn_ids))
 
     @property
     def system_feedback(self) -> bool:
@@ -36,7 +37,9 @@ class PresentationIntent:
 
     @property
     def coalescing_key(self) -> str:
-        """Only unspoken progress updates may replace an older update."""
+        """Coalesce replaceable system feedback, never durable Chat input."""
+        if self.kind == "admission":
+            return "admission"
         return f"update:{self.task_ref}" if self.kind == "update" else ""
 
     def cancel(self) -> None:
@@ -45,7 +48,7 @@ class PresentationIntent:
 
 
 class PresentationQueue:
-    """User turns and admissions are FIFO; only progress may coalesce."""
+    """Keep user speech FIFO while collapsing replaceable system feedback."""
 
     def __init__(self, capacity: int) -> None:
         if capacity < 1:
@@ -63,12 +66,25 @@ class PresentationQueue:
         key = intent.coalescing_key
         previous = self._coalesced.get(key) if key else None
         if previous is not None:
-            intent = replace(
-                intent,
-                changed_ids=tuple(
-                    dict.fromkeys((*previous.changed_ids, *intent.changed_ids))
-                ),
-            )
+            if intent.kind == "admission":
+                intent = replace(
+                    intent,
+                    admission_turn_ids=tuple(
+                        dict.fromkeys(
+                            (
+                                *previous.admission_turn_ids,
+                                *intent.admission_turn_ids,
+                            )
+                        )
+                    ),
+                )
+            else:
+                intent = replace(
+                    intent,
+                    changed_ids=tuple(
+                        dict.fromkeys((*previous.changed_ids, *intent.changed_ids))
+                    ),
+                )
         occupied = sum(
             i.cost for i in (*self._direct, *self._coalesced.values())
         )
@@ -91,6 +107,8 @@ class PresentationQueue:
         while True:
             if self._direct:
                 return self._direct.popleft()
+            if "admission" in self._coalesced:
+                return self._coalesced.pop("admission")
             if self._coalesced:
                 return self._coalesced.popitem(last=False)[1]
             if self._closed:

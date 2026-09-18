@@ -38,6 +38,13 @@ function createdChat(id: string): ChatSpec {
   };
 }
 
+function chatHistory(
+  id: string,
+  status: "idle" | "running",
+): ChatHistory {
+  return { ...createdChat(id), status, messages: [] };
+}
+
 describe("createSession owner-epoch singleflight", () => {
   beforeEach(() => {
     sessionApi.resetForTests();
@@ -272,7 +279,7 @@ describe("bound session history owner epochs", () => {
 
     sessionApi.setActiveAgent("B");
     sessionApi.setActiveAgent("A");
-    history.mockResolvedValue({ messages: [], status: "running" });
+    history.mockResolvedValue(chatHistory(chatId, "running"));
     const currentObserver = vi.fn();
     const currentAdapter = createSdkSessionAdapter(
       sessionApi.bindToOwner(),
@@ -283,7 +290,7 @@ describe("bound session history owner epochs", () => {
     expect(currentAdapter.isReady(chatId)).toBe(true);
     expect(currentObserver).toHaveBeenCalledExactlyOnceWith(chatId, current);
 
-    pending.resolve({ messages: [], status: "idle" });
+    pending.resolve(chatHistory(chatId, "idle"));
     const [staleBound, staleDirect] = await Promise.all([
       boundResult,
       directResult,
@@ -303,10 +310,9 @@ describe("bound session history owner epochs", () => {
 
   it("still delivers current-owner idle history to the observer", async () => {
     const chatId = "22222222-2222-4222-8222-222222222222";
-    vi.spyOn(api, "getChat").mockResolvedValue({
-      messages: [],
-      status: "idle",
-    });
+    vi.spyOn(api, "getChat").mockResolvedValue(
+      chatHistory(chatId, "idle"),
+    );
     const observer = vi.fn();
     const adapter = createSdkSessionAdapter(sessionApi.bindToOwner(), observer);
     const session = await adapter.api.getSession(chatId);

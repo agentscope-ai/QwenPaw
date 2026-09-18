@@ -84,9 +84,12 @@ export function RealtimeVoiceControls({
   const ready = voice.readyToStart;
   const assistantTurn =
     voice.status === "assistant_speaking" && voice.assistantTranscript;
+  const userTurn =
+    (voice.status === "user_speaking" || voice.canCommitPending) &&
+    voice.inputTranscript;
   const liveText = assistantTurn
     ? voice.assistantTranscript
-    : voice.inputTranscript;
+    : userTurn || "";
   const liveRole = assistantTurn
     ? t("realtimeVoice.assistant")
     : t("realtimeVoice.you");

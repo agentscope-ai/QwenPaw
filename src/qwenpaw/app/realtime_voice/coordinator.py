@@ -360,11 +360,14 @@ class VoiceCoordinator:
             PresentationIntent(
                 "admission" if receipt.accepted else "rejected",
                 turn_id=turn.turn_id,
+                admission_turn_ids=(turn.turn_id,) if receipt.accepted else (),
                 user_text="请告知用户本轮请求接收结果。" if not receipt.accepted else "",
                 task_ref=receipt.task_ref,
             ),
             persist_exchange=not receipt.accepted,
-            history_user_text=turn.text,
+            # Accepted text already belongs to the ordinary Chat task. Keep it
+            # out of speech rendering so receipt wording cannot imply results.
+            history_user_text="" if receipt.accepted else turn.text,
         )
 
     async def _queue_turn_presentation(

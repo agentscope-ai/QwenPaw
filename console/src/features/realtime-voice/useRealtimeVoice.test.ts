@@ -574,6 +574,7 @@ describe("useRealtimeVoice", () => {
       });
     });
     expect(result.current.canCommitPending).toBe(false);
+    expect(result.current.inputTranscript).toBe("");
     unmount();
   });
 
@@ -602,6 +603,7 @@ describe("useRealtimeVoice", () => {
     });
 
     expect(result.current.canCommitPending).toBe(false);
+    expect(result.current.inputTranscript).toBe("");
     expect(result.current.error).toContain("too many pending admissions");
     expect(mocks.clientClose).not.toHaveBeenCalled();
     unmount();

@@ -29,15 +29,40 @@ async def test_bounded_coalescing_and_direct_fifo():
 
 
 @pytest.mark.asyncio
-async def test_independent_admissions_are_fifo_and_never_coalesced():
+async def test_admission_speech_coalesces_without_losing_turn_identities():
     queue = PresentationQueue(10)
     admissions = [
-        PresentationIntent("admission", turn_id=f"turn-{index}")
+        PresentationIntent(
+            "admission",
+            turn_id=f"turn-{index}",
+            admission_turn_ids=(f"turn-{index}",),
+        )
         for index in range(10)
     ]
 
     assert all(queue.put(intent) for intent in admissions)
-    assert [await queue.get() for _ in admissions] == admissions
+    queued = await queue.get()
+    assert queued is not None
+    assert queued.kind == "admission"
+    assert queued.admission_turn_ids == tuple(f"turn-{index}" for index in range(10))
+
+
+@pytest.mark.asyncio
+async def test_admission_feedback_precedes_stale_progress_updates():
+    queue = PresentationQueue(3)
+    assert queue.put(
+        PresentationIntent("update", task_ref="task", changed_ids=("old",))
+    )
+    assert queue.put(
+        PresentationIntent(
+            "admission",
+            turn_id="new-turn",
+            admission_turn_ids=("new-turn",),
+        )
+    )
+
+    assert (await queue.get()).kind == "admission"
+    assert (await queue.get()).kind == "update"
 
 
 @pytest.mark.asyncio
