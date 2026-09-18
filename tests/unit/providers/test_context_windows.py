@@ -580,3 +580,40 @@ def test_get_model_max_input_length_uses_provider_resolution(monkeypatch):
         ),
     )
     assert config_mod.get_model_max_input_length(agent_config) == 200_000
+
+
+def test_provider_info_works_with_legacy_thinking_overrides():
+    """A provider subclass that overrides ``supports_agent_thinking`` with the
+    historical single-argument signature must keep working.
+
+    It is called by the per-response serializer, and ``list_provider_info``
+    gathers every provider without ``return_exceptions``, so a signature change
+    would break the whole provider list (plugins register arbitrary provider
+    classes through ``plugins.registry.register_provider``).
+    """
+    import asyncio
+
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+
+    class _LegacyPluginProvider(OpenAIProvider):
+        def supports_agent_thinking(self, model_id: str) -> bool:
+            return True
+
+    provider = _LegacyPluginProvider(
+        id="plugin",
+        name="Plugin",
+        api_key="sk-test",
+        models=[
+            ModelInfo(
+                id="gpt-5",
+                name="gpt-5",
+                max_input_length_catalog=272_000,
+            ),
+        ],
+        extra_models=[],
+    )
+
+    info = asyncio.run(provider.get_info())
+
+    assert info.models[0].supports_agent_thinking is True
+    assert info.models[0].effective_max_input_length == 272_000

@@ -4,14 +4,14 @@
 from __future__ import annotations
 
 import os
-from typing import Mapping
 
 import httpx
 
 from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
+from .context_windows import ContextWindowResolution
 from .openai_provider import OpenAIProvider
-from .provider import ModelInfo, ProviderInfo
+from .provider import ModelInfo, ProviderInfo, resolve_window_from_info
 
 PROVIDER_ID = "hub-managed"
 
@@ -43,17 +43,9 @@ def directory() -> dict:
 class ManagedProvider(OpenAIProvider):
     """Use the existing OpenAI adapter while exporting only safe metadata."""
 
-    def supports_agent_thinking(
-        self,
-        model_id: str,
-        *,
-        resolved: Mapping[str, ModelInfo | None] | None = None,
-    ) -> bool:
+    def supports_agent_thinking(self, model_id: str) -> bool:
         """Use the Hub's capability instead of guessing from opaque aliases."""
-        if resolved is None:
-            info = self.get_model_info(model_id)
-        else:
-            info = resolved.get(model_id)
+        info = self._configured_model_info(model_id)
         return bool(info and info.supports_agent_thinking)
 
     def _map_agent_thinking_level(
@@ -75,7 +67,11 @@ class ManagedProvider(OpenAIProvider):
         model.client.max_retries = 0
         return model
 
-    def _projected(self, model: ModelInfo) -> ModelInfo:
+    def _projected(
+        self,
+        model: ModelInfo,
+        window: ContextWindowResolution,
+    ) -> ModelInfo:
         """Return *model* with the read-only window projection attached.
 
         The console renders ``effective_max_input_length`` and its source; this
@@ -83,7 +79,6 @@ class ManagedProvider(OpenAIProvider):
         of by ``Provider.get_info``. A copy is returned so the live model never
         carries derived state.
         """
-        window = self.get_context_window_details(model.id)
         return model.model_copy(
             update={
                 "effective_max_input_length": window.value,
@@ -93,10 +88,27 @@ class ManagedProvider(OpenAIProvider):
 
     async def get_info(self, mock_secret=True) -> ProviderInfo:
         """Never expose even the runtime capability through model APIs."""
+        # Resolve each window from one index: the organization catalog can hold
+        # thousands of models, and resolving per model would scan the list once
+        # per model (quadratic) on the event loop.
+        by_id = {model.id: model for model in self.models}
+        use_catalog = self._context_catalog_enabled()
+        models = [
+            self._projected(
+                model,
+                resolve_window_from_info(
+                    model.id,
+                    by_id.get(model.id),
+                    None,
+                    use_catalog=use_catalog,
+                ),
+            )
+            for model in self.models
+        ]
         return ProviderInfo(
             id=PROVIDER_ID,
             name="Hub",
-            models=[self._projected(model) for model in self.models],
+            models=models,
             api_key="",
             base_url="",
             require_api_key=False,

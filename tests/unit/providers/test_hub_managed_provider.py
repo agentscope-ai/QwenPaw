@@ -70,3 +70,49 @@ def test_hub_info_carries_the_read_only_window_projection(
     assert model.effective_max_input_length_source == "catalog"
     # Derived state stays off the live model.
     assert provider.models[0].effective_max_input_length is None
+
+
+def test_hub_info_serialization_does_not_rescan_per_model() -> None:
+    """The Hub can hold thousands of models, so its response must resolve each
+    window from one index. Resolving per model scans the model list once per
+    model (quadratic) and blocks the event loop -- which is what the first
+    version of this projection did."""
+    from qwenpaw.providers.hub_managed import ManagedProvider
+    from qwenpaw.providers.provider import ModelInfo
+
+    counts = {"cmp": 0}
+    model_count = 200
+
+    class _Counting(ManagedProvider):
+        def get_model_info(self, model_id):
+            counts["cmp"] += len(self.extra_models) + len(self.models)
+            return super().get_model_info(model_id)
+
+        def get_discovered_model_info(self, model_id):
+            counts["cmp"] += len(self.discovered_models)
+            return super().get_discovered_model_info(model_id)
+
+    provider = _Counting(
+        id="hub-managed",
+        name="Hub",
+        base_url="http://hub.invalid/v1",
+        api_key="hub-token",
+        models=[
+            ModelInfo(
+                id=f"org-model-{index}",
+                name=f"Model {index}",
+                max_input_length_catalog=INPUT_TOKEN_LIMIT,
+            )
+            for index in range(model_count)
+        ],
+        extra_models=[],
+    )
+
+    info = asyncio.run(provider.get_info())
+
+    assert len(info.models) == model_count
+    assert counts["cmp"] <= 2 * model_count
+    assert all(
+        model.effective_max_input_length == INPUT_TOKEN_LIMIT
+        for model in info.models
+    )

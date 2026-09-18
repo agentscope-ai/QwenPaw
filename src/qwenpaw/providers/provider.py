@@ -36,6 +36,13 @@ _AGENT_THINKING_LEVEL: ContextVar[str] = ContextVar(
     "qwenpaw_agent_thinking_level",
     default="inherit",
 )
+# Ambient id -> configured-model index for one provider response. The
+# serializer publishes it so per-model derived fields do not re-scan the model
+# collections (which made ``get_info()`` quadratic); scoping it to the provider
+# id keeps a nested response from consulting another provider's index.
+_SERIALIZED_MODEL_INDEX: ContextVar[
+    tuple[str, Mapping[str, ModelInfo]] | None
+] = ContextVar("qwenpaw_serialized_model_index", default=None)
 AGENT_THINKING_BUDGETS = {
     "low": 2_048,
     "medium": 8_192,
@@ -236,7 +243,9 @@ class ModelInfo(BaseModel):
         ge=1000,
         description="Input context window documented by the provider model "
         "catalog. A documented value equal to the 128k default is treated "
-        "as not provided by the catalog loader.",
+        "as not provided by the catalog loader. Re-read from the packaged/"
+        "OTA/local catalog on every load: a persisted copy is only a fallback "
+        "for models the current catalog does not cover.",
     )
     max_input_length_auto_detected: int | None = Field(
         default=None,
@@ -884,26 +893,19 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         self._apply_agent_thinking_level(result, model_id)
         return result
 
-    def supports_agent_thinking(
-        self,
-        model_id: str,
-        *,
-        resolved: Mapping[str, ModelInfo | None] | None = None,
-    ) -> bool:
+    def supports_agent_thinking(self, model_id: str) -> bool:
         """Return whether agent-level thinking maps to this model.
 
-        ``resolved`` is an optional id -> info index the caller already built
-        (a missing key means "no configured model with that id"). It exists so
-        the per-response serializer does not re-scan ``models`` once per
-        model, which made ``get_info()`` quadratic. Subclasses that override
-        this method must accept the same keyword.
+        Subclasses may override this with the same single-argument signature;
+        it is called by the per-response serializer, so an override that adds
+        or renames parameters would break every provider response. The
+        serializer's prebuilt model index is passed ambiently through
+        :data:`_SERIALIZED_MODEL_INDEX` and consumed by
+        :meth:`_configured_model_info`.
         """
         if self.chat_model == "DashScopeChatModel":
             return True
-        if resolved is None:
-            info = self.get_model_info(model_id)
-        else:
-            info = resolved.get(model_id)
+        info = self._configured_model_info(model_id)
         if info is None:
             return False
         if (
@@ -1156,6 +1158,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 return model
         return None
 
+    def _configured_model_info(self, model_id: str) -> ModelInfo | None:
+        """Return the configured model for *model_id*, using the index that
+        the current response published when there is one.
+
+        Same result as :meth:`get_model_info`; the index only removes the
+        per-model scan, which is what made a response quadratic.
+        """
+        scoped = _SERIALIZED_MODEL_INDEX.get()
+        if scoped is not None and scoped[0] == self.id:
+            return scoped[1].get(model_id)
+        return self.get_model_info(model_id)
+
     def _get_relay_reasoning(self, model_id: str) -> bool:
         """Return the ``relay_reasoning`` flag for *model_id* (default
         True)."""
@@ -1303,7 +1317,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             payload = model.model_dump()
             payload["supports_agent_thinking"] = self.supports_agent_thinking(
                 model.id,
-                resolved=configured_by_id,
             )
             window = resolve_window_from_info(
                 model.id,
@@ -1314,6 +1327,28 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             payload["effective_max_input_length"] = window.value
             payload["effective_max_input_length_source"] = window.source
             return payload
+
+        # Publish the index for the duration of the serialization so the
+        # derived fields above resolve without re-scanning the collections.
+        index_token = _SERIALIZED_MODEL_INDEX.set((self.id, configured_by_id))
+        try:
+            serialized_models = [
+                serialize_model(model)
+                for model in self.models
+                if model.id not in removed
+            ]
+            serialized_extra = [
+                serialize_model(model)
+                for model in self.extra_models
+                if model.id not in removed
+            ]
+            serialized_discovered = [
+                serialize_model(model)
+                for model in self.discovered_models
+                if model.id not in removed
+            ]
+        finally:
+            _SERIALIZED_MODEL_INDEX.reset(index_token)
 
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
@@ -1329,21 +1364,9 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             chat_model=self.chat_model,
             # Discovery is a separate catalog used by the add-model form.
             # Do not expose it as configured models to selectors or lists.
-            models=[
-                serialize_model(model)
-                for model in self.models
-                if model.id not in removed
-            ],
-            extra_models=[
-                serialize_model(model)
-                for model in self.extra_models
-                if model.id not in removed
-            ],
-            discovered_models=[
-                serialize_model(model)
-                for model in self.discovered_models
-                if model.id not in removed
-            ],
+            models=serialized_models,
+            extra_models=serialized_extra,
+            discovered_models=serialized_discovered,
             models_last_synced_at=self.models_last_synced_at,
             models_last_sync_error=self.models_last_sync_error,
             models_syncing=self.models_syncing,

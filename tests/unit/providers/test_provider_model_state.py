@@ -262,3 +262,34 @@ def test_discovered_model_migration_preserves_secret() -> None:
     assert "max_tokens" not in model
     assert model["generate_kwargs"]["max_tokens"] == 4096
     assert snapshot["api_key"] == "ENC:encrypted-provider-key"
+
+
+def test_stale_snapshot_catalog_window_does_not_pin_the_catalog() -> None:
+    """A persisted catalog window must not freeze an install forever: the
+    value the current catalog documents wins, otherwise catalog updates would
+    never reach existing users."""
+    from qwenpaw.providers.provider import ModelInfo
+    from qwenpaw.providers.provider_model_state import restore_model_state
+
+    loaded = ModelInfo(
+        id="mimo-v2.5",
+        name="MiMo v2.5",
+        max_input_length_catalog=1_048_576,
+    )
+
+    restore_model_state(loaded, {"max_input_length_catalog": 200_000})
+
+    assert loaded.max_input_length_catalog == 1_048_576
+
+
+def test_snapshot_catalog_window_fills_models_the_catalog_dropped() -> None:
+    """When the current catalog documents nothing for a model (it left the
+    catalog, or a plugin reported the window), the last known value is kept."""
+    from qwenpaw.providers.provider import ModelInfo
+    from qwenpaw.providers.provider_model_state import restore_model_state
+
+    loaded = ModelInfo(id="legacy-model", name="Legacy")
+
+    restore_model_state(loaded, {"max_input_length_catalog": 200_000})
+
+    assert loaded.max_input_length_catalog == 200_000

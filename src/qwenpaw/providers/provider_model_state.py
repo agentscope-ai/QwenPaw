@@ -142,5 +142,14 @@ def restore_model_state(model: ModelInfo, state: dict[str, Any]) -> None:
         ):
             continue
         value = state.get(field)
-        if value is not None:
-            setattr(model, field, value)
+        if value is None:
+            continue
+        if field == "max_input_length_catalog" and (
+            getattr(model, field, None) is not None
+        ):
+            # The window currently documented by the packaged/OTA/local catalog
+            # wins over the persisted copy, otherwise a catalog update would
+            # never reach an existing install. The persisted value is only a
+            # fallback for models the current catalog does not cover.
+            continue
+        setattr(model, field, value)
