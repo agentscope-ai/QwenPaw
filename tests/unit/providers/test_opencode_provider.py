@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """Unit tests for the OpenCode built-in provider."""
+# pylint: disable=protected-access
 
+from agentscope.model import OpenAIChatModel
+
+from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_catalog import (
     KILO_MODELS,
 )
@@ -9,7 +13,6 @@ from qwenpaw.providers.provider_manager import (
     PROVIDER_OPENCODE,
     ProviderManager,
 )
-from qwenpaw.providers.openai_provider import OpenAIProvider
 
 
 class TestOpenCodeProvider:
@@ -103,3 +106,118 @@ class TestOpenCodeProvider:
         assert len(info.models) == len(OPENCODE_MODELS)
         model_ids = {m.id for m in info.models}
         assert model_ids == {m.id for m in OPENCODE_MODELS}
+
+
+class TestOpenCodeSessionHeader:
+    """OpenCode Go rejects requests without ``x-opencode-session``.
+
+    See QwenPaw#7599: selecting the "OpenCode Go" endpoint that the provider
+    itself offers fails with ``400 MissingSessionID`` because QwenPaw never
+    sends the header.
+    """
+
+    HEADER = "x-opencode-session"
+
+    def test_connection_client_sends_a_session_header(self):
+        """``_client()`` backs check_connection / check_model_connection."""
+        provider = PROVIDER_OPENCODE.model_copy(
+            update={"base_url": "https://opencode.ai/zen/go/v1"},
+        )
+
+        client = provider._client()
+
+        assert client.default_headers[self.HEADER]
+
+    async def test_chat_model_sends_a_session_header(self, monkeypatch):
+        """Real generation requests go through the chat model instance.
+
+        ``OpenAIChatModelCompat`` forwards its ``default_headers`` as
+        ``extra_headers`` on every call, so assert at that boundary.
+        """
+        captured: dict = {}
+
+        async def fake_call_api(self, *args, **kwargs):
+            del self, args
+            captured.update(kwargs)
+            return "ok"
+
+        monkeypatch.setattr(OpenAIChatModel, "_call_api", fake_call_api)
+        provider = PROVIDER_OPENCODE.model_copy(
+            update={"base_url": "https://opencode.ai/zen/go/v1"},
+        )
+        model = provider.get_chat_model_instance(OPENCODE_MODELS[0].id)
+
+        await model._call_api(OPENCODE_MODELS[0].id, [])
+
+        assert captured["extra_headers"][self.HEADER]
+
+    async def test_chat_model_session_is_stable_across_calls(
+        self,
+        monkeypatch,
+    ):
+        """Every request of one conversation carries the same id."""
+        seen: list = []
+        header = self.HEADER
+
+        async def fake_call_api(self, *args, **kwargs):
+            del self, args
+            seen.append(kwargs["extra_headers"][header])
+            return "ok"
+
+        monkeypatch.setattr(OpenAIChatModel, "_call_api", fake_call_api)
+        provider = PROVIDER_OPENCODE.model_copy()
+        model = provider.get_chat_model_instance(OPENCODE_MODELS[0].id)
+
+        await model._call_api(OPENCODE_MODELS[0].id, [])
+        await model._call_api(OPENCODE_MODELS[0].id, [])
+
+        assert len(seen) == 2
+        assert seen[0] == seen[1]
+
+    def test_session_id_is_stable_within_one_built_object(self):
+        """One conversation must keep one id, or caching is defeated."""
+        provider = PROVIDER_OPENCODE.model_copy()
+
+        client = provider._client()
+
+        assert (
+            client.default_headers[self.HEADER]
+            == client.default_headers[self.HEADER]
+        )
+
+    def test_separate_builds_get_separate_sessions(self):
+        """A later build is a different conversation."""
+        provider = PROVIDER_OPENCODE.model_copy()
+
+        first = provider._build_default_headers()[self.HEADER]
+        second = provider._build_default_headers()[self.HEADER]
+
+        assert first != second
+
+    def test_user_supplied_session_header_is_preserved(self):
+        """An explicit custom header always wins over the generated one."""
+        provider = PROVIDER_OPENCODE.model_copy(
+            update={"custom_headers": {"X-OpenCode-Session": "mine"}},
+        )
+
+        headers = provider._build_default_headers()
+
+        assert headers["X-OpenCode-Session"] == "mine"
+        assert self.HEADER not in headers
+
+    def test_header_is_sent_on_the_default_endpoint_too(self):
+        """The docs recommend the header for caching on both endpoints."""
+        provider = PROVIDER_OPENCODE.model_copy()
+
+        assert provider._build_default_headers()[self.HEADER]
+
+    def test_other_openai_providers_are_unaffected(self):
+        """The header is OpenCode-specific and must not leak elsewhere."""
+        provider = OpenAIProvider(
+            id="plain",
+            name="Plain",
+            base_url="https://api.openai.com/v1",
+            api_key="sk-test",
+        )
+
+        assert not provider._build_default_headers()
