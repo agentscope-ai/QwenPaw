@@ -107,6 +107,40 @@ async def test_credential_guard_rechecks_revision_after_approval_wait(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_committed_whitelist_refresh_keeps_guard_and_transport_in_sync(
+    tmp_path,
+):
+    from qwenpaw.drivers.handlers.mcp import MCPDriverHandler
+
+    store, repository = make_store(tmp_path)
+    card = await store.load("echo", protocol="mcp")
+    handler = MCPDriverHandler(
+        card, store.guard_provider(card, NoneProvider())
+    )
+    manager = DriverManager(
+        tmp_path / "drivers", SimpleNamespace(), card_store=store
+    )
+    manager.register_handler_type("mcp", MCPDriverHandler)
+    manager._handlers["echo"] = handler
+    repository.rows["echo"] = replace(
+        repository.rows["echo"], revision=2, tool_allowlist=[]
+    )
+    await manager.refresh_driver("echo")
+    assert manager._handlers["echo"] is handler
+    assert handler.card.config["tools"] == []
+    assert (
+        await handler._credential_provider.resolve()
+        == ResolvedCredential.EMPTY
+    )
+    result = await handler.invoke_capability(
+        DriverInvocation(
+            format_capability_id("mcp", "echo", "tool", "invoke", "echo"), {}
+        )
+    )
+    assert result.error_type == "tool_disabled"
+
+
+@pytest.mark.asyncio
 async def test_manager_does_not_invoke_stale_transport_or_report_active(tmp_path):
     store, repository = make_store(tmp_path)
     manager = DriverManager(tmp_path / "drivers", SimpleNamespace(), card_store=store)

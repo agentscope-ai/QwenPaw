@@ -71,7 +71,8 @@ it("retains per-target failures when enabling pool automatic updates", async () 
   expect(result.current.broadcastResults).toEqual(resultRows);
 });
 
-it("broadcast carries only explicitly confirmed per-target hash and source version", async () => {
+it.each(["updated", "unchanged", "failed", "skipped"])(
+  "broadcast keeps confirmed versions and closes only on success (%s)", async (status) => {
   const writes: Array<Record<string, unknown>> = [];
   const hash = "a".repeat(64);
   vi.stubGlobal(
@@ -88,7 +89,7 @@ it("broadcast carries only explicitly confirmed per-target hash and source versi
             {
               agent_id: "a",
               name: "sample",
-              status: body?.preview_only ? "ready" : "updated",
+              status: body?.preview_only ? "ready" : status,
               reason: "",
               expected_content_hash: hash,
               expected_version_id: "v2",
@@ -111,6 +112,7 @@ it("broadcast carries only explicitly confirmed per-target hash and source versi
   await waitFor(() => expect(result.current.loading).toBe(false));
   let pending!: Promise<void>;
   act(() => {
+    result.current.openBroadcast({ name: "sample", source: "custom" });
     pending = result.current.handleBroadcast(["sample"], ["a"]);
   });
   const dialog = await screen.findByRole("dialog");
@@ -123,6 +125,10 @@ it("broadcast carries only explicitly confirmed per-target hash and source versi
     }),
   );
   await act(async () => pending);
+  expect(result.current.mode).toBe(
+    status === "updated" || status === "unchanged" ? null : "broadcast",
+  );
+  expect(result.current.broadcastResults[0].status).toBe(status);
   expect(writes[1]).toEqual({
     agent_ids: ["a"],
     preview_only: false,

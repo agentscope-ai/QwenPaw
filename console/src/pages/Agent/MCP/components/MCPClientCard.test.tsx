@@ -56,6 +56,7 @@ const client: MCPClientInfo = {
   args: [],
   env: {},
   cwd: "",
+  http_timeout: null,
   tools: null,
   oauth_status: null,
   access_summary: { default_effect: "ask", overrides_count: 0 },

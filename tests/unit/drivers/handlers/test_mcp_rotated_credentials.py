@@ -19,7 +19,18 @@ class RotatingProvider(CredentialProvider):
 
 
 @pytest.mark.asyncio
-async def test_rotated_token_reloads_connected_http_before_invocation(monkeypatch):
+@pytest.mark.parametrize(
+    "transport,client_class",
+    [
+        ("streamable_http", "HttpAutoClient"),
+        ("sse", "HttpStatefulClient"),
+    ],
+)
+async def test_rotated_token_reloads_connected_http_before_invocation(
+    monkeypatch,
+    transport,
+    client_class,
+):
     events = []
 
     class Client:
@@ -39,12 +50,12 @@ async def test_rotated_token_reloads_connected_http_before_invocation(monkeypatc
             events.append(("call", dict(self.headers)))
             return {"ok": True}
 
-    monkeypatch.setattr("qwenpaw.drivers.handlers.mcp.HttpStatefulClient", Client)
+    monkeypatch.setattr(f"qwenpaw.drivers.handlers.mcp.{client_class}", Client)
     provider = RotatingProvider()
     card = DriverCard(
         "rotating",
         "mcp",
-        {"transport": "streamable_http", "url": "http://localhost/mcp"},
+        {"transport": transport, "url": "http://localhost/mcp"},
         credentials={"oauth": CredentialRef("oauth2_auth_code", "test")},
         policy=[PolicyRule(subject="*", effect="allow")],
     )

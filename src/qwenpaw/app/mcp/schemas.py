@@ -83,6 +83,14 @@ class MCPClientInfo(BaseModel):
         default="",
         description="Working directory for stdio MCP command",
     )
+    http_timeout: Optional[float] = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="HTTP MCP connect/write/pool timeout in seconds; "
+        "raises the read (sse_read_timeout) budget to at least this value. "
+        "None keeps the client default (30s / 300s).",
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool whitelist. Only listed tools will be loaded. "
@@ -145,6 +153,14 @@ class MCPClientCreateRequest(BaseModel):
         default="",
         description="Working directory for stdio MCP command",
     )
+    http_timeout: Optional[float] = Field(
+        default=None,
+        gt=0,
+        allow_inf_nan=False,
+        description="HTTP MCP connect/write/pool timeout in seconds; "
+        "raises the read (sse_read_timeout) budget to at least this value. "
+        "None keeps the client default (30s / 300s).",
+    )
     tools: Optional[List[str]] = Field(
         default=None,
         description="Tool whitelist. Only listed tools will be loaded. "
@@ -188,6 +204,14 @@ class MCPClientUpdateRequest(BaseModel):
     cwd: Optional[str] = Field(
         None,
         description="Working directory for stdio MCP command",
+    )
+    http_timeout: Optional[float] = Field(
+        None,
+        gt=0,
+        allow_inf_nan=False,
+        description="HTTP MCP connect/write/pool timeout in seconds; "
+        "raises the read (sse_read_timeout) budget to at least this value. "
+        "Explicit null restores the client default (30s / 300s).",
     )
     tools: Optional[List[str]] = Field(
         None,

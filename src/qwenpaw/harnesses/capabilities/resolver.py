@@ -17,6 +17,7 @@ from ...agents.skill_system import (
 )
 from ...agents.skill_system.store import read_skill_from_dir
 from ...app.driver_config_service import DriverConfigService
+from ...drivers.capabilities import mcp_tool_whitelist
 from ...drivers.constants import (
     CAPABILITY_KIND_TOOL,
     CREDENTIAL_ALIAS_DEFAULT,
@@ -149,8 +150,9 @@ class HarnessCapabilityResolver:
         )
         headers.update(implicit_auth_headers(credentials, headers))
         tools = card.config.get("tools")
+        whitelist = mcp_tool_whitelist(tools)
         tool_names = (
-            [str(item) for item in tools] if isinstance(tools, list) else None
+            None if whitelist is None else [str(item) for item in tools]
         )
         return HarnessMCPServerDefinition(
             name=card.name,

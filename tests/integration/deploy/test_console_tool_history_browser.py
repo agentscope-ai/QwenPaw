@@ -162,6 +162,25 @@ def test_ended_tool_history_survives_tab_switch_and_reload():
             other.bring_to_front()
             page.bring_to_front()
             assert_settled()
+            dismiss = page.get_by_text("我知道了", exact=True)
+            if dismiss.is_visible():
+                dismiss.click()
+            for _ in range(3):
+                page.get_by_text("收件箱", exact=True).first.click()
+                page.wait_for_url("**/inbox")
+                page.get_by_text("聊天", exact=True).first.click()
+                page.wait_for_url(f"**/chat/{CHAT_ID}")
+                assert_settled()
+                assert (
+                    page.get_by_text("Read PROFILE.md", exact=True).count()
+                    == 1
+                )
+                assert (
+                    page.get_by_text(
+                        "Later response finished.", exact=True
+                    ).count()
+                    == 1
+                )
             page.reload(wait_until="domcontentloaded")
             assert_settled()
         finally:

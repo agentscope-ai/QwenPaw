@@ -74,7 +74,7 @@ export function PoolSkillCard({
       }}
       style={{ cursor: "pointer" }}
     >
-      {/* Top row: Icon (left) + Status badge + Checkbox (right) */}
+      {/* Top row: Icon (left) + Publish action, status and checkbox (right) */}
       <div className={styles.cardTopRow}>
         <span className={styles.fileIcon}>
           <SkillVisual
@@ -84,21 +84,40 @@ export function PoolSkillCard({
           />
         </span>
         <div className={styles.cardTopRight}>
-          <span
-            className={`${styles.statusBadge} ${styles[`status_${syncTone}`]}`}
+          <Button
+            size="small"
+            type={publicationState === "current" ? "default" : "primary"}
+            disabled={batchModeEnabled || publicationState === "current"}
+            onClick={(e) => {
+              e.stopPropagation();
+              void onPublish(skill);
+            }}
           >
-            <span className={styles.statusDot} />
-            {getPoolBuiltinStatusLabel(skill.sync_status, t)}
-          </span>
-          {batchModeEnabled && (
-            <Checkbox
-              checked={isSelected}
-              onClick={(e) => {
-                e.stopPropagation();
-                onToggleSelect(skill.name);
-              }}
-            />
-          )}
+            {t(
+              publicationState === "current"
+                ? "skillGovernance.publishCurrent"
+                : publicationState === "outdated"
+                ? "skillGovernance.publishNewVersion"
+                : "skillGovernance.publish",
+            )}
+          </Button>
+          <div className={styles.statusWithSelect}>
+            <span
+              className={`${styles.statusBadge} ${styles[`status_${syncTone}`]}`}
+            >
+              <span className={styles.statusDot} />
+              {getPoolBuiltinStatusLabel(skill.sync_status, t)}
+            </span>
+            {batchModeEnabled && (
+              <Checkbox
+                checked={isSelected}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSelect(skill.name);
+                }}
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -156,28 +175,6 @@ export function PoolSkillCard({
       {/* Description */}
       <div className={styles.descriptionSection}>
         <p className={styles.descriptionText}>{skill.description || "-"}</p>
-      </div>
-
-      <div
-        style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}
-      >
-        <Button
-          size="small"
-          type={publicationState === "current" ? "default" : "primary"}
-          disabled={batchModeEnabled || publicationState === "current"}
-          onClick={(e) => {
-            e.stopPropagation();
-            void onPublish(skill);
-          }}
-        >
-          {t(
-            publicationState === "current"
-              ? "skillGovernance.publishCurrent"
-              : publicationState === "outdated"
-              ? "skillGovernance.publishNewVersion"
-              : "skillGovernance.publish",
-          )}
-        </Button>
       </div>
 
       {/* Footer - show on hover, batch mode, or mobile (no hover) */}

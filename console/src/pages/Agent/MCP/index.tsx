@@ -53,6 +53,9 @@ function normalizeClientData(key: string, rawData: Record<string, unknown>) {
     args: Array.isArray(rawData.args) ? (rawData.args as string[]) : [],
     env: (rawData.env as Record<string, string>) || {},
     cwd: (rawData.cwd || "") as string,
+    http_timeout: (rawData.http_timeout ?? rawData.timeout ?? null) as
+      | number
+      | null,
   };
 }
 

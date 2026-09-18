@@ -624,9 +624,12 @@ export function useSkillPool() {
           results.some(
             (row) => row.status === "skipped" || row.status === "failed",
           )
-        )
+        ) {
           message.warning(t("skillGovernance.partial"));
-        else message.success(t("skillGovernance.completed"));
+        } else {
+          message.success(t("skillGovernance.completed"));
+          closeModal();
+        }
         invalidateSkillCache({ pool: true, workspaces: true });
         await loadData(true);
       } catch {

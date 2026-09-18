@@ -9,6 +9,7 @@ from dataclasses import asdict
 from typing import Any
 
 from fastapi import HTTPException
+from ...drivers.capabilities import mcp_tool_is_enabled, mcp_tool_whitelist
 
 from ..driver_config_service import (
     DriverConfigService,
@@ -252,12 +253,12 @@ class MCPConfigService:
             ) from None
 
         whitelist = card.config.get("tools")
-        whitelist_set = set(whitelist) if whitelist is not None else None
+        whitelist_set = mcp_tool_whitelist(whitelist)
         return [
             MCPToolInfo(
                 name=capability.name,
                 description=capability.description,
-                enabled=whitelist_set is None or capability.name in whitelist_set,
+                enabled=mcp_tool_is_enabled(whitelist_set, capability.name),
                 input_schema=capability.input_schema,
             )
             for capability in capabilities
@@ -293,7 +294,20 @@ class MCPConfigService:
                 )
             except MCPRevisionConflict as exc:
                 raise HTTPException(409, detail=str(exc)) from exc
-        await self._driver_config.save_card(card)
+        await self._driver_config.save_card(card, reload_driver=False)
+        manager = getattr(self._workspace, "driver_manager", None)
+        if manager is not None:
+            try:
+                await manager.refresh_driver(client_key)
+            except Exception:
+                logger.warning(
+                    "MCP whitelist runtime refresh failed",
+                    extra={"client_key": client_key},
+                )
+                raise HTTPException(
+                    502,
+                    detail="MCP tool whitelist saved but runtime refresh failed; retry refreshing the client.",
+                ) from None
         try:
             return await self.list_tools(client_key)
         except HTTPException:
@@ -732,6 +746,8 @@ def merge_update_with_existing(
     data.update(
         {key: value for key, value in update_data.items() if value is not None},
     )
+    if "http_timeout" in update_data:
+        data["http_timeout"] = update_data["http_timeout"]
     return MCPClientCreateRequest.model_validate(data)
 
 

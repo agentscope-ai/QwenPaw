@@ -383,9 +383,9 @@ export default function AgentsPage() {
       }
 
       setModalVisible(false);
-      await loadAgents();
-      assertCurrentEdit();
-      await loadAdminAgents();
+      // Refreshing access changes the skill scope; both lists must refresh
+      // without revalidating the completed edit against that old scope.
+      await Promise.all([loadAgents(), loadAdminAgents()]);
     } catch (error: unknown) {
       if (!scope.current() || sequence !== editSequence.current) return;
       console.error("Failed to save agent:", error);

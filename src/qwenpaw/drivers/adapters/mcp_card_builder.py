@@ -109,6 +109,8 @@ def build_mcp_driver_card(
     current = _card_to_client_data(existing) if existing else {}
     updates = _model_dump(client)
     data = {**current, **{k: v for k, v in updates.items() if v is not None}}
+    if "http_timeout" in updates:
+        data["http_timeout"] = updates["http_timeout"]
     transport = str(data.get("transport") or "stdio")
     secrets = dict(credential_record.secrets) if credential_record else {}
 
@@ -146,6 +148,8 @@ def build_mcp_driver_card(
                 STATIC_CREDENTIAL_ALIAS,
             ),
         }
+        if data.get("http_timeout") is not None:
+            endpoint["http_timeout"] = float(data["http_timeout"])
         _preserve_oauth_authorization_binding(existing, endpoint)
 
     credentials = _credential_refs_from_existing(existing)
@@ -210,6 +214,7 @@ def build_mcp_client_info_payload(
         "args": list(endpoint.get("args") or []),
         "env": env,
         "cwd": str(endpoint.get("cwd") or ""),
+        "http_timeout": endpoint.get("http_timeout"),
         "tools": card.config.get("tools"),
         "oauth_status": _oauth_status(oauth_credential),
         "access_summary": {
@@ -327,6 +332,7 @@ def _card_to_client_data(card: DriverCard | None) -> dict[str, Any]:
             credential_alias=STATIC_CREDENTIAL_ALIAS,
         ),
         "cwd": endpoint.get("cwd") or "",
+        "http_timeout": endpoint.get("http_timeout"),
     }
 
 

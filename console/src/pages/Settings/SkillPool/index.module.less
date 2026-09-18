@@ -500,7 +500,7 @@
   }
 }
 
-/* Top row: large icon (left) + status badge + checkbox (right) */
+/* Top row: large icon (left) + publish action and status (right) */
 .cardTopRow {
   display: flex;
   justify-content: space-between;
@@ -510,9 +510,8 @@
 
 .cardTopRight {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   flex-shrink: 0;
 }
