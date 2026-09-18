@@ -11,42 +11,59 @@ use core_graphics::access::ScreenCaptureAccess;
 use dispatch2::run_on_main;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use super::super::permission_broker::Permission;
+
 static SCREEN_RECORDING_PROMPTED: AtomicBool = AtomicBool::new(false);
 static ACCESSIBILITY_PROMPTED: AtomicBool = AtomicBool::new(false);
+static INPUT_MONITORING_PROMPTED: AtomicBool = AtomicBool::new(false);
 
-pub(crate) fn ensure_for(method: &str) -> Result<(), (&'static str, String)> {
-    if method == "observe_window" && !screen_recording_authorized() {
-        request_screen_recording();
-        return Err((
-            "screen_recording_permission_required",
-            "Screen Recording access is required. Grant it to QwenPaw Computer Use in System Settings, then retry."
-                .to_string(),
-        ));
-    }
-    if needs_accessibility(method) && !accessibility_authorized() {
-        request_accessibility();
-        return Err((
-            "accessibility_permission_required",
-            "Accessibility access is required. Grant it to QwenPaw Computer Use in System Settings, then retry."
-                .to_string(),
-        ));
+pub(crate) fn ensure(permissions: &[Permission]) -> Result<(), (&'static str, String)> {
+    for permission in permissions {
+        match permission {
+            Permission::ScreenRecording if !screen_recording_authorized() => {
+                request_screen_recording();
+                return Err((
+                    "screen_recording_permission_required",
+                    "Screen Recording access is required. Grant it to QwenPaw Computer Use in System Settings, then retry."
+                        .to_string(),
+                ));
+            }
+            Permission::Accessibility if !accessibility_authorized() => {
+                request_accessibility();
+                return Err((
+                    "accessibility_permission_required",
+                    "Accessibility access is required. Grant it to QwenPaw Computer Use in System Settings, then retry."
+                        .to_string(),
+                ));
+            }
+            Permission::InputMonitoring if !input_monitoring_authorized() => {
+                request_input_monitoring();
+                return Err((
+                    "input_monitoring_permission_required",
+                    "Input Monitoring access is required. Grant it to QwenPaw Computer Use in System Settings, then retry."
+                        .to_string(),
+                ));
+            }
+            _ => {}
+        }
     }
     Ok(())
 }
 
-fn needs_accessibility(method: &str) -> bool {
-    matches!(
-        method,
-        "observe_window"
-            | "click"
-            | "close_window"
-            | "drag"
-            | "invoke_element"
-            | "press_key"
-            | "scroll"
-            | "set_value"
-            | "type_text"
-    )
+pub(crate) fn granted(permission: Permission) -> bool {
+    match permission {
+        Permission::Accessibility => accessibility_authorized(),
+        Permission::ScreenRecording => screen_recording_authorized(),
+        Permission::InputMonitoring => input_monitoring_authorized(),
+    }
+}
+
+pub(crate) fn request(permission: Permission) {
+    match permission {
+        Permission::Accessibility => request_accessibility(),
+        Permission::ScreenRecording => request_screen_recording(),
+        Permission::InputMonitoring => request_input_monitoring(),
+    }
 }
 
 fn screen_recording_authorized() -> bool {
@@ -55,6 +72,10 @@ fn screen_recording_authorized() -> bool {
 
 fn accessibility_authorized() -> bool {
     unsafe { AXIsProcessTrusted() }
+}
+
+fn input_monitoring_authorized() -> bool {
+    unsafe { CGPreflightListenEventAccess() }
 }
 
 fn request_screen_recording() {
@@ -83,16 +104,17 @@ fn request_accessibility() {
     });
 }
 
-#[cfg(test)]
-mod tests {
-    use super::needs_accessibility;
-
-    #[test]
-    fn only_actions_that_need_window_control_require_accessibility() {
-        assert!(needs_accessibility("observe_window"));
-        assert!(needs_accessibility("type_text"));
-        assert!(needs_accessibility("close_window"));
-        assert!(!needs_accessibility("list_apps"));
-        assert!(!needs_accessibility("launch_app"));
+fn request_input_monitoring() {
+    if INPUT_MONITORING_PROMPTED.swap(true, Ordering::Relaxed) {
+        return;
     }
+    run_on_main(|_| unsafe {
+        let _ = CGRequestListenEventAccess();
+    });
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightListenEventAccess() -> bool;
+    fn CGRequestListenEventAccess() -> bool;
 }
