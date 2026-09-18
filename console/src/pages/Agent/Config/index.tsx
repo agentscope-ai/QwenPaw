@@ -103,8 +103,10 @@ function AgentConfigPage() {
             const model = all.find(
               (item) => item.id === info.active_llm?.model,
             );
-            if (model?.max_input_length != null) {
-              setMaxInputLength(model.max_input_length);
+            const effective =
+              model?.effective_max_input_length ?? model?.max_input_length;
+            if (effective != null) {
+              setMaxInputLength(effective);
             }
           });
         }

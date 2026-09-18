@@ -76,11 +76,15 @@ export function HubModelIdentityFields({
       : preset?.models ?? [];
   const model = models.find((m) => m.id === modelId);
   const catalogModel = preset?.models.find((m) => m.id === modelId);
+  // `max_input_length` only holds a user override now (null = inherit), so
+  // the documented catalog window is a separate field and an unknown window
+  // is genuinely unknown instead of the old 128k placeholder.
   const knownInput =
     model?.max_input_length_auto_detected ??
-    (catalogModel || model?.max_input_length_configured
-      ? model?.max_input_length
-      : undefined);
+    model?.max_input_length ??
+    catalogModel?.max_input_length_catalog ??
+    model?.max_input_length_catalog ??
+    undefined;
   const knownOutput = model?.max_output_length;
   const identity = `${connectionId ?? ""}:${modelId ?? ""}`;
   const automatic = useRef<{

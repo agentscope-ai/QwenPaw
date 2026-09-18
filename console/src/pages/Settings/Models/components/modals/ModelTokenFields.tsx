@@ -23,23 +23,66 @@ const hintStyle = {
 export function ContextLengthField({
   value,
   onChange,
+  model,
   showHint = true,
-}: TokenFieldProps) {
-  const { t } = useTranslation();
+}: TokenFieldProps & {
+  model?: Pick<
+    ModelInfo,
+    | "max_input_length"
+    | "effective_max_input_length"
+    | "effective_max_input_length_source"
+  >;
+}) {
+  const { t, i18n } = useTranslation();
+  const effective = model?.effective_max_input_length ?? null;
+  const overridden = model?.max_input_length != null;
+  const source = model?.effective_max_input_length_source ?? "default";
   return (
     <div>
-      <div style={labelStyle}>{t("models.maxInputLengthLabel")}</div>
+      <div
+        style={{
+          ...labelStyle,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span>{t("models.maxInputLengthLabel")}</span>
+        {overridden && (
+          <Button
+            type="text"
+            size="small"
+            icon={<RotateCcw size={14} />}
+            aria-label={t("models.resetMaxInputLength", "Clear override")}
+            title={t("models.resetMaxInputLength", "Clear override")}
+            onClick={() => onChange(null)}
+          />
+        )}
+      </div>
       <InputNumber
         aria-label={t("models.maxInputLengthLabel")}
         style={{ width: "100%" }}
         min={1000}
         step={1024}
         value={value}
-        placeholder="131072"
+        placeholder={effective != null ? String(effective) : undefined}
         onChange={onChange}
       />
       {showHint && (
-        <div style={hintStyle}>{t("models.maxInputLengthHint")}</div>
+        <div style={hintStyle}>
+          {t("models.maxInputLengthHint")}
+          {!overridden && effective != null && (
+            <>
+              <br />
+              {t("models.maxInputLengthInherited", {
+                defaultValue:
+                  "Inherited · effective {{value}} · from {{source}}",
+                value: effective.toLocaleString(i18n.language),
+                source: t(`models.maxInputLengthSource_${source}`, source),
+              })}
+            </>
+          )}
+        </div>
       )}
     </div>
   );

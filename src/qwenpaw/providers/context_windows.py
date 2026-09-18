@@ -2,20 +2,28 @@
 """Static catalog of known model context windows (input tokens).
 
 The compaction trigger scales with ``model.context_size``
-(= ``ModelInfo.max_input_length``), but built-in provider catalogs never set
-that field, so every model used to inherit the 128k default — a 1M-context
-model compacted exactly like a 128k one. This table supplies real windows
-for well-known model families; anything not listed keeps the default.
+(= the resolved ``ModelInfo.max_input_length``), but built-in provider
+catalogs never set that field, so every model used to inherit the 128k
+default — a 1M-context model compacted exactly like a 128k one. This table
+supplies real windows for well-known model families; anything not listed
+keeps the default.
 
 :func:`resolve_context_window` is the single resolution entry point — both
 the compaction path (``Provider._get_context_size`` → ``model.context_size``)
 and the display/usage path (``config.get_model_max_input_length``) go through
 it, so what the UI reports and when compression fires can never diverge.
+:func:`resolve_context_window_details` additionally reports which level
+produced the value, for the read-only ``effective_max_input_length_source``
+projection that the console renders next to the override box.
 Precedence:
 
-1. an explicit per-model ``max_input_length`` configured by the user;
+1. a per-model ``max_input_length`` override set by the user (``None`` means
+   "inherit", so an intentional 131072 is representable);
 2. context metadata auto-detected from the provider API;
-3. a positive non-default ``max_input_length`` from provider/catalog data;
+3. ``max_input_length_catalog``, a window documented by the packaged/OTA/local
+   model catalog for this provider variant. The catalog loader normalizes a
+   documented value that equals :data:`DEFAULT_CONTEXT_WINDOW` to "not
+   provided" before it ever reaches this module;
 4. this pattern catalog (skipped for local-serving providers such as Ollama,
    the family's cloud window says nothing about a local ``num_ctx``);
 5. :data:`DEFAULT_CONTEXT_WINDOW` (128k).
@@ -37,11 +45,19 @@ order entries are written in.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 # The fallback window when nothing else resolves. Also the default of
-# ``ModelInfo.max_input_length``. ``ModelInfo.max_input_length_configured``
-# keeps an explicit user setting distinguishable from this default, including
-# when the user intentionally chooses exactly 128k.
+# ``ModelInfo.max_input_length`` in the sense that an untouched install
+# behaves this way — but the field itself now defaults to ``None`` (inherit),
+# so an intentional 128k override no longer needs a companion flag to stay
+# distinguishable from "never configured".
 DEFAULT_CONTEXT_WINDOW = 128 * 1024
+
+# Where a resolved window came from. Rendered by the console and asserted by
+# the projection tests, so keep the labels stable.
+ContextWindowSource = Literal["user", "api", "catalog", "default"]
 
 # (pattern, max input tokens) — longest pattern wins (see _PATTERNS below).
 _KNOWN_CONTEXT_WINDOWS: tuple[tuple[str, int], ...] = (
@@ -123,35 +139,57 @@ def known_context_size(model_id: str) -> int | None:
     return None
 
 
-def resolve_context_window(
+@dataclass(frozen=True)
+class ContextWindowResolution:
+    """A resolved input-context window plus the level that produced it."""
+
+    value: int
+    source: ContextWindowSource
+
+
+def resolve_context_window_details(
     model_id: str,
     *,
-    configured: int | None = None,
-    configured_is_explicit: bool = False,
-    use_catalog: bool = True,
+    override: int | None = None,
     auto_detected: int | None = None,
-) -> int:
-    """Resolve a model's input-context window by the canonical precedence.
+    catalog: int | None = None,
+    use_catalog: bool = True,
+) -> ContextWindowResolution:
+    """Resolve a model's input-context window and its provenance.
 
-    Resolution order is an explicit user value, API-detected metadata, a
-    positive non-default provider value, the static pattern catalog when
-    enabled, and finally :data:`DEFAULT_CONTEXT_WINDOW`. An explicit value
-    equal to the default still wins. ``use_catalog`` should be false for
-    local-serving providers whose actual runtime context is deployment
-    specific.
+    Resolution order is the user override, API-detected metadata, the
+    provider catalog's documented window, the static pattern catalog when
+    enabled, and finally :data:`DEFAULT_CONTEXT_WINDOW`. ``use_catalog``
+    should be false for local-serving providers whose actual runtime context
+    is deployment specific. This function is the single implementation of
+    that order; every caller resolves through it.
     """
-    if configured is not None and configured_is_explicit:
-        return configured
+    if override is not None and override > 0:
+        return ContextWindowResolution(override, "user")
     if auto_detected is not None and auto_detected > 0:
-        return auto_detected
-    if (
-        configured is not None
-        and configured > 0
-        and configured != DEFAULT_CONTEXT_WINDOW
-    ):
-        return configured
+        return ContextWindowResolution(auto_detected, "api")
+    if catalog is not None and catalog > 0:
+        return ContextWindowResolution(catalog, "catalog")
     if use_catalog:
         known = known_context_size(model_id)
         if known is not None:
-            return known
-    return DEFAULT_CONTEXT_WINDOW
+            return ContextWindowResolution(known, "catalog")
+    return ContextWindowResolution(DEFAULT_CONTEXT_WINDOW, "default")
+
+
+def resolve_context_window(
+    model_id: str,
+    *,
+    override: int | None = None,
+    auto_detected: int | None = None,
+    catalog: int | None = None,
+    use_catalog: bool = True,
+) -> int:
+    """The resolved window as a plain int (see the details variant)."""
+    return resolve_context_window_details(
+        model_id,
+        override=override,
+        auto_detected=auto_detected,
+        catalog=catalog,
+        use_catalog=use_catalog,
+    ).value

@@ -6,9 +6,19 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from .provider import Provider, ProviderInfo
+from .provider import Provider, ProviderInfo, project_model_windows
 
 logger = logging.getLogger(__name__)
+
+
+def _catalog_enabled(provider_class: Any) -> bool:
+    """Whether the static context-window catalog applies to *provider_class*.
+
+    This path has no provider instance, so it reads the class-level hook; a
+    duck-typed class without it keeps the default.
+    """
+    hook = getattr(provider_class, "context_catalog_enabled", None)
+    return bool(hook()) if callable(hook) else True
 
 
 class PluginProviderRegistry:
@@ -29,9 +39,18 @@ class PluginProviderRegistry:
         return provider_class(**provider_info.model_dump())
 
     def list_provider_infos(self) -> list[ProviderInfo]:
-        """Return plugin provider snapshots without materializing clients."""
+        """Return plugin provider snapshots without materializing clients.
+
+        The stored registration answers the provider list directly and never
+        went through ``Provider.get_info``, so the read-only window projection
+        is applied here, on the way out: the registration itself stays free of
+        derived state.
+        """
         return [
-            registration["info"]
+            project_model_windows(
+                registration["info"],
+                use_catalog=_catalog_enabled(registration["class"]),
+            )
             for registration in self._manager.plugin_providers.values()
         ]
 

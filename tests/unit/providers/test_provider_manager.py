@@ -38,6 +38,9 @@ from qwenpaw.providers.provider import (
     ProviderInfo,
 )
 from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.provider_model_state import (
+    PROVIDER_SNAPSHOT_SCHEMA_VERSION,
+)
 
 
 def _install_v210_provider_fixture(
@@ -284,6 +287,98 @@ async def test_custom_provider_identity_is_case_insensitive(
     assert not (reloaded.custom_path / "mixedcase.json").exists()
 
 
+class _DeclaringWindowProvider(OpenAIProvider):
+    """Plugin stand-in that declares a window in its own default models."""
+
+    @classmethod
+    def get_default_models(cls):
+        return [
+            ModelInfo(
+                id="plugin-declared",
+                name="Declared",
+                max_input_length=400_000,
+            ),
+            ModelInfo(id="claude-sonnet-4-5", name="Pattern Hit"),
+        ]
+
+
+class _LocalDeclaringWindowProvider(_DeclaringWindowProvider):
+    """Stand-in for a local-serving plugin (no family cloud window)."""
+
+    @classmethod
+    def context_catalog_enabled(cls) -> bool:
+        return False
+
+
+def _projected_windows(models: list[ModelInfo]):
+    return [
+        (
+            model.effective_max_input_length,
+            model.effective_max_input_length_source,
+        )
+        for model in models
+    ]
+
+
+def test_plugin_declared_window_is_catalog_data(isolated_secret_dir) -> None:
+    """A window the provider class declares belongs to the catalog slot.
+
+    In the override slot it outranked an API-detected window and made the
+    console offer a "clear override" action the user never asked for.
+    """
+    manager = ProviderManager()
+    registration = manager._prepare_plugin_registration(
+        "declaring-plugin",
+        _DeclaringWindowProvider,
+        "Declaring Plugin",
+        "https://plugin.example/v1",
+        metadata={"chat_model": "OpenAIChatModel"},
+        saved_config_path=manager.plugin_path / "declaring-plugin.json",
+    )
+    stored = registration["info"]
+
+    assert stored.models[0].max_input_length is None
+    assert stored.models[0].max_input_length_catalog == 400_000
+    # Derived state stays out of the stored registration.
+    assert stored.models[0].effective_max_input_length is None
+
+
+def test_plugin_provider_response_carries_the_window_projection(
+    isolated_secret_dir,
+) -> None:
+    """The stored registration answers the provider list directly, so the
+    projection is applied on the way out -- including the class-level catalog
+    decision, so a local-serving plugin does not inherit a cloud window."""
+    manager = ProviderManager()
+    for provider_id, provider_class in (
+        ("declaring-plugin", _DeclaringWindowProvider),
+        ("local-declaring-plugin", _LocalDeclaringWindowProvider),
+    ):
+        registration = manager._prepare_plugin_registration(
+            provider_id,
+            provider_class,
+            provider_id,
+            "https://plugin.example/v1",
+            metadata={"chat_model": "OpenAIChatModel"},
+            saved_config_path=manager.plugin_path / f"{provider_id}.json",
+        )
+        manager.plugin_providers[provider_id] = registration
+
+    infos = {
+        info.id: info
+        for info in manager._plugin_registry.list_provider_infos()
+    }
+
+    assert _projected_windows(infos["declaring-plugin"].models) == [
+        (400_000, "catalog"),
+        (200_000, "catalog"),
+    ]
+    assert _projected_windows(infos["local-declaring-plugin"].models) == [
+        (400_000, "catalog"),
+        (DEFAULT_CONTEXT_WINDOW, "default"),
+    ]
+
+
 async def test_plugin_provider_rejects_casefold_collisions(
     isolated_secret_dir,
 ) -> None:
@@ -421,7 +516,6 @@ async def test_custom_provider_preserves_explicit_default_context_window(
         max_input_length=DEFAULT_CONTEXT_WINDOW,
     )
     assert "max_input_length" in request_model.model_fields_set
-    assert request_model.max_input_length_configured is False
 
     await manager.add_custom_provider(
         ProviderInfo(
@@ -436,7 +530,7 @@ async def test_custom_provider_preserves_explicit_default_context_window(
     assert reloaded is not None
     model = reloaded.get_model_info("claude-sonnet-4-5")
     assert model is not None
-    assert model.max_input_length_configured is True
+    assert model.max_input_length == DEFAULT_CONTEXT_WINDOW
     assert (
         reloaded.get_context_size("claude-sonnet-4-5")
         == DEFAULT_CONTEXT_WINDOW
@@ -1224,7 +1318,9 @@ def test_load_provider_migrates_v210_builtin_snapshot(
     assert migrated.custom_headers == {"X-Legacy": "kept"}
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
-    assert persisted["snapshot_schema_version"] == 2
+    assert persisted["snapshot_schema_version"] == (
+        PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    )
     assert all("max_tokens" not in model for model in persisted["models"])
     configured = next(
         model
@@ -1271,7 +1367,9 @@ def test_load_provider_migrates_v210_custom_snapshot(
     assert migrated.custom_headers == {"X-Custom-Legacy": "kept"}
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
-    assert persisted["snapshot_schema_version"] == 2
+    assert persisted["snapshot_schema_version"] == (
+        PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    )
     assert all(
         "max_tokens" not in model for model in persisted["extra_models"]
     )
@@ -1307,7 +1405,9 @@ def test_prepare_plugin_registration_migrates_v210_snapshot(
     assert provider.custom_headers == {"X-Plugin-Legacy": "kept"}
 
     persisted = json.loads(provider_path.read_text(encoding="utf-8"))
-    assert persisted["snapshot_schema_version"] == 2
+    assert persisted["snapshot_schema_version"] == (
+        PROVIDER_SNAPSHOT_SCHEMA_VERSION
+    )
     configured = persisted["extra_models"][0]
     assert "max_tokens" not in configured
     assert configured["generate_kwargs"]["max_tokens"] == 4096
@@ -1727,16 +1827,16 @@ async def test_sync_update_and_async_discovery_share_atomic_transaction(
 
 
 @pytest.mark.parametrize(
-    ("saved_length", "expected_configured"),
+    ("saved_length", "expected_catalog_value"),
     [
-        (64_000, True),
-        (DEFAULT_CONTEXT_WINDOW, False),
+        (64_000, 64_000),
+        (DEFAULT_CONTEXT_WINDOW, None),
     ],
 )
-def test_legacy_builtin_context_window_infers_non_default_as_configured(
+def test_legacy_builtin_context_window_moves_to_the_catalog_slot(
     isolated_secret_dir,
     saved_length: int,
-    expected_configured: bool,
+    expected_catalog_value: int | None,
 ) -> None:
     manager = ProviderManager()
     provider = manager.get_provider("openai")
@@ -1757,8 +1857,74 @@ def test_legacy_builtin_context_window_infers_non_default_as_configured(
     assert reloaded is not None
     model = reloaded.get_model_info("gpt-4o")
     assert model is not None
-    assert model.max_input_length == saved_length
-    assert model.max_input_length_configured is expected_configured
+    assert model.max_input_length is None
+    assert model.max_input_length_catalog == expected_catalog_value
+    # The legacy resolution outcome is preserved: a stored non-default value
+    # still wins, a stored 128k placeholder still means "not provided".
+    assert reloaded.get_context_size("gpt-4o") == saved_length
+
+
+async def test_context_override_set_and_clear_survive_a_reload(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    """The console's set/clear round-trip has to reach disk and come back.
+
+    ``manager.update_model_config`` merges the change through the persisted
+    snapshot (``_copy_model_fields``), so a dropped ``None`` -- or a stale
+    ``config_overrides`` entry -- would silently keep the old override after a
+    restart.
+    """
+    manager = ProviderManager()
+    provider = manager.get_provider("openai")
+    assert provider is not None
+    inherited = provider.get_context_size("gpt-5")
+    assert inherited != 65_536
+
+    await manager.update_model_config(
+        "openai",
+        "gpt-5",
+        {"max_input_length": 65_536},
+    )
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "_instance",
+        None,
+    )
+    reloaded = ProviderManager().get_provider("openai")
+    assert reloaded is not None
+    model = reloaded.get_model_info("gpt-5")
+    assert model is not None
+    assert model.max_input_length == 65_536
+    assert "max_input_length" in model.config_overrides
+    assert reloaded.get_context_size("gpt-5") == 65_536
+
+    await manager.update_model_config(
+        "openai",
+        "gpt-5",
+        {"max_input_length": None},
+    )
+
+    monkeypatch.setattr(
+        provider_manager_module.ProviderManager,
+        "_instance",
+        None,
+    )
+    cleared = ProviderManager().get_provider("openai")
+    assert cleared is not None
+    model = cleared.get_model_info("gpt-5")
+    assert model is not None
+    assert model.max_input_length is None
+    assert model.config_overrides == []
+    assert cleared.get_context_size("gpt-5") == inherited
+
+    stored = json.loads(
+        manager._provider_config_path("openai").read_text(encoding="utf-8"),
+    )
+    saved = next(model for model in stored["models"] if model["id"] == "gpt-5")
+    assert saved["max_input_length"] is None
+    assert saved["config_overrides"] == []
 
 
 def test_builtin_capability_probe_results_survive_storage_reload(
@@ -2523,7 +2689,6 @@ async def test_discovery_preserves_explicit_context_override(
             name="Configured Model",
             source="discovered",
             max_input_length=64_000,
-            max_input_length_configured=True,
         ),
     ]
 
@@ -2545,8 +2710,10 @@ async def test_discovery_preserves_explicit_context_override(
     model = provider.get_discovered_model_info("vendor/model")
     assert model is not None
     assert model.max_input_length == 64_000
-    assert model.max_input_length_configured is True
     assert model.max_input_length_auto_detected == 1_000_000
+    # A window reported by a fetch is catalog-level data: it can never
+    # overwrite (or become) a user override.
+    assert model.max_input_length_catalog == 1_000_000
     assert provider.get_context_size("vendor/model") == 64_000
 
 

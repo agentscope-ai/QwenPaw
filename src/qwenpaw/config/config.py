@@ -4031,9 +4031,10 @@ def get_model_max_input_length(
     """Return the active model's resolved context window.
 
     Delegates to ``Provider.get_context_size`` — the SAME resolution the
-    compaction trigger uses (explicit ``max_input_length`` > static
-    context-window catalog > 128k default) — so /history, usage%%, and
-    daemon status can never disagree with when compression actually fires.
+    compaction trigger uses (user override > provider API > provider catalog >
+    static context-window catalog > 128k default) — so /history, usage%%,
+    daemon status, and the console's per-model ``effective_max_input_length``
+    projection can never disagree with when compression actually fires.
     Falls back to 128 * 1024 (131072) if the provider is unavailable.
     Accepts an already-loaded *agent_config* to avoid redundant file I/O
     on hot paths (pre_reasoning, compact_context, summarize, etc.).

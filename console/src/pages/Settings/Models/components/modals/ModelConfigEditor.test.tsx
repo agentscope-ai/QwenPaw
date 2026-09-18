@@ -131,3 +131,81 @@ describe("ModelConfigEditor output limits", () => {
     );
   });
 });
+
+describe("ModelConfigEditor context window", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("shows the inherited effective window as the placeholder", () => {
+    renderEditor(
+      createModel({
+        max_input_length: null,
+        effective_max_input_length: 272000,
+        effective_max_input_length_source: "catalog",
+      }),
+    );
+
+    expect(screen.getByPlaceholderText("272000")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Clear override/i }),
+    ).toBeNull();
+  });
+
+  it("offers to clear a user override", () => {
+    renderEditor(
+      createModel({
+        max_input_length: 65536,
+        effective_max_input_length: 65536,
+        effective_max_input_length_source: "user",
+      }),
+    );
+
+    expect(screen.getByDisplayValue("65536")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Clear override/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("sends null to clear the override back to inherited", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        max_input_length: 65536,
+        effective_max_input_length: 65536,
+        effective_max_input_length_source: "user",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: /Clear override/i }));
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    expect(api.configureModel).toHaveBeenCalledWith(
+      "openai",
+      "test-model",
+      expect.objectContaining({ max_input_length: null }),
+    );
+  });
+
+  it("omits an untouched window while editing another setting", async () => {
+    vi.mocked(api.configureModel).mockResolvedValue(provider);
+    const user = userEvent.setup();
+    renderEditor(
+      createModel({
+        max_input_length: null,
+        effective_max_input_length: 272000,
+        effective_max_input_length_source: "catalog",
+      }),
+      "budget",
+    );
+
+    await user.click(screen.getAllByRole("switch")[0]);
+    await user.click(screen.getByRole("button", { name: /Save/i }));
+
+    await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());
+    const payload = vi.mocked(api.configureModel).mock.calls[0][2];
+    expect(payload).not.toHaveProperty("max_input_length");
+  });
+});

@@ -28,7 +28,12 @@ from .ollama_provider import OllamaProvider
 from .openai_provider import OpenAIProvider
 from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
-from .provider import ModelInfo, Provider, ProviderInfo
+from .provider import (
+    ModelInfo,
+    Provider,
+    ProviderInfo,
+    declared_window_to_catalog,
+)
 from .provider_manager_host import ProviderManagerHost
 from .provider_discovery import (
     DISCOVERY_MODEL_FIELDS as _DISCOVERY_MODEL_FIELDS,
@@ -251,8 +256,6 @@ class ProviderManagerPersistenceMixin(
         elif update_kind == "configured_update":
             model_fields = set(fields or set())
             model_fields.add("config_overrides")
-            if "max_input_length" in model_fields:
-                model_fields.add("max_input_length_configured")
             self._copy_model_fields(
                 latest,
                 result,
@@ -538,6 +541,11 @@ class ProviderManagerPersistenceMixin(
                 logger.warning(
                     f"Failed to get default models for {provider_id}: {exc}",
                 )
+        # These models come from the provider class, never from user state
+        # (the saved snapshot only restores extra_models/discovered_models), so
+        # a declared window is catalog data here -- see
+        # ``provider.declared_window_to_catalog``.
+        default_models = declared_window_to_catalog(default_models)
         provider_info = ProviderInfo(
             id=provider_id,
             name=label,

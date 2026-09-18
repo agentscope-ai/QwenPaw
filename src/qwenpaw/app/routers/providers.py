@@ -221,7 +221,12 @@ class AddModelRequest(BaseModel):
 class ModelConfigRequest(BaseModel):
     max_input_length: Optional[int] = Field(
         default=None,
-        description="Maximum input context window size (tokens).",
+        ge=1000,
+        description=(
+            "Maximum input context window size (tokens). Omit the field to "
+            "leave it unchanged; send null to clear a user override and "
+            "inherit the provider/API/catalog window again."
+        ),
     )
     generate_kwargs: Optional[dict] = Field(
         default_factory=dict,

@@ -7,15 +7,27 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from contextvars import ContextVar
 import re
-from collections.abc import Iterator
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Type
+from collections.abc import Iterable, Iterator
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Literal,
+    Mapping,
+    Type,
+)
 
 from agentscope.model import ChatModelBase
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from qwenpaw.exceptions import ProviderError
 
-from .context_windows import DEFAULT_CONTEXT_WINDOW, resolve_context_window
+from .context_windows import (
+    ContextWindowResolution,
+    ContextWindowSource,
+    resolve_context_window_details,
+)
 
 if TYPE_CHECKING:
     from .multimodal_prober import ProbeResult
@@ -25,6 +37,13 @@ _AGENT_THINKING_LEVEL: ContextVar[str] = ContextVar(
     "qwenpaw_agent_thinking_level",
     default="inherit",
 )
+# Ambient id -> configured-model index for one provider response. The
+# serializer publishes it so per-model derived fields do not re-scan the model
+# collections (which made ``get_info()`` quadratic); scoping it to the provider
+# id keeps a nested response from consulting another provider's index.
+_SERIALIZED_MODEL_INDEX: ContextVar[
+    tuple[str, Mapping[str, ModelInfo]] | None
+] = ContextVar("qwenpaw_serialized_model_index", default=None)
 AGENT_THINKING_BUDGETS = {
     "low": 2_048,
     "medium": 8_192,
@@ -77,6 +96,189 @@ def agent_thinking_level(level: str) -> Iterator[None]:
         yield
     finally:
         _AGENT_THINKING_LEVEL.reset(token)
+
+
+def resolve_window_from_info(
+    model_id: str,
+    configured_info: ModelInfo | None,
+    discovered_info: ModelInfo | None,
+    *,
+    use_catalog: bool,
+) -> ContextWindowResolution:
+    """Resolve a window from already-looked-up model info.
+
+    Shared by :meth:`Provider.get_context_window_details` and the per-response
+    serializer, so a caller iterating every model can pass the infos it
+    resolved once instead of re-scanning the collections per model (which made
+    ``get_info()`` quadratic). ``configured_info`` is the models/extra_models
+    entry if any, ``discovered_info`` the discovery candidate; either may be
+    None.
+
+    The override comes from the configured entry when there is one, otherwise
+    from the discovery candidate. The API-detected and catalog values take the
+    configured value when it is set and otherwise fall back to the discovery
+    candidate: a fetch reports its windows into the discovery entry's catalog
+    slot (see :func:`.provider_discovery.merge_discovered_model`), so for a
+    configured model that entry is the only place they live.
+    """
+    auto_detected = (
+        getattr(configured_info, "max_input_length_auto_detected", None)
+        if configured_info is not None
+        else None
+    )
+    if auto_detected is None and discovered_info is not None:
+        auto_detected = getattr(
+            discovered_info,
+            "max_input_length_auto_detected",
+            None,
+        )
+    catalog = (
+        getattr(configured_info, "max_input_length_catalog", None)
+        if configured_info is not None
+        else None
+    )
+    if catalog is None and discovered_info is not None:
+        catalog = getattr(
+            discovered_info,
+            "max_input_length_catalog",
+            None,
+        )
+    source_info = configured_info or discovered_info
+    return resolve_context_window_details(
+        model_id,
+        override=(
+            getattr(source_info, "max_input_length", None)
+            if source_info is not None
+            else None
+        ),
+        auto_detected=auto_detected,
+        catalog=catalog,
+        use_catalog=use_catalog,
+    )
+
+
+def model_window_sources(
+    models: List[ModelInfo],
+    extra_models: List[ModelInfo],
+    discovered_models: List[ModelInfo],
+    removed_ids: Iterable[str] = (),
+) -> tuple[Dict[str, ModelInfo], Dict[str, ModelInfo]]:
+    """Index the entries a context window is resolved from.
+
+    One response resolves every model through these indexes instead of
+    re-scanning the collections per model (which made ``get_info()``
+    quadratic). Precedence matches :meth:`Provider.get_model_info`
+    (``extra_models`` before ``models``); removed ids are excluded.
+    """
+    removed = set(removed_ids)
+    configured: Dict[str, ModelInfo] = {}
+    for model in (*extra_models, *models):
+        if model.id not in removed:
+            configured.setdefault(model.id, model)
+    discovered = {
+        model.id: model
+        for model in discovered_models
+        if model.id not in removed
+    }
+    return configured, discovered
+
+
+def project_model_window(
+    model: ModelInfo,
+    *,
+    use_catalog: bool,
+    configured_by_id: Mapping[str, ModelInfo],
+    discovered_by_id: Mapping[str, ModelInfo],
+) -> ModelInfo:
+    """Return *model* with the read-only window projection attached.
+
+    A copy is returned so the live model never carries derived state: the
+    projection is response-only and is stripped again on the snapshot write
+    path (see :func:`.provider_model_state.strip_derived_model_state`).
+    """
+    window = resolve_window_from_info(
+        model.id,
+        configured_by_id.get(model.id),
+        discovered_by_id.get(model.id),
+        use_catalog=use_catalog,
+    )
+    return model.model_copy(
+        update={
+            "effective_max_input_length": window.value,
+            "effective_max_input_length_source": window.source,
+        },
+    )
+
+
+def project_model_windows(
+    info: ProviderInfo,
+    *,
+    use_catalog: bool,
+    configured_by_id: Mapping[str, ModelInfo] | None = None,
+    discovered_by_id: Mapping[str, ModelInfo] | None = None,
+) -> ProviderInfo:
+    """Return *info* with the window projection filled for every model.
+
+    Not every response is built by :meth:`Provider.get_info` -- the plugin
+    registration answers with a stored ``ProviderInfo`` -- and without the
+    projection the console shows no effective window for those models. A
+    caller that has no live provider (the registration path) omits the
+    indexes, which are then built from *info* itself.
+    """
+    if configured_by_id is None or discovered_by_id is None:
+        built_configured, built_discovered = model_window_sources(
+            info.models,
+            info.extra_models,
+            info.discovered_models,
+            info.removed_model_ids,
+        )
+        if configured_by_id is None:
+            configured_by_id = built_configured
+        if discovered_by_id is None:
+            discovered_by_id = built_discovered
+
+    def project(model: ModelInfo) -> ModelInfo:
+        return project_model_window(
+            model,
+            use_catalog=use_catalog,
+            configured_by_id=configured_by_id,
+            discovered_by_id=discovered_by_id,
+        )
+
+    return info.model_copy(
+        update={
+            "models": [project(model) for model in info.models],
+            "extra_models": [project(model) for model in info.extra_models],
+            "discovered_models": [
+                project(model) for model in info.discovered_models
+            ],
+        },
+    )
+
+
+def declared_window_to_catalog(models: List[ModelInfo]) -> List[ModelInfo]:
+    """Return copies of *models* with a provider-declared window in the
+    catalog slot.
+
+    A window a provider class declares in its own default models is
+    provider/catalog data, not a user override: the override slot is only
+    written by :meth:`Provider.update_model_config`. Left in the override slot
+    the declaration outranked an API-detected window and made the console
+    offer a "clear override" action the user never asked for, so the plugin
+    registration boundary moves it -- the same normalization
+    :func:`.model_catalog._catalog_input_window` applies to the packaged
+    catalog.
+    """
+    normalized: List[ModelInfo] = []
+    for model in models:
+        if model.max_input_length is None:
+            normalized.append(model)
+            continue
+        update: Dict[str, Any] = {"max_input_length": None}
+        if model.max_input_length_catalog is None:
+            update["max_input_length_catalog"] = model.max_input_length
+        normalized.append(model.model_copy(update=update))
+    return normalized
 
 
 class ModelInfo(BaseModel):
@@ -166,18 +368,22 @@ class ModelInfo(BaseModel):
         default=None,
         description="UTC timestamp of the output capability update.",
     )
-    max_input_length: int = Field(
-        default=DEFAULT_CONTEXT_WINDOW,
+    max_input_length: int | None = Field(
+        default=None,
         ge=1000,
-        description="Maximum input context window size (tokens). "
+        description="User override for the input context window (tokens). "
+        "None means inherit: the runtime resolves the window from the "
+        "provider API, the model catalog, or the static pattern catalog. "
         "Controls when context compaction is triggered.",
     )
-    max_input_length_configured: bool = Field(
-        default=False,
-        description=(
-            "Whether max_input_length was explicitly configured. This keeps "
-            "an intentional 131072-token override distinct from the default."
-        ),
+    max_input_length_catalog: int | None = Field(
+        default=None,
+        ge=1000,
+        description="Input context window documented by the provider model "
+        "catalog. A documented value equal to the 128k default is treated "
+        "as not provided by the catalog loader. Re-read from the packaged/"
+        "OTA/local catalog on every load: a persisted copy is only a fallback "
+        "for models the current catalog does not cover.",
     )
     max_input_length_auto_detected: int | None = Field(
         default=None,
@@ -269,6 +475,22 @@ class ModelInfo(BaseModel):
         description=(
             "Whether the provider can apply an agent-level thinking override "
             "to this model. Derived in ProviderInfo responses."
+        ),
+    )
+    effective_max_input_length: int | None = Field(
+        default=None,
+        description=(
+            "Read-only projection of the context window actually used at "
+            "runtime (context_windows.resolve_context_window_details). "
+            "Derived in ProviderInfo responses; never persisted or read back "
+            "as input."
+        ),
+    )
+    effective_max_input_length_source: ContextWindowSource | None = Field(
+        default=None,
+        description=(
+            "Read-only provenance of effective_max_input_length: 'user', "
+            "'api', 'catalog' or 'default'. Derived with it."
         ),
     )
 
@@ -810,10 +1032,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         return result
 
     def supports_agent_thinking(self, model_id: str) -> bool:
-        """Return whether agent-level thinking maps to this model."""
+        """Return whether agent-level thinking maps to this model.
+
+        Subclasses may override this with the same single-argument signature;
+        it is called by the per-response serializer, so an override that adds
+        or renames parameters would break every provider response. The
+        serializer's prebuilt model index is passed ambiently through
+        :data:`_SERIALIZED_MODEL_INDEX` and consumed by
+        :meth:`_configured_model_info`.
+        """
         if self.chat_model == "DashScopeChatModel":
             return True
-        info = self.get_model_info(model_id)
+        info = self._configured_model_info(model_id)
         if info is None:
             return False
         if (
@@ -973,6 +1203,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         for model in Provider.all_models(self):
             if model.id == model_id:
                 changed_fields: list[str] = []
+                cleared_fields: list[str] = []
                 if (
                     "generate_kwargs" in config
                     and config["generate_kwargs"] is not None
@@ -982,23 +1213,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                     if model.generate_kwargs != generate_kwargs:
                         model.generate_kwargs = generate_kwargs
                         changed_fields.append("generate_kwargs")
-                if (
-                    "max_input_length" in config
-                    and config["max_input_length"] is not None
-                ):
-                    max_input_length = int(config["max_input_length"])
-                    if (
-                        model.max_input_length != max_input_length
-                        or not model.max_input_length_configured
-                    ):
+                if "max_input_length" in config:
+                    # Present-with-None clears the override (inherit again);
+                    # an absent key leaves it untouched.
+                    max_input_length = config["max_input_length"]
+                    if max_input_length is not None:
+                        max_input_length = int(max_input_length)
+                    if model.max_input_length != max_input_length:
                         model.max_input_length = max_input_length
-                        model.max_input_length_configured = True
-                        changed_fields.extend(
-                            [
-                                "max_input_length",
-                                "max_input_length_configured",
-                            ],
-                        )
+                        if max_input_length is None:
+                            cleared_fields.append("max_input_length")
+                        else:
+                            changed_fields.append("max_input_length")
                 if (
                     "relay_reasoning" in config
                     and config["relay_reasoning"] is not None
@@ -1032,7 +1258,14 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                         model.reasoning_effort = reasoning_effort
                         changed_fields.append("reasoning_effort")
                 model.config_overrides = list(
-                    dict.fromkeys(model.config_overrides + changed_fields),
+                    dict.fromkeys(
+                        [
+                            field
+                            for field in model.config_overrides
+                            if field not in cleared_fields
+                        ]
+                        + changed_fields,
+                    ),
                 )
                 return True
         return False
@@ -1062,6 +1295,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             if model.id == model_id:
                 return model
         return None
+
+    def _configured_model_info(self, model_id: str) -> ModelInfo | None:
+        """Return the configured model for *model_id*, using the index that
+        the current response published when there is one.
+
+        Same result as :meth:`get_model_info`; the index only removes the
+        per-model scan, which is what made a response quadratic.
+        """
+        scoped = _SERIALIZED_MODEL_INDEX.get()
+        if scoped is not None and scoped[0] == self.id:
+            return scoped[1].get(model_id)
+        return self.get_model_info(model_id)
 
     def _get_relay_reasoning(self, model_id: str) -> bool:
         """Return the ``relay_reasoning`` flag for *model_id* (default
@@ -1097,6 +1342,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         support thinking are unaffected.
         """
 
+    @classmethod
+    def context_catalog_enabled(cls) -> bool:
+        """Whether the static context-window catalog applies to this type.
+
+        Class-level twin of :meth:`_context_catalog_enabled`: the plugin
+        registration path projects window values from the provider *class*
+        (it never materializes an instance), so both have to be overridden
+        together. Keep this the source of truth and let
+        :meth:`_context_catalog_enabled` delegate.
+        """
+        return True
+
     def _context_catalog_enabled(self) -> bool:
         """Whether the static context-window catalog applies here.
 
@@ -1106,54 +1363,35 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         ``qwen3-coder:30b`` would disable compression while the server
         silently drops the prompt head.
         """
-        return True
+        return type(self).context_catalog_enabled()
 
-    def get_context_size(self, model_id: str) -> int:
-        """Resolve the context window for *model_id*.
+    def get_context_window_details(
+        self,
+        model_id: str,
+    ) -> ContextWindowResolution:
+        """Resolve the context window for *model_id* and its provenance.
 
         Feeds ``model.context_size`` (which drives automatic context
         compression) AND the display/usage path
-        (``config.get_model_max_input_length``) -- both MUST go through this
-        method so the reported usage%% and the compaction trigger never
-        diverge. Resolution lives in
-        :func:`.context_windows.resolve_context_window`:
-        explicitly configured ``max_input_length`` > API auto-detected value
-        > non-default provider/catalog value > static pattern catalog
-        (unless :meth:`_context_catalog_enabled` opts out) > 128k default.
+        (``config.get_model_max_input_length``) AND the console's read-only
+        ``effective_max_input_length`` projection -- all MUST go through this
+        resolution so the reported usage%, the compaction trigger, and what
+        the UI shows never diverge. Priority lives in
+        :func:`.context_windows.resolve_context_window_details`: user
+        override > API auto-detected value > provider catalog value > static
+        pattern catalog (unless :meth:`_context_catalog_enabled` opts out) >
+        128k default.
         """
-        model_info = self.get_model_info(model_id)
-        discovered_info = self.get_discovered_model_info(model_id)
-        configured_info = model_info or discovered_info
-        auto_detected = (
-            getattr(model_info, "max_input_length_auto_detected", None)
-            if model_info is not None
-            else None
-        )
-        if auto_detected is None and discovered_info is not None:
-            auto_detected = getattr(
-                discovered_info,
-                "max_input_length_auto_detected",
-                None,
-            )
-        return resolve_context_window(
+        return resolve_window_from_info(
             model_id,
-            configured=(
-                configured_info.max_input_length
-                if configured_info is not None
-                else None
-            ),
-            configured_is_explicit=(
-                getattr(
-                    configured_info,
-                    "max_input_length_configured",
-                    False,
-                )
-                if configured_info is not None
-                else False
-            ),
+            self.get_model_info(model_id),
+            self.get_discovered_model_info(model_id),
             use_catalog=self._context_catalog_enabled(),
-            auto_detected=auto_detected,
         )
+
+    def get_context_size(self, model_id: str) -> int:
+        """The resolved context window for *model_id*, in tokens."""
+        return self.get_context_window_details(model_id).value
 
     def _get_context_size(self, model_id: str) -> int:
         """Alias of :meth:`get_context_size` kept for provider internals."""
@@ -1208,12 +1446,52 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             api_key = self.api_key
         removed = set(self.removed_model_ids)
 
+        # Every derived per-model field below needs the model's configured and
+        # discovered entries. Resolving them per model used to re-scan the
+        # collections once per model, which made this response quadratic and
+        # blocked the event loop for tens of milliseconds on large providers.
+        # The shared helper builds the indexes once and excludes removed ids.
+        configured_by_id, discovered_by_id = model_window_sources(
+            self.models,
+            self.extra_models,
+            self.discovered_models,
+            removed,
+        )
+        catalog_enabled = self._context_catalog_enabled()
+
         def serialize_model(model: ModelInfo) -> dict[str, Any]:
-            payload = model.model_dump()
+            payload = project_model_window(
+                model,
+                use_catalog=catalog_enabled,
+                configured_by_id=configured_by_id,
+                discovered_by_id=discovered_by_id,
+            ).model_dump()
             payload["supports_agent_thinking"] = self.supports_agent_thinking(
                 model.id,
             )
             return payload
+
+        # Publish the index for the duration of the serialization so the
+        # derived fields above resolve without re-scanning the collections.
+        index_token = _SERIALIZED_MODEL_INDEX.set((self.id, configured_by_id))
+        try:
+            serialized_models = [
+                serialize_model(model)
+                for model in self.models
+                if model.id not in removed
+            ]
+            serialized_extra = [
+                serialize_model(model)
+                for model in self.extra_models
+                if model.id not in removed
+            ]
+            serialized_discovered = [
+                serialize_model(model)
+                for model in self.discovered_models
+                if model.id not in removed
+            ]
+        finally:
+            _SERIALIZED_MODEL_INDEX.reset(index_token)
 
         # Serialize models/extra_models to plain dicts so that
         # ProviderInfo constructs fresh ModelInfo instances using
@@ -1229,21 +1507,9 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             chat_model=self.chat_model,
             # Discovery is a separate catalog used by the add-model form.
             # Do not expose it as configured models to selectors or lists.
-            models=[
-                serialize_model(model)
-                for model in self.models
-                if model.id not in removed
-            ],
-            extra_models=[
-                serialize_model(model)
-                for model in self.extra_models
-                if model.id not in removed
-            ],
-            discovered_models=[
-                serialize_model(model)
-                for model in self.discovered_models
-                if model.id not in removed
-            ],
+            models=serialized_models,
+            extra_models=serialized_extra,
+            discovered_models=serialized_discovered,
             models_last_synced_at=self.models_last_synced_at,
             models_last_sync_error=self.models_last_sync_error,
             models_syncing=self.models_syncing,

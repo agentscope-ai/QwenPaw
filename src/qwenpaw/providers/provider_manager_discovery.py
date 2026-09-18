@@ -648,6 +648,10 @@ class ProviderManagerDiscoveryMixin(
             payload = current.model_dump()
             overrides = set(current.config_overrides)
             user_output_capability = current.max_output_length_source == "user"
+            # The catalog never writes the user override slot; only its own
+            # ``max_input_length_catalog`` (and the override already on
+            # ``current``) decides the window.
+            user_input_override = current.max_input_length is not None
             for field in catalog_model.model_fields_set:
                 if field in overrides:
                     continue
@@ -656,10 +660,7 @@ class ProviderManagerDiscoveryMixin(
                     and user_output_capability
                 ):
                     continue
-                if current.max_input_length_configured and field in {
-                    "max_input_length",
-                    "max_input_length_configured",
-                }:
+                if field == "max_input_length" and user_input_override:
                     continue
                 payload[field] = getattr(catalog_model, field)
             merged = ModelInfo.model_validate(payload)

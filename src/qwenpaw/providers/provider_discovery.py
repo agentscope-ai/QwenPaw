@@ -66,7 +66,16 @@ def merge_discovered_model(
     user_output_capability = (
         base is not None and base.max_output_length_source == "user"
     )
+    # A provider fetch may report a window; it belongs to the catalog slot and
+    # must never become (or overwrite) a user override.
+    discovered_window = (
+        remote.max_input_length
+        if "max_input_length" in remote.model_fields_set
+        else None
+    )
     for field in remote.model_fields_set:
+        if field == "max_input_length":
+            continue
         if base is not None:
             if field in config_overrides:
                 continue
@@ -75,12 +84,15 @@ def merge_discovered_model(
                 and user_output_capability
             ):
                 continue
-            if base.max_input_length_configured and field in {
-                "max_input_length",
-                "max_input_length_configured",
-            }:
-                continue
         payload[field] = getattr(remote, field)
+    if discovered_window is not None:
+        # The catalog slot is the semantic home for a window a fetch reports:
+        # it can never become a user override (the override slot is only
+        # written by ``update_model_config``). Built-in providers also report
+        # the same window as ``max_input_length_auto_detected``, which wins by
+        # precedence, so this copy is a fallback for providers that only set
+        # ``max_input_length``.
+        payload["max_input_length_catalog"] = discovered_window
     payload.update(
         {
             "id": remote.id,

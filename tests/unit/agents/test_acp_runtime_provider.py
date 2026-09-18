@@ -130,7 +130,6 @@ def test_runtime_provider_applies_model_info():
     assert config.max_input_tokens == 32768
     assert config.max_output_tokens == 4096
     assert model.max_input_length == 32768
-    assert model.max_input_length_configured is True
     assert model.generate_kwargs["max_tokens"] == 4096
     assert provider.get_context_size("policy") == 32768
     assert (

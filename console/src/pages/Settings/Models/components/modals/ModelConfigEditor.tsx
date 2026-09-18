@@ -51,7 +51,7 @@ export function ModelConfigEditor({
     configuredMaxTokens,
   );
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
-    model.max_input_length ?? 131072,
+    model.max_input_length ?? null,
   );
   const [maxInputLengthDirty, setMaxInputLengthDirty] = useState(false);
   const [relayReasoning, setRelayReasoning] = useState<boolean>(
@@ -80,7 +80,7 @@ export function ModelConfigEditor({
   useEffect(() => {
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
-    setMaxInputLength(model.max_input_length ?? 131072);
+    setMaxInputLength(model.max_input_length ?? null);
     setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
     setThinkingEnabled(model.thinking_enabled ?? null);
@@ -96,8 +96,6 @@ export function ModelConfigEditor({
     model.thinking_budget,
     model.reasoning_effort,
   ]);
-
-  const effectiveMaxInputLength = maxInputLength ?? 131072;
 
   const handleChange = useCallback((val: string) => {
     setText(val);
@@ -140,7 +138,7 @@ export function ModelConfigEditor({
     try {
       const updated = await api.configureModel(providerId, model.id, {
         ...(maxInputLengthDirty
-          ? { max_input_length: effectiveMaxInputLength }
+          ? { max_input_length: maxInputLength ?? null }
           : {}),
         generate_kwargs: parsed,
         relay_reasoning: relayReasoning,
@@ -189,6 +187,7 @@ export function ModelConfigEditor({
         <ContextLengthField
           value={maxInputLength}
           onChange={handleMaxInputLengthChange}
+          model={model}
         />
       </div>
       {/* Enable Thinking (only for providers that support thinking config) */}

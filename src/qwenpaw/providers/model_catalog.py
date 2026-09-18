@@ -18,6 +18,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..constant import EnvVarLoader, WORKING_DIR
+from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider import ModelInfo
 
 CATALOG_SCHEMA_VERSION = 1
@@ -94,11 +95,38 @@ def _catalog_freshness(
     return "incomparable"
 
 
-def _with_output_source(
+def _catalog_input_window(model: ModelInfo) -> dict[str, Any]:
+    """Move a documented input window into the catalog-only slot.
+
+    The catalog generator writes ``ModelInfo``'s 128k field default for every
+    model whose window it did not collect, so a documented 128k cannot be
+    told apart from "not provided" (22 of 133 packaged entries are exactly
+    that placeholder). Normalize it away here, at the data boundary, instead
+    of teaching the resolver about the magic value.
+
+    The catalog slot is reset explicitly in both branches: a merged catalog
+    only overwrites fields present in ``model_fields_set``, so leaving the
+    slot untouched would keep an older (possibly larger) documented window and
+    an overlay could never lower it back.
+    """
+    if model.max_input_length is None:
+        return {}
+    if model.max_input_length == DEFAULT_CONTEXT_WINDOW:
+        return {
+            "max_input_length": None,
+            "max_input_length_catalog": None,
+        }
+    return {
+        "max_input_length": None,
+        "max_input_length_catalog": model.max_input_length,
+    }
+
+
+def _with_catalog_provenance(
     document: CatalogDocument,
     source: Literal["catalog", "user"],
 ) -> dict[str, list[ModelInfo]]:
-    """Attach field-level provenance to explicit output capabilities."""
+    """Attach field-level provenance to explicit capability metadata."""
     providers: dict[str, list[ModelInfo]] = {}
     for provider_id, models in document.providers.items():
         providers[provider_id] = []
@@ -107,6 +135,7 @@ def _with_output_source(
             if model.max_output_length is not None:
                 update["max_output_length_source"] = source
                 update["max_output_length_updated_at"] = document.published_at
+            update.update(_catalog_input_window(model))
             providers[provider_id].append(model.model_copy(update=update))
     return providers
 
@@ -141,7 +170,7 @@ def load_model_catalog(
 ) -> dict[str, list[ModelInfo]]:
     """Load packaged, OTA, and local model catalogs in priority order."""
     packaged = _read_document(packaged_path)
-    catalog = _with_output_source(packaged, "catalog")
+    catalog = _with_catalog_provenance(packaged, "catalog")
     if ota_path.is_file():
         try:
             overlay = _read_document(ota_path)
@@ -152,7 +181,7 @@ def load_model_catalog(
             if freshness == "current":
                 catalog = _merge_models(
                     catalog,
-                    _with_output_source(overlay, "catalog"),
+                    _with_catalog_provenance(overlay, "catalog"),
                 )
             elif freshness == "incomparable":
                 logger.warning(
@@ -169,7 +198,7 @@ def load_model_catalog(
         if local is not None:
             catalog = _merge_models(
                 catalog,
-                _with_output_source(local, "user"),
+                _with_catalog_provenance(local, "user"),
             )
     return catalog
 

@@ -10,7 +10,7 @@ import httpx
 from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
 from .openai_provider import OpenAIProvider
-from .provider import ModelInfo, ProviderInfo
+from .provider import ModelInfo, ProviderInfo, project_model_windows
 
 PROVIDER_ID = "hub-managed"
 
@@ -44,7 +44,7 @@ class ManagedProvider(OpenAIProvider):
 
     def supports_agent_thinking(self, model_id: str) -> bool:
         """Use the Hub's capability instead of guessing from opaque aliases."""
-        info = self.get_model_info(model_id)
+        info = self._configured_model_info(model_id)
         return bool(info and info.supports_agent_thinking)
 
     def _map_agent_thinking_level(
@@ -68,13 +68,20 @@ class ManagedProvider(OpenAIProvider):
 
     async def get_info(self, mock_secret=True) -> ProviderInfo:
         """Never expose even the runtime capability through model APIs."""
-        return ProviderInfo(
-            id=PROVIDER_ID,
-            name="Hub",
-            models=self.models,
-            api_key="",
-            base_url="",
-            require_api_key=False,
+        # Hand-built response: the shared projection fills the read-only window
+        # fields (from one index over the model list, so a large organization
+        # catalog stays linear), otherwise the console shows no effective
+        # window.
+        return project_model_windows(
+            ProviderInfo(
+                id=PROVIDER_ID,
+                name="Hub",
+                models=self.models,
+                api_key="",
+                base_url="",
+                require_api_key=False,
+            ),
+            use_catalog=self._context_catalog_enabled(),
         )
 
 
@@ -93,8 +100,7 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 name=m["name"],
                 supports_image=m["supports_image"],
                 supports_multimodal=m["supports_image"],
-                max_input_length=m["input_token_limit"],
-                max_input_length_configured=True,
+                max_input_length_catalog=m["input_token_limit"],
                 max_output_length=m["output_token_limit"],
                 max_output_length_source="adapter",
                 supports_agent_thinking=m["supports_agent_thinking"],
