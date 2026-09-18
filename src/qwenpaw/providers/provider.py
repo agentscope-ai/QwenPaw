@@ -111,8 +111,14 @@ def resolve_window_from_info(
     resolved once instead of re-scanning the collections per model (which made
     ``get_info()`` quadratic). ``configured_info`` is the models/extra_models
     entry if any, ``discovered_info`` the discovery candidate; either may be
-    None. The user override and the catalog value come from a configured model
-    when there is one, otherwise from the discovery candidate.
+    None.
+
+    The override comes from the configured entry when there is one, otherwise
+    from the discovery candidate. The API-detected and catalog values take the
+    configured value when it is set and otherwise fall back to the discovery
+    candidate: a fetch reports its windows into the discovery entry's catalog
+    slot (see :func:`.provider_discovery.merge_discovered_model`), so for a
+    configured model that entry is the only place they live.
     """
     auto_detected = (
         getattr(configured_info, "max_input_length_auto_detected", None)
@@ -125,6 +131,17 @@ def resolve_window_from_info(
             "max_input_length_auto_detected",
             None,
         )
+    catalog = (
+        getattr(configured_info, "max_input_length_catalog", None)
+        if configured_info is not None
+        else None
+    )
+    if catalog is None and discovered_info is not None:
+        catalog = getattr(
+            discovered_info,
+            "max_input_length_catalog",
+            None,
+        )
     source_info = configured_info or discovered_info
     return resolve_context_window_details(
         model_id,
@@ -134,11 +151,7 @@ def resolve_window_from_info(
             else None
         ),
         auto_detected=auto_detected,
-        catalog=(
-            getattr(source_info, "max_input_length_catalog", None)
-            if source_info is not None
-            else None
-        ),
+        catalog=catalog,
         use_catalog=use_catalog,
     )
 
