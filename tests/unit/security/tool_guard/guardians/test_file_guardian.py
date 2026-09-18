@@ -5,6 +5,7 @@
 Target: src/qwenpaw/security/tool_guard/guardians/file_guardian.py
 Goal: push coverage from 38% to 78%+.
 """
+
 from __future__ import annotations
 
 import os
@@ -316,12 +317,15 @@ def guardian(tmp_path, mock_guard_enabled, mock_no_sensitive_files):
 
 @pytest.fixture
 def disabled_guardian(tmp_path, mock_no_sensitive_files):
-    with patch(
-        f"{_FG_MOD}._is_file_guard_enabled",
-        return_value=False,
-    ), patch(
-        f"{_FG_MOD}._workspace_root",
-        return_value=tmp_path,
+    with (
+        patch(
+            f"{_FG_MOD}._is_file_guard_enabled",
+            return_value=False,
+        ),
+        patch(
+            f"{_FG_MOD}._workspace_root",
+            return_value=tmp_path,
+        ),
     ):
         g = FilePathToolGuardian()
         yield g
@@ -696,12 +700,15 @@ class TestReload:
     """reload() re-reads enabled state and config files."""
 
     def test_reload_re_enables(self, tmp_path, mock_no_sensitive_files):
-        with patch(
-            f"{_FG_MOD}._is_file_guard_enabled",
-            return_value=False,
-        ), patch(
-            f"{_FG_MOD}._workspace_root",
-            return_value=tmp_path,
+        with (
+            patch(
+                f"{_FG_MOD}._is_file_guard_enabled",
+                return_value=False,
+            ),
+            patch(
+                f"{_FG_MOD}._workspace_root",
+                return_value=tmp_path,
+            ),
         ):
             g = FilePathToolGuardian()
         assert g._enabled is False
@@ -718,24 +725,30 @@ class TestReload:
         tmp_path,
         mock_guard_enabled,
     ):
-        with patch(
-            f"{_FG_MOD}._load_sensitive_files_from_config",
-            return_value=[],
-        ), patch(
-            f"{_FG_MOD}._workspace_root",
-            return_value=tmp_path,
+        with (
+            patch(
+                f"{_FG_MOD}._load_sensitive_files_from_config",
+                return_value=[],
+            ),
+            patch(
+                f"{_FG_MOD}._workspace_root",
+                return_value=tmp_path,
+            ),
         ):
             g = FilePathToolGuardian()
         assert len(g.sensitive_files) == 0
 
         new_path = str(tmp_path / "from_config.key")
         Path(new_path).touch()
-        with patch(
-            f"{_FG_MOD}._load_sensitive_files_from_config",
-            return_value=[new_path],
-        ), patch(
-            f"{_FG_MOD}._workspace_root",
-            return_value=tmp_path,
+        with (
+            patch(
+                f"{_FG_MOD}._load_sensitive_files_from_config",
+                return_value=[new_path],
+            ),
+            patch(
+                f"{_FG_MOD}._workspace_root",
+                return_value=tmp_path,
+            ),
         ):
             g.reload()
         assert any("from_config.key" in p for p in g.sensitive_files)
@@ -781,3 +794,65 @@ class TestGuardShellRedirectExtraction:
             {"command": f"sort < {secret}"},
         )
         assert len(findings) >= 1
+
+
+class TestSkillIntegrityProtection:
+    """FilePathToolGuardian enforces integrity on skill directories."""
+
+    def test_skill_read_is_allowed(self, guardian, tmp_path):
+        skill_file = str(tmp_path / "skills" / "demo" / "SKILL.md")
+        findings = guardian.guard("read_file", {"file_path": skill_file})
+        assert len(findings) == 0
+
+    def test_skill_write_is_blocked(self, guardian, tmp_path):
+        skill_file = str(tmp_path / "skills" / "demo" / "SKILL.md")
+        findings = guardian.guard("write_file", {"file_path": skill_file})
+        assert len(findings) == 1
+        assert findings[0].rule_id == "PROTECTED_SKILL_MODIFICATION"
+        assert findings[0].severity.value == "HIGH"
+
+    def test_skill_edit_is_blocked(self, guardian, tmp_path):
+        skill_file = str(tmp_path / "skills" / "demo" / "SKILL.md")
+        findings = guardian.guard("edit_file", {"file_path": skill_file})
+        assert len(findings) == 1
+        assert findings[0].rule_id == "PROTECTED_SKILL_MODIFICATION"
+
+    def test_skill_shell_rmdir_blocked(self, guardian, tmp_path):
+        skills_dir = str(tmp_path / "skills")
+        findings = guardian.guard(
+            "execute_shell_command",
+            {"command": f"rmdir /s /q {skills_dir}"},
+        )
+        assert len(findings) >= 1
+        assert any(f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings)
+
+    def test_skill_shell_redirect_overwrite_blocked(self, guardian, tmp_path):
+        skill_file = str(tmp_path / "skills" / "demo" / "SKILL.md")
+        findings = guardian.guard(
+            "execute_shell_command",
+            {"command": f"> {skill_file}"},
+        )
+        assert len(findings) >= 1
+        assert any(f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings)
+
+    @pytest.mark.parametrize("tool", ["delete_file", "append_file"])
+    def test_skill_mutation_tools_blocked(self, guardian, tmp_path, tool):
+        skill_file = str(tmp_path / "skills" / "demo" / "SKILL.md")
+        findings = guardian.guard(tool, {"file_path": skill_file})
+        assert len(findings) == 1
+        assert findings[0].rule_id == "PROTECTED_SKILL_MODIFICATION"
+
+    def test_skill_shell_rm_blocked(self, guardian, tmp_path):
+        skills_dir = str(tmp_path / "skills")
+        findings = guardian.guard(
+            "execute_shell_command",
+            {"command": f"rm -rf {skills_dir}"},
+        )
+        assert len(findings) >= 1
+        assert any(f.rule_id == "PROTECTED_SKILL_MODIFICATION" for f in findings)
+
+    def test_protect_skills_disabled_allows_write(self, guardian, tmp_path):
+        guardian._protect_skills = False
+        skill_file = str(tmp_path / "skills" / "demo" / "SKILL.md")
+        findings = guardian.guard("write_file", {"file_path": skill_file})
+        assert len(findings) == 0
