@@ -43,7 +43,6 @@ import {
 import {
   attachClientMessageId,
   createClientMessageId,
-  extractClientMessageId,
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
 } from "../../utils/clientMessageId";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
