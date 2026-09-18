@@ -90,6 +90,19 @@ export function ToolGuardTab({
                 onChange={(val) => setSandboxEnabled(val)}
               />
             </Form.Item>
+            {(!sandboxEnabled || sandboxReason === "unsupported") && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message={t(
+                  sandboxEnabled
+                    ? "security.scrollRecallSandboxUnsupported"
+                    : "security.scrollRecallSandboxDisabled",
+                )}
+                description={t("security.scrollRecallSandboxDescription")}
+              />
+            )}
             {sandboxEnabled && sandboxReason === null && (
               <Alert
                 type="warning"
