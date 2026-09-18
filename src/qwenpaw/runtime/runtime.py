@@ -136,6 +136,9 @@ class Runtime:
                 await record_agent_activity()
                 async for ev in executor.run(ctx.input_msgs):
                     yield ev
+                context_manager = getattr(ctx.agent, "_context_manager", None)
+                if callable(getattr(context_manager, "complete_turn", None)):
+                    context_manager.complete_turn()
 
             # --- [phase 6] POST_RESPONSE ---
             await hooks.run(Phase.POST_RESPONSE, ctx)
@@ -294,6 +297,18 @@ class Runtime:
             from ._state_utils import StateProxy
 
             restore_cron_context(ctx)
+            if isinstance(
+                ctx.error,
+                (asyncio.CancelledError, KeyboardInterrupt),
+            ):
+                context_manager = getattr(agent, "_context_manager", None)
+                mark_interrupted = getattr(
+                    context_manager,
+                    "mark_interrupted_turn",
+                    None,
+                )
+                if callable(mark_interrupted):
+                    mark_interrupted(agent)
             proxy = StateProxy()
             proxy.data = agent.state_dict()
             request = ctx.request
