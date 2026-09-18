@@ -241,10 +241,9 @@ def test_build_model_reuses_preloaded_agent_config(monkeypatch):
         create_model_and_formatter,
     )
 
-    AgentBuilder.__new__(AgentBuilder).build_model(config, "provider:model")
+    AgentBuilder.__new__(AgentBuilder).build_model(config)
 
     assert captured == {
         "agent_id": "agent-1",
-        "model_slot_override": "provider:model",
         "agent_config": config,
     }

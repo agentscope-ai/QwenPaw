@@ -162,6 +162,8 @@ import {
   withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
 import {
+  clearPendingModelRevision,
+  getPendingModelRevision,
   getPersistedModelOverride,
   migratePendingModelOverride,
   modelSlotsEqual,
@@ -290,20 +292,26 @@ import {
 async function clearConfirmedPendingModelOverride(
   agentId: string,
   pendingSessionId: string,
-  modelSlot: ModelSlotConfig,
+  modelSlot: ModelSlotConfig | "default",
+  revision: number,
   ...sessionIds: Array<string | undefined>
 ): Promise<void> {
   if (useAgentStore.getState().selectedAgent !== agentId) return;
   const nextSessions =
     (await sessionApi.refreshSessionList()) as ExtendedSession[];
+  if (useAgentStore.getState().selectedAgent !== agentId) return;
   syncSessionsGlobal(nextSessions);
   const persisted = getPersistedModelOverride(
     nextSessions,
     pendingSessionId,
     ...sessionIds,
   );
-  if (modelSlotsEqual(persisted, modelSlot)) {
-    setPendingModelOverride(agentId, pendingSessionId, null);
+  if (
+    modelSlot === "default"
+      ? persisted === null
+      : modelSlotsEqual(persisted, modelSlot)
+  ) {
+    clearPendingModelRevision(agentId, pendingSessionId, revision);
   }
 }
 
@@ -551,6 +559,7 @@ async function startBackgroundQueue(
             queueKey,
             chatIdForStatus,
           );
+          const modelRevision = getPendingModelRevision(queueAgentId, queueKey);
           // Do not abort the POST: receipt may still be unknown when the
           // foreground takes over. Only the local wait belongs to this scope.
           const response = fetch(getApiUrl("/console/chat"), {
@@ -614,6 +623,7 @@ async function startBackgroundQueue(
               queueAgentId,
               queueKey,
               modelRequest.modelSlot,
+              modelRevision,
               chatIdForStatus,
               backendSessionId,
             ).catch(() => {});
@@ -3472,7 +3482,8 @@ export default function ChatPage() {
       );
       let projectSessionId: string | null = null;
       let appliedProjectDir: string | null = null;
-      let appliedModelOverride: ModelSlotConfig | null = null;
+      let appliedModelOverride: ModelSlotConfig | "default" | null = null;
+      let modelRevision = 0;
 
       if (usesQwenPawBackend) {
         projectSessionId =
@@ -3494,6 +3505,10 @@ export default function ChatPage() {
         );
         requestBody = modelRequest.requestBody;
         appliedModelOverride = modelRequest.modelSlot;
+        modelRevision = getPendingModelRevision(
+          requestSnapshot.agentId,
+          projectSessionId,
+        );
       }
 
       const submittedChatId = fallbackLocalChatId || "";
@@ -3581,14 +3596,25 @@ export default function ChatPage() {
             requestSnapshot.agentId,
             projectSessionId,
             appliedModelOverride,
+            modelRevision,
             backendChatId,
             submittedChatId,
           ).catch(() => {});
         }
-        if (refreshModelAfterResponse) {
+        if (response.ok && refreshModelAfterResponse && projectSessionId) {
+          // Clear the submitted selection even if its selector was unmounted.
+          clearPendingModelRevision(
+            requestSnapshot.agentId,
+            projectSessionId,
+            modelRevision,
+          );
           window.dispatchEvent(
             new CustomEvent("session-model-command-completed", {
-              detail: { agentId: requestSnapshot.agentId },
+              detail: {
+                agentId: requestSnapshot.agentId,
+                sessionId: projectSessionId,
+                revision: modelRevision,
+              },
             }),
           );
         }

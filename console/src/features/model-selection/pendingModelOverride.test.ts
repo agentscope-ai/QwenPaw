@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  clearPendingModelRevision,
+  getPendingModelRevision,
   getPersistedModelOverride,
   getPendingModelOverride,
   migratePendingModelOverride,
@@ -11,6 +13,22 @@ import type { ExtendedSession } from "../../stores/sessionListStore";
 
 describe("pendingModelOverride", () => {
   beforeEach(() => sessionStorage.clear());
+
+  it("does not clear a newer selection, even when the model is selected again", () => {
+    const slot = { provider_id: "provider", model: "model-a" };
+    setPendingModelOverride("agent", "session", slot);
+    const submittedRevision = getPendingModelRevision("agent", "session");
+    setPendingModelOverride("agent", "session", "default");
+    setPendingModelOverride("agent", "session", slot);
+    clearPendingModelRevision("agent", "session", submittedRevision);
+    expect(getPendingModelOverride("agent", "session")).toEqual(slot);
+    clearPendingModelRevision(
+      "agent",
+      "session",
+      getPendingModelRevision("agent", "session"),
+    );
+    expect(getPendingModelOverride("agent", "session")).toBeNull();
+  });
 
   it("isolates selections by agent and session", () => {
     setPendingModelOverride("agent-a", "session-a", {
@@ -24,6 +42,20 @@ describe("pendingModelOverride", () => {
     expect(getPendingModelOverride("agent-a", "session-b")).toBeNull();
   });
 
+  it("sends explicit null for a reset instead of silently omitting the override", () => {
+    setPendingModelOverride("agent-a", "chat-1", "default");
+    expect(
+      withPendingModelOverride({ input: [] }, "agent-a", "chat-1", "chat-1"),
+    ).toEqual({
+      requestBody: {
+        input: [],
+        model_slot_override: null,
+        persist_model_slot_override: true,
+      },
+      modelSlot: "default",
+    });
+  });
+
   it("migrates a new-chat selection to its resolved session", () => {
     setPendingModelOverride("agent-a", "new", {
       provider_id: "anthropic",
@@ -31,9 +63,10 @@ describe("pendingModelOverride", () => {
     });
     migratePendingModelOverride("agent-a", "new", "chat-1");
     expect(getPendingModelOverride("agent-a", "new")).toBeNull();
-    expect(getPendingModelOverride("agent-a", "chat-1")?.model).toBe(
-      "claude-3-5-sonnet",
-    );
+    expect(getPendingModelOverride("agent-a", "chat-1")).toEqual({
+      provider_id: "anthropic",
+      model: "claude-3-5-sonnet",
+    });
   });
 
   it("adds the selection to the next request body", () => {
@@ -49,6 +82,7 @@ describe("pendingModelOverride", () => {
     );
     expect(result.requestBody).toEqual({
       input: [],
+      persist_model_slot_override: true,
       model_slot_override: {
         provider_id: "openai",
         model: "gpt-4o",

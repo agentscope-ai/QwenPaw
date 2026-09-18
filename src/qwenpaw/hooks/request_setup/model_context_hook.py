@@ -10,7 +10,7 @@ from ...services.model_selection import prepare_model_context
 
 
 class ModelContextHook(LifecycleHook):
-    """Persist a request override and expose one resolved model context."""
+    """Expose one read-only resolved model context for all consumers."""
 
     phase = Phase.PRE_DISPATCH
     name = "model_context"
@@ -22,7 +22,7 @@ class ModelContextHook(LifecycleHook):
             workspace=ctx.workspace,
             session_id=ctx.session_id,
             user_id=getattr(request, "user_id", "") or ctx.session_id,
-            channel=getattr(request, "channel", "") or "console",
+            channel=getattr(request, "channel", "") or "",
             request_override=getattr(request, "model_slot_override", None),
         )
         return HookResult()

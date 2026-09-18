@@ -2095,6 +2095,7 @@
     "retry": "重试"
   },
   "modelSelector": {
+    "followAgentDefault": "跟随 Agent 默认（下条消息生效）",
     "selectModel": "选择模型",
     "noConfiguredModels": "暂无已配置模型",
     "noFreeModels": "暂无可用的免费模型",

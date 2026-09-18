@@ -158,7 +158,7 @@ class ProviderManager(
 
         provider_infos = await asyncio.gather(*tasks)
         return list(provider_infos) + (
-            self._plugin_registry.list_provider_infos()
+            await asyncio.to_thread(self._plugin_registry.list_provider_infos)
         )
 
     @staticmethod

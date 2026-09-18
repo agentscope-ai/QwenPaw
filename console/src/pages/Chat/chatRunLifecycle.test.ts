@@ -16,6 +16,11 @@ import {
   waitForChatIdle,
 } from "./chatRunLifecycle";
 import {
+  clearPendingModelRevision,
+  getPendingModelOverride,
+  getPendingModelRevision,
+  getPersistedModelOverride,
+  modelSlotsEqual,
   setPendingModelOverride,
   withPendingModelOverride,
 } from "../../features/model-selection/pendingModelOverride";
@@ -137,6 +142,66 @@ const backgroundWorkerJS = ts.transpileModule(
   },
 ).outputText;
 
+describe("model selection completion", () => {
+  it.each(["new selection", "agent switch"])(
+    "ignores an outdated completion after %s",
+    async (change) => {
+      const node = chatSource.statements.find(
+        (item): item is ts.FunctionDeclaration =>
+          ts.isFunctionDeclaration(item) &&
+          item.name?.text === "clearConfirmedPendingModelOverride",
+      );
+      if (!node) throw new Error("Missing production model completion handler");
+      const code = ts.transpileModule(node.getText(chatSource), {
+        compilerOptions: { target: ts.ScriptTarget.ES2020 },
+      }).outputText;
+      let selectedAgent = "agent-a";
+      let finish!: (value: unknown[]) => void;
+      const syncSessionsGlobal = vi.fn();
+      const dependencies = {
+        useAgentStore: { getState: () => ({ selectedAgent }) },
+        sessionApi: {
+          refreshSessionList: () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        },
+        syncSessionsGlobal,
+        getPersistedModelOverride,
+        modelSlotsEqual,
+        clearPendingModelRevision,
+      };
+      const complete = new Function(
+        ...Object.keys(dependencies),
+        `${code}; return clearConfirmedPendingModelOverride;`,
+      )(...Object.values(dependencies));
+      const sent = { provider_id: "provider", model: "model-a" };
+      const newer = { provider_id: "provider", model: "model-b" };
+      setPendingModelOverride("agent-a", "session", sent);
+      const completion = complete(
+        "agent-a",
+        "session",
+        sent,
+        getPendingModelRevision("agent-a", "session"),
+      );
+      if (change === "agent switch") selectedAgent = "agent-b";
+      else setPendingModelOverride("agent-a", "session", newer);
+      finish([
+        {
+          id: "session",
+          meta: { runtime_context: { model_slot_override: sent } },
+        },
+      ]);
+      await completion;
+      expect(getPendingModelOverride("agent-a", "session")).toEqual(
+        change === "agent switch" ? sent : newer,
+      );
+      if (change === "agent switch")
+        expect(syncSessionsGlobal).not.toHaveBeenCalled();
+    },
+  );
+});
+
 function backgroundWorkerFixture() {
   const sessionApi = {
     setLastUserMessage: vi.fn(),
@@ -159,7 +224,8 @@ function backgroundWorkerFixture() {
     applyChatPayloadTransforms: (payload: unknown) => payload,
     withPendingProjectDirectory: (requestBody: unknown) => ({ requestBody }),
     withPendingModelOverride,
-    clearConfirmedPendingModelOverride: vi.fn(),
+    getPendingModelRevision,
+    clearConfirmedPendingModelOverride: vi.fn().mockResolvedValue(undefined),
     setPendingProjectDirectory: vi.fn(),
     QWENPAW_CLIENT_MESSAGE_ID_KEY: "qwenpaw_client_message_id",
     DEFAULT_USER_ID: "default",

@@ -2,6 +2,25 @@ import type { ModelSlotConfig } from "../../api/types";
 import type { ExtendedSession } from "../../stores/sessionListStore";
 
 const KEY_PREFIX = "qwenpaw-session-model-override:";
+const revisions = new Map<string, number>();
+export type PendingModelSelection = ModelSlotConfig | "default";
+
+export function getPendingModelRevision(
+  agentId: string,
+  sessionId: string,
+): number {
+  return revisions.get(storageKey(agentId, sessionId)) ?? 0;
+}
+
+export function clearPendingModelRevision(
+  agentId: string,
+  sessionId: string,
+  revision: number,
+): void {
+  if (getPendingModelRevision(agentId, sessionId) === revision) {
+    setPendingModelOverride(agentId, sessionId, null);
+  }
+}
 
 function storageKey(agentId: string, sessionId: string): string {
   return `${KEY_PREFIX}${agentId}:${sessionId}`;
@@ -10,11 +29,13 @@ function storageKey(agentId: string, sessionId: string): string {
 export function getPendingModelOverride(
   agentId: string,
   sessionId: string,
-): ModelSlotConfig | null {
+): PendingModelSelection | null {
   const raw = sessionStorage.getItem(storageKey(agentId, sessionId));
   if (!raw) return null;
   try {
-    const value = JSON.parse(raw) as Partial<ModelSlotConfig>;
+    const parsed = JSON.parse(raw);
+    if (parsed === "default") return "default";
+    const value = parsed as Partial<ModelSlotConfig>;
     if (value.provider_id && value.model) {
       return { provider_id: value.provider_id, model: value.model };
     }
@@ -28,10 +49,11 @@ export function getPendingModelOverride(
 export function setPendingModelOverride(
   agentId: string,
   sessionId: string,
-  value: ModelSlotConfig | null,
+  value: PendingModelSelection | null,
 ): void {
   const key = storageKey(agentId, sessionId);
-  if (value?.provider_id && value.model) {
+  revisions.set(key, getPendingModelRevision(agentId, sessionId) + 1);
+  if (value === "default" || (value?.provider_id && value.model)) {
     sessionStorage.setItem(key, JSON.stringify(value));
   } else {
     sessionStorage.removeItem(key);
@@ -97,7 +119,7 @@ export function withPendingModelOverride(
   chatId: string | undefined,
 ): {
   requestBody: Record<string, unknown>;
-  modelSlot: ModelSlotConfig | null;
+  modelSlot: PendingModelSelection | null;
 } {
   if (!chatId) return { requestBody, modelSlot: null };
   const modelSlot = getPendingModelOverride(agentId, sessionId);
@@ -105,7 +127,8 @@ export function withPendingModelOverride(
   return {
     requestBody: {
       ...requestBody,
-      model_slot_override: modelSlot,
+      model_slot_override: modelSlot === "default" ? null : modelSlot,
+      persist_model_slot_override: true,
     },
     modelSlot,
   };

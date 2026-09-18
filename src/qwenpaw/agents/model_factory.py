@@ -2271,7 +2271,7 @@ def create_model_and_formatter(
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,
-        has_model_override=_source in ("request", "session"),
+        has_model_override=_source == "request",
     )
 
     return wrapped_model, formatter

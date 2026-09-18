@@ -13,6 +13,7 @@ from ..config.config import ModelSlotConfig
 logger = logging.getLogger(__name__)
 
 ModelSource = Literal["request", "session", "agent", "global", "none"]
+_UNSET = object()
 
 
 @dataclass(frozen=True)
@@ -134,27 +135,26 @@ async def prepare_model_context(
     channel: str,
     request_override: Any,
 ) -> ModelSelectionContext:
-    """Persist an input override and resolve one immutable request context."""
+    """Resolve a request context without creating or updating chats."""
     clear_current_model_context()
     request_slot = parse_model_slot(request_override)
-    if request_override is not None and request_slot is None:
-        raise ValueError("Invalid model_slot_override")
+    from .request_chat import get_request_chat
 
-    chat = await workspace.chat_manager.get_or_create_chat(
+    chat = get_request_chat(
+        workspace.chat_manager,
         session_id,
         user_id,
         channel,
     )
+    if chat is None and channel:
+        chat = await workspace.chat_manager.find_chat(
+            session_id,
+            user_id,
+            channel,
+        )
     from ..providers.provider_manager import ProviderManager
 
-    if request_slot is not None:
-        updated = await workspace.chat_manager.set_model_slot_override(
-            chat.id,
-            request_slot.model_dump(),
-        )
-        chat = updated or chat
-
-    session_slot = session_model_slot(chat.meta)
+    session_slot = session_model_slot(chat.meta if chat else None)
     agent_slot = parse_model_slot(workspace.config.active_model)
     manager = ProviderManager.get_instance()
     global_slot = parse_model_slot(
@@ -173,7 +173,7 @@ async def prepare_model_context(
     context = ModelSelectionContext(
         slot=slot,
         source=source,
-        chat_id=chat.id,
+        chat_id=chat.id if chat else None,
         session_slot=session_slot,
         agent_slot=agent_slot,
         global_slot=global_slot,
@@ -201,7 +201,7 @@ def get_current_model_slot(
     *,
     agent_id: str | None = None,
     request_override: Any = None,
-    agent_model: Any = None,
+    agent_model: Any = _UNSET,
 ) -> tuple[ModelSlotConfig | None, ModelSource]:
     """Return the prepared model, with a fallback outside runtime requests."""
     context = get_current_model_context()
@@ -215,7 +215,7 @@ def get_current_model_slot(
             global_slot=context.global_slot,
         )
 
-    if agent_model is None and agent_id:
+    if agent_model is _UNSET and agent_id:
         try:
             from ..config.config import load_agent_config
 
@@ -232,7 +232,7 @@ def get_current_model_slot(
     manager = ProviderManager.get_instance()
     return resolve_effective_model_slot(
         request_override=request_override,
-        agent_model=agent_model,
+        agent_model=None if agent_model is _UNSET else agent_model,
         global_model=(
             manager.get_active_model()
             if hasattr(manager, "get_active_model")
@@ -255,11 +255,7 @@ def get_current_model_info() -> tuple[Any | None, ModelSlotConfig | None]:
         if provider is None:
             return None, slot
         model_info = next(
-            (
-                item
-                for item in provider.models + provider.extra_models
-                if item.id == slot.model
-            ),
+            (item for item in provider.all_models() if item.id == slot.model),
             None,
         )
         return model_info, slot

@@ -518,6 +518,11 @@ async def _session_project_dirs(ctx: HookContext) -> list | None:
     user_id = getattr(request, "user_id", None) or None
 
     try:
+        from ...services.request_chat import get_request_chat
+
+        chat = get_request_chat(chat_manager, ctx.session_id, user_id, channel)
+        if chat is not None:
+            return session_project_dirs_raw_from_meta(chat.meta)
         chat_id = await chat_manager.get_chat_id_by_session(
             ctx.session_id,
             channel,

@@ -14,6 +14,24 @@ from qwenpaw.app.routers.providers import (
 from qwenpaw.config.config import ModelSlotConfig
 
 
+@pytest.mark.asyncio
+async def test_provider_list_exposes_resolved_not_placeholder_window():
+    from qwenpaw.providers.provider import ModelInfo
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+
+    provider = OpenAIProvider(
+        id="openai",
+        name="OpenAI",
+        models=[ModelInfo(id="gpt-4.1", name="GPT-4.1")],
+    )
+    info = await provider.get_info()
+    assert info.models[0].max_input_length == 131072
+    assert info.effective_context_windows[
+        "gpt-4.1"
+    ] == provider.get_context_size("gpt-4.1")
+    assert info.effective_context_windows["gpt-4.1"] > 131072
+
+
 def test_active_models_info_uses_runtime_context_resolution():
     provider = SimpleNamespace(get_context_size=lambda _model_id: 1_000_000)
     manager = SimpleNamespace(get_provider=lambda _provider_id: provider)

@@ -2171,6 +2171,7 @@
     }
   },
   "modelSelector": {
+    "followAgentDefault": "Follow Agent default (next message)",
     "selectModel": "Select model",
     "noConfiguredModels": "No configured models",
     "noFreeModels": "No free models available",

@@ -59,6 +59,16 @@ def _make_spec(
     return ChatSpec(**kwargs)
 
 
+@pytest.mark.asyncio
+async def test_find_chat_never_creates_and_matches_full_identity(manager):
+    assert await manager.find_chat("session", "user", "console") is None
+    assert await manager.list_chats() == []
+    chat = await manager.get_or_create_chat("session", "user", "console")
+    assert await manager.find_chat("session", "user", "console") == chat
+    assert await manager.find_chat("session", "other", "console") is None
+    assert await manager.find_chat("session", "user", "other") is None
+
+
 # ---------------------------------------------------------------------------
 # create / get / list
 # ---------------------------------------------------------------------------

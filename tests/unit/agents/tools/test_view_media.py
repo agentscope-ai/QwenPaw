@@ -186,27 +186,6 @@ class TestCheckMultimodalSupport:
         mock_info.return_value = (None, None)
         assert _check_multimodal_support("image") is True
 
-
-@pytest.mark.asyncio
-async def test_probe_uses_one_resolved_model_info(monkeypatch):
-    """Probe should get ModelInfo and slot from one unified lookup."""
-    model_info = SimpleNamespace(supports_multimodal=None)
-    slot = ModelSlotConfig(provider_id="provider", model="model")
-    get_model_info = MagicMock(return_value=(model_info, slot))
-    probe = AsyncMock(return_value={"supports_video": True})
-    monkeypatch.setattr(
-        "qwenpaw.services.model_selection.get_current_model_info",
-        get_model_info,
-    )
-    monkeypatch.setattr(
-        "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-        lambda: SimpleNamespace(probe_model_multimodal=probe),
-    )
-
-    assert await _probe_multimodal_if_needed("video") is True
-    get_model_info.assert_called_once_with()
-    probe.assert_awaited_once_with("provider", "model")
-
     @patch("qwenpaw.agents.prompt._get_active_model_info", create=True)
     def test_supports_image_true(self, mock_info):
         model_info = MagicMock()
@@ -235,6 +214,27 @@ async def test_probe_uses_one_resolved_model_info(monkeypatch):
     def test_exception_returns_true(self, mock_info):
         mock_info.side_effect = ImportError("no module")
         assert _check_multimodal_support("image") is True
+
+
+@pytest.mark.asyncio
+async def test_probe_uses_one_resolved_model_info(monkeypatch):
+    """Probe should get ModelInfo and slot from one unified lookup."""
+    model_info = SimpleNamespace(supports_multimodal=None)
+    slot = ModelSlotConfig(provider_id="provider", model="model")
+    get_model_info = MagicMock(return_value=(model_info, slot))
+    probe = AsyncMock(return_value={"supports_video": True})
+    monkeypatch.setattr(
+        "qwenpaw.services.model_selection.get_current_model_info",
+        get_model_info,
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
+        lambda: SimpleNamespace(probe_model_multimodal=probe),
+    )
+
+    assert await _probe_multimodal_if_needed("video") is True
+    get_model_info.assert_called_once_with()
+    probe.assert_awaited_once_with("provider", "model")
 
 
 # ---------------------------------------------------------------------------

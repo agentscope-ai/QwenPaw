@@ -44,9 +44,8 @@ describe("useModelSelectorData", () => {
       initial.promise,
     );
     vi.mocked(modelSelectorApi.loadActiveModels).mockResolvedValue(refreshed);
-    const onActiveModels = vi.fn();
     const { result } = renderHook(() =>
-      useModelSelectorData({ agentId: "default", onActiveModels }),
+      useModelSelectorData({ agentId: "default" }),
     );
 
     await act(async () => {
@@ -65,7 +64,5 @@ describe("useModelSelectorData", () => {
       expect(result.current.loading).toBe(false);
     });
     expect(result.current.activeModels).toEqual(refreshed);
-    expect(onActiveModels).toHaveBeenCalledTimes(1);
-    expect(onActiveModels).toHaveBeenCalledWith(refreshed);
   });
 });

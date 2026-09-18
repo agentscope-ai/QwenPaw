@@ -557,12 +557,19 @@ class AgentBuilder:
         if ctx.session_state:
             agent.load_state_dict(ctx.session_state)
 
+        from ..services.model_selection import get_current_model_context
+
+        model_context = get_current_model_context()
+        model_slot = model_context.slot if model_context else None
         _logger.info(
             "builder: built agent for session=%s agent=%s"
-            " model=%s tools=%d",
+            " provider=%s model=%s tools=%d",
             sanitize_log_value(getattr(ctx, "session_id", "")),
             agent_id,
-            getattr(model, "model_key", getattr(model, "model", "unknown")),
+            model_slot.provider_id if model_slot else "unknown",
+            model_slot.model
+            if model_slot
+            else getattr(model, "model", "unknown"),
             len(agent.toolkit.tool_groups[0].tools),
         )
         return agent

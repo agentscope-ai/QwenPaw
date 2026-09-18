@@ -336,6 +336,10 @@ class ProviderInfo(BaseModel):
         default_factory=list,
         description="List of pre-defined models",
     )
+    effective_context_windows: dict[str, int] = Field(
+        default_factory=dict,
+        description="Resolved context windows for display, not settings.",
+    )
     extra_models: List[ModelInfo] = Field(
         default_factory=list,
         description="List of models explicitly added by the user",
@@ -1126,7 +1130,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         return resolve_context_window(
             model_id,
             configured=(
-                configured_info.max_input_length
+                getattr(configured_info, "max_input_length", None)
                 if configured_info is not None
                 else None
             ),
@@ -1211,6 +1215,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         meta = self.meta or {}
         return ProviderInfo(
             id=self.id,
+            effective_context_windows={
+                model.id: self.get_context_size(model.id)
+                for model in self.all_models()
+            },
             name=self.name,
             base_url=self.base_url,
             api_key=api_key,

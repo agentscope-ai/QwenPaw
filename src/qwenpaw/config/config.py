@@ -4041,7 +4041,6 @@ def get_model_max_input_length(
     from ..providers import ProviderManager
     from ..services.model_selection import get_current_model_slot
 
-    manager = ProviderManager.get_instance()
     model_slot, _source = get_current_model_slot(
         agent_id=getattr(agent_config, "id", None),
         agent_model=agent_config.active_model,

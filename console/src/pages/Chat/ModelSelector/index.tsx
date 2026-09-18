@@ -47,6 +47,7 @@ import {
   type ExtendedSession,
 } from "../../../stores/sessionListStore";
 import {
+  clearPendingModelRevision,
   getPersistedModelOverride,
   getPendingModelOverride,
   setPendingModelOverride,
@@ -168,14 +169,6 @@ export default function ModelSelector({
     providerName: string;
   }>({ open: false, providerId: "", providerName: "" });
 
-  const handleActiveModels = useCallback(
-    (activeData: ActiveModelsInfo) => {
-      if (!pendingModel && !sessionModel) {
-        publishActiveMaxInputLength(activeData.effective_max_input_length);
-      }
-    },
-    [pendingModel, sessionModel],
-  );
   const {
     activeModels,
     fetchData,
@@ -186,7 +179,6 @@ export default function ModelSelector({
     setProviders,
   } = useModelSelectorData({
     agentId: selectedAgent,
-    onActiveModels: handleActiveModels,
   });
 
   useEffect(() => {
@@ -202,7 +194,7 @@ export default function ModelSelector({
         event as CustomEvent<{
           agentId: string;
           sessionId: string;
-          value: ActiveModelsInfo["active_llm"] | null;
+          value: ActiveModelsInfo["active_llm"] | "default" | null;
         }>
       ).detail;
       if (detail?.agentId !== selectedAgent || detail.sessionId !== sessionId) {
@@ -222,14 +214,23 @@ export default function ModelSelector({
   }, [selectedAgent, sessionId]);
 
   useEffect(() => {
+    let active = true;
     const handleModelCommandCompleted = (event: Event) => {
-      const detail = (event as CustomEvent<{ agentId?: string }>).detail;
-      if (detail?.agentId && detail.agentId !== selectedAgent) return;
+      const detail = (
+        event as CustomEvent<{
+          agentId: string;
+          sessionId: string;
+          revision: number;
+        }>
+      ).detail;
+      if (detail?.agentId !== selectedAgent || detail.sessionId !== sessionId)
+        return;
       void sessionApi
         .refreshSessionList()
         .then((nextSessions) => {
+          if (!active) return;
           syncSessionsGlobal(nextSessions as ExtendedSession[]);
-          setPendingModelOverride(selectedAgent, sessionId, null);
+          clearPendingModelRevision(selectedAgent, sessionId, detail.revision);
         })
         .catch(() => {});
     };
@@ -237,11 +238,13 @@ export default function ModelSelector({
       "session-model-command-completed",
       handleModelCommandCompleted,
     );
-    return () =>
+    return () => {
+      active = false;
       window.removeEventListener(
         "session-model-command-completed",
         handleModelCommandCompleted,
       );
+    };
   }, [selectedAgent, sessionId]);
 
   // Re-sync active model whenever the route switches back to /chat
@@ -299,7 +302,9 @@ export default function ModelSelector({
   }, [open]);
 
   const effectiveModel =
-    pendingModel ?? sessionModel ?? activeModels?.active_llm;
+    pendingModel === "default"
+      ? activeModels?.active_llm
+      : pendingModel ?? sessionModel ?? activeModels?.active_llm;
   const activeProviderId = effectiveModel?.provider_id;
   const activeModelId = effectiveModel?.model;
   const actualUsage = useTurnUsageStore((state) => state.snapshot?.usage);
@@ -397,14 +402,24 @@ export default function ModelSelector({
   };
 
   useEffect(() => {
-    if (!pendingModel && !sessionModel) return;
+    if (pendingModel === "default" || (!pendingModel && !sessionModel)) {
+      publishActiveMaxInputLength(activeModels?.effective_max_input_length);
+      return;
+    }
     const provider = providers.find((item) => item.id === activeProviderId);
-    const model = [
-      ...(provider?.models ?? []),
-      ...(provider?.extra_models ?? []),
-    ].find((item) => item.id === activeModelId);
-    publishActiveMaxInputLength(model?.max_input_length);
-  }, [activeModelId, activeProviderId, pendingModel, providers, sessionModel]);
+    publishActiveMaxInputLength(
+      activeModelId
+        ? provider?.effective_context_windows?.[activeModelId]
+        : null,
+    );
+  }, [
+    activeModelId,
+    activeProviderId,
+    activeModels,
+    pendingModel,
+    providers,
+    sessionModel,
+  ]);
 
   // Display the active model metadata in the trigger button.
   const activeModel = (() => {
@@ -914,6 +929,16 @@ export default function ModelSelector({
 
   const dropdownContent = (
     <div id={panelId} className={styles.panel}>
+      <button
+        type="button"
+        className={styles.tabButton}
+        onClick={() => {
+          setPendingModelOverride(selectedAgent, sessionId, "default");
+          setOpen(false);
+        }}
+      >
+        {t("modelSelector.followAgentDefault", "Follow Agent default")}
+      </button>
       <div className={styles.searchWrapper}>
         <Search size={15} className={styles.searchIcon} />
         <input

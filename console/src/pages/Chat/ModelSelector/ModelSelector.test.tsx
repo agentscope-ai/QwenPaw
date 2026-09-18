@@ -11,7 +11,11 @@ import { renderWithProviders } from "@/test/common_setup";
 import ModelSelector from "./index";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { useTurnUsageStore } from "../turnUsageStore";
-import { setPendingModelOverride } from "@/features/model-selection/pendingModelOverride";
+import {
+  getPendingModelRevision,
+  getPendingModelOverride,
+  setPendingModelOverride,
+} from "@/features/model-selection/pendingModelOverride";
 
 const agentStoreState = vi.hoisted(() => ({ selectedAgent: "default" }));
 const navigateMock = vi.hoisted(() => vi.fn());
@@ -128,6 +132,7 @@ import type { ActiveModelsInfo } from "@/api/types";
 import { confirmFreeModelSwitch } from "@/utils/freeModelSwitchWarning";
 
 const mockProvider = {
+  effective_context_windows: { "gpt-4": 32768, "gpt-3.5-turbo": 1000000 },
   id: "openai",
   name: "OpenAI",
   api_key: "sk-xxx",
@@ -550,7 +555,7 @@ describe("ModelSelector", () => {
     await waitFor(() => expect(switched).toHaveBeenCalledOnce());
     const event = switched.mock.calls[0][0] as CustomEvent;
     expect(event.detail).toEqual({
-      maxInputLength: 16384,
+      maxInputLength: 1000000,
     });
     window.removeEventListener("model-switched", switched);
   });
@@ -643,10 +648,37 @@ describe("ModelSelector", () => {
     ).toBeInTheDocument();
     await waitFor(() =>
       expect(switched).toHaveBeenCalledWith(
-        expect.objectContaining({ detail: { maxInputLength: 16384 } }),
+        expect.objectContaining({ detail: { maxInputLength: 1000000 } }),
       ),
     );
     window.removeEventListener("model-switched", switched);
+  });
+
+  it("can return to the Agent default without an Agent-wide write", async () => {
+    setPendingModelOverride("default", "session-1", {
+      provider_id: "openai",
+      model: "gpt-3.5-turbo",
+    });
+    const user = userEvent.setup();
+    renderEstablishedSelector();
+    await screen.findAllByText("GPT-3.5 Turbo");
+    await user.click(
+      screen.getByRole("button", { name: "chat.modelSelectTooltip" }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "modelSelector.followAgentDefault",
+      }),
+    );
+    expect((await screen.findAllByText("GPT-4"))[0]).toBeInTheDocument();
+    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(
+        sessionStorage.getItem(
+          "qwenpaw-session-model-override:default:session-1",
+        )!,
+      ),
+    ).toBe("default");
   });
 
   it("does not open model selection before the first message", async () => {
@@ -730,7 +762,11 @@ describe("ModelSelector", () => {
     act(() => {
       window.dispatchEvent(
         new CustomEvent("session-model-command-completed", {
-          detail: { agentId: "default" },
+          detail: {
+            agentId: "default",
+            sessionId: "session-1",
+            revision: getPendingModelRevision("default", "session-1"),
+          },
         }),
       );
     });
@@ -744,6 +780,81 @@ describe("ModelSelector", () => {
         "qwenpaw-session-model-override:default:session-1",
       ),
     ).toBeNull();
+  });
+
+  it("ignores model commands completed in another session", async () => {
+    renderEstablishedSelector();
+    await screen.findAllByText("GPT-4");
+    act(() => {
+      setPendingModelOverride("default", "session-1", "default");
+      window.dispatchEvent(
+        new CustomEvent("session-model-command-completed", {
+          detail: {
+            agentId: "default",
+            sessionId: "session-other",
+            revision: 0,
+          },
+        }),
+      );
+    });
+    expect(sessionApi.refreshSessionList).not.toHaveBeenCalled();
+    expect(getPendingModelOverride("default", "session-1")).toBe("default");
+  });
+
+  it("preserves a newer selection while command refresh is in flight", async () => {
+    renderEstablishedSelector();
+    await screen.findAllByText("GPT-4");
+    let finish!: (sessions: ExtendedSession[]) => void;
+    vi.mocked(sessionApi.refreshSessionList).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("session-model-command-completed", {
+          detail: {
+            agentId: "default",
+            sessionId: "session-1",
+            revision: getPendingModelRevision("default", "session-1"),
+          },
+        }),
+      );
+      setPendingModelOverride("default", "session-1", "default");
+    });
+    await act(async () => {
+      finish([]);
+    });
+    expect(getPendingModelOverride("default", "session-1")).toBe("default");
+  });
+
+  it("discards a command refresh after its selector is unmounted", async () => {
+    const view = renderEstablishedSelector();
+    await screen.findAllByText("GPT-4");
+    let finish!: (sessions: ExtendedSession[]) => void;
+    vi.mocked(sessionApi.refreshSessionList).mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("session-model-command-completed", {
+          detail: {
+            agentId: "default",
+            sessionId: "session-1",
+            revision: getPendingModelRevision("default", "session-1"),
+          },
+        }),
+      );
+    });
+    view.unmount();
+    await act(async () => {
+      finish([
+        { id: "stale-chat", name: "Stale", messages: [] } as ExtendedSession,
+      ]);
+    });
+    expect(useSessionListStore.getState().sessions).toEqual([]);
   });
 
   it("shows five configured PRO models then expands all remaining models", async () => {

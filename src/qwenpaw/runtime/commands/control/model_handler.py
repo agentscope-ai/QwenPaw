@@ -110,9 +110,8 @@ class ModelCommandHandler(BaseControlCommandHandler):
         )
 
     def _show_current_model(self) -> str:
-        """Show current active model for this agent.
+        """Show the effective model for the current session.
 
-        Args:
         Returns:
             Formatted response with current model info
         """

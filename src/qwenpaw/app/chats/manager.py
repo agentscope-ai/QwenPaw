@@ -140,6 +140,20 @@ class ChatManager:  # pylint: disable=too-many-public-methods
         async with self._lock:
             return await self._repo.get_chat(chat_id)
 
+    async def find_chat(
+        self,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> Optional[ChatSpec]:
+        """Look up a runtime session without registering a new chat."""
+        async with self._lock:
+            return await self._repo.get_chat_by_id(
+                session_id,
+                user_id,
+                channel,
+            )
+
     async def get_or_create_chat(
         self,
         session_id: str,
