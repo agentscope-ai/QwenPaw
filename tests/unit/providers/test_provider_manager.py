@@ -287,6 +287,144 @@ async def test_custom_provider_identity_is_case_insensitive(
     assert not (reloaded.custom_path / "mixedcase.json").exists()
 
 
+class _DeclaringWindowProvider(OpenAIProvider):
+    """Plugin stand-in that declares a window in its own default models."""
+
+    @classmethod
+    def get_default_models(cls):
+        return [
+            ModelInfo(
+                id="plugin-declared",
+                name="Declared",
+                max_input_length=400_000,
+            ),
+            ModelInfo(id="claude-sonnet-4-5", name="Pattern Hit"),
+        ]
+
+
+class _LocalDeclaringWindowProvider(_DeclaringWindowProvider):
+    """Stand-in for a local-serving plugin (no family cloud window)."""
+
+    @classmethod
+    def context_catalog_enabled(cls) -> bool:
+        return False
+
+
+class _LegacyInstanceHookProvider(_DeclaringWindowProvider):
+    """Stand-in for a plugin written against main, which could only override
+    the instance-level hook (the class-level one did not exist)."""
+
+    def _context_catalog_enabled(self) -> bool:
+        return False
+
+
+def _projected_windows(models: list[ModelInfo]):
+    return [
+        (
+            model.effective_max_input_length,
+            model.effective_max_input_length_source,
+        )
+        for model in models
+    ]
+
+
+def test_plugin_declared_window_is_catalog_data(isolated_secret_dir) -> None:
+    """A window the provider class declares belongs to the catalog slot.
+
+    In the override slot it outranked an API-detected window and made the
+    console offer a "clear override" action the user never asked for.
+    """
+    manager = ProviderManager()
+    registration = manager._prepare_plugin_registration(
+        "declaring-plugin",
+        _DeclaringWindowProvider,
+        "Declaring Plugin",
+        "https://plugin.example/v1",
+        metadata={"chat_model": "OpenAIChatModel"},
+        saved_config_path=manager.plugin_path / "declaring-plugin.json",
+    )
+    stored = registration["info"]
+
+    assert stored.models[0].max_input_length is None
+    assert stored.models[0].max_input_length_catalog == 400_000
+    # Derived state stays out of the stored registration.
+    assert stored.models[0].effective_max_input_length is None
+
+    # The declaration is still readable where the runtime reads it, which is
+    # what a provider sizing its own server should call from now on.
+    live = _DeclaringWindowProvider(**stored.model_dump())
+    assert live.get_context_size("plugin-declared") == 400_000
+
+
+def test_plugin_provider_response_carries_the_window_projection(
+    isolated_secret_dir,
+) -> None:
+    """The stored registration answers the provider list directly, so the
+    projection is applied on the way out -- including the class-level catalog
+    decision, so a local-serving plugin does not inherit a cloud window."""
+    manager = ProviderManager()
+    for provider_id, provider_class in (
+        ("declaring-plugin", _DeclaringWindowProvider),
+        ("local-declaring-plugin", _LocalDeclaringWindowProvider),
+    ):
+        registration = manager._prepare_plugin_registration(
+            provider_id,
+            provider_class,
+            provider_id,
+            "https://plugin.example/v1",
+            metadata={"chat_model": "OpenAIChatModel"},
+            saved_config_path=manager.plugin_path / f"{provider_id}.json",
+        )
+        manager.plugin_providers[provider_id] = registration
+
+    infos = {
+        info.id: info
+        for info in manager._plugin_registry.list_provider_infos()
+    }
+
+    assert _projected_windows(infos["declaring-plugin"].models) == [
+        (400_000, "catalog"),
+        (200_000, "catalog"),
+    ]
+    assert _projected_windows(infos["local-declaring-plugin"].models) == [
+        (400_000, "catalog"),
+        (DEFAULT_CONTEXT_WINDOW, "default"),
+    ]
+
+
+def test_plugin_with_only_the_instance_hook_is_not_projected(
+    isolated_secret_dir,
+) -> None:
+    """Never guess a window the runtime may resolve differently.
+
+    A plugin that overrides the instance-level hook alone answers ``False`` at
+    runtime while the inherited class-level hook answers ``True``, so a
+    projected list would show the static catalog's 200000 next to a runtime
+    window of 131072 -- and the hint would jump as soon as a save re-read the
+    provider through ``get_info``. Both models stay unprojected here, including
+    the one whose value would have been safe, so there is one rule and no
+    partial guessing.
+    """
+    manager = ProviderManager()
+    registration = manager._prepare_plugin_registration(
+        "legacy-instance-hook",
+        _LegacyInstanceHookProvider,
+        "Legacy Instance Hook",
+        "https://plugin.example/v1",
+        metadata={"chat_model": "OpenAIChatModel"},
+        saved_config_path=manager.plugin_path / "legacy-instance-hook.json",
+    )
+    manager.plugin_providers["legacy-instance-hook"] = registration
+
+    info = manager._plugin_registry.list_provider_infos()[0]
+
+    assert _projected_windows(info.models) == [(None, None), (None, None)]
+
+    live = _LegacyInstanceHookProvider(**registration["info"].model_dump())
+    assert live._context_catalog_enabled() is False
+    assert live.get_context_size("claude-sonnet-4-5") == DEFAULT_CONTEXT_WINDOW
+
+
 async def test_plugin_provider_rejects_casefold_collisions(
     isolated_secret_dir,
 ) -> None:

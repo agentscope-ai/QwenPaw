@@ -9,9 +9,8 @@ import httpx
 
 from ..config.config import ModelSlotConfig
 from ..exceptions import ProviderError
-from .context_windows import ContextWindowResolution
 from .openai_provider import OpenAIProvider
-from .provider import ModelInfo, ProviderInfo, resolve_window_from_info
+from .provider import ModelInfo, ProviderInfo, project_model_windows
 
 PROVIDER_ID = "hub-managed"
 
@@ -67,51 +66,22 @@ class ManagedProvider(OpenAIProvider):
         model.client.max_retries = 0
         return model
 
-    def _projected(
-        self,
-        model: ModelInfo,
-        window: ContextWindowResolution,
-    ) -> ModelInfo:
-        """Return *model* with the read-only window projection attached.
-
-        The console renders ``effective_max_input_length`` and its source; this
-        response is hand-built, so the projection has to be added here instead
-        of by ``Provider.get_info``. A copy is returned so the live model never
-        carries derived state.
-        """
-        return model.model_copy(
-            update={
-                "effective_max_input_length": window.value,
-                "effective_max_input_length_source": window.source,
-            },
-        )
-
     async def get_info(self, mock_secret=True) -> ProviderInfo:
         """Never expose even the runtime capability through model APIs."""
-        # Resolve each window from one index: the organization catalog can hold
-        # thousands of models, and resolving per model would scan the list once
-        # per model (quadratic) on the event loop.
-        by_id = {model.id: model for model in self.models}
-        use_catalog = self._context_catalog_enabled()
-        models = [
-            self._projected(
-                model,
-                resolve_window_from_info(
-                    model.id,
-                    by_id.get(model.id),
-                    None,
-                    use_catalog=use_catalog,
-                ),
-            )
-            for model in self.models
-        ]
-        return ProviderInfo(
-            id=PROVIDER_ID,
-            name="Hub",
-            models=models,
-            api_key="",
-            base_url="",
-            require_api_key=False,
+        # Hand-built response: the shared projection fills the read-only window
+        # fields (from one index over the model list, so a large organization
+        # catalog stays linear), otherwise the console shows no effective
+        # window.
+        return project_model_windows(
+            ProviderInfo(
+                id=PROVIDER_ID,
+                name="Hub",
+                models=self.models,
+                api_key="",
+                base_url="",
+                require_api_key=False,
+            ),
+            use_catalog=self._context_catalog_enabled(),
         )
 
 
