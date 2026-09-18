@@ -60,6 +60,7 @@ dependencies = [
     # after Textual ships and QwenPaw verifies the upstream fix.
     "textual>=8.2.8,<8.2.9",
     "psutil>=6.0.0",
+    "pywinpty>=2.0.15,<3; sys_platform == 'win32'",
     "openai>=2.0.0,<=2.33.0",
     # anyio 4.13.0: _deliver_cancellation busy-loop / getpid storm (QwenPaw#2632)
     "anyio>=4.0.0,<4.13.0",

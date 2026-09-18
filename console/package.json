@@ -38,6 +38,8 @@
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@types/react-window": "^1.8.8",
     "@vvo/tzdb": "^6.198.0",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "3d-force-graph": "1.80.0",
     "ahooks": "^3.9.6",
     "antd": "5.29.3",

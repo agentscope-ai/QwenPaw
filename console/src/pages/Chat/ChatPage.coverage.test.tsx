@@ -2643,6 +2643,16 @@ describe("ChatPage coverage", () => {
       );
       expect(chatIndex).toBeGreaterThanOrEqual(0);
       expect(drawerIndex).toBeGreaterThan(chatIndex);
+      const conversationPanel = container.querySelector(
+        '[data-panel="true"][id="conversation"]',
+      );
+      expect(conversationPanel?.contains(children[chatIndex])).toBe(true);
+      expect(conversationPanel?.contains(children[drawerIndex])).toBe(true);
+      expect(
+        container
+          .querySelector('[data-panel="true"][id="terminal"]')
+          ?.contains(children[drawerIndex]),
+      ).toBe(false);
     } finally {
       drawerState.mockReturnValue({ kind: "closed" });
     }
