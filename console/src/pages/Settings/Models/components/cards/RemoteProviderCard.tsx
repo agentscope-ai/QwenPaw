@@ -9,6 +9,7 @@ import { getIsConfigured } from "../../utils";
 import styles from "../../index.module.less";
 import HubProviderUsage from "./HubProviderUsage";
 import { ProviderIcon } from "../ProviderIconComponent";
+import { ProviderApiKeyLink } from "../ProviderApiKeyLink";
 import { OAuthConfirmModal } from "../../../../Chat/ModelSelector/OAuthConfirmModal";
 
 interface RemoteProviderCardProps {
@@ -99,7 +100,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
             </div>
 
             <div className={styles.groupCardField}>
-              <span className={styles.groupCardFieldLabel}>API Key</span>
+              <span className={styles.groupCardFieldLabel}>
+                API Key
+                <ProviderApiKeyLink url={provider.meta?.api_key_url} />
+              </span>
               {provider.api_key ? (
                 <div className={styles.groupCardMono}>
                   <span>{provider.api_key}</span>

@@ -25,6 +25,7 @@ import { getLocalizedTestConnectionMessage } from "./testConnectionMessage";
 import { getValidApiKeyPrefixes } from "../../apiKeyValidation";
 import styles from "../../index.module.less";
 import { ProviderConnectionFields } from "./ProviderConnectionFields";
+import { ProviderApiKeyLink } from "../ProviderApiKeyLink";
 
 interface ProviderConfigFormValues
   extends Omit<
@@ -731,7 +732,12 @@ export function ProviderConfigModal({
           baseUrlOptions={baseUrlOptions}
           baseUrlExtra={baseUrlExtra}
           baseUrlPlaceholder={baseUrlPlaceholder}
-          apiKeyLabel={apiKeyLabel}
+          apiKeyLabel={
+            <span>
+              {apiKeyLabel}
+              <ProviderApiKeyLink url={provider.meta?.api_key_url} />
+            </span>
+          }
           apiKeyPlaceholder={apiKeyPlaceholder}
           validApiKeyPrefixes={validApiKeyPrefixes}
           authMode={authMode}

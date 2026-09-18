@@ -2183,6 +2183,7 @@
     "llmDescription": "在这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。",
     "configureProvider": "配置 {{name}}",
     "baseURL": "基础 URL",
+    "getApiKey": "获取 API Key",
     "apiKey": "API 密钥",
     "advancedConfig": "进阶配置",
     "authMode": "鉴权方式",

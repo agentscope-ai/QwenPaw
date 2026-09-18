@@ -209,6 +209,14 @@ PROVIDER_QWENPAW = OpenAIProvider(
     require_api_key=False,
 )
 
+PROVIDER_AGENTSCOPE_PLATFORM = OpenAIProvider(
+    id="agentscope-platform",
+    name="AgentSocpe-Platform",
+    base_url="https://platform.agentscope.io/compatible-mode/v1",
+    api_key_prefix="",
+    meta={"api_key_url": "https://platform.agentscope.io/model-calls"},
+)
+
 PROVIDER_OPENAI = OpenAIProvider(
     id="openai",
     name="OpenAI",
@@ -524,6 +532,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_OPENROUTER,
     PROVIDER_GITHUB_MODELS,
     PROVIDER_MODELSCOPE,
+    PROVIDER_AGENTSCOPE_PLATFORM,
     PROVIDER_DASHSCOPE,
     PROVIDER_ALIYUN_CODINGPLAN,
     PROVIDER_ALIYUN_CODINGPLAN_INTL,
@@ -612,6 +621,7 @@ __all__ = [
     "OPENAI_MODELS",
     "OPENCODE_MODELS",
     "PROVIDER_ALIYUN_CODINGPLAN",
+    "PROVIDER_AGENTSCOPE_PLATFORM",
     "PROVIDER_ALIYUN_CODINGPLAN_INTL",
     "PROVIDER_ALIYUN_TOKENPLAN",
     "PROVIDER_ALIYUN_TOKENPLAN_INTL",

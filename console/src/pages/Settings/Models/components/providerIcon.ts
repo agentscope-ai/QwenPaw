@@ -1,5 +1,9 @@
+import agentscopePlatformLogo from "./agentscope-platform.png";
+
 export const providerIcon = (provider: string) => {
   switch (provider) {
+    case "agentscope-platform":
+      return agentscopePlatformLogo;
     case "modelscope":
       return "https://gw.alicdn.com/imgextra/i4/O1CN01exenB61EAwhgY4pmA_!!6000000000312-2-tps-400-400.png";
     case "aliyun-codingplan":

@@ -2325,6 +2325,7 @@
     "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "Base URL",
+    "getApiKey": "Get API Key",
     "apiKey": "API Key",
     "advancedConfig": "Advanced Configuration",
     "authMode": "Authentication Mode",

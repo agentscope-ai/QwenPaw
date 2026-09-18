@@ -126,6 +126,26 @@ describe("ProviderConfigModal", () => {
   });
 
   describe("render and hints", () => {
+    it("shows the platform API key link alongside the key field", () => {
+      renderModal(
+        makeProvider({
+          id: "agentscope-platform",
+          name: "AgentSocpe-Platform",
+          is_custom: false,
+          base_url: "https://platform.agentscope.io/compatible-mode/v1",
+          meta: { api_key_url: "https://platform.agentscope.io/model-calls" },
+        }),
+      );
+      const link = screen.getByRole("link", { name: "models.getApiKey" });
+      expect(link).toHaveAttribute(
+        "href",
+        "https://platform.agentscope.io/model-calls",
+      );
+      expect(link).toHaveAttribute("target", "_blank");
+      expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      expect(link.closest("label")).toHaveTextContent("models.apiKey");
+    });
+
     it("renders custom provider name and protocol fields", () => {
       renderModal();
       expect(
