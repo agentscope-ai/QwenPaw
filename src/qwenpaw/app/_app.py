@@ -6,6 +6,7 @@ import inspect
 import mimetypes
 import os
 import sys
+import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -19,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from ..__version__ import __version__
 from ..backup import BackupManager
 from ..backup._utils.safe_swap import cleanup_startup_restore_artifacts
+from ..cli.windows_shutdown import install_shutdown_handlers
 from ..config import load_config  # pylint: disable=no-name-in-module
 from ..config.utils import get_config_path, read_last_api
 from ..constant import (
@@ -65,6 +67,12 @@ from .routers.voice import voice_router
 
 # Apply log level on load so reload child process gets same level as CLI.
 logger = setup_logger(os.environ.get(LOG_LEVEL_ENV, "info"))
+_WORKSPACE_SHUTDOWN_DEADLINE_SECONDS = 12.0
+
+# Uvicorn imports this module inside the serving process. Under ``--reload``
+# that is a spawned child, distinct from the CLI/reloader process, so it must
+# expose its own PID-scoped graceful-shutdown event.
+install_shutdown_handlers()
 
 # Ensure static assets are served with browser-compatible MIME types across
 # platforms (notably Windows may miss .js/.mjs mappings).
@@ -109,6 +117,78 @@ def _start_browser_runtime(app: FastAPI, kernel: Any, interval: float) -> None:
     app.state.browser_watchdog = asyncio.create_task(
         _browser_idle_watchdog(kernel, interval),
     )
+
+
+async def _stop_workspaces_after_dependents(
+    app: FastAPI,
+    import_jobs: Any,
+    *,
+    deadline_sec: float = _WORKSPACE_SHUTDOWN_DEADLINE_SECONDS,
+) -> None:
+    """Stop workspace dependents, hard-exiting if they cannot quiesce."""
+    completed = threading.Event()
+
+    def enforce_deadline() -> None:
+        if not completed.wait(deadline_sec):
+            # Teardown cannot safely continue while a worker still uses its
+            # workspace. Exit the whole process even for direct SIGTERM or
+            # Ctrl+C, which have no external CLI force-kill watchdog.
+            os._exit(1)  # pylint: disable=protected-access
+
+    threading.Thread(target=enforce_deadline, daemon=True).start()
+    try:
+        await _stop_workspaces_after_dependents_impl(app, import_jobs)
+    finally:
+        completed.set()
+
+
+async def _stop_workspaces_after_dependents_impl(
+    app: FastAPI,
+    import_jobs: Any,
+) -> None:
+    """Quiesce imports and plugin hooks before destroying workspaces."""
+    imports_quiesced = await import_jobs.shutdown()
+    while not imports_quiesced:
+        # A bounded cancellation attempt is not proof that a worker has
+        # released its workspace. The process watchdog is the cutoff.
+        imports_quiesced = await import_jobs.drain()
+
+    plugin_registry = getattr(app.state, "plugin_registry", None)
+    if plugin_registry is not None:
+        logger.info("Executing plugin shutdown hooks...")
+        for hook in plugin_registry.get_shutdown_hooks():
+            try:
+                logger.info(
+                    f"Executing shutdown hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}' (priority"
+                    f"={hook.priority})",
+                )
+                result = hook.callback()
+                if inspect.iscoroutine(result) or inspect.isawaitable(result):
+                    await result
+                logger.info(
+                    f"✓ Completed shutdown hook '{hook.hook_name}' "
+                    f"from plugin '{hook.plugin_id}'",
+                )
+            except Exception as exc:
+                logger.error(
+                    "✗ Failed to execute shutdown hook '%s' "
+                    "from plugin '%s': %s",
+                    hook.hook_name,
+                    hook.plugin_id,
+                    exc,
+                    exc_info=True,
+                )
+
+    # Hooks may access live workspaces. Stop them before unrelated cleanup
+    # delays the memory drain, but only after their dependents have finished.
+    multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
+    if multi_agent_mgr is not None:
+        logger.info("Stopping MultiAgentManager...")
+        try:
+            await multi_agent_mgr.stop_all()
+        except Exception as exc:
+            logger.error("Error stopping MultiAgentManager: %s", exc)
 
 
 async def _stop_browser_runtime(app: FastAPI) -> None:
@@ -610,7 +690,7 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         # before closing the services they depend on.
         from .routers.portability_imports import PORTABILITY_IMPORT_JOBS
 
-        await PORTABILITY_IMPORT_JOBS.shutdown()
+        await _stop_workspaces_after_dependents(app, PORTABILITY_IMPORT_JOBS)
 
         logger.info("Stopping BackupManager...")
         await backup_manager.shutdown()
@@ -619,37 +699,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
         from ..agents.tools import shutdown_browser_runtime
 
         await shutdown_browser_runtime()
-
-        # ==================== Execute Shutdown Hooks ====================
-        plugin_registry = getattr(app.state, "plugin_registry", None)
-        if plugin_registry is not None:
-            logger.info("Executing plugin shutdown hooks...")
-            shutdown_hooks = plugin_registry.get_shutdown_hooks()
-            for hook in shutdown_hooks:
-                try:
-                    logger.info(
-                        f"Executing shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}' (priority"
-                        f"={hook.priority})",
-                    )
-
-                    result = hook.callback()
-                    if inspect.iscoroutine(result) or inspect.isawaitable(
-                        result,
-                    ):
-                        await result
-
-                    logger.info(
-                        f"✓ Completed shutdown hook '{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}'",
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"✗ Failed to execute shutdown hook "
-                        f"'{hook.hook_name}' "
-                        f"from plugin '{hook.plugin_id}': {e}",
-                        exc_info=True,
-                    )
 
         local_model_mgr = getattr(app.state, "local_model_manager", None)
         if local_model_mgr is not None:
@@ -671,17 +720,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                 await _app_svc.stop()
             except Exception as e:
                 logger.error(f"Error stopping AppServiceManager: {e}")
-
-        # Stop multi-agent manager (stops all agents and their components)
-        multi_agent_mgr = getattr(app.state, "multi_agent_manager", None)
-        if multi_agent_mgr is not None:
-            logger.info("Stopping MultiAgentManager...")
-            try:
-                await multi_agent_mgr.stop_all()
-            except Exception as e:
-                logger.error(f"Error stopping MultiAgentManager: {e}")
-
-        await PORTABILITY_IMPORT_JOBS.drain()
 
         # These three cleanup tasks are independent; run in parallel.
         from ..agents.skill_system.hub import aclose_hub_client

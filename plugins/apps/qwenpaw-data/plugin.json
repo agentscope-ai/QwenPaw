@@ -1,7 +1,7 @@
 {
   "id": "qwenpaw-data",
   "name": "QwenPaw-Data",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "app",
   "description": "Self-Evolving, Graph-Grounded Agentic BI at Enterprise Scale",
   "description_i18n": {
@@ -16,9 +16,15 @@
   "pack_requires": [
     "ui/dist/index.js",
     "ui/dist/context-console/index.html",
+    "ui/dist/data-console/index.html",
+    "ui/dist/data-console/paw-bridge.js",
+    "ui/dist/data-console/BUILD_INFO",
+    "ui/dist/data-console/SHA256SUMS",
+    "ui/dist/data-console/assets/index.js",
+    "ui/dist/data-console/assets/style.css",
     "ui/dist/app/logo-mark-v4.png"
   ],
-  "pack_requires_hint": "To run: install the runtime from PyPI with scripts/setup-pypi.sh (or pip install \"qwenpaw[qwenpaw-data]\"), or from source with scripts/setup-dev.sh; alternatively set QWENPAW_DATA_CONTEXT_MODE=external. For a one-shot demo with Neo4j + PostgreSQL + seeded GAAP data, run 'docker compose up -d' from plugins/apps/qwenpaw-data/. To build: run scripts/sync-context-ui.sh to vendor the context console, then 'npm ci && npm run build' in ui/ to produce ui/dist.",
+  "pack_requires_hint": "To run: install the runtime from PyPI with scripts/setup-pypi.sh (or pip install \"qwenpaw[qwenpaw-data]\"), or from source with scripts/setup-dev.sh; alternatively set QWENPAW_DATA_CONTEXT_MODE=external. For a one-shot demo with Neo4j + PostgreSQL + seeded GAAP data, run 'docker compose up -d' from plugins/apps/qwenpaw-data/. Normal builds use the tracked Data console snapshot: run scripts/sync-context-ui.sh, then 'npm ci && npm run build' in ui/. Authorized maintainers refresh the Data console separately with scripts/update-data-console.sh.",
   "pack_exclude": [
     ".venv-qwenpaw-data",
     ".qwenpaw-data-dev",

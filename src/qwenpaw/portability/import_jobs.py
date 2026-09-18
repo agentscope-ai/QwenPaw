@@ -264,7 +264,7 @@ class PortabilityImportJobManager:
         )
         return snapshot.model_copy(deep=True)
 
-    async def shutdown(self, *, drain_timeout: float = 5) -> None:
+    async def shutdown(self, *, drain_timeout: float = 5) -> bool:
         """Stop active jobs before their workspace services close."""
         self._closing = True
         await asyncio.gather(
@@ -275,9 +275,9 @@ class PortabilityImportJobManager:
             ),
             return_exceptions=True,
         )
-        await self.drain(timeout=drain_timeout)
+        return await self.drain(timeout=drain_timeout)
 
-    async def drain(self, *, timeout: float = 5) -> None:
+    async def drain(self, *, timeout: float = 5) -> bool:
         """Give live jobs and registered Mission workers one bounded drain."""
         tasks = [
             live.task
@@ -299,6 +299,8 @@ class PortabilityImportJobManager:
                 len(pending),
                 worker_count,
             )
+            return False
+        return True
 
     async def cancel(
         self,

@@ -1,10 +1,4 @@
-import {
-  act,
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-} from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import ComposedProvider from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/ChatAnywhere/ComposedProvider";
@@ -13,7 +7,6 @@ import {
   AgentScopeRuntimeRunStatus,
 } from "@agentscope-ai/chat";
 import { HostRequestCard, HostResponseCard } from "./HostBubbles";
-import { ChatRegenerateContext } from "./ChatRegenerateContext";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import {
   setAssistantMessageDisplayPreference,
@@ -146,8 +139,7 @@ afterEach(() => {
 });
 
 describe("merged host bubbles behavior", () => {
-  it("reacts to thinking/display preferences while retaining response identity and regenerate", async () => {
-    const regenerate = vi.fn();
+  it("delegates response actions without injecting regenerate", async () => {
     setAssistantMessageDisplayPreference("expanded");
     const output = [
       {
@@ -167,17 +159,15 @@ describe("merged host bubbles behavior", () => {
     ];
     render(
       provider(
-        <ChatRegenerateContext.Provider value={regenerate}>
-          <HostResponseCard
-            id="sdk-message-id"
-            data={{
-              id: "runtime-response-id",
-              status: AgentScopeRuntimeRunStatus.Completed,
-              output,
-            }}
-            isLast
-          />
-        </ChatRegenerateContext.Provider>,
+        <HostResponseCard
+          id="sdk-message-id"
+          data={{
+            id: "runtime-response-id",
+            status: AgentScopeRuntimeRunStatus.Completed,
+            output,
+          }}
+          isLast
+        />,
       ),
     );
     expect(screen.getByText("reasoning content")).toBeInTheDocument();
@@ -194,8 +184,9 @@ describe("merged host bubbles behavior", () => {
     expect(screen.getByTestId("response-actions")).toHaveTextContent(
       "sdk-message-id",
     );
-    fireEvent.click(screen.getByRole("button", { name: "chat.regenerate" }));
-    expect(regenerate).toHaveBeenCalledWith("sdk-message-id");
+    expect(
+      screen.queryByRole("button", { name: "chat.regenerate" }),
+    ).not.toBeInTheDocument();
   });
 
   it("retains the original request card's content and ordered prepend/append fallback", () => {

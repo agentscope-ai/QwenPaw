@@ -21,7 +21,7 @@ import { Alert, Button, Modal, Result, Tooltip } from "antd";
 import { useAppMessage } from "../../hooks/useAppMessage";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { ExclamationCircleOutlined, SettingOutlined } from "@ant-design/icons";
-import { SparkCopyLine, SparkAttachmentLine } from "@agentscope-ai/icons";
+import { SparkAttachmentLine, SparkCopyLine } from "@agentscope-ai/icons";
 import { usePlugins } from "../../plugins/PluginContext";
 import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
@@ -43,7 +43,6 @@ import {
 import {
   attachClientMessageId,
   createClientMessageId,
-  extractClientMessageId,
   QWENPAW_CLIENT_MESSAGE_ID_KEY,
 } from "../../utils/clientMessageId";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
@@ -109,7 +108,6 @@ import {
 } from "../../plugins/registry/types";
 import { ChatScalar, ChatList } from "../../plugins/registry/slotKeys";
 import { HostResponseCard } from "./HostBubbles";
-import { ChatRegenerateContext } from "./ChatRegenerateContext";
 import { cancelSdkChatRequest } from "./sdkCancellation";
 import {
   awaitInChatScope,
@@ -2674,132 +2672,6 @@ export default function ChatPage() {
   );
   // ── End Message Queue ───────────────────────────────────────────────────
 
-  const handleRegenerate = useCallback(
-    (responseMessageId: string) => {
-      const sdk = chatRef.current;
-      if (!sdk || chatLoadingRef.current || !isOwnerRef.current) return;
-      const signal = queueExecutionScopeRef.current.signal;
-      const sessionId = queueSessionId;
-      const source = sdk.messages.getSessionMessages(sessionId);
-      const responseIndex = source.findIndex(
-        (entry) => entry.id === responseMessageId,
-      );
-      const user = source
-        .slice(0, responseIndex)
-        .reverse()
-        .find((entry) => entry.role === "user");
-      const input = user?.cards?.[0]?.data?.input?.[0];
-      const target =
-        extractClientMessageId(input?.metadata) ||
-        (typeof input?.metadata?.original_id === "string"
-          ? { message_id: input.metadata.original_id }
-          : undefined);
-      if (!user || !input || !target) {
-        message.error(t("chat.regenerateUnavailable"));
-        return;
-      }
-      const identity = sessionApi.getSessionIdentity(sessionId);
-      const query = extractUserMessageText(input);
-      const attachments = (input.content || [])
-        .filter((part: any) => part.type !== "text")
-        .map((part: any) => ({
-          url:
-            part.image_url ||
-            part.file_url ||
-            part.file_id ||
-            part.video_url ||
-            part.data,
-          name: part.filename || part.file_name || "attachment",
-          type:
-            part.type === "image"
-              ? "image/png"
-              : part.type === "audio"
-              ? "audio/mpeg"
-              : part.type === "video"
-              ? "video/mp4"
-              : undefined,
-        }));
-      void withSendLock(sessionId, async () => {
-        if (signal.aborted || chatLoadingRef.current) return;
-        if (
-          !(await waitForChatIdle(
-            sessionApi.getRealIdForSession(sessionId) || sessionId,
-            signal,
-            selectedAgent,
-            sessionId,
-          ))
-        )
-          return;
-        const replacementId = createClientMessageId();
-        try {
-          const run = await sdk.execution.execute(
-            {
-              query,
-              fileList: buildFileList({ attachments }),
-              session_id: identity.sessionId,
-              user_id: identity.userId,
-              channel: identity.channel,
-              agent_id: selectedAgent,
-              context: buildChatSubmissionContext(
-                captureRequestContext({ qwenpaw_regenerate_from: target }),
-                identity,
-                selectedAgent,
-              ),
-            },
-            {
-              sessionId,
-              source: "direct",
-              clientRequestId: replacementId,
-            },
-          );
-          const accepted = await awaitInChatScope(run.accepted, signal);
-          if (!accepted.accepted)
-            throw accepted.error || new Error(t("chat.queue.sendFailed"));
-          sdk.messages.setSessionMessages(sessionId, (entries) =>
-            entries.filter(
-              (entry) => entry.id !== user.id && entry.id !== responseMessageId,
-            ),
-          );
-          const result = await awaitInChatScope(run.completion, signal);
-          if (result.status === "failed" && !signal.aborted)
-            message.error(t("chat.queue.sendFailed"));
-        } finally {
-          if (signal.aborted || queueSessionIdRef.current !== sessionId) return;
-          if (
-            !(await waitForChatIdle(
-              sessionApi.getRealIdForSession(sessionId) || sessionId,
-              signal,
-              selectedAgent,
-              sessionId,
-            ))
-          )
-            return;
-          sessionApi.discardLastUserMessage(
-            [sessionId, sessionApi.getRealIdForSession(sessionId)],
-            replacementId,
-          );
-          const canonical = await sessionApi.refreshSession(sessionId, signal);
-          if (!signal.aborted && canonical && !canonical.generating)
-            sdk.messages.setSessionMessages(sessionId, canonical.messages);
-        }
-      }).catch((error) => {
-        if (!signal.aborted)
-          message.error(
-            error instanceof Error ? error.message : t("chat.queue.sendFailed"),
-          );
-      });
-    },
-    [
-      queueSessionId,
-      selectedAgent,
-      buildFileList,
-      captureRequestContext,
-      message,
-      t,
-      queueKey,
-    ],
-  );
-
   const onFileCardClick = useCallback(
     (fileInfo: { name?: string; size?: number; url?: string }) => {
       if (!fileInfo.url) return;
@@ -4456,12 +4328,12 @@ export default function ChatPage() {
             render: ({
               data,
             }: {
-              data: { data?: { created_at?: number; completed_at?: number } };
+              data: { created_at?: number; completed_at?: number };
             }) => {
               return (
                 <span style={timestampStyle}>
                   {formatMessageTime(
-                    data?.data?.completed_at ?? data?.data?.created_at ?? 0,
+                    data?.completed_at ?? data?.created_at ?? 0,
                   )}
                 </span>
               );
@@ -4597,15 +4469,11 @@ export default function ChatPage() {
               }
             >
               {!isAgentTransition && (
-                <ChatRegenerateContext.Provider
-                  value={usesQwenPawBackend ? handleRegenerate : undefined}
-                >
-                  <AgentScopeRuntimeWebUI
-                    ref={chatRef}
-                    key={refreshKey}
-                    options={options}
-                  />
-                </ChatRegenerateContext.Provider>
+                <AgentScopeRuntimeWebUI
+                  ref={chatRef}
+                  key={refreshKey}
+                  options={options}
+                />
               )}
             </RichFileReferenceInputProvider>
           </div>

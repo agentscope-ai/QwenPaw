@@ -1199,11 +1199,10 @@ describe("ChatPage coverage", () => {
     const actionsList = capturedOptions?.actions?.list;
     if (actionsList && actionsList.length > 1 && actionsList[1].render) {
       const element = actionsList[1].render({
-        data: {
-          data: { created_at: 1700000000000, completed_at: 1700000001000 },
-        },
+        data: { created_at: 1700000000000, completed_at: 1700000001000 },
       });
       expect(element).toBeTruthy();
+      expect(element.props.children).not.toBe("");
     }
   });
 
@@ -2022,6 +2021,7 @@ describe("ChatPage coverage", () => {
 
     expect(capturedOptions?.actions?.replace).toBe(false);
     expect(capturedOptions?.actions?.right).toBe(false);
+    expect(capturedOptions?.actions?.list).toHaveLength(2);
   });
 
   // ── customToolRenderConfig ─────────────────────────────────────────────

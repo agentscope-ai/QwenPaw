@@ -470,12 +470,16 @@ async def test_shutdown_of_uncooperative_job_is_bounded(
         0.01,
     )
 
-    await asyncio.wait_for(manager.shutdown(drain_timeout=0.01), timeout=0.2)
+    assert not await asyncio.wait_for(
+        manager.shutdown(drain_timeout=0.01),
+        timeout=0.2,
+    )
 
     assert live.snapshot.state == "cancelling"
     release.set()
     live.task.cancel()
     await live.task
+    assert await manager.drain(timeout=0.01)
 
 
 @pytest.mark.asyncio
