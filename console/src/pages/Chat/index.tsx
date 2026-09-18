@@ -173,14 +173,6 @@ import { LONG_CHAT_USER_MESSAGE_ANCHORS } from "./longChatPerformance";
 import { isApprovalInCurrentScope } from "./approvalScope";
 import { buildSubmissionBizParams } from "./submissionBizParams";
 
-type IAgentScopeRuntimeWebUIOptions =
-  import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIOptions;
-type IAgentScopeRuntimeWebUIRef =
-  import("@agentscope-ai/chat").IAgentScopeRuntimeWebUIRef;
-type IAgentScopeRuntimeWebUISenderBeforeSubmitResult = {
-  proceed: true;
-  query: string;
-};
 interface ApprovalMessageData {
   requestId: string;
   sessionId: string;
@@ -2650,8 +2642,6 @@ export default function ChatPage() {
   const staleAutoSelectedIdRef = useRef<string | null>(null);
   const chatIdRef = useRef(chatId);
   const navigateRef = useRef(navigate);
-  const pendingSenderClearRef = useRef<string | null>(null);
-
   useEffect(() => {
     const handler = () => {
       void fetchMultimodalCaps();

@@ -88,7 +88,7 @@ function createFixture() {
   vi.spyOn(api, "listChats").mockImplementation(async () => [...records]);
   const history = vi.spyOn(api, "getChat").mockImplementation(async (id) => {
     trace.push(`GET-idle:${id}`);
-    return { status: "idle", messages: [] };
+    return { ...record(id), status: "idle", messages: [] };
   });
   const transport = vi.fn(async (data: TransportData) => {
     trace.push(`SSE:${data.session_id}`);
@@ -527,7 +527,11 @@ describe("installed SDK session lifecycle with CoPaw's blank-new hook", () => {
     await act(async () => {
       await host.current().newChat();
     });
-    fixture.history.mockResolvedValue({ status: "running", messages: [] });
+    fixture.history.mockResolvedValue({
+      ...record(A),
+      status: "running",
+      messages: [],
+    });
     // Real host refresh invalidates the old idle cache before restoring A.
     await act(async () => {
       await sessionApi.refreshSession(A);

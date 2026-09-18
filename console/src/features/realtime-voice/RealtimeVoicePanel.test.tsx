@@ -105,7 +105,7 @@ describe("Realtime Voice Chat surfaces", () => {
   });
 
   it("keeps the full live transcript available alongside all active controls", () => {
-    const voice = voiceState("listening");
+    const voice = voiceState("user_speaking");
     voice.inputTranscript = "继续处理刚才的任务".repeat(20);
     voice.canCommitPending = true;
     voice.inputDevices = [
@@ -133,6 +133,19 @@ describe("Realtime Voice Chat surfaces", () => {
       screen.getByRole("button", { name: "realtimeVoice.stop" }),
     ).toBeVisible();
     expect(screen.queryByRole("heading")).not.toBeInTheDocument();
+  });
+
+  it("does not present committed user speech as the agent's live status", () => {
+    const voice = voiceState("agent_working");
+    voice.inputTranscript = "已经提交的上一条请求";
+    renderInRouter(<RealtimeVoiceControls voice={voice} />);
+
+    expect(
+      screen.queryByTitle(
+        `realtimeVoice.you ${voice.inputTranscript}`,
+      ),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("realtimeVoice.liveHint")).toBeVisible();
   });
 
   it("does not invite speech before the connection is ready", () => {

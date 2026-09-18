@@ -914,13 +914,19 @@ describe("SessionApi.getSession — large payload integration (#5479)", () => {
   });
 
   it("loads a UUID-looking runtime session_id through its unique Chat UUID", async () => {
-    const apiImport = await import("../../../api");
-    const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
-      messages: [],
-      status: "idle",
-    } as ChatHistory);
     const chatId = "33b8b00e-012e-448d-ba12-5563952c45ba";
     const runtimeId = "9a8f4757-69c8-4179-b8a4-f02471bba385";
+    const apiImport = await import("../../../api");
+    const getChat = vi.spyOn(apiImport.api, "getChat").mockResolvedValue({
+      id: chatId,
+      session_id: runtimeId,
+      user_id: "u",
+      channel: "console",
+      created_at: null,
+      updated_at: null,
+      messages: [],
+      status: "idle",
+    });
     (sessionApiDefaultExport as any).sessionList = [
       {
         id: chatId,

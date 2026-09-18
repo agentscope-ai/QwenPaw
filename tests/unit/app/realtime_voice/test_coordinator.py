@@ -234,14 +234,15 @@ async def test_admission_uses_accepted_words_without_waiting_for_task_state(
     await coordinator._queue_admission(turn, receipt(task_ref="内部任务九"))
     intent = await coordinator._presentation_queue.get()
     assert intent.kind == "admission"
-    assert intent.history_user_text == original
+    assert intent.history_user_text == ""
+    assert intent.admission_turn_ids == (turn.turn_id,)
     await coordinator._present(intent)
     instruction = provider.created_messages[-2][2]
-    assert original in instruction
+    assert original not in instruction
     assert '"accepted": true' in instruction
-    assert '"request_kind": "message"' in instruction
+    assert '"accepted_count": 1' in instruction
     assert "内部任务九" not in instruction
-    assert "接收补充不代表已经修改、重新执行或取消了操作" in instruction
+    assert "不能补充请求内容" in instruction
     bridge.presentation_snapshots.assert_not_awaited()
     bridge.enqueue_action.assert_not_awaited()
 
@@ -664,7 +665,7 @@ async def test_handoff_uses_ordinary_chat_bridge_and_speech_only_response():
 
 
 @pytest.mark.asyncio
-async def test_ten_long_tasks_are_admitted_while_first_speech_is_blocked():
+async def test_ten_long_tasks_are_admitted_while_speech_wakeup_coalesces():
     provider = Provider()
     first_speech = asyncio.Event()
 
@@ -709,12 +710,9 @@ async def test_ten_long_tasks_are_admitted_while_first_speech_is_blocked():
     assert bridge.enqueue_action.await_count == 10
     assert provider.request_response.await_count == 1
     first_speech.set()
-    for expected_count in range(2, 11):
-        await acknowledge_fake_output(coordinator, provider)
-        await eventually(
-            lambda: provider.request_response.await_count == expected_count
-        )
-    await eventually(lambda: provider.request_response.await_count == 10)
+    await acknowledge_fake_output(coordinator, provider)
+    await eventually(lambda: provider.request_response.await_count == 2)
+    assert '"accepted_count": 9' in provider.created_messages[-2][2]
     await coordinator.close()
 
 
@@ -1506,14 +1504,18 @@ async def test_feedback_purpose_respects_intent_and_reply_phase(
     )
     assert instruction.startswith(purpose)
     assert "旧答案201" not in instruction
-    assert "不附带全部任务计数" in instruction
     assert '"inputs"' not in instruction
     assert '"version"' not in instruction
     assert "第1条输入" not in instruction
     assert "先说具体事项的结果" not in instruction
     assert "只提供答案内容" not in instruction
     assert "只表达结果" not in instruction
-    assert "原请求中的目标、参数和预期输出不是实际执行结果" in instruction
+    if kind == "admission":
+        assert '"accepted_count": 1' in instruction
+        assert "不能补充请求内容" in instruction
+    else:
+        assert "不附带全部任务计数" in instruction
+        assert "原请求中的目标、参数和预期输出不是实际执行结果" in instruction
 
 
 @pytest.mark.asyncio
@@ -1713,8 +1715,11 @@ async def test_concise_system_feedback_preserves_answers_not_length_limits(
     notice = await coordinator._presentation_instruction(
         PresentationIntent(kind)
     )
-    assert "不减少用户所需信息" in notice
-    if kind != "admission":
+    if kind == "admission":
+        assert text not in notice
+        assert '"accepted_count": 1' in notice
+    else:
+        assert "不减少用户所需信息" in notice
         assert text in notice
     if kind == "update":
         assert "没有待处理事项时直接结束" in notice
