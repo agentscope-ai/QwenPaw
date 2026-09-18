@@ -31,6 +31,7 @@ from qwenpaw.providers.provider_manager import ProviderManager
 from qwenpaw.providers.retry_chat_model import RetryChatModel
 from qwenpaw.token_usage import TokenRecordingModelWrapper
 
+
 _REAL_INSTALL_MODEL_FORMATTER = model_factory._install_model_formatter
 
 

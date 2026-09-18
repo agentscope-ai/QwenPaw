@@ -158,6 +158,38 @@ def test_snapshot_write_drops_dead_override_names(tmp_path) -> None:
     assert written["models"][0]["config_overrides"] == ["generate_kwargs"]
 
 
+def test_snapshot_write_drops_the_window_projection(tmp_path) -> None:
+    """The window projection is response-only: persisting it would let a stale
+    value come back as "the effective window" on any path that does not
+    recompute it (a client can even post the field back on provider
+    creation, and the field is declared on ModelInfo)."""
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+    from qwenpaw.providers.provider import ModelInfo
+    from qwenpaw.providers.provider_persistence import write_provider_snapshot
+
+    provider = OpenAIProvider(
+        id="openai",
+        name="OpenAI",
+        api_key="sk-test",
+        models=[
+            ModelInfo(
+                id="gpt-5",
+                name="GPT-5",
+                effective_max_input_length=272_000,
+                effective_max_input_length_source="catalog",
+            ),
+        ],
+        extra_models=[],
+    )
+    path = Path(tmp_path) / "openai.json"
+
+    write_provider_snapshot(provider, path)
+
+    written = json.loads(path.read_text(encoding="utf-8"))
+    assert "effective_max_input_length" not in written["models"][0]
+    assert "effective_max_input_length_source" not in written["models"][0]
+
+
 def test_migration_drops_legacy_placeholder_output_limit() -> None:
     snapshot = {
         "models": [
