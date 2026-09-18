@@ -20,6 +20,7 @@ from qwenpaw.schemas import (
     TextContent,
     VideoContent,
 )
+from qwenpaw.constant import AUTO_MEMORY_SEARCH_BLOCK_HIDDEN_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,20 @@ _OutgoingPart = Union[
     FileContent,
     RefusalContent,
 ]
+
+
+def _is_auto_memory_recall_message(message: Any) -> bool:
+    """Return True if ``message`` carries an auto-memory-recall payload.
+
+    Auto-memory recall messages are emitted as a single hidden
+    ``TextBlock`` (see ``BaseMemoryManager._build_auto_memory_search_msg``)
+    with ``AUTO_MEMORY_SEARCH_BLOCK_HIDDEN_KEY`` set on the message
+    metadata. They are meant for LLM context only, never for outbound
+    channels (Feishu / console / etc.). This helper lets any rendering
+    branch short-circuit before leaking the recall payload to users.
+    """
+    meta = getattr(message, "metadata", None) or {}
+    return bool(meta.get(AUTO_MEMORY_SEARCH_BLOCK_HIDDEN_KEY))
 
 
 @dataclass
@@ -164,6 +179,12 @@ class MessageRenderer:
         """Convert Message to list of sendable parts (runtime Content)."""
         from qwenpaw.agents.context.scroll.serialize import strip_headline
         from qwenpaw.schemas import MessageType
+
+        # Auto-memory recall messages are LLM-context-only; never render
+        # to any channel (Feishu / console / etc.). Defensive guard in
+        # case such a msg ever reaches a reply path.
+        if _is_auto_memory_recall_message(message):
+            return []
 
         msg_type = getattr(message, "type", None)
         content = getattr(message, "content", None) or []

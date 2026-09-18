@@ -30,6 +30,7 @@ from .tools.utils import (
     ToolResultPruner,
 )
 from ..constant import (
+    AUTO_MEMORY_SEARCH_BLOCK_HIDDEN_KEY,
     EXTERNAL_USER_QUERY_MESSAGE_TAG,
     QWENPAW_MESSAGE_TAG_KEY,
 )
@@ -40,6 +41,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 MAX_AUTO_MEMORY_TURN_MARKERS = 1000
+
+
+def _is_auto_memory_recall_msg(msg: Any) -> bool:
+    """Return True if ``msg`` is a synthetic auto-memory-recall payload.
+
+    Auto-memory recall messages are emitted as a single hidden
+    ``TextBlock`` (see ``BaseMemoryManager._build_auto_memory_search_msg``)
+    rather than as tool_call/tool_result blocks. They still need to be
+    injected into the LLM context, but are never rendered to end users
+    (handled by ``AUTO_MEMORY_SEARCH_BLOCK_HIDDEN_KEY`` metadata flag and
+    the frontend short-circuit).
+    """
+    meta = getattr(msg, "metadata", None) or {}
+    return bool(meta.get(AUTO_MEMORY_SEARCH_BLOCK_HIDDEN_KEY))
+
+
 AUTO_MEMORY_TURN_STATE_KEY = "qwenpaw_auto_memory_turn_state"
 _MEMORY_SKIP_SOURCES = ("cron", "heartbeat", "portability_adaptation")
 _TOOL_RESULT_METADATA_KEY = "qwenpaw_tool_result_metadata"
@@ -595,6 +612,7 @@ class MemoryMiddleware(MiddlewareBase):
             and (
                 msg.has_content_blocks("tool_call")
                 or msg.has_content_blocks("tool_result")
+                or _is_auto_memory_recall_msg(msg)
             )
         ]
 
