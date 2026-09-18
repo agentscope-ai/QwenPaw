@@ -36,6 +36,17 @@ logger = logging.getLogger(__name__)
 @pytest.mark.requires_llm
 @pytest.mark.p1
 @pytest.mark.context_scroll
+# 2026-09-18 (Tai-ge approved raising this case's per-case ceiling to 600 s):
+# the case is a 25-round real-LLM conversation and lives close to the global
+# 480 s per-case ceiling introduced by #7803 -- the green 09-16 nightly run
+# measured 424 s, i.e. 56 s of headroom, and the Path C stability wait added
+# the same day costs ~1.5 s per round (~+39 s over 26 waits), leaving only
+# ~17 s at 480 s. pytest-timeout's per-test marker overrides the command
+# line --timeout, so this case alone gets 600 s while every other case keeps
+# the 480 s hang-detection ceiling (raising the global value would loosen
+# hang detection for all ~200 other cases; the second-slowest of them is
+# 242 s, so 480 s is still only 2.0x there).
+@pytest.mark.timeout(600)
 class TestLongConversationCompression:
     """
     CS-001: Long conversation triggers context compression.
