@@ -26,35 +26,40 @@ export function SummaryCards({
   );
 
   return (
+    <UsageSummaryCards
+      items={[
+        { label: t("tokenUsage.totalCalls"), value: formatCompact(totalCalls) },
+        {
+          label: t("tokenUsage.promptTokens"),
+          value: formatCompact(totalPromptTokens),
+        },
+        {
+          label: t("tokenUsage.cacheRead"),
+          value: formatCompact(totalCacheReadTokens),
+        },
+        { label: t("tokenUsage.cacheHitRate"), value: formatPercent(hitRate) },
+        {
+          label: t("tokenUsage.completionTokens"),
+          value: formatCompact(totalCompletionTokens),
+        },
+      ]}
+    />
+  );
+}
+
+export function UsageSummaryCards({
+  items,
+}: {
+  items: { label: string; value: string }[];
+}) {
+  return (
     <div className={styles.summaryCards}>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>{formatCompact(totalCalls)}</div>
-        <div className={styles.cardLabel}>{t("tokenUsage.totalCalls")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>
-          {formatCompact(totalPromptTokens)}
-        </div>
-        <div className={styles.cardLabel}>{t("tokenUsage.promptTokens")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>
-          {formatCompact(totalCacheReadTokens)}
-        </div>
-        <div className={styles.cardLabel}>{t("tokenUsage.cacheRead")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>{formatPercent(hitRate)}</div>
-        <div className={styles.cardLabel}>{t("tokenUsage.cacheHitRate")}</div>
-      </Card>
-      <Card className={styles.card}>
-        <div className={styles.cardValue}>
-          {formatCompact(totalCompletionTokens)}
-        </div>
-        <div className={styles.cardLabel}>
-          {t("tokenUsage.completionTokens")}
-        </div>
-      </Card>
+      {items.map((item) => (
+        <Card className={styles.card} key={item.label}>
+          <div className={styles.cardValue}>{item.value}</div>
+          <div className={styles.cardLabel}>{item.label}</div>
+        </Card>
+      ))}
     </div>
   );
 }

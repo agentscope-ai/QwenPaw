@@ -13,6 +13,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
+from ...config.config import DoomLoopStageConfig
 from .base import (
     StopAction,
     StopHandlerResult,
@@ -64,7 +65,7 @@ class DoomLoopGate(LoopGate):
         *,
         window_size: int = 3,
         similarity_threshold: float = 1.0,
-        stages: list | None = None,
+        stages: list[DoomLoopStageConfig] | None = None,
     ) -> None:
         super().__init__()
         self._window_size = max(2, window_size)

@@ -11,7 +11,7 @@ const FIELD_KEYS: Record<string, string> = {
   name: "fileReview.name",
   title: "fileReview.titleField",
   description: "fileReview.description",
-  synopsis: "fileReview.description",
+  synopsis: "blueprint.synopsis",
   creative_brief: "fileReview.creativeBrief",
   creative_direction: "fileReview.creativeDirection",
   prompt: "fileReview.prompt",
@@ -155,7 +155,11 @@ export function fileReviewPresentation(
     : operation.target_ref ?? "project";
   const owner = creatorTargetLabel(ref, project);
   const kindLabel = i18n.t(KIND_KEYS[operation.kind] ?? "fileReview.modified");
-  const field = FIELD_KEYS[last] ? i18n.t(FIELD_KEYS[last]) : "";
+  const fieldKey =
+    timelineId && tokens.length === 4 && last === "description"
+      ? "blueprint.scriptContent"
+      : FIELD_KEYS[last];
+  const field = fieldKey ? i18n.t(fieldKey) : "";
   const wholeTimeline =
     tokens.length === 3 && tokens[0] === "timelines" && tokens[1] === "items";
   const wholeElement = elementIndex >= 0 && elementIndex + 2 === tokens.length;

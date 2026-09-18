@@ -127,6 +127,7 @@ def _assert_request_time_stripped(formatter_class) -> None:
         original,
         formatter_class,
         SimpleNamespace(),
+        supports_multimodal=False,
     )
 
     assert normalized[0].content[0].type == "text"
@@ -135,46 +136,25 @@ def _assert_request_time_stripped(formatter_class) -> None:
     assert original[0].content[0].type == "data"
 
 
-def test_openai_formatter_normalizes_on_copy(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: False,
-    )
+def test_openai_formatter_normalizes_on_copy() -> None:
     _assert_request_time_stripped(OpenAIChatFormatter)
 
 
-def test_anthropic_formatter_normalizes_on_copy(monkeypatch) -> None:
+def test_anthropic_formatter_normalizes_on_copy() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: False,
-    )
     _assert_request_time_stripped(AnthropicChatFormatter)
 
 
-def test_gemini_formatter_normalizes_on_copy(monkeypatch) -> None:
+def test_gemini_formatter_normalizes_on_copy() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
 
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: False,
-    )
     _assert_request_time_stripped(GeminiChatFormatter)
 
 
-def test_multimodal_support_preserves_media(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_multimodal_support_preserves_media() -> None:
     original = _media_messages()
     (
         normalized,
@@ -191,15 +171,7 @@ def test_multimodal_support_preserves_media(monkeypatch) -> None:
     assert original[0].content[0].type == "data"
 
 
-def test_force_strip_media_flag_overrides_multimodal_support(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_force_strip_media_flag_overrides_multimodal_support() -> None:
     original = _media_messages()
     formatter_instance = SimpleNamespace(_qwenpaw_force_strip_media=True)
 
@@ -219,14 +191,7 @@ def test_force_strip_media_flag_overrides_multimodal_support(
 
 
 @pytest.mark.asyncio
-async def test_anthropic_dedup_uses_complete_media_content(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
+async def test_anthropic_dedup_uses_complete_media_content() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingAnthropicFormatter,
     )
@@ -243,14 +208,7 @@ async def test_anthropic_dedup_uses_complete_media_content(
 
 
 @pytest.mark.asyncio
-async def test_anthropic_dedup_omits_identical_media(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
+async def test_anthropic_dedup_omits_identical_media() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingAnthropicFormatter,
     )
@@ -271,11 +229,6 @@ async def test_anthropic_dedup_omits_identical_media(
 async def test_request_time_image_resize_preserves_original(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     monkeypatch.setenv("QWENPAW_MAX_IMAGE_PIXELS", "1250")
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingOpenAIFormatter,
@@ -333,11 +286,6 @@ async def test_resize_failure_preserves_media_dedup_context(
 async def test_formatter_resets_wire_media_count_before_failure(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingAnthropicFormatter,
     )
@@ -361,14 +309,7 @@ async def test_formatter_resets_wire_media_count_before_failure(
 
 
 @pytest.mark.asyncio
-async def test_dashscope_audio_strip_flag_preserves_other_media(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
+async def test_dashscope_audio_strip_flag_preserves_other_media() -> None:
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingDashScopeFormatter,
     )
@@ -438,15 +379,9 @@ def test_formatter_flags_returned_correctly() -> None:
     assert is_response is False
 
 
-def test_anthropic_flag_detected(monkeypatch) -> None:
+def test_anthropic_flag_detected() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     msgs = [
         Msg(name="user", role="user", content=[TextBlock(text="Hello")]),
@@ -466,15 +401,9 @@ def test_anthropic_flag_detected(monkeypatch) -> None:
     assert is_anthropic is True
 
 
-def test_gemini_flag_detected(monkeypatch) -> None:
+def test_gemini_flag_detected() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     msgs = [
         Msg(name="user", role="user", content=[TextBlock(text="Hello")]),
@@ -1001,13 +930,7 @@ async def test_openai_formatter_isolates_reused_ids_between_requests() -> None:
     assert relayed == ["signature-1", "signature-2"]
 
 
-def test_openai_formatter_strips_extra_content(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_openai_formatter_strips_extra_content() -> None:
     (
         normalized,
         _is_anthropic,
@@ -1027,15 +950,9 @@ def test_openai_formatter_strips_extra_content(monkeypatch) -> None:
     )
 
 
-def test_anthropic_formatter_strips_extra_content(monkeypatch) -> None:
+def test_anthropic_formatter_strips_extra_content() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     (
         normalized,
@@ -1056,15 +973,9 @@ def test_anthropic_formatter_strips_extra_content(monkeypatch) -> None:
     )
 
 
-def test_gemini_formatter_preserves_extra_content(monkeypatch) -> None:
+def test_gemini_formatter_preserves_extra_content() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     msgs = _messages_with_extra_content()
     (
@@ -1083,13 +994,7 @@ def test_gemini_formatter_preserves_extra_content(monkeypatch) -> None:
     assert block.type == "tool_call"
 
 
-def test_extra_content_original_preserved(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_extra_content_original_preserved() -> None:
     msgs = _messages_with_extra_content()
     original_dict = msgs[0].to_dict()
 
@@ -1309,11 +1214,6 @@ async def test_remote_media_preparation_does_not_block_event_loop(
         "_download_remote_media",
         delayed_download,
     )
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingAnthropicFormatter,
     )
@@ -1365,11 +1265,6 @@ async def test_concurrent_media_preparation_is_request_local(
         "_download_remote_media",
         fake_download,
     )
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingAnthropicFormatter,
     )
@@ -1414,11 +1309,6 @@ async def test_remote_media_preparation_propagates_cancellation(
         model_factory,
         "_download_remote_media",
         pending_download,
-    )
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
     )
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingAnthropicFormatter,
@@ -1544,11 +1434,6 @@ async def test_remote_media_oversize_becomes_placeholder(
         "_download_remote_media",
         oversized_download,
     )
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     formatter_class = model_factory._create_file_block_support_formatter(
         _CappingAnthropicFormatter,
     )
@@ -1600,14 +1485,8 @@ async def test_formatter_base_call_does_not_block_event_loop() -> None:
 @pytest.mark.asyncio
 async def test_openai_formatter_uses_prepared_local_video(
     tmp_path,
-    monkeypatch,
 ) -> None:
     """The formatter must consume local video data prepared off-thread."""
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     video_path = tmp_path / "clip.mp4"
     video_path.write_bytes(b"video")
     formatter_class = model_factory._create_file_block_support_formatter(
@@ -1639,14 +1518,8 @@ async def test_openai_formatter_uses_prepared_local_video(
 @pytest.mark.asyncio
 async def test_formatter_applies_custom_local_media_limit(
     tmp_path,
-    monkeypatch,
 ) -> None:
     """The async preparation stage honors formatter-specific media caps."""
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     image_path = tmp_path / "large.png"
     image_path.write_bytes(b"image")
     formatter_class = model_factory._create_file_block_support_formatter(
@@ -1677,11 +1550,6 @@ async def test_anthropic_hint_uses_prepared_local_video(
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
 
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     original_reader = model_factory._read_local_media
     worker_reads: list[str] = []
 
@@ -1732,11 +1600,6 @@ async def test_dashscope_hint_prepares_local_video_once(
     monkeypatch,
 ) -> None:
     """DashScope hint videos are prepared once before wire formatting."""
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     original_reader = model_factory._read_local_media
     reads: list[str] = []
@@ -1784,11 +1647,6 @@ async def test_openai_hint_skips_local_video_preparation(
     monkeypatch,
 ) -> None:
     """OpenAI must not pre-read a HintBlock video it will discard."""
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     def unexpected_reader(path: str):
         raise AssertionError(f"unexpected worker-thread read: {path}")
@@ -1827,11 +1685,6 @@ async def test_openai_hint_prepares_supported_local_media(
     monkeypatch,
 ) -> None:
     """Supported OpenAI hint media is prepared exactly once."""
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
     original_reader = model_factory._read_local_media
     reads: list[str] = []
 
@@ -1880,12 +1733,6 @@ async def test_gemini_formatter_prepares_local_video_once(
     """Gemini media is prepared before its in-memory formatter call."""
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     original_reader = model_factory._read_local_media
     reads: list[str] = []

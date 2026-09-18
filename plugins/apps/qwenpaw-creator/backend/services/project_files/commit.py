@@ -1264,7 +1264,10 @@ class ProjectCommitBoundary:
                     else derive_ui_locator(pointer, project_data)
                 ),
             )
-            if previous is not None:
+            if (
+                previous is not None
+                and previous.decision is ReviewOperationDecision.PENDING
+            ):
                 operation = operation.model_copy(
                     update={
                         "before": previous.before,
@@ -1275,6 +1278,37 @@ class ProjectCommitBoundary:
                 operations_by_pointer.pop(pointer, None)
             else:
                 operations_by_pointer[pointer] = operation
+        # A later tool call can fill a field inside an object added earlier
+        # in this round. Keep one live candidate for that pending object;
+        # separate parent/child decisions would have stale hashes and overlap
+        # when undone. Never absorb a decision the user already made.
+        for pointer in sorted(operations_by_pointer, key=len):
+            parent = operations_by_pointer.get(pointer)
+            if (
+                parent is None
+                or parent.decision is not ReviewOperationDecision.PENDING
+            ):
+                continue
+            descendants = [
+                path
+                for path in operations_by_pointer
+                if path.startswith(pointer + "/")
+            ]
+            if not descendants or any(
+                operations_by_pointer[path].decision
+                is not ReviewOperationDecision.PENDING
+                for path in descendants
+            ):
+                continue
+            live_value = value_at(project_data, pointer)
+            operations_by_pointer[pointer] = parent.model_copy(
+                update={
+                    "after": None if live_value is MISSING else live_value,
+                    "after_hash": hash_json_value(live_value),
+                },
+            )
+            for path in descendants:
+                operations_by_pointer.pop(path)
         operations = sorted(
             operations_by_pointer.values(),
             key=lambda item: item.operation_id,

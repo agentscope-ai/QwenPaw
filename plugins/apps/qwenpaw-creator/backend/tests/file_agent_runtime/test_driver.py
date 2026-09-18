@@ -56,6 +56,7 @@ from services.runtime_files.models import (
     MessageChannel,
     MessageClassification,
     RuntimeProjectState,
+    ReviewBoundary,
 )
 from services.runtime_files.execution_models import (
     ExecutionAuthorizationStatus,
@@ -1530,11 +1531,30 @@ def test_object_grounding_generated_url_is_scoped_to_current_project(
         )
 
 
-def test_stream_persistence_failure_is_not_reported_as_a_model_failure(
+@pytest.mark.parametrize("transient_lock", [False, True])
+@pytest.mark.parametrize("boundary", ["stream", "assistant", "tool"])
+def test_session_persistence_retries_without_replaying_model_or_tool(
     tmp_path,
     monkeypatch,
+    transient_lock,
+    boundary,
 ) -> None:
+    from services.runtime_files.errors import LockTimeoutError
+
+    model_calls = []
+    tool_calls = []
+    invoke = driver_module.AgentProjectTools.invoke
+
+    def invoke_once(self, name, arguments):
+        tool_calls.append(name)
+        return invoke(self, name, arguments)
+
+    monkeypatch.setattr(driver_module.AgentProjectTools, "invoke", invoke_once)
+
     async def callback(_messages, _tools) -> AgentModelTurn:
+        model_calls.append(1)
+        if len(model_calls) == 1:
+            return _read_call("read-once")
         return AgentModelTurn(content="完整结果")
 
     async def scenario():
@@ -1544,31 +1564,79 @@ def test_stream_persistence_failure_is_not_reported_as_a_model_failure(
         )
         driver = _driver(services, callback)
         original_append_event = driver.sessions.append_event
+        original_append_message = driver.sessions.append_message
+        append_calls = []
+
+        def contend():
+            append_calls.append(1)
+            if not transient_lock:
+                raise OSError("disk write failed")
+            if len(append_calls) <= 4:
+                raise LockTimeoutError(tmp_path / "project.lock", 10.0)
 
         def append_event(*args, **kwargs):
-            if kwargs.get("event_type") == "agent.message_delta":
-                raise OSError("runtime lock timeout")
+            if (
+                boundary == "stream"
+                and kwargs.get("event_type") == "agent.message_delta"
+            ):
+                contend()
             return original_append_event(*args, **kwargs)
 
+        def append_message(*args, **kwargs):
+            if kwargs.get("role") == boundary and not kwargs.get(
+                "metadata",
+                {},
+            ).get("toolCall"):
+                contend()
+            return original_append_message(*args, **kwargs)
+
         monkeypatch.setattr(driver.sessions, "append_event", append_event)
-        await _run_to_idle(driver, services, error=True)
+        monkeypatch.setattr(driver.sessions, "append_message", append_message)
+        await _run_to_idle(driver, services, error=not transient_lock)
         session = services.sessions.get_project_session(PROJECT_ID)
         events = services.sessions.list_events(PROJECT_ID, SESSION_ID)
+        messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
         await driver.stop()
-        return session, events
+        return session, events, messages
 
-    session, events = asyncio.run(scenario())
+    session, events, messages = asyncio.run(scenario())
 
-    assert session.error is not None
-    assert session.error["code"] == "STREAM_PERSISTENCE_FAILED"
-    assert session.error["retryable"] is True
+    assert len(model_calls) == (
+        1 if boundary == "tool" and not transient_lock else 2
+    )
+    assert tool_calls == ["read_project"]
     failed = [
         event for event in events if event.event_type == "agent.run.failed"
     ]
-    assert failed[-1].payload["error"]["code"] == "STREAM_PERSISTENCE_FAILED"
+    if transient_lock:
+        assert session.error is None
+        assert not failed
+        deltas = [e for e in events if e.event_type == "agent.message_delta"]
+        assert [e.payload["delta"] for e in deltas] == ["完整结果"]
+        assert len([m for m in messages if m.role == "tool"]) == 1
+        assert len([m for m in messages if m.role == "assistant"]) == 2
+        assert messages[-1].content_parts[0].text == "完整结果"
+    else:
+        expected_code = (
+            "STREAM_PERSISTENCE_FAILED"
+            if boundary == "stream"
+            else "AGENT_RUN_FAILED"
+        )
+        assert session.error["code"] == expected_code
+        assert failed[-1].payload["error"]["code"] == expected_code
+        if boundary == "stream":
+            assert session.error["retryable"] is True
 
 
-def test_intervention_completion_queues_mainline_resume(tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("queued_notification", "decide_during_run"),
+    [(False, False), (True, False), (True, True)],
+)
+def test_intervention_completion_queues_mainline_resume(
+    tmp_path,
+    queued_notification,
+    decide_during_run,
+) -> None:
     async def scenario():
         services, snapshot = _create_project(tmp_path, initial_goal=None)
         first = _append_initial_request(
@@ -1579,7 +1647,17 @@ def test_intervention_completion_queues_mainline_resume(tmp_path) -> None:
         )
         _consume_and_activate(services, through_seq=first.message_seq)
         _write_runtime_state(services, snapshot)
-        driver = _driver(services, _edit_client(description="支线修改已完成"))
+        edit = _edit_client(description="支线修改已完成")
+
+        async def model(messages, tools):
+            turn = await edit.complete(messages=messages, tools=tools)
+            if decide_during_run and not turn.tool_calls:
+                review = services.reviews.active(PROJECT_ID)
+                if review is not None:
+                    _accept_review(services, review)
+            return turn
+
+        driver = _driver(services, model)
         # Durable record of the interrupted mainline run (as _cancel_run
         # leaves it after a real supersede).
         driver.runs.create(
@@ -1611,6 +1689,18 @@ def test_intervention_completion_queues_mainline_resume(tmp_path) -> None:
             expected_status=AgentRunStatus.RUNNING,
             status=AgentRunStatus.CANCELLED,
         )
+        notification = None
+        if queued_notification:
+            notification = services.sessions.append_message(
+                PROJECT_ID,
+                SESSION_ID,
+                CONVERSATION_ID,
+                role="user",
+                source="runtime_notification",
+                channel=MessageChannel.RUNTIME,
+                content_parts=[{"type": "text", "text": "素材理解已完成"}],
+                metadata={"notificationKind": "subagent_terminal"},
+            ).message
         admitted = _admit_agentdock_request(
             services,
             request_id="interrupt-request",
@@ -1636,15 +1726,29 @@ def test_intervention_completion_queues_mainline_resume(tmp_path) -> None:
             ]
 
         await _wait_for(lambda: len(_resume_messages()) == 1)
+        if notification is not None:
+            assert not any(
+                run.caused_by_message_seq == notification.message_seq
+                for run in driver.runs.list(PROJECT_ID)
+            ), "an older completion notification ran ahead of the intervention"
         resume = _resume_messages()[0]
         await asyncio.sleep(0.05)
-        assert not any(
-            run.caused_by_message_seq == resume.message_seq
-            for run in driver.runs.list(PROJECT_ID)
-        ), "mainline resumed before the intervention Review was accepted"
-        review = services.reviews.active(PROJECT_ID)
-        assert review is not None
-        _accept_review(services, review)
+        if decide_during_run:
+            run = next(
+                run
+                for run in driver.runs.list(PROJECT_ID)
+                if run.caused_by_message_seq == admitted.message.message_seq
+            )
+            assert run.final_summary == "项目说明已更新。"
+            assert not run.review_ids
+        else:
+            assert not any(
+                run.caused_by_message_seq == resume.message_seq
+                for run in driver.runs.list(PROJECT_ID)
+            ), "mainline resumed before the intervention Review was accepted"
+            review = services.reviews.active(PROJECT_ID)
+            assert review is not None
+            _accept_review(services, review)
         driver.notify(PROJECT_ID)
         await _wait_for(
             lambda: any(
@@ -1910,6 +2014,77 @@ def test_interrupt_revokes_stale_run_before_late_tool_commit(tmp_path) -> None:
     assert session.last_consumed_message_seq == 1
 
 
+@pytest.mark.parametrize("superseded", [False, True])
+@pytest.mark.parametrize("reason", ["user_interrupt", "agentdock_message"])
+def test_feedback_keeps_admitted_media_alive_but_hard_stop_cancels_it(
+    tmp_path,
+    monkeypatch,
+    superseded,
+    reason,
+) -> None:
+    """A new user message must not abandon an unrelated paid image call."""
+
+    async def scenario():
+        services, _snapshot = _create_project(tmp_path, initial_goal="制作短剧")
+        model_started = asyncio.Event()
+        media_started = asyncio.Event()
+        release_media = asyncio.Event()
+        published: list[str] = []
+
+        async def model(_messages, _tools):
+            model_started.set()
+            await asyncio.Event().wait()
+
+        async def media_provider(_project_id, _node, _fingerprint):
+            media_started.set()
+            await release_media.wait()
+            published.append("existing-image-result")
+
+        driver = _driver(services, model)
+        scheduler = driver.work_scheduler
+        monkeypatch.setattr(scheduler, "dispatch_node", media_provider)
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await asyncio.wait_for(model_started.wait(), timeout=2)
+        node = WorkNode(
+            node_id="visual:unrelated",
+            kind="visual",
+            label="已授权的人物图",
+            status=WorkNodeStatus.READY,
+            command="GENERATE_ASSET",
+            target_ref="asset:hero",
+        )
+        media = asyncio.create_task(
+            scheduler._dispatch(PROJECT_ID, node, "fp"),
+        )
+        scheduler._dispatch_tasks.setdefault(PROJECT_ID, set()).add(media)
+        scheduler._inflight.setdefault(PROJECT_ID, set()).add(node.node_id)
+        await asyncio.wait_for(media_started.wait(), timeout=2)
+        active = driver._active[PROJECT_ID]
+        try:
+            assert await driver.interrupt(
+                PROJECT_ID,
+                superseded=superseded,
+                reason=reason,
+                expected_run_id=active.run_id,
+            )
+            await asyncio.wait_for(
+                asyncio.gather(active.task, return_exceptions=True),
+                timeout=2,
+            )
+            release_media.set()
+            await asyncio.gather(media, return_exceptions=True)
+            assert media.cancelled() is not superseded
+            assert published == (
+                ["existing-image-result"] if superseded else []
+            )
+        finally:
+            release_media.set()
+            await driver.stop()
+
+    asyncio.run(scenario())
+
+
 def test_interrupt_returns_before_slow_task_cleanup_finishes(tmp_path) -> None:
     async def scenario():
         services, _snapshot = _create_project(
@@ -2049,7 +2224,7 @@ def test_specialist_cancel_emits_terminal_event(
     assert cancelled_event.payload.get("cancelled") is True
 
 
-def test_durable_interrupt_stops_remote_owner_without_restarting_message(
+def test_durable_interrupt_stops_owner_without_restarting_message(
     tmp_path,
 ) -> None:
     async def scenario():
@@ -2073,28 +2248,20 @@ def test_durable_interrupt_stops_remote_owner_without_restarting_message(
         owner.notify(PROJECT_ID)
         await asyncio.wait_for(started.wait(), timeout=2.0)
 
-        # Simulate the stop request landing in another QwenPaw process.  The
-        # durable Session status is the cross-process signal; this coordinator
-        # deliberately has no local handle for the active run.
+        # Persist the stop as an independent request handler would. The owning
+        # runtime must observe it without a direct call to owner.interrupt().
+        # Starting a second runtime here would race its orphan-recovery sweep
+        # against this live owner, outside the supported single-backend model.
         services.sessions.set_session_status(
             PROJECT_ID,
             SESSION_ID,
             "INTERRUPT_REQUESTED",
         )
-        non_owner = _driver(services, blocking_model)
-        await non_owner.start()
-        interrupted_locally = await non_owner.interrupt(
-            PROJECT_ID,
-            reason="remote-stop",
-        )
-        assert interrupted_locally is False
-
         await asyncio.wait_for(cancelled.wait(), timeout=2.0)
         await owner.wait_until_idle(PROJECT_ID)
         await _wait_session_status(services, "CANCELLED")
         session = services.sessions.get_project_session(PROJECT_ID)
         runs = owner.runs.list(PROJECT_ID)
-        await non_owner.stop()
         await owner.stop()
         return session, runs
 
@@ -2119,8 +2286,8 @@ def test_failed_run_is_not_relaunched_after_restart_or_notify(
     """A failed request is a durable input boundary.
 
     Neither a process restart (which discards the in-memory blocked-head
-    guard) nor an unrelated ``notify`` (model config saves wake every
-    Project) may relaunch the Agent on the same failed message. Legacy
+    guard) nor an unrelated runtime state-change ``notify`` may relaunch
+    the Agent on the same failed message. Legacy
     sessions written before failures consumed their request must not
     auto-start the Agent either; reconciliation consumes the failed head
     based on the durable run record instead.
@@ -2411,21 +2578,121 @@ def test_mainline_character_voice_waits_for_authorization(
     assert specialists == []
 
 
-def test_prompt_gap_feedback_is_queued_outside_auto_approve(
+@pytest.mark.parametrize(
+    "review_state,after_failure,gap,reason,previous_yolo",
+    [
+        pytest.param(
+            "none",
+            False,
+            True,
+            "video_prompt 缺失",
+            False,
+            id="normal",
+        ),
+        pytest.param(
+            "pending",
+            False,
+            True,
+            "video_prompt 缺失",
+            False,
+            id="pending-review",
+        ),
+        pytest.param(
+            "accepted",
+            False,
+            True,
+            "video_prompt 缺失",
+            False,
+            id="accepted-review",
+        ),
+        pytest.param(
+            "none",
+            True,
+            True,
+            "video_prompt 缺失",
+            False,
+            id="transient-failure",
+        ),
+        pytest.param(
+            "none",
+            True,
+            False,
+            "上游分镜未完成",
+            False,
+            id="paid-repair-forbidden",
+        ),
+        pytest.param(
+            "none",
+            False,
+            True,
+            "video_prompt 缺失",
+            True,
+            id="separate-yolo-fuse",
+        ),
+        pytest.param(
+            "none",
+            False,
+            True,
+            "台本文案尚未落到 Element 上",
+            False,
+            id="structured-gap-not-wording",
+        ),
+    ],
+)
+def test_manual_prompt_repair_respects_review_and_never_dispatches_media(
     tmp_path,
     monkeypatch,
+    review_state,
+    after_failure,
+    gap,
+    reason,
+    previous_yolo,
 ) -> None:
-    """A false completion gets a free repair turn, never a media dispatch."""
-
-    services, _snapshot = _create_project(tmp_path, initial_goal="完成短剧")
+    services, snapshot = _create_project(tmp_path, initial_goal="完成短剧")
+    if review_state != "none":
+        candidate = snapshot.project.model_dump(mode="json")
+        candidate["description"] = "等待确认的创作改动"
+        review = services.commits.commit(
+            base=snapshot,
+            candidate=candidate,
+            round_id="round-pending-review",
+            origin="agentdock_interrupt",
+            review_policy="require_review",
+            review_boundary=ReviewBoundary(
+                request_message_seq=1,
+                request_id="request-review",
+                interrupted_run_id="agent-run-review",
+                accepted_generation=snapshot.generation,
+                accepted_etag=snapshot.etag,
+            ),
+            caused_by_request_id="request-review",
+            caused_by_message_seq=1,
+        ).review
+        assert review is not None
+        if review_state == "accepted":
+            _accept_review(services, review)
     driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
+    if previous_yolo:
+        for index in range(driver.YOLO_RESUME_MAX_CONSECUTIVE):
+            services.sessions.append_message(
+                PROJECT_ID,
+                SESSION_ID,
+                CONVERSATION_ID,
+                role="user",
+                content_parts=[
+                    {"type": "text", "text": f"YOLO resume {index}"},
+                ],
+                source=driver.YOLO_RESUME_SOURCE,
+                channel=MessageChannel.RUNTIME,
+                metadata={"projectGeneration": snapshot.generation},
+            )
     node = WorkNode(
         node_id="video:ep1",
         kind="video",
         label="第一场 · 视频",
         status=WorkNodeStatus.GATED,
-        missing=("video_prompt 缺失",),
-        authored_text_gap=True,
+        missing=(reason,),
+        authored_text_gap=gap,
     )
     monkeypatch.setattr(
         driver_module,
@@ -2440,228 +2707,31 @@ def test_prompt_gap_feedback_is_queued_outside_auto_approve(
             generation=1,
         ),
     )
-    wakes: list[str] = []
+    wakes = []
     monkeypatch.setattr(driver.work_scheduler, "wake", wakes.append)
-
+    before = len(services.sessions.list_messages(PROJECT_ID, SESSION_ID))
     asyncio.run(
         driver._queue_yolo_completion_resume(
             project_id=PROJECT_ID,
             session_id=SESSION_ID,
             conversation_id=CONVERSATION_ID,
             run_id="agent-run-false-complete",
+            after_failure=after_failure,
         ),
     )
-
-    messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
-    feedback = messages[-1]
-    assert feedback.source == driver.PROMPT_CONTRACT_RESUME_SOURCE
-    assert "video_prompt 缺失" in feedback.content_parts[0].text
-    assert "没有提交任何对应的付费媒体任务" in feedback.content_parts[0].text
-    assert feedback.metadata["modelRequiredNodes"] == ["video:ep1"]
-    assert wakes == [], "non-auto prompt repair must not wake paid scheduling"
-
-
-def test_prompt_gap_repair_survives_retryable_failure_outside_auto_approve(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """A transient fault must not swallow the free manual-mode repair turn."""
-
-    services, _snapshot = _create_project(tmp_path, initial_goal="完成短剧")
-    driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
-    node = WorkNode(
-        node_id="video:ep1",
-        kind="video",
-        label="第一场 · 视频",
-        status=WorkNodeStatus.GATED,
-        missing=("video_prompt 缺失",),
-        authored_text_gap=True,
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "get_media_review_mode",
-        lambda: "manual",
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "derive_work_graph",
-        lambda _project, tasks, *, media_models=None: WorkGraph(
-            nodes=(node,),
-            generation=1,
-        ),
-    )
-    wakes: list[str] = []
-    monkeypatch.setattr(driver.work_scheduler, "wake", wakes.append)
-
-    asyncio.run(
-        driver._queue_yolo_completion_resume(
-            project_id=PROJECT_ID,
-            session_id=SESSION_ID,
-            conversation_id=CONVERSATION_ID,
-            run_id="agent-run-transient-failure",
-            after_failure=True,
-        ),
-    )
-
-    messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
-    feedback = messages[-1]
-    assert feedback.source == driver.PROMPT_CONTRACT_RESUME_SOURCE
-    assert "瞬态故障" in feedback.content_parts[0].text
-    assert "video_prompt 缺失" in feedback.content_parts[0].text
-    assert wakes == [], "non-auto prompt repair must not wake paid scheduling"
-
-
-def test_manual_mode_failure_without_prompt_gap_waits_for_a_human(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Paid continuation after a fault stays a YOLO-only behavior."""
-
-    services, _snapshot = _create_project(tmp_path, initial_goal="完成短剧")
-    driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
-    node = WorkNode(
-        node_id="video:ep1",
-        kind="video",
-        label="第一场 · 视频",
-        status=WorkNodeStatus.GATED,
-        missing=("上游分镜未完成",),
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "get_media_review_mode",
-        lambda: "manual",
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "derive_work_graph",
-        lambda _project, tasks, *, media_models=None: WorkGraph(
-            nodes=(node,),
-            generation=1,
-        ),
-    )
-
-    asyncio.run(
-        driver._queue_yolo_completion_resume(
-            project_id=PROJECT_ID,
-            session_id=SESSION_ID,
-            conversation_id=CONVERSATION_ID,
-            run_id="agent-run-transient-failure-no-gap",
-            after_failure=True,
-        ),
-    )
-
-    messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
-    assert all(
-        item.source
-        not in {
-            driver.YOLO_RESUME_SOURCE,
-            driver.PROMPT_CONTRACT_RESUME_SOURCE,
-        }
-        for item in messages
-    )
-
-
-def test_prompt_repair_fuse_is_independent_from_previous_yolo_mode(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Changing review mode starts a fresh, non-paid repair streak."""
-
-    services, snapshot = _create_project(tmp_path, initial_goal="完成短剧")
-    driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
-    for index in range(driver.YOLO_RESUME_MAX_CONSECUTIVE):
-        services.sessions.append_message(
-            PROJECT_ID,
-            SESSION_ID,
-            CONVERSATION_ID,
-            role="user",
-            content_parts=[{"type": "text", "text": f"YOLO resume {index}"}],
-            source=driver.YOLO_RESUME_SOURCE,
-            channel=MessageChannel.RUNTIME,
-            metadata={"projectGeneration": snapshot.generation},
-        )
-    node = WorkNode(
-        node_id="video:ep1",
-        kind="video",
-        label="第一场 · 视频",
-        status=WorkNodeStatus.GATED,
-        missing=("video_prompt 缺失",),
-        authored_text_gap=True,
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "get_media_review_mode",
-        lambda: "manual",
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "derive_work_graph",
-        lambda _project, tasks, *, media_models=None: WorkGraph(
-            nodes=(node,),
-            generation=1,
-        ),
-    )
-
-    asyncio.run(
-        driver._queue_yolo_completion_resume(
-            project_id=PROJECT_ID,
-            session_id=SESSION_ID,
-            conversation_id=CONVERSATION_ID,
-            run_id="agent-run-after-review-mode-change",
-        ),
-    )
-
-    messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
-    assert messages[-1].source == driver.PROMPT_CONTRACT_RESUME_SOURCE
-
-
-def test_prompt_gap_feedback_does_not_depend_on_gap_wording(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """Reworded gap text must not silently disable the free repair path.
-
-    The selection used to grep the human-readable reason for "prompt" /
-    "台词" / "对话密度", so renaming a message would have turned a free
-    repair turn into a silent stall.
-    """
-
-    services, _snapshot = _create_project(tmp_path, initial_goal="完成短剧")
-    driver = _driver(services, lambda _messages, _tools: AgentModelTurn())
-    reworded = WorkNode(
-        node_id="video:ep1",
-        kind="video",
-        label="第一场 · 视频",
-        status=WorkNodeStatus.GATED,
-        missing=("台本文案尚未落到 Element 上",),
-        authored_text_gap=True,
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "get_media_review_mode",
-        lambda: "manual",
-    )
-    monkeypatch.setattr(
-        driver_module,
-        "derive_work_graph",
-        lambda _project, tasks, *, media_models=None: WorkGraph(
-            nodes=(reworded,),
-            generation=1,
-        ),
-    )
-
-    asyncio.run(
-        driver._queue_yolo_completion_resume(
-            project_id=PROJECT_ID,
-            session_id=SESSION_ID,
-            conversation_id=CONVERSATION_ID,
-            run_id="agent-run-reworded-gap",
-        ),
-    )
-
-    messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
-    assert messages[-1].source == driver.PROMPT_CONTRACT_RESUME_SOURCE
-    assert "台本文案尚未落到 Element 上" in messages[-1].content_parts[0].text
+    messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)[before:]
+    assert wakes == [], "manual prompt repair must never wake paid scheduling"
+    if review_state == "pending" or not gap:
+        assert messages == []
+    else:
+        assert len(messages) == 1
+        feedback = messages[0]
+        assert feedback.source == driver.PROMPT_CONTRACT_RESUME_SOURCE
+        assert reason in feedback.content_parts[0].text
+        assert "没有提交任何对应的付费媒体任务" in feedback.content_parts[0].text
+        assert feedback.metadata["modelRequiredNodes"] == ["video:ep1"]
+        if after_failure:
+            assert "瞬态故障" in feedback.content_parts[0].text
 
 
 def test_model_blocked_with_its_pending_review_is_a_neutral_pause(
@@ -3105,7 +3175,8 @@ def test_batch_merges_notifications_but_stops_at_non_batchable(
     blocking_source,
 ) -> None:
     """Consecutive notifications merge into one run (input-queue drain);
-    human and review-feedback messages keep one-message-per-run."""
+    automated repairs keep their own run, while later progress joins a human.
+    """
 
     from services.file_agent_runtime.notifications import NOTIFICATION_SOURCE
 
@@ -3139,7 +3210,13 @@ def test_batch_merges_notifications_but_stops_at_non_batchable(
             )
 
         async def callback(messages, _tools):
-            received.append(messages[1]["content"])
+            received.append(
+                "\n".join(
+                    str(item["content"])
+                    for item in messages
+                    if item["role"] == "user"
+                ),
+            )
             return AgentModelTurn(content="处理完毕。")
 
         driver = _driver(services, callback)
@@ -3152,22 +3229,154 @@ def test_batch_merges_notifications_but_stops_at_non_batchable(
 
     services, driver = asyncio.run(scenario())
 
-    assert (
-        len(received) == 3
-    ), "notifications must merge and the batch must stop at a non-batchable"
+    expected_runs = 2 if blocking_source == "user" else 3
+    assert len(received) == expected_runs
     assert "RUNTIME_NOTIFICATIONS_BATCH" in received[0]
     assert "进度 0" in received[0]
     assert "进度 1" in received[0]
     assert "请修一下这个问题" in received[1]
     assert "RUNTIME_NOTIFICATIONS_BATCH" not in received[1]
-    assert "进度 B" in received[2]
-    assert len(driver.runs.list(PROJECT_ID)) == 3
+    assert "进度 B" in received[-1]
+    assert len(driver.runs.list(PROJECT_ID)) == expected_runs
     assert (
         services.sessions.get_project_session(
             PROJECT_ID,
         ).last_consumed_message_seq
         == 5
     )
+
+
+@pytest.mark.parametrize("source", ["user", "review_rejection_feedback"])
+@pytest.mark.parametrize("review_pause", [None, "PENDING_REVIEW", "RESUMING"])
+def test_human_revisions_take_priority_over_queued_automated_reviews(
+    tmp_path,
+    source,
+    review_pause,
+):
+    """A real revision must not wait behind stale automated repair requests."""
+    received = []
+
+    async def scenario():
+        services, snapshot = _create_project(tmp_path, initial_goal="六集短剧")
+        _write_runtime_state(services, snapshot)
+        if review_pause:
+            candidate = snapshot.project.model_dump(mode="json")
+            candidate["description"] = "第二集剧本仍待审阅"
+            review = services.commits.commit(
+                base=snapshot,
+                candidate=candidate,
+                round_id="round-draft",
+                origin="agentdock_interrupt",
+                review_policy="require_review",
+                review_boundary=ReviewBoundary(
+                    request_message_seq=1,
+                    request_id="draft-request",
+                    interrupted_run_id="previous-run",
+                    accepted_generation=snapshot.generation,
+                    accepted_etag=snapshot.etag,
+                ),
+                caused_by_request_id="draft-request",
+                caused_by_message_seq=1,
+            ).review
+            assert review is not None
+        services.sessions.mark_messages_consumed(
+            PROJECT_ID,
+            SESSION_ID,
+            through_seq=1,
+        )
+        for automated_source in (
+            "review_approval_resume",
+            "run_review_feedback",
+            "render_review_feedback",
+            "runtime_notification",
+        ):
+            services.sessions.append_message(
+                PROJECT_ID,
+                SESSION_ID,
+                CONVERSATION_ID,
+                role="user",
+                content_parts=[{"type": "text", "text": automated_source}],
+                source=automated_source,
+                channel=MessageChannel.RUNTIME,
+                metadata={
+                    "notificationKind": "subagent_terminal",
+                    "originSource": "run_review_feedback",
+                },
+            )
+
+        async def callback(messages, _tools):
+            received.append(messages[1]["content"])
+            return AgentModelTurn(content="已收到反馈。")
+
+        driver = _driver(services, callback)
+        if review_pause:
+            services.sessions.set_session_status(
+                PROJECT_ID,
+                SESSION_ID,
+                review_pause,
+            )
+            await driver._reconcile_project(PROJECT_ID)
+            assert PROJECT_ID not in driver._active
+            assert (
+                received == []
+            ), "automatic reviews still wait for human decisions"
+        requests = []
+        for request_id, text in (
+            ("fix-room", "请修正茶社反向机位的窗户方向"),
+            ("fix-bottle", "还要让酒瓶与张东身份图保持一致"),
+        ):
+            admitted = services.sessions.admit_user_request(
+                PROJECT_ID,
+                SESSION_ID,
+                CONVERSATION_ID,
+                request_id=request_id,
+                client_message_id=request_id,
+                content_parts=[{"type": "text", "text": text}],
+                source=source,
+                channel=MessageChannel.AGENTDOCK,
+                classification=MessageClassification.REVIEW_REVISE,
+            )
+            assert admitted.review_boundary is not None
+            requests.append(admitted.message)
+            if request_id == "fix-room":
+                services.sessions.append_message(
+                    PROJECT_ID,
+                    SESSION_ID,
+                    CONVERSATION_ID,
+                    role="user",
+                    content_parts=[{"type": "text", "text": "旧分镜自动审阅结果"}],
+                    source="run_review_feedback",
+                    channel=MessageChannel.RUNTIME,
+                )
+
+        await driver.start()
+        try:
+            driver.notify(PROJECT_ID)
+            await _wait_consumed(services, requests[-1].message_seq)
+            await driver.wait_until_idle(PROJECT_ID)
+            if review_pause:
+                active = services.reviews.active(PROJECT_ID)
+                assert (
+                    active is not None and active.review_id == review.review_id
+                )
+                assert all(
+                    item.decision.value == "PENDING"
+                    for item in active.operations
+                )
+            return driver.runs.list(PROJECT_ID), requests
+        finally:
+            await driver.stop()
+
+    runs, requests = asyncio.run(scenario())
+    assert [run.caused_by_message_seq for run in runs] == [
+        requests[-1].message_seq,
+    ]
+    assert len(received) == 1
+    assert "还要让酒瓶与张东身份图" in received[0].split("CURRENT_USER_REQUEST=")[-1]
+    # Automated findings remain available as context, without an obsolete
+    # paid repair being dispatched ahead of either human request.
+    assert "run_review_feedback" in received[0]
+    assert "请修正茶社反向机位" in received[0]
 
 
 # -- asynchronous delegation ------------------------------------------------
@@ -3642,6 +3851,244 @@ def test_subagent_terminal_notification_is_never_batched(tmp_path) -> None:
     assert len(runs) == 2
 
 
+@pytest.mark.parametrize(
+    ("source", "notification_kind"),
+    [
+        (source, kind)
+        for source in (
+            "user",
+            "review_rejection_feedback",
+            "review_approval_resume",
+        )
+        for kind in (None, "node_succeeded", "subagent_terminal")
+    ]
+    + [
+        (source, kind)
+        for source in ("user", "review_rejection_feedback")
+        for kind in (
+            "foreign_subagent_terminal",
+            "run_review_feedback",
+            "render_review_feedback",
+        )
+    ],
+)
+def test_running_user_message_joins_current_run_once(
+    tmp_path,
+    notification_kind,
+    source,
+) -> None:
+    """Human input and undo-and-redo feedback reach the live run exactly once."""
+    from services.runtime_files.execution_models import (
+        SpecialistRole,
+        SpecialistRunRecord,
+        SpecialistRunStatus,
+    )
+
+    correction = "我不希望水豚噜噜头顶着橘子了，我希望他头顶一个西瓜"
+    notification = "【系统自动消息 · Runtime 通知】素材理解完成"
+    received = []
+    correction_seq = 0
+
+    async def scenario():
+        services, _ = _create_project(tmp_path, initial_goal="制作噜噜视频")
+
+        async def callback(messages, _tools):
+            nonlocal correction_seq
+            received.append([dict(item) for item in messages])
+            if len(received) == 1:
+                if notification_kind:
+                    metadata = {"notificationKind": notification_kind}
+                    if notification_kind in {
+                        "subagent_terminal",
+                        "foreign_subagent_terminal",
+                    }:
+                        head = services.sessions.list_messages(
+                            PROJECT_ID,
+                            SESSION_ID,
+                        )[0]
+                        record = SpecialistRunRecord(
+                            run_id="specialist-run-source-intelligence",
+                            project_id=PROJECT_ID,
+                            round_id="source-round",
+                            role=SpecialistRole.SOURCE_INTELLIGENCE,
+                            input_generation=1,
+                            input_etag="initial-etag",
+                            prompt_spec_id="source-intelligence-test",
+                            caused_by_message_id=head.message_id,
+                            caused_by_message_seq=head.message_seq,
+                            metadata={
+                                "originSource": head.source,
+                                "originMessageId": (
+                                    "older-review-message"
+                                    if notification_kind
+                                    == "foreign_subagent_terminal"
+                                    else head.message_id
+                                ),
+                            },
+                        )
+                        metadata["notificationKind"] = "subagent_terminal"
+                        driver.executions.create_specialist_run(record)
+                        for previous, status in (
+                            (
+                                SpecialistRunStatus.QUEUED,
+                                SpecialistRunStatus.RUNNING_MODEL,
+                            ),
+                            (
+                                SpecialistRunStatus.RUNNING_MODEL,
+                                SpecialistRunStatus.SUCCEEDED,
+                            ),
+                        ):
+                            driver.executions.transition_specialist_run(
+                                PROJECT_ID,
+                                record.run_id,
+                                expected_status=previous,
+                                status=status,
+                            )
+                        metadata["specialistRunId"] = record.run_id
+                    services.sessions.append_message(
+                        PROJECT_ID,
+                        SESSION_ID,
+                        CONVERSATION_ID,
+                        role="user",
+                        content_parts=[{"type": "text", "text": notification}],
+                        source=(
+                            notification_kind
+                            if notification_kind
+                            in {
+                                "run_review_feedback",
+                                "render_review_feedback",
+                            }
+                            else "runtime_notification"
+                        ),
+                        channel=MessageChannel.RUNTIME,
+                        metadata=metadata,
+                    )
+                appended = services.sessions.append_message(
+                    PROJECT_ID,
+                    SESSION_ID,
+                    CONVERSATION_ID,
+                    role="user",
+                    content_parts=[{"type": "text", "text": correction}],
+                    client_message_id="running-correction",
+                    source=source,
+                    channel=MessageChannel.AGENTDOCK,
+                    classification=(
+                        MessageClassification.REVIEW_REVISE
+                        if source != "user"
+                        else MessageClassification.MUTATION_INSTRUCTION
+                    ),
+                    metadata={
+                        "context": {
+                            "panel": "assets",
+                            "selected": {
+                                "ref": "visual-variant:char:lulu@variant:lulu-id",
+                            },
+                        },
+                    },
+                )
+                correction_seq = appended.message.message_seq
+                return _read_call("read-before-correction")
+            if len(received) == 2:
+                return _read_call("read-after-correction")
+            return AgentModelTurn(content="已收到，把橘子换成西瓜。")
+
+        driver = _driver(services, callback)
+        await driver.start()
+        try:
+            driver.notify(PROJECT_ID)
+            await _wait_for(lambda: correction_seq > 0)
+            await _wait_consumed(services, correction_seq)
+            await driver.wait_until_idle(PROJECT_ID)
+            return driver.runs.list(PROJECT_ID)
+        finally:
+            await driver.stop()
+
+    runs = asyncio.run(scenario())
+    assert len(received) == 3
+    assert len(runs) == 1
+    assert (
+        sum(
+            item["role"] == "user" and correction in str(item["content"])
+            for item in received[-1]
+        )
+        == 1
+    )
+    correction_message = next(
+        item["content"]
+        for item in received[1]
+        if item["role"] == "user" and correction in str(item["content"])
+    )
+    assert ("请先用简短的公开回复确认" in correction_message) == (
+        source != "review_approval_resume"
+    )
+    assert (
+        '"selected":{"ref":"visual-variant:char:lulu@variant:lulu-id"}'
+        in correction_message
+    )
+    assert runs[0].status is AgentRunStatus.SUCCEEDED
+    if notification_kind:
+        runtime_messages = [
+            item["content"]
+            for item in received[-1]
+            if item["role"] == "user" and notification in str(item["content"])
+        ]
+        assert runtime_messages == [notification]
+
+
+def test_feedback_queued_during_run_start_reaches_first_model_turn(tmp_path):
+    received = []
+    correction = "第八镜要改成两个人物的近景对话"
+
+    async def scenario():
+        services, _ = _create_project(tmp_path, initial_goal="六集短剧")
+
+        async def callback(messages, _tools):
+            received.append(messages)
+            return AgentModelTurn(content="已收到第八镜修改。")
+
+        driver = _driver(services, callback)
+
+        queued = False
+
+        async def starting(**_kwargs):
+            nonlocal queued
+            if queued:
+                return []
+            queued = True
+            message = services.sessions.append_message(
+                PROJECT_ID,
+                SESSION_ID,
+                CONVERSATION_ID,
+                role="user",
+                source="review_rejection_feedback",
+                channel=MessageChannel.AGENTDOCK,
+                content_parts=[{"type": "text", "text": correction}],
+            )
+            assert message.message.message_seq == 2
+            return []
+
+        driver._start_attached_source_understanding = starting
+        await driver.start()
+        try:
+            driver.notify(PROJECT_ID)
+            await _wait_consumed(services, 2)
+            await driver.wait_until_idle(PROJECT_ID)
+            return driver.runs.list(PROJECT_ID)
+        finally:
+            await driver.stop()
+
+    runs = asyncio.run(scenario())
+    assert len(runs) == len(received) == 1
+    assert (
+        sum(
+            correction in str(message["content"])
+            for message in received[0]
+            if message["role"] == "user"
+        )
+        == 1
+    )
+
+
 def test_turn_boundary_digest_injected_once_across_turns(tmp_path) -> None:
     """The same staged progress must not be re-appended on every model turn."""
 
@@ -3764,3 +4211,239 @@ def test_review_gate_read_failure_holds_queued_message(tmp_path) -> None:
     assert held == 0, "the queued message must stay unconsumed while unknown"
     assert turns_while_broken == 0, "no model turn may run while unknown"
     assert turns["count"] >= 1, "recovery must consume the message normally"
+
+
+def test_uploaded_image_understanding_starts_before_first_planning_turn(
+    tmp_path,
+    monkeypatch,
+):
+    async def scenario():
+        services, _ = _create_project(tmp_path, initial_goal=None)
+        ingested, _ = _ingest_many_sync(
+            services,
+            project_id=PROJECT_ID,
+            key="source-bootstrap-image",
+            inputs=[
+                _AssetInput(
+                    name="lulu.png",
+                    content=_png_bytes_for_grounding(),
+                    media_type="image/png",
+                ),
+            ],
+            attach_source=False,
+            scope="source-bootstrap-test",
+        )
+        version_id = ingested["items"][0]["assetVersionId"]
+        _append_initial_request(
+            services,
+            content_parts=[{"type": "text", "text": "按上传形象创作"}],
+            intent="制作",
+            metadata={"assetVersionRefs": [f"asset-version:{version_id}"]},
+        )
+        calls = []
+
+        async def delegate(**kwargs):
+            calls.append(kwargs["arguments"])
+            return {
+                "status": "ACCEPTED",
+                "targetRefs": kwargs["arguments"]["target_refs"],
+            }
+
+        async def model(messages, _tools):
+            assert len(calls) == 1
+            source = next(
+                iter(
+                    services.projects.read(
+                        PROJECT_ID,
+                    ).project.sources.sources.items.values(),
+                ),
+            )
+            assert source.selected_asset_version_id == version_id
+            assert "理解已启动" in str(messages)
+            return AgentModelTurn(content="先规划内容，等待素材理解结果。")
+
+        driver = _driver(services, model)
+        monkeypatch.setattr(driver, "_run_subagent", delegate)
+        await driver.start()
+        try:
+            driver.notify(PROJECT_ID)
+            await _wait_consumed(services, 1)
+            await driver.wait_until_idle(PROJECT_ID)
+            assert (
+                driver.runs.list(PROJECT_ID)[0].status
+                is AgentRunStatus.SUCCEEDED
+            )
+        finally:
+            await driver.stop()
+
+    asyncio.run(scenario())
+
+
+def test_batched_upload_refs_delegate_one_run_per_target(
+    tmp_path,
+    monkeypatch,
+):
+    """Refs across a batched run fan out into single-target delegations.
+
+    Chat uploads land as one runtime notification per request; consecutive
+    notifications batch into one run whose head is only the first message.
+    Every batched ref must still start understanding, and each target gets
+    its own specialist run so uploads are understood in parallel.
+    """
+
+    async def scenario():
+        services, _ = _create_project(tmp_path, initial_goal=None)
+        ingested, _ = _ingest_many_sync(
+            services,
+            project_id=PROJECT_ID,
+            key="source-batch-images",
+            inputs=[
+                _AssetInput(
+                    name=f"img-{index}.png",
+                    content=_png_bytes_for_grounding(),
+                    media_type="image/png",
+                )
+                for index in range(3)
+            ],
+            attach_source=False,
+            scope="source-batch-test",
+        )
+        refs = [
+            f"asset-version:{item['assetVersionId']}"
+            for item in ingested["items"]
+        ]
+        expected_targets = {
+            f"asset:{item['assetId']}" for item in ingested["items"]
+        }
+        _append_initial_request(
+            services,
+            content_parts=[{"type": "text", "text": "按上传素材创作"}],
+            intent="制作",
+            metadata={"assetVersionRefs": refs[:2]},
+        )
+        services.sessions.append_message(
+            PROJECT_ID,
+            SESSION_ID,
+            CONVERSATION_ID,
+            role="user",
+            content_parts=[{"type": "text", "text": "又补了一张图"}],
+            channel=MessageChannel.AGENTDOCK,
+            metadata={"assetVersionRefs": refs[2:]},
+        )
+        calls = []
+
+        async def delegate(**kwargs):
+            calls.append(kwargs["arguments"])
+            return {
+                "status": "ACCEPTED",
+                "targetRefs": kwargs["arguments"]["target_refs"],
+            }
+
+        async def model(_messages, _tools):
+            return AgentModelTurn(content="先规划内容，等待素材理解结果。")
+
+        driver = _driver(services, model)
+        monkeypatch.setattr(driver, "_run_subagent", delegate)
+        await driver.start()
+        try:
+            driver.notify(PROJECT_ID)
+            await _wait_consumed(services, 2)
+            await driver.wait_until_idle(PROJECT_ID)
+        finally:
+            await driver.stop()
+        return calls, expected_targets
+
+    calls, expected_targets = asyncio.run(scenario())
+
+    assert [len(call["target_refs"]) for call in calls] == [1, 1, 1]
+    assert {call["target_refs"][0] for call in calls} == expected_targets
+
+
+@pytest.mark.parametrize("upload_count", [1, 2])
+def test_upload_joining_a_live_run_starts_understanding(
+    tmp_path,
+    monkeypatch,
+    upload_count,
+):
+    """Refs on a message that joins a running turn loop must still fan out.
+
+    Field run 2026-09-11 (project-3c08b43d): a video uploaded from the
+    composer while the agent was planning joined the live run, yet no
+    source_intelligence run was ever created and the started-notice lied.
+    """
+
+    calls = []
+    received = []
+
+    async def scenario():
+        services, _ = _create_project(tmp_path, initial_goal="制作噜噜视频")
+        ingested, _ = _ingest_many_sync(
+            services,
+            project_id=PROJECT_ID,
+            key="mid-run-upload",
+            inputs=[
+                _AssetInput(
+                    name=f"voice-ref-{index}.png",
+                    content=_png_bytes_for_grounding(),
+                    media_type="image/png",
+                )
+                for index in range(upload_count)
+            ],
+            attach_source=False,
+            scope="mid-run-upload-test",
+        )
+        items = ingested["items"]
+
+        async def delegate(**kwargs):
+            calls.append(kwargs["arguments"])
+            return {
+                "status": "ACCEPTED",
+                "targetRefs": kwargs["arguments"]["target_refs"],
+            }
+
+        async def model(messages, _tools):
+            received.append([dict(entry) for entry in messages])
+            if len(received) == 1:
+                for item in items:
+                    services.sessions.append_message(
+                        PROJECT_ID,
+                        SESSION_ID,
+                        CONVERSATION_ID,
+                        role="user",
+                        content_parts=[
+                            {"type": "text", "text": "我刚上传了噜噜的参考素材"},
+                        ],
+                        source="user",
+                        channel=MessageChannel.AGENTDOCK,
+                        metadata={
+                            "assetVersionRefs": [
+                                f"asset-version:{item['assetVersionId']}",
+                            ],
+                        },
+                    )
+                return _read_call("read-before-upload")
+            return AgentModelTurn(content="收到素材，理解进行中。")
+
+        driver = _driver(services, model)
+        monkeypatch.setattr(driver, "_run_subagent", delegate)
+        await driver.start()
+        try:
+            driver.notify(PROJECT_ID)
+            await _wait_consumed(services, 1 + upload_count)
+            await driver.wait_until_idle(PROJECT_ID)
+        finally:
+            await driver.stop()
+        return items
+
+    items = asyncio.run(scenario())
+
+    assert [call["target_refs"] for call in calls] == [
+        [f"asset:{item['assetId']}"] for item in items
+    ]
+    # The joined turn must carry the started-notice so the agent neither
+    # re-delegates nor believes understanding is running when it is not.
+    joined_turn = received[-1]
+    assert any(
+        "本轮上传素材的理解已启动" in str(entry.get("content") or "")
+        for entry in joined_turn
+    )

@@ -504,7 +504,7 @@ async def _probe_multimodal_if_needed(
         from ...providers.provider_manager import ProviderManager
         from ...services.model_selection import get_current_model_info
 
-        model_info, active = get_current_model_info()
+        model_info, active = await run_sync_io(get_current_model_info)
         if (
             model_info is None
             or active is None
@@ -682,10 +682,14 @@ async def view_image(image_path: str) -> ToolChunk:
     """
     # Determine whether we need a fallback hint
     fallback_hint: str | None = None
-    if not _check_multimodal_support("image"):
+    if not await run_sync_io(_check_multimodal_support, "image"):
         probe_result = await _probe_multimodal_if_needed("image")
         if probe_result is not True:
-            fallback_hint = _get_multimodal_fallback_hint("image", image_path)
+            fallback_hint = await run_sync_io(
+                _get_multimodal_fallback_hint,
+                "image",
+                image_path,
+            )
 
     if _is_url(image_path):
         err = _validate_url_extension(
@@ -812,10 +816,14 @@ async def view_video(video_path: str) -> ToolChunk:
             A VideoBlock the model can inspect, or an error message.
     """
     fallback_hint: str | None = None
-    if not _check_multimodal_support("video"):
+    if not await run_sync_io(_check_multimodal_support, "video"):
         probe_result = await _probe_multimodal_if_needed("video")
         if probe_result is not True:
-            fallback_hint = _get_multimodal_fallback_hint("video", video_path)
+            fallback_hint = await run_sync_io(
+                _get_multimodal_fallback_hint,
+                "video",
+                video_path,
+            )
 
     if _is_url(video_path):
         err = _validate_url_extension(

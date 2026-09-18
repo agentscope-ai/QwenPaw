@@ -20,7 +20,7 @@ provider task id is never submitted again after its safety lease expires.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 import hashlib
@@ -52,9 +52,13 @@ from domain.errors import (
     StorageIntegrityError,
     ValidationError,
 )
+from models.config import is_media_review_enabled
 from models.reference_markers import canonical_marker_indices
 from schemas.common import StrictModel
-from services.prompt_text import missing_narrative_dialogue
+from services.prompt_text import (
+    missing_narrative_dialogue,
+    video_prompt_time_error,
+)
 from services.project_files.assets import (
     AssetAlreadyExists,
     AssetFileStore,
@@ -72,7 +76,10 @@ from services.project_files.models import (
     T2VCreation,
 )
 from services.media_files.call_budget import ensure_media_call_budget
-from services.media_files.publication_retry import commit_with_lock_retry
+from services.media_files.publication_retry import (
+    commit_with_lock_retry,
+    record_materialized_result,
+)
 from services.media_files.element_adapter import (
     bind_candidate_output,
     find_timeline_element,
@@ -108,7 +115,7 @@ from services.runtime_files.atomic_store import (
     AtomicJsonRecordStore,
     canonical_json_bytes,
 )
-from services.runtime_files.errors import RecordNotFoundError
+from services.runtime_files.errors import LockTimeoutError, RecordNotFoundError
 from services.runtime_files.execution_models import (
     SpecialistRunRecord,
     TaskAttemptStatus,
@@ -217,9 +224,11 @@ def _provider_download_headers(result: Mapping[str, Any]) -> dict[str, str]:
     api_key = model_config.get_video_api_key()
     if not api_key:
         raise ValidationError(
-            "Veo 视频下载需要当前模型配置中的 API Key"
-            if auth == _GOOGLE_API_KEY_AUTH
-            else "受保护的自部署视频下载需要当前模型配置中的 API Key",
+            (
+                "Veo 视频下载需要当前模型配置中的 API Key"
+                if auth == _GOOGLE_API_KEY_AUTH
+                else "受保护的自部署视频下载需要当前模型配置中的 API Key"
+            ),
         )
     if auth == _BEARER_VIDEO_API_KEY_AUTH:
         return {"Authorization": f"Bearer {api_key}"}
@@ -1250,7 +1259,12 @@ def _resolve_request(
     timeline, element = find_timeline_element(project, element_id)
     creation = element.creation
     if isinstance(creation, R2VCreation):
-        assert_r2v_prompt_sync(project, timeline.timeline_id, element_id)
+        assert_r2v_prompt_sync(
+            project,
+            timeline.timeline_id,
+            element_id,
+            stage="video",
+        )
     mode = _validated_request_mode(arguments)
     # Each creation type declares exactly one generation mode; the request
     # mode must match it so a t2v element can never be submitted as r2v.
@@ -1328,6 +1342,9 @@ def _resolve_request(
     duration_seconds = _duration(
         element.span.duration_tick / timeline.ticks_per_second,
     )
+    time_error = video_prompt_time_error(prompt, duration_seconds)
+    if time_error:
+        raise ValidationError(time_error)
     ratio = str(
         arguments.get("ratio") or project.settings.aspect_ratio,
     ).strip()
@@ -2017,6 +2034,8 @@ class FileR2VExecutionService:
                 existing = None
                 idempotency_key = slot_key
                 break
+            if existing.status is TaskStatus.QUARANTINED:
+                continue
             self._assert_replay(existing, target_ref, command_hash)
             if existing.status is TaskStatus.FAILED:
                 if is_transient_task_error(existing.error):
@@ -2389,12 +2408,8 @@ class FileR2VExecutionService:
         current = self._jobs.get(task_id)
         if current is not None and not current.done():
             return current
-        try:
-            task = self.executions.get_task(project_id, task_id)
-        except RecordNotFoundError:
-            return None
-        if task.status in _TERMINAL_TASKS:
-            return None
+        # Read durable state inside the supervisor, off the event loop. A
+        # concurrent Project commit must not strand an admitted Task here.
         worker = asyncio.create_task(
             self._drive(project_id, task_id),
             name=f"file-r2v:{task_id}",
@@ -2921,13 +2936,34 @@ class FileR2VExecutionService:
             )
 
     async def _drive(self, project_id: str, task_id: str) -> None:
+        while True:
+            try:
+                await self._drive_until_idle(project_id, task_id)
+                return
+            except LockTimeoutError:
+                # Re-enter from durable state, retaining the provider ID and
+                # claims. Local contention is not a failed generation and
+                # must never open a newly billed retry slot. Shutdown can
+                # still cancel the backoff and leave recovery to startup.
+                logger.warning(
+                    "r2v local state busy; resuming same task: "
+                    "project=%s task=%s",
+                    _log_safe(project_id),
+                    _log_safe(task_id),
+                )
+                await asyncio.sleep(max(0.25, self.poll_interval_seconds))
+
+    async def _drive_until_idle(self, project_id: str, task_id: str) -> None:
         try:
             while True:
-                task = await asyncio.to_thread(
-                    self.executions.get_task,
-                    project_id,
-                    task_id,
-                )
+                try:
+                    task = await asyncio.to_thread(
+                        self.executions.get_task,
+                        project_id,
+                        task_id,
+                    )
+                except RecordNotFoundError:
+                    return
                 if task.status in _TERMINAL_TASKS:
                     aligned = await self._align_state_to_terminal_task(task)
                     if not aligned:
@@ -3015,6 +3051,8 @@ class FileR2VExecutionService:
                 elif state.phase not in _ACTIVE_PHASES:
                     return
                 await asyncio.sleep(self.poll_interval_seconds)
+        except LockTimeoutError:
+            raise
         except _R2VClaimLost:
             # Another live supervisor owns the durable claim.  A stale worker
             # must exit without changing Task, Run, state, or published files.
@@ -3100,13 +3138,20 @@ class FileR2VExecutionService:
         )
         request = claimed.request
         try:
-            task = await self._prepare_submit_claim(task, request)
+            task = await self._retry_submit_local_io(
+                task,
+                self._prepare_submit_claim,
+                task,
+                request,
+            )
         except BaseException:
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
             raise
         try:
-            await self._require_live_submit_claim(
+            await self._retry_submit_local_io(
+                task,
+                self._require_live_submit_claim,
                 task,
                 claimed,
                 require_active_task=True,
@@ -3186,7 +3231,9 @@ class FileR2VExecutionService:
             # critical section.  Keep the durable owner heartbeat alive until
             # this CAS has completed so another supervisor cannot observe an
             # expired claim between provider acceptance and id persistence.
-            await asyncio.to_thread(
+            await self._retry_submit_local_io(
+                task,
+                asyncio.to_thread,
                 self._update_state_sync,
                 task.project_id,
                 task.task_id,
@@ -3197,11 +3244,18 @@ class FileR2VExecutionService:
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            await self._mark_submit_failed_if_owned(task, claimed, str(error))
+            detail = str(error) or (
+                f"R2V reference preparation or provider submission exceeded "
+                f"{self.submit_timeout_seconds:g} seconds"
+                if isinstance(error, TimeoutError)
+                else type(error).__name__
+            )
+            await self._mark_submit_failed_if_owned(task, claimed, detail)
             await self._fail(
                 task,
                 code="R2V_PROVIDER_SUBMISSION_FAILED",
-                message=str(error),
+                message=detail,
+                error=error,
             )
             return True
         finally:
@@ -3241,6 +3295,34 @@ class FileR2VExecutionService:
                 status=SpecialistRunStatus.WAITING_RUNTIME,
             )
         return True
+
+    async def _retry_submit_local_io(
+        self,
+        task: TaskRecord,
+        operation: Callable[..., Awaitable[Any]],
+        *args: Any,
+        **kwargs: Any,
+    ) -> Any:
+        """Retain the live claim and provider receipt through local contention.
+
+        Only local, replayable operations belong here. Re-entering `_submit`
+        would discard an accepted provider ID or strand a pre-submit claim;
+        retrying the provider itself could bill the same generation twice.
+        Cancellation and non-lock failures retain their existing semantics.
+        """
+        while True:
+            try:
+                return await operation(*args, **kwargs)
+            except LockTimeoutError:
+                logger.warning(
+                    "r2v submit state busy; retrying local write: "
+                    "project=%s task=%s",
+                    _log_safe(task.project_id),
+                    _log_safe(task.task_id),
+                )
+                await asyncio.sleep(
+                    min(1.0, max(0.25, self.poll_interval_seconds)),
+                )
 
     async def _prepare_submit_claim(
         self,
@@ -3329,7 +3411,6 @@ class FileR2VExecutionService:
         interval = min(30.0, max(0.01, self.submit_claim_seconds / 4.0))
         while True:
             await asyncio.sleep(interval)
-            now = float(self.clock())
             owned = False
 
             def heartbeat(current: R2VTaskState) -> Mapping[str, Any]:
@@ -3337,6 +3418,7 @@ class FileR2VExecutionService:
                 if not self._owns_live_submit_claim(current, claim):
                     return current.model_dump(mode="python")
                 owned = True
+                now = float(self.clock())
                 dumped = current.model_dump(mode="python")
                 dumped.update(
                     {
@@ -3348,7 +3430,9 @@ class FileR2VExecutionService:
                 )
                 return dumped
 
-            await asyncio.to_thread(
+            await self._retry_submit_local_io(
+                task,
+                asyncio.to_thread,
                 self._update_state_sync,
                 task.project_id,
                 task.task_id,
@@ -3971,6 +4055,7 @@ class FileR2VExecutionService:
             "runId": task.run_id,
             "transactionId": stable["transaction_id"],
             "commandType": CreatorCommandType.GENERATE_R2V_VIDEO.value,
+            "selfReviewEnabled": is_media_review_enabled(),
             "targetRef": request["targetRef"],
             "providerTaskId": state.provider_task_id,
             "indexedFile": indexed.model_dump(mode="json"),
@@ -4457,10 +4542,12 @@ class FileR2VExecutionService:
                 claimed,
                 stable=stable,
             )
-        latest = await asyncio.to_thread(
-            self.executions.get_task,
-            task.project_id,
-            task.task_id,
+        latest = await record_materialized_result(
+            self.executions,
+            project_id=task.project_id,
+            task_id=task.task_id,
+            result=published,
+            progress=0.95,
         )
         if latest.status is TaskStatus.CANCELLED:
             await self._quarantine(
@@ -4471,26 +4558,6 @@ class FileR2VExecutionService:
                 run_status=SpecialistRunStatus.CANCELLED,
             )
             return
-        if latest.status is TaskStatus.RUNNING and latest.result is None:
-            try:
-                latest = await asyncio.to_thread(
-                    self.executions.transition_task,
-                    task.project_id,
-                    task.task_id,
-                    expected_status=TaskStatus.RUNNING,
-                    status=TaskStatus.RUNNING,
-                    updates={
-                        "progress": 0.95,
-                        "result": published,
-                        "output_refs": [str(published["outputRef"])],
-                    },
-                )
-            except ExecutionStateConflict:
-                latest = await asyncio.to_thread(
-                    self.executions.get_task,
-                    task.project_id,
-                    task.task_id,
-                )
         await self._converge(latest, stable, published)
 
     @staticmethod

@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Unified QwenPaw-Data configuration.
+"""PawApp-managed DataBridge configuration.
 
-The plugin stores all user-editable configuration in ``config.json`` and
-translates it into the runtime files the managed context service expects:
+The plugin stores DataBridge model/Neo4j settings and the selected datasource
+ID in ``config.json``. It translates model and Neo4j settings into the runtime
+files the managed context service expects:
 
 * ``.env`` for Neo4j and model environment variables (SQL datasource
   credentials are registered through the context service's datasource
   API instead).
 * ``models.json`` for LLM and embedding model settings.
 
+Analysis-agent model preferences are managed separately by the engine API.
 These files live in the app working directory so the context service can
 pick them up via ``QWENPAW_DATA_ENV_FILE`` and ``MODEL_CONFIG_PATH``.
 """
@@ -157,7 +159,7 @@ class DatasourcesConfig:
 
 @dataclass
 class DataAppConfig:
-    """Single source of truth for the qwenpaw-data plugin."""
+    """DataBridge settings and datasource selection persisted by the PawApp."""
 
     llm: LLMConfig = field(default_factory=LLMConfig)
     embedding: EmbeddingConfig = field(default_factory=EmbeddingConfig)
@@ -222,7 +224,7 @@ def seed_from_env(config: DataAppConfig) -> DataAppConfig:
 
     Applied on first run so config.json reflects the values the context
     service would otherwise read from the environment, keeping the
-    Configure page and its connection tests truthful from the start.
+    DataBridge Configuration page and its connection tests truthful.
     """
     if not config.llm.base_url:
         config.llm.base_url = _env_default(
@@ -381,7 +383,7 @@ def prepare_runtime_files(config: DataAppConfig) -> None:
     models_tmp.replace(MODELS_JSON_PATH)
 
 
-# Keys the Configure page owns. The generated .env is the authority for
+# Keys DataBridge Configuration owns. The generated .env is the authority for
 # them: values from ~/.qwenpaw/.env or the shell must never survive
 # underneath, while unrelated keys (e.g. NEO4J_DATABASE_DEMO/MCP used by
 # dataset pipelines) stay untouched.
@@ -405,13 +407,14 @@ _APP_MANAGED_ENV_KEYS = frozenset(
 def set_context_env_vars() -> None:
     """Point the managed context service at the generated runtime files.
 
-    The context service reads Neo4j/SQL settings straight from process env
-    vars (its frozen Config has no file or API channel for them, unlike
+    The context service reads Neo4j settings straight from process env
+    vars (its frozen Config has no API channel for them, unlike
     LLM/embedding which also get models.json plus the model-config API), so
     the generated .env must be loaded into *this* process as well: managed
     children inherit os.environ, and without this step a user-level
     ~/.qwenpaw/.env or a shell export would silently win over values saved
-    from the Configure page.
+    from DataBridge Configuration. SQL credentials use the datasource API
+    and registry, not these environment variables.
     """
     os.environ["QWENPAW_DATA_ENV_FILE"] = str(ENV_FILE_PATH)
     os.environ["MODEL_CONFIG_PATH"] = str(MODELS_JSON_PATH)
@@ -422,7 +425,7 @@ def load_app_env() -> None:
     """Load the app-scoped .env into this process with app authority.
 
     Managed keys are cleared before loading so values inherited from
-    ~/.qwenpaw/.env or the shell cannot outlive a Configure-page save;
+    ~/.qwenpaw/.env or the shell cannot outlive a DataBridge settings save;
     keys the app leaves empty (and therefore omits from the .env) are
     cleared too, which makes emptying a field in the UI stick.
     """

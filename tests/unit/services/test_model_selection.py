@@ -59,10 +59,18 @@ def test_explicit_absent_agent_model_does_not_reload_config(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_unknown_channel_does_not_register_console_chat(monkeypatch):
+    import threading
+
+    request_thread = threading.get_ident()
+
+    def global_model():
+        assert threading.get_ident() != request_thread
+        return _slot("global")
+
     manager = SimpleNamespace(find_chat=AsyncMock())
     monkeypatch.setattr(
         "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-        lambda: SimpleNamespace(get_active_model=lambda: _slot("global")),
+        lambda: SimpleNamespace(get_active_model=global_model),
     )
     context = await prepare_model_context(
         workspace=SimpleNamespace(

@@ -116,7 +116,9 @@ describe("ModelConfigEditor output limits", () => {
       }),
     );
 
-    await user.click(screen.getByRole("button", { name: /Reset to auto/i }));
+    await user.click(
+      screen.getByRole("button", { name: "models.resetMaxTokens" }),
+    );
     await user.click(screen.getByRole("button", { name: /Save/i }));
 
     await waitFor(() => expect(api.configureModel).toHaveBeenCalledOnce());

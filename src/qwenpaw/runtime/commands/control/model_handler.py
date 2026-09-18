@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 
+from ....utils.io_utils import run_sync_io
 from ....utils.logging import sanitize_log_value
 from .base import BaseControlCommandHandler, ControlContext
 
@@ -397,7 +398,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         from ....providers.provider_manager import ProviderManager
 
         manager = ProviderManager.get_instance()
-        provider = manager.get_provider(provider_id)
+        provider = await run_sync_io(manager.get_provider, provider_id)
 
         if not provider:
             return (
@@ -481,7 +482,7 @@ class ModelCommandHandler(BaseControlCommandHandler):
         manager = ProviderManager.get_instance()
 
         # Validate provider
-        provider = manager.get_provider(provider_id)
+        provider = await run_sync_io(manager.get_provider, provider_id)
         if not provider:
             return False, f"Provider `{provider_id}` not found."
 

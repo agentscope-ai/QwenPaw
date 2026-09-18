@@ -8,6 +8,7 @@ import re
 import uuid
 from typing import Any, Dict
 
+from ...utils.io_utils import run_sync_io
 from ..inbox_trace_store import (
     append_trace_from_session_delta,
     create_trace,
@@ -278,7 +279,7 @@ class CronExecutor:
                             delivery_error,
                         )
 
-            _validate_execution_model(req)
+            (await run_sync_io(_validate_execution_model, req))
             if req.get("model_slot_override") is not None:
                 backend = getattr(
                     getattr(self._workspace, "config", None),

@@ -4,6 +4,40 @@
 from __future__ import annotations
 
 import re
+import unicodedata
+
+_TIME_VALUE = r"(?:\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?|\d+(?:\.\d+)?)"
+_TIME_RANGE = re.compile(
+    rf"(?<![\d.:])({_TIME_VALUE})\s*(s|sec(?:onds?)?|秒)?\s*"
+    rf"[-–—~～至到]\s*({_TIME_VALUE})\s*(s|sec(?:onds?)?|秒)?(?![\d.:])",
+    re.IGNORECASE,
+)
+
+
+def video_prompt_time_error(
+    prompt: str,
+    duration_seconds: float,
+) -> str | None:
+    """Validate explicit action time ranges; never rewrite free-form intent."""
+
+    def seconds(value: str) -> float:
+        total = 0.0
+        for part in value.split(":"):
+            total = total * 60 + float(part)
+        return total
+
+    for match in _TIME_RANGE.finditer(unicodedata.normalize("NFKC", prompt)):
+        start, start_unit, end, end_unit = match.groups()
+        # Bare numeric ranges can describe panel counts, FPS, or dimensions.
+        if not (start_unit or end_unit or (":" in start and ":" in end)):
+            continue
+        if not 0 <= seconds(start) < seconds(end) <= duration_seconds + 0.05:
+            return (
+                f"动作时间段 {match.group(0).strip()} 超出当前生成单元或顺序有误。"
+                f"请使用从 0 秒到 {duration_seconds:g} 秒的局部时间，"
+                "全片时间仅用于时间线位置。"
+            )
+    return None
 
 
 # Authors and models mix punctuation widths freely in Chinese prompts

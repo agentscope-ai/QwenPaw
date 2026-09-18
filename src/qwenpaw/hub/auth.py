@@ -102,11 +102,13 @@ class HubAuthService:
     def status(self) -> dict[str, object]:
         """Return public bootstrap and registration state."""
         has_users = self.user_count() > 0
+        mode = self.registration_mode()
         return {
             "enabled": True,
             "has_users": has_users,
             "bootstrap_required": not has_users,
-            "registration_enabled": self.registration_enabled(),
+            "registration_enabled": mode != "closed",
+            "registration_mode": mode,
             "mode": "hub",
         }
 
@@ -124,6 +126,16 @@ class HubAuthService:
             ).fetchone()
         return row is not None
 
+    def registration_mode(
+        self,
+        connection: sqlite3.Connection | None = None,
+    ) -> str:
+        """Return the single authoritative self-registration policy."""
+        if connection is not None:
+            return self._registration_mode(connection)
+        with self._connect() as current:
+            return self._registration_mode(current)
+
     def registration_enabled(self) -> bool:
         with self._connect() as connection:
             return self._registration_enabled(connection)
@@ -134,7 +146,7 @@ class HubAuthService:
             has_users = self._user_count(connection) > 0
             if has_users and not self._registration_enabled(connection):
                 raise PermissionError("Registration is disabled.")
-        prepared = self._prepare_user(username, password)
+        prepared = self.prepare_user(username, password)
         with self._registration_lock:
             try:
                 with self._connect() as connection:
@@ -160,7 +172,7 @@ class HubAuthService:
 
     def initialize_admin(self, username: str, password: str) -> HubUser:
         """Create the first administrator from a trusted local command."""
-        prepared = self._prepare_user(username, password)
+        prepared = self.prepare_user(username, password)
         with self._registration_lock:
             try:
                 with self._connect() as connection:
@@ -199,7 +211,7 @@ class HubAuthService:
         role: str = "user",
     ) -> HubUser:
         """Create an account with a stable ID and PBKDF2 password hash."""
-        prepared = self._prepare_user(username, password)
+        prepared = self.prepare_user(username, password)
         if role not in {"admin", "user"}:
             raise ValueError(f"Invalid role: {role}")
         try:
@@ -210,7 +222,15 @@ class HubAuthService:
                 f"Username already exists: {prepared.username}",
             ) from exc
 
-    def _prepare_user(self, username: str, password: str) -> _PreparedUser:
+    def insert_user(
+        self,
+        connection: sqlite3.Connection,
+        prepared: _PreparedUser,
+    ) -> str:
+        """Insert a prepared ordinary member in the caller's transaction."""
+        return self._insert_user(connection, prepared, "user").user_id
+
+    def prepare_user(self, username: str, password: str) -> _PreparedUser:
         """Validate and hash credentials before a database write lock."""
         normalized_username = username.strip()
         self._validate_credentials(normalized_username, password)
@@ -278,11 +298,15 @@ class HubAuthService:
 
     @staticmethod
     def _registration_enabled(connection: sqlite3.Connection) -> bool:
+        return HubAuthService._registration_mode(connection) == "open"
+
+    @staticmethod
+    def _registration_mode(connection: sqlite3.Connection) -> str:
         row = connection.execute(
             "SELECT value_json FROM hub_settings WHERE key = ?",
-            ("registration_enabled",),
+            ("registration_mode",),
         ).fetchone()
-        return row is not None and bool(json.loads(str(row["value_json"])))
+        return json.loads(row["value_json"]) if row else "closed"
 
     @staticmethod
     def _raise_database_busy(exc: sqlite3.OperationalError) -> NoReturn:

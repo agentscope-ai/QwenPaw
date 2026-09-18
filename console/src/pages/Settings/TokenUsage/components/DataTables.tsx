@@ -1,3 +1,5 @@
+import type { TableProps } from "antd";
+import type { ReactNode } from "react";
 import { Card, Table } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import { formatCompact } from "../../../../utils/formatNumber";
@@ -117,66 +119,57 @@ export function DataTables({
   return (
     <>
       {byModelData.length > 0 && (
-        <Card
-          className={`${styles.tableCard} mobile-scroll-x`}
+        <UsageTable
           title={t("tokenUsage.byModel")}
-        >
-          <Table
-            columns={[
-              {
-                title: t("tokenUsage.model"),
-                dataIndex: "model",
-                key: "model",
-              },
-              ...tokenStatColumns<ByModelData>(tokenTitles),
-            ]}
-            dataSource={byModelData}
-            pagination={{ pageSize: 10 }}
-            size="small"
-            scroll={{ x: "max-content" }}
-          />
-        </Card>
+          rows={byModelData}
+          columns={[
+            { title: t("tokenUsage.model"), dataIndex: "model", key: "model" },
+            ...tokenStatColumns<ByModelData>(tokenTitles),
+          ]}
+        />
       )}
-
       {byDateData.length > 0 && (
-        <Card
-          className={`${styles.tableCard} mobile-scroll-x`}
+        <UsageTable
           title={t("tokenUsage.byDate")}
-        >
-          <Table
-            columns={[
-              { title: t("tokenUsage.date"), dataIndex: "date", key: "date" },
-              ...tokenStatColumns<ByDateData>(tokenTitles),
-            ]}
-            dataSource={byDateData}
-            pagination={{ pageSize: 10 }}
-            size="small"
-            scroll={{ x: "max-content" }}
-          />
-        </Card>
+          rows={byDateData}
+          columns={[
+            { title: t("tokenUsage.date"), dataIndex: "date", key: "date" },
+            ...tokenStatColumns<ByDateData>(tokenTitles),
+          ]}
+        />
       )}
-
       {byAgentData.length > 0 && (
-        <Card
-          className={`${styles.tableCard} mobile-scroll-x`}
+        <UsageTable
           title={t("tokenUsage.byAgent")}
-        >
-          <Table
-            columns={[
-              {
-                title: t("tokenUsage.agent"),
-                dataIndex: "agent",
-                key: "agent",
-              },
-              ...tokenStatColumns<ByAgentData>(tokenTitles),
-            ]}
-            dataSource={byAgentData}
-            pagination={{ pageSize: 10 }}
-            size="small"
-            scroll={{ x: "max-content" }}
-          />
-        </Card>
+          rows={byAgentData}
+          columns={[
+            { title: t("tokenUsage.agent"), dataIndex: "agent", key: "agent" },
+            ...tokenStatColumns<ByAgentData>(tokenTitles),
+          ]}
+        />
       )}
     </>
+  );
+}
+
+export function UsageTable<T extends { key: string }>({
+  title,
+  rows,
+  columns,
+}: {
+  title: ReactNode;
+  rows: T[];
+  columns: TableProps<T>["columns"];
+}) {
+  return (
+    <Card className={`${styles.tableCard} mobile-scroll-x`} title={title}>
+      <Table
+        columns={columns}
+        dataSource={rows}
+        pagination={{ pageSize: 10 }}
+        size="small"
+        scroll={{ x: "max-content" }}
+      />
+    </Card>
   );
 }

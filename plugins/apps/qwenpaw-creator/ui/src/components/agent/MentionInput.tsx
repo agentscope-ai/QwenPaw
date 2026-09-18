@@ -16,6 +16,10 @@ export interface MentionRef {
   thumbnailUrl?: string;
 }
 
+export type MentionInputDraft = Array<
+  string | { mention: MentionRef } | { selection: SelectionAttachment }
+>;
+
 export interface MentionInputHandle {
   getContent: () => {
     text: string;
@@ -28,6 +32,8 @@ export interface MentionInputHandle {
   clearMentions: () => void;
   focus: () => void;
   setText: (text: string) => void;
+  getDraft: () => MentionInputDraft;
+  setDraft: (draft: MentionInputDraft) => void;
 }
 
 interface MentionInputProps {
@@ -118,41 +124,49 @@ function serialize(root: HTMLElement) {
   let text = "";
   const refs: MentionRef[] = [];
   const selections: SelectionAttachment[] = [];
+  const draft: MentionInputDraft = [];
+  const appendText = (value: string) => {
+    text += value;
+    draft.push(value);
+  };
   const walk = (node: Node) => {
     node.childNodes.forEach((child) => {
       if (child.nodeType === Node.TEXT_NODE) {
-        text += child.textContent ?? "";
+        appendText(child.textContent ?? "");
         return;
       }
       if (child.nodeType !== Node.ELEMENT_NODE) return;
       const element = child as HTMLElement;
       if (element.dataset.ref) {
         text += `@${element.dataset.name ?? ""}`;
-        refs.push({
+        const mention = {
           ref: element.dataset.ref,
           name: element.dataset.name ?? "",
           type: element.dataset.type || undefined,
           thumbnailUrl: element.dataset.thumb || undefined,
-        });
+        };
+        refs.push(mention);
+        draft.push({ mention });
         return;
       }
       if (element.dataset.sel) {
         const selection = selectionFromElement(element);
         text += `「${i18n.t("agent.refText")}${selection.label}」`;
         selections.push(selection);
+        draft.push({ selection });
         return;
       }
       if (element.tagName === "BR") {
-        text += "\n";
+        appendText("\n");
         return;
       }
       const block = element.tagName === "DIV" || element.tagName === "P";
-      if (block && text && !text.endsWith("\n")) text += "\n";
+      if (block && text && !text.endsWith("\n")) appendText("\n");
       walk(element);
     });
   };
   walk(root);
-  return { text: text.replace(/\u00a0/g, " "), refs, selections };
+  return { text: text.replace(/\u00a0/g, " "), refs, selections, draft };
 }
 
 const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
@@ -386,10 +400,35 @@ const MentionInput = forwardRef<MentionInputHandle, MentionInputProps>(
     };
 
     useImperativeHandle(ref, () => ({
-      getContent: () =>
-        editorRef.current
+      getContent: () => {
+        const content = editorRef.current
           ? serialize(editorRef.current)
-          : { text: "", refs: [], selections: [] },
+          : { text: "", refs: [], selections: [] };
+        return {
+          text: content.text,
+          refs: content.refs,
+          selections: content.selections,
+        };
+      },
+      getDraft: () =>
+        editorRef.current ? serialize(editorRef.current).draft : [],
+      setDraft: (draft) => {
+        if (!editorRef.current) return;
+        editorRef.current.replaceChildren();
+        savedRange.current = null;
+        const fragment = document.createDocumentFragment();
+        for (const part of draft) {
+          fragment.append(
+            typeof part === "string"
+              ? document.createTextNode(part)
+              : "mention" in part
+              ? createMentionPill(part.mention)
+              : createSelectionPill(part.selection),
+          );
+        }
+        insertFragmentAtCaret(fragment);
+        refresh();
+      },
       insertMention: (obj) => {
         const editor = editorRef.current;
         if (!editor) return;

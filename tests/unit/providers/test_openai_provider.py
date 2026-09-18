@@ -422,19 +422,19 @@ async def test_check_gpt5_model_uses_max_completion_tokens(
 
 
 def test_token_limit_kwargs_handles_reasoning_model_ids() -> None:
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/gpt-5-mini",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "o3",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/o4-mini",
         200,
     ) == {"max_completion_tokens": 200}
-    assert openai_provider_module._token_limit_kwargs(
+    assert openai_provider_module.token_limit_kwargs(
         "openai/gpt-4o-mini",
         200,
     ) == {"max_tokens": 200}

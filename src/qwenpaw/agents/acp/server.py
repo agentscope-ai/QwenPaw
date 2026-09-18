@@ -1529,7 +1529,7 @@ class QwenPawACPAgent(Agent):
         manager = ProviderManager.get_instance()
 
         if provider_id:
-            provider = manager.get_provider(provider_id)
+            provider = await run_sync_io(manager.get_provider, provider_id)
             if not provider:
                 raise ValueError(
                     f"Provider {provider_id!r} not found",

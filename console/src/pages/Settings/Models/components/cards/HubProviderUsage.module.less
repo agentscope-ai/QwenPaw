@@ -1,0 +1,36 @@
+.usage {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+}
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.amount {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  strong {
+    color: var(--app-text);
+    font-size: 22px;
+    font-weight: 600;
+  }
+  span {
+    font-size: 12px;
+  }
+}
+.warning {
+  color: var(--app-error-text);
+  font-size: 11px;
+}

@@ -14,6 +14,7 @@ from ..constant import LOG_LEVEL_ENV
 from ..utils.http import is_loopback_host, probe_host_for_bind_host
 from ..utils.logging import SuppressPathAccessLogFilter, setup_logger
 from ..utils.platform import warn_unelevated_sandbox
+from .windows_shutdown import install_shutdown_handlers
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +157,7 @@ def app_cmd(
         reload=reload,
     )
     _warn_if_auth_off_non_loopback_bind(host, port)
+    install_shutdown_handlers()
 
     uvicorn.run(
         "qwenpaw.app._app:app",

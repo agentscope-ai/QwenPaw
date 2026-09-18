@@ -91,7 +91,12 @@ ENV QWENPAW_RUNNING_IN_CONTAINER=1
 
 WORKDIR ${WORKSPACE_DIR}
 
-RUN python3 -m venv venv
+# Keep Debian's Python for system services; use the desktop runtime for QwenPaw.
+COPY scripts/pack-tauri/stage_python_runtime.py /tmp/stage_python_runtime.py
+RUN python3 /tmp/stage_python_runtime.py \
+    --dest /opt/qwenpaw-python --python-version 3.11 \
+  && /opt/qwenpaw-python/python/bin/python3 -m venv /app/venv \
+  && rm /tmp/stage_python_runtime.py
 ENV PATH="/app/venv/bin:$PATH"
 
 COPY pyproject.toml setup.py README.md ./
@@ -111,7 +116,8 @@ COPY --from=uv-src /uv /bin/uv
 # half-removed pkg_resources (module present, declare_namespace gone), which
 # raises an AttributeError the fallback does not catch — crashing the Feishu
 # channel. The pin keeps every environment in the known-good state.
-RUN uv pip install --no-cache-dir . "setuptools<82" && rm -rf ./build
+RUN uv pip install --python /app/venv/bin/python \
+    --no-cache-dir . "setuptools<82" && rm -rf ./build
 
 
 # QwenPaw app port (default 8088). Override at runtime with -e QWENPAW_PORT=3000.

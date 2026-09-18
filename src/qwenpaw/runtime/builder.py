@@ -349,7 +349,8 @@ class AgentBuilder:
         ctx.agent_config = agent_config
 
         # Validate model availability.
-        active, _source = get_current_model_slot(
+        active, _source = await run_sync_io(
+            get_current_model_slot,
             agent_id=agent_id,
             agent_model=agent_config.active_model,
         )

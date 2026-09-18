@@ -153,13 +153,14 @@ async def prepare_model_context(
             channel,
         )
     from ..providers.provider_manager import ProviderManager
+    from ..utils.io_utils import run_sync_io
 
     session_slot = session_model_slot(chat.meta if chat else None)
     agent_slot = parse_model_slot(workspace.config.active_model)
     manager = ProviderManager.get_instance()
     global_slot = parse_model_slot(
         (
-            manager.get_active_model()
+            await run_sync_io(manager.get_active_model)
             if hasattr(manager, "get_active_model")
             else None
         ),

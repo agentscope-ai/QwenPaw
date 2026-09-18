@@ -134,7 +134,7 @@ export interface HubConfig {
   control_plane: {
     public_base_url: string | null;
     registration: {
-      enabled: boolean;
+      mode: "open" | "invite" | "closed";
       default_role: "user";
     };
     security: {

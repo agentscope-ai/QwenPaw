@@ -73,3 +73,25 @@ async def test_configure_model_only_forwards_submitted_fields() -> None:
 def test_model_config_rejects_invalid_max_tokens(value: object) -> None:
     with pytest.raises(ValidationError, match="max_tokens"):
         ModelConfigRequest(generate_kwargs={"max_tokens": value})
+
+
+async def test_hub_provider_exposes_effective_context_windows():
+    from qwenpaw.providers.hub_managed import ManagedProvider
+    from qwenpaw.providers.provider import ModelInfo
+
+    provider = ManagedProvider(
+        id="hub-managed",
+        name="Hub",
+        models=[
+            ModelInfo(
+                id="organization-model",
+                name="Model",
+                max_input_length=64000,
+                max_input_length_configured=True,
+            ),
+        ],
+    )
+    info = await provider.get_info()
+    assert info.effective_context_windows == {
+        "organization-model": provider.get_context_size("organization-model"),
+    }
