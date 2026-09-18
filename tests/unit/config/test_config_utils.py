@@ -422,8 +422,8 @@ class TestGetAvailableChannels:
 
         monkeypatch.setattr(
             registry_module,
-            "get_channel_registry",
-            lambda: {"console": 1, "dingtalk": 2, "feishu": 3},
+            "get_available_keys",
+            lambda: ("console", "dingtalk", "feishu"),
         )
 
     def test_no_filters_returns_all(self, monkeypatch, fake_registry):
