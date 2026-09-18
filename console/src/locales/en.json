@@ -2173,6 +2173,7 @@
     }
   },
   "modelSelector": {
+    "followAgentDefault": "Follow Agent default (next message)",
     "selectModel": "Select model",
     "noConfiguredModels": "No configured models",
     "noFreeModels": "No free models available",
@@ -3496,6 +3497,7 @@
       "codeSnippet_other": "Code snippet · {{count}} lines"
     },
     "modelSelectTooltip": "Select model",
+    "modelSelectAfterFirstMessage": "Send the first message before selecting a model",
     "newTask": "New task",
     "chatHistoryTooltip": "Chat history",
     "messageDisplay": {

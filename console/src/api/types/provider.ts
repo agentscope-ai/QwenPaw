@@ -47,6 +47,7 @@ export interface ProviderInfo {
   chat_model: string;
   /** Built-in models (for built-in providers) or all models (for custom). */
   models: ModelInfo[];
+  effective_context_windows?: Record<string, number>;
   /** User-added models (deletable). Only populated for built-in providers. */
   extra_models: ModelInfo[];
   /** Last successful model catalog fetched from the provider API. */

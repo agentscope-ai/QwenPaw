@@ -16,6 +16,15 @@ import {
   waitForChatIdle,
 } from "./chatRunLifecycle";
 import {
+  clearPendingModelRevision,
+  getPendingModelOverride,
+  getPendingModelRevision,
+  getPersistedModelOverride,
+  modelSlotsEqual,
+  setPendingModelOverride,
+  withPendingModelOverride,
+} from "../../features/model-selection/pendingModelOverride";
+import {
   clearBackgroundAbortIfCurrent,
   getBackgroundAbort,
   setBackgroundAbort,
@@ -41,6 +50,7 @@ function sendingHead() {
 }
 beforeEach(() => {
   localStorage.clear();
+  sessionStorage.clear();
   useMessageQueueStore.setState({
     queues: {},
     runStates: {},
@@ -132,6 +142,66 @@ const backgroundWorkerJS = ts.transpileModule(
   },
 ).outputText;
 
+describe("model selection completion", () => {
+  it.each(["new selection", "agent switch"])(
+    "ignores an outdated completion after %s",
+    async (change) => {
+      const node = chatSource.statements.find(
+        (item): item is ts.FunctionDeclaration =>
+          ts.isFunctionDeclaration(item) &&
+          item.name?.text === "clearConfirmedPendingModelOverride",
+      );
+      if (!node) throw new Error("Missing production model completion handler");
+      const code = ts.transpileModule(node.getText(chatSource), {
+        compilerOptions: { target: ts.ScriptTarget.ES2020 },
+      }).outputText;
+      let selectedAgent = "agent-a";
+      let finish!: (value: unknown[]) => void;
+      const syncSessionsGlobal = vi.fn();
+      const dependencies = {
+        useAgentStore: { getState: () => ({ selectedAgent }) },
+        sessionApi: {
+          refreshSessionList: () =>
+            new Promise((resolve) => {
+              finish = resolve;
+            }),
+        },
+        syncSessionsGlobal,
+        getPersistedModelOverride,
+        modelSlotsEqual,
+        clearPendingModelRevision,
+      };
+      const complete = new Function(
+        ...Object.keys(dependencies),
+        `${code}; return clearConfirmedPendingModelOverride;`,
+      )(...Object.values(dependencies));
+      const sent = { provider_id: "provider", model: "model-a" };
+      const newer = { provider_id: "provider", model: "model-b" };
+      setPendingModelOverride("agent-a", "session", sent);
+      const completion = complete(
+        "agent-a",
+        "session",
+        sent,
+        getPendingModelRevision("agent-a", "session"),
+      );
+      if (change === "agent switch") selectedAgent = "agent-b";
+      else setPendingModelOverride("agent-a", "session", newer);
+      finish([
+        {
+          id: "session",
+          meta: { runtime_context: { model_slot_override: sent } },
+        },
+      ]);
+      await completion;
+      expect(getPendingModelOverride("agent-a", "session")).toEqual(
+        change === "agent switch" ? sent : newer,
+      );
+      if (change === "agent switch")
+        expect(syncSessionsGlobal).not.toHaveBeenCalled();
+    },
+  );
+});
+
 function backgroundWorkerFixture() {
   const sessionApi = {
     setLastUserMessage: vi.fn(),
@@ -153,6 +223,9 @@ function backgroundWorkerFixture() {
     buildAttachmentContentItems: () => [],
     applyChatPayloadTransforms: (payload: unknown) => payload,
     withPendingProjectDirectory: (requestBody: unknown) => ({ requestBody }),
+    withPendingModelOverride,
+    getPendingModelRevision,
+    clearConfirmedPendingModelOverride: vi.fn().mockResolvedValue(undefined),
     setPendingProjectDirectory: vi.fn(),
     QWENPAW_CLIENT_MESSAGE_ID_KEY: "qwenpaw_client_message_id",
     DEFAULT_USER_ID: "default",
@@ -319,6 +392,24 @@ describe("background queue transport handoff", () => {
     expect(useMessageQueueStore.getState().getRunState(key)).toBe("error");
     expect(fixture.sessionApi.discardLastUserMessage).toHaveBeenCalledTimes(1);
     await expectReleased();
+  });
+
+  it("sends the queued conversation's pending model override", async () => {
+    setPendingModelOverride("agent-a", key, {
+      provider_id: "openai",
+      model: "gpt-4o",
+    });
+    const fetchFixture = vi.fn<typeof fetch>(async () => new Response(null));
+    vi.stubGlobal("fetch", fetchFixture);
+    const fixture = backgroundWorkerFixture();
+    workers.push(fixture.start(key, "runtime-a", key));
+    await vi.waitFor(() => expect(fetchFixture).toHaveBeenCalled());
+    expect(
+      JSON.parse(String(fetchFixture.mock.calls[0][1]?.body)),
+    ).toMatchObject({
+      model_slot_override: { provider_id: "openai", model: "gpt-4o" },
+      session_id: "runtime-a",
+    });
   });
 });
 describe("queue Run handoff", () => {

@@ -5,13 +5,9 @@ import { modelSelectorApi } from "./modelSelectorApi";
 
 interface UseModelSelectorDataOptions {
   agentId: string;
-  onActiveModels: (activeModels: ActiveModelsInfo) => void;
 }
 
-export function useModelSelectorData({
-  agentId,
-  onActiveModels,
-}: UseModelSelectorDataOptions) {
+export function useModelSelectorData({ agentId }: UseModelSelectorDataOptions) {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [activeModels, setActiveModels] = useState<ActiveModelsInfo | null>(
     null,
@@ -20,14 +16,6 @@ export function useModelSelectorData({
   const [loadError, setLoadError] = useState(false);
   const providersRequestRef = useRef(0);
   const activeRequestRef = useRef(0);
-
-  const applyActiveModels = useCallback(
-    (value: ActiveModelsInfo) => {
-      setActiveModels(value);
-      onActiveModels(value);
-    },
-    [onActiveModels],
-  );
 
   const fetchData = useCallback(async () => {
     const providersRequestId = ++providersRequestRef.current;
@@ -39,7 +27,7 @@ export function useModelSelectorData({
       if (providersRequestId !== providersRequestRef.current) return;
       if (result.providers) setProviders(result.providers);
       if (result.activeModels && activeRequestId === activeRequestRef.current) {
-        applyActiveModels(result.activeModels);
+        setActiveModels(result.activeModels);
       }
       setLoadError(result.loadError);
       return result;
@@ -48,13 +36,13 @@ export function useModelSelectorData({
         setLoading(false);
       }
     }
-  }, [agentId, applyActiveModels]);
+  }, [agentId]);
 
   const refreshActiveModels = useCallback(async () => {
     const requestId = ++activeRequestRef.current;
     const value = await modelSelectorApi.loadActiveModels(agentId);
-    if (requestId === activeRequestRef.current) applyActiveModels(value);
-  }, [agentId, applyActiveModels]);
+    if (requestId === activeRequestRef.current) setActiveModels(value);
+  }, [agentId]);
 
   useEffect(() => {
     void fetchData();

@@ -72,6 +72,10 @@ class ManagedProvider(OpenAIProvider):
             id=PROVIDER_ID,
             name="Hub",
             models=self.models,
+            effective_context_windows={
+                model.id: self.get_context_size(model.id)
+                for model in self.all_models()
+            },
             api_key="",
             base_url="",
             require_api_key=False,

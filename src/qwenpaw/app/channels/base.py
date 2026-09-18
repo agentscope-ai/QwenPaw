@@ -564,13 +564,16 @@ class BaseChannel(ABC):
                 exc_info=True,
             )
 
-        queue, is_new = await self._workspace.task_tracker.attach_or_start(
-            chat.id,
-            payload,
-            self._stream_with_tracker,
-            owner=self._workspace,
-            on_finished=self._workspace.chat_manager.mark_chat_finished,
-        )
+        from ...services.request_chat import bind_request_chat
+
+        with bind_request_chat(self._workspace.chat_manager, chat):
+            queue, is_new = await self._workspace.task_tracker.attach_or_start(
+                chat.id,
+                payload,
+                self._stream_with_tracker,
+                owner=self._workspace,
+                on_finished=self._workspace.chat_manager.mark_chat_finished,
+            )
 
         if is_new:
             try:

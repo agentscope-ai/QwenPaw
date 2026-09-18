@@ -16,11 +16,39 @@ import pytest
 
 from qwenpaw.runtime.commands.control.base import ControlContext
 from qwenpaw.runtime.commands.control.model_handler import ModelCommandHandler
+from qwenpaw.services.model_selection import (
+    ModelSelectionContext,
+    clear_current_model_context,
+    parse_model_slot,
+    resolve_effective_model_slot,
+    set_current_model_context,
+)
 
 
 def _context(active_model=None, raw_args=""):
+    from qwenpaw.providers.provider_manager import ProviderManager
+
+    manager = ProviderManager.get_instance()
+    global_model = getattr(manager, "get_active_model", lambda: None)()
+    slot, source = resolve_effective_model_slot(
+        agent_model=active_model,
+        global_model=global_model,
+    )
+    set_current_model_context(
+        ModelSelectionContext(
+            slot=slot,
+            source=source,
+            chat_id="chat-1",
+            agent_slot=parse_model_slot(active_model),
+            global_slot=parse_model_slot(global_model),
+        ),
+    )
     config = SimpleNamespace(active_model=active_model, id="default")
-    workspace = SimpleNamespace(config=config, agent_id="default")
+    workspace = SimpleNamespace(
+        config=config,
+        agent_id="default",
+        chat_manager=SimpleNamespace(set_model_slot_override=AsyncMock()),
+    )
     return ControlContext(
         workspace=workspace,
         payload={},
@@ -34,7 +62,10 @@ def _context(active_model=None, raw_args=""):
 
 @pytest.fixture
 def handler():
-    return ModelCommandHandler()
+    clear_current_model_context()
+    _context()
+    yield ModelCommandHandler()
+    clear_current_model_context()
 
 
 # ---------------------------------------------------------------------------
@@ -44,7 +75,7 @@ def handler():
 
 class TestHandleDispatch:
     async def test_empty_args_shows_current_model(self, handler):
-        async def fake_show(context):
+        def fake_show():
             return "CURRENT"
 
         with patch.object(handler, "_show_current_model", fake_show):
@@ -57,7 +88,7 @@ class TestHandleDispatch:
             assert "Model Management Commands" in result
 
     async def test_list_dispatches(self, handler):
-        async def fake_list(context):
+        async def fake_list():
             return "LISTED"
 
         with patch.object(handler, "_list_models", fake_list):
@@ -154,11 +185,10 @@ class TestShowModelInfo:
 class TestShowCurrentModel:
     async def test_agent_specific_model(self, handler):
         model = SimpleNamespace(provider_id="openai", model="gpt-4o")
-        result = await handler._show_current_model(
-            _context(active_model=model),
-        )
+        _context(active_model=model)
+        result = handler._show_current_model()
         assert "Current Model" in result
-        assert "agent-specific" in result
+        assert "agent default" in result
         assert "openai" in result
         assert "gpt-4o" in result
 
@@ -173,9 +203,8 @@ class TestShowCurrentModel:
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
-            result = await handler._show_current_model(
-                _context(active_model=None),
-            )
+            _context(active_model=None)
+            result = handler._show_current_model()
         assert "global default" in result
         assert "anthropic" in result
 
@@ -185,9 +214,8 @@ class TestShowCurrentModel:
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
-            result = await handler._show_current_model(
-                _context(active_model=None),
-            )
+            _context(active_model=None)
+            result = handler._show_current_model()
         assert "No Active Model" in result
 
     async def test_agent_model_without_provider_falls_back(self, handler):
@@ -196,11 +224,8 @@ class TestShowCurrentModel:
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
-            result = await handler._show_current_model(
-                _context(
-                    active_model=SimpleNamespace(provider_id="", model=""),
-                ),
-            )
+            _context(active_model=SimpleNamespace(provider_id="", model=""))
+            result = handler._show_current_model()
         assert "No Active Model" in result
 
 
@@ -244,7 +269,7 @@ class TestListModels:
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
-            result = await handler._list_models(_context())
+            result = await handler._list_models()
         assert "No Providers Configured" in result
 
     async def test_provider_without_api_key_filtered(self, handler):
@@ -257,7 +282,7 @@ class TestListModels:
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
-            result = await handler._list_models(_context())
+            result = await handler._list_models()
         assert "No Providers Configured" in result
 
     async def test_provider_without_models_filtered(self, handler):
@@ -270,7 +295,7 @@ class TestListModels:
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
-            result = await handler._list_models(_context())
+            result = await handler._list_models()
         assert "No Providers Configured" in result
 
     async def test_extra_models_count_for_keep(self, handler):
@@ -283,7 +308,7 @@ class TestListModels:
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
-            result = await handler._list_models(_context())
+            result = await handler._list_models()
         assert "No Providers Configured" not in result
         assert "openai" in result
 
@@ -294,16 +319,17 @@ class TestListModels:
 
 
 class TestResetModel:
-    async def test_no_global_model_fails(self, handler):
+    async def test_reset_clears_override_even_without_default(self, handler):
         manager = SimpleNamespace(get_active_model=lambda: None)
         with patch(
             "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
             return_value=manager,
         ):
             result = await handler._reset_model(_context())
-        assert "Reset Failed" in result
+        assert "Model Reset" in result
+        assert "no default model" in result
 
-    async def test_reset_clears_agent_model(self, handler):
+    async def test_reset_preserves_agent_model(self, handler):
         global_model = SimpleNamespace(provider_id="openai", model="gpt")
         manager = SimpleNamespace(get_active_model=lambda: global_model)
         ctx = _context(
@@ -331,5 +357,8 @@ class TestResetModel:
             ),
         ):
             await handler._reset_model(ctx)
-        assert ctx.workspace.config.active_model is None
-        assert applied["active_model"] is None
+        assert ctx.workspace.config.active_model.provider_id == "x"
+        assert ctx.workspace.config.active_model.model == "y"
+        assert not applied
+        setter = ctx.workspace.chat_manager.set_model_slot_override
+        setter.assert_awaited_once_with("chat-1", None)

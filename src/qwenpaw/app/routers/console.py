@@ -214,6 +214,31 @@ async def _persist_pending_project_dirs(
     return updated
 
 
+async def _persist_console_model_selection(workspace, chat, request_data):
+    """Persist only explicitly marked selections; null resets the session."""
+    from ...services.model_selection import parse_model_slot
+
+    data = (
+        request_data.model_dump(exclude_unset=True)
+        if isinstance(request_data, AgentRequest)
+        else request_data
+    )
+    if (
+        data.get("persist_model_slot_override") is not True
+        or "model_slot_override" not in data
+    ):
+        return chat
+    value = data["model_slot_override"]
+    slot = parse_model_slot(value)
+    if value is not None and slot is None:
+        return chat
+    updated = await workspace.chat_manager.set_model_slot_override(
+        chat.id,
+        slot.model_dump() if slot else None,
+    )
+    return updated or chat
+
+
 def _extract_session_and_payload(request_data: Union[AgentRequest, dict]):
     """Extract run_key (ChatSpec.id), session_id, and native payload.
 
@@ -438,10 +463,22 @@ async def post_console_chat(
         # ContextVarsSetupHook (from the chat meta persisted above);
         # the router no longer pre-resolves or injects them.
 
+        from ...services.request_chat import bind_request_chat
+
+        async def stream_selected_model(payload):
+            selected_chat = await _persist_console_model_selection(
+                workspace,
+                chat,
+                request_data,
+            )
+            with bind_request_chat(workspace.chat_manager, selected_chat):
+                async for event in console_channel.stream_one(payload):
+                    yield event
+
         queue, is_new_run = await tracker.attach_or_start(
             chat.id,
             native_payload,
-            console_channel.stream_one,
+            stream_selected_model,
             owner=workspace,
             on_finished=workspace.chat_manager.mark_chat_finished,
         )
