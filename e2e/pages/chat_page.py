@@ -679,6 +679,14 @@ class ChatPage(BasePage):
         #     and "button recovered" as the fast-path accelerator; whichever signal is ready first releases.
         #   - Still filter out the "Thinking / Loading" placeholder + require >= 2 real characters -> eliminates false positives.
         #   - Stability window widened to 2500ms (more stable than the original 800ms; avoids misjudging long-token streaming gaps).
+        #   - Path C added 2026-09-18: the SDK can leave a stale EMPTY streaming
+        #     bubble after the reply already finished (streaming-end signal
+        #     lost). Paths A/B both require real text in the LAST bubble, so a
+        #     trailing empty bubble wedges them until the window expires even
+        #     though the answer is fully rendered one bubble earlier. Path C
+        #     releases on stability of the newest REAL-text bubble that belongs
+        #     to this round (index >= expectedCount); the index guard prevents
+        #     misreading the previous round's content as this round's reply.
         stability_timeout = min(timeout, stability_cap_ms)
         passed_via = None
         try:
@@ -735,6 +743,51 @@ class ChatPage(BasePage):
                     if (contentStable) {
                         window.__qwenpaw_wait_passed_via__ = 'content_stable';
                         return true;
+                    }
+                    // Path C (2026-09-18): tolerate the known SDK behaviour where
+                    // a stale EMPTY streaming bubble is left behind after the
+                    // reply already finished (streaming-end signal lost). In that
+                    // state `last` is empty forever, so Path A (needs real text)
+                    // and Path B (needs real text) can never release, and the
+                    // round fails after the whole stability window even though
+                    // the reply is fully rendered one bubble earlier. Evidence:
+                    // CI step_shot at the FAIL moment shows the round's answer
+                    // complete ("Completed 1 steps" + full text) with a trailing
+                    // empty spinner bubble. Path C releases when the NEWEST
+                    // bubble that carries real text AND belongs to this round
+                    // (index >= expectedCount) is stable for 1500ms. The
+                    // index guard is what keeps this from misreading the
+                    // PREVIOUS round's content as this round's reply.
+                    let newestReal = null;
+                    for (let i = aiMsgs.length - 1; i >= expectedCount; i--) {
+                        const t = (aiMsgs[i].innerText || '').trim();
+                        const s = t
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        if (s.length >= 2) {
+                            newestReal = { raw: t, idx: i };
+                            break;
+                        }
+                    }
+                    if (newestReal) {
+                        const keyC = '__qwenpaw_ai_stable_cache_c__';
+                        const nowC = Date.now();
+                        const cacheC = window[keyC] || {};
+                        if (
+                            cacheC.text !== newestReal.raw ||
+                            cacheC.idx !== newestReal.idx
+                        ) {
+                            window[keyC] = {
+                                text: newestReal.raw,
+                                idx: newestReal.idx,
+                                since: nowC,
+                            };
+                        } else if (nowC - cacheC.since >= 1500) {
+                            window.__qwenpaw_wait_passed_via__ =
+                                'content_stable_new_round';
+                            return true;
+                        }
                     }
                     return false;
                 }""",
