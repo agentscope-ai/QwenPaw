@@ -3092,6 +3092,7 @@
   },
   "chat": {
     "newTask": "Nova tarefa",
+    "newChat": "Novo chat",
     "groups": {
       "cronShort": "Agendado",
       "subagentShort": "Subagente"

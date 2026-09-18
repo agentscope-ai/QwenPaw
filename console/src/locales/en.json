@@ -3495,6 +3495,7 @@
     },
     "modelSelectTooltip": "Select model",
     "newTask": "New task",
+    "newChat": "New chat",
     "chatHistoryTooltip": "Chat history",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",

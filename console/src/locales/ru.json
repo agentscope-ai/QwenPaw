@@ -2856,6 +2856,7 @@
   },
   "chat": {
     "newTask": "Новая задача",
+    "newChat": "Новый чат",
     "groups": {
       "cronShort": "Расписание",
       "subagentShort": "Субагент"

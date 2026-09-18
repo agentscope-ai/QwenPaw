@@ -28,6 +28,9 @@ import { useAppMessage } from "../../hooks/useAppMessage";
 import { copyText } from "../../utils/clipboard";
 import styles from "./sessionItem.module.less";
 
+const MAX_LIST_NAME_CHARS = 100;
+const MAX_INFO_NAME_CHARS = 500;
+
 export interface SessionItemProps {
   // -- Data --
   sessionId: string;
@@ -109,11 +112,17 @@ const SessionItem: React.FC<SessionItemProps> = ({
 
   const displayName = useMemo(
     () =>
-      name.length > 100
-        ? `${name.slice(0, 100)}…`
+      name.length > MAX_LIST_NAME_CHARS
+        ? `${name.slice(0, MAX_LIST_NAME_CHARS)}…`
         : name || t("chat.newChat", "New Chat"),
     [name, t],
   );
+  const infoName = useMemo(() => {
+    const fallbackName = name || t("chat.newChat", "New Chat");
+    return fallbackName.length > MAX_INFO_NAME_CHARS
+      ? `${fallbackName.slice(0, MAX_INFO_NAME_CHARS)}…`
+      : fallbackName;
+  }, [name, t]);
   const sessionTime = useMemo(
     () =>
       formatSessionTime(
@@ -153,9 +162,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   const infoCard = (
     <div className={styles.infoCard}>
       <div className={styles.infoHeader}>
-        <div className={styles.infoName}>
-          {name || t("chat.newChat", "New Chat")}
-        </div>
+        <div className={styles.infoName}>{infoName}</div>
         {sessionTime && (
           <time
             className={styles.infoTime}

@@ -188,6 +188,17 @@ describe("SessionItem name display", () => {
 });
 
 describe("SessionItem info card", () => {
+  it("bounds the name rendered in the info card", async () => {
+    const name = "b".repeat(501);
+    render(<SessionItem sessionId="chat-long" name={name} />);
+
+    fireEvent.focus(
+      screen.getByText(`${"b".repeat(100)}…`).closest('[role="button"]')!,
+    );
+
+    expect(await screen.findByText(`${"b".repeat(500)}…`)).toBeInTheDocument();
+  });
+
   it("shows a compact relative update time with the exact date as metadata", async () => {
     const updatedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     render(

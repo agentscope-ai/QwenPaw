@@ -1086,6 +1086,7 @@
   },
   "chat": {
     "newTask": "Tác vụ mới",
+    "newChat": "Cuộc trò chuyện mới",
     "groups": {
       "cronShort": "Định kỳ",
       "subagentShort": "Tác tử con"

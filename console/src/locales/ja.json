@@ -2841,6 +2841,7 @@
   },
   "chat": {
     "newTask": "新しいタスク",
+    "newChat": "新しいチャット",
     "groups": {
       "cronShort": "定期タスク",
       "subagentShort": "サブエージェント"
