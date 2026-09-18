@@ -7,10 +7,15 @@ import {
 } from "../../../../api/types";
 import { CopyOutlined, MoreOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
+import utc from "dayjs/plugin/utc";
+import timezone from "dayjs/plugin/timezone";
 import { useAppMessage } from "../../../../hooks/useAppMessage";
 import { TFunction } from "i18next";
 import { parseCron } from "./parseCron";
 import styles from "../index.module.less";
+
+dayjs.extend(utc);
+dayjs.extend(timezone);
 
 type CronJob = CronJobSpecOutput;
 
@@ -23,6 +28,7 @@ interface ColumnHandlers {
   onDelete: (jobId: string) => void;
   promotingJobIds: Set<string>;
   t: TFunction;
+  userTimezone: string;
 }
 
 const createCopyToClipboard = (t: TFunction) => async (text: string) => {
@@ -107,11 +113,26 @@ export const createColumns = (
       width: 180,
       render: (schedule: any) => {
         if (schedule?.type === "once") {
-          const displayText = schedule?.run_at
-            ? dayjs(schedule.run_at).format("YYYY-MM-DD HH:mm")
-            : "-";
+          const schedTz =
+            schedule?.timezone ||
+            Intl.DateTimeFormat().resolvedOptions().timeZone;
+          const userTz = handlers.userTimezone;
+          let displayText = "-";
+          let tooltipTitle: string = schedule?.run_at || "-";
+          if (schedule?.run_at) {
+            // 将存储时间转换到用户时区显示
+            const inUserTz = dayjs(schedule.run_at).tz(userTz);
+            displayText = inUserTz.format("YYYY-MM-DD HH:mm");
+            // tooltip 显示原始存储时区的时间，方便对照
+            if (schedTz !== userTz) {
+              const inSchedTz = dayjs(schedule.run_at).tz(schedTz);
+              tooltipTitle = `${inSchedTz.format("YYYY-MM-DD HH:mm")} (${schedTz})`;
+            } else {
+              tooltipTitle = displayText;
+            }
+          }
           return (
-            <Tooltip title={schedule?.run_at || displayText}>
+            <Tooltip title={tooltipTitle}>
               <span className={styles.cronText}>{displayText}</span>
             </Tooltip>
           );
@@ -119,18 +140,31 @@ export const createColumns = (
         const cron = schedule?.cron || "0 9 * * *";
         // Parse cron to friendly text
         const cronParts = parseCron(cron);
+        const taskTz = schedule?.timezone || "UTC";
+        const userTz = handlers.userTimezone;
+
+        // Convert hour:minute from task timezone to user timezone
+        const convertToUserTz = (hour: number, minute: number): { hour: number; minute: number } => {
+          const ref = dayjs().tz(taskTz).hour(hour).minute(minute).second(0).millisecond(0);
+          const inUserTz = ref.tz(userTz);
+          return { hour: inUserTz.hour(), minute: inUserTz.minute() };
+        };
+
         let displayText = "";
 
         switch (cronParts.type) {
           case "hourly":
             displayText = handlers.t("cronJobs.cronTypeHourly");
             break;
-          case "daily":
+          case "daily": {
+            const converted = convertToUserTz(cronParts.hour ?? 0, cronParts.minute ?? 0);
             displayText = `${handlers.t("cronJobs.cronTypeDaily")} ${String(
-              cronParts.hour,
-            ).padStart(2, "0")}:${String(cronParts.minute).padStart(2, "0")}`;
+              converted.hour,
+            ).padStart(2, "0")}:${String(converted.minute).padStart(2, "0")}`;
             break;
+          }
           case "weekly": {
+            const converted = convertToUserTz(cronParts.hour ?? 0, cronParts.minute ?? 0);
             const dayNames = (cronParts.daysOfWeek || [])
               .map((d) => {
                 const dayMap: Record<string, string> = {
@@ -147,8 +181,8 @@ export const createColumns = (
               .join(",");
             displayText = `${handlers.t(
               "cronJobs.cronTypeWeekly",
-            )} ${dayNames} ${String(cronParts.hour).padStart(2, "0")}:${String(
-              cronParts.minute,
+            )} ${dayNames} ${String(converted.hour).padStart(2, "0")}:${String(
+              converted.minute,
             ).padStart(2, "0")}`;
             break;
           }
@@ -181,6 +215,14 @@ export const createColumns = (
       dataIndex: ["schedule", "timezone"],
       key: "timezone",
       width: 170,
+      render: () => {
+        const offset = dayjs().tz(handlers.userTimezone).utcOffset();
+        const sign = offset >= 0 ? "+" : "-";
+        const h = Math.floor(Math.abs(offset) / 60);
+        const m = Math.abs(offset) % 60;
+        const display = m === 0 ? `UTC${sign}${h}` : `UTC${sign}${h}:${String(m).padStart(2, "0")}`;
+        return <span>{display}</span>;
+      },
     },
     {
       title: "TaskType",
