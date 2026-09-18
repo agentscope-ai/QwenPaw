@@ -37,8 +37,8 @@ def _write_catalog(
 def test_packaged_catalog_snapshot() -> None:
     catalog = model_catalog.load_model_catalog()
 
-    assert len(catalog) == 21
-    assert sum(len(models) for models in catalog.values()) == 133
+    assert len(catalog) == 22
+    assert sum(len(models) for models in catalog.values()) == 136
     assert catalog["DASHSCOPE_MODELS"][0].id == "qwen3.8-max"
     assert catalog["DASHSCOPE_MODELS"][0].supports_image is True
     assert catalog["DASHSCOPE_MODELS"][0].thinking_enabled is True
@@ -47,6 +47,11 @@ def test_packaged_catalog_snapshot() -> None:
         "deepseek-reasoner",
         "deepseek-v4-flash",
         "deepseek-v4-pro",
+    ]
+    assert [model.id for model in catalog["ATLASCLOUD_MODELS"]] == [
+        "deepseek-ai/deepseek-v4-pro",
+        "deepseek-ai/deepseek-v4-flash",
+        "qwen/qwen3.5-flash",
     ]
     assert catalog["GEMINI_MODELS"][0].id == "gemini-3.1-pro-preview"
     assert [model.id for model in catalog["MINIMAX_MODELS"]] == [
@@ -73,6 +78,7 @@ def test_packaged_catalog_snapshot() -> None:
         ("MINIMAX_MODELS", "MiniMax-M3"),
         ("KIMI_MODELS", "kimi-k3"),
         ("DEEPSEEK_MODELS", "deepseek-chat"),
+        ("ATLASCLOUD_MODELS", "deepseek-ai/deepseek-v4-pro"),
         ("GEMINI_MODELS", "gemini-3.1-pro-preview"),
     }
     assert {
