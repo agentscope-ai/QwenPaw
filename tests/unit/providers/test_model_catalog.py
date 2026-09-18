@@ -127,6 +127,44 @@ def test_packaged_catalog_snapshot() -> None:
     }
 
 
+def test_aliyun_codingplan_catalog_alignment() -> None:
+    """Regression guard for #6551.
+
+    The Aliyun Coding Plan model list must stay aligned with the official
+    DashScope coding-plan catalog. A previous misalignment exposed models
+    that are not actually offered on the coding plan, which surfaced as
+    ``Model 'unknown' execution failed ... model `glm-5.2` is not supported``
+    when a user picked one. Lock the set so future catalog refreshes cannot
+    silently re-introduce unsupported models into this catalog key.
+    """
+    catalog = model_catalog.load_model_catalog()
+    ids = [model.id for model in catalog["ALIYUN_CODINGPLAN_MODELS"]]
+    id_set = set(ids)
+
+    # Models the official Aliyun Coding Plan site exposes must remain present.
+    expected = {
+        "qwen3.7-plus",
+        "qwen3.6-plus",
+        "qwen3.5-plus",
+        "qwen3-max-2026-01-23",
+        "qwen3-coder-next",
+        "qwen3-coder-plus",
+        "glm-5",
+        "glm-4.7",
+        "MiniMax-M2.5",
+        "kimi-k2.5",
+    }
+    assert expected.issubset(id_set)
+
+    # These were reported as unsupported on the coding plan (issue #6551) and
+    # must never be re-added to this catalog key.
+    assert "glm-5.2" not in id_set
+    assert "glm-5.1" not in id_set
+
+    # No duplicate model ids within the catalog key.
+    assert len(ids) == len(id_set)
+
+
 def test_catalog_overlays_merge_fields_in_priority_order(
     tmp_path: Path,
 ) -> None:
