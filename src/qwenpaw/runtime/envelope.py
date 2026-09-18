@@ -508,15 +508,10 @@ class Envelope:
             if state is None:
                 return
             state["output_text_fragments"].append(event.delta or "")
-
-            delta_content = self._build_tool_result_content(
-                call_id,
-                state,
-                ContentType,
-                FunctionCallOutput,
-            )
-            delta_content.msg_id = state["output_message"].id
-            yield self._tag_seq(delta_content.in_progress())
+            # No intermediate yield: the console frontend replaces the tool
+            # result wholesale, so a growing snapshot re-sent per chunk costs
+            # O(n^2) bytes on the wire and in the replay buffer.  Content is
+            # emitted once on TOOL_RESULT_END with the complete payload.
 
         elif evt_type == EventType.TOOL_RESULT_DATA_DELTA.value:
             call_id = event.tool_call_id
