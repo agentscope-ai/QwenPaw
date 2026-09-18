@@ -57,6 +57,10 @@ first, then send text to the model).
 You can attach **files** such as documents, images, and audio/video (follow
 on-screen limits; per-file size caps apply).
 
+When asking QwenPaw to send a local file, use its exact filename. For example,
+`report%20final.txt` and `report final.txt` are different files; file cards and
+previews preserve that distinction. You do not need to URL-encode the path.
+
 **Create a new session:**
 Click the **New Chat** button at the top-right of the chat page to start a new
 conversation. Each session keeps separate history.

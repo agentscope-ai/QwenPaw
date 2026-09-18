@@ -17,7 +17,14 @@ export function toDisplayUrl(url: string): string {
   if (!url) return "";
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   if (url.startsWith("data:")) return url;
-  if (url.startsWith("file://")) url = url.replace("file://", "");
+  if (url.startsWith("file://")) {
+    url = url.slice(7);
+    try {
+      url = decodeURIComponent(url);
+    } catch {
+      // Keep legacy file URLs containing malformed percent escapes usable.
+    }
+  }
   return chatApi.filePreviewUrl(url.startsWith("/") ? url : `/${url}`);
 }
 
@@ -27,6 +34,9 @@ export function toDisplayUrl(url: string): string {
 
 /** Extract short file name from a path */
 export function shortFileName(filePath: string): string {
+  if (!/^(?:https?|file|data|blob):/i.test(filePath)) {
+    return filePath.replace(/\\/g, "/").split("/").pop() || "";
+  }
   const filename = mediaFilenameFromUrl(filePath, "");
   if (filename) return filename;
   return filePath.startsWith("data:") || filePath.startsWith("blob:")
