@@ -292,6 +292,46 @@ export default function FilesWorkspace({
     [loadTarget, scopeKey, setTabEtag],
   );
 
+  // Agent turns routinely rewrite files that already have an open tab. A tab
+  // caches what it loaded when first opened, so without revalidation the file
+  // area keeps showing the pre-edit content while the session-side artifact
+  // card (a fresh fetch per click) shows the new one. Binary/image tabs are
+  // exempt: only the active tab renders, so re-activating one remounts its
+  // preview and the no-store artifact URL refetches on its own.
+  const revalidateSeq = useRef(0);
+  const activateTab = useCallback(
+    (tabPath: string) => {
+      setActiveTab(scopeKey, tabPath);
+      if (!tabPath) return;
+      const tab = tabsRef.current.find((item) => item.path === tabPath);
+      if (!tab || tab.dirty) return;
+      if (
+        tab.previewKind &&
+        tab.previewKind !== "text" &&
+        tab.previewKind !== "csv"
+      ) {
+        return;
+      }
+      const seq = (revalidateSeq.current += 1);
+      void loadTabContent(tabPath)
+        .then((content) => {
+          if (seq !== revalidateSeq.current) return;
+          const current = tabsRef.current.find((item) => item.path === tabPath);
+          // Skip identical content (keeps the editor cursor/selection) and
+          // never clobber edits made while the revalidation was in flight.
+          if (!current || current.dirty || current.content === content) {
+            return;
+          }
+          setTabContent(scopeKey, tabPath, content);
+        })
+        .catch(() => {
+          // Transient failure: keep the cached content; the next activation
+          // retries.
+        });
+    },
+    [loadTabContent, scopeKey, setActiveTab, setTabContent],
+  );
+
   const openTarget = useCallback(
     async (target: FileTarget) => {
       const resolvedTarget = await resolveEditableTarget(target);
@@ -321,7 +361,7 @@ export default function FilesWorkspace({
       const existing = tabsRef.current.find((tab) => tab.path === tabPath);
       if (existing) {
         setLoadError("");
-        setActiveTab(scopeKey, tabPath);
+        activateTab(tabPath);
         return;
       }
       try {
@@ -344,7 +384,16 @@ export default function FilesWorkspace({
         setLoadError(t("files.loadFailed"));
       }
     },
-    [loadTarget, openTab, resolveEditableTarget, scopeKey, setActiveTab, t],
+    // setActiveTab stays for the freshly loaded new-tab branch.
+    [
+      activateTab,
+      loadTarget,
+      openTab,
+      resolveEditableTarget,
+      scopeKey,
+      setActiveTab,
+      t,
+    ],
   );
 
   useEffect(() => {
@@ -376,14 +425,26 @@ export default function FilesWorkspace({
     if (initialTarget) void openTarget(initialTarget);
   }, [initialTarget, openTarget]);
 
+  // A remount (workspace drawer reopened) reuses persisted tabs whose
+  // content predates the latest agent turns — revalidate the restored active
+  // tab once. With an initialTarget, openTarget's activateTab already covers
+  // the first activation.
+  const revalidatedOnMount = useRef(false);
+  useEffect(() => {
+    if (revalidatedOnMount.current) return;
+    revalidatedOnMount.current = true;
+    if (!initialTarget && activeTabPath) activateTab(activeTabPath);
+    // Mount-only by intent: later activations go through activateTab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleClose = (path: string) => {
     const index = tabs.findIndex((tab) => tab.path === path);
     closeTab(scopeKey, path);
     if (activeTabPath === path) {
-      setActiveTab(
-        scopeKey,
-        tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "",
-      );
+      const next = tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "";
+      if (next) activateTab(next);
+      else setActiveTab(scopeKey, "");
     }
   };
 
@@ -391,7 +452,7 @@ export default function FilesWorkspace({
     tabs.forEach((tab) => {
       if (tab.path !== path) closeTab(scopeKey, tab.path);
     });
-    setActiveTab(scopeKey, path);
+    activateTab(path);
   };
 
   return (
@@ -469,7 +530,7 @@ export default function FilesWorkspace({
             tabs={tabs}
             activeTabPath={activeTabPath}
             scopeKey={scopeKey}
-            onTabSelect={(path) => setActiveTab(scopeKey, path)}
+            onTabSelect={(path) => activateTab(path)}
             onTabClose={handleClose}
             onCloseOtherTabs={handleCloseOthers}
             onTabDirtyChange={(path, dirty) =>

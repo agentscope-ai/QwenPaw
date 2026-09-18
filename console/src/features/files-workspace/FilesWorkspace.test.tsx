@@ -9,9 +9,12 @@ const lifecycle = vi.hoisted(() => ({
   closeTab: vi.fn(),
   editorMounted: vi.fn(),
   editorUnmounted: vi.fn(),
+  getFileMetadata: vi.fn(),
+  loadFileText: vi.fn(),
   navigatorMounted: vi.fn(),
   navigatorUnmounted: vi.fn(),
   navigatorProps: null as {
+    onSelect: (target: { source: string; path: string }) => void;
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
   } | null,
@@ -19,6 +22,7 @@ const lifecycle = vi.hoisted(() => ({
     onOpenFile: (section: "daily" | "digest", path: string) => void;
   } | null,
   saveFileContent: vi.fn(),
+  setTabContent: vi.fn(),
   setTabEtag: vi.fn(),
   setActiveTab: vi.fn(),
   tabs: [] as Array<{
@@ -28,10 +32,12 @@ const lifecycle = vi.hoisted(() => ({
     dirty: boolean;
     source?: "workspace";
     etag?: string;
+    previewKind?: "text" | "image" | "pdf" | "csv" | "binary";
   }>,
   activeTabPath: "",
   editorProps: null as {
     onCloseOtherTabs: (path: string) => void;
+    onTabSelect: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
   } | null,
 }));
@@ -48,7 +54,7 @@ vi.mock("../../stores/codingTabsStore", () => ({
     closeTab: lifecycle.closeTab,
     openTab: vi.fn(),
     setActiveTab: lifecycle.setActiveTab,
-    setTabContent: vi.fn(),
+    setTabContent: lifecycle.setTabContent,
     setTabDirty: vi.fn(),
     setTabEtag: lifecycle.setTabEtag,
   }),
@@ -57,11 +63,14 @@ vi.mock("../../stores/codingTabsStore", () => ({
 vi.mock("../../api/modules/workspace", () => ({
   workspaceApi: {
     saveFileContent: lifecycle.saveFileContent,
+    getFileMetadata: lifecycle.getFileMetadata,
+    loadFileText: lifecycle.loadFileText,
   },
 }));
 
 vi.mock("./FilesNavigator", () => ({
   default: function MockFilesNavigator(props: {
+    onSelect: (target: { source: string; path: string }) => void;
     onShowMemoryGraph: (root: "wiki" | "procedure" | "personal") => void;
     onShowFiles: () => void;
   }) {
@@ -92,6 +101,7 @@ vi.mock("./MemoryGraphView", () => ({
 vi.mock("../../pages/Coding/TabbedEditor", () => ({
   default: function MockTabbedEditor(props: {
     onCloseOtherTabs: (path: string) => void;
+    onTabSelect: (path: string) => void;
     onSaveFile: (path: string, content: string) => Promise<void>;
   }) {
     lifecycle.editorProps = props;
@@ -225,6 +235,232 @@ describe("FilesWorkspace directory changes", () => {
         "agent:agent-a",
         "daily::a.md",
       ),
+    );
+  });
+});
+
+describe("tab content revalidation", () => {
+  const scope = { kind: "agent" as const, agentId: "agent-a" };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lifecycle.tabs = [];
+    lifecycle.activeTabPath = "";
+    lifecycle.editorProps = null;
+    lifecycle.navigatorProps = null;
+    lifecycle.getFileMetadata.mockResolvedValue({
+      preview_kind: "text",
+      etag: "m1",
+    });
+  });
+
+  it("refetches content when a navigator click re-activates an existing text tab", async () => {
+    lifecycle.tabs = [
+      {
+        path: "notes.md",
+        content: "old",
+        dirty: false,
+        source: "workspace",
+        previewKind: "text",
+      },
+    ];
+    lifecycle.loadFileText.mockResolvedValue({ content: "new", etag: "v2" });
+
+    render(<FilesWorkspace scope={scope} />);
+    await act(async () => {
+      lifecycle.navigatorProps?.onSelect({
+        source: "workspace",
+        path: "notes.md",
+      });
+    });
+
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "notes.md",
+    );
+    expect(lifecycle.loadFileText).toHaveBeenCalledWith(
+      "notes.md",
+      undefined,
+      undefined,
+      undefined,
+    );
+    await waitFor(() =>
+      expect(lifecycle.setTabContent).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "notes.md",
+        "new",
+      ),
+    );
+  });
+
+  it("never refetches or clobbers a dirty tab", async () => {
+    lifecycle.tabs = [
+      {
+        path: "notes.md",
+        content: "user edit",
+        dirty: true,
+        source: "workspace",
+        previewKind: "text",
+      },
+    ];
+    lifecycle.loadFileText.mockResolvedValue({
+      content: "agent rewrite",
+      etag: "v2",
+    });
+
+    render(<FilesWorkspace scope={scope} />);
+    await act(async () => {
+      lifecycle.navigatorProps?.onSelect({
+        source: "workspace",
+        path: "notes.md",
+      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "notes.md",
+    );
+    expect(lifecycle.loadFileText).not.toHaveBeenCalled();
+    expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+  });
+
+  it("keeps identical content untouched while still refreshing the etag", async () => {
+    lifecycle.tabs = [
+      {
+        path: "notes.md",
+        content: "same",
+        dirty: false,
+        source: "workspace",
+        previewKind: "text",
+      },
+    ];
+    lifecycle.loadFileText.mockResolvedValue({ content: "same", etag: "v2" });
+
+    render(<FilesWorkspace scope={scope} />);
+    await act(async () => {
+      lifecycle.navigatorProps?.onSelect({
+        source: "workspace",
+        path: "notes.md",
+      });
+    });
+
+    await waitFor(() =>
+      expect(lifecycle.setTabEtag).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "notes.md",
+        "v2",
+      ),
+    );
+    expect(lifecycle.setTabContent).not.toHaveBeenCalled();
+  });
+
+  it("skips revalidation for image tabs (their preview remounts)", async () => {
+    lifecycle.tabs = [
+      {
+        path: "shot.png",
+        content: "",
+        dirty: false,
+        source: "workspace",
+        previewKind: "image",
+      },
+    ];
+    lifecycle.getFileMetadata.mockResolvedValue({
+      preview_kind: "image",
+      etag: "m1",
+    });
+
+    render(<FilesWorkspace scope={scope} />);
+    // The mount hydration loads empty-content tabs exactly once; tab
+    // activation must not add anything on top of it.
+    await waitFor(() =>
+      expect(lifecycle.getFileMetadata).toHaveBeenCalledTimes(1),
+    );
+    await act(async () => {
+      lifecycle.editorProps?.onTabSelect("shot.png");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "shot.png",
+    );
+    expect(lifecycle.getFileMetadata).toHaveBeenCalledTimes(1);
+    expect(lifecycle.loadFileText).not.toHaveBeenCalled();
+    // One call is the mount hydration of the empty-content tab; a second
+    // would mean activation tried to revalidate a preview-kind tab.
+    expect(lifecycle.setTabContent).toHaveBeenCalledTimes(1);
+  });
+
+  it("revalidates the newly selected editor tab", async () => {
+    lifecycle.tabs = [
+      {
+        path: "a.md",
+        content: "A",
+        dirty: false,
+        source: "workspace",
+        previewKind: "text",
+      },
+      {
+        path: "b.md",
+        content: "old-b",
+        dirty: false,
+        source: "workspace",
+        previewKind: "text",
+      },
+    ];
+    lifecycle.activeTabPath = "a.md";
+    lifecycle.loadFileText.mockImplementation(async (path: string) =>
+      path === "b.md"
+        ? { content: "new-b", etag: "e2" }
+        : { content: "A", etag: "e1" },
+    );
+
+    render(<FilesWorkspace scope={scope} />);
+    await act(async () => {
+      lifecycle.editorProps?.onTabSelect("b.md");
+    });
+
+    expect(lifecycle.loadFileText).toHaveBeenCalledWith(
+      "b.md",
+      undefined,
+      undefined,
+      undefined,
+    );
+    await waitFor(() =>
+      expect(lifecycle.setTabContent).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "b.md",
+        "new-b",
+      ),
+    );
+  });
+
+  it("revalidates the restored active tab once on mount (drawer reopen)", async () => {
+    lifecycle.tabs = [
+      {
+        path: "notes.md",
+        content: "old",
+        dirty: false,
+        source: "workspace",
+        previewKind: "text",
+      },
+    ];
+    lifecycle.activeTabPath = "notes.md";
+    lifecycle.loadFileText.mockResolvedValue({ content: "new", etag: "v2" });
+
+    render(<FilesWorkspace scope={scope} />);
+
+    await waitFor(() =>
+      expect(lifecycle.setTabContent).toHaveBeenCalledWith(
+        "agent:agent-a",
+        "notes.md",
+        "new",
+      ),
+    );
+    expect(lifecycle.setActiveTab).toHaveBeenCalledWith(
+      "agent:agent-a",
+      "notes.md",
     );
   });
 });
