@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WORKSPACE_MARKDOWN_FILENAMES,
-  isDefaultWorkspaceMarkdown,
+  isWorkspaceMarkdown,
 } from "./defaultWorkspaceMarkdown";
 
 describe("defaultWorkspaceMarkdown", () => {
@@ -15,14 +15,17 @@ describe("defaultWorkspaceMarkdown", () => {
       "BOOTSTRAP.md",
     ]);
     expect(
-      DEFAULT_WORKSPACE_MARKDOWN_FILENAMES.every(isDefaultWorkspaceMarkdown),
+      DEFAULT_WORKSPACE_MARKDOWN_FILENAMES.every(isWorkspaceMarkdown),
     ).toBe(true);
   });
 
-  it("rejects user-created Markdown files", () => {
-    expect(isDefaultWorkspaceMarkdown("analysis.md")).toBe(false);
-    expect(isDefaultWorkspaceMarkdown("xiaomi_stock_analysis_2026.md")).toBe(
-      false,
-    );
+  it("recognizes user-created workspace Markdown files", () => {
+    expect(isWorkspaceMarkdown("FILES.md")).toBe(true);
+    expect(isWorkspaceMarkdown("WORKFLOW.md")).toBe(true);
+  });
+
+  it("rejects non-Markdown files", () => {
+    expect(isWorkspaceMarkdown("avatar.png")).toBe(false);
+    expect(isWorkspaceMarkdown("notes.txt")).toBe(false);
   });
 });
