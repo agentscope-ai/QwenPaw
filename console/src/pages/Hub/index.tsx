@@ -687,27 +687,37 @@ export default function HubPage() {
                       )}
                       <Select
                         allowClear
-                        value={runtimeState}
+                        value={runtimeState ?? ""}
                         placeholder={t("hub.table.allStates")}
                         className={styles.filterSelect}
-                        onChange={setRuntimeState}
-                        options={Object.keys(STATE_COLORS).map((state) => ({
-                          value: state,
-                          label: t(`hub.runtimeStates.${state}`),
-                        }))}
+                        onChange={(value) =>
+                          setRuntimeState(value || undefined)
+                        }
+                        options={[
+                          { value: "", label: t("hub.table.allStates") },
+                          ...Object.keys(STATE_COLORS).map((state) => ({
+                            value: state,
+                            label: t(`hub.runtimeStates.${state}`),
+                          })),
+                        ]}
                       />
                       <Select
                         allowClear
-                        value={runtimeExecution}
+                        value={runtimeExecution ?? ""}
                         placeholder={t("hub.table.allExecutions")}
                         className={styles.filterSelect}
-                        onChange={setRuntimeExecution}
-                        options={Object.keys(
-                          health?.provisioner_statuses || {},
-                        ).map((name) => ({
-                          value: name,
-                          label: t(`hub.runtimes.${name}Execution`),
-                        }))}
+                        onChange={(value) =>
+                          setRuntimeExecution(value || undefined)
+                        }
+                        options={[
+                          { value: "", label: t("hub.table.allExecutions") },
+                          ...Object.keys(
+                            health?.provisioner_statuses || {},
+                          ).map((name) => ({
+                            value: name,
+                            label: t(`hub.runtimes.${name}Execution`),
+                          })),
+                        ]}
                       />
                     </>
                   }
@@ -759,8 +769,16 @@ export default function HubPage() {
                               <EntityCell
                                 icon={<Users size={16} />}
                                 title={
-                                  runtime.owner_username ||
-                                  runtime.owner_user_id
+                                  <>
+                                    {runtime.owner_username ||
+                                      runtime.owner_user_id}
+                                    {runtime.owner_role === "admin" && (
+                                      <>
+                                        {" "}
+                                        <Tag>{t("hub.roles.admin")}</Tag>
+                                      </>
+                                    )}
+                                  </>
                                 }
                                 detail={runtime.owner_user_id}
                               />
@@ -1987,7 +2005,7 @@ function EntityCell({
   detail,
 }: {
   icon: React.ReactNode;
-  title: string;
+  title: React.ReactNode;
   detail: string;
 }) {
   return (

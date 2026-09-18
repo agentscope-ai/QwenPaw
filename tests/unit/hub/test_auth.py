@@ -211,7 +211,7 @@ def test_user_pages_filter_without_loading_all_accounts(
     assert admins[0].username == "member-4"
 
 
-def test_usernames_are_loaded_in_one_batch(tmp_path: Path) -> None:
+def test_users_are_loaded_in_one_batch(tmp_path: Path) -> None:
     auth = _auth_service(tmp_path)
     owner, _ = auth.register("owner", "safe-password")
     member = auth.create_user(
@@ -219,14 +219,15 @@ def test_usernames_are_loaded_in_one_batch(tmp_path: Path) -> None:
         password="safe-password",
     )
 
-    usernames = auth.get_usernames(
+    users = auth.get_users(
         {owner.user_id, member.user_id, "missing-user"},
     )
 
-    assert usernames == {
-        owner.user_id: "owner",
-        member.user_id: "member",
+    assert users == {
+        owner.user_id: owner,
+        member.user_id: member,
     }
+    assert users[owner.user_id].role == "admin"
 
 
 def test_change_password_rotates_token_and_preserves_username(

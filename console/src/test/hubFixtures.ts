@@ -24,6 +24,7 @@ export function runtime(overrides: Partial<HubRuntime> = {}): HubRuntime {
     tenant_id: "personal-user-a",
     owner_user_id: "user-a",
     owner_username: "owner",
+    owner_role: "user",
     provisioner: "local",
     host: "127.0.0.1",
     port: 32001,

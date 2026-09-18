@@ -208,19 +208,19 @@ def create_hub_app(  # pylint: disable=too-many-statements
         return _runtime_payload(
             runtime_service,
             record,
-            owner_username=owner.username if owner else None,
+            owner=owner,
         )
 
     async def runtime_payloads(records: list[Any]) -> list[dict[str, Any]]:
-        owner_usernames = await run_in_threadpool(
-            hub_auth.get_usernames,
+        owners = await run_in_threadpool(
+            hub_auth.get_users,
             {record.owner_user_id for record in records},
         )
         return [
             _runtime_payload(
                 runtime_service,
                 record,
-                owner_username=owner_usernames.get(record.owner_user_id),
+                owner=owners.get(record.owner_user_id),
             )
             for record in records
         ]
@@ -1790,10 +1790,11 @@ def _runtime_payload(
     service: RuntimeService,
     record: Any,
     *,
-    owner_username: str | None,
+    owner: HubUser | None,
 ) -> dict[str, Any]:
     payload = record.to_dict()
-    payload["owner_username"] = owner_username
+    payload["owner_username"] = owner.username if owner else None
+    payload["owner_role"] = owner.role if owner else None
     payload["endpoint"] = f"http://{record.host}:{record.port}"
     payload["security_level"] = service.security_level(record.provisioner)
     return payload

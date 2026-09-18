@@ -15,6 +15,7 @@ export interface HubRuntime {
   tenant_id: string;
   owner_user_id: string;
   owner_username: string | null;
+  owner_role: HubUser["role"] | null;
   provisioner: string;
   host: string;
   port: number;

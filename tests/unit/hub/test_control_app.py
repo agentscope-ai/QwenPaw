@@ -1478,6 +1478,7 @@ def test_hub_lists_use_server_side_pagination_and_filters(
         assert filtered.json()["total"] == 1
         assert filtered.json()["items"][0]["runtime_id"] == "runtime-3"
         assert filtered.json()["items"][0]["owner_username"] == "member-3"
+        assert filtered.json()["items"][0]["owner_role"] == "user"
 
         username_search = client.get(
             "/api/hub/runtimes?q=owner",
@@ -1518,6 +1519,7 @@ def test_deleted_runtime_owner_returns_no_username(tmp_path: Path) -> None:
     assert created.json()["owner_username"] == "former-member"
     assert runtimes.status_code == 200
     assert runtimes.json()["items"][0]["owner_username"] is None
+    assert runtimes.json()["items"][0]["owner_role"] is None
 
 
 def test_operations_overview_and_audit_are_real_and_sanitized(
