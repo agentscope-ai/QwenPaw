@@ -396,7 +396,7 @@ describe("LocalModelManageModal", () => {
 
       // the custom model section title (translation key) must be shown
       expect(
-        screen.getByText("models.localCustomModelTitle"),
+        await screen.findByText("models.localCustomModelTitle"),
       ).toBeInTheDocument();
 
       // the input must be shown
