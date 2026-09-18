@@ -7,6 +7,8 @@ import { installHostExternals } from "./plugins/hostExternals";
 import "./layouts/registry/builtinMenu";
 import "./layouts/registry/builtinRoutes.tsx";
 
+const INITIAL_RENDER_TIMEOUT_MS = 3000;
+
 // Expose host dependencies (React, antd, etc.) on window
 // so that plugin UI modules can use them without bundling their own copies.
 installHostExternals();
@@ -52,10 +54,15 @@ if (typeof window !== "undefined") {
   };
 }
 
-i18nReady
-  .catch((error: unknown) => {
+const i18nSettled = Promise.race([
+  i18nReady.catch((error: unknown) => {
     console.error("Failed to initialize translations:", error);
-  })
-  .finally(() => {
-    createRoot(document.getElementById("root")!).render(<App />);
-  });
+  }),
+  new Promise<void>((resolve) => {
+    window.setTimeout(resolve, INITIAL_RENDER_TIMEOUT_MS);
+  }),
+]);
+
+void i18nSettled.then(() => {
+  createRoot(document.getElementById("root")!).render(<App />);
+});

@@ -4,7 +4,7 @@ import en from "./locales/en.json";
 
 type LocaleResource = Record<string, unknown>;
 
-const localeLoaders = {
+export const localeLoaders = {
   en: () => Promise.resolve(en),
   ru: () => import("./locales/ru.json").then((module) => module.default),
   zh: () => import("./locales/zh.json").then((module) => module.default),
@@ -35,12 +35,15 @@ function resolveSupportedLanguage(language: string): SupportedLanguage {
   return byPrefix ?? "en";
 }
 
-function loadLocale(language: string): Promise<LocaleResource> {
+export function loadLocale(language: string): Promise<LocaleResource> {
   const locale = resolveSupportedLanguage(language);
   const cached = localeCache.get(locale);
   if (cached) return cached;
 
-  const loading = localeLoaders[locale]();
+  const loading = localeLoaders[locale]().catch((error: unknown) => {
+    localeCache.delete(locale);
+    throw error;
+  });
   localeCache.set(locale, loading);
   return loading;
 }
@@ -53,21 +56,27 @@ const localeBackend: BackendModule = {
       .then((resource) => callback(null, resource))
       .catch((error: unknown) => {
         // English is bundled, so a failed optional locale must not prevent
-        // the console from starting.
-        callback(
-          null,
-          resolveSupportedLanguage(language) === "en" ? undefined : en,
+        // the console from starting, but the degradation must be visible.
+        console.error(
+          `Failed to load locale "${language}", falling back:`,
+          error,
         );
-        if (resolveSupportedLanguage(language) === "en") {
-          console.error("Failed to load English locale:", error);
-        }
+        callback(null, en);
       });
   },
 };
 
 const initialLanguage =
   localStorage.getItem("language") || navigator.language || "en";
-const supportedLngs = [...Object.keys(localeLoaders), "pt"];
+const localeCodes = Object.keys(localeLoaders) as SupportedLanguage[];
+// nonExplicitSupportedLngs reduces a region-qualified code to its language
+// part before matching supportedLngs, so "pt-BR" is looked up as "pt" and
+// rejected unless that alias is also registered.
+const languageOnlyAliases = localeCodes
+  .filter((code) => code.includes("-"))
+  .map((code) => code.split("-")[0])
+  .filter((code) => !localeCodes.includes(code as SupportedLanguage));
+const supportedLngs = [...localeCodes, ...languageOnlyAliases];
 
 const i18n = createInstance();
 

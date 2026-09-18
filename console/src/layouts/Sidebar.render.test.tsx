@@ -402,6 +402,36 @@ describe("Sidebar", () => {
     expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
   });
 
+  it("refreshes collapsed menu labels when the language changes", async () => {
+    mockMobileViewport(true);
+    mocks.menuItems = [
+      {
+        ...workspaceItem,
+        label: () => (mocks.language === "ja" ? "ワークスペース" : "Workspace"),
+      },
+    ];
+
+    const view = renderSidebar();
+    expect(
+      await screen.findByRole("button", { name: "Workspace" }),
+    ).toBeVisible();
+
+    mocks.language = "ja";
+    view.rerender(
+      <>
+        <Sidebar selectedKey="core.workspace" />
+        <LocationProbe />
+      </>,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "ワークスペース" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Workspace" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("navigates to the chat path from the sticky chat button", async () => {
     renderSidebar();
     fireEvent.click(screen.getByRole("button", { name: "New task" }));

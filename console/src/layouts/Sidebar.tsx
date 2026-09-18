@@ -88,7 +88,8 @@ export default function Sidebar({
 }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language;
   const { message } = useAppMessage();
   const { isDark } = useTheme();
   const [authEnabled, setAuthEnabled] = useState(false);
@@ -176,7 +177,7 @@ export default function Sidebar({
     [focusItemIdSet, hiddenPluginItemIdSet, rawSettingsMenu],
   );
 
-  const selectedFlatNav = (() => {
+  const selectedFlatNav = useMemo(() => {
     const entries = [
       ...flattenMenu(agentMenu, routes, 16),
       ...flattenMenu(selectedSettingsMenu, routes, 16),
@@ -185,7 +186,7 @@ export default function Sidebar({
       ...new Map(entries.map((entry) => [entry.key, entry])).values(),
     ];
     return orderSidebarEntries(uniqueEntries, focusItemIds);
-  })();
+  }, [agentMenu, focusItemIds, routes, selectedSettingsMenu, language]);
   const inboxEntry = selectedFlatNav.find(
     (entry) => entry.key === "core.inbox",
   );
@@ -396,6 +397,7 @@ export default function Sidebar({
     routes,
     hasInboxUnread,
     inboxDotColor,
+    language,
   ]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────

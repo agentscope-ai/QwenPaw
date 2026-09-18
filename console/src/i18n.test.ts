@@ -17,6 +17,11 @@ async function freshI18n() {
   return mod.default;
 }
 
+async function freshI18nModule() {
+  vi.resetModules();
+  return import("./i18n");
+}
+
 describe("i18n initial language (#1604)", () => {
   afterEach(() => {
     localStorage.clear();
@@ -59,6 +64,41 @@ describe("i18n initial language (#1604)", () => {
     await i18n.changeLanguage("pt-BR");
 
     expect(i18n.t("common.loading")).toBe("Carregando...");
+  });
+
+  it("retries a locale after its first load fails", async () => {
+    const mod = await freshI18nModule();
+    const loader = vi
+      .spyOn(mod.localeLoaders, "zh")
+      .mockRejectedValueOnce(new Error("network error"))
+      .mockResolvedValueOnce({ common: { loading: "加载中..." } });
+
+    await expect(mod.loadLocale("zh")).rejects.toThrow("network error");
+    await expect(mod.loadLocale("zh")).resolves.toEqual({
+      common: { loading: "加载中..." },
+    });
+    expect(loader).toHaveBeenCalledTimes(2);
+  });
+
+  it("logs and falls back to English when a locale fails to load", async () => {
+    const mod = await freshI18nModule();
+    const error = new Error("network error");
+    vi.spyOn(mod.localeLoaders, "zh").mockRejectedValueOnce(error);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const i18n = mod.default;
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+    await i18n.changeLanguage("zh");
+
+    expect(consoleError).toHaveBeenCalledWith(
+      'Failed to load locale "zh", falling back:',
+      error,
+    );
+    expect(i18n.t("common.loading")).toBe("Loading...");
   });
 
   it("uses the initialized instance for built-in menu labels", async () => {
