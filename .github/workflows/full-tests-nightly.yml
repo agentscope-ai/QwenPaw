@@ -77,6 +77,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Linux isolation dependency
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if sysctl kernel.apparmor_restrict_unprivileged_userns \
+            >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
       - name: Set up Node.js (for console build)
         uses: actions/setup-node@v4
         with:

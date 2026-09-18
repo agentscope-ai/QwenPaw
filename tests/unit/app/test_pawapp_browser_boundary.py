@@ -22,6 +22,16 @@ def test_scoped_cookie_cannot_read_core_or_another_app(monkeypatch):
     def core():
         return {"core": True}
 
+    assets = APIRouter(prefix="/pawapps")
+
+    @assets.get("/{app_id}/static/{file_path:path}")
+    def asset(app_id: str, file_path: str):
+        return {"app": app_id, "file": file_path}
+
+    api = APIRouter(prefix="/api")
+    api.include_router(assets)
+    app.include_router(api)
+
     router = APIRouter()
 
     @router.get("/collision")
@@ -60,6 +70,20 @@ def test_scoped_cookie_cannot_read_core_or_another_app(monkeypatch):
         assert (
             client.get(
                 "/api/agents/collision",
+                headers=headers,
+            ).status_code
+            == 401
+        )
+        assert (
+            client.get(
+                "/api/pawapps/my_app/static/index.html",
+                headers=headers,
+            ).status_code
+            == 200
+        )
+        assert (
+            client.get(
+                "/api/pawapps/other_app/static/index.html",
                 headers=headers,
             ).status_code
             == 401

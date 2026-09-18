@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Authorize browser reads against the runtime's actual route ownership."""
 
+from typing import Any
 from urllib.parse import unquote
 
 from starlette.routing import Match
@@ -18,6 +19,21 @@ def browser_prefixes(registry, app_id: str) -> list[str]:
         for registration in registry.get_http_router_registrations()
         if registration.plugin_id == app_id
     ]
+
+
+def _match_route(route: Any, scope: Scope) -> tuple[str, Scope] | None:
+    """Resolve included routers while preserving effective paths and order."""
+    candidates = getattr(route, "effective_candidates", None)
+    if candidates is not None:
+        for candidate in candidates():
+            matched = _match_route(candidate, scope)
+            if matched is not None:
+                return matched
+        return None
+    match, child_scope = route.matches(scope)
+    if match is Match.FULL:
+        return getattr(route, "path", ""), child_scope
+    return None
 
 
 def browser_read_allowed(scope: Scope, app_id: str) -> bool:
@@ -38,10 +54,11 @@ def browser_read_allowed(scope: Scope, app_id: str) -> bool:
     ):
         return False
     for route in app.router.routes:
-        match, child_scope = route.matches(scope)
-        if match is not Match.FULL:
+        matched = _match_route(route, scope)
+        if matched is None:
             continue
-        if route.path in {
+        route_path, child_scope = matched
+        if route_path in {
             "/api/frontend_plugin/{plugin_id}/files/{file_path:path}",
             "/api/pawapps/{app_id}/static/{file_path:path}",
         }:
