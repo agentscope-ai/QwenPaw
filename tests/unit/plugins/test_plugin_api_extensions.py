@@ -959,3 +959,16 @@ class TestFireWorkspaceCreatedHooks:
         )
 
         assert "ws-1" in second_called
+
+    @pytest.mark.asyncio
+    async def test_plugin_api_run_sync(self, plugin_api):
+        import threading
+        loop_tid = threading.get_ident()
+
+        def worker_task(x, y):
+            worker_tid = threading.get_ident()
+            return x + y, worker_tid
+
+        result, worker_tid = await plugin_api.run_sync(worker_task, 10, 20)
+        assert result == 30
+        assert worker_tid != loop_tid
