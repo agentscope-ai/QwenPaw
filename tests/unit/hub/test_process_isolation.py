@@ -153,7 +153,6 @@ def test_linux_command_mounts_only_runtime_root_writable(
     launch = isolator.prepare(record, ["python", "-m", "qwenpaw"], {})
 
     args = launch.command
-    bind_index = args.index("--bind")
     tmp_index = next(
         index
         for index, value in enumerate(args)
@@ -165,8 +164,22 @@ def test_linux_command_mounts_only_runtime_root_writable(
         if value == "--ro-bind"
     }
     repository = Path(__file__).parents[3]
-    assert tmp_index < bind_index
-    assert args[bind_index + 1] == str(record.working_dir.parent)
+    mounts = {
+        target: (source, index)
+        for index, value in enumerate(args)
+        if value == "--bind"
+        for source, target in [args[index + 1 : index + 3]]
+    }
+    assert {target: source for target, (source, _) in mounts.items()} == {
+        "/": str(record.working_dir.parent / "filesystem"),
+        "/workspace": str(record.working_dir.resolve()),
+        "/secrets": str(record.secret_dir.resolve()),
+        "/backups": str(record.backup_dir.resolve()),
+    }
+    assert mounts["/"][1] < tmp_index < mounts["/workspace"][1]
+    assert args[args.index("--chdir") + 1] == "/workspace"
+    assert launch.environment["HOME"] == "/workspace"
+    assert launch.environment["QWENPAW_WORKING_DIR"] == "/workspace"
     assert str(record.working_dir.parent.parent) not in args
     assert str(repository / "packages" / "qwenpawmail-mcp" / "src") in (
         read_only_sources
@@ -625,3 +638,96 @@ def test_macos_sandbox_cli_can_reach_only_its_runtime(tmp_path):
     assert result.returncode == 0, result.stderr
     assert '"id": "sandbox-agent"' in result.stdout
     assert "sandbox CLI OK; other port denied" in result.stdout
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Requires bubblewrap")
+def test_linux_runtime_filesystem_is_shared_and_persistent(tmp_path):
+    """All tools share user-created directories across runtime restarts."""
+    record = _record(tmp_path)
+    (record.working_dir / "tmp").mkdir()
+    other = _record(tmp_path, runtime_id="other-user")
+    environment = LocalProcessRuntimeProvisioner.runtime_environment(
+        record,
+        {"QWENPAW_RUNTIME_INTERNAL_TOKEN": "sandbox-test-token"},
+    )
+    script = textwrap.dedent(
+        f"""
+        import asyncio
+        import os
+        from pathlib import Path
+        from qwenpaw.agents.tools.file_io import write_file
+        from qwenpaw.agents.tools.shell import _execute_in_sandbox
+        from qwenpaw.sandbox import SandboxConfig, SandboxMode
+
+        assert Path.cwd() == Path('/workspace')
+        assert Path.home() == Path('/workspace')
+        assert not Path({str(record.working_dir)!r}).exists()
+        assert not Path({str(other.working_dir)!r}).exists()
+        Path('/user-created').mkdir()
+        asyncio.run(write_file('/user-created/hello.svg', 'file-tool'))
+        config = SandboxConfig(
+            mode=SandboxMode.BUBBLEWRAP,
+            workspace_dir='/workspace',
+        )
+        command = (
+            'test "$(pwd)" = /workspace && '
+            'test "$(cat /user-created/hello.svg)" = file-tool && '
+            'printf shell > /user-created/from-shell && '
+            'python -c "from pathlib import Path; '
+            "assert Path('/user-created/from-shell').read_text() == 'shell'; "
+            "Path('/user-created/from-python').write_text('python')" + '" && '
+            'qwenpaw --version'
+        )
+        result = asyncio.run(_execute_in_sandbox(
+            command, config, 30, '/workspace', dict(os.environ),
+        ))
+        assert result.exit_code == 0, result.stderr
+        assert Path('/user-created/from-python').read_text() == 'python'
+        print('shared-filesystem-ok')
+        """,
+    )
+    isolator = LinuxBubblewrapIsolator()
+    launch = isolator.prepare(
+        record,
+        [sys.executable, "-c", script],
+        environment,
+    )
+    result = subprocess.run(
+        launch.command,
+        env=launch.environment,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "shared-filesystem-ok" in result.stdout
+    restarted = isolator.prepare(
+        record,
+        ["/bin/cat", "/user-created/from-python"],
+        environment,
+    )
+    result = subprocess.run(
+        restarted.command,
+        env=restarted.environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "python"
+    isolated_user = isolator.prepare(
+        other,
+        ["/bin/sh", "-c", "test ! -e /user-created"],
+        environment,
+    )
+    result = subprocess.run(
+        isolated_user.command,
+        env=isolated_user.environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
