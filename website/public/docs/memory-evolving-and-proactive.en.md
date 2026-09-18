@@ -4,12 +4,12 @@
 
 QwenPaw has two related but currently **independent** paths:
 
-| Path             | Input                                      | Output                                            |
-| ---------------- | ------------------------------------------ | ------------------------------------------------- |
-| Memory evolution | Daily memory under `memory/`               | Durable knowledge in `digest/` + `interests.yaml` |
-| `/proactive`     | Recent chat sessions + optional screenshot | One message prefixed with `[PROACTIVE]`           |
+| Path             | Input                                      | Output                                  |
+| ---------------- | ------------------------------------------ | --------------------------------------- |
+| Memory evolution | Daily memory under `memory/`               | Durable knowledge in `digest/`          |
+| `/proactive`     | Recent chat sessions + optional screenshot | One message prefixed with `[PROACTIVE]` |
 
-`/proactive` does **not** read `digest/` or `interests.yaml` today. See “Current boundary” at the end of this page.
+`/proactive` does **not** read `digest/` today. See “Current boundary” at the end of this page.
 
 <p align="center">
   <img src="https://img.alicdn.com/imgextra/i3/O1CN01mG5Uot1GQdX33v4h4_!!6000000000617-55-tps-1200-640.svg" alt="QwenPaw long-term memory from capture and consolidation to retrieval and discovery" />
@@ -85,25 +85,9 @@ Auto-Dream does not re-read all of `memory/` every day:
 
 That is why long-term memory can be corrected indefinitely without losing history: conclusions are mutable, the record of the moment is not.
 
-### Interest topics, produced along the way
+### Auto-Dream and proactive mode remain separate
 
-While consolidating durable nodes, Auto-Dream also picks a small set of non-repetitive interest topics from recent evidence — up to three by default — and writes them to `memory/<date>/interests.yaml`:
-
-```yaml
-- title: Verify the emergency rollback path
-  reason: The hotfix exception was added, but the follow-up checks are not yet documented.
-  evidence:
-    - Emergency staging bypass discussed in the hotfix retrospective.
-  keywords: [hotfix, rollback, release]
-  paths:
-    - memory/2026-08-20/hotfix-retrospective.md
-```
-
-Each topic carries a reason, evidence, keywords, and relevant paths — so it does not just claim “you may care about X,” it can also explain why. Generation also checks the topics produced over the last seven days to avoid suggesting the same thing every day. ReMe exposes a low-level `proactive` job that reads this file for other integrations; a missing file returns a normal skipped result rather than an error.
-
-<p align="center">
-  <img src="https://img.alicdn.com/imgextra/i1/O1CN01ddkg0rN9DXK49o5c_!!6000000001181-0-tps-2048-796.jpg" alt="Auto-Dream integration results and interest-topic summary" />
-</p>
+Auto-Dream only consolidates daily memory into durable `digest/` nodes. It no longer generates `interests.yaml`. QwenPaw's `/proactive` mode continues to derive possible next steps from recent sessions and optional screen context; it does not depend on Auto-Dream output.
 
 ---
 
