@@ -156,15 +156,99 @@ class MCPDriverHandler(DriverHandler):
         context: PolicyContext,
         **kwargs: Any,
     ) -> Any:
-        """Call MCP tool on underlying client."""
-        del credential
+        """Call MCP tool on underlying client.
+
+        Credentials are resolved on every invoke (see ``_guarded_execute``).
+        Apply any refreshed OAuth Bearer token to the *live* HTTP client
+        before ``call_tool``: the client was connected with setup-time
+        headers, and discarding ``credential`` left expired Authorization
+        in place until a full reconnect.
+        """
         del context
         if self._client is None:
             raise RuntimeError(f"MCP driver '{self.name}' is not connected")
+        await self._apply_resolved_auth(credential)
         return await self._client.call_tool(
             str(kwargs["tool_name"]),
             dict(kwargs.get("arguments") or {}),
         )
+
+    async def _apply_resolved_auth(
+        self,
+        credential: ResolvedCredential,
+    ) -> None:
+        """Push a refreshed access_token onto the connected MCP client."""
+        token = str(
+            credential.values.get("access_token")
+            or credential.values.get("token")
+            or "",
+        ).strip()
+        if not token:
+            return
+        auth_value = f"Bearer {token}"
+        await self._set_client_authorization(self._client, auth_value)
+
+    @staticmethod
+    def _replace_authorization(
+        headers: dict[str, str] | None,
+        auth_value: str,
+    ) -> dict[str, str]:
+        updated = {
+            key: value
+            for key, value in dict(headers or {}).items()
+            if key.casefold() != "authorization"
+        }
+        updated["Authorization"] = auth_value
+        return updated
+
+    async def _set_client_authorization(
+        self,
+        client: Any,
+        auth_value: str,
+    ) -> None:
+        """Update Authorization on Auto/stateless/stateful MCP clients."""
+        if client is None:
+            return
+
+        # HttpAutoClient delegates to ``_impl`` (modern or legacy).
+        impl = getattr(client, "_impl", None)
+        targets = [client]
+        if impl is not None:
+            targets.append(impl)
+
+        previous_auth = ""
+        for target in targets:
+            if getattr(target, "headers", None) is not None:
+                previous = dict(target.headers or {})
+                if not previous_auth:
+                    previous_auth = str(
+                        previous.get("Authorization")
+                        or previous.get("authorization")
+                        or "",
+                    )
+                target.headers = self._replace_authorization(
+                    previous,
+                    auth_value,
+                )
+            http = getattr(target, "_http", None)
+            if http is not None and getattr(http, "headers", None) is not None:
+                # httpx Headers is mutable and case-insensitive.
+                http.headers["Authorization"] = auth_value
+
+        # Stateful SSE / handshake-era transports bake headers at connect.
+        # Reload only when Authorization actually changes. Stateless clients
+        # already picked up the new value via ``_http.headers`` above.
+        if previous_auth == auth_value:
+            return
+        stateful = impl if impl is not None else client
+        if getattr(stateful, "_http", None) is not None:
+            return
+        # HTTP stateful clients expose ``url``; StdIO does not need auth reload.
+        if not getattr(stateful, "url", None):
+            return
+        reload = getattr(stateful, "reload", None)
+        if callable(reload):
+            await reload()
 
     async def list_tools(self) -> Any:
         """Delegate to underlying MCP client list_tools."""
