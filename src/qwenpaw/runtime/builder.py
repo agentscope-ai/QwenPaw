@@ -487,8 +487,9 @@ class AgentBuilder:
                 "management so evicted history stays accessible",
             )
             scroll = None
+        scroll_recall_notice = ""
         if scroll is not None:
-            self._append_scroll_recall_tools(
+            scroll_recall_notice = self._append_scroll_recall_tools(
                 extra_tools,
                 scroll,
                 agent_config,
@@ -521,6 +522,8 @@ class AgentBuilder:
             ctx,
             agent_config,
         )
+        if scroll_recall_notice:
+            sys_prompt += "\n\n" + scroll_recall_notice
         if request_context.get("source") == "portability_adaptation":
             sys_prompt += _PORTABILITY_ADAPTATION_SYSTEM_RULES
 
@@ -1192,8 +1195,8 @@ class AgentBuilder:
         agent_id: str,
         request_context: dict[str, Any],
         governor: Any,
-    ) -> None:
-        """Register scroll's recall tools onto ``extra_tools``.
+    ) -> str:
+        """Register recall tools and return any model-facing capability notice.
 
         The structured ``recall_history`` tool is ALWAYS registered: its
         expand/search/recall_tool ops are bound read-only queries (internal
@@ -1224,12 +1227,29 @@ class AgentBuilder:
                     governor,
                 ),
             )
+            return ""
         else:
             _logger.info(
                 "scroll: sandbox unavailable or disabled for "
                 "recall_history_python — registering only the structured "
                 "recall_history tool (no approval prompt, works without a "
                 "sandbox)",
+            )
+            reason = (
+                "the sandbox is disabled in security settings"
+                if getattr(governor, "sandbox_available", False)
+                else "no usable sandbox backend is available on this host"
+            )
+            return (
+                "[Recall capability] Advanced Python history recall "
+                f"(recall_history_python) is unavailable because {reason}. "
+                "The structured recall_history tool remains available for "
+                "history search, expanding archived messages, recalling tool "
+                "results, and date calculations. Use those supported "
+                "operations. If a request needs advanced Python recall, "
+                "explain this limitation to the user. This capability "
+                "limitation does not mean history is missing. Do not ask "
+                "for approval to run the omitted tool."
             )
 
     @staticmethod
