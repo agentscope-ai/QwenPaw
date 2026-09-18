@@ -13,12 +13,14 @@ from .anysearch import (
 )
 from .base import SearchProvider, format_search_results
 from .factory import get_search_provider
+from .serply import SerplyProvider
 from .tavily import TavilyProvider
 
 __all__ = [
     "SearchProvider",
     "TavilyProvider",
     "AnySearchProvider",
+    "SerplyProvider",
     "get_search_provider",
     "format_search_results",
     "_current_agent_anysearch_key",
