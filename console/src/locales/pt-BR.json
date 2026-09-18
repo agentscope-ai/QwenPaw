@@ -3205,6 +3205,7 @@
       "rename": "Rename",
       "pin": "Pin",
       "unpin": "Unpin",
+      "copyId": "Copiar ID da conversa",
       "delete": "Excluir"
     },
     "queue": {

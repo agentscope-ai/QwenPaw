@@ -102,6 +102,11 @@ def test_clean_title_keeps_answer_before_unterminated_reasoning():
     )
 
 
+def test_clean_title_keeps_complete_single_line_title():
+    title = "A" * 120
+    assert title_generator._clean_title(title) == title
+
+
 @pytest.mark.parametrize(
     "raw",
     [

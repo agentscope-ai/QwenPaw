@@ -3464,6 +3464,7 @@
       "unpin": "取消置顶",
       "pinFailed": "更新会话置顶状态失败",
       "moveToGroup": "移动到分组",
+      "copyId": "复制对话 ID",
       "delete": "删除"
     },
     "queue": {
@@ -3497,6 +3498,7 @@
       "uncategorized": "未分组",
       "cron": "定时任务对话",
       "cronShort": "定时任务",
+      "chatShort": "对话",
       "cronHint": "由定时任务运行时创建的独立对话，默认收起并固定在列表底部",
       "subagents": "与子智能体的对话",
       "subagentShort": "子智能体",

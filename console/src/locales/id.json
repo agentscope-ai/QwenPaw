@@ -1183,6 +1183,7 @@
       "rename": "Ganti nama",
       "pin": "Sematkan",
       "unpin": "Lepas sematan",
+      "copyId": "Salin ID percakapan",
       "delete": "Hapus"
     },
     "queue": {

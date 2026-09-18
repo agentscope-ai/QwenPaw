@@ -113,6 +113,7 @@ interface ListSection {
 /** Data passed to each virtual row */
 interface VirtualRowData {
   flatRows: FlatRow[];
+  groupMode: SessionGroupMode;
   unseenSessionIds: ReadonlySet<string>;
   currentSessionId: string | undefined;
   editingSessionId: string | null;
@@ -229,6 +230,8 @@ const VirtualRow = React.memo(function VirtualRow({
         <SessionItem
           sessionId={session.id!}
           name={session.name || "New Chat"}
+          updatedAt={session.updatedAt ?? session.createdAt}
+          groupMode={data.groupMode}
           channelKey={channelKey || undefined}
           channelLabel={channelLabel}
           chatStatus={session.status}
@@ -784,6 +787,7 @@ export default function SidebarSessionList({
   const virtualListData = useMemo(
     () => ({
       flatRows,
+      groupMode,
       unseenSessionIds,
       currentSessionId,
       editingSessionId,
@@ -808,6 +812,7 @@ export default function SidebarSessionList({
     }),
     [
       flatRows,
+      groupMode,
       unseenSessionIds,
       currentSessionId,
       editingSessionId,

@@ -28,7 +28,7 @@ def test_no_content_parts_returns_new_chat() -> None:
 
 def test_string_content_part() -> None:
     name, first_text = _extract_placeholder_name(["Hello, world!"])
-    assert name == "Hello, wor"
+    assert name == "Hello, world!"
     assert first_text == "Hello, world!"
 
 
@@ -40,7 +40,7 @@ def test_dict_text_block() -> None:
     """
     parts = [{"type": "text", "text": "What's the weather today?"}]
     name, first_text = _extract_placeholder_name(parts)
-    assert name == "What's the"
+    assert name == "What's the weather today?"
     assert first_text == "What's the weather today?"
 
 
@@ -63,7 +63,7 @@ def test_dict_with_non_string_text_is_treated_as_media() -> None:
 def test_object_with_text_attribute() -> None:
     parts = [_TextBlock("Plan a trip to Tokyo next week")]
     name, first_text = _extract_placeholder_name(parts)
-    assert name == "Plan a tri"
+    assert name == "Plan a trip to Tokyo next week"
     assert first_text == "Plan a trip to Tokyo next week"
 
 

@@ -1166,6 +1166,7 @@
       "rename": "Đổi tên",
       "pin": "Ghim",
       "unpin": "Bỏ ghim",
+      "copyId": "Sao chép ID cuộc trò chuyện",
       "delete": "Xóa"
     },
     "queue": {
