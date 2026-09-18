@@ -67,6 +67,15 @@ export function dockerReferenceParts(reference: string) {
   };
 }
 
+export function dockerReferenceKey(reference: string) {
+  if (!reference) return "";
+  const { repository, tag } = dockerReferenceParts(reference);
+  let name = repository.replace(/^(?:docker\.io|index\.docker\.io)\//, "");
+  if (!name.includes("/")) name = `library/${name}`;
+  const digest = reference.split("@")[1];
+  return digest ? `${name}@${digest}` : `${name}:${tag}`;
+}
+
 export function formatImageSize(size: number) {
   if (!size) return "—";
   const units = ["B", "KB", "MB", "GB"];
