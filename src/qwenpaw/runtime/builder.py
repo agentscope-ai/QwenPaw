@@ -1414,12 +1414,18 @@ class AgentBuilder:
             try:
                 mw = reg.factory(ctx, agent_config)
                 if mw is not None:
-                    mws.append(mw)
-            except Exception:
+                    mws.append(_wrap_plugin_middleware(mw, reg.plugin_id))
+            except Exception as exc:
                 _logger.warning(
                     "plugin %s middleware factory failed",
                     reg.plugin_id,
                     exc_info=True,
+                )
+                from qwenpaw.plugins.lifecycle import note_plugin_diagnostic
+
+                note_plugin_diagnostic(
+                    reg.plugin_id,
+                    f"middleware factory: {exc}",
                 )
 
         # Visual compression is a request-boundary middleware. It reads the
@@ -1434,6 +1440,47 @@ class AgentBuilder:
         mws.append(VisualCompressionMiddleware(visual_config))
 
         return mws
+
+
+def _wrap_plugin_middleware(mw: Any, plugin_id: str) -> Any:
+    """Keep plugin middleware faults in the plugin, not the request loop."""
+
+    if callable(mw) and not hasattr(mw, "wrap"):
+
+        def _guarded(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return mw(*args, **kwargs)
+            except Exception:
+                _logger.exception(
+                    "Plugin '%s' middleware failed; skipping",
+                    plugin_id,
+                )
+                if args:
+                    return args[0]
+                return None
+
+        return _guarded
+
+    original_wrap = getattr(mw, "wrap", None)
+    if callable(original_wrap):
+
+        def _guarded_wrap(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return original_wrap(*args, **kwargs)
+            except Exception:
+                _logger.exception(
+                    "Plugin '%s' middleware wrap failed; skipping",
+                    plugin_id,
+                )
+                if args:
+                    return args[0]
+                return None
+
+        try:
+            object.__setattr__(mw, "wrap", _guarded_wrap)
+        except Exception:
+            setattr(mw, "wrap", _guarded_wrap)
+    return mw
 
 
 __all__ = ["AgentBuilder"]

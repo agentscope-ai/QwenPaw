@@ -37,6 +37,26 @@ logger = logging.getLogger(__name__)
 
 # Global command registry: command_name -> handler instance
 _COMMAND_REGISTRY: Dict[str, BaseControlCommandHandler] = {}
+_COMMAND_OWNERS: Dict[str, str] = {}
+
+
+def _command_key(command_name: str) -> str:
+    return str(command_name or "").lstrip("/").lower()
+
+
+def _registry_key(command_name: str) -> str:
+    """Normalize a live-table key so ``foo`` and ``/foo`` occupy one row."""
+    wanted = _command_key(command_name)
+    return f"/{wanted}" if wanted else ""
+
+
+def command_owner(command_name: str) -> str | None:
+    """Return the plugin id or ``core`` occupying *command_name*."""
+    wanted = _command_key(command_name)
+    for stored in _COMMAND_REGISTRY:
+        if _command_key(stored) == wanted:
+            return _COMMAND_OWNERS.get(stored, "core")
+    return None
 
 
 def _register_defaults() -> None:
@@ -50,35 +70,66 @@ def _register_defaults() -> None:
     register_command(CheckpointCommandHandler())
 
 
-def register_command(handler: BaseControlCommandHandler) -> None:
+def register_command(
+    handler: BaseControlCommandHandler,
+    *,
+    owner: str | None = None,
+) -> None:
     """Register a control command handler.
 
     Args:
         handler: Command handler instance
+        owner: Plugin id when a plugin occupies the name. Built-in
+            boot registration omits this and may still replace itself.
 
     Raises:
-        ValueError: If command_name is empty or already registered
+        ValueError: If command_name is empty or already occupied
     """
     if not handler.command_name:
         raise ValueError(
             f"Handler {handler.__class__.__name__} has empty command_name",
         )
 
-    command = handler.command_name.lower()
-
-    if command in _COMMAND_REGISTRY:
-        logger.warning(
-            f"Overriding existing handler for command: {command}",
+    command = _registry_key(handler.command_name)
+    if not command:
+        raise ValueError(
+            f"Handler {handler.__class__.__name__} has empty command_name",
         )
+    existing = _COMMAND_REGISTRY.get(command)
+    if existing is not None:
+        existing_owner = _COMMAND_OWNERS.get(command)
+        if owner is not None:
+            from ....runtime.occupancy import occupancy_conflict
+
+            occupant = existing_owner or "core"
+            if occupant != owner:
+                raise ValueError(
+                    occupancy_conflict(
+                        "control_command",
+                        _command_key(command),
+                        occupant,
+                    ),
+                )
+        else:
+            logger.warning(
+                f"Overriding existing handler for command: {command}",
+            )
 
     _COMMAND_REGISTRY[command] = handler
+    if owner is not None:
+        _COMMAND_OWNERS[command] = owner
     logger.debug(
         f"Registered control command: {command} "
         f"-> {handler.__class__.__name__}",
     )
 
 
-def unregister_command(command_name: str) -> bool:
+def unregister_command(
+    command_name: str,
+    *,
+    expected: Any = None,
+    owner: str | None = None,
+) -> bool:
     """Remove a plugin control command handler from the global registry.
 
     Only plugin-registered commands should be removed at runtime.
@@ -87,18 +138,26 @@ def unregister_command(command_name: str) -> bool:
     Args:
         command_name: Command name to remove (e.g. ``"mystatus"``
             or ``"/mystatus"``; leading slash is stripped).
+        expected: Handler instance that must still occupy the row.
+        owner: Plugin id that must still own the row.
 
     Returns:
         ``True`` if the command was found and removed, ``False``
         otherwise.
     """
-    key = command_name.lstrip("/").lower()
-    if key not in _COMMAND_REGISTRY:
+    key = _registry_key(command_name)
+    current = _COMMAND_REGISTRY.get(key)
+    if current is None:
         logger.warning(
             f"unregister_command: '{command_name}' not found in registry",
         )
         return False
+    if expected is not None and current is not expected:
+        return False
+    if owner is not None and _COMMAND_OWNERS.get(key) != owner:
+        return False
     del _COMMAND_REGISTRY[key]
+    _COMMAND_OWNERS.pop(key, None)
     logger.info(f"Unregistered control command: /{key}")
     return True
 

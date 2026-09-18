@@ -69,7 +69,7 @@ def test_tool_names_from_meta_tolerates_malformed_tools():
 
 
 def test_force_reinstall_removed_tools_are_old_minus_new():
-    """Only tools dropped by the new manifest should be cleaned up."""
+    """Legacy helper still parses meta; upgrade delete does not use it."""
     old_tools = set(
         _tool_names_from_meta(
             {"tools": [{"name": "old_tool"}, {"name": "shared"}]},
@@ -84,8 +84,8 @@ def test_force_reinstall_removed_tools_are_old_minus_new():
 
 
 @pytest.mark.asyncio
-async def test_force_reinstall_removes_obsolete_tools_before_reload():
-    """Agent reload must not run before obsolete tool configs are deleted."""
+async def test_force_reinstall_removes_obsolete_tools_without_reload():
+    """Obsolete tool configs are deleted; agents are not rebuilt."""
     order: list[str] = []
 
     async def _fake_post_load(_request, _plugin_id):
@@ -94,9 +94,6 @@ async def test_force_reinstall_removes_obsolete_tools_before_reload():
     def _fake_remove(plugin_id, tool_names):
         del plugin_id
         order.append(f"remove:{','.join(tool_names)}")
-
-    async def _fake_reload(_request):
-        order.append("schedule_reload")
 
     record = MagicMock()
     record.manifest.id = "plug"
@@ -114,10 +111,6 @@ async def test_force_reinstall_removes_obsolete_tools_before_reload():
             side_effect=_fake_remove,
         ),
         patch(
-            "qwenpaw.app.routers.plugins._schedule_all_agents_reload",
-            new=AsyncMock(side_effect=_fake_reload),
-        ),
-        patch(
             "qwenpaw.app.routers.plugins.asyncio.to_thread",
             new=AsyncMock(
                 side_effect=lambda fn, *args: fn(*args),
@@ -131,11 +124,7 @@ async def test_force_reinstall_removes_obsolete_tools_before_reload():
             old_tools={"old_tool", "shared"},
         )
 
-    assert order == [
-        "post_load_setup",
-        "remove:old_tool",
-        "schedule_reload",
-    ]
+    assert order == ["post_load_setup"]
 
 
 def test_norm_realpath_applies_normcase(tmp_path: Path):
