@@ -20,7 +20,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Stub missing agentscope 2.0 modules so MultiAgentManager can be imported
 # in environments where agentscope 2.0 is not installed.
@@ -963,6 +962,7 @@ class TestFireWorkspaceCreatedHooks:
     @pytest.mark.asyncio
     async def test_plugin_api_run_sync(self, plugin_api):
         import threading
+
         loop_tid = threading.get_ident()
 
         def worker_task(x, y):

@@ -727,7 +727,6 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
 
         await shutdown_browser_runtime()
 
-
         local_model_mgr = getattr(app.state, "local_model_manager", None)
         if local_model_mgr is not None:
             logger.info("Stopping local model server...")

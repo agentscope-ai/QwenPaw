@@ -6,7 +6,6 @@ Verifies:
 2. Hook timeouts are enforced, preventing hangs during startup/shutdown.
 """
 
-import asyncio
 import threading
 import time
 import pytest
@@ -22,7 +21,6 @@ async def test_safe_execute_sync_hook_in_thread():
     called_thread_ids = []
 
     def sync_hook():
-        import threading
         called_thread_ids.append(threading.get_ident())
         time.sleep(0.05)
         return "done"
@@ -48,6 +46,7 @@ async def test_safe_execute_hook_timeout():
     """Test that an excessively long hook is timed out gracefully without
     crashing.
     """
+
     def hanging_hook():
         time.sleep(1.0)
 

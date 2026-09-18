@@ -153,7 +153,7 @@ class EventLoopWatchdog:
             if self._loop and self._loop.is_running():
                 try:
                     self._loop.call_soon_threadsafe(
-                        self._heartbeat_callback
+                        self._heartbeat_callback,
                     )
                 except (RuntimeError, AssertionError):
                     # Loop closed or shutting down
@@ -177,8 +177,7 @@ class EventLoopWatchdog:
 
         with self._lock:
             lag = now - self._last_heartbeat
-            if lag > self._max_lag:
-                self._max_lag = lag
+            self._max_lag = max(self._max_lag, lag)
 
             was_stalled = self._is_stalled
             if lag >= self._stall_threshold:
@@ -209,7 +208,10 @@ class EventLoopWatchdog:
             )
 
     def _capture_stall(
-        self, lag: float, now: float, continuing: bool = False
+        self,
+        lag: float,
+        now: float,
+        continuing: bool = False,
     ) -> None:
         """Capture the live call stack of the monitored loop thread and
         extract culprit.
@@ -219,7 +221,7 @@ class EventLoopWatchdog:
         if loop_thread_id is None:
             return
 
-        frames = sys._current_frames()
+        frames = sys._current_frames()  # pylint: disable=protected-access
         frame = frames.get(loop_thread_id)
         if frame is None:
             logger.warning(
@@ -259,7 +261,9 @@ class EventLoopWatchdog:
             )
 
     def _identify_culprit(
-        self, frame: Any, formatted_stack: str
+        self,
+        frame: Any,
+        formatted_stack: str,
     ) -> Optional[str]:
         """Scan stack frames from deepest to root to find culprit plugin."""
         curr = frame
