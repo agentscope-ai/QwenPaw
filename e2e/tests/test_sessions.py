@@ -14,6 +14,7 @@ Run with: pytest tests/test_sessions_p0.py -v
 from __future__ import annotations
 
 import logging
+import re
 import time
 import pytest
 from playwright.sync_api import Page, expect, TimeoutError
@@ -225,30 +226,48 @@ class TestEditAndDeleteSession:
 
         # --- Batch delete: checkbox must actually be selectable ---
         log_test_step("6. Verify batch-selection checkbox is selectable")
-        row_checkboxes = sessions_page.page.locator(
-            'tbody tr .qwenpaw-checkbox-input, '
-            'tbody tr .ant-checkbox-input, '
-            'tbody tr input[type="checkbox"]'
-        )
+        # ROW_CHECKBOX excludes the hidden measure-row: the first match of the
+        # old unqualified "tbody tr <checkbox>" selector was that row, and
+        # clicking it registers NO selection.
+        row_checkboxes = sessions_page.page.locator(sessions_page.ROW_CHECKBOX)
         cb_count = row_checkboxes.count()
         assert cb_count > 0, "No row checkboxes found (batch selection should be available)"
         first_cb = row_checkboxes.first
         first_cb.click(force=True)
         sessions_page.page.wait_for_timeout(800)
         sessions_page.step_shot("06_first_checkbox_checked")
-        # After selection, a batch-delete button should appear (fixed bar or toolbar)
-        batch_btns = sessions_page.page.locator(
-            'button.qwenpaw-btn-dangerous:has-text("Delete"), '
-            'button:has-text("Batch Delete")'
+
+        # The selection must actually register, otherwise the check below proves
+        # nothing about batch selection.
+        selected_ids = sessions_page.get_selected_row_keys()
+        assert len(selected_ids) == 1, (
+            f"Ticking one row checkbox should register exactly 1 selection, got "
+            f"{len(selected_ids)} ({selected_ids}). If this is 0 the checkbox "
+            f"locator is matching the non-selectable measure-row again."
         )
-        # This is a soft check: batch-delete button text/class varies by frontend; any dangerous button is fine
+
+        # After selection, the batch-delete button should appear. Match its
+        # label only: the Action column renders an in-row danger "Delete" link
+        # button on every row, so the previous selector
+        # 'button.qwenpaw-btn-dangerous:has-text("Delete")' matched those 10
+        # buttons even with nothing selected -- the assertion always passed
+        # (false green) and this step verified nothing.
+        batch_btns = sessions_page.page.locator(sessions_page.BATCH_DELETE_BTN_STRICT)
         assert batch_btns.count() > 0, (
-            "A batch-delete / dangerous button should appear after selecting a checkbox, but none found."
+            "The batch-delete button should appear after selecting a row checkbox, "
+            "but none was found (matched on the 'Batch Delete' label)."
         )
-        logger.info(f"Batch-delete button appeared after selecting checkbox ({batch_btns.count()})")
+        batch_btn_text = batch_btns.first.inner_text().strip()
+        assert "(1)" in batch_btn_text, (
+            f"Batch-delete button should advertise 1 selected session, got {batch_btn_text!r}"
+        )
+        logger.info(f"Batch-delete button appeared after selecting checkbox: {batch_btn_text!r}")
         # Unselect to avoid polluting the next test
         first_cb.click(force=True)
         sessions_page.page.wait_for_timeout(300)
+        assert not sessions_page.get_selected_row_keys(), (
+            "Selection should be cleared after un-ticking the checkbox"
+        )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed - edit, delete and batch-delete verified")
@@ -439,7 +458,8 @@ class TestSessionBatchDelete:
         4. Verify the batch-delete button becomes available
         5. Click the batch-delete button
         6. Confirm deletion (if a confirm dialog appears)
-        7. Verify the session count decreased
+        7. Verify the server-side session total decreased by exactly 2 and that
+           the selected ids are gone from both the page and GET /api/chats
         """
         test_name = request.node.name
 
@@ -447,19 +467,22 @@ class TestSessionBatchDelete:
         sessions_page.open()
 
         log_test_step("2. Verify at least 2 sessions exist")
-        session_count = sessions_page.get_session_count()
+        # Count DATA rows only: the table renders a hidden measure-row inside
+        # <tbody>, which the old bare "tbody tr" selector counted as a session
+        # (11 instead of 10 rows), so the "at least 2" gate below was off by one.
+        session_count = len(sessions_page.get_session_data_rows())
         if session_count < 2:
             pytest.skip(f"Insufficient sessions; need at least 2, have {session_count}")
 
         log_test_step("3. Tick checkboxes for the first two sessions")
-        # Source: Table rowSelection; each tbody tr has a checkbox.
+        # Source: Table rowSelection; each data row has a checkbox.
         # Don't tick the select-all (in thead); tick the tbody row checkboxes.
-        # Use broad selectors to cover both antd and qwenpaw prefixes
-        row_checkboxes = sessions_page.page.locator(
-            'tbody tr .qwenpaw-checkbox-input, '
-            'tbody tr .ant-checkbox-input, '
-            'tbody tr input[type="checkbox"]'
-        ).all()
+        # ROW_CHECKBOX excludes tr[aria-hidden="true"] / .measure-row /
+        # .placeholder: the FIRST match of the old unqualified selector was the
+        # measure-row checkbox, which Playwright reports as visible but whose
+        # click registers NO selection -- that silently shrank the batch from 2
+        # ids to 1 (or to 0 on nightly), turning this into a single delete.
+        row_checkboxes = sessions_page.page.locator(sessions_page.ROW_CHECKBOX).all()
         if len(row_checkboxes) < 2:
             pytest.skip(f"Not enough row checkboxes found; got {len(row_checkboxes)}")
 
@@ -471,47 +494,69 @@ class TestSessionBatchDelete:
                 sessions_page.page.wait_for_timeout(800)
                 checked_count += 1
                 logger.info(f"Ticked checkbox for session #{i + 1}")
-        assert checked_count >= 1, "At least 1 session checkbox should be ticked"
-        logger.info(f"Ticked {checked_count} session checkbox(es)")
+        assert checked_count == 2, (
+            f"Both session checkboxes should be ticked, but only {checked_count} clicked. "
+            f"If 0 registered a selection, ROW_CHECKBOX is matching the measure-row again."
+        )
+
+        # Read back what the UI actually selected (chat UUIDs via data-row-key).
+        # This is the id set the batch-delete request must carry, and the set
+        # that must be gone afterwards -- asserting on ids rather than on a row
+        # count is what makes this test pagination-proof.
+        selected_ids = sessions_page.get_selected_row_keys()
+        logger.info(f"UI reports {len(selected_ids)} selected row(s): {selected_ids}")
+        assert len(selected_ids) == 2, (
+            f"Expected the UI to register 2 selected sessions, got {len(selected_ids)} "
+            f"({selected_ids}). A selection that does not register here means the batch "
+            f"delete would carry fewer ids than intended."
+        )
 
         log_test_step("4. Verify the batch-delete button appears")
-        # Source: button Type="primary" danger renders only when selectedRowKeys.length > 0
-        # antd Button type="primary" danger may have classes qwenpaw-btn-primary + qwenpaw-btn-dangerous
-        batch_delete_btn = None
-        batch_btn_selectors = [
-            'button.qwenpaw-btn-dangerous:has-text("Delete")',
-            'button:has-text("Batch Delete")',
-            'button:has-text("Delete")',
-        ]
-        for selector in batch_btn_selectors:
-            btn = sessions_page.page.locator(selector).first
-            if btn.count() > 0 and btn.is_visible(timeout=3000):
-                batch_delete_btn = btn
-                logger.info(f"Found batch-delete button: {selector}")
-                break
+        # Source: the button renders ONLY when selectedRowKeys.length > 0
+        # (console/src/pages/Control/Sessions/index.tsx), labelled
+        # "Batch Delete (N)" via sessions.batchDeleteButton.
+        # Match on that label: the Action column renders an in-row danger
+        # "Delete" link button per row, so the old fallbacks
+        # 'button.qwenpaw-btn-dangerous:has-text("Delete")' and
+        # 'button:has-text("Delete")' matched 10 in-row buttons even with
+        # nothing selected -- the assertion passed (false green) and the click
+        # then went to a SINGLE-row delete instead of the batch one.
+        batch_delete_btn = sessions_page.page.locator(
+            sessions_page.BATCH_DELETE_BTN_STRICT
+        ).first
+        expect(batch_delete_btn).to_be_visible(timeout=5000)
+        batch_btn_text = batch_delete_btn.inner_text().strip()
+        logger.info(f"Found batch-delete button: {batch_btn_text!r}")
 
-        assert batch_delete_btn is not None, "Batch-delete button not found"
-        logger.info("Batch-delete button appeared")
+        # The label carries the selection count, e.g. "Batch Delete (2)". Parse
+        # it exactly: the button must agree that exactly len(selected_ids)
+        # sessions are selected, otherwise the request would carry a different
+        # id set than the one verified in step 3.
+        match = re.search(r"\((\d+)\)", batch_btn_text)
+        assert match, (
+            f"Batch-delete button label should carry a selection count in "
+            f"parentheses, got {batch_btn_text!r}"
+        )
+        advertised = int(match.group(1))
+        assert advertised == len(selected_ids), (
+            f"Batch-delete button advertises {advertised} selected session(s) but the "
+            f"UI registered {len(selected_ids)} ({selected_ids})"
+        )
 
         log_test_step("5. Record session count before deletion")
-        # Read BOTH counting bases now, before the deletion destroys the
-        # "before" state. The row count alone cannot prove a deletion worked:
-        # the table is paginated at 10 rows per page
-        # (console/src/pages/Control/Sessions/index.tsx), so with more than 10
-        # sessions the current page stays full at 10 after deleting some — the
-        # next page shifts up to fill it. That is why CI reported
-        # "before=11, after=11" for a deletion that actually succeeded.
-        # The "Active (N)" tab label instead carries the full server-side count
-        # (useSessions.ts: activeCount = listChats().filter(!archived).length),
-        # so it is the primary basis; the row count is kept as a fallback that
-        # is only ever compared against another row count, never against a
-        # total (mixing the two would make the assertion meaningless).
-        total_before = sessions_page.get_total_session_count()
-        rows_before = sessions_page.get_session_count()
-        logger.info(
-            f"Session count before deletion: tab-total={total_before}, "
-            f"rows-on-page={rows_before}"
+        # Use the SERVER-SIDE TOTAL ("Active (N)" tab), not the current page's
+        # row count. The table is paginated with pageSize=10 and no size
+        # changer, so with >10 sessions the first page stays full after a
+        # deletion and a page-row count cannot decrease -- that is exactly why
+        # this test failed with "before=11, after=11" while the delete itself
+        # had in fact succeeded.
+        count_before = sessions_page.get_active_session_total()
+        logger.info(f"Active session total before deletion: {count_before}")
+        assert count_before is not None and count_before >= 2, (
+            f"Could not read the active-session total from the tab label "
+            f"(got {count_before}); the page object selector needs updating."
         )
+        rows_before = sessions_page.get_page_row_ids()
 
         log_test_step("6. Click the batch-delete button")
         batch_delete_btn.click()
@@ -576,38 +621,67 @@ class TestSessionBatchDelete:
         sessions_page.page.reload()
         sessions_page.page.wait_for_load_state("domcontentloaded")
         sessions_page.page.wait_for_timeout(3000)
-        total_after = sessions_page.get_total_session_count()
-        rows_after = sessions_page.get_session_count()
+
+        # (a) Server-side total must drop by exactly the number selected.
+        # The previous assertion compared the CURRENT PAGE row count
+        # (get_session_count), which cannot decrease while the server still
+        # holds more than pageSize=10 sessions: the next page simply backfills
+        # the first page. Nightly run 34507867523 failed with
+        # "before=11, after=11" although the delete had succeeded
+        # (the failure screenshot showed "Active (13)" with a full first page).
+        # wait_for_session_total auto-retries until the tab label carries a
+        # count, because after reload() the number renders only once
+        # GET /api/chats resolves -- a fixed sleep would be racy here.
+        count_after = sessions_page.wait_for_session_total()
+        logger.info(f"Active session total after deletion: {count_after}")
+        assert count_after is not None, (
+            "Could not read the active-session total from the tab label after deletion"
+        )
+        assert count_after == count_before - len(selected_ids), (
+            f"Active session total should drop from {count_before} to "
+            f"{count_before - len(selected_ids)} after deleting {len(selected_ids)} "
+            f"session(s), but it is {count_after}. "
+            f"(Note: the table is paginated at pageSize=10, so a page-row count "
+            f"is NOT a valid global measure here.)"
+        )
         logger.info(
-            f"Session count after deletion: tab-total={total_after}, "
-            f"rows-on-page={rows_after}"
+            f"Active session total went from {count_before} down to {count_after}"
         )
 
-        # Prefer the unpaginated total; fall back to row counts only when the tab
-        # is unreadable on both sides (same-source comparison).
-        if total_before is not None and total_after is not None:
-            assert total_after < total_before, (
-                f"Session count did not decrease: before={total_before}, "
-                f"after={total_after} (source=Active tab total)"
-            )
-            logger.info(
-                f"Total session count went from {total_before} down to "
-                f"{total_after}"
-            )
-        else:
-            logger.warning(
-                "Active tab total unavailable; comparing rows on current page "
-                "(this basis cannot detect a deletion once more than one page "
-                "of sessions exists)"
-            )
-            assert rows_after < rows_before, (
-                f"Session count did not decrease: before={rows_before}, "
-                f"after={rows_after} (source=rows on current page)"
-            )
-            logger.info(
-                f"Session rows on page went from {rows_before} down to "
-                f"{rows_after}"
-            )
+        # (b) The selected ids must no longer be rendered anywhere on the page.
+        # This is the pagination-proof complement of (a): it verifies the rows
+        # that disappeared are exactly the ones we selected.
+        rows_after = sessions_page.get_page_row_ids()
+        logger.info(f"Page row ids before={len(rows_before)} after={len(rows_after)}")
+        still_present = [sid for sid in selected_ids if sid in rows_after]
+        assert not still_present, (
+            f"Deleted session id(s) {still_present} are still rendered on the "
+            f"first page after deletion and reload"
+        )
+
+        # (c) Server-side confirmation: the ids are gone from GET /api/chats.
+        # Catches the case where the UI updated optimistically while the delete
+        # never persisted (batch_delete_chats returns HTTP 200 with
+        # {"deleted": false} on failure, which the UI only surfaces as a toast).
+        remaining = sessions_page.page.evaluate(
+            """async (ids) => {
+                const resp = await fetch('/api/chats');
+                if (!resp.ok) return { ok: false, status: resp.status };
+                const chats = await resp.json();
+                const present = chats.filter(c => ids.includes(c.id)).map(c => c.id);
+                return { ok: true, total: chats.length, present };
+            }""",
+            selected_ids,
+        )
+        assert remaining.get("ok"), f"GET /api/chats failed: {remaining}"
+        assert not remaining["present"], (
+            f"GET /api/chats still returns the deleted id(s) {remaining['present']} "
+            f"-- the batch delete did not persist server-side"
+        )
+        logger.info(
+            f"Server-side confirmed: {len(selected_ids)} id(s) deleted, "
+            f"{remaining['total']} chat(s) remain"
+        )
 
         log_test_result(test_name, True, 0)
         logger.info(f"Test {test_name} passed")

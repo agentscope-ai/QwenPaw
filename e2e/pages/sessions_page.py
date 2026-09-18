@@ -84,6 +84,50 @@ class SessionsPage(BasePage):
     )
     SESSION_ROW_SELECTED = '.ant-table-tbody tr.ant-table-row-selected, .qwenpaw-table-tbody tr.qwenpaw-table-row-selected'
 
+    # Data rows only: exclude the rows antd/rc-table injects into <tbody> that
+    # carry no session data. Verified against the live DOM (2026-09-11):
+    #   - tr.qwenpaw-table-measure-row  -> aria-hidden="true", 0 <td> cells,
+    #     yet Playwright reports is_visible()==True for both the row and the
+    #     checkbox inside it, so a bare "tbody tr" locator matches it first.
+    #   - tr.qwenpaw-table-placeholder  -> the "no data" row.
+    # Keep this in sync with the exclusion list used by the ensure_session_data
+    # fixture in tests/test_sessions.py.
+    SESSION_ROW_EXCLUSIONS = (
+        ':not([aria-hidden="true"])'
+        ':not(.qwenpaw-table-placeholder)'
+        ':not(.qwenpaw-table-measure-row)'
+        ':not(.ant-table-placeholder)'
+        ':not(.ant-table-measure-row)'
+    )
+    SESSION_DATA_ROW = (
+        f'.ant-table-tbody tr{SESSION_ROW_EXCLUSIONS}, '
+        f'.qwenpaw-table-tbody tr{SESSION_ROW_EXCLUSIONS}, '
+        f'table tbody tr{SESSION_ROW_EXCLUSIONS}'
+    )
+
+    # Row checkboxes, restricted to data rows (see SESSION_ROW_EXCLUSIONS).
+    # The first match of the unqualified "tbody tr <checkbox>" selector is the
+    # measure-row checkbox: clicking it registers NO selection, which silently
+    # degrades a batch delete into a single delete.
+    ROW_CHECKBOX = (
+        f'tbody tr{SESSION_ROW_EXCLUSIONS} .qwenpaw-checkbox-input, '
+        f'tbody tr{SESSION_ROW_EXCLUSIONS} .ant-checkbox-input, '
+        f'tbody tr{SESSION_ROW_EXCLUSIONS} input[type="checkbox"]'
+    )
+
+    # Batch-delete button. Rendered ONLY while selectedRowKeys.length > 0
+    # (console/src/pages/Control/Sessions/index.tsx), labelled
+    # "Batch Delete (N)" via sessions.batchDeleteButton. The in-row Action
+    # column also renders a danger "Delete" link button, so a selector such as
+    # 'button:has-text("Delete")' matches those too and picks the WRONG button
+    # when nothing is selected. Match on the batch label instead.
+    BATCH_DELETE_BTN_STRICT = (
+        'button:has-text("Batch Delete"), button:has-text("批量删除")'
+    )
+
+    # Tab labels: "Active (N)" / "Archived (N)" -- the server-side totals.
+    SESSION_TAB = '.qwenpaw-tabs-tab, .ant-tabs-tab'
+
     # Table columns
     SESSION_ID_COL = 'td:nth-child(1)'
     SESSION_NAME_COL = 'td:nth-child(2)'
@@ -176,42 +220,107 @@ class SessionsPage(BasePage):
         return self.page.locator(self.SESSION_ROW).all()
 
     def get_session_count(self) -> int:
-        """Get the number of session rows **currently rendered on this page**.
+        """Get the number of session rows rendered on the CURRENT page.
 
-        Note: this counts rows in the table body, so it is capped by the table's
-        ``pageSize`` (10). For "did the total go down" assertions use
-        :meth:`get_total_session_count`, which reads the full server-side count
-        from the ``Active (N)`` tab label.
+        Scope: this counts DOM rows of the visible table page only -- it is the
+        right measure for filter assertions (filtered rows <= original rows) but
+        it is NOT a global session total. The table is paginated with
+        ``pageSize: 10`` and ``showSizeChanger: false``, so once the server holds
+        more than 10 sessions the first page stays full and this value stops
+        responding to deletions. Use :meth:`get_active_session_total` whenever a
+        test needs to assert that a mutation changed the server-side total.
         """
         return len(self.get_session_rows())
 
-    def get_total_session_count(self) -> Optional[int]:
-        """Total session count from the ``Active (N)`` tab label.
+    def get_session_data_rows(self) -> List[Locator]:
+        """Get session data rows only (measure-row / placeholder excluded)."""
+        return self.page.locator(self.SESSION_DATA_ROW).all()
 
-        Parses the integer in parentheses out of the active tab's text. This is
-        the full (unpaginated) count — see the ``SESSION_ACTIVE_TAB`` comment for
-        why the row count cannot be used for that. Returns ``None`` when the tab
-        cannot be found or parsed, so callers can distinguish "0 sessions" from
-        "count unavailable" instead of silently treating a miss as zero.
+    def get_active_session_total(self) -> Optional[int]:
+        """Get the server-side total of ACTIVE sessions from the "Active (N)" tab.
+
+        The tab label is rendered from ``activeCount = activeSessions.length``
+        where ``activeSessions`` comes from a full (non-paginated)
+        ``GET /api/chats`` response, so this reflects the server-side total
+        rather than the current table page. Cross-verified against
+        ``GET /api/chats`` on a live instance (2026-09-11): three consecutive
+        samples returned identical values with 14 seeded sessions.
+
+        Returns:
+            The active session total, or None if the label cannot be parsed
+            (callers get None so they can distinguish "0 sessions" from
+            "count unavailable" instead of silently treating a miss as zero).
         """
-        tab = self.page.locator(self.SESSION_ACTIVE_TAB).first
-        try:
-            if tab.count() == 0:
-                logger.warning("Session count tab not found")
-                return None
-            text = (tab.inner_text() or "").strip()
-        except Exception as exc:
-            logger.warning(f"Could not read session count tab: {exc}")
-            return None
+        tabs = self.page.locator(self.SESSION_TAB).all()
+        for tab in tabs:
+            try:
+                text = tab.inner_text().strip()
+            except Exception:
+                continue
+            # "Active (14)" -- match the first tab carrying a count; skip the
+            # archived one so the number always refers to the active set.
+            if text.lower().startswith("archived"):
+                continue
+            match = re.search(r"\((\d+)\)", text)
+            if match:
+                return int(match.group(1))
+        logger.warning(
+            "Could not parse the active-session total from tabs: %s",
+            [t.inner_text() for t in tabs] if tabs else "no tab found",
+        )
+        return None
 
-        match = re.search(r"\((\d+)\)", text)
-        if not match:
-            logger.warning(f"Session count tab has no (N) counter: {text!r}")
-            return None
+    def wait_for_session_total(self, timeout: Optional[int] = None) -> int:
+        """Wait for the "Active (N)" tab label to render a count, then return N.
 
-        total = int(match.group(1))
-        logger.info(f"Session count tab reports {total} total sessions")
+        Auto-retrying counterpart of :meth:`get_active_session_total`: it waits
+        for the tab label to carry a parenthesised number instead of relying on
+        a fixed sleep, which matters right after a reload (the count renders
+        only once GET /api/chats resolves).
+
+        Returns:
+            The active session total.
+
+        Raises:
+            AssertionError: if no count appears within the timeout.
+        """
+        timeout = timeout or self.timeout
+        first_tab = self.page.locator(self.SESSION_TAB).first
+        expect(first_tab).to_have_text(re.compile(r"\(\d+\)"), timeout=timeout)
+        total = self.get_active_session_total()
+        if total is None:
+            raise AssertionError(
+                "Active tab matched the count pattern but parsing failed"
+            )
+        logger.info(f"Active session total: {total}")
         return total
+
+    def get_selected_row_keys(self) -> List[str]:
+        """Get the chat UUIDs of the rows whose checkbox is currently ticked.
+
+        antd Table renders ``rowKey="id"`` as a ``data-row-key`` attribute on
+        each <tr>, so the ids of the selected rows can be read without relying
+        on column positions. Verified on a live DOM (2026-09-11): ticking two
+        rows returned exactly their two UUIDs. The measure-row has
+        ``data-row-key=null`` and never carries a checkbox that registers a
+        selection.
+        """
+        return self.page.evaluate(
+            """() => Array.from(
+                   document.querySelectorAll('tbody input[type="checkbox"]:checked')
+               ).map(cb => {
+                   const tr = cb.closest('tr');
+                   return tr ? tr.getAttribute('data-row-key') : null;
+               }).filter(k => k)"""
+        )
+
+    def get_page_row_ids(self) -> List[str]:
+        """Get the chat UUIDs of the data rows rendered on the current page."""
+        return self.page.evaluate(
+            """() => Array.from(document.querySelectorAll('tbody tr[data-row-key]'))
+                   .map(tr => tr.getAttribute('data-row-key'))
+                   .filter(k => k)"""
+        )
 
     def find_session_row(self, session_id: str) -> Optional[Locator]:
         """
