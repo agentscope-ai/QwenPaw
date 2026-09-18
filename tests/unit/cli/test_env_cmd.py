@@ -68,7 +68,8 @@ class TestSetCmd:
         _seed(env_file, {"MY_KEY": "old"})
 
         result = CliRunner().invoke(
-            env_mod.env_group, ["set", "MY_KEY", "new"]
+            env_mod.env_group,
+            ["set", "MY_KEY", "new"],
         )
 
         assert result.exit_code == 0
@@ -76,7 +77,8 @@ class TestSetCmd:
 
     def test_rejects_malformed_key_with_click_exception(self, env_file):
         result = CliRunner().invoke(
-            env_mod.env_group, ["set", "not a key!", "v"]
+            env_mod.env_group,
+            ["set", "not a key!", "v"],
         )
 
         assert result.exit_code != 0
@@ -84,7 +86,8 @@ class TestSetCmd:
 
     def test_rejects_lowercase_qwenpaw_key(self, env_file):
         result = CliRunner().invoke(
-            env_mod.env_group, ["set", "qwenpaw_lower", "v"]
+            env_mod.env_group,
+            ["set", "qwenpaw_lower", "v"],
         )
 
         assert result.exit_code != 0

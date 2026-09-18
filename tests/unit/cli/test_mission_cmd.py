@@ -63,7 +63,8 @@ class TestStartBuildsTheQuery:
 
     def test_task_is_required(self, http_env):
         result = CliRunner().invoke(
-            mission_mod.mission_group, ["start", "--base-url", "http://x"]
+            mission_mod.mission_group,
+            ["start", "--base-url", "http://x"],
         )
 
         assert result.exit_code != 0
@@ -97,7 +98,7 @@ class TestStartBuildsTheQuery:
         assert "--verify" not in http_env["posts"][0][1]["text"]
 
     def test_default_max_iterations_is_omitted(self, http_env):
-        """20 is the sentinel for 'not overridden', so it stays out of the query."""
+        """20 means 'not overridden', so it stays out of the query."""
         CliRunner().invoke(
             mission_mod.mission_group,
             ["start", "fix", "--base-url", "http://x"],
@@ -121,7 +122,7 @@ class TestStartBuildsTheQuery:
         assert "--max-iterations 5" in http_env["posts"][0][1]["text"]
 
     def test_explicit_twenty_is_also_omitted(self, http_env):
-        """The comparison is on the value, so passing 20 behaves like the default."""
+        """The comparison is on value: passing 20 matches the default."""
         CliRunner().invoke(
             mission_mod.mission_group,
             [
@@ -213,7 +214,8 @@ class TestPayloadContract:
 class TestStatus:
     def test_sends_the_status_query(self, http_env):
         result = CliRunner().invoke(
-            mission_mod.mission_group, ["status", "--base-url", "http://x"]
+            mission_mod.mission_group,
+            ["status", "--base-url", "http://x"],
         )
 
         assert result.exit_code == 0, result.output
@@ -221,7 +223,8 @@ class TestStatus:
 
     def test_defaults_to_the_default_agent(self, http_env):
         CliRunner().invoke(
-            mission_mod.mission_group, ["status", "--base-url", "http://x"]
+            mission_mod.mission_group,
+            ["status", "--base-url", "http://x"],
         )
 
         payload = http_env["posts"][0][1]
@@ -238,7 +241,8 @@ class TestStatus:
 
     def test_posts_to_chat_send_and_prints(self, http_env):
         CliRunner().invoke(
-            mission_mod.mission_group, ["status", "--base-url", "http://x"]
+            mission_mod.mission_group,
+            ["status", "--base-url", "http://x"],
         )
 
         assert http_env["posts"][0][0] == "/api/chat/send"
@@ -248,7 +252,8 @@ class TestStatus:
 class TestList:
     def test_sends_the_list_query(self, http_env):
         result = CliRunner().invoke(
-            mission_mod.mission_group, ["list", "--base-url", "http://x"]
+            mission_mod.mission_group,
+            ["list", "--base-url", "http://x"],
         )
 
         assert result.exit_code == 0, result.output
@@ -256,7 +261,8 @@ class TestList:
 
     def test_defaults_to_the_default_agent(self, http_env):
         CliRunner().invoke(
-            mission_mod.mission_group, ["list", "--base-url", "http://x"]
+            mission_mod.mission_group,
+            ["list", "--base-url", "http://x"],
         )
 
         assert http_env["posts"][0][1]["session_id"] == "mission:default"
@@ -271,7 +277,8 @@ class TestList:
 
     def test_posts_to_chat_send_and_prints(self, http_env):
         CliRunner().invoke(
-            mission_mod.mission_group, ["list", "--base-url", "http://x"]
+            mission_mod.mission_group,
+            ["list", "--base-url", "http://x"],
         )
 
         assert http_env["posts"][0][0] == "/api/chat/send"

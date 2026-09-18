@@ -650,7 +650,7 @@ def _chat_workspace(*, backend: str = "qwenpaw", status: str = "idle"):
     return SimpleNamespace(
         config=SimpleNamespace(backend=backend, backend_settings={}),
         task_tracker=SimpleNamespace(
-            get_status=AsyncMock(return_value=status)
+            get_status=AsyncMock(return_value=status),
         ),
         harness_runtime=SimpleNamespace(hydrate_session=AsyncMock()),
     )

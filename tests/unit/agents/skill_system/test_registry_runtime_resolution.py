@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
+# pylint: disable=use-implicit-booleaness-not-comparison
 """Unit tests for the runtime resolution layer of the skill registry.
 
 Covers the prerequisite check that never starts a process

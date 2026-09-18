@@ -64,7 +64,9 @@ class TestAuthDisabled:
         auth_env["enabled"] = False
 
         result = CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="pw\npw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="pw\npw\n",
         )
 
         assert result.exit_code == 0
@@ -105,7 +107,9 @@ class TestNoUser:
 class TestSuccessfulReset:
     def test_announces_the_target_username(self, auth_env):
         result = CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="newpw\nnewpw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="newpw\nnewpw\n",
         )
 
         assert result.exit_code == 0
@@ -115,14 +119,18 @@ class TestSuccessfulReset:
         auth_env["data"]["user"] = {"password_hash": "h"}
 
         result = CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="newpw\nnewpw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="newpw\nnewpw\n",
         )
 
         assert "Resetting password for user: <unknown>" in result.output
 
     def test_stores_the_new_hash_and_salt(self, auth_env):
         CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="newpw\nnewpw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="newpw\nnewpw\n",
         )
 
         saved = auth_env["saved"][-1]
@@ -131,14 +139,18 @@ class TestSuccessfulReset:
 
     def test_hashes_the_prompted_password(self, auth_env):
         CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="newpw\nnewpw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="newpw\nnewpw\n",
         )
 
         assert auth_env["hashed"] == [("newpw", None)]
 
     def test_rotates_the_jwt_secret_to_invalidate_sessions(self, auth_env):
         CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="newpw\nnewpw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="newpw\nnewpw\n",
         )
 
         saved = auth_env["saved"][-1]
@@ -147,7 +159,9 @@ class TestSuccessfulReset:
 
     def test_confirms_sessions_were_invalidated(self, auth_env):
         result = CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="newpw\nnewpw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="newpw\nnewpw\n",
         )
 
         assert "Password reset successfully" in result.output
@@ -155,7 +169,9 @@ class TestSuccessfulReset:
 
     def test_saves_exactly_once(self, auth_env):
         CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="newpw\nnewpw\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="newpw\nnewpw\n",
         )
 
         assert len(auth_env["saved"]) == 1
@@ -173,7 +189,9 @@ class TestEmptyPassword:
         message the body never prints on this path.
         """
         result = CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="\n\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="\n\n",
         )
 
         assert result.exit_code != 0
@@ -182,9 +200,11 @@ class TestEmptyPassword:
         assert auth_env["hashed"] == []
 
     def test_rejects_a_whitespace_only_password(self, auth_env):
-        # Whitespace passes the prompt but is caught by the body's .strip() guard.
+        # Whitespace passes the prompt but trips the body's .strip() guard.
         result = CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="   \n   \n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="   \n   \n",
         )
 
         assert result.exit_code != 0
@@ -192,7 +212,9 @@ class TestEmptyPassword:
 
     def test_nothing_is_saved_when_the_password_is_rejected(self, auth_env):
         CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="   \n   \n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="   \n   \n",
         )
 
         assert auth_env["saved"] == []
@@ -202,7 +224,9 @@ class TestEmptyPassword:
 class TestConfirmationPrompt:
     def test_mismatched_confirmation_aborts_without_saving(self, auth_env):
         result = CliRunner().invoke(
-            auth_mod.auth_group, ["reset-password"], input="one\ntwo\n"
+            auth_mod.auth_group,
+            ["reset-password"],
+            input="one\ntwo\n",
         )
 
         assert result.exit_code != 0

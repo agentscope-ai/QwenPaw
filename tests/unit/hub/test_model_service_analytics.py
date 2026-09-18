@@ -19,6 +19,7 @@ spelled out in a comment, because a test that encoded what the code
 * ``conservative`` sums the ``charged`` column, not ``reserved``.
 """
 # pylint: disable=redefined-outer-name,unused-argument
+# pylint: disable=use-implicit-booleaness-not-comparison
 from __future__ import annotations
 
 import json

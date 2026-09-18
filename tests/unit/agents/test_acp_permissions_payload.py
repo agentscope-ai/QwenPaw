@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=use-implicit-booleaness-not-comparison
 # pylint: disable=unused-argument  # _DumpingModel mimics pydantic's
 #   model_dump(**kwargs) signature; the keyword args are part of the
 #   protocol under test, not something the stub has to consume.
@@ -182,7 +183,7 @@ def test_tool_call_payload_accepts_dict_and_copies_it(tmp_path: Path) -> None:
 def test_tool_call_payload_uses_model_dump(tmp_path: Path) -> None:
     adapter = ACPPermissionAdapter(cwd=str(tmp_path))
     payload = adapter._tool_call_payload(
-        _DumpingModel({"title": "From model"})
+        _DumpingModel({"title": "From model"}),
     )
 
     assert payload == {"title": "From model"}
@@ -457,7 +458,8 @@ def test_display_path_tilde_is_expanded(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("bad", ["a\x00b", "/etc/\x00", "~\x00"])
 def test_display_path_survives_unusable_value(
-    tmp_path: Path, bad: str
+    tmp_path: Path,
+    bad: str,
 ) -> None:
     """A NUL byte makes ``Path.expanduser``/``resolve`` raise; the approval
     card must still render instead of blowing up the permission request."""
@@ -710,7 +712,7 @@ def test_build_suspended_permission_from_plain_dicts(
     assert suspended.command is None
     assert suspended.requires_user_confirmation is True
     assert suspended.options == [
-        {"optionId": "allow_once", "name": "Allow once"}
+        {"optionId": "allow_once", "name": "Allow once"},
     ]
     assert suspended.payload == {
         "toolCall": {
@@ -838,7 +840,7 @@ def test_hard_block_reads_command_from_json_content_block(
     """kimi-cli serialises arguments as JSON inside a content text block."""
     adapter = ACPPermissionAdapter(cwd=str(tmp_path))
     tool_call = {
-        "content": [_content_json(json.dumps({"command": "rm -rf /"}))]
+        "content": [_content_json(json.dumps({"command": "rm -rf /"}))],
     }
 
     assert adapter.is_hard_blocked(tool_call) is True

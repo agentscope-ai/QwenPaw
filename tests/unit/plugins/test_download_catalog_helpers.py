@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=use-implicit-booleaness-not-comparison
 """Unit tests for the plugin-catalog fetch/normalisation helpers.
 
 ``download_catalog`` is the module behind the console App Center: it

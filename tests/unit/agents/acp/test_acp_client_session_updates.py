@@ -732,6 +732,7 @@ class TestToolPayloadRendering:
 
         assert client._tool_target(None, SimpleNamespace()) is None
 
+
 class TestToolInputAndValueCoercion:
     """Argument lookup plus the two scalar-coercion helpers."""
 

@@ -8,6 +8,7 @@ precedence, and the review reasons that keep an imported task inert.
 """
 
 # pylint: disable=protected-access
+# pylint: disable=use-implicit-booleaness-not-comparison
 
 from __future__ import annotations
 

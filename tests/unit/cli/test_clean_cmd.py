@@ -57,7 +57,8 @@ class TestEmptyWorkingDir:
         assert "already empty" in result.output
 
     def test_only_telemetry_marker_reports_no_removable_files(
-        self, working_dir
+        self,
+        working_dir,
     ):
         (working_dir / TELEMETRY_MARKER_FILE).write_text("1", encoding="utf-8")
 
@@ -87,7 +88,7 @@ class TestDryRun:
     def test_dry_run_does_not_prompt_for_confirmation(self, working_dir):
         (working_dir / "f.txt").write_text("d", encoding="utf-8")
 
-        # No --yes and no stdin: a prompt would abort, dry-run must not reach it.
+        # No --yes and no stdin: a prompt would abort, dry-run skips it.
         result = CliRunner().invoke(
             clean_mod.clean_cmd,
             ["--dry-run"],
@@ -155,7 +156,9 @@ class TestDeletionMechanics:
         assert not (working_dir / "workspaces").exists()
 
     def test_removes_symlink_without_following_target(
-        self, working_dir, tmp_path
+        self,
+        working_dir,
+        tmp_path,
     ):
         """A symlinked dir must be unlinked, not rmtree'd into the target."""
         outside = tmp_path / "outside-data"
@@ -199,7 +202,9 @@ class TestDeletionMechanics:
         assert not survivor.exists()
 
     def test_vanished_directory_child_does_not_abort(
-        self, working_dir, monkeypatch
+        self,
+        working_dir,
+        monkeypatch,
     ):
         """Same race on the rmtree branch (a directory that vanished)."""
         ghost_dir = working_dir / "ghost-dir"

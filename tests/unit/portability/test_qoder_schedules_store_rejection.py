@@ -9,6 +9,7 @@ including the exact interval cron phases.
 """
 
 # pylint: disable=protected-access
+# pylint: disable=use-implicit-booleaness-not-comparison
 
 from __future__ import annotations
 

@@ -160,7 +160,8 @@ class TestWriteQueryErrorDump:
         assert os.path.dirname(path) == str(tmpdir_for_dumps)
 
     def test_filename_uses_the_expected_prefix_and_suffix(
-        self, tmpdir_for_dumps
+        self,
+        tmpdir_for_dumps,
     ):
         path = self._raise_and_dump(None, {})
         name = os.path.basename(path)
@@ -191,7 +192,8 @@ class TestWriteQueryErrorDump:
         import re
 
         assert re.fullmatch(
-            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", payload["ts_utc"]
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z",
+            payload["ts_utc"],
         )
 
     def test_request_fields_are_extracted(self, tmpdir_for_dumps):
@@ -214,7 +216,8 @@ class TestWriteQueryErrorDump:
         assert payload["request_info"]["channel"] == DEFAULT_CHANNEL
 
     def test_channel_is_taken_from_the_request_when_present(
-        self, tmpdir_for_dumps
+        self,
+        tmpdir_for_dumps,
     ):
         request = _Request(session_id="s", channel="dingtalk")
         path = self._raise_and_dump(request, {})
@@ -224,7 +227,8 @@ class TestWriteQueryErrorDump:
         assert payload["request_info"]["channel"] == "dingtalk"
 
     def test_none_request_yields_empty_info_and_null_body(
-        self, tmpdir_for_dumps
+        self,
+        tmpdir_for_dumps,
     ):
         path = self._raise_and_dump(None, {})
         with open(path, encoding="utf-8") as handle:

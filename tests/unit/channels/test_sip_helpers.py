@@ -105,13 +105,15 @@ class TestExtractText:
 
     def test_falls_back_when_get_text_content_returns_empty(self):
         event = SimpleNamespace(
-            get_text_content=lambda: [], content=[_Part("fallback")]
+            get_text_content=lambda: [],
+            content=[_Part("fallback")],
         )
         assert _extract_text(event) == "fallback"
 
     def test_falls_back_when_get_text_content_joins_to_empty(self):
         event = SimpleNamespace(
-            get_text_content=lambda: [_Part("")], content=[_Part("real")]
+            get_text_content=lambda: [_Part("")],
+            content=[_Part("real")],
         )
         assert _extract_text(event) == "real"
 
@@ -129,7 +131,8 @@ class TestExtractText:
 
     def test_message_without_content_yields_empty(self):
         event = SimpleNamespace(
-            content=[], message=SimpleNamespace(content=[])
+            content=[],
+            message=SimpleNamespace(content=[]),
         )
         assert _extract_text(event) == ""
 
@@ -203,7 +206,8 @@ class TestWavConversion:
     def test_backend_pcm_unknown_mode_defaults_to_pyvoip(self):
         wav = _make_wav(struct.pack("<2h", 0, 100))
         assert _wav_to_backend_pcm(
-            wav, "something-else"
+            wav,
+            "something-else",
         ) == _wav_to_pyvoip_pcm(wav)
 
     def test_raw_pcm16_returns_input_when_not_a_wav(self):
@@ -297,7 +301,9 @@ class TestCreateBackendForBuiltin:
         from qwenpaw.config.config import SIPChannelConfig
 
         cfg = SIPChannelConfig(
-            sip_mode="pyvoip", sip_username="", sip_password=""
+            sip_mode="pyvoip",
+            sip_username="",
+            sip_password="",
         )
         backend = _create_backend_for_builtin(cfg)
         assert backend._username == "agent"
@@ -307,7 +313,9 @@ class TestCreateBackendForBuiltin:
         from qwenpaw.config.config import SIPChannelConfig
 
         cfg = SIPChannelConfig(
-            sip_mode="pyvoip", sip_username="bob", sip_password="secret"
+            sip_mode="pyvoip",
+            sip_username="bob",
+            sip_password="secret",
         )
         backend = _create_backend_for_builtin(cfg)
         assert backend._username == "bob"

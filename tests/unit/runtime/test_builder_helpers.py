@@ -30,7 +30,7 @@ class TestResolveReactIterations:
         assert builder_mod._resolve_react_iterations(25, ctx) == 200
 
     def test_portability_request_below_configured_keeps_configured(self):
-        """max(configured, ...) means a smaller request never shrinks the cap."""
+        """max(configured, ...) means a smaller request cannot shrink."""
         ctx = {"source": "portability_adaptation", "max_react_iterations": 5}
         assert builder_mod._resolve_react_iterations(25, ctx) == 25
 
@@ -48,7 +48,7 @@ class TestResolveReactIterations:
         assert builder_mod._PORTABILITY_MAX_ITERS == 4000
 
     def test_bool_request_is_rejected_even_though_bool_is_an_int(self):
-        """True == 1 in Python, so the isinstance(bool) guard is load-bearing."""
+        """True == 1 here, so the isinstance(bool) guard is load-bearing."""
         ctx = {
             "source": "portability_adaptation",
             "max_react_iterations": True,
@@ -152,7 +152,9 @@ def zh_language(monkeypatch):
     from qwenpaw.agents.skill_system import registry
 
     monkeypatch.setattr(
-        registry, "get_builtin_skill_language_preference", lambda: "zh"
+        registry,
+        "get_builtin_skill_language_preference",
+        lambda: "zh",
     )
     return "zh"
 
@@ -169,7 +171,9 @@ class TestBoundSkillLoaderDirs:
         assert builder_mod._bound_skill_loader_dirs([tool]) == []
 
     def test_metadata_without_bound_skills_is_skipped(
-        self, zh_language, tmp_path
+        self,
+        zh_language,
+        tmp_path,
     ):
         tool = _tool_with_metadata({"bound_skills_root": str(tmp_path)})
         assert builder_mod._bound_skill_loader_dirs([tool]) == []
@@ -183,19 +187,21 @@ class TestBoundSkillLoaderDirs:
         skill.mkdir()
         (skill / "SKILL.md").write_text("# zh", encoding="utf-8")
         tool = _tool_with_metadata(
-            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)},
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [str(skill)]
 
     def test_falls_back_to_en_when_preferred_language_missing(
-        self, zh_language, tmp_path
+        self,
+        zh_language,
+        tmp_path,
     ):
         skill = tmp_path / "alpha-en"
         skill.mkdir()
         (skill / "SKILL.md").write_text("# en", encoding="utf-8")
         tool = _tool_with_metadata(
-            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)},
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [str(skill)]
@@ -207,7 +213,7 @@ class TestBoundSkillLoaderDirs:
         zh.mkdir()
         (zh / "SKILL.md").write_text("zh", encoding="utf-8")
         tool = _tool_with_metadata(
-            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)},
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [str(zh)]
@@ -215,7 +221,7 @@ class TestBoundSkillLoaderDirs:
     def test_dir_without_skill_md_is_not_injected(self, zh_language, tmp_path):
         (tmp_path / "alpha-zh").mkdir()  # exists but has no SKILL.md
         tool = _tool_with_metadata(
-            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)},
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == []
@@ -229,7 +235,7 @@ class TestBoundSkillLoaderDirs:
             {
                 "bound_skills": ("alpha", "beta"),
                 "bound_skills_root": str(tmp_path),
-            }
+            },
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [
@@ -238,7 +244,9 @@ class TestBoundSkillLoaderDirs:
         ]
 
     def test_one_valid_one_invalid_name_keeps_the_valid_one(
-        self, zh_language, tmp_path
+        self,
+        zh_language,
+        tmp_path,
     ):
         good = tmp_path / "alpha-zh"
         good.mkdir()
@@ -248,7 +256,7 @@ class TestBoundSkillLoaderDirs:
             {
                 "bound_skills": ("alpha", "beta"),
                 "bound_skills_root": str(tmp_path),
-            }
+            },
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [str(good)]
@@ -259,10 +267,10 @@ class TestBoundSkillLoaderDirs:
             d.mkdir()
             (d / "SKILL.md").write_text("#", encoding="utf-8")
         tool_a = _tool_with_metadata(
-            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)},
         )
         tool_b = _tool_with_metadata(
-            {"bound_skills": ("beta",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("beta",), "bound_skills_root": str(tmp_path)},
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool_a, tool_b]) == [
@@ -274,7 +282,7 @@ class TestBoundSkillLoaderDirs:
         import logging
 
         tool = _tool_with_metadata(
-            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)},
         )
         with caplog.at_level(logging.WARNING):
             builder_mod._bound_skill_loader_dirs([tool])
@@ -283,18 +291,22 @@ class TestBoundSkillLoaderDirs:
         assert "alpha" in caplog.text
 
     def test_honours_a_different_language_preference(
-        self, monkeypatch, tmp_path
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         from qwenpaw.agents.skill_system import registry
 
         monkeypatch.setattr(
-            registry, "get_builtin_skill_language_preference", lambda: "ru"
+            registry,
+            "get_builtin_skill_language_preference",
+            lambda: "ru",
         )
         skill = tmp_path / "alpha-ru"
         skill.mkdir()
         (skill / "SKILL.md").write_text("# ru", encoding="utf-8")
         tool = _tool_with_metadata(
-            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)}
+            {"bound_skills": ("alpha",), "bound_skills_root": str(tmp_path)},
         )
 
         assert builder_mod._bound_skill_loader_dirs([tool]) == [str(skill)]
@@ -307,7 +319,7 @@ class TestBoundSkillLoaderDirs:
             metadata={
                 "bound_skills": ("alpha",),
                 "bound_skills_root": str(tmp_path),
-            }
+            },
         )
         # Descriptor reached through .func, not the tool itself.
         tool = types.SimpleNamespace(

@@ -24,6 +24,7 @@ Two reachability notes, both verified against agentscope 2.0.7.post1:
   guard exists for callers that hand over unvalidated payloads rather
   than for messages built through the public constructor.
 """
+# pylint: disable=use-implicit-booleaness-not-comparison
 from __future__ import annotations
 
 import json

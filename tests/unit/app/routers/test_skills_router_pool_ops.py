@@ -546,10 +546,15 @@ class TestRunHubInstallTask:
 
         assert task.status == skills_module.HubInstallTaskStatus.FAILED
         assert task.error is not None
-        assert "bad_skill" in task.error
-        assert task.result["type"] == "security_scan_failed"
-        assert task.result["skill_name"] == "bad_skill"
-        assert task.result["findings"][0]["rule_id"] == "R1"
+        assert task.result is not None
+        # Read through model_dump(): pylint cannot narrow the Optional
+        # annotations via the asserts above, and this is how the existing
+        # suites subscript pydantic payloads too.
+        recorded = task.model_dump()
+        assert "bad_skill" in recorded["error"]
+        assert recorded["result"]["type"] == "security_scan_failed"
+        assert recorded["result"]["skill_name"] == "bad_skill"
+        assert recorded["result"]["findings"][0]["rule_id"] == "R1"
 
     async def test_conflict_error_records_detail(self, tmp_path: Path):
         task = _register_task()

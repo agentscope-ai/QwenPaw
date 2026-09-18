@@ -44,7 +44,7 @@ class TestSerializeResult:
 
     def test_includes_the_error_object(self):
         out = json.loads(
-            rt.serialize_result([], "error", {"code": "c", "message": "m"})
+            rt.serialize_result([], "error", {"code": "c", "message": "m"}),
         )
         assert out["error"] == {"code": "c", "message": "m"}
         assert out["status"] == "error"
@@ -55,7 +55,7 @@ class TestSerializeResult:
         assert "\\u" not in raw
 
     def test_uses_compact_separators(self):
-        """No whitespace after separators, so the byte budget is predictable."""
+        """No whitespace after separators: the budget is predictable."""
         raw = rt.serialize_result([{"a": "b"}], "success")
         assert ", " not in raw
         assert '": "' not in raw
@@ -80,13 +80,13 @@ class TestNormalizeQueries:
     def test_drops_token_level_duplicates(self):
         """ReMe dedups terms before scoring, so repeats add no evidence."""
         out = rt.normalize_queries(
-            [{"query": "alpha beta"}, {"query": "beta alpha"}]
+            [{"query": "alpha beta"}, {"query": "beta alpha"}],
         )
         assert out == ("alpha beta",)
 
     def test_keeps_distinct_queries_in_order(self):
         out = rt.normalize_queries(
-            [{"query": "first topic"}, {"query": "second topic"}]
+            [{"query": "first topic"}, {"query": "second topic"}],
         )
         assert out == ("first topic", "second topic")
 
@@ -163,7 +163,7 @@ class _Message:
 class TestMessageSources:
     def test_text_block_keeps_the_role_prefix(self):
         sources = rt.message_sources(
-            _Message("user", [_Block("text", text="hello")])
+            _Message("user", [_Block("text", text="hello")]),
         )
         assert len(sources) == 1
         assert sources[0].text == "hello"
@@ -180,7 +180,7 @@ class TestMessageSources:
             _Message(
                 "assistant",
                 [_Block("tool_call", name="search", input="find X")],
-            )
+            ),
         )
         assert sources[0].text == "find X"
         assert sources[0].prefix == "assistant [tool_call name=search]: "
@@ -190,14 +190,14 @@ class TestMessageSources:
             _Message(
                 "user",
                 [_Block("tool_result", name="search", output="line1\nline2")],
-            )
+            ),
         )
         assert "line1" in sources[0].text
         assert sources[0].prefix == "user [tool_result name=search]: "
 
     def test_hint_block_is_projected(self):
         sources = rt.message_sources(
-            _Message("system", [_Block("hint", hint="be careful")])
+            _Message("system", [_Block("hint", hint="be careful")]),
         )
         assert sources[0].text == "be careful"
         assert sources[0].prefix == "system [hint]: "
@@ -209,7 +209,7 @@ class TestMessageSources:
                 _Message(
                     "assistant",
                     [_Block("tool_call", name=name, input="nested")],
-                )
+                ),
             )
             assert sources == [], f"{name} should be skipped"
 
@@ -218,13 +218,13 @@ class TestMessageSources:
             _Message(
                 "user",
                 [_Block("tool_result", name="recall_context", output="x")],
-            )
+            ),
         )
         assert sources == []
 
     def test_unknown_block_types_are_skipped(self):
         sources = rt.message_sources(
-            _Message("user", [_Block("image", url="http://x")])
+            _Message("user", [_Block("image", url="http://x")]),
         )
         assert sources == []
 
@@ -233,7 +233,7 @@ class TestMessageSources:
             _Message(
                 "user",
                 [_Block("text", text="one"), _Block("text", text="two")],
-            )
+            ),
         )
         assert [s.text for s in sources] == ["one", "two"]
 
@@ -257,7 +257,7 @@ class TestContextSources:
             [
                 _Message("system", [_Block("text", text="sys prompt")]),
                 _Message("user", [_Block("text", text="real question")]),
-            ]
+            ],
         )
         sources = rt.context_sources(state)
         assert [s.text for s in sources] == ["real question"]
@@ -267,7 +267,7 @@ class TestContextSources:
             [
                 _Message("user", [_Block("text", text="a")]),
                 _Message("assistant", [_Block("text", text="b")]),
-            ]
+            ],
         )
         assert [s.text for s in rt.context_sources(state)] == ["a", "b"]
 
@@ -288,7 +288,7 @@ class TestSearchSources:
             rt.TextSource("completely unrelated content", "assistant: "),
         )
         out = json.loads(
-            await rt.search_sources(sources, ("quick fox",), 50_000)
+            await rt.search_sources(sources, ("quick fox",), 50_000),
         )
         assert out["status"] == "success"
         assert any("quick brown fox" in r["passage"] for r in out["results"])
@@ -296,7 +296,7 @@ class TestSearchSources:
     async def test_no_match_returns_no_match_status(self):
         sources = (rt.TextSource("alpha beta gamma", "user: "),)
         out = json.loads(
-            await rt.search_sources(sources, ("zzzqqqxyz",), 50_000)
+            await rt.search_sources(sources, ("zzzqqqxyz",), 50_000),
         )
         assert out["status"] == "no_match"
         assert out["results"] == []
@@ -314,13 +314,13 @@ class TestSearchSources:
         """dict.fromkeys() drops exact duplicates (text + attribution)."""
         same = rt.TextSource("duplicate passage here", "user: ")
         out = json.loads(
-            await rt.search_sources((same, same), ("duplicate",), 50_000)
+            await rt.search_sources((same, same), ("duplicate",), 50_000),
         )
         passages = [r["passage"] for r in out["results"]]
         assert len(passages) == len(set(passages))
 
     async def test_same_text_different_speaker_is_kept(self):
-        """TextSource equality includes attribution, so speakers stay distinct."""
+        """Equality includes attribution, so speakers stay distinct."""
         a = rt.TextSource("shared sentence", "user: ")
         b = rt.TextSource("shared sentence", "assistant: ")
         out = json.loads(await rt.search_sources((a, b), ("shared",), 50_000))
@@ -333,7 +333,7 @@ class TestSearchSources:
             rt.TextSource("second topic about oranges", "assistant: "),
         )
         out = json.loads(
-            await rt.search_sources(sources, ("apples", "oranges"), 50_000)
+            await rt.search_sources(sources, ("apples", "oranges"), 50_000),
         )
         blob = " ".join(r["passage"] for r in out["results"])
         assert "apples" in blob
@@ -354,14 +354,22 @@ class TestBoundedPassage:
     def test_whole_text_returned_when_it_fits(self):
         source = rt.TextSource("short", "user: ")
         start, end = rt._bounded_passage(
-            [], source, "short", rt.make_tokenizer(), 50_000
+            [],
+            source,
+            "short",
+            rt.make_tokenizer(),
+            50_000,
         )
         assert (start, end) == (0, len("short"))
 
     def test_span_is_trimmed_to_the_budget(self):
         source = rt.TextSource("x" * 5000, "user: ")
         start, end = rt._bounded_passage(
-            [], source, "x", rt.make_tokenizer(), 300
+            [],
+            source,
+            "x",
+            rt.make_tokenizer(),
+            300,
         )
         assert end - start < 5000
         assert end - start > 0
@@ -370,7 +378,11 @@ class TestBoundedPassage:
         text = "padding " * 200 + "needle " + "trailing " * 200
         source = rt.TextSource(text, "user: ")
         start, _end = rt._bounded_passage(
-            [], source, "needle", rt.make_tokenizer(), 400
+            [],
+            source,
+            "needle",
+            rt.make_tokenizer(),
+            400,
         )
         # The match is far into the text, so the window must start near it.
         assert start > 0
@@ -379,7 +391,11 @@ class TestBoundedPassage:
     def test_zero_width_span_when_nothing_fits(self):
         source = rt.TextSource("y" * 10_000, "user: ")
         start, end = rt._bounded_passage(
-            [], source, "y", rt.make_tokenizer(), 60
+            [],
+            source,
+            "y",
+            rt.make_tokenizer(),
+            60,
         )
         assert start == end
 
@@ -413,7 +429,8 @@ class TestToolFactory:
         assert payload["error"]["code"] == "invalid_queries"
 
     async def test_unavailable_context_is_reported_not_raised(
-        self, monkeypatch
+        self,
+        monkeypatch,
     ):
         monkeypatch.setattr(rt, "get_current_agent_state", lambda: None)
         tool = rt.make_recall_context_tool()
@@ -424,7 +441,7 @@ class TestToolFactory:
 
     async def test_success_path_returns_passages(self, monkeypatch):
         state = _State(
-            [_Message("user", [_Block("text", text="the needle is here")])]
+            [_Message("user", [_Block("text", text="the needle is here")])],
         )
         monkeypatch.setattr(rt, "get_current_agent_state", lambda: state)
         tool = rt.make_recall_context_tool()
@@ -437,7 +454,8 @@ class TestToolFactory:
         assert chunk.is_last is True
 
     async def test_unexpected_exception_becomes_recall_failed(
-        self, monkeypatch
+        self,
+        monkeypatch,
     ):
         def explode():
             raise RuntimeError("kaboom")
@@ -463,7 +481,7 @@ class TestToolFactory:
             [
                 (rt.TextSource("first read", "user: "),),
                 (rt.TextSource("second read", "user: "),),
-            ]
+            ],
         )
         monkeypatch.setattr(rt, "context_sources", lambda _s: next(snapshots))
 

@@ -35,10 +35,14 @@ def init_env(monkeypatch, tmp_path):
     from qwenpaw.utils import telemetry as telemetry_mod
 
     monkeypatch.setattr(
-        telemetry_mod, "is_telemetry_opted_out", lambda _wd: False
+        telemetry_mod,
+        "is_telemetry_opted_out",
+        lambda _wd: False,
     )
     monkeypatch.setattr(
-        telemetry_mod, "has_telemetry_been_collected", lambda _wd: False
+        telemetry_mod,
+        "has_telemetry_been_collected",
+        lambda _wd: False,
     )
 
     def _fake_upload(_wd):
@@ -49,7 +53,9 @@ def init_env(monkeypatch, tmp_path):
         calls["opted_out_marks"] += 1
 
     monkeypatch.setattr(
-        telemetry_mod, "collect_and_upload_telemetry", _fake_upload
+        telemetry_mod,
+        "collect_and_upload_telemetry",
+        _fake_upload,
     )
     monkeypatch.setattr(telemetry_mod, "mark_telemetry_collected", _fake_mark)
 
@@ -72,10 +78,14 @@ def init_env(monkeypatch, tmp_path):
     from qwenpaw.agents import skill_system as skill_mod
 
     monkeypatch.setattr(
-        skill_mod, "ensure_skill_pool_initialized", lambda: True
+        skill_mod,
+        "ensure_skill_pool_initialized",
+        lambda: True,
     )
     monkeypatch.setattr(
-        init_mod, "_sync_default_workspace_skills", lambda _ws, **_kw: 0
+        init_mod,
+        "_sync_default_workspace_skills",
+        lambda _ws, **_kw: 0,
     )
 
     # copy_md_files is imported lazily from qwenpaw.agents.utils.
@@ -83,7 +93,9 @@ def init_env(monkeypatch, tmp_path):
 
     copied_md = []
     monkeypatch.setattr(
-        agents_utils, "copy_md_files", lambda *_a, **_kw: list(copied_md)
+        agents_utils,
+        "copy_md_files",
+        lambda *_a, **_kw: list(copied_md),
     )
 
     # ProviderManager is imported at module scope, so patch it on init_cmd.
@@ -157,7 +169,8 @@ class TestDefaultsPath:
         assert "Security acceptance assumed" in result.output
 
     def test_defaults_uses_default_heartbeat_interval_and_target(
-        self, init_env
+        self,
+        init_env,
     ):
         CliRunner().invoke(
             init_mod.init_cmd,

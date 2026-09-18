@@ -160,7 +160,9 @@ class TestWithPurge:
         (env["wd"] / "config.json").write_text("{}", encoding="utf-8")
 
         result = CliRunner().invoke(
-            un_mod.uninstall_cmd, ["--purge"], input="n\n"
+            un_mod.uninstall_cmd,
+            ["--purge"],
+            input="n\n",
         )
 
         assert result.exit_code == 0
@@ -168,7 +170,9 @@ class TestWithPurge:
         assert (env["wd"] / "config.json").is_file()
 
     def test_purge_on_absent_working_dir_does_not_raise(
-        self, monkeypatch, tmp_path
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         monkeypatch.setattr(un_mod, "WORKING_DIR", tmp_path / "absent")
         monkeypatch.setattr(un_mod, "_SHELL_PROFILES", ())

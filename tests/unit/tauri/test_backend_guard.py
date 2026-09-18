@@ -95,7 +95,7 @@ class TestLooksLikeBackend:
         assert guard._looks_like_backend(proc) is True
 
     def test_rejects_an_unrelated_process(self):
-        """🔴 The PID-reuse guard: a recycled PID must not look like a backend."""
+        """🔴 PID-reuse guard: a recycled PID is not a backend."""
         proc = _proc(
             name="firefox",
             exe="/usr/lib/firefox/firefox",
@@ -140,7 +140,9 @@ class TestTerminatePreviousBackend:
         pid_file.write_text("999", encoding="utf-8")
         proc = _proc()
         monkeypatch.setattr(
-            guard.psutil, "Process", lambda pid: proc if pid == 999 else None
+            guard.psutil,
+            "Process",
+            lambda pid: proc if pid == 999 else None,
         )
 
         guard._terminate_previous_backend(pid_file)
@@ -159,7 +161,7 @@ class TestTerminatePreviousBackend:
         factory.assert_not_called()
 
     def test_skips_a_pid_reuse_victim(self, pid_file, monkeypatch):
-        """🔴 Core safety: an unrelated process holding the recycled PID lives."""
+        """🔴 Core safety: the unrelated PID-holder must live."""
         pid_file.write_text("999", encoding="utf-8")
         victim = _proc(
             name="postgres",
@@ -194,12 +196,15 @@ class TestTerminatePreviousBackend:
         guard._terminate_previous_backend(pid_file)  # must not raise
 
     def test_escalates_to_kill_when_terminate_times_out(
-        self, pid_file, monkeypatch
+        self,
+        pid_file,
+        monkeypatch,
     ):
         pid_file.write_text("999", encoding="utf-8")
         proc = _proc()
         proc.wait.side_effect = psutil.TimeoutExpired(
-            guard._TERMINATE_TIMEOUT_SECONDS, pid=999
+            guard._TERMINATE_TIMEOUT_SECONDS,
+            pid=999,
         )
         monkeypatch.setattr(guard.psutil, "Process", lambda pid: proc)
 
@@ -209,7 +214,9 @@ class TestTerminatePreviousBackend:
         proc.kill.assert_called_once()
 
     def test_vanishing_mid_terminate_is_not_an_error(
-        self, pid_file, monkeypatch
+        self,
+        pid_file,
+        monkeypatch,
     ):
         pid_file.write_text("999", encoding="utf-8")
         proc = _proc()
@@ -221,7 +228,9 @@ class TestTerminatePreviousBackend:
         proc.kill.assert_not_called()
 
     def test_terminate_failure_is_logged_not_raised(
-        self, pid_file, monkeypatch
+        self,
+        pid_file,
+        monkeypatch,
     ):
         pid_file.write_text("999", encoding="utf-8")
         proc = _proc()
@@ -250,13 +259,17 @@ class TestReconcileSingletonBackend:
         assert recorded == str(os.getpid())
 
     def test_terminates_the_orphan_then_records_itself(
-        self, tmp_path, monkeypatch
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         pid_file = tmp_path / guard.PID_FILENAME
         pid_file.write_text("999", encoding="utf-8")
         orphan = _proc()
         monkeypatch.setattr(
-            guard.psutil, "Process", lambda pid: orphan if pid == 999 else None
+            guard.psutil,
+            "Process",
+            lambda pid: orphan if pid == 999 else None,
         )
 
         guard.reconcile_singleton_backend(tmp_path)
@@ -274,7 +287,7 @@ class TestReconcileSingletonBackend:
         assert (tmp_path / guard.PID_FILENAME).is_file()
 
     def test_never_raises_when_terminate_explodes(self, tmp_path, monkeypatch):
-        """Docstring contract: a failure here must not block backend startup."""
+        """Contract: a failure here must not block backend startup."""
         (tmp_path / guard.PID_FILENAME).write_text("999", encoding="utf-8")
 
         def explode(pid):
@@ -286,7 +299,7 @@ class TestReconcileSingletonBackend:
 
         # It must still record the current pid.
         assert (tmp_path / guard.PID_FILENAME).read_text(
-            encoding="utf-8"
+            encoding="utf-8",
         ) == str(os.getpid())
 
     def test_never_raises_when_recording_explodes(self, monkeypatch, tmp_path):

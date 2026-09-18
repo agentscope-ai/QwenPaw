@@ -25,7 +25,7 @@ def lock_path(tmp_path):
 
 
 def _hold(path):
-    """Take the OS lock on *path* from a second fd, mimicking a peer process."""
+    """Take the OS lock on *path* from a second fd, as a peer would."""
     fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
     import fcntl
 
@@ -149,14 +149,15 @@ class TestContextManager:
 
 
 class TestTimeoutFallsOpen:
-    """The body must still run unlocked — a stuck peer may never block an install."""
+    """The body still runs unlocked: a stuck peer never blocks install."""
 
     def test_yields_false_when_the_lock_is_held_past_timeout(self, lock_path):
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         held = _hold(lock_path)
         try:
             with lock_mod.plugin_install_lock(
-                lock_path, timeout=0.0
+                lock_path,
+                timeout=0.0,
             ) as acquired:
                 assert acquired is False
         finally:
@@ -195,7 +196,8 @@ class TestTimeoutFallsOpen:
         held = _hold(lock_path)
         try:
             with lock_mod.plugin_install_lock(
-                lock_path, timeout=-5.0
+                lock_path,
+                timeout=-5.0,
             ) as acquired:
                 assert acquired is False
         finally:
@@ -213,7 +215,8 @@ class TestTimeoutFallsOpen:
             timer = threading.Timer(0.05, lambda: _release(held))
             timer.start()
             with lock_mod.plugin_install_lock(
-                lock_path, timeout=5.0
+                lock_path,
+                timeout=5.0,
             ) as acquired:
                 assert acquired is True
             timer.cancel()
@@ -225,7 +228,9 @@ class TestTimeoutFallsOpen:
 
 class TestDegradedPaths:
     def test_unwritable_lock_dir_yields_false_but_still_runs(
-        self, monkeypatch, tmp_path
+        self,
+        monkeypatch,
+        tmp_path,
     ):
         target = tmp_path / "cannot-create" / "l.lock"
 

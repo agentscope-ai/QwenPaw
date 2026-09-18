@@ -85,7 +85,7 @@ class TestRoutingPolicy:
         ],
     )
     def test_request_signals_do_not_change_the_route(self, kwargs):
-        """The policy documents that smarter switching is not implemented yet."""
+        """The policy documents smarter switching as not implemented."""
         policy = RoutingPolicy(AgentsLLMRoutingConfig(mode="local_first"))
         assert policy.decide(**kwargs).route == "local"
 

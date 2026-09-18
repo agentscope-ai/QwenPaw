@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access
+# pylint: disable=use-implicit-booleaness-not-comparison
 """Cover the external memory-discovery family in external_state.py.
 
 These helpers classify and collect *read-only* external memory stores

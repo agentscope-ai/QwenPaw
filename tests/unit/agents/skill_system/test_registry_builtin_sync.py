@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=protected-access,redefined-outer-name
+# pylint: disable=use-implicit-booleaness-not-comparison
 """Unit tests for the packaged-builtin sync layer of the skill registry.
 
 Covers packaged builtin discovery, the pool sync status, the builtin

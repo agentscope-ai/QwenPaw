@@ -110,7 +110,8 @@ class TestBaseUrl:
 
     def test_falls_back_to_ctx_host_and_port(self):
         ctx = click.Context(
-            click.Command("x"), obj={"host": "1.2.3.4", "port": 9999}
+            click.Command("x"),
+            obj={"host": "1.2.3.4", "port": 9999},
         )
         assert auto_mod._base_url(ctx, None) == "http://1.2.3.4:9999"
 
@@ -132,7 +133,9 @@ class TestEnsureDaemonAlive:
         assert any(c[0] == "head" for c in fake_client["calls"])
 
     def test_unreachable_daemon_exits_with_code_2(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         monkeypatch.setattr(auto_mod, "client", lambda url: _BoomClient())
         with pytest.raises(SystemExit) as exc:
@@ -140,7 +143,10 @@ class TestEnsureDaemonAlive:
         assert exc.value.code == 2
 
     def test_error_message_names_the_url_and_the_fix(
-        self, fake_client, capsys, monkeypatch
+        self,
+        fake_client,
+        capsys,
+        monkeypatch,
     ):
         monkeypatch.setattr(auto_mod, "client", lambda url: _BoomClient())
         with pytest.raises(SystemExit):
@@ -180,7 +186,9 @@ class TestLoadManagerClasses:
 
     def test_a_bad_entry_is_skipped_not_raised(self, monkeypatch):
         monkeypatch.setattr(
-            auto_mod, "_MANAGER_CLASSES", ["no.such.module:Nope"]
+            auto_mod,
+            "_MANAGER_CLASSES",
+            ["no.such.module:Nope"],
         )
         assert auto_mod._load_manager_classes() == []
 
@@ -225,7 +233,8 @@ class TestLazyGroup:
 
     def test_skips_actions_without_the_cli_method(self, monkeypatch):
         group = self._group_with(
-            monkeypatch, [_spec("only_http", methods=("http",))]
+            monkeypatch,
+            [_spec("only_http", methods=("http",))],
         )
         assert group.list_commands(click.Context(group)) == []
 
@@ -234,24 +243,29 @@ class TestLazyGroup:
             monkeypatch,
             [
                 _spec(
-                    "list_jobs", cli_command="jobs-ls", http_path="/crons/jobs"
-                )
+                    "list_jobs",
+                    cli_command="jobs-ls",
+                    http_path="/crons/jobs",
+                ),
             ],
         )
         assert "jobs-ls" in group.list_commands(click.Context(group))
         assert "crons-list_jobs" not in group.list_commands(
-            click.Context(group)
+            click.Context(group),
         )
 
     def test_no_prefix_uses_the_bare_action_name(self, monkeypatch):
         group = self._group_with(
-            monkeypatch, [_spec("ping", http_path="/p")], prefix=""
+            monkeypatch,
+            [_spec("ping", http_path="/p")],
+            prefix="",
         )
         assert "ping" in group.list_commands(click.Context(group))
 
     def test_help_text_mentions_the_manager_and_action(self, monkeypatch):
         group = self._group_with(
-            monkeypatch, [_spec("list_jobs", http_path="/x")]
+            monkeypatch,
+            [_spec("list_jobs", http_path="/x")],
         )
         cmd = group.get_command(click.Context(group), "crons-list_jobs")
         assert "Auto:" in cmd.help
@@ -291,25 +305,31 @@ class TestGeneratedCommand:
         return group
 
     def test_get_request_uses_explicit_http_path(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         group = self._build(
             monkeypatch,
             _spec("list_jobs", http_path="/crons/jobs", http_method="GET"),
         )
         result = CliRunner().invoke(
-            group, ["crons-list_jobs", "--base-url", "http://x"]
+            group,
+            ["crons-list_jobs", "--base-url", "http://x"],
         )
 
         assert result.exit_code == 0, result.output
         assert ("get", "/crons/jobs", "http://x") in fake_client["calls"]
 
     def test_path_falls_back_to_prefix_and_name(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         group = self._build(monkeypatch, _spec("list_jobs", http_path=None))
         result = CliRunner().invoke(
-            group, ["crons-list_jobs", "--base-url", "http://x"]
+            group,
+            ["crons-list_jobs", "--base-url", "http://x"],
         )
 
         assert result.exit_code == 0, result.output
@@ -317,10 +337,12 @@ class TestGeneratedCommand:
 
     def test_response_is_printed(self, fake_client, monkeypatch):
         group = self._build(
-            monkeypatch, _spec("list_jobs", http_path="/crons/jobs")
+            monkeypatch,
+            _spec("list_jobs", http_path="/crons/jobs"),
         )
         CliRunner().invoke(
-            group, ["crons-list_jobs", "--base-url", "http://x"]
+            group,
+            ["crons-list_jobs", "--base-url", "http://x"],
         )
 
         assert fake_client["printed"] == [{"via": "get"}]
@@ -341,10 +363,13 @@ class TestGeneratedCommand:
         ]
 
     def test_post_without_data_sends_empty_body(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         group = self._build(
-            monkeypatch, _spec("create", http_path="/c", http_method="POST")
+            monkeypatch,
+            _spec("create", http_path="/c", http_method="POST"),
         )
         CliRunner().invoke(group, ["crons-create", "--base-url", "http://x"])
 
@@ -376,23 +401,30 @@ class TestGeneratedCommand:
         ]
 
     def test_placeholder_without_params_is_a_usage_error(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         group = self._build(
-            monkeypatch, _spec("delete_job", http_path="/crons/jobs/{job_id}")
+            monkeypatch,
+            _spec("delete_job", http_path="/crons/jobs/{job_id}"),
         )
         result = CliRunner().invoke(
-            group, ["crons-delete_job", "--base-url", "http://x"]
+            group,
+            ["crons-delete_job", "--base-url", "http://x"],
         )
 
         assert result.exit_code != 0
         assert "placeholders" in result.output
 
     def test_invalid_path_params_json_is_a_usage_error(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         group = self._build(
-            monkeypatch, _spec("delete_job", http_path="/crons/jobs/{job_id}")
+            monkeypatch,
+            _spec("delete_job", http_path="/crons/jobs/{job_id}"),
         )
         result = CliRunner().invoke(
             group,
@@ -409,10 +441,13 @@ class TestGeneratedCommand:
         assert "--path-params must be valid JSON" in result.output
 
     def test_missing_path_parameter_is_a_usage_error(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         group = self._build(
-            monkeypatch, _spec("delete_job", http_path="/crons/jobs/{job_id}")
+            monkeypatch,
+            _spec("delete_job", http_path="/crons/jobs/{job_id}"),
         )
         result = CliRunner().invoke(
             group,
@@ -430,16 +465,20 @@ class TestGeneratedCommand:
 
     def test_invalid_data_json_propagates(self, fake_client, monkeypatch):
         group = self._build(
-            monkeypatch, _spec("create", http_path="/c", http_method="POST")
+            monkeypatch,
+            _spec("create", http_path="/c", http_method="POST"),
         )
         result = CliRunner().invoke(
-            group, ["crons-create", "--base-url", "http://x", "--data", "{bad"]
+            group,
+            ["crons-create", "--base-url", "http://x", "--data", "{bad"],
         )
 
         assert result.exit_code != 0
 
     def test_http_error_surfaces_as_a_nonzero_exit(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         class _FailingClient(_FakeClient):
             def get(self, path):
@@ -447,23 +486,29 @@ class TestGeneratedCommand:
 
         monkeypatch.setattr(auto_mod, "client", _FailingClient)
         group = self._build(
-            monkeypatch, _spec("list_jobs", http_path="/crons/jobs")
+            monkeypatch,
+            _spec("list_jobs", http_path="/crons/jobs"),
         )
         result = CliRunner().invoke(
-            group, ["crons-list_jobs", "--base-url", "http://x"]
+            group,
+            ["crons-list_jobs", "--base-url", "http://x"],
         )
 
         assert result.exit_code != 0
 
     def test_daemon_down_aborts_before_the_call(
-        self, fake_client, monkeypatch
+        self,
+        fake_client,
+        monkeypatch,
     ):
         monkeypatch.setattr(auto_mod, "client", lambda url: _BoomClient())
         group = self._build(
-            monkeypatch, _spec("list_jobs", http_path="/crons/jobs")
+            monkeypatch,
+            _spec("list_jobs", http_path="/crons/jobs"),
         )
         result = CliRunner().invoke(
-            group, ["crons-list_jobs", "--base-url", "http://x"]
+            group,
+            ["crons-list_jobs", "--base-url", "http://x"],
         )
 
         assert result.exit_code == 2
