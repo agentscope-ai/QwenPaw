@@ -729,10 +729,27 @@ jobs:
   # duplicated. finalize needs this job, so a red gate means the draft is
   # never flipped to published.
   #
-  # E2E scope in this form (maintainer decision 2026-09-09): the p0 blocking
-  # set only (64 reviewed node ids, see .github/ci/e2e-release-gate-manifest.md);
-  # the 7 currently-red p0 cases run as report-only (e2e-release-watch) and
-  # p1/p2 stay in the nightly form. Backend tiers are fully blocking here.
+  # E2E scope in this form: the p0 set only, split into a reviewed blocking
+  # list (64 node ids) and a watch list (7 node ids) -- see
+  # .github/ci/e2e-release-gate-manifest.md. p1/p2 stay in the nightly form.
+  # Backend tiers are fully blocking here.
+  #
+  # BOTH E2E lists are blocking: the watch set was report-only from 2026-09-10
+  # until 2026-09-18, when it was promoted to blocking on maintainer
+  # instruction ("upgrade e2e to block level too, consistent with the other
+  # accumulated tests"). Attribution of the earlier report-only state: the
+  # p0-only scope was a maintainer decision on 2026-09-09 ("release e2e runs
+  # p0 only; p1/p2 can wait for the nightly run"), but splitting off the 7
+  # then-red cases as report-only was an implementation split proposed by Qin
+  # Qiong the same day and only tacitly accepted -- it was never an explicit
+  # maintainer decision, and the old comment claimed otherwise.
+  #
+  # NOTE: making the E2E sets blocking does NOT by itself stop artifacts from
+  # being published. The publish-* jobs do not list full-test-gate in their
+  # needs, so artifacts ship before the gate finishes; the gate only stops
+  # finalize from flipping the draft to published. Run 35204357591 (2026-09-17)
+  # showed this: e2e-release-watch failed at 09:30, publish-pypi pushed at
+  # 10:04, Test Summary concluded at 10:52.
   full-test-gate:
     needs: [resolve]
     uses: ./.github/workflows/full-tests-nightly.yml
