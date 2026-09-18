@@ -382,6 +382,21 @@ def test_resolve_imap_host_by_provider():
     assert resolve_imap_host("163.com", "") == "imap.163.com"
 
 
+def test_resolve_imap_host_custom_provider():
+    # The custom provider carries its own host; without one monitoring
+    # is skipped instead of guessing.
+    assert (
+        resolve_imap_host("mycompany.com", "custom", "imap.mycompany.com")
+        == "imap.mycompany.com"
+    )
+    assert resolve_imap_host("mycompany.com", "custom", "") is None
+    # A configured host never overrides a table-driven provider.
+    assert (
+        resolve_imap_host("mycompany.com", "tencent_exmail", "imap.x.com")
+        == "imap.exmail.qq.com"
+    )
+
+
 def test_supports_idle_normalizes_capability_types(tmp_path):
     service, _workspace = _service(tmp_path)
     conn = type(
