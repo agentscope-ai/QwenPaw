@@ -510,7 +510,7 @@ jobs:
   # ── Gate: publish jobs below run only if every prepare job above is green ──
 
   publish-pypi:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker, full-test-gate]
     runs-on: ubuntu-latest
     steps:
       - name: Download dist artifacts
@@ -532,7 +532,7 @@ jobs:
           echo "DRY-RUN: would publish $(ls dist) to PyPI"
 
   push-docker:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker, full-test-gate]
     runs-on: ubuntu-latest
     env:
       ACR_REGISTRY: agentscope-registry.ap-southeast-1.cr.aliyuncs.com
@@ -614,7 +614,7 @@ jobs:
           echo "DRY-RUN: would push the prebuilt Docker image for ${{ needs.resolve.outputs.tag }}"
 
   publish-desktop:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker, full-test-gate]
     uses: ./.github/workflows/desktop-publish.yml
     with:
       tag: ${{ needs.resolve.outputs.tag }}
@@ -623,7 +623,7 @@ jobs:
     secrets: inherit
 
   publish-plugins:
-    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker]
+    needs: [resolve, build-wheel, verify-web, build-desktop, build-plugins, build-docker, full-test-gate]
     runs-on: ubuntu-latest
     env:
       OSS_BUCKET: ${{ vars.OSS_BUCKET || 'qwenpaw-download' }}
@@ -744,12 +744,21 @@ jobs:
   # Qiong the same day and only tacitly accepted -- it was never an explicit
   # maintainer decision, and the old comment claimed otherwise.
   #
-  # NOTE: making the E2E sets blocking does NOT by itself stop artifacts from
-  # being published. The publish-* jobs do not list full-test-gate in their
-  # needs, so artifacts ship before the gate finishes; the gate only stops
-  # finalize from flipping the draft to published. Run 35204357591 (2026-09-17)
-  # showed this: e2e-release-watch failed at 09:30, publish-pypi pushed at
-  # 10:04, Test Summary concluded at 10:52.
+  # NOTE on what each layer actually stops (learned from run 35204357591):
+  # - A red e2e-release-watch ALREADY blocked finalize before this change: that
+  #   job has no continue-on-error, so its failure reddens the whole reusable
+  #   workflow, which reddens full-test-gate, which skips finalize. In that run
+  #   finalize was skipped at 10:19:39 and the release stayed draft.
+  # - What that run leaked was the ARTIFACTS: the four publish-* jobs did not
+  #   list full-test-gate in their needs, so they shipped at 10:04-10:09 while
+  #   the gate was still running (Test Summary concluded at 10:19:38).
+  # So promoting the watch set to blocking only removes the false green in Test
+  # Summary; gating the publish jobs on full-test-gate (added below) is what
+  # stops artifacts. Both changes are needed for the gate to mean what it says.
+  #
+  # finalize keeps its explicit full-test-gate dependency even though it now
+  # also inherits it transitively through the publish jobs: an explicit edge
+  # documents the intent and survives later edits to the publish needs lists.
   full-test-gate:
     needs: [resolve]
     uses: ./.github/workflows/full-tests-nightly.yml
