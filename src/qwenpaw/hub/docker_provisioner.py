@@ -327,16 +327,24 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         for container in self._containers(all_containers=True):
             self._stop_and_remove(container)
 
+    @staticmethod
+    def validate_image_reference(reference: str) -> str:
+        """Validate an image address independently of runtime defaults."""
+        image = reference.strip()
+        if not _IMAGE_PATTERN.fullmatch(image):
+            raise ValueError("Invalid Docker image reference.")
+        return image
+
     def validate_config(self, value: object) -> dict[str, object]:
         """Normalize and validate Docker-specific runtime configuration."""
         config = value if isinstance(value, Mapping) else {}
         default_image = self._policy.get("image", DEFAULT_DOCKER_IMAGE)
         default_policy = self._policy.get("pull_policy", "if_not_present")
-        image = str(config.get("image", default_image)).strip()
+        image = self.validate_image_reference(
+            str(config.get("image", default_image)),
+        )
         pull_policy = str(config.get("pull_policy", default_policy)).strip()
         pinned_image_id = config.get("image_id")
-        if not _IMAGE_PATTERN.fullmatch(image):
-            raise ValueError("Invalid Docker image reference.")
         if pull_policy not in PULL_POLICIES:
             raise ValueError("Invalid Docker image pull policy.")
         if not pinned_image_id:
@@ -410,9 +418,7 @@ class DockerRuntimeProvisioner(RuntimeProvisioner):
         progress: Callable[[int, str], None] | None = None,
     ) -> dict[str, object]:
         """Pull one image while reporting best-effort layer progress."""
-        normalized = str(
-            self.validate_config({"image": reference})["image"],
-        )
+        normalized = self.validate_image_reference(reference)
         layers: dict[str, tuple[int, int]] = {}
         message = "Starting image pull"
         for event in self._get_client().api.pull(

@@ -411,7 +411,7 @@ def test_published_port_rejects_non_loopback_binding() -> None:
         )
 
 
-def test_pull_store_deduplicates_concurrent_reference(
+def test_pull_store_deduplicates_image_from_another_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -421,21 +421,23 @@ def test_pull_store_deduplicates_concurrent_reference(
     release = threading.Event()
     calls = 0
 
-    def pull(reference: str, progress) -> dict[str, object]:
+    def pull(reference: str, **_kwargs):
         nonlocal calls
-        del reference
+        assert reference == image
         calls += 1
         started.set()
         release.wait(timeout=2)
-        progress(100, "done")
-        return {}
+        yield {"status": "done"}
 
-    monkeypatch.setattr(provisioner, "pull_image", pull)
+    image = f"{docker_module.ALIYUN_ACR_IMAGE}:latest"
+    client = _FakeClient()
+    client.api = SimpleNamespace(pull=pull)
+    monkeypatch.setattr(provisioner, "_get_client", lambda: client)
     store = DockerImagePullStore(provisioner)
     try:
-        first = store.submit("docker.io/agentscope/qwenpaw:latest")
+        first = store.submit(image)
         assert started.wait(timeout=1)
-        second = store.submit("docker.io/agentscope/qwenpaw:latest")
+        second = store.submit(image)
         assert second.pull_id == first.pull_id
         release.set()
         deadline = time.monotonic() + 2

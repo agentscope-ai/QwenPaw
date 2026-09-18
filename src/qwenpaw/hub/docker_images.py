@@ -45,9 +45,7 @@ class DockerImagePullStore:
 
     def submit(self, reference: str) -> DockerImagePull:
         """Start or reuse an active pull for one normalized image."""
-        normalized = self.provisioner.validate_config(
-            {"image": reference},
-        )["image"]
+        normalized = self.provisioner.validate_image_reference(reference)
         with self._lock:
             active_id = self._active_by_reference.get(str(normalized))
             if active_id:
