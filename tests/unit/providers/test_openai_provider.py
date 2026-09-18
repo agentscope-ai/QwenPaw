@@ -595,15 +595,15 @@ async def test_check_model_connection_non_chat_model_skips_chat_probe(
     )
     monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
 
-    async def fake_check_connection(self, timeout=5):
+    async def fake_probe_connection(self, timeout=5):
         del self
         connection_checks.append(timeout)
-        return True, ""
+        return True, "", ""
 
     monkeypatch.setattr(
         OpenAIProvider,
-        "check_connection",
-        fake_check_connection,
+        "_probe_connection",
+        fake_probe_connection,
     )
 
     for model_id in (

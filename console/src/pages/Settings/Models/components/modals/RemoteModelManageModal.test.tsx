@@ -765,6 +765,35 @@ describe("RemoteModelManageModal", () => {
       expect(messageMocks.error).toHaveBeenCalled();
     });
 
+    it("keeps a bot-blocked model addable", async () => {
+      // A challenge page is an environmental block, not a verdict on
+      // the model, so it must not be filtered out the way a denial is.
+      apiMocks.addModel.mockResolvedValue(provider);
+      const user = userEvent.setup();
+      renderModal({
+        models: [],
+        extra_models: [],
+        discovered_models: [
+          { id: "blocked-one", name: "B", availability_status: "blocked" },
+          {
+            id: "denied-one",
+            name: "D",
+            availability_status: "permission_denied",
+          },
+        ],
+      });
+
+      await user.click(
+        screen.getByRole("button", { name: /models\.addAllDiscoveredModels/ }),
+      );
+
+      await waitFor(() => expect(apiMocks.addModel).toHaveBeenCalledTimes(1));
+      expect(apiMocks.addModel).toHaveBeenCalledWith(
+        "siliconflow",
+        expect.objectContaining({ id: "blocked-one" }),
+      );
+    });
+
     it("skips bulk add when no models are addable", async () => {
       renderModal({
         models: [],

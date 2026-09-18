@@ -11,6 +11,7 @@ from ..exceptions import ProviderError
 from ..utils.io_utils import run_async_to_completion, run_sync_io
 from ..utils.logging import sanitize_log_value
 from . import capability_baseline
+from . import error_utils
 from . import model_catalog
 from .capability_baseline import (
     CAPABILITY_URL_ENV,
@@ -404,8 +405,16 @@ class ProviderManagerDiscoveryMixin(
                 last_synced_at=synced_at,
             )
         except Exception as exc:
-            error = Provider.sanitize_connection_message(
-                str(exc) or exc.__class__.__name__,
+            # Classification looks for challenge markers, keywords and
+            # status codes anywhere in the text, so it works on the raw
+            # message. Cleanup and the persisted length cap are separate
+            # concerns and must not feed back into classification. The
+            # text is also bounded, and built off the event loop when the
+            # exception only exposes it through __str__.
+            raw_message = await error_utils.bounded_error_text(exc)
+            error_kind = classify_discovery_error(exc, raw_message)
+            error = Provider.truncate_connection_message(
+                Provider.sanitize_connection_message(raw_message),
             )
             logger.warning("Model discovery failed; using static fallback")
             if save:
@@ -433,7 +442,7 @@ class ProviderManagerDiscoveryMixin(
                 last_synced_at=provider.models_last_synced_at,
                 used_static_fallback=True,
                 error=error,
-                error_kind=classify_discovery_error(exc, error),
+                error_kind=error_kind,
             )
         finally:
             if save:
@@ -449,6 +458,7 @@ class ProviderManagerDiscoveryMixin(
         *,
         http_status: int | None = None,
         error_kind: str | None = None,
+        raw_message: str | None = None,
         verification: Literal[
             "live",
             "provider_only",
@@ -462,6 +472,7 @@ class ProviderManagerDiscoveryMixin(
             message,
             http_status=http_status,
             error_kind=error_kind,
+            raw_message=raw_message,
             verification=verification,
         )
 
@@ -490,6 +501,7 @@ class ProviderManagerDiscoveryMixin(
                 raw_result.message,
                 http_status=raw_result.http_status,
                 error_kind=raw_result.error_kind,
+                raw_message=raw_result.raw_message,
                 verification=raw_result.verification,
             )
         else:

@@ -2311,6 +2311,7 @@
     "discoveryOriginCatalog": "Official catalog",
     "discoveryOriginBoth": "API + catalog",
     "availabilityAvailable": "Available",
+    "availabilityBlocked": "Blocked",
     "availabilityPermissionDenied": "No permission",
     "availabilityNotFound": "Not found",
     "availabilityIncompatible": "Not chat compatible",

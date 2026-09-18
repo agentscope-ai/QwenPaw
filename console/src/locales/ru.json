@@ -1748,6 +1748,7 @@
     "discoveryOriginCatalog": "Официальный каталог",
     "discoveryOriginBoth": "API + каталог",
     "availabilityAvailable": "Доступна",
+    "availabilityBlocked": "Заблокировано",
     "availabilityPermissionDenied": "Нет доступа",
     "availabilityNotFound": "Не найдена",
     "availabilityIncompatible": "Несовместима с чатом",

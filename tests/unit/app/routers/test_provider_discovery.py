@@ -2,6 +2,7 @@
 """Route tests for provider model discovery."""
 
 from types import SimpleNamespace
+from typing import get_args, get_type_hints
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -11,6 +12,7 @@ from pydantic import ValidationError
 from qwenpaw.app.routers.providers import (
     CreateCustomProviderRequest,
     DiscoverModelsRequest,
+    ModelAvailabilityStatus,
     ProviderConfigRequest,
     TestProviderRequest,
     configure_provider,
@@ -20,6 +22,9 @@ from qwenpaw.app.routers.providers import (
     test_model as model_test_endpoint,
 )
 from qwenpaw.providers.provider import ModelInfo, ProviderInfo
+from qwenpaw.providers.provider_model_availability import (
+    ProviderModelCheckResult,
+)
 
 
 @pytest.mark.parametrize(
@@ -332,3 +337,24 @@ async def test_connection_preserves_protocol_override(
     provider.model_copy.assert_called_once_with(
         update={"chat_model": chat_model},
     )
+
+
+def test_every_classified_status_is_representable() -> None:
+    """A status the classifier emits must fit every place it lands.
+
+    ``TestConnectionResponse.status`` is where the Console reads its
+    badge from, and ``ModelInfo.availability_status`` is persisted with
+    the provider config. A status missing from either union turns a bot
+    block into a response-validation failure or a config that no longer
+    loads.
+    """
+    statuses = get_args(
+        get_type_hints(ProviderModelCheckResult)["status"],
+    )
+
+    assert set(statuses) <= set(get_args(ModelAvailabilityStatus))
+    for status in statuses:
+        model = ModelInfo(id="m", name="M")
+        model.availability_status = status
+        stored = ModelInfo.model_validate(model.model_dump())
+        assert stored.availability_status == status

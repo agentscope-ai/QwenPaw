@@ -1,5 +1,6 @@
 export type ModelAvailabilityStatus =
   | "available"
+  | "blocked"
   | "permission_denied"
   | "model_not_found"
   | "incompatible_api"

@@ -518,6 +518,7 @@ export function RemoteModelManageModal({
         };
         const statusLabels = {
           available: t("models.availabilityAvailable", "Available"),
+          blocked: t("models.availabilityBlocked", "Blocked"),
           permission_denied: t(
             "models.availabilityPermissionDenied",
             "No permission",
