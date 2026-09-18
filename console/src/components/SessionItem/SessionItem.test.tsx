@@ -218,28 +218,55 @@ describe("SessionItem info card", () => {
   });
 
   it.each([
-    ["date", "chat.sessionPanel.groupByTime"],
-    ["source", "chat.sessionPanel.groupBySource"],
-    ["none", "chat.sessionPanel.groupByNone"],
-  ] as const)(
-    "shows the current %s grouping mode",
-    async (groupMode, label) => {
-      render(
-        <SessionItem
-          sessionId={`chat-${groupMode}`}
-          name="Grouping mode"
-          groupMode={groupMode}
-        />,
-      );
-
-      fireEvent.focus(
-        screen.getByText("Grouping mode").closest('[role="button"]')!,
-      );
-
-      expect(await screen.findByText(label)).toBeInTheDocument();
-      expect(
-        screen.queryByText("chat.groups.chatShort"),
-      ).not.toBeInTheDocument();
+    {
+      group: {
+        id: "default",
+        name: "Uncategorized",
+        order: 0,
+        kind: "default" as const,
+        pinned: false,
+      },
+      source: "chat" as const,
     },
-  );
+    {
+      group: {
+        id: "cron",
+        name: "Scheduled task conversations",
+        order: 1,
+        kind: "cron" as const,
+        pinned: false,
+      },
+      source: "cron" as const,
+    },
+    {
+      group: {
+        id: "team",
+        name: "Team conversations",
+        order: 2,
+        kind: "custom" as const,
+        pinned: false,
+      },
+      source: "chat" as const,
+    },
+  ])("shows the $group.name group", async ({ group, source }) => {
+    render(
+      <SessionItem
+        sessionId={`chat-${group.id}`}
+        name="Session group"
+        groupId={group.id}
+        groups={[group]}
+        source={source}
+      />,
+    );
+
+    fireEvent.focus(
+      screen.getByText("Session group").closest('[role="button"]')!,
+    );
+
+    expect(await screen.findByText(group.name)).toBeInTheDocument();
+    expect(screen.queryByText("chat.groups.chatShort")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("chat.sessionPanel.groupByTime"),
+    ).not.toBeInTheDocument();
+  });
 });

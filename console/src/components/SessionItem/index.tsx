@@ -10,11 +10,11 @@ import type { InputRef } from "antd";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
-  CalendarDays,
+  Bot,
+  Clock3,
   Copy,
+  Folder,
   FolderInput,
-  FolderTree,
-  List,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -33,7 +33,6 @@ export interface SessionItemProps {
   sessionId: string;
   name: string;
   updatedAt?: string | null;
-  groupMode?: "date" | "source" | "none";
   channelKey?: string;
   channelLabel?: string;
   chatStatus?: ChatStatus;
@@ -67,7 +66,6 @@ const SessionItem: React.FC<SessionItemProps> = ({
   sessionId,
   name,
   updatedAt,
-  groupMode = "date",
   channelKey,
   channelLabel,
   chatStatus,
@@ -75,6 +73,7 @@ const SessionItem: React.FC<SessionItemProps> = ({
   unseenResult = false,
   archived,
   pinned = false,
+  source = "chat",
   groupId,
   groups = [],
   active,
@@ -125,20 +124,31 @@ const SessionItem: React.FC<SessionItemProps> = ({
     [i18n.language, i18n.resolvedLanguage, infoTimeReference, updatedAt],
   );
 
-  const groupModeIcon =
-    groupMode === "date" ? (
-      <CalendarDays size={15} aria-hidden="true" />
-    ) : groupMode === "source" ? (
-      <FolderTree size={15} aria-hidden="true" />
+  const fallbackGroupKind =
+    source === "cron"
+      ? "cron"
+      : source === "subagent"
+      ? "subagents"
+      : "default";
+  const sessionGroup =
+    groups.find((group) => group.id === groupId) ??
+    groups.find((group) => group.kind === fallbackGroupKind);
+  const sessionGroupKind = sessionGroup?.kind ?? fallbackGroupKind;
+  const sessionGroupLabel =
+    sessionGroup?.name ??
+    (sessionGroupKind === "cron"
+      ? t("chat.groups.cron", "Scheduled task conversations")
+      : sessionGroupKind === "subagents"
+      ? t("chat.groups.subagents", "Conversations with subagents")
+      : t("chat.groups.uncategorized", "Uncategorized"));
+  const sessionGroupIcon =
+    sessionGroupKind === "cron" ? (
+      <Clock3 size={15} aria-hidden="true" />
+    ) : sessionGroupKind === "subagents" ? (
+      <Bot size={15} aria-hidden="true" />
     ) : (
-      <List size={15} aria-hidden="true" />
+      <Folder size={15} aria-hidden="true" />
     );
-  const groupModeLabel =
-    groupMode === "date"
-      ? t("chat.sessionPanel.groupByTime", "By time")
-      : groupMode === "source"
-      ? t("chat.sessionPanel.groupBySource", "By source")
-      : t("chat.sessionPanel.groupByNone", "No grouping");
 
   const infoCard = (
     <div className={styles.infoCard}>
@@ -167,8 +177,8 @@ const SessionItem: React.FC<SessionItemProps> = ({
           </div>
         )}
         <div className={styles.infoRow}>
-          <span className={styles.infoIcon}>{groupModeIcon}</span>
-          <span>{groupModeLabel}</span>
+          <span className={styles.infoIcon}>{sessionGroupIcon}</span>
+          <span>{sessionGroupLabel}</span>
         </div>
       </div>
     </div>
