@@ -141,7 +141,7 @@ class ProviderManagerDiscoveryMixin(
             asyncio.Lock(),
         )
         async with lock:
-            provider = self.get_provider(provider_id)
+            provider = await run_sync_io(self.get_provider, provider_id)
             if provider is None:
                 return None
             if provider.models_syncing:
@@ -168,7 +168,7 @@ class ProviderManagerDiscoveryMixin(
         async with lock:
             if generation != self._discovery_generations.get(provider_id):
                 return
-            provider = self.get_provider(provider_id)
+            provider = await run_sync_io(self.get_provider, provider_id)
             if provider is not None:
                 provider.models_syncing = False
 
@@ -194,7 +194,7 @@ class ProviderManagerDiscoveryMixin(
             revision,
         ):
             return False
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             return False
         candidate = provider.model_copy(deep=True)
@@ -245,7 +245,7 @@ class ProviderManagerDiscoveryMixin(
                 **persisted.model_dump(),
             )
         else:
-            current = self.get_provider(provider_id)
+            current = await run_sync_io(self.get_provider, provider_id)
             if current is None:
                 return False
             self._copy_provider_state(current, persisted)
@@ -269,7 +269,7 @@ class ProviderManagerDiscoveryMixin(
         user-added model list.
         """
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             return ProviderModelDiscoveryResult(
                 success=False,
@@ -473,7 +473,7 @@ class ProviderManagerDiscoveryMixin(
     ) -> ProviderModelCheckResult:
         """Check a model and cache its structured availability result."""
         provider_id = self._normalize_provider_id(provider_id)
-        provider = self.get_provider(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
         if provider is None:
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",

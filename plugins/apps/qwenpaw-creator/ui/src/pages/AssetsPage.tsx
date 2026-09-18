@@ -51,6 +51,7 @@ import {
 import { useCreatorInteractionStore } from "@/store/creatorInteractionStore";
 import { useAgentDockUiStore } from "@/store/agentDockUiStore";
 import { useCreatorTaskViewStore } from "@/store/creatorTaskViewStore";
+import { nodeGenerating } from "@/lib/generationActivity";
 import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 import type { ProjectEditOperation } from "@/store/projectSnapshotStore";
 import { useTimelineStore } from "@/store/timelineStore";
@@ -64,9 +65,13 @@ import PageSkeleton from "@/components/PageSkeleton";
 import WorkspaceEmptyState from "@/components/WorkspaceEmptyState";
 import { selectPrimaryTimeline } from "@/selectors/timelineElementSelectors";
 import { isVoiceOnlyVisualEntity } from "@/selectors/blueprintSelectors";
+import RelatedAssetPicker from "@/components/workbench/RelatedAssetPicker";
 import { visualVariantLabel } from "@/lib/visualVariants";
 import { useTranslation } from "react-i18next";
-import { projectJsonPointer } from "@/lib/projectJsonPointer";
+import {
+  creatorFieldForPointer,
+  projectJsonPointer,
+} from "@/lib/projectJsonPointer";
 import InlineReviewDiff from "@/components/agent/InlineReviewDiff";
 
 type FilterKey = "all" | "character" | "scene" | "prop" | "video" | "audio";
@@ -885,18 +890,60 @@ function variantReferenceTokens(
     ...variant.reference_asset_version_ids,
     ...variant.reference_artifact_version_ids,
   ];
-  return versionIds.map((versionId, position) => ({
-    index: position + 1,
-    name: referenceVersionDisplayName(project, versionId),
+  return versionIds.map((versionId, position) => {
+    const anchor = visualAnchorToken(project, versionId);
+    if (anchor) return { ...anchor, index: position + 1 };
+    return {
+      index: position + 1,
+      name: referenceVersionDisplayName(project, versionId),
+      kind: "artifact" as const,
+      thumbUrl: refImageThumbUrl(
+        project,
+        null,
+        project.assets.artifact_versions_by_id[versionId]
+          ? `artifact-version:${versionId}`
+          : `asset-version:${versionId}`,
+      ),
+    };
+  });
+}
+
+/** A style anchor `visual:<entityId>:<variantId>` presents as the base
+    entity itself; before the base image exists the token has no thumb. */
+function resolveVisualAnchor(
+  project: ProjectDocument,
+  ref: string,
+): { name: string; versionId: string | null } | null {
+  if (!ref.startsWith("visual:")) return null;
+  for (const entityId of project.visual.entities.order) {
+    const entity = project.visual.entities.items[entityId];
+    if (!entity) continue;
+    for (const variantId of entity.variants.order) {
+      if (ref !== `visual:${entityId}:${variantId}`) continue;
+      return {
+        name: entity.name || entityId,
+        versionId:
+          entity.variants.items[variantId]?.selected_artifact_version_id ??
+          null,
+      };
+    }
+  }
+  return { name: ref, versionId: null };
+}
+
+function visualAnchorToken(
+  project: ProjectDocument,
+  ref: string,
+): Omit<PromptRichToken, "index"> | null {
+  const anchor = resolveVisualAnchor(project, ref);
+  if (!anchor) return null;
+  return {
+    name: anchor.name,
     kind: "artifact" as const,
-    thumbUrl: refImageThumbUrl(
-      project,
-      null,
-      project.assets.artifact_versions_by_id[versionId]
-        ? `artifact-version:${versionId}`
-        : `asset-version:${versionId}`,
-    ),
-  }));
+    thumbUrl: anchor.versionId
+      ? refImageThumbUrl(project, null, `artifact-version:${anchor.versionId}`)
+      : null,
+  };
 }
 
 /** Project image assets not yet referenced by this variant — pickable in the
@@ -910,6 +957,12 @@ function variantReferenceCandidates(
     ...variant.reference_artifact_version_ids,
     ...variant.generated_artifact_version_ids,
   ]);
+  // A style anchor occupies its base image's slot: offering that image
+  // again would duplicate the reference and break [Image N] numbering.
+  for (const ref of variant.reference_artifact_version_ids) {
+    const versionId = resolveVisualAnchor(project, ref)?.versionId;
+    if (versionId) taken.add(versionId);
+  }
   // Artifact versions produced by a visual entity's variants carry that
   // entity's kind so the condensed asset-library picker can offer real
   // category tabs; loose versions stay "material".
@@ -1166,6 +1219,7 @@ export function GenerationPromptEditor({
   onRegenerate,
   regenerateLabel,
   saving,
+  regenerating = false,
 }: {
   target: PromptTarget;
   onSave: (
@@ -1176,9 +1230,16 @@ export function GenerationPromptEditor({
   onRegenerate?: () => void;
   regenerateLabel: string;
   saving: boolean;
+  regenerating?: boolean;
 }) {
   const { t } = useTranslation();
   const [editOpen, setEditOpen] = useState(false);
+  // An empty prompt is a planned-but-unwritten target only until someone
+  // writes it: a user clearing the prompt to rewrite must not lock the
+  // editor out, so the awaiting state is sticky-off once non-empty.
+  const everWritten = useRef(!!target.value.trim());
+  if (target.value.trim()) everWritten.current = true;
+  const awaitingAgent = !everWritten.current;
   const softPill =
     "inline-flex h-10 shrink-0 cursor-pointer select-none items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-4 text-sm font-medium leading-6 text-[var(--color-text-primary)] transition-colors hover:border-[var(--color-border-strong)] disabled:cursor-not-allowed disabled:opacity-50";
   return (
@@ -1191,14 +1252,22 @@ export function GenerationPromptEditor({
         {target.label}
       </span>
       <div className="space-y-2 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/50 p-3">
-        <p className="max-h-[135px] overflow-y-auto whitespace-pre-wrap text-xs leading-[1.6] text-[var(--color-text-primary)]">
-          {target.value || t("assets.promptPlaceholder")}
+        <p
+          data-creator-field={creatorFieldForPointer(target.pointer)}
+          data-creator-path={target.pointer}
+          data-creator-field-label={target.label}
+          className="max-h-[135px] select-text overflow-y-auto whitespace-pre-wrap text-xs leading-[1.6] text-[var(--color-text-primary)]"
+        >
+          {target.value ||
+            (awaitingAgent
+              ? t("r2v.awaitAgentPrompt")
+              : t("r2v.generateAndEdit", { label: target.label }))}
         </p>
         <div className="flex justify-end gap-3">
           <button
             type="button"
             data-prompt-edit={target.pointer}
-            disabled={saving}
+            disabled={saving || awaitingAgent}
             className={softPill}
             onClick={() => setEditOpen(true)}
           >
@@ -1210,7 +1279,8 @@ export function GenerationPromptEditor({
               <RegeneratePill
                 field={target.pointer}
                 label={regenerateLabel}
-                disabled={saving}
+                loading={regenerating}
+                disabled={saving || awaitingAgent}
                 onClick={onRegenerate}
               />
             </span>
@@ -1238,7 +1308,7 @@ export function GenerationPromptEditor({
 
 /** Voice generation dialog: design prompt (when the TTS model supports it)
  *  and/or an audio sample; submits straight to the enrollment executor. */
-function VoiceGenerationModal({
+export function VoiceGenerationModal({
   open,
   projectId,
   entity,
@@ -1258,11 +1328,13 @@ function VoiceGenerationModal({
   );
   const [voicePrompt, setVoicePrompt] = useState("");
   const [sampleId, setSampleId] = useState<string | null>(null);
+  const [samplePickerOpen, setSamplePickerOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (!open || !entity) return;
-    setVoicePrompt(entity.voice?.voice_prompt || entity.description || "");
+    setVoicePrompt(entity.voice?.voice_prompt || "");
     setSampleId(entity.voice?.sample_source_version_id ?? null);
+    setSamplePickerOpen(false);
     setCapabilities(null);
     void getVoiceCapabilities(projectId)
       .then(setCapabilities)
@@ -1281,7 +1353,7 @@ function VoiceGenerationModal({
     : [];
   const submit = async () => {
     if (!entity) return;
-    const prompt = supportsDesign ? voicePrompt.trim() : "";
+    const prompt = supportsDesign && !sampleId ? voicePrompt.trim() : "";
     if (!prompt && !sampleId) {
       message.error(t("assets.voiceNeedInput"));
       return;
@@ -1291,7 +1363,7 @@ function VoiceGenerationModal({
       await createCharacterVoice(projectId, {
         characterRef: `asset:${entity.entity_id}`,
         ...(prompt ? { voicePrompt: prompt } : {}),
-        ...(!prompt && sampleId ? { sampleSourceVersionId: sampleId } : {}),
+        ...(sampleId ? { sampleSourceVersionId: sampleId } : {}),
         preferredName: entity.name,
       });
       message.success(t("assets.voiceDone"));
@@ -1322,6 +1394,7 @@ function VoiceGenerationModal({
             </span>
             <Input.TextArea
               value={voicePrompt}
+              disabled={Boolean(sampleId)}
               onChange={(event) => setVoicePrompt(event.target.value)}
               autoSize={{ minRows: 3, maxRows: 8 }}
               placeholder={t("assets.voicePromptPlaceholder")}
@@ -1335,16 +1408,48 @@ function VoiceGenerationModal({
               ? t("assets.voiceSampleOptional")
               : t("assets.voiceSampleRequired")}
           </span>
-          <Select
-            className="!w-full"
-            allowClear
-            placeholder={t("assets.voiceSamplePlaceholder")}
-            value={sampleId}
-            options={audioOptions}
-            onChange={(next) => setSampleId(next ?? null)}
-          />
+          <div className="flex items-center gap-2">
+            <Button
+              className="min-w-0 flex-1"
+              onClick={() => setSamplePickerOpen(true)}
+            >
+              {audioOptions.find((item) => item.value === sampleId)?.label ??
+                t("assets.voiceSamplePlaceholder")}
+            </Button>
+            {sampleId && (
+              <Button onClick={() => setSampleId(null)}>
+                {t("common.clear")}
+              </Button>
+            )}
+          </div>
+          {sampleId && (
+            <audio
+              src={getAssetVersionMediaUrl(sampleId)}
+              controls
+              preload="none"
+              className="mt-2 h-9 w-full"
+            />
+          )}
         </div>
       </div>
+      <RelatedAssetPicker
+        open={samplePickerOpen}
+        title={t("assets.voiceSamplePlaceholder")}
+        candidates={audioOptions.map((option) => ({
+          id: option.value,
+          name: option.label,
+          kind: "material",
+          thumbUrl: null,
+          audioUrl: getAssetVersionMediaUrl(option.value),
+        }))}
+        boundIds={sampleId ? [sampleId] : []}
+        singleSelection
+        onCancel={() => setSamplePickerOpen(false)}
+        onConfirm={(ids) => {
+          setSampleId(ids[0] ?? null);
+          setSamplePickerOpen(false);
+        }}
+      />
     </Modal>
   );
 }
@@ -2052,7 +2157,11 @@ export default function AssetsPage() {
                         <h3 className="mt-2 text-base font-semibold text-[var(--color-text-primary)]">
                           {selected.name}
                         </h3>
-                        <p className="mt-1 whitespace-pre-wrap text-xs leading-5 text-[var(--color-text-secondary)]">
+                        <p
+                          data-creator-field={`${selected.ref}/description`}
+                          data-creator-field-label={selected.name}
+                          className="mt-1 select-text whitespace-pre-wrap text-xs leading-5 text-[var(--color-text-secondary)]"
+                        >
                           {selected.description}
                         </p>
                       </div>
@@ -2064,7 +2173,14 @@ export default function AssetsPage() {
                           <h4 className="text-xs font-semibold">
                             {reviewedVisualField.label}
                           </h4>
-                          <p className="whitespace-pre-wrap text-xs leading-5">
+                          <p
+                            data-creator-field={creatorFieldForPointer(
+                              reviewedVisualField.pointer,
+                            )}
+                            data-creator-path={reviewedVisualField.pointer}
+                            data-creator-field-label={reviewedVisualField.label}
+                            className="select-text whitespace-pre-wrap text-xs leading-5"
+                          >
                             {reviewedVisualField.value || "—"}
                           </p>
                           <InlineReviewDiff
@@ -2294,6 +2410,10 @@ export default function AssetsPage() {
                             key={promptTarget.pointer}
                             target={promptTarget}
                             saving={patching}
+                            regenerating={nodeGenerating(
+                              tasks,
+                              dispatchNodeIdForPrompt(promptTarget.pointer),
+                            )}
                             regenerateLabel={
                               selected.mediaKind === "video"
                                 ? t("r2v.regenerateVideo")
@@ -2309,11 +2429,13 @@ export default function AssetsPage() {
                               return () => {
                                 void dispatchWorkGraphNode(id, nodeId)
                                   .then((result) => {
-                                    message.success(
-                                      result.dispatched
-                                        ? t("r2v.regenQueued")
-                                        : t("r2v.regenUpToDate"),
-                                    );
+                                    if (result.dispatched) {
+                                      message.success(t("r2v.regenQueued"));
+                                    } else if (result.status === "running") {
+                                      message.info(t("r2v.regenRunning"));
+                                    } else {
+                                      message.info(t("r2v.regenUpToDate"));
+                                    }
                                     void refreshTasks(id);
                                     void pollOnce(id);
                                   })

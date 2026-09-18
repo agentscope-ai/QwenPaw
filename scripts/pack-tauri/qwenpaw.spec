@@ -197,6 +197,11 @@ a = Analysis(
         *collect_submodules("qwenpawmail_mcp"),
         # All channel adapters (imported on-demand at runtime)
         *collect_submodules("qwenpaw.app.channels"),
+        # Console channel — required by qwenpaw.app.channels.registry but
+        # loaded via importlib.import_module(".console", ...), so PyInstaller
+        # cannot discover it. Without this entry the desktop bundle fails to
+        # start with ModuleNotFoundError on qwenpaw.app.channels.console.channel.
+        "qwenpaw.app.channels.console",
         # ACP runner support is lazily imported by delegate_external_agent.
         *collect_submodules("qwenpaw.agents.acp"),
         # PawApp SDK modules are imported by installed app plugins at runtime.

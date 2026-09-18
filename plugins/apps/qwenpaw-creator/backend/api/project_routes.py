@@ -10,15 +10,11 @@ authorities used here.
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import shutil
-import stat as stat_module
-import sys
-import zipfile
 from typing import Any, Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -52,6 +48,11 @@ from services.file_agent_runtime import (
     notify_creator_agent_runtime,
 )
 from services.project_files.facade import CreatorFileServices
+from services.project_files import archive as project_archive
+from services.project_files.archive import (
+    extract_archive as _extract_archive_sanitized,
+)
+from services.project_files.assets import AssetFileStore
 from services.project_files.models import (
     ExecutionPreauthorization,
     Project,
@@ -93,14 +94,6 @@ def _log_safe(value: Any) -> str:
     return str(value).replace("\r", "\\r").replace("\n", "\\n")
 
 
-# Hard limits for project archive imports. The zip cap bounds what a
-# request may write to disk; the extraction caps stop zip bombs before
-# a single member is inflated.
-_IMPORT_MAX_ZIP_BYTES = 2 * 1024 * 1024 * 1024
-_IMPORT_MAX_EXTRACTED_BYTES = 4 * 1024 * 1024 * 1024
-_IMPORT_MAX_MEMBERS = 20000
-
-
 class _RemovedProjectPutRoute(CreatorErrorRoute):
     """Keep the removed whole-Project PUT absent instead of exposing a 405 alias."""
 
@@ -115,6 +108,11 @@ router = APIRouter(
     prefix="/projects",
     tags=["projects"],
     route_class=_RemovedProjectPutRoute,
+)
+archive_router = APIRouter(
+    prefix="/projects",
+    tags=["projects"],
+    route_class=CreatorErrorRoute,
 )
 
 
@@ -468,9 +466,9 @@ async def create_project(
                         },
                     },
                     initial_goal=request.initial_goal,
-                    goal_id=goal_id
-                    if request.initial_goal is not None
-                    else None,
+                    goal_id=(
+                        goal_id if request.initial_goal is not None else None
+                    ),
                     initial_message_id=(
                         message_id
                         if request.initial_goal is not None
@@ -767,7 +765,7 @@ async def copy_project(
 # pylint: enable=too-many-statements
 
 
-@router.get("/{project_id}/export")
+@archive_router.get("/{project_id}/export")
 async def export_project(
     project_id: str,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
@@ -801,6 +799,8 @@ async def export_project(
         raise NotFoundError(str(exc)) from exc
     except InvalidProjectId as exc:
         raise BadRequestError(str(exc)) from exc
+    except BadRequestError:
+        raise
     except Exception as e:
         logger.error(
             f"failed to export project {_log_safe(project_id)}",
@@ -811,86 +811,8 @@ async def export_project(
         ) from e
 
 
-_WINDOWS_UNSAFE_CHARS = re.compile(r'[<>:"\\|?*]')
-
-
-def _win_long_path(path: Path) -> Path:
-    r"""Bypass Windows MAX_PATH (260 char) limit by adding the ``\\?\`` prefix."""
-    if sys.platform != "win32":
-        return path
-    abs_path = os.path.abspath(path)
-    if len(abs_path) > 240 and not abs_path.startswith("\\\\?\\"):
-        return Path("\\\\?\\" + abs_path)
-    return path
-
-
-def _sanitize_zip_entry(name: str) -> str:
-    """Replace Windows-reserved characters in each path component."""
-
-    parts = name.split("/")
-    return "/".join(_WINDOWS_UNSAFE_CHARS.sub("_", p) for p in parts)
-
-
-def _extract_archive_sanitized(archive_path: Path, extract_dir: Path) -> None:
-    """Unpack a zip, sanitizing entry names and guarding against path traversal."""
-
-    resolved_base = extract_dir.resolve()
-    with zipfile.ZipFile(archive_path) as archive:
-        for info in archive.infolist():
-            safe_name = _sanitize_zip_entry(info.filename)
-            target_path = (extract_dir / safe_name).resolve()
-            if not target_path.is_relative_to(resolved_base):
-                raise StorageIntegrityError(
-                    f"archive entry escapes extraction root: "
-                    f"{info.filename!r}",
-                )
-            if info.is_dir():
-                _win_long_path(target_path).mkdir(parents=True, exist_ok=True)
-            else:
-                _win_long_path(target_path.parent).mkdir(
-                    parents=True,
-                    exist_ok=True,
-                )
-                with archive.open(info) as src, _win_long_path(
-                    target_path,
-                ).open("wb") as dst:
-                    shutil.copyfileobj(src, dst)
-
-
 def _validate_import_archive(saved_zip: Path) -> None:
-    """Preflight the archive with ZipInfo before anything is inflated."""
-
-    try:
-        with zipfile.ZipFile(saved_zip) as archive:
-            members = archive.infolist()
-            if len(members) > _IMPORT_MAX_MEMBERS:
-                raise BadRequestError(
-                    f"archive holds more than {_IMPORT_MAX_MEMBERS} entries",
-                )
-            total = 0
-            for info in members:
-                member = PurePosixPath(info.filename)
-                if member.is_absolute() or ".." in member.parts:
-                    raise BadRequestError(
-                        f"archive entry escapes the extraction root: "
-                        f"{info.filename!r}",
-                    )
-                mode = (info.external_attr >> 16) & 0o170000
-                if mode == stat_module.S_IFLNK:
-                    raise BadRequestError(
-                        f"archive entry is a symlink: {info.filename!r}",
-                    )
-                total += info.file_size
-                if (
-                    info.file_size > _IMPORT_MAX_EXTRACTED_BYTES
-                    or total > _IMPORT_MAX_EXTRACTED_BYTES
-                ):
-                    raise BadRequestError(
-                        "archive expands beyond the "
-                        f"{_IMPORT_MAX_EXTRACTED_BYTES} byte import limit",
-                    )
-    except zipfile.BadZipFile as e:
-        raise BadRequestError(f"not a valid zip archive: {str(e)}") from e
+    project_archive.validate_archive(saved_zip)
 
 
 async def _save_upload_to(upload, saved_zip: Path) -> None:
@@ -904,10 +826,10 @@ async def _save_upload_to(upload, saved_zip: Path) -> None:
                 if not chunk:
                     break
                 written += len(chunk)
-                if written > _IMPORT_MAX_ZIP_BYTES:
+                if written > project_archive.MAX_ARCHIVE_BYTES:
                     raise BadRequestError(
                         "uploaded archive exceeds the "
-                        f"{_IMPORT_MAX_ZIP_BYTES} byte limit",
+                        f"{project_archive.MAX_ARCHIVE_BYTES} byte limit",
                     )
                 f.write(chunk)
         logger.info(
@@ -963,6 +885,12 @@ def _resolve_extracted_project(extract_dir: Path) -> tuple[Path, str]:
             f"archive folder {dirs[0].name!r} does not match "
             f"project.json project_id {project_id!r}",
         )
+    report = AssetFileStore(dirs[0]).validate_index(project.assets)
+    if not report.valid:
+        raise BadRequestError(
+            "archive contains missing or corrupt indexed media: "
+            + ", ".join(item.file_id for item in report.failures[:5]),
+        )
     return dirs[0], project_id
 
 
@@ -996,7 +924,12 @@ async def _run_import(upload) -> str:
                 f"failed to unpack zip file {saved_zip}: {str(e)}",
             ) from e
 
-        project_dir, project_id = _resolve_extracted_project(extract_dir)
+        # Large Project documents must not block the API event loop while
+        # the browser waits for server-side import after upload completes.
+        project_dir, project_id = await asyncio.to_thread(
+            _resolve_extracted_project,
+            extract_dir,
+        )
 
         target_project_dir = Path(data_root, project_dir.name)
         if target_project_dir.exists():
@@ -1011,15 +944,15 @@ async def _run_import(upload) -> str:
         )
         return project_id
     finally:
-        saved_zip.unlink(missing_ok=True)
-        shutil.rmtree(extract_dir, ignore_errors=True)
+        await asyncio.to_thread(saved_zip.unlink, missing_ok=True)
+        await asyncio.to_thread(shutil.rmtree, extract_dir, ignore_errors=True)
         logger.info(
             "deleted temporary importing file and folder "
             f"{_log_safe(saved_zip)}, {extract_dir}",
         )
 
 
-@router.post("/import")
+@archive_router.post("/import")
 async def import_project(
     request: Request,
     idempotency_key: str | None = Header(None, alias="Idempotency-Key"),

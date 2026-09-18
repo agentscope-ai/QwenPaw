@@ -351,7 +351,9 @@ class AgentBuilder:
         # Validate model availability.
         active = agent_config.active_model
         if not (active and active.provider_id and active.model):
-            active = ProviderManager.get_instance().get_active_model()
+            active = await run_sync_io(
+                ProviderManager.get_instance().get_active_model,
+            )
         if active is None or not active.provider_id or not active.model:
             from ..exceptions import ConfigurationException
 

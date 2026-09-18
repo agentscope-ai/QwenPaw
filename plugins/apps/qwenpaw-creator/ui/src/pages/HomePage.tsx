@@ -23,6 +23,7 @@ import {
   copyProject,
   getRecreateParams,
   listProjects,
+  listTasks,
   getArtifactVersionMediaUrl,
   CreatorHttpError,
   newClientId,
@@ -52,6 +53,7 @@ import i18n from "@/i18n";
 
 interface ProjectCardProps {
   project: ProjectSummary;
+  hasActiveTasks: boolean;
   onOpen: (id: string) => void;
   onDelete: (project: ProjectSummary) => void;
   onCopy: (project: ProjectSummary) => void;
@@ -84,6 +86,7 @@ function statusDotColor(status: string | null | undefined): string {
 /** Text-only project card from the design draft. */
 const ProjectCard = memo(function ProjectCard({
   project,
+  hasActiveTasks,
   onOpen,
   onDelete,
   onCopy,
@@ -100,6 +103,10 @@ const ProjectCard = memo(function ProjectCard({
     projectScenarioLabel = found ? t(found.labelKey) : project.scenario;
   }
   const canPreview = Boolean(project.finalVideoVersionId);
+  // When there are active background tasks, override the session status
+  // to match the in-project live status display.
+  const displayStatus =
+    hasActiveTasks && project.status === "IDLE" ? "RUNNING" : project.status;
   return (
     <div
       role="button"
@@ -139,11 +146,11 @@ const ProjectCard = memo(function ProjectCard({
           <div className="flex min-w-0 items-center gap-1.5">
             <span
               className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${statusDotColor(
-                project.status,
+                displayStatus,
               )}`}
             />
             <span className="truncate">
-              {creatorStatusLabel(project.status)}
+              {creatorStatusLabel(displayStatus)}
             </span>
           </div>
           <span
@@ -235,6 +242,11 @@ export default function HomePage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const copyRetryKeys = useRef(new Map<string, string>());
   const requestHomeTour = useOnboardingStore((state) => state.requestHomeTour);
+  // Track which projects have active background tasks (QUEUED or RUNNING)
+  // so the status display matches the in-project live status.
+  const [projectsWithActiveTasks, setProjectsWithActiveTasks] = useState<
+    Set<string>
+  >(new Set());
   // Shared with the composer and header badges so saving the model config
   // anywhere clears every home-page warning at once.
   const modelConfig = useModelConfigStore((state) => state.config);
@@ -254,14 +266,34 @@ export default function HomePage() {
     async (sort: SortField = sortBy, order: "asc" | "desc" = sortOrder) => {
       try {
         const data = await listProjects(100, 0, sort, order);
-        setProjects(data.items || []);
+        const projectList = data.items || [];
+        setProjects(projectList);
+        // Fetch tasks for each project to determine if there's active background work.
+        // This ensures the status display matches the in-project live status.
+        const activeTaskProjects = new Set<string>();
+        await Promise.all(
+          projectList.map(async (project) => {
+            try {
+              const tasksData = await listTasks(project.projectId);
+              const hasActiveTask = (tasksData.items || []).some(
+                (task) => task.status === "QUEUED" || task.status === "RUNNING",
+              );
+              if (hasActiveTask) {
+                activeTaskProjects.add(project.projectId);
+              }
+            } catch {
+              // Ignore task fetch errors for individual projects
+            }
+          }),
+        );
+        setProjectsWithActiveTasks(activeTaskProjects);
       } catch {
         message.error(t("home.loadFailed"));
       } finally {
         setLoading(false);
       }
     },
-    [sortBy, sortOrder],
+    [sortBy, sortOrder, t],
   );
 
   useEffect(() => {
@@ -637,6 +669,9 @@ export default function HomePage() {
                   <ProjectCard
                     key={project.projectId}
                     project={project}
+                    hasActiveTasks={projectsWithActiveTasks.has(
+                      project.projectId,
+                    )}
                     onOpen={handleOpen}
                     onDelete={handleDelete}
                     onCopy={handleCopy}

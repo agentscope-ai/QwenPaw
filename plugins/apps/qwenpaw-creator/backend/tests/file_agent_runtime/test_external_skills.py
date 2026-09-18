@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ import pytest
 from models import config
 import services.external_skills as external_skills
 from services.external_skills import load_skills
+from services.file_agent_runtime.prompts import live_operation_guidance
 from services.file_agent_runtime import (
     AgentModelTurn,
     AgentRunStatus,
@@ -97,54 +100,35 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
     assert not invalid.available
 
 
-def test_professional_media_prompt_skill_is_builtin(
+@pytest.mark.parametrize(
+    ("skill_name", "body_fields"),
+    [
+        ("professional-media-prompts", ("[Image 1]",)),
+        (
+            "visual-asset-design",
+            ("canonical_variant_id", "derived_from_variant_id"),
+        ),
+    ],
+)
+def test_media_skills_are_builtin_and_viewable(
     tmp_path,
     monkeypatch,
-) -> None:
-    """The Creator ships the detailed prompt compiler without config."""
-
+    skill_name,
+    body_fields,
+):
     _configure(tmp_path, monkeypatch, [])
     builtin_root = Path(__file__).resolve().parents[2] / "skills"
     monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
     external_skills._clear_load_cache()
-
     loaded = {skill.entry.name: skill for skill in load_skills()}
-    skill = loaded["professional-media-prompts"]
+    skill = loaded[skill_name]
     assert skill.available
     parsed = external_skills.parse_skill_md(skill.skill_md)
     assert parsed["description"] and parsed["body"]
-    # Keep the interoperable reference convention covered; layout semantics
-    # belong to executable layout tests, not exact prose-copy assertions.
-    assert "[Image 1]" in parsed["body"]
-    viewed = external_skills.view_skill(
-        skill_name="professional-media-prompts",
-    )
+    assert all(field in parsed["body"] for field in body_fields)
+    viewed = external_skills.view_skill(skill_name=skill_name)
     assert viewed["ok"] is True
     assert viewed["content"] == skill.skill_md
-
-
-def test_visual_asset_design_skill_is_builtin(
-    tmp_path,
-    monkeypatch,
-) -> None:
-    """The visual doctrine retired from the specialist ships as a skill."""
-
-    _configure(tmp_path, monkeypatch, [])
-    builtin_root = Path(__file__).resolve().parents[2] / "skills"
-    monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
-    external_skills._clear_load_cache()
-
-    loaded = {skill.entry.name: skill for skill in load_skills()}
-    skill = loaded["visual-asset-design"]
-    assert skill.available
-    parsed = external_skills.parse_skill_md(skill.skill_md)
-    assert "VisualVariant" in parsed["description"]
-    assert "电影感艺术身份板" in parsed["body"]
-    assert "规避图片审核误判（硬性）" in parsed["body"]
-    assert "构图与镜头语言" in parsed["body"]
-    viewed = external_skills.view_skill(skill_name="visual-asset-design")
-    assert viewed["ok"] is True
-    assert "序列关键帧参考图" in viewed["content"]
 
 
 # ── Driver loop: progressive disclosure end to end ───────────────────────────
@@ -322,3 +306,26 @@ def test_skill_loading_runs_off_the_event_loop(tmp_path, monkeypatch) -> None:
 
     assert load_threads, "the model loop must have loaded external skills"
     assert all(thread != loop_thread for thread in load_threads)
+
+
+def test_computer_use_manual_follows_the_loaded_plugin(tmp_path, monkeypatch):
+    bundle = tmp_path / "computer-use"
+    package = bundle / "computer_use"
+    skill = bundle / "skills" / "computer_use" / "SKILL.md"
+    package.mkdir(parents=True)
+    skill.parent.mkdir(parents=True)
+    module_file = package / "__init__.py"
+    module_file.write_text("", encoding="utf-8")
+    skill.write_text(
+        "---\nname: computer_use\n---\nNative manual",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "computer_use",
+        SimpleNamespace(__file__=str(module_file)),
+    )
+    monkeypatch.setattr(live_operation_guidance, "_skill_root", lambda: None)
+
+    manual = live_operation_guidance.load_host_computer_use_manual()
+    assert manual == "Native manual"

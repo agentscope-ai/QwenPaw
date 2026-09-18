@@ -14,6 +14,7 @@ from qwenpaw.app.routers.providers import (
     ProviderConfigRequest,
     TestProviderRequest,
     configure_provider,
+    create_custom_provider_endpoint,
     discover_models,
     test_provider as provider_connection_endpoint,
     test_model as model_test_endpoint,
@@ -47,6 +48,26 @@ def test_custom_provider_request_rejects_unsupported_protocol() -> None:
             name="Custom Gemini",
             chat_model="GeminiChatModel",
         )
+
+
+async def test_create_custom_provider_passes_api_key_to_manager() -> None:
+    manager = MagicMock()
+    manager.add_custom_provider = AsyncMock(
+        return_value=ProviderInfo(id="custom-openai", name="Custom OpenAI"),
+    )
+
+    await create_custom_provider_endpoint(
+        manager=manager,
+        body=CreateCustomProviderRequest(
+            id="custom-openai",
+            name="Custom OpenAI",
+            default_base_url="https://api.example.com/v1",
+            api_key="sk-test",
+        ),
+    )
+
+    provider_info = manager.add_custom_provider.await_args.args[0]
+    assert provider_info.api_key == "sk-test"
 
 
 async def test_configure_provider_schedules_model_discovery() -> None:

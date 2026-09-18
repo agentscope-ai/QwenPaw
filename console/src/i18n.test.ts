@@ -90,3 +90,43 @@ describe("i18n initial language (#1604)", () => {
     spy.mockRestore();
   });
 });
+
+// ---------------------------------------------------------------------------
+// pt-BR bundle resolution — regression for the language list fix.
+// nonExplicitSupportedLngs reduces a region-qualified code to its
+// language part before matching supportedLngs, so "pt-BR" was looked
+// up as "pt", rejected, and the UI silently fell back to English.
+// Asserting only i18n.language cannot catch this: it stayed "pt-BR"
+// while resolvedLanguage degraded to "en".
+// ---------------------------------------------------------------------------
+
+describe("i18n pt-BR bundle resolution", () => {
+  afterEach(() => {
+    localStorage.clear();
+    vi.resetModules();
+  });
+
+  it("resolves a persisted pt-BR on startup", async () => {
+    localStorage.setItem("language", "pt-BR");
+
+    const i18n = await freshI18n();
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+
+    expect(i18n.resolvedLanguage).toBe("pt-BR");
+    expect(i18n.t("chat.newTask")).toBe("Nova tarefa");
+  });
+
+  it("resolves pt-BR after an explicit switch", async () => {
+    const i18n = await freshI18n();
+    if (!i18n.isInitialized) {
+      await new Promise((resolve) => i18n.on("initialized", resolve));
+    }
+
+    await i18n.changeLanguage("pt-BR");
+
+    expect(i18n.resolvedLanguage).toBe("pt-BR");
+    expect(i18n.t("chat.newTask")).toBe("Nova tarefa");
+  });
+});

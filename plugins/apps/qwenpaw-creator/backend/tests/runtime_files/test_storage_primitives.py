@@ -666,3 +666,67 @@ def test_torn_crash_tail_never_breaks_lockfree_readers(tmp_path):
     assert not path.read_bytes().endswith(b"\n")
     assert stream.append(EventRecord(worker=1, value=4)).seq == 4
     assert [e.seq for e in stream.read_all()] == [1, 2, 3, 4]
+
+
+@pytest.mark.parametrize("after", [0, 23])
+def test_forward_cursor_replays_once_and_follows_repaired_tail(
+    tmp_path,
+    monkeypatch,
+    after,
+):
+    path = tmp_path / "events.jsonl"
+    writer = DurableJsonlStore(path, EventRecord)
+    for value in range(1, 81):
+        writer.append(EventRecord(worker=1, value=value))
+    store = DurableJsonlStore(path, EventRecord)
+    validated = []
+    validate = store._validate_record  # pylint: disable=protected-access
+
+    def count_validation(record, *, line_number=None):
+        validated.append(line_number)
+        return validate(record, line_number=line_number)
+
+    monkeypatch.setattr(store, "_validate_record", count_validation)
+    reader = store.forward_reader(after)
+    values = []
+    while page := reader.read(limit=7):
+        assert len(page) <= 7
+        values.extend(item.value for item in page)
+    assert values == list(range(after + 1, 81))
+    # The old reverse-window loop revalidated the remaining history per page.
+    assert validated == list(range(1, 81))
+    with path.open("ab") as handle:
+        handle.write(b'{"seq":81,"record":')
+    assert not reader.read()
+    writer.append(EventRecord(worker=1, value=81))
+    assert [item.value for item in reader.read()] == [81]
+    assert not reader.read()
+    assert validated == list(range(1, 82))
+
+
+@pytest.mark.parametrize("damage", ["invalid", "gap", "replace", "truncate"])
+def test_forward_cursor_fails_closed_on_durable_stream_changes(
+    tmp_path,
+    damage,
+):
+    path = tmp_path / "events.jsonl"
+    store = DurableJsonlStore(path, EventRecord)
+    store.append(EventRecord(worker=1, value=1))
+    reader = store.forward_reader()
+    assert len(reader.read()) == 1
+    if damage == "replace":
+        replacement = path.with_suffix(".replacement")
+        replacement.write_bytes(path.read_bytes())
+        replacement.replace(path)
+    elif damage == "truncate":
+        path.write_bytes(b"")
+    else:
+        line = (
+            b"{}\n"
+            if damage == "invalid"
+            else path.read_bytes().replace(b'"seq":1', b'"seq":3')
+        )
+        with path.open("ab") as handle:
+            handle.write(line)
+    with pytest.raises(JsonlCorruptionError):
+        reader.read()

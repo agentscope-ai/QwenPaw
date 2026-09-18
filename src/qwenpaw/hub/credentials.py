@@ -327,6 +327,8 @@ class TenantCredentialVault:
     def _load_or_create_key(self) -> bytes:
         self.key_path.parent.mkdir(parents=True, exist_ok=True)
         if self.key_path.is_file():
+            if os.name != "nt":
+                os.chmod(self.key_path, 0o600)
             return self.key_path.read_bytes().strip()
         key = Fernet.generate_key()
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
