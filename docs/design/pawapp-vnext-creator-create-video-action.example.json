@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "app_id": "qwenpaw-creator",
+  "action_id": "create-video",
+  "summary": "Unlike create-project, which creates an empty project, create-video creates a Creator project, builds a production plan from the brief and optional script, pauses for required setup and generation approval, renders and publishes the final video, and returns the project and result.",
+  "engagements": ["delegated"],
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "brief": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 8000,
+        "pattern": "\\S"
+      },
+      "name": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 120,
+        "pattern": "\\S"
+      },
+      "script": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 50000,
+        "pattern": "\\S"
+      },
+      "description": {
+        "type": "string",
+        "maxLength": 2000,
+        "default": ""
+      },
+      "scenario": {
+        "type": "string",
+        "enum": ["short_drama", "video_edit", "general"],
+        "default": "general"
+      },
+      "aspect_ratio": {
+        "type": "string",
+        "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"],
+        "default": "16:9"
+      },
+      "resolution": {
+        "type": "string",
+        "enum": ["720P", "1080P"],
+        "default": "720P"
+      },
+      "content_type": {
+        "type": "string",
+        "enum": [
+          "pet_video",
+          "gaming",
+          "sports",
+          "travel_vlog",
+          "interview",
+          "general"
+        ]
+      },
+      "duration_seconds": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 3600
+      },
+      "language": {
+        "type": "string",
+        "minLength": 2,
+        "maxLength": 35,
+        "pattern": "^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$",
+        "default": "zh-CN"
+      }
+    },
+    "required": ["brief"],
+    "additionalProperties": false
+  },
+  "output_types": ["text/plain", "qwenpaw:file"],
+  "permissions": [
+    "creator.project.create",
+    "creator.project.read",
+    "creator.project.write",
+    "creator.image.generate",
+    "creator.video.generate"
+  ],
+  "effects": ["model_usage", "project_mutation"],
+  "adapter_ref": "qwenpaw-creator.video-workflow.v1"
+}
