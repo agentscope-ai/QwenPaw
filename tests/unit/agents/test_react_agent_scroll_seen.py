@@ -233,3 +233,72 @@ async def test_audio_modal_error_strips_audio_and_retries_once(
         assert agent.formatter._qwenpaw_force_strip_media is False
     finally:
         cache.clear()
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("Error code: 422 unknown variant `input_audio`", True),
+        ("Error code: 422 unknown field input audio", True),
+        ("Error code: 422 unknown variant `input_text`", False),
+        ("Error code: 500 invalid audio payload", False),
+    ],
+)
+def test_audio_part_rejection_classifier(message, expected) -> None:
+    assert (
+        QwenPawAgent._is_audio_fallback_error(RuntimeError(message)) is expected
+    )
+
+
+@pytest.mark.asyncio
+async def test_unknown_audio_part_error_strips_audio_and_retries_once(
+    monkeypatch,
+) -> None:
+    cache = get_capability_cache()
+    cache.clear()
+    agent = make_agent(SeenTracker())
+    agent.model = SimpleNamespace(model_key="deepseek:deepseek-flash")
+    agent._uses_request_time_media_normalization = lambda: True
+    agent.formatter = SimpleNamespace(
+        _qwenpaw_last_wire_media_count=1,
+        _qwenpaw_last_wire_audio_count=1,
+        _qwenpaw_force_strip_media=False,
+        _qwenpaw_force_strip_audio=False,
+    )
+    calls = 0
+
+    async def provider_reasoning(self, tool_choice=None):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError(
+                "Error code: 422 unknown variant `input_audio`; "
+                "expected one of `text`, `image_url`, `file`",
+            )
+        assert agent.formatter._qwenpaw_force_strip_audio is True
+        assert agent.formatter._qwenpaw_force_strip_media is False
+        yield Msg(
+            name="agent",
+            role="assistant",
+            content=[TextBlock(type="text", text="done")],
+        )
+
+    monkeypatch.setattr(Agent, "_reasoning", provider_reasoning)
+
+    try:
+        events = [event async for event in agent._reasoning()]
+
+        assert calls == 2
+        assert isinstance(events[-1], Msg)
+        assert (
+            cache.get(
+                "deepseek:deepseek-flash",
+                "rejects_audio",
+                False,
+            )
+            is True
+        )
+        assert agent.formatter._qwenpaw_force_strip_audio is False
+        assert agent.formatter._qwenpaw_force_strip_media is False
+    finally:
+        cache.clear()
