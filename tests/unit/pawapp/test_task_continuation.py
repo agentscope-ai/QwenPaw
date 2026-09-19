@@ -639,6 +639,54 @@ async def test_live_subscribers_only_see_committed_summary(setup):
 
 
 @pytest.mark.asyncio
+async def test_approval_wait_continuation_preserves_input_request(setup):
+    origin = await setup.worker.origins.resolve(SCOPE, "delegated", "main")
+    task = await setup.host.store.create(
+        SCOPE,
+        ACTION,
+        request_id="approval-wait",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    run = ExecutorRunRef(executor_id="engine", session_id="s", run_id="r")
+    await setup.host.store.begin_submission(SCOPE, task.handle.task_id)
+    await setup.host.store.record_accepted(SCOPE, task.handle.task_id, run)
+    await setup.host.store.apply_event(
+        SCOPE,
+        task.handle.task_id,
+        ExecutorEvent(
+            run_ref=run,
+            sequence=0,
+            cursor="approval",
+            status="waiting_for_approval",
+            detail={
+                "input_request": {
+                    "request_id": "approval-1",
+                    "questions": [
+                        {
+                            "question": "Run once?",
+                            "options": [
+                                {"label": "Approve once"},
+                                {"label": "Do not run"},
+                            ],
+                        },
+                    ],
+                },
+            },
+        ),
+    )
+
+    claim = await setup.worker.queue.claim()
+
+    assert claim.summary["status"] == "waiting_for_approval"
+    assert claim.summary["input_request"]["request_id"] == "approval-1"
+    assert claim.summary["input_request"]["questions"][0]["options"] == [
+        {"label": "Approve once", "description": ""},
+        {"label": "Do not run", "description": ""},
+    ]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("prepared", [False, True])
 async def test_resolved_waiting_event_does_not_prompt_for_stale_input(
     setup,

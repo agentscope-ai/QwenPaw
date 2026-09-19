@@ -1,21 +1,26 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { RocketOutlined } from "@ant-design/icons";
 import { ToolCardShell } from "../shared";
 import type { BuiltinCardProps } from "./index";
 import {
+  answerPawAppTask,
   getPawAppTask,
   isTerminalTask,
+  openPawAppSetup,
   openPawAppTask,
   pawAppArtifactUrl,
   type PawAppArtifactRef,
+  type PawAppTaskAnswer,
   parsePawAppOpenResult,
   parsePawAppTaskResult,
   type PawAppOpenResult,
   type PawAppTask,
+  type PawAppTaskInputRequest,
   type PawAppTaskResult,
 } from "../../../../api/modules/pawappTasks";
 import { buildAuthHeaders } from "../../../../api/authHeaders";
+import { createClientMessageId } from "../../../../utils/clientMessageId";
 import { addRouterBasename } from "../../../../utils/navigationMode";
 import { downloadFileFromUrl } from "../../../../utils/downloadFileFromUrl";
 import styles from "./PawAppTaskCard.module.less";
@@ -136,6 +141,162 @@ function ArtifactItem({
   );
 }
 
+type AnswerDraft = {
+  selectedOptions: string[];
+  customText: string;
+};
+
+function TaskInputForm({
+  appId,
+  workspaceId,
+  taskId,
+  request,
+  onSettled,
+}: {
+  appId: string;
+  workspaceId: string;
+  taskId: string;
+  request: PawAppTaskInputRequest;
+  onSettled: () => void;
+}) {
+  const { t } = useTranslation();
+  const [drafts, setDrafts] = useState<Record<number, AnswerDraft>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<"required" | "rejected" | "failed" | null>(
+    null,
+  );
+  const command = useRef<{ requestId: string; commandId: string } | null>(null);
+
+  useEffect(() => {
+    setDrafts({});
+    setError(null);
+    command.current = null;
+  }, [request.request_id]);
+
+  const updateDraft = (index: number, next: AnswerDraft) => {
+    setDrafts((current) => ({ ...current, [index]: next }));
+    setError(null);
+  };
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const answers: PawAppTaskAnswer[] = request.questions.map(
+      (question, index) => {
+        const draft = drafts[index] ?? { selectedOptions: [], customText: "" };
+        const customText = draft.customText.trim();
+        return {
+          question: question.question,
+          selected_options: draft.selectedOptions,
+          custom_text: customText || null,
+        };
+      },
+    );
+    if (
+      answers.some(
+        (answer) =>
+          answer.selected_options.length === 0 && answer.custom_text === null,
+      )
+    ) {
+      setError("required");
+      return;
+    }
+    if (command.current?.requestId !== request.request_id) {
+      command.current = {
+        requestId: request.request_id,
+        commandId: createClientMessageId(),
+      };
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await answerPawAppTask(
+        appId,
+        workspaceId,
+        taskId,
+        command.current.commandId,
+        request.request_id,
+        answers,
+      );
+      setError(result.state === "accepted" ? null : "rejected");
+    } catch {
+      setError("failed");
+    } finally {
+      setSubmitting(false);
+      onSettled();
+    }
+  };
+
+  return (
+    <form
+      className={styles.inputRequest}
+      onSubmit={(event) => void submit(event)}
+    >
+      {request.title && <strong>{request.title}</strong>}
+      {request.questions.map((question, index) => {
+        const draft = drafts[index] ?? { selectedOptions: [], customText: "" };
+        return (
+          <fieldset key={`${index}:${question.question}`} disabled={submitting}>
+            <legend>{question.question}</legend>
+            {question.description && <p>{question.description}</p>}
+            <div className={styles.answerOptions}>
+              {question.options.map((option) => {
+                const checked = draft.selectedOptions.includes(option.label);
+                return (
+                  <label key={option.label}>
+                    <input
+                      type={question.multi_select ? "checkbox" : "radio"}
+                      name={`${taskId}:${request.request_id}:${index}`}
+                      value={option.label}
+                      checked={checked}
+                      onChange={(event) => {
+                        const selectedOptions = question.multi_select
+                          ? event.target.checked
+                            ? [...draft.selectedOptions, option.label]
+                            : draft.selectedOptions.filter(
+                                (label) => label !== option.label,
+                              )
+                          : [option.label];
+                        updateDraft(index, { ...draft, selectedOptions });
+                      }}
+                    />
+                    <span>
+                      <strong>{option.label}</strong>
+                      {option.description && (
+                        <small>{option.description}</small>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            <label className={styles.customAnswer}>
+              <span>{t("tool.pawappTask.customAnswer")}</span>
+              <input
+                type="text"
+                value={draft.customText}
+                onChange={(event) =>
+                  updateDraft(index, {
+                    ...draft,
+                    customText: event.target.value,
+                  })
+                }
+              />
+            </label>
+          </fieldset>
+        );
+      })}
+      {error && <p role="alert">{t(`tool.pawappTask.answerError.${error}`)}</p>}
+      <button type="submit" disabled={submitting}>
+        {t(
+          submitting
+            ? "tool.pawappTask.submittingAnswer"
+            : "tool.pawappTask.submitAnswer",
+        )}
+      </button>
+    </form>
+  );
+}
+
 function TaskCard({
   content,
   isStreaming,
@@ -151,6 +312,8 @@ function TaskCard({
   const [refresh, setRefresh] = useState(0);
   const [opening, setOpening] = useState(false);
   const [openFailed, setOpenFailed] = useState(false);
+  const [setupOpening, setSetupOpening] = useState(false);
+  const [setupFailed, setSetupFailed] = useState(false);
   const taskId = result?.task?.task_id;
   const appId = result?.app_id;
   const workspaceId = result?.workspace_id;
@@ -225,6 +388,20 @@ function TaskCard({
       setOpening(false);
     }
   };
+  const openSetup = async () => {
+    const setupRequestId = task?.setup_request_id;
+    if (!appId || !workspaceId || !setupRequestId) return;
+    setSetupOpening(true);
+    setSetupFailed(false);
+    try {
+      const action = await openPawAppSetup(appId, workspaceId, setupRequestId);
+      navigateToApp(action.path);
+    } catch {
+      setSetupFailed(true);
+    } finally {
+      setSetupOpening(false);
+    }
+  };
   return (
     <ToolCardShell
       content={content}
@@ -243,6 +420,22 @@ function TaskCard({
             {blocked && appHref && (
               <a href={appHref}>{t("tool.pawappTask.settings")}</a>
             )}
+            {!blocked &&
+              task?.status === "waiting_for_setup" &&
+              task.setup_request_id && (
+                <button
+                  className={styles.openApp}
+                  type="button"
+                  disabled={setupOpening}
+                  onClick={() => void openSetup()}
+                >
+                  {t(
+                    setupOpening
+                      ? "tool.pawappTask.openingSetup"
+                      : "tool.pawappTask.completeSetup",
+                  )}
+                </button>
+              )}
             {!blocked && task?.project_ref && (
               <button
                 className={styles.openApp}
@@ -274,6 +467,16 @@ function TaskCard({
           )}
           {recovering && !unavailable && <p>{t("tool.pawappTask.recovery")}</p>}
           {openFailed && <p>{t("tool.pawappTask.refreshFailed")}</p>}
+          {setupFailed && <p>{t("tool.pawappTask.setupOpenFailed")}</p>}
+          {task?.input_request && appId && workspaceId && taskId && (
+            <TaskInputForm
+              appId={appId}
+              workspaceId={workspaceId}
+              taskId={taskId}
+              request={task.input_request}
+              onSettled={() => setRefresh((value) => value + 1)}
+            />
+          )}
           {task?.text_result != null && task.text_result !== "" && (
             <div>
               <div className={styles.resultLabel}>

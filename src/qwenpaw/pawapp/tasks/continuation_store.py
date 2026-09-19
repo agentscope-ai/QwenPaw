@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from .contracts import (
+    ANSWERABLE_STATUSES,
     TaskOrigin,
     TaskScope,
     TaskStoreError,
@@ -55,10 +56,12 @@ def enqueue(connection, handle, *, sequence=None, status=None, text=None):
         "output_refs": [
             ref.model_dump(mode="json") for ref in handle.output_refs
         ],
-        "input_request": handle.input_request.model_dump(mode="json")
-        if (status or handle.status) == "waiting_for_input"
-        and handle.input_request is not None
-        else None,
+        "input_request": (
+            handle.input_request.model_dump(mode="json")
+            if (status or handle.status) in ANSWERABLE_STATUSES
+            and handle.input_request is not None
+            else None
+        ),
     }
     connection.execute(
         """INSERT OR IGNORE INTO task_continuations
@@ -195,9 +198,11 @@ class ContinuationQueue:
                 handle.scope,
                 handle.origin,
                 json.loads(row["summary_json"]),
-                json.loads(row["prepared_json"])
-                if row["prepared_json"]
-                else None,
+                (
+                    json.loads(row["prepared_json"])
+                    if row["prepared_json"]
+                    else None
+                ),
             )
 
         return await self.store._run(operation, write=True)
@@ -268,13 +273,15 @@ class ContinuationQueue:
                 (
                     self.clock() + delay,
                     reason,
-                    self.clock()
-                    if reason
-                    in {
-                        "continuation_retry_exhausted",
-                        "continuation_cancelled",
-                    }
-                    else None,
+                    (
+                        self.clock()
+                        if reason
+                        in {
+                            "continuation_retry_exhausted",
+                            "continuation_cancelled",
+                        }
+                        else None
+                    ),
                     claim.task_id,
                     claim.event_sequence,
                     claim.token,

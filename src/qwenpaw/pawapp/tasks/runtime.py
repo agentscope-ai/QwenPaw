@@ -12,6 +12,7 @@ from typing import Callable
 from .binding import ActionRegistration, AuthorizeOrigin, ManagedTaskAdapter
 from .contracts import (
     TERMINAL_STATUSES,
+    ExecutorEvent,
     TaskScope,
     TaskStoreError,
     content_digest,
@@ -21,6 +22,13 @@ from .policy import FileTaskPolicy, TaskGrant
 from .store import TaskStore
 
 logger = logging.getLogger(__name__)
+
+_ACTIONABLE_SETUP_STATES = frozenset(
+    {"needs_input", "needs_configuration", "needs_authorization"},
+)
+_ACTIVE_SETUP_STATES = frozenset(
+    {"requested", "opened", "waiting_external"},
+)
 
 
 class _ReadyAdapter:
@@ -103,6 +111,8 @@ class HostTaskRuntime:
     async def start(self):
         if self._closed:
             raise TaskStoreError("task_runtime_closed")
+        if self.setup is not None:
+            self.setup.set_task_waker(self._wake_setup_task)
         if self._supervisor is None:
             self._supervisor = asyncio.create_task(self._supervise())
 
@@ -210,7 +220,7 @@ class HostTaskRuntime:
 
     async def describe(self, scope: TaskScope, action_id: str):
         await self._sync()
-        binding = self._binding(scope, action_id)
+        binding = self._public_binding(scope, action_id)
         await self.policy.check(scope, binding.registration.action)
         return binding.coordinator.describe(scope.app_id, action_id)
 
@@ -219,6 +229,8 @@ class HostTaskRuntime:
         await self._sync()
         result = []
         for (app_id, action_id), binding in sorted(self._bindings.items()):
+            if binding.registration.exposure != "host_public":
+                continue
             scope = TaskScope(
                 principal_id=principal_id,
                 workspace_id=workspace_id,
@@ -264,6 +276,8 @@ class HostTaskRuntime:
         policy = await self.policy.read()
         actions = []
         for (app_id, action_id), binding in sorted(self._bindings.items()):
+            if binding.registration.exposure != "host_public":
+                continue
             action = binding.registration.action
             scope = TaskScope(
                 principal_id=principal_id,
@@ -349,7 +363,7 @@ class HostTaskRuntime:
     ):
         """Pin or revoke one live action descriptor for a Host operator."""
         await self._sync()
-        binding = self._binding(scope, action_id)
+        binding = self._public_binding(scope, action_id)
         action = binding.registration.action
         normalized = (
             self._grant_input_values(action, input_values) if enabled else {}
@@ -382,6 +396,12 @@ class HostTaskRuntime:
             binding is None
             or self._registrations().get(key) is not binding.registration
         ):
+            raise TaskStoreError("action_not_found")
+        return binding
+
+    def _public_binding(self, scope, action_id):
+        binding = self._binding(scope, action_id)
+        if binding.registration.exposure != "host_public":
             raise TaskStoreError("action_not_found")
         return binding
 
@@ -444,7 +464,7 @@ class HostTaskRuntime:
         prepare=False,
     ):
         await self._sync()
-        binding = self._binding(scope, action_id)
+        binding = self._public_binding(scope, action_id)
         registration = binding.registration
         action = binding.coordinator.describe(scope.app_id, action_id)
         action.validate_inputs(inputs)
@@ -572,7 +592,7 @@ class HostTaskRuntime:
         if self.setup is None:
             raise TaskStoreError("setup_runtime_unavailable")
         await self._sync()
-        binding = self._binding(scope, action_id)
+        binding = self._public_binding(scope, action_id)
         action = binding.coordinator.describe(scope.app_id, action_id)
         action.validate_inputs(inputs)
         if origin.engagement not in action.engagements:
@@ -704,6 +724,177 @@ class HostTaskRuntime:
         self._wake(await self.store.get(scope, task_id), force=True)
         return command
 
+    async def _wake_setup_task(self, scope, task_id):
+        submission = await self.store.get(scope, task_id)
+        self._wake(submission, force=True)
+
+    async def _prepare_deferred(self, binding, submission, requirement_id):
+        if self.setup is None:
+            raise TaskStoreError("setup_runtime_unavailable")
+        prepared = await self.setup.prepare_deferred_requirement(
+            submission.handle.scope,
+            binding.registration,
+            submission.inputs,
+            requirement_id,
+        )
+        if len(prepared.results) != 1:
+            raise TaskStoreError("setup_requirement_mismatch")
+        return prepared, prepared.results[0]
+
+    async def _commit_event(
+        self,
+        binding,
+        submission,
+        event: ExecutorEvent,
+    ):
+        need = event.setup_need
+        if need is None:
+            return await self.store.apply_event(
+                submission.handle.scope,
+                submission.handle.task_id,
+                event,
+            )
+        if need.requirement_id not in (
+            binding.registration.deferred_requirement_ids
+        ):
+            raise TaskStoreError("setup_requirement_mismatch")
+        prepared, result = await self._prepare_deferred(
+            binding,
+            submission,
+            need.requirement_id,
+        )
+        if result.state == "ready":
+            return await self.store.apply_event(
+                submission.handle.scope,
+                submission.handle.task_id,
+                event.model_copy(
+                    update={"status": "running", "setup_need": None},
+                ),
+            )
+        if result.state in _ACTIONABLE_SETUP_STATES:
+            attempt = submission.handle.setup_attempt + 1
+            record, _replayed = await self.setup.request_for_task(
+                submission,
+                binding.registration,
+                prepared,
+                requirement_id=need.requirement_id,
+                attempt=attempt,
+            )
+            return await self.store.apply_event(
+                submission.handle.scope,
+                submission.handle.task_id,
+                event,
+                setup_request_id=record.request.request_id,
+                setup_attempt=attempt,
+            )
+        if result.state == "unavailable":
+            return await self.store.fail_after_setup(
+                submission.handle.scope,
+                submission.handle.task_id,
+                expected_request_id=None,
+                expected_attempt=submission.handle.setup_attempt,
+                reason_code=result.reason_code or "setup_unavailable",
+            )
+        raise TaskStoreError(result.reason_code or "setup_readiness_unknown")
+
+    @staticmethod
+    def _validate_setup_link(submission, record):
+        handle = submission.handle
+        request = record.request
+        if (
+            request.scope != handle.scope
+            or request.task_id != handle.task_id
+            or request.action_id != handle.action_id
+            or request.descriptor_digest != handle.descriptor_digest
+            or request.input_digest != content_digest(submission.inputs)
+            or request.attempt != handle.setup_attempt
+            or len(request.requirement_ids) != 1
+        ):
+            raise TaskStoreError("setup_link_conflict")
+        return request.requirement_ids[0]
+
+    async def _reconcile_setup(self, binding, submission):
+        handle = submission.handle
+        if (
+            handle.status != "waiting_for_setup"
+            or handle.setup_request_id is None
+        ):
+            return submission, False
+        if self.setup is None:
+            raise TaskStoreError("setup_runtime_unavailable")
+        record = await self.setup.get(handle.scope, handle.setup_request_id)
+        requirement_id = self._validate_setup_link(submission, record)
+        if requirement_id not in binding.registration.deferred_requirement_ids:
+            raise TaskStoreError("setup_requirement_mismatch")
+        if record.request.state in _ACTIVE_SETUP_STATES:
+            return submission, True
+        if record.request.state == "cancelled":
+            await self.store.prepare_cancel(
+                handle.scope,
+                handle.task_id,
+                reason="setup_cancelled",
+            )
+            return await self.store.get(handle.scope, handle.task_id), False
+        if record.request.state in {"failed", "expired"}:
+            return (
+                await self.store.fail_after_setup(
+                    handle.scope,
+                    handle.task_id,
+                    expected_request_id=record.request.request_id,
+                    expected_attempt=handle.setup_attempt,
+                    reason_code="setup_" + record.request.state,
+                ),
+                True,
+            )
+        prepared, result = await self._prepare_deferred(
+            binding,
+            submission,
+            requirement_id,
+        )
+        if result.state == "ready":
+            return (
+                await self.store.resume_after_setup(
+                    handle.scope,
+                    handle.task_id,
+                    expected_request_id=record.request.request_id,
+                    expected_attempt=handle.setup_attempt,
+                ),
+                False,
+            )
+        if result.state in _ACTIONABLE_SETUP_STATES:
+            next_attempt = handle.setup_attempt + 1
+            next_record, _replayed = await self.setup.request_for_task(
+                submission,
+                binding.registration,
+                prepared,
+                requirement_id=requirement_id,
+                attempt=next_attempt,
+                plan_digest=record.request.plan_digest,
+            )
+            return (
+                await self.store.replace_setup_request(
+                    handle.scope,
+                    handle.task_id,
+                    expected_request_id=record.request.request_id,
+                    expected_attempt=handle.setup_attempt,
+                    request_id=next_record.request.request_id,
+                    attempt=next_attempt,
+                ),
+                True,
+            )
+        if result.state == "unavailable":
+            return (
+                await self.store.fail_after_setup(
+                    handle.scope,
+                    handle.task_id,
+                    expected_request_id=record.request.request_id,
+                    expected_attempt=handle.setup_attempt,
+                    reason_code=result.reason_code or "setup_unavailable",
+                ),
+                True,
+            )
+        raise TaskStoreError(result.reason_code or "setup_readiness_unknown")
+
     def _wake(self, submission, *, force=False):
         handle = submission.handle
         if self._closed or handle.status in TERMINAL_STATUSES:
@@ -749,6 +940,15 @@ class HostTaskRuntime:
                 submission.handle.origin,
                 submission.inputs,
             )
+            submission, waiting_for_setup = await self._reconcile_setup(
+                binding,
+                submission,
+            )
+            if (
+                waiting_for_setup
+                or submission.handle.status in TERMINAL_STATUSES
+            ):
+                return
             # Unknown sends query acceptance first. _ReadyAdapter checks
             # configuration if reconciliation needs to submit the same ID.
             submission = await binding.coordinator.reconcile(scope, task_id)
@@ -760,7 +960,11 @@ class HostTaskRuntime:
                         task_id,
                         command.command_id,
                     )
-                await binding.coordinator.consume(scope, task_id)
+                await binding.coordinator.consume(
+                    scope,
+                    task_id,
+                    commit_event=partial(self._commit_event, binding),
+                )
         except Exception as exc:
             # Never copy transport response bodies, prompts or tokens to logs.
             code = (

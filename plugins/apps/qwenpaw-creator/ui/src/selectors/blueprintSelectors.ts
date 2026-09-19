@@ -115,7 +115,21 @@ export function selectFinalFilmVersionId(
   if (!project) return null;
   const live = selectLiveTimelineIds(project);
   if (live.length !== 1) return null;
-  return selectTimelineFilmVersionId(project, live[0]);
+  const timelineId = live[0];
+  const render = selectTimelineRenderSlot(project, timelineId);
+  const selected = render?.selected;
+  if (
+    !selected ||
+    selected.kind !== "final_video" ||
+    selected.slot_id !== render.slot.slot_id ||
+    selected.owner_ref !== `timeline:${timelineId}` ||
+    selected.stale ||
+    !selected.file_id
+  )
+    return null;
+  const file = project.assets.files_by_id[selected.file_id];
+  if (!file?.media_type?.startsWith("video/")) return null;
+  return selected.version_id;
 }
 
 /** A downloadable, selected, fresh film belonging to one live timeline. */

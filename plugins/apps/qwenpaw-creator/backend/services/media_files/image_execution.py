@@ -2014,6 +2014,7 @@ class FileImageExecutionService:
         arguments: Mapping[str, Any],
         idempotency_key: str,
         expected_object_versions: Sequence[str] = (),
+        related_run_id: str | None = None,
     ) -> FileImageExecutionResult:
         command_value = CreatorCommandType(command)
         if command_value not in _IMAGE_COMMANDS:
@@ -2185,6 +2186,7 @@ class FileImageExecutionService:
             idempotency_key=idempotency_key,
             ids=ids,
             image_model_name=image_model_name,
+            related_run_id=related_run_id,
         )
         if task.status is TaskStatus.SUCCEEDED:
             return self._result_from_task(task, replayed=True)
@@ -2623,6 +2625,7 @@ class FileImageExecutionService:
         idempotency_key: str,
         ids: Mapping[str, str],
         image_model_name: str = "",
+        related_run_id: str | None = None,
     ) -> tuple[SpecialistRunRecord, TaskRecord]:
         run_candidate = SpecialistRunRecord(
             run_id=ids["run_id"],
@@ -2634,6 +2637,7 @@ class FileImageExecutionService:
             input_etag=base.etag,
             request_fingerprint=request_fingerprint,
             read_set=list(resolved.read_set),
+            related_run_id=related_run_id,
             caused_by_request_id=idempotency_key,
             review_policy=ReviewPolicy.AUTO_FIX,
             metadata={
@@ -3848,6 +3852,26 @@ def file_image_execution_service(
         return worker
 
 
+def start_file_image_execution_service(
+    services: CreatorFileServices,
+    *,
+    provider: ImageProvider | None = None,
+) -> FileImageExecutionService:
+    """Register the process-wide worker used by every image dispatch path."""
+
+    root = services.root.resolve()
+    with _image_registry_lock:
+        worker = _image_registry.get(root)
+        if worker is None:
+            worker = FileImageExecutionService(services, provider=provider)
+            _image_registry[root] = worker
+        elif provider is not None and worker.provider is not provider:
+            raise RuntimeError(
+                "image execution service already uses another provider",
+            )
+        return worker
+
+
 async def shutdown_file_image_execution_services() -> None:
     """Cancel supervisors; the durable ledger keeps tasks resumable."""
 
@@ -3870,6 +3894,7 @@ async def execute_file_image_command(
     arguments: Mapping[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
     provider: ImageProvider | None = None,
 ) -> FileImageExecutionResult:
     """Small route/tool entry point with an injectable provider for tests."""
@@ -3885,6 +3910,7 @@ async def execute_file_image_command(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
     )
 
 
@@ -3923,4 +3949,5 @@ __all__ = [
     "execute_file_image_command",
     "file_image_execution_service",
     "shutdown_file_image_execution_services",
+    "start_file_image_execution_service",
 ]

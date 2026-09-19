@@ -90,6 +90,10 @@ AuthorizeAction = Callable[
     [TaskScope, ActionDescriptor, TaskOrigin, dict[str, Any]],
     Awaitable[None],
 ]
+CommitEvent = Callable[
+    [TaskSubmission, ExecutorEvent],
+    Awaitable[TaskSubmission],
+]
 
 
 @dataclass(frozen=True)
@@ -256,9 +260,11 @@ class TaskCoordinator:
                 task_id,
                 command_id,
                 state="accepted" if command.kind == "cancel" else "rejected",
-                reason="already_terminal"
-                if command.kind == "cancel"
-                else "stale_request",
+                reason=(
+                    "already_terminal"
+                    if command.kind == "cancel"
+                    else "stale_request"
+                ),
             )
         if submission.handle.executor_run_ref is None:
             submission = await self.reconcile(scope, task_id)
@@ -268,9 +274,11 @@ class TaskCoordinator:
                 task_id,
                 command_id,
                 state="accepted" if command.kind == "cancel" else "rejected",
-                reason="already_terminal"
-                if command.kind == "cancel"
-                else "stale_request",
+                reason=(
+                    "already_terminal"
+                    if command.kind == "cancel"
+                    else "stale_request"
+                ),
             )
         if submission.handle.executor_run_ref is None:
             return await self.store.mark_command(
@@ -330,7 +338,13 @@ class TaskCoordinator:
             reason=lookup.reason,
         )
 
-    async def consume(self, scope: TaskScope, task_id: str) -> TaskSubmission:
+    async def consume(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        *,
+        commit_event: CommitEvent | None = None,
+    ) -> TaskSubmission:
         """Attach/replay an accepted run. EOF leaves task facts intact."""
         submission = await self.store.get(scope, task_id)
         handle = submission.handle
@@ -350,11 +364,14 @@ class TaskCoordinator:
         try:
             async with aclosing(binding.adapter.attach(submission)) as stream:
                 async for event in stream:
-                    submission = await self.store.apply_event(
-                        scope,
-                        task_id,
-                        event,
-                    )
+                    if commit_event is None:
+                        submission = await self.store.apply_event(
+                            scope,
+                            task_id,
+                            event,
+                        )
+                    else:
+                        submission = await commit_event(submission, event)
                     if submission.handle.status in (
                         TERMINAL_STATUSES | WAITING_STATUSES
                     ):

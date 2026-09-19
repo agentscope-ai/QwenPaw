@@ -180,11 +180,13 @@ class SetupRequest(Contract):
     request_id: Identity
     scope: TaskScope
     descriptor_digest: Identity
+    input_digest: Identity | None = None
     entry_id: Identity
     requirement_ids: tuple[Identity, ...] = Field(min_length=1)
     origin_ref: Identity
     task_id: Identity | None = None
     action_id: Identity | None = None
+    attempt: int | None = Field(default=None, ge=1)
     project_ref: ProjectRef | None = None
     plan_digest: Identity | None = None
     expected_revisions: dict[Identity, Revision] = Field(default_factory=dict)
@@ -203,6 +205,19 @@ class SetupRequest(Contract):
             raise ValueError("setup requirement IDs must be unique")
         if len(set(self.scopes)) != len(self.scopes):
             raise ValueError("setup scopes must be unique")
+        if self.task_id is None:
+            if self.attempt is not None:
+                raise ValueError("setup attempts require a linked task")
+        elif (
+            self.action_id is None
+            or self.input_digest is None
+            or self.attempt is None
+            or len(self.requirement_ids) != 1
+        ):
+            raise ValueError(
+                "task-linked setup requires action, input, attempt, and one "
+                "requirement",
+            )
         if self.expires_at <= self.created_at:
             raise ValueError("setup expiry must follow creation")
         if self.updated_at < self.created_at:

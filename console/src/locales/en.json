@@ -4843,6 +4843,17 @@
       "defaultTitle": "Delegate to App",
       "openApp": "Open App",
       "settings": "Open App settings",
+      "completeSetup": "Complete setup",
+      "openingSetup": "Opening setup…",
+      "setupOpenFailed": "Could not open setup. Please try again.",
+      "submitAnswer": "Submit answer",
+      "submittingAnswer": "Submitting…",
+      "customAnswer": "Other answer (optional)",
+      "answerError": {
+        "required": "Answer every question before submitting.",
+        "rejected": "This answer is no longer valid. The task status is refreshing.",
+        "failed": "Could not submit the answer. Retry to safely reuse the same request."
+      },
       "result": "Result",
       "partialResult": "Output so far",
       "artifacts": "Artifacts",

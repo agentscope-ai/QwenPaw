@@ -121,11 +121,26 @@
         "ordinary_value_prefill": "task-derived-with-provenance-and-schema-validation",
         "models": [
           {
+            "id": "creator-llm",
+            "capability": "chat.generate",
+            "required_for": [
+              "create-video"
+            ],
+            "readiness_phase": "eager-before-task-creation",
+            "binding_scopes": [
+              "app-default"
+            ],
+            "delivery": "model_handle",
+            "setup_entry": "creator-llm-model"
+          },
+          {
             "id": "storyboard-image",
             "capability": "image.generate",
             "required_for": [
+              "create-video",
               "generate-storyboard"
             ],
+            "readiness_phase": "deferred-at-actionable-storyboard-stage",
             "binding_scopes": [
               "project",
               "app-default"
@@ -137,8 +152,10 @@
             "id": "shot-video",
             "capability": "video.generate",
             "required_for": [
+              "create-video",
               "generate-video"
             ],
+            "readiness_phase": "deferred-at-actionable-video-stage",
             "binding_scopes": [
               "project",
               "app-default"
@@ -180,6 +197,17 @@
         },
         "readiness": {
           "edit-script": [],
+          "create-video": {
+            "eager": [
+              "model:creator-llm"
+            ],
+            "deferred_in_order": [
+              "model:storyboard-image",
+              "model:shot-video"
+            ],
+            "one_active_task_linked_request": true,
+            "saved_result": "recheck-readiness; if-still-unready-increment-attempt-and-reuse-the-deterministic-next-request"
+          },
           "generate-storyboard": [
             "model:storyboard-image"
           ],
@@ -191,8 +219,22 @@
             "model:shot-video"
           ]
         },
-        "$comment": "Minimal independent actions for the mock. A real video plan that also generates images must conditionally require storyboard-image. Viewing/editing a script has no generation-model dependency.",
+        "$comment": "create-video uses eager LLM readiness before task creation, then independent deferred image and video checks as work becomes actionable. The private primitive actions retain their direct model checks. Setup never grants generation approval or starts a provider call.",
         "setup_entries": [
+          {
+            "id": "creator-llm-model",
+            "entry_ref": "creator.model-settings",
+            "focus": "llm",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "creator-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
           {
             "id": "creator-image-model",
             "entry_ref": "creator.model-settings",
@@ -679,6 +721,8 @@
       "action_id-if-present",
       "project_ref-if-present",
       "plan_digest-if-present",
+      "input_digest-if-task-linked",
+      "attempt-if-task-linked",
       "expected_revisions",
       "scopes",
       "suggested_values-with-provenance",
@@ -714,7 +758,8 @@
       "permission_denied",
       "external_timeout"
     ],
-    "completion": "app-backend-authenticated-receipt; host-validates-request-and-versions; saved-is-not-ready",
+    "completion": "app-backend-authenticated-receipt; host-validates-request-and-versions; saved-is-not-ready; linked cancellation cancels the waiting task; failed-or-expired fails it with a bounded reason",
+    "task_linked_retry": "bind task, action, descriptor, requirement, plan, input digest, and monotonic attempt; after saved-but-unready, durably advance the attempt and create-or-reuse exactly one next request",
     "replay": "deduplicate-request-and-result; duplicate-open-focuses-existing-draft; duplicate-result-never-restarts-work",
     "manual_open": "task/action/plan/context are absent unless applicable; check relevant configuration/policy revisions; recheck selected requirements; return to App without task creation or continuation",
     "fallback": "registered-app-entry-or-explicit-error; preserve-draft; never-guess-URL-or-claim-ready",

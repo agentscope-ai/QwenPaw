@@ -52,10 +52,16 @@ from services.media_files import (  # noqa: E402
 from services.media_files.motion_engine import ensure_vendor_libs  # noqa: E402
 from services.observability import trace_event  # noqa: E402
 from services.pawapp_tasks import (  # noqa: E402
+    CreatorCreateProjectTaskAdapter,
     CreatorStoryboardTaskAdapter,
     CreatorVideoTaskAdapter,
+    creator_create_project_action_descriptor,
     creator_storyboard_action_descriptor,
     creator_video_action_descriptor,
+)
+from services.pawapp_video_workflow import (  # noqa: E402
+    CreatorVideoWorkflowTaskAdapter,
+    creator_create_video_action_descriptor,
 )
 from services.project_files.facade import (  # noqa: E402
     CreatorFileServices,
@@ -66,7 +72,12 @@ from services.runtime_files.runtime_dependencies import (  # noqa: E402
     CreatorBinaryDependencyError,
     ensure_creator_runtime_dependencies,
 )
-from services.setup_coordination import register_creator_setup  # noqa: E402
+from services.setup_coordination import (  # noqa: E402
+    IMAGE_REQUIREMENT_ID,
+    LLM_REQUIREMENT_ID,
+    VIDEO_REQUIREMENT_ID,
+    register_creator_setup,
+)
 from services.storage_root import (  # noqa: E402
     CreatorDataRootError,
     require_creator_data_root,
@@ -171,10 +182,34 @@ def _creator_task_services() -> CreatorFileServices:
 
 app.task_action(
     ActionRegistration(
+        action=creator_create_project_action_descriptor(),
+        factory=lambda: CreatorCreateProjectTaskAdapter(
+            _creator_task_services
+        ),
+        settings_entry="/apps/qwenpaw-creator",
+    ),
+)
+app.task_action(
+    ActionRegistration(
+        action=creator_create_video_action_descriptor(),
+        factory=lambda: CreatorVideoWorkflowTaskAdapter(
+            _creator_task_services
+        ),
+        settings_entry="/apps/qwenpaw-creator",
+        requirement_ids=(LLM_REQUIREMENT_ID,),
+        deferred_requirement_ids=(
+            IMAGE_REQUIREMENT_ID,
+            VIDEO_REQUIREMENT_ID,
+        ),
+    ),
+)
+app.task_action(
+    ActionRegistration(
         action=creator_storyboard_action_descriptor(),
         factory=lambda: CreatorStoryboardTaskAdapter(_creator_task_services),
         settings_entry="/apps/qwenpaw-creator",
-        requirement_ids=("storyboard-image",),
+        requirement_ids=(IMAGE_REQUIREMENT_ID,),
+        exposure="app_private",
     ),
 )
 app.task_action(
@@ -182,7 +217,8 @@ app.task_action(
         action=creator_video_action_descriptor(),
         factory=lambda: CreatorVideoTaskAdapter(_creator_task_services),
         settings_entry="/apps/qwenpaw-creator",
-        requirement_ids=("shot-video",),
+        requirement_ids=(VIDEO_REQUIREMENT_ID,),
+        exposure="app_private",
     ),
 )
 
@@ -227,8 +263,29 @@ async def _startup() -> None:
         )
         raise
     try:
-        await start_file_media_execution_services(services)
-        await start_creator_agent_runtime(services)
+        acceptance = None
+        acceptance_mode = os.environ.get(
+            "CREATOR_ACCEPTANCE_FAKE_RUNTIME",
+            "",
+        ).strip()
+        if acceptance_mode:
+            if acceptance_mode != "1":
+                raise RuntimeError(
+                    "CREATOR_ACCEPTANCE_FAKE_RUNTIME must be exactly 1",
+                )
+            from services.acceptance_runtime import build_acceptance_runtime
+
+            acceptance = build_acceptance_runtime()
+        await start_file_media_execution_services(
+            services,
+            provider=(acceptance.video_provider if acceptance else None),
+            image_provider=(acceptance.image_provider if acceptance else None),
+        )
+        await start_creator_agent_runtime(
+            services,
+            model_client=(acceptance.model_client if acceptance else None),
+            poll_interval_seconds=(0.05 if acceptance else 1.0),
+        )
         recover_interrupted_source_memory(services)
         # Observation/read workers live only in process memory: fail their
         # orphaned QUEUED/RUNNING Tasks closed so waiters see a retryable

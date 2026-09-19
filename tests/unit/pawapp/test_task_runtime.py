@@ -3,6 +3,7 @@
 """HTTP authorization, blocked setup and lifecycle recovery invariants."""
 
 import asyncio
+from dataclasses import replace
 import hashlib
 import sqlite3
 import time
@@ -26,9 +27,11 @@ from qwenpaw.pawapp.tasks import (
     SubmissionLookup,
     TaskScope,
     TaskStore,
+    TaskStoreError,
     grant_routes,
 )
 from qwenpaw.pawapp.tasks.binding import ActionRegistration, Readiness
+from qwenpaw.pawapp.tasks.contracts import content_digest
 from qwenpaw.pawapp.tasks.grant_routes import router as grant_router
 from qwenpaw.pawapp.tasks.policy import FileTaskPolicy, TaskGrant, TaskPolicy
 from qwenpaw.pawapp.tasks.routes import HostOrigins, router
@@ -98,6 +101,7 @@ class Executor:
 
     async def attach(self, submission):
         await self.release.wait()
+        project_id = submission.handle.executor_run_ref.session_id
         yield ExecutorEvent(
             run_ref=submission.handle.executor_run_ref,
             sequence=0,
@@ -108,9 +112,7 @@ class Executor:
                 "project_ref": {
                     "schema_version": 1,
                     "app_id": submission.handle.scope.app_id,
-                    "project_id": (
-                        submission.handle.executor_run_ref.session_id
-                    ),
+                    "project_id": project_id,
                     "kind": "analysis-session",
                     "revision": 1,
                 },
@@ -135,6 +137,31 @@ class Executor:
 
     async def aclose(self):
         self.closed = True
+
+
+class DeferredSetupExecutor(Executor):
+    async def attach(self, submission):
+        await self.release.wait()
+        if submission.handle.replay_cursor is None:
+            yield ExecutorEvent(
+                run_ref=submission.handle.executor_run_ref,
+                sequence=0,
+                cursor="setup:0",
+                status="waiting_for_setup",
+                setup_need={
+                    "requirement_id": "analysis-model-deferred",
+                    "reason_code": "analysis_model_missing",
+                    "reason": "Configure an analysis model.",
+                },
+            )
+            return
+        yield ExecutorEvent(
+            run_ref=submission.handle.executor_run_ref,
+            sequence=1,
+            cursor="done:1",
+            status="succeeded",
+            text_result="42",
+        )
 
 
 @pytest.fixture
@@ -448,6 +475,150 @@ async def test_grant_management_rejects_forged_scope_and_constraints(host):
     )
 
 
+async def test_private_action_is_not_publicly_exposed_or_dispatchable(host):
+    private_action = ActionDescriptor.model_validate(
+        {
+            **ACTION.model_dump(mode="python"),
+            "action_id": "internal-analyze",
+            "summary": "Analyze data inside the App.",
+            "adapter_ref": "fixture.internal-analyze.v1",
+        },
+    )
+    private_registration = ActionRegistration(
+        action=private_action,
+        factory=lambda: Executor(host.runs),
+        settings_entry="/apps/qwenpaw-data",
+        exposure="app_private",
+    )
+    private_key = (SCOPE.app_id, private_action.action_id)
+    host.registrations[private_key] = private_registration
+    runtime = host.app.state.pawapp_tasks
+
+    catalog = await runtime.catalog(SCOPE.principal_id, SCOPE.workspace_id)
+    assert [item["action_id"] for item in catalog] == [ACTION.action_id]
+    grant_catalog = await runtime.grant_catalog(
+        SCOPE.principal_id,
+        SCOPE.workspace_id,
+    )
+    assert [item["action_id"] for item in grant_catalog["actions"]] == [
+        ACTION.action_id,
+    ]
+
+    with pytest.raises(TaskStoreError) as hidden:
+        await runtime.describe(SCOPE, private_action.action_id)
+    assert hidden.value.code == "action_not_found"
+
+    with pytest.raises(TaskStoreError) as immutable:
+        await runtime.set_action_grant(
+            SCOPE,
+            private_action.action_id,
+            enabled=True,
+            input_values={},
+            expected_revision=0,
+        )
+    assert immutable.value.code == "action_not_found"
+    policy = await runtime.policy.read()
+    assert policy.revision == 0
+    assert [grant.action_id for grant in policy.grants] == [ACTION.action_id]
+
+    origin = await host.app.state.pawapp_task_origins.resolve(
+        SCOPE,
+        "delegated",
+        "main",
+    )
+    with pytest.raises(TaskStoreError) as rejected:
+        await runtime.dispatch(
+            SCOPE,
+            private_action.action_id,
+            request_id="private-request",
+            inputs=BODY["inputs"],
+            origin=origin,
+        )
+    assert rejected.value.code == "action_not_found"
+    assert await host.store.find_request(SCOPE, "private-request") is None
+
+
+async def test_create_video_grant_cannot_authorize_private_actions(host):
+    public_action = ActionDescriptor.model_validate(
+        {
+            **ACTION.model_dump(mode="python"),
+            "action_id": "create-video",
+            "summary": "Create a video.",
+            "adapter_ref": "fixture.create-video.v1",
+        },
+    )
+    private_actions = tuple(
+        ActionDescriptor.model_validate(
+            {
+                **ACTION.model_dump(mode="python"),
+                "action_id": action_id,
+                "summary": f"Run private {action_id} work.",
+                "adapter_ref": f"fixture.{action_id}.v1",
+            },
+        )
+        for action_id in ("generate-storyboard", "generate-video")
+    )
+    await host.app.state.pawapp_tasks.aclose()
+    host.registrations.clear()
+    public_key = (SCOPE.app_id, public_action.action_id)
+    host.registrations[public_key] = ActionRegistration(
+        action=public_action,
+        factory=lambda: Executor(host.runs),
+        settings_entry="/apps/qwenpaw-data",
+    )
+    for private_action in private_actions:
+        host.registrations[(SCOPE.app_id, private_action.action_id)] = (
+            ActionRegistration(
+                action=private_action,
+                factory=lambda: Executor(host.runs),
+                settings_entry="/apps/qwenpaw-data",
+                exposure="app_private",
+            )
+        )
+    host.policy_path.write_text(
+        TaskPolicy(
+            grants=(
+                TaskGrant(
+                    scope=SCOPE,
+                    action_id=public_action.action_id,
+                    descriptor_digest=public_action.descriptor_digest,
+                    input_values={"datasource_id": ["sales"]},
+                ),
+            ),
+        ).model_dump_json(),
+    )
+    runtime = host.runtime(host.store)
+    host.app.state.pawapp_tasks = runtime
+    await runtime.start()
+    origin = await host.app.state.pawapp_task_origins.resolve(
+        SCOPE,
+        "delegated",
+        "main",
+    )
+
+    accepted = await runtime.dispatch(
+        SCOPE,
+        public_action.action_id,
+        request_id="create-video-request",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    assert accepted["task"].action_id == "create-video"
+
+    for private_action in private_actions:
+        request_id = f"private-{private_action.action_id}-request"
+        with pytest.raises(TaskStoreError) as rejected:
+            await runtime.dispatch(
+                SCOPE,
+                private_action.action_id,
+                request_id=request_id,
+                inputs=BODY["inputs"],
+                origin=origin,
+            )
+        assert rejected.value.code == "action_not_found"
+        assert await host.store.find_request(SCOPE, request_id) is None
+
+
 async def test_grant_catalog_marks_changed_descriptors_for_review(host):
     host.policy_path.write_text(
         TaskPolicy(
@@ -489,9 +660,8 @@ async def test_open_task_issues_scoped_handoff_to_existing_project(host):
     assert action["project_ref"] == submission.handle.project_ref.model_dump(
         mode="json",
     )
-    assert action["path"] == (
-        f"/apps/qwenpaw-data?handoff={action['handoff_id']}"
-    )
+    expected_path = f"/apps/qwenpaw-data?handoff={action['handoff_id']}"
+    assert action["path"] == expected_path
     assert "private prompt" not in action["path"]
     replay = await host.client.post(PREFIX + f"/tasks/{task_id}/open")
     assert replay.json()["action"] == action
@@ -500,10 +670,8 @@ async def test_open_task_issues_scoped_handoff_to_existing_project(host):
         PREFIX + f"/handoffs/{action['handoff_id']}",
     )
     assert resolved.status_code == 200
-    assert (
-        resolved.json()["handoff"]["context"]["project_ref"]
-        == action["project_ref"]
-    )
+    context = resolved.json()["handoff"]["context"]
+    assert context["project_ref"] == action["project_ref"]
 
     denied = await host.client.get(
         PREFIX + f"/handoffs/{action['handoff_id']}",
@@ -536,9 +704,8 @@ async def test_artifact_content_rejects_another_principal(host):
         },
         content,
     )
-    path = (
-        PREFIX + f"/artifacts/{ref.artifact_id}/versions/{ref.version}/content"
-    )
+    artifact_path = f"/artifacts/{ref.artifact_id}"
+    path = PREFIX + artifact_path + f"/versions/{ref.version}/content"
     allowed = await host.client.get(path)
     assert allowed.status_code == 200
     assert allowed.content == content
@@ -758,6 +925,75 @@ async def test_answer_and_cancel_routes_use_scoped_durable_commands(host):
 
 
 @pytest.mark.asyncio
+async def test_answer_route_accepts_approval_waits(host):
+    origin = await host.app.state.pawapp_task_origins.resolve(
+        SCOPE,
+        "delegated",
+        "main",
+    )
+    waiting = await host.store.create(
+        SCOPE,
+        ACTION,
+        request_id="approval-route",
+        inputs=BODY["inputs"],
+        origin=origin,
+    )
+    await host.store.begin_submission(SCOPE, waiting.handle.task_id)
+    ref = ExecutorRunRef(
+        executor_id="engine",
+        session_id="session-approval-route",
+        run_id="run-approval-route",
+    )
+    host.runs[waiting.handle.submission_id] = ref
+    await host.store.record_accepted(SCOPE, waiting.handle.task_id, ref)
+    await host.store.apply_event(
+        SCOPE,
+        waiting.handle.task_id,
+        ExecutorEvent(
+            run_ref=ref,
+            sequence=0,
+            cursor="approval",
+            status="waiting_for_approval",
+            detail={
+                "input_request": {
+                    "request_id": "approval-request",
+                    "questions": [
+                        {
+                            "question": "Run once?",
+                            "options": [
+                                {"label": "Approve once"},
+                                {"label": "Do not run"},
+                            ],
+                        },
+                    ],
+                },
+            },
+        ),
+    )
+    host.adapters[0].release.clear()
+
+    response = await host.client.post(
+        PREFIX + f"/tasks/{waiting.handle.task_id}/answer",
+        json={
+            "command_id": "approval-answer",
+            "request_id": "approval-request",
+            "answers": [
+                {
+                    "question": "Run once?",
+                    "selected_options": ["Approve once"],
+                },
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["command"]["state"] == "accepted"
+    assert host.adapters[0].command_calls == [
+        (waiting.handle.task_id, "approval-answer"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_command_wake_is_replayed_after_active_worker_exits(
     host,
     tmp_path,
@@ -812,7 +1048,7 @@ async def test_read_scope_and_idempotency_conflict(host):
 
 
 @pytest.mark.asyncio
-async def test_host_restart_recovers_accepted_task_without_second_run(host):
+async def test_restart_reconciles_task_after_action_becomes_private(host):
     host.adapters[0].release.clear()
     response = await host.client.post(
         PREFIX + "/actions/analyze/tasks",
@@ -820,16 +1056,25 @@ async def test_host_restart_recovers_accepted_task_without_second_run(host):
     )
     task_id = response.json()["task"]["task_id"]
     async with asyncio.timeout(3):
-        while (
-            await host.store.get(SCOPE, task_id)
-        ).handle.executor_run_ref is None:
+        while True:
+            submission = await host.store.get(SCOPE, task_id)
+            if submission.handle.executor_run_ref is not None:
+                break
             await asyncio.sleep(0.01)
     await host.app.state.pawapp_tasks.aclose()
     assert host.adapters[0].closed
+    key = (SCOPE.app_id, ACTION.action_id)
+    host.registrations[key] = replace(
+        host.registrations[key],
+        exposure="app_private",
+    )
     host.store = await TaskStore.open(host.store.path)
     host.app.state.pawapp_tasks = host.runtime(host.store)
     await host.app.state.pawapp_tasks.start()
-    await settled(host, task_id)
+    completed = await settled(host, task_id)
+    assert completed.handle.status == "succeeded"
+    task_response = await host.client.get(PREFIX + "/tasks/" + task_id)
+    assert task_response.status_code == 200
     assert len(host.runs) == 1
 
 
@@ -845,10 +1090,10 @@ async def test_unload_stops_consumers_and_closes_adapter(host):
     async with asyncio.timeout(3):
         while not host.adapters[0].closed:
             await asyncio.sleep(0.01)
-    assert (await host.store.get(SCOPE, task_id)).handle.status != "succeeded"
-    assert (
-        await host.client.get(PREFIX + "/actions/analyze")
-    ).status_code == 404
+    submission = await host.store.get(SCOPE, task_id)
+    assert submission.handle.status != "succeeded"
+    action_response = await host.client.get(PREFIX + "/actions/analyze")
+    assert action_response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -885,18 +1130,22 @@ def test_action_registration_is_owned_lazy_and_removed_on_unload(monkeypatch):
     api = PluginApi(plugin_id="qwenpaw-data", config={})
     api.set_registry(registry)
     calls = []
+    resolver = AsyncMock()
     registration = ActionRegistration(
         action=ACTION,
         factory=lambda: calls.append(True),
         settings_entry="/apps/qwenpaw-data",
+        input_resolver=resolver,
+        exposure="app_private",
     )
     app = PawApp("Data", app_id="qwenpaw-data")
     app.task_action(registration).register(api)
     assert not calls
-    assert (
-        registry.get_task_actions()[(ACTION.app_id, ACTION.action_id)].action
-        == ACTION
-    )
+    stored = registry.get_task_actions()[(ACTION.app_id, ACTION.action_id)]
+    assert stored.action == ACTION
+    assert stored.action is not ACTION
+    assert stored.input_resolver is resolver
+    assert stored.exposure == "app_private"
     with pytest.raises(ValueError, match="belong"):
         registry.register_task_action("different-app", registration)
     registry.unregister_plugin("qwenpaw-data")
@@ -1141,3 +1390,151 @@ async def test_generic_setup_blocks_without_creating_latent_task(host):
         json=BODY,
     )
     assert dispatched.status_code == 202, dispatched.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restart_before_retry", [False, True])
+async def test_deferred_setup_retry_and_restart_recovery(
+    host,
+    restart_before_retry,
+):
+    configured = [False]
+    requirement = SetupRequirement(
+        id="analysis-model-deferred",
+        summary="Configure an analysis model",
+        required_for=(ACTION.action_id,),
+        authority="AppLocal",
+        setup_entry_ref="agent-models",
+        check_ref="data.analysis-model-ready",
+    )
+
+    async def check(_scope, _inputs):
+        now = time.time()
+        return ReadinessResult(
+            requirement_id=requirement.id,
+            state="ready" if configured[0] else "needs_configuration",
+            reason_code=None if configured[0] else "analysis_model_missing",
+            checked_revision=1,
+            checked_at=now,
+            expires_at=now + 30,
+        )
+
+    async def open_entry(request):
+        return SetupOpenAction(
+            app_id=request.scope.app_id,
+            request_id=request.request_id,
+            entry_id=request.entry_id,
+            presentation=request.presentation,
+            path="/apps/qwenpaw-data/settings/models",
+        )
+
+    entry = SetupEntryRegistration(
+        descriptor=SetupEntryDescriptor(
+            id="agent-models",
+            entry_ref="data.agent-models",
+            focus="analysis-model",
+            presentations=("app_entry",),
+        ),
+        opener=open_entry,
+    )
+    setup = SetupCoordinator(
+        checks=lambda: {
+            (SCOPE.app_id, requirement.id): SetupCheckRegistration(
+                requirement=requirement,
+                checker=check,
+            ),
+        },
+        entries=lambda: {(SCOPE.app_id, "agent-models"): entry},
+        store=host.setup_store,
+    )
+
+    def factory():
+        adapter = DeferredSetupExecutor(host.runs)
+        host.adapters.append(adapter)
+        return adapter
+
+    await host.app.state.pawapp_tasks.aclose()
+    current = host.registrations[(SCOPE.app_id, ACTION.action_id)]
+    host.registrations[(SCOPE.app_id, ACTION.action_id)] = ActionRegistration(
+        action=current.action,
+        factory=factory,
+        settings_entry=current.settings_entry,
+        deferred_requirement_ids=(requirement.id,),
+    )
+    host.setup_holder[0] = setup
+    host.app.state.pawapp_setup = setup
+    host.app.state.pawapp_tasks = host.runtime(host.store)
+    await host.app.state.pawapp_tasks.start()
+
+    response = await host.client.post(
+        PREFIX + "/actions/analyze/tasks",
+        json=BODY,
+    )
+    assert response.status_code == 202, response.text
+    task_id = response.json()["task"]["task_id"]
+
+    async def wait_for_attempt(attempt):
+        async with asyncio.timeout(3):
+            while True:
+                submission = await host.store.get(SCOPE, task_id)
+                if submission.handle.setup_attempt == attempt:
+                    return submission
+                await asyncio.sleep(0.01)
+
+    first = await wait_for_attempt(1)
+    first_id = first.handle.setup_request_id
+    first_record = await setup.get(SCOPE, first_id)
+    assert first_record.request.task_id == task_id
+    assert first_record.request.requirement_ids == (requirement.id,)
+    assert first_record.request.attempt == 1
+    assert first_record.request.input_digest == content_digest(first.inputs)
+
+    await setup.open(SCOPE, first_id)
+    await setup.complete(
+        SCOPE,
+        SetupResult(
+            request_id=first_id,
+            result_id="setup-result-1",
+            outcome="saved",
+            changed_requirement_ids=(requirement.id,),
+            config_revisions={requirement.id: 2},
+        ),
+    )
+    if restart_before_retry:
+        await host.app.state.pawapp_tasks.aclose()
+        host.store = await TaskStore.open(host.store.path)
+        host.app.state.pawapp_tasks = host.runtime(host.store)
+        await host.app.state.pawapp_tasks.start()
+
+    second = await wait_for_attempt(2)
+    second_id = second.handle.setup_request_id
+    assert second_id != first_id
+    second_record = await setup.get(SCOPE, second_id)
+    assert second_record.request.attempt == 2
+    assert second_record.request.task_id == task_id
+
+    await host.app.state.pawapp_tasks.aclose()
+    host.store = await TaskStore.open(host.store.path)
+    host.app.state.pawapp_tasks = host.runtime(host.store)
+    await host.app.state.pawapp_tasks.start()
+    configured[0] = True
+    await setup.open(SCOPE, second_id)
+    await setup.complete(
+        SCOPE,
+        SetupResult(
+            request_id=second_id,
+            result_id="setup-result-2",
+            outcome="saved",
+            changed_requirement_ids=(requirement.id,),
+            config_revisions={requirement.id: 3},
+        ),
+    )
+
+    completed = await settled(host, task_id)
+    assert completed.handle.setup_request_id is None
+    assert completed.handle.setup_attempt == 2
+    with sqlite3.connect(host.setup_store.path) as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM setup_requests",
+        ).fetchone()[0]
+    assert count == 2

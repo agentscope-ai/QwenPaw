@@ -29,7 +29,11 @@ def _load_plugin_entrypoint(monkeypatch):
             module_name == "qwenpaw"
             or module_name.startswith("qwenpaw.")
             or module_name
-            in {"services.pawapp_tasks", "services.setup_coordination"}
+            in {
+                "services.pawapp_tasks",
+                "services.pawapp_video_workflow",
+                "services.setup_coordination",
+            }
         ):
             monkeypatch.delitem(sys.modules, module_name, raising=False)
     monkeypatch.syspath_prepend(str(QWENPAW_SOURCE))
@@ -93,28 +97,50 @@ def test_plugin_rejects_unsafe_runtime_path_configuration(
         module.configure_creator_runtime_environment(working_dir=tmp_path)
 
 
-def test_plugin_registers_durable_media_actions(monkeypatch) -> None:
+def test_plugin_registers_durable_actions(monkeypatch) -> None:
     module = _load_plugin_entrypoint(monkeypatch)
 
     registrations = module.app._task_actions
 
     assert [item.action.action_id for item in registrations] == [
+        "create-project",
+        "create-video",
         "generate-storyboard",
         "generate-video",
     ]
-    assert registrations[0].requirement_ids == ("storyboard-image",)
-    assert registrations[1].requirement_ids == ("shot-video",)
+    assert registrations[0].requirement_ids == ()
+    assert registrations[1].requirement_ids == ("creator-llm",)
+    assert registrations[1].deferred_requirement_ids == (
+        "storyboard-image",
+        "shot-video",
+    )
+    assert registrations[2].requirement_ids == ("storyboard-image",)
+    assert registrations[3].requirement_ids == ("shot-video",)
+    assert [item.exposure for item in registrations] == [
+        "host_public",
+        "host_public",
+        "app_private",
+        "app_private",
+    ]
     assert all(
         item.settings_entry == "/apps/qwenpaw-creator"
         for item in registrations
     )
     assert isinstance(
-        registrations[1].factory(),
-        module.CreatorVideoTaskAdapter,
+        registrations[0].factory(),
+        module.CreatorCreateProjectTaskAdapter,
     )
     assert isinstance(
-        registrations[0].factory(),
+        registrations[1].factory(),
+        module.CreatorVideoWorkflowTaskAdapter,
+    )
+    assert isinstance(
+        registrations[2].factory(),
         module.CreatorStoryboardTaskAdapter,
+    )
+    assert isinstance(
+        registrations[3].factory(),
+        module.CreatorVideoTaskAdapter,
     )
 
 

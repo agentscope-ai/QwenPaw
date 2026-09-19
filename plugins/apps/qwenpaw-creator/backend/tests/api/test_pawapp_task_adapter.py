@@ -62,6 +62,15 @@ def test_registered_contract_matches_design_fixture() -> None:
             storyboard_path.read_text(encoding="utf-8"),
         )
     )
+    create = pawapp_tasks.creator_create_project_action_descriptor()
+    assert create.action_id == "create-project"
+    assert create.engagements == ("delegated",)
+    assert create.permissions == ("creator.project.create",)
+    assert create.effects == ("project_mutation",)
+    assert create.input_schema["required"] == ["name"]
+    assert create.input_schema["additionalProperties"] is False
+    assert "clientRequestId" not in create.input_schema["properties"]
+    assert "initial_goal" not in create.input_schema["properties"]
 
 
 def _services(tmp_path: Path) -> CreatorFileServices:
@@ -186,6 +195,41 @@ def _submission(
     )
 
 
+def _create_project_submission(
+    submission_id: str = "create-project-submission-1",
+    *,
+    inputs: dict | None = None,
+) -> TaskSubmission:
+    action = pawapp_tasks.creator_create_project_action_descriptor()
+    scope = TaskScope(
+        principal_id="alice",
+        workspace_id="workspace-1",
+        app_id=pawapp_tasks.APP_ID,
+    )
+    return TaskSubmission(
+        handle=TaskHandle(
+            task_id="host-create-project-task-1",
+            submission_id=submission_id,
+            scope=scope,
+            action_id=action.action_id,
+            descriptor_digest=action.descriptor_digest,
+            origin=TaskOrigin(
+                engagement="delegated",
+                origin_ref="chat-1",
+                return_session_ref="chat-1",
+            ),
+            created_at=1000,
+            updated_at=1000,
+        ),
+        action=action,
+        inputs=inputs
+        or {
+            "name": "Chat Project",
+            "description": "Created from Main Chat.",
+        },
+    )
+
+
 class _FakeR2VService:
     def __init__(
         self,
@@ -254,6 +298,105 @@ def _patch_storyboard_runtime(
         "file_image_execution_service",
         lambda _services: runtime,
     )
+
+
+@pytest.mark.asyncio
+async def test_create_project_submission_replays_and_publishes_project_ref(
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path)
+    adapter = pawapp_tasks.CreatorCreateProjectTaskAdapter(lambda: services)
+    submission = _create_project_submission(
+        inputs={
+            "name": "Delegated Project",
+            "description": "A project created by Main Chat.",
+            "scenario": "short_drama",
+            "aspect_ratio": "9:16",
+            "resolution": "1080P",
+        },
+    )
+
+    first = await adapter.submit(submission)
+    replay = await adapter.submit(submission)
+    lookup = await pawapp_tasks.CreatorCreateProjectTaskAdapter(
+        lambda: services,
+    ).query(submission)
+    events = [event async for event in adapter.attach(submission)]
+
+    assert first == replay == lookup.run_ref
+    assert first.executor_id == pawapp_tasks.CREATE_PROJECT_EXECUTOR_ID
+    assert first.run_id == submission.handle.submission_id
+    project = services.projects.read(first.session_id).project
+    assert project.name == "Delegated Project"
+    assert project.description == "A project created by Main Chat."
+    assert project.scenario == "short_drama"
+    assert project.settings.aspect_ratio == "9:16"
+    assert project.settings.resolution == "1080P"
+    session = services.sessions.get_project_session(first.session_id)
+    assert session.active_goal_id is None
+    assert (
+        ProjectExecutionStore(services.root).list_tasks(first.session_id) == []
+    )
+    assert [event.status for event in events] == ["running", "succeeded"]
+    assert events[-1].text_result == "Creator project created."
+    assert events[-1].detail["project_ref"] == {
+        "schema_version": 1,
+        "app_id": pawapp_tasks.APP_ID,
+        "project_id": first.session_id,
+        "kind": "creator-project",
+        "revision": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_create_project_query_recovers_after_publication(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path)
+    adapter = pawapp_tasks.CreatorCreateProjectTaskAdapter(lambda: services)
+    submission = _create_project_submission("create-project-recovery-1")
+
+    def lose_acceptance(*_args, **_kwargs):
+        raise RuntimeError("injected lost acceptance")
+
+    monkeypatch.setattr(adapter, "_transition", lose_acceptance)
+    with pytest.raises(RuntimeError, match="lost acceptance"):
+        await adapter.submit(submission)
+
+    recovered = pawapp_tasks.CreatorCreateProjectTaskAdapter(lambda: services)
+    lookup = await recovered.query(submission)
+    events = [event async for event in recovered.attach(submission)]
+
+    assert lookup.state == "accepted"
+    assert lookup.run_ref is not None
+    assert services.projects.read(lookup.run_ref.session_id).project.name == (
+        "Chat Project"
+    )
+    assert events[-1].status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_create_project_duplicate_name_is_durable_and_redacted(
+    tmp_path: Path,
+) -> None:
+    services = _services(tmp_path)
+    adapter = pawapp_tasks.CreatorCreateProjectTaskAdapter(lambda: services)
+    submission = _create_project_submission(
+        "create-project-duplicate-1",
+        inputs={"name": "Creator Project"},
+    )
+
+    run_ref = await adapter.submit(submission)
+    replay = await adapter.submit(submission)
+    lookup = await adapter.query(submission)
+    events = [event async for event in adapter.attach(submission)]
+
+    assert run_ref == replay == lookup.run_ref
+    assert len(events) == 1
+    assert events[0].status == "failed"
+    assert events[0].detail == {"reason_code": "validation_error"}
+    assert "Creator Project" not in events[0].model_dump_json()
 
 
 @pytest.mark.asyncio

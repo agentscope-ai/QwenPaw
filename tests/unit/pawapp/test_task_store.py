@@ -109,6 +109,60 @@ async def wait_for_period(store, scope, task_id):
     )
 
 
+async def wait_for_approval(store, scope, task_id):
+    return await store.apply_event(
+        scope,
+        task_id,
+        ExecutorEvent(
+            run_ref=run_ref(),
+            sequence=0,
+            cursor="0",
+            status="waiting_for_approval",
+            detail={
+                "input_request": {
+                    "request_id": "approval-1",
+                    "title": "Generation approval",
+                    "questions": [
+                        {
+                            "question": "Run once?",
+                            "options": [
+                                {"label": "Approve once"},
+                                {"label": "Do not run"},
+                            ],
+                        },
+                    ],
+                },
+            },
+        ),
+    )
+
+
+def test_setup_need_is_bounded_and_only_valid_for_setup_waits():
+    values = {
+        "run_ref": run_ref(),
+        "sequence": 0,
+        "cursor": "0",
+        "status": "waiting_for_setup",
+        "setup_need": {
+            "requirement_id": "shot-video",
+            "reason_code": "video_model_missing",
+            "reason": "Configure a video generation model.",
+        },
+    }
+    assert ExecutorEvent.model_validate(values).setup_need.requirement_id == (
+        "shot-video"
+    )
+    with pytest.raises(ValidationError, match="waiting_for_setup"):
+        ExecutorEvent.model_validate({**values, "status": "running"})
+    with pytest.raises(ValidationError):
+        ExecutorEvent.model_validate(
+            {
+                **values,
+                "setup_need": {**values["setup_need"], "reason": "x" * 1001},
+            },
+        )
+
+
 @pytest.mark.asyncio
 async def test_concurrent_retries_allocate_one_durable_identity(
     store,
@@ -193,6 +247,59 @@ async def test_answer_commands_are_scoped_validated_and_idempotent(
     other = scope.model_copy(update={"principal_id": "mallory"})
     with pytest.raises(TaskStoreError, match="task_not_found"):
         await store.command(other, task.handle.task_id, first.command_id)
+
+
+@pytest.mark.asyncio
+async def test_approval_answers_use_validated_durable_commands(
+    store,
+    scope,
+    action,
+    origin,
+):
+    task = await accept(store, scope, action, origin)
+    waiting = await wait_for_approval(store, scope, task.handle.task_id)
+
+    assert waiting.handle.status == "waiting_for_approval"
+    assert waiting.handle.input_request is not None
+    command = await store.prepare_answer(
+        scope,
+        task.handle.task_id,
+        command_id="approve-1",
+        request_id="approval-1",
+        answers=[
+            {
+                "question": "Run once?",
+                "selected_options": ["Approve once"],
+            },
+        ],
+    )
+    replay = await store.prepare_answer(
+        scope,
+        task.handle.task_id,
+        command_id="approve-1",
+        request_id="approval-1",
+        answers=[
+            {
+                "question": "Run once?",
+                "selected_options": ["Approve once"],
+            },
+        ],
+    )
+
+    assert command == replay
+    with pytest.raises(TaskStoreError, match="invalid_task_answer"):
+        await store.prepare_answer(
+            scope,
+            task.handle.task_id,
+            command_id="approve-invalid",
+            request_id="approval-1",
+            answers=[
+                {
+                    "question": "Run once?",
+                    "selected_options": ["Always approve"],
+                },
+            ],
+        )
 
 
 @pytest.mark.asyncio
@@ -310,6 +417,75 @@ async def test_run_mapping_cannot_be_replaced_or_shared(
     await store.begin_submission(scope, second.handle.task_id)
     with pytest.raises(TaskStoreError, match="run_conflict"):
         await store.record_accepted(scope, second.handle.task_id, run_ref())
+
+
+@pytest.mark.asyncio
+async def test_setup_event_links_and_retries_with_compare_and_set(
+    store,
+    scope,
+    action,
+    origin,
+):
+    submission = await accept(store, scope, action, origin)
+    task_id = submission.handle.task_id
+    event = ExecutorEvent(
+        run_ref=run_ref(),
+        sequence=0,
+        cursor="setup:0",
+        status="waiting_for_setup",
+        setup_need={
+            "requirement_id": "shot-video",
+            "reason_code": "video_model_missing",
+            "reason": "Configure a video generation model.",
+        },
+    )
+
+    with pytest.raises(TaskStoreError, match="invalid_setup_link"):
+        await store.apply_event(scope, task_id, event)
+
+    linked = await store.apply_event(
+        scope,
+        task_id,
+        event,
+        setup_request_id="setup-1",
+        setup_attempt=1,
+    )
+    assert linked.handle.status == "waiting_for_setup"
+    assert linked.handle.setup_request_id == "setup-1"
+    assert linked.handle.setup_attempt == 1
+    assert await store.apply_event(scope, task_id, event) == linked
+
+    retried = await store.replace_setup_request(
+        scope,
+        task_id,
+        expected_request_id="setup-1",
+        expected_attempt=1,
+        request_id="setup-2",
+        attempt=2,
+    )
+    assert retried.handle.setup_request_id == "setup-2"
+    assert retried.handle.setup_attempt == 2
+    with pytest.raises(TaskStoreError, match="setup_link_conflict"):
+        await store.replace_setup_request(
+            scope,
+            task_id,
+            expected_request_id="setup-1",
+            expected_attempt=1,
+            request_id="setup-3",
+            attempt=2,
+        )
+
+    resumed = await store.resume_after_setup(
+        scope,
+        task_id,
+        expected_request_id="setup-2",
+        expected_attempt=2,
+    )
+    assert resumed.handle.status == "running"
+    assert resumed.handle.setup_request_id is None
+    assert resumed.handle.setup_attempt == 2
+    reopened = await TaskStore.open(store.path)
+    assert await reopened.get(scope, task_id) == resumed
 
 
 @pytest.mark.asyncio

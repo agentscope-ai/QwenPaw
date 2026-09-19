@@ -3,7 +3,7 @@
 """Central plugin registry."""
 
 from typing import Any, Callable, Dict, List, Optional, Type
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import logging
 
 from fastapi import APIRouter
@@ -945,9 +945,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
         key = (plugin_id, action.action_id)
         if key in self._task_actions:
             raise ValueError("task action already registered")
+        requirement_ids = (
+            *registration.requirement_ids,
+            *registration.deferred_requirement_ids,
+        )
         missing = [
             requirement_id
-            for requirement_id in registration.requirement_ids
+            for requirement_id in requirement_ids
             if (plugin_id, requirement_id) not in self._pawapp_setup_checks
         ]
         if missing:
@@ -955,7 +959,7 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 "task action references unregistered setup requirements: "
                 + ", ".join(missing),
             )
-        for requirement_id in registration.requirement_ids:
+        for requirement_id in requirement_ids:
             setup = self._pawapp_setup_checks[(plugin_id, requirement_id)]
             if action.action_id not in setup.requirement.required_for:
                 raise ValueError(
@@ -963,11 +967,13 @@ class PluginRegistry:  # pylint:disable=too-many-public-methods
                 )
         # Freeze a serialized copy: plugin-side descriptor edits cannot change
         # the action after the Host has granted its digest.
-        self._task_actions[key] = ActionRegistration(
+        self._task_actions[key] = replace(
+            registration,
             action=type(action).model_validate_json(action.model_dump_json()),
-            factory=registration.factory,
-            settings_entry=registration.settings_entry,
             requirement_ids=tuple(registration.requirement_ids),
+            deferred_requirement_ids=tuple(
+                registration.deferred_requirement_ids,
+            ),
         )
 
     def get_task_actions(self) -> Dict[tuple, Any]:

@@ -30,6 +30,9 @@ TERMINAL_STATUSES = frozenset(
 WAITING_STATUSES = frozenset(
     {"waiting_for_input", "waiting_for_setup", "waiting_for_approval"},
 )
+ANSWERABLE_STATUSES = frozenset(
+    {"waiting_for_input", "waiting_for_approval"},
+)
 RecoveryState = Literal["none", "reconciling", "unresolved"]
 CommandState = Literal[
     "prepared",
@@ -216,6 +219,12 @@ class TaskInputRequest(Contract):
         return self
 
 
+class TaskSetupNeed(Contract):
+    requirement_id: Identity
+    reason_code: Identity
+    reason: Annotated[str, Field(min_length=1, max_length=1000)]
+
+
 class TaskAnswer(Contract):
     question: Annotated[str, Field(min_length=1, max_length=2000)]
     selected_options: tuple[
@@ -283,9 +292,22 @@ class TaskHandle(Contract):
     output_refs: tuple[ArtifactRef, ...] = ()
     project_ref: ProjectRef | None = None
     input_request: TaskInputRequest | None = None
+    setup_request_id: Identity | None = None
+    setup_attempt: int = Field(default=0, ge=0)
     cancel_requested: bool = False
     created_at: float
     updated_at: float
+
+    @model_validator(mode="after")
+    def validate_setup_link(self) -> TaskHandle:
+        if self.setup_request_id is not None and (
+            self.status != "waiting_for_setup" or self.setup_attempt < 1
+        ):
+            raise ValueError(
+                "setup request links require a waiting task and positive "
+                "attempt",
+            )
+        return self
 
 
 class TaskSubmission(Contract):
@@ -305,13 +327,27 @@ class ExecutorEvent(Contract):
     status: TaskStatus | None = None
     # A complete text snapshot, not a delta. Prior snapshots remain in events.
     text_result: str | None = None
+    setup_need: TaskSetupNeed | None = None
     detail: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def validate_setup_need(self) -> ExecutorEvent:
+        if self.setup_need is not None and self.status != "waiting_for_setup":
+            raise ValueError("setup needs require waiting_for_setup status")
+        return self
 
 
 class TaskEvent(Contract):
     task_id: Identity
     sequence: int = Field(ge=1)
-    kind: Literal["created", "submission", "executor", "recovery", "command"]
+    kind: Literal[
+        "created",
+        "submission",
+        "executor",
+        "recovery",
+        "command",
+        "setup",
+    ]
     status: TaskStatus
     payload: dict[str, Any]
     created_at: float

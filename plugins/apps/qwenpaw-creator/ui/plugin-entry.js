@@ -30,7 +30,9 @@
   function setupRouteFromHost() {
     const outer = new URLSearchParams(window.location.search);
     const purpose = outer.get("setup");
-    if (purpose !== "image" && purpose !== "video") return null;
+    if (purpose !== "llm" && purpose !== "image" && purpose !== "video") {
+      return null;
+    }
     const inner = new URLSearchParams({ setup: purpose });
     const requestId = outer.get("setupRequest");
     if (requestId) inner.set("setupRequest", requestId);
@@ -77,6 +79,7 @@
   function CreatorFrame() {
     const frameRef = React.useRef(null);
     const initialSrcRef = React.useRef(null);
+    const pendingHandoffRouteRef = React.useRef(null);
 
     if (!initialSrcRef.current) {
       const appUrl = host.getApiUrl(
@@ -93,7 +96,21 @@
         ) {
           return;
         }
-        const nextUrl = hostUrlForCreatorRoute(event.data.path);
+        if (new URLSearchParams(window.location.search).has("handoff")) return;
+        const route = normalizeCreatorRoute(event.data.path);
+        if (!route) return;
+        const pendingHandoffRoute = pendingHandoffRouteRef.current;
+        if (pendingHandoffRoute && route !== pendingHandoffRoute) {
+          frameRef.current?.contentWindow?.postMessage(
+            { type: RESTORE_ROUTE_MESSAGE, path: pendingHandoffRoute },
+            "*",
+          );
+          return;
+        }
+        if (route === pendingHandoffRoute) {
+          pendingHandoffRouteRef.current = null;
+        }
+        const nextUrl = hostUrlForCreatorRoute(route);
         if (!nextUrl) return;
         const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
         if (nextUrl !== currentUrl) {
@@ -139,6 +156,7 @@
           if (!route || !nextUrl) {
             throw new Error("invalid_creator_handoff");
           }
+          pendingHandoffRouteRef.current = route;
           window.history.replaceState(window.history.state, "", nextUrl);
           frameRef.current?.contentWindow?.postMessage(
             { type: RESTORE_ROUTE_MESSAGE, path: route },

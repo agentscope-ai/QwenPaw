@@ -32,6 +32,13 @@
       "version": 1,
       "setup_entries": [
         {
+          "id": "creator-llm-model",
+          "entry_ref": "creator.model-settings",
+          "focus": "llm",
+          "presentations": ["app_entry"],
+          "context_schema_version": "pawapp:setup-context@1"
+        },
+        {
           "id": "creator-image-model",
           "entry_ref": "creator.model-settings",
           "focus": "image-generation",

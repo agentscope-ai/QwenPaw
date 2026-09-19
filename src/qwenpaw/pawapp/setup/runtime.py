@@ -6,11 +6,17 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from ..tasks.binding import ActionRegistration
-from ..tasks.contracts import ProjectRef, TaskScope, TaskStoreError
+from ..tasks.contracts import (
+    ProjectRef,
+    TaskScope,
+    TaskStoreError,
+    TaskSubmission,
+    content_digest,
+)
 from .contracts import (
     PrepareResult,
     ReadinessResult,
@@ -21,6 +27,8 @@ from .contracts import (
 from .store import SetupStore
 
 logger = logging.getLogger(__name__)
+
+TaskSetupWaker = Callable[[TaskScope, str], Awaitable[None]]
 
 
 class SetupCoordinator:
@@ -42,6 +50,10 @@ class SetupCoordinator:
         self.store = store
         self.timeout = timeout
         self.empty_ttl = empty_ttl
+        self._task_waker: TaskSetupWaker | None = None
+
+    def set_task_waker(self, waker: TaskSetupWaker | None) -> None:
+        self._task_waker = waker
 
     def entry(self, app_id: str, entry_id: str):
         registration = self._entries().get((app_id, entry_id))
@@ -100,18 +112,18 @@ class SetupCoordinator:
             )
         return result
 
-    async def prepare_for_task(
+    async def _prepare_requirements(
         self,
         scope: TaskScope,
         registration: ActionRegistration,
         inputs: dict[str, Any],
+        requirement_ids: tuple[str, ...],
     ) -> PrepareResult:
-        """Check only the requirements declared by the selected action."""
         now = time.time()
         checks = self._checks()
         selected = []
         requirements = []
-        for requirement_id in registration.requirement_ids:
+        for requirement_id in requirement_ids:
             check = checks.get((scope.app_id, requirement_id))
             if check is None:
                 raise TaskStoreError("setup_check_unavailable")
@@ -147,6 +159,36 @@ class SetupCoordinator:
             expires_at=expires_at,
         )
 
+    async def prepare_for_task(
+        self,
+        scope: TaskScope,
+        registration: ActionRegistration,
+        inputs: dict[str, Any],
+    ) -> PrepareResult:
+        """Check only eager requirements declared by the selected action."""
+        return await self._prepare_requirements(
+            scope,
+            registration,
+            inputs,
+            registration.requirement_ids,
+        )
+
+    async def prepare_deferred_requirement(
+        self,
+        scope: TaskScope,
+        registration: ActionRegistration,
+        inputs: dict[str, Any],
+        requirement_id: str,
+    ) -> PrepareResult:
+        if requirement_id not in registration.deferred_requirement_ids:
+            raise TaskStoreError("setup_requirement_mismatch")
+        return await self._prepare_requirements(
+            scope,
+            registration,
+            inputs,
+            (requirement_id,),
+        )
+
     def _store(self) -> SetupStore:
         if self.store is None:
             raise TaskStoreError("setup_runtime_unavailable")
@@ -164,6 +206,8 @@ class SetupCoordinator:
         presentation: SetupPresentation,
         entry_id: str | None = None,
         requirement_ids: tuple[str, ...] = (),
+        task_id: str | None = None,
+        attempt: int | None = None,
         project_ref: ProjectRef | None = None,
         plan_digest: str | None = None,
         expected_revisions: dict[str, int] | None = None,
@@ -175,6 +219,11 @@ class SetupCoordinator:
         """Persist one request for actionable blockers from a fresh prepare."""
         if prepared.descriptor_digest != registration.action.descriptor_digest:
             raise TaskStoreError("descriptor_changed")
+        if (
+            prepared.app_id != scope.app_id
+            or prepared.action_id != registration.action.action_id
+        ):
+            raise TaskStoreError("setup_requirement_mismatch")
         actionable = {
             result.requirement_id
             for result in prepared.results
@@ -228,10 +277,13 @@ class SetupCoordinator:
             meaning_context={"input_digest": input_digest},
             values={
                 "descriptor_digest": registration.action.descriptor_digest,
+                "input_digest": input_digest,
                 "entry_id": entry_id,
                 "requirement_ids": tuple(item.id for item in selected),
                 "origin_ref": origin_ref,
+                "task_id": task_id,
                 "action_id": registration.action.action_id,
+                "attempt": attempt,
                 "project_ref": project_ref,
                 "plan_digest": plan_digest,
                 "expected_revisions": {
@@ -244,6 +296,82 @@ class SetupCoordinator:
                 "expires_at": time.time() + expires_in_seconds,
                 "return_target": return_target,
             },
+        )
+
+    async def request_for_task(
+        self,
+        submission: TaskSubmission,
+        registration: ActionRegistration,
+        prepared: PrepareResult,
+        *,
+        requirement_id: str,
+        attempt: int,
+        plan_digest: str | None = None,
+    ):
+        handle = submission.handle
+        if (
+            handle.scope.app_id != registration.action.app_id
+            or handle.action_id != registration.action.action_id
+            or handle.descriptor_digest
+            != registration.action.descriptor_digest
+            or requirement_id not in registration.deferred_requirement_ids
+            or attempt < 1
+        ):
+            raise TaskStoreError("setup_requirement_mismatch")
+        requirement = next(
+            (
+                item
+                for item in prepared.requirements
+                if item.id == requirement_id
+            ),
+            None,
+        )
+        if requirement is None or len(prepared.requirements) != 1:
+            raise TaskStoreError("setup_requirement_mismatch")
+        entry = self.entry(
+            handle.scope.app_id,
+            requirement.setup_entry_ref,
+        ).descriptor
+        presentation = (
+            "app_entry"
+            if "app_entry" in entry.presentations
+            else entry.presentations[0]
+        )
+        input_digest = content_digest(submission.inputs)
+        idempotency_key = content_digest(
+            {
+                "domain": "qwenpaw:pawapp-task-setup-request",
+                "version": 1,
+                "task_id": handle.task_id,
+                "app_id": handle.scope.app_id,
+                "action_id": handle.action_id,
+                "requirement_id": requirement_id,
+                "descriptor_digest": handle.descriptor_digest,
+                "plan_digest": plan_digest,
+                "input_digest": input_digest,
+                "attempt": attempt,
+            },
+        )
+        return_target = (
+            handle.origin.return_session_ref
+            or handle.origin.app_session_ref
+            or handle.origin.origin_ref
+        )
+        return await self.request(
+            handle.scope,
+            registration,
+            prepared,
+            idempotency_key=idempotency_key,
+            input_digest=input_digest,
+            origin_ref=handle.origin.origin_ref,
+            presentation=presentation,
+            entry_id=requirement.setup_entry_ref,
+            requirement_ids=(requirement_id,),
+            task_id=handle.task_id,
+            attempt=attempt,
+            project_ref=handle.project_ref,
+            plan_digest=plan_digest,
+            return_target=return_target,
         )
 
     async def get(self, scope: TaskScope, request_id: str):
@@ -287,10 +415,25 @@ class SetupCoordinator:
         )
         return await self._store().waiting_external(scope, request_id)
 
+    async def _wake_linked_task(self, record) -> None:
+        task_id = record.request.task_id
+        if task_id is None or self._task_waker is None:
+            return
+        try:
+            await self._task_waker(record.request.scope, task_id)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "PawApp task wake failed after setup terminal transition",
+            )
+
     async def complete(self, scope: TaskScope, result: SetupResult):
         record = await self.get(scope, result.request_id)
         self.entry(scope.app_id, record.request.entry_id)
-        return await self._store().complete(scope, result)
+        record = await self._store().complete(scope, result)
+        await self._wake_linked_task(record)
+        return record
 
     async def cancel(self, scope: TaskScope, request_id: str):
-        return await self._store().cancel(scope, request_id)
+        record = await self._store().cancel(scope, request_id)
+        await self._wake_linked_task(record)
+        return record

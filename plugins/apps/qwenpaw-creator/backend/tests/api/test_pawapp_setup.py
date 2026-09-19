@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Creator's typed PawApp model-setup boundary."""
+
 # pylint: disable=protected-access
 
 import json
@@ -16,7 +17,6 @@ from services import setup_coordination
 
 from qwenpaw.pawapp import SetupRequest
 from qwenpaw.pawapp.tasks import TaskScope, TaskStoreError
-
 
 SCOPE = TaskScope(
     principal_id="alice",
@@ -72,9 +72,11 @@ def test_registered_entries_match_the_typed_manifest() -> None:
 
     assert registered == declared
     assert [item.requirement.id for item in collector.checks] == [
+        setup_coordination.LLM_REQUIREMENT_ID,
         setup_coordination.IMAGE_REQUIREMENT_ID,
         setup_coordination.VIDEO_REQUIREMENT_ID,
     ]
+    assert collector.checks[0].requirement.required_for == ("create-video",)
 
 
 @pytest.mark.asyncio
@@ -82,6 +84,9 @@ async def test_model_checks_report_public_revision_without_secrets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     config = model_routes._defaults()
+    config.llm.enabled = True
+    config.llm.model_name = "planning-model"
+    config.llm.base_url = "https://llm.example/v1"
     config.llm.api_key = "shared-secret"
     config.image.enabled = True
     config.image.model_name = "image-model"
@@ -94,13 +99,17 @@ async def test_model_checks_report_public_revision_without_secrets(
         lambda: (config, 7),
     )
 
+    llm = await setup_coordination.check_llm_model(SCOPE, {})
     image = await setup_coordination.check_image_model(SCOPE, {})
     video = await setup_coordination.check_video_model(SCOPE, {})
 
+    assert llm.state == "ready"
+    assert llm.checked_revision == 7
     assert image.state == "ready"
     assert image.checked_revision == 7
     assert video.state == "needs_configuration"
     assert video.reason_code == "creator_video_model_missing"
+    assert "shared-secret" not in llm.model_dump_json()
     assert "shared-secret" not in image.model_dump_json()
     assert "shared-secret" not in video.model_dump_json()
 
@@ -138,18 +147,43 @@ async def test_model_check_rejects_another_app_scope() -> None:
 
 
 @pytest.mark.asyncio
-async def test_setup_entry_opens_the_exact_model_section() -> None:
-    action = await setup_coordination.open_video_setup(
-        _request(
-            entry_id=setup_coordination.VIDEO_ENTRY_ID,
-            requirement_id=setup_coordination.VIDEO_REQUIREMENT_ID,
+@pytest.mark.parametrize(
+    ("opener", "entry_id", "requirement_id", "purpose"),
+    [
+        (
+            setup_coordination.open_llm_setup,
+            setup_coordination.LLM_ENTRY_ID,
+            setup_coordination.LLM_REQUIREMENT_ID,
+            "llm",
         ),
+        (
+            setup_coordination.open_image_setup,
+            setup_coordination.IMAGE_ENTRY_ID,
+            setup_coordination.IMAGE_REQUIREMENT_ID,
+            "image",
+        ),
+        (
+            setup_coordination.open_video_setup,
+            setup_coordination.VIDEO_ENTRY_ID,
+            setup_coordination.VIDEO_REQUIREMENT_ID,
+            "video",
+        ),
+    ],
+)
+async def test_setup_entry_opens_the_exact_model_section(
+    opener,
+    entry_id: str,
+    requirement_id: str,
+    purpose: str,
+) -> None:
+    action = await opener(
+        _request(entry_id=entry_id, requirement_id=requirement_id),
     )
 
     assert action.path == (
-        "/apps/qwenpaw-creator?setup=video&setupRequest=setup_123"
+        f"/apps/qwenpaw-creator?setup={purpose}&setupRequest=setup_123"
     )
-    assert action.entry_id == setup_coordination.VIDEO_ENTRY_ID
+    assert action.entry_id == entry_id
 
 
 @pytest.mark.asyncio

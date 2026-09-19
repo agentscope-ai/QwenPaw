@@ -25,11 +25,14 @@ from qwenpaw.pawapp.tasks import TaskScope, TaskStoreError
 from qwenpaw.pawapp.tasks.contracts import content_digest
 
 APP_ID = "qwenpaw-creator"
+LLM_ENTRY_ID = "creator-llm-model"
 IMAGE_ENTRY_ID = "creator-image-model"
 VIDEO_ENTRY_ID = "creator-video-model"
+LLM_REQUIREMENT_ID = "creator-llm"
 IMAGE_REQUIREMENT_ID = "storyboard-image"
 VIDEO_REQUIREMENT_ID = "shot-video"
 _SETUP_REQUIREMENTS = {
+    LLM_ENTRY_ID: LLM_REQUIREMENT_ID,
     IMAGE_ENTRY_ID: IMAGE_REQUIREMENT_ID,
     VIDEO_ENTRY_ID: VIDEO_REQUIREMENT_ID,
 }
@@ -56,9 +59,16 @@ def _load_snapshot() -> tuple[ModelConfigData, int]:
     )
 
 
+_MODEL_REQUIREMENTS = {
+    "llm": LLM_REQUIREMENT_ID,
+    "image": IMAGE_REQUIREMENT_ID,
+    "video": VIDEO_REQUIREMENT_ID,
+}
+
+
 def _model_ready(
     data: ModelConfigData,
-    purpose: Literal["image", "video"],
+    purpose: Literal["llm", "image", "video"],
 ) -> bool:
     item = getattr(data, purpose)
     if (
@@ -70,22 +80,20 @@ def _model_ready(
     if purpose == "video" and "sglang" in item.protocol.casefold():
         return True
     api_key = item.api_key
-    if item.reuse_llm_key and not api_key:
+    if purpose != "llm" and item.reuse_llm_key and not api_key:
         api_key = data.llm.api_key
     return bool(api_key.strip())
 
 
 async def _check_model(
     scope: TaskScope,
-    purpose: Literal["image", "video"],
+    purpose: Literal["llm", "image", "video"],
 ) -> ReadinessResult:
     if scope.app_id != APP_ID:
         raise TaskStoreError("setup_scope_mismatch")
     data, revision = await asyncio.to_thread(_load_snapshot)
     now = time.time()
-    requirement_id = (
-        IMAGE_REQUIREMENT_ID if purpose == "image" else VIDEO_REQUIREMENT_ID
-    )
+    requirement_id = _MODEL_REQUIREMENTS[purpose]
     if _model_ready(data, purpose):
         return ReadinessResult(
             requirement_id=requirement_id,
@@ -94,15 +102,23 @@ async def _check_model(
             checked_at=now,
             expires_at=now + _READINESS_TTL_SECONDS,
         )
+    label = "planning" if purpose == "llm" else f"{purpose} generation"
     return ReadinessResult(
         requirement_id=requirement_id,
         state="needs_configuration",
         reason_code=f"creator_{purpose}_model_missing",
-        reason=f"Configure and enable the Creator {purpose} generation model.",
+        reason=f"Configure and enable the Creator {label} model.",
         checked_revision=revision,
         checked_at=now,
         expires_at=now + _READINESS_TTL_SECONDS,
     )
+
+
+async def check_llm_model(
+    scope: TaskScope,
+    _inputs: dict[str, Any],
+) -> ReadinessResult:
+    return await _check_model(scope, "llm")
 
 
 async def check_image_model(
@@ -123,7 +139,7 @@ async def _open_model_setup(
     request: SetupRequest,
     *,
     entry_id: str,
-    purpose: Literal["image", "video"],
+    purpose: Literal["llm", "image", "video"],
 ) -> SetupOpenAction:
     if request.scope.app_id != APP_ID or request.entry_id != entry_id:
         raise TaskStoreError("setup_scope_mismatch")
@@ -136,6 +152,14 @@ async def _open_model_setup(
             f"/apps/{APP_ID}?setup={purpose}"
             f"&setupRequest={request.request_id}"
         ),
+    )
+
+
+async def open_llm_setup(request: SetupRequest) -> SetupOpenAction:
+    return await _open_model_setup(
+        request,
+        entry_id=LLM_ENTRY_ID,
+        purpose="llm",
     )
 
 
@@ -160,6 +184,16 @@ def register_creator_setup(app: Any) -> None:
     app.setup_entry(
         SetupEntryRegistration(
             descriptor=SetupEntryDescriptor(
+                id=LLM_ENTRY_ID,
+                entry_ref="creator.model-settings",
+                focus="llm",
+                presentations=("app_entry",),
+            ),
+            opener=open_llm_setup,
+        ),
+    ).setup_entry(
+        SetupEntryRegistration(
+            descriptor=SetupEntryDescriptor(
                 id=IMAGE_ENTRY_ID,
                 entry_ref="creator.model-settings",
                 focus="image-generation",
@@ -181,9 +215,22 @@ def register_creator_setup(app: Any) -> None:
     app.setup_check(
         SetupCheckRegistration(
             requirement=SetupRequirement(
+                id=LLM_REQUIREMENT_ID,
+                summary="Configure the Creator planning model.",
+                required_for=("create-video",),
+                authority="AppLocal",
+                setup_entry_ref=LLM_ENTRY_ID,
+                check_ref="creator.llm-model-ready",
+                type_ref="model@1",
+            ),
+            checker=check_llm_model,
+        ),
+    ).setup_check(
+        SetupCheckRegistration(
+            requirement=SetupRequirement(
                 id=IMAGE_REQUIREMENT_ID,
                 summary="Configure the Creator image generation model.",
-                required_for=("generate-storyboard",),
+                required_for=("generate-storyboard", "create-video"),
                 authority="AppLocal",
                 setup_entry_ref=IMAGE_ENTRY_ID,
                 check_ref="creator.image-model-ready",
@@ -196,7 +243,7 @@ def register_creator_setup(app: Any) -> None:
             requirement=SetupRequirement(
                 id=VIDEO_REQUIREMENT_ID,
                 summary="Configure the Creator video generation model.",
-                required_for=("generate-video",),
+                required_for=("generate-video", "create-video"),
                 authority="AppLocal",
                 setup_entry_ref=VIDEO_ENTRY_ID,
                 check_ref="creator.video-model-ready",

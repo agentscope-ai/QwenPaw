@@ -109,6 +109,9 @@ def make_task_tools(context: TaskToolContext):
 
         Returns short summaries. Call describe_action before delegate. An
         App task executes independently; submission does not mean completion.
+        For Creator video intent, choose create-video. Use create-project only
+        when the user explicitly wants an empty workspace. Never ask the user
+        for Creator project, timeline, element, work, run, or provider IDs.
         """
         try:
             actions = await context.runtime.catalog(
@@ -279,6 +282,53 @@ def make_task_tools(context: TaskToolContext):
                 error=True,
             )
 
+    async def open_task_setup(app_id: str, task_id: str) -> ToolChunk:
+        """Open the active setup request linked to a delegated App task.
+
+        The Host resolves the request to a local App path. Never construct a
+        setup URL or ask the user for a setup request or Creator internal ID.
+        """
+        try:
+            scope = context.scope(app_id)
+            submission = await context.runtime.get(scope, task_id)
+            handle = submission.handle
+            if (
+                handle.origin.engagement != "delegated"
+                or handle.origin.origin_ref != context.chat_id
+            ):
+                raise TaskStoreError("task_not_found")
+            if (
+                handle.status != "waiting_for_setup"
+                or handle.setup_request_id is None
+            ):
+                raise TaskStoreError("task_setup_not_available")
+            if context.runtime.setup is None:
+                raise TaskStoreError("setup_runtime_unavailable")
+            record = await context.runtime.setup.open(
+                scope,
+                handle.setup_request_id,
+            )
+            if (
+                record.request.scope != scope
+                or record.request.task_id != task_id
+                or record.open_action is None
+            ):
+                raise TaskStoreError("setup_link_conflict")
+            return _result(
+                {
+                    "kind": "pawapp_open_setup",
+                    "app_id": app_id,
+                    "workspace_id": context.workspace_id,
+                    "task_id": task_id,
+                    "action": record.open_action.model_dump(mode="json"),
+                },
+            )
+        except (TaskStoreError, ValueError) as exc:
+            return _result(
+                {"state": "error", "reason": _reason(exc)},
+                error=True,
+            )
+
     async def answer_task(
         app_id: str,
         task_id: str,
@@ -367,6 +417,7 @@ def make_task_tools(context: TaskToolContext):
         delegate,
         get_app_task,
         open_app,
+        open_task_setup,
         answer_task,
         cancel_task,
     ]

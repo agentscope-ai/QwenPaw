@@ -4861,6 +4861,17 @@
       "defaultTitle": "委派给 App",
       "openApp": "打开 App",
       "settings": "打开 App 配置",
+      "completeSetup": "完成配置",
+      "openingSetup": "正在打开配置…",
+      "setupOpenFailed": "无法打开配置，请重试。",
+      "submitAnswer": "提交回答",
+      "submittingAnswer": "正在提交…",
+      "customAnswer": "其他回答（可选）",
+      "answerError": {
+        "required": "请先回答所有问题。",
+        "rejected": "此回答已失效，正在刷新任务状态。",
+        "failed": "回答提交失败；重试时会安全复用同一请求。"
+      },
       "result": "结果",
       "partialResult": "当前输出",
       "artifacts": "成果文件",

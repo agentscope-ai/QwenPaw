@@ -1,5 +1,5 @@
 {
-  "$comment": "PROPOSAL EXAMPLE ONLY. Limited Direct project-opening and configuration fragment; not the complete P2 delegated execution manifest. The current QwenPaw loader does not implement this schema. API schema version is independent from the document version.",
+  "$comment": "IMPLEMENTED CREATOR TASK CONTRACT SUMMARY. Action descriptors remain the executable authority; registration exposure and eager/deferred requirements are Host binding metadata outside descriptor digests.",
   "schema_version": "pawapp/2",
   "id": "qwenpaw-creator",
   "name": "QwenPaw Creator",
@@ -10,155 +10,119 @@
     "frontend": "ui/dist/index.js"
   },
   "pawapp": {
-    "summary": "Develop a confirmed script into an editable video project.",
+    "summary": "Create an empty Creator workspace or delegate a complete brief-to-video workflow.",
     "entry_page": "/apps/qwenpaw-creator",
-    "actions": [
+    "task_contract": "qwenpaw:task-envelope@1",
+    "action_registrations": [
       {
-        "id": "qwenpaw-creator:create-video",
-        "description": "Open a video project from a confirmed script. Opening does not start generation.",
-        "engagements": [
-          "direct"
-        ],
-        "default_engagement": "direct",
-        "surfaces": [
-          {
-            "kind": "workbench",
-            "engagements": [
-              "direct"
-            ],
-            "entry_ref": "creator-registered-project-page"
-          }
-        ],
-        "transitions": [],
-        "accepts": [
-          {
-            "role": "script",
-            "type": "qwenpaw:script-draft",
-            "schema_version": "1",
-            "required": true
-          },
-          {
-            "role": "reference",
-            "type": "qwenpaw:research-bundle",
-            "schema_version": "1",
-            "required": false
-          }
-        ],
-        "produces": [
-          {
-            "type": "qwenpaw:video-asset",
-            "schema_version": "1"
-          }
-        ],
-        "effects": {
-          "open": [
-            "project:create-or-open"
-          ],
-          "generate": [
-            "provider:billable-generation"
-          ]
-        },
-        "hooks": {
-          "prepare": "creator.prepare_video",
-          "handoff": "creator.open_video_project",
-          "task_status": "creator.task_status"
-        },
-        "setup_requirements": [
-          {
-            "required_for": "generate",
-            "when": "plan.uses_image_generation",
-            "requirement_ref": "storyboard-image"
-          },
-          {
-            "required_for": "generate",
-            "when": "plan.uses_video_generation",
-            "requirement_ref": "shot-video"
-          }
-        ]
+        "action_id": "create-project",
+        "exposure": "host_public",
+        "engagements": ["delegated"],
+        "purpose": "Create and return an empty Creator project only.",
+        "eager_requirement_ids": [],
+        "deferred_requirement_ids": []
+      },
+      {
+        "action_id": "create-video",
+        "exposure": "host_public",
+        "engagements": ["delegated"],
+        "descriptor_fixture": "pawapp-vnext-creator-create-video-action.example.json",
+        "purpose": "Create a project, plan and execute the video workflow, publish the canonical final video, and return the project and artifact.",
+        "eager_requirement_ids": ["creator-llm"],
+        "deferred_requirement_ids": ["storyboard-image", "shot-video"]
+      },
+      {
+        "action_id": "generate-storyboard",
+        "exposure": "app_private",
+        "descriptor_fixture": "pawapp-vnext-creator-storyboard-action.example.json",
+        "migration_rule": "Existing accepted tasks remain replayable and terminally deliverable; new catalog, describe, grant, and dispatch operations reject this action."
+      },
+      {
+        "action_id": "generate-video",
+        "exposure": "app_private",
+        "descriptor_fixture": "pawapp-vnext-creator-video-action.example.json",
+        "migration_rule": "Existing accepted tasks remain replayable and terminally deliverable; new catalog, describe, grant, and dispatch operations reject this action."
       }
     ],
-    "task_contract": "qwenpaw:task-envelope@1",
+    "create_video_goal_mapping": {
+      "version": 1,
+      "normalization": "Convert CRLF and CR to LF, strip outer whitespace only, preserve internal whitespace, and apply defaults before hashing or rendering.",
+      "derived_name": "First non-empty brief line normalized to at most 96 characters, followed by '-' and the first 12 hexadecimal characters of sha256(submission_id). Explicit duplicate names fail durably.",
+      "template": "[creator-video-workflow@1]\nSubmission: <submission_id>\n\nBrief:\n<brief>\n\nUser script:\n<script, or \"Not provided; create a script from the brief.\">\n\nProduction constraints:\n- project_name: <resolved name>\n- description: <description, or \"Not provided.\">\n- scenario: <scenario>\n- aspect_ratio: <aspect_ratio>\n- resolution: <resolution>\n- content_type: <content_type, or \"Not specified.\">\n- duration_seconds: <integer, or \"Not specified.\">\n- language: <language>\n- completion: publish one final composed video"
+    },
+    "workflow_policy": {
+      "atomic_bootstrap": "Persist the project, session, conversation, initial goal, initial message, and workflow receipt with their exact durable identities before Agent execution.",
+      "execution_owner": "Creator Agent and work-graph runtime; the PawApp adapter observes and resumes but never implements a second planner or media executor.",
+      "setup": "LLM readiness is eager and blocks before task creation. Image and video readiness are independently deferred until their earliest actionable stages. Exactly one task-linked setup request may be active.",
+      "approval": "Generation approval is an independent typed task input request bound to immutable provider, model, operation, target, candidate count, duration, resolution, aspect ratio, and other billing-relevant arguments.",
+      "canonical_output": "Exactly one live non-snapshot narrative timeline must select one non-stale final_video backed by an indexed video file and a DONE compose node with current selections and fingerprint.",
+      "publication": "Persist a verified Creator source receipt with distinct graph compose and executor/render fingerprints, bound by the durable dispatch key, separately from a source-bound Host publication intent and ArtifactRef. Success requires the current publication receipt and returns one creator-project ProjectRef plus exactly its Host artifact.",
+      "cancellation": "Cancellation before publication intent wins and stops only correlated active work. Once publication intent is durable, reconciliation determines success or proven publication failure; cancellation cannot change the terminal outcome.",
+      "failure": "A succeeded Creator run without a canonical source, actionable graph, or explicit recoverable review/repair state fails as no_actionable_work. Multiple live timelines fail with actionable guidance unless explicit recovery can resolve them."
+    },
     "configuration": {
       "version": 1,
-      "authorities": [
-        "HostBinding",
-        "AppLocal"
-      ],
-      "models": [
+      "requirements": [
+        {
+          "id": "creator-llm",
+          "capability": "chat.generate",
+          "required_for": ["create-video"],
+          "phase": "eager",
+          "setup_entry": "creator-llm-model"
+        },
         {
           "id": "storyboard-image",
           "capability": "image.generate",
-          "required_for": [
-            "generate-storyboard"
-          ],
-          "binding_scopes": [
-            "project",
-            "app-default"
-          ],
-          "delivery": "model_handle",
+          "required_for": ["create-video", "generate-storyboard"],
+          "phase": "deferred-for-create-video",
           "setup_entry": "creator-image-model"
         },
         {
           "id": "shot-video",
           "capability": "video.generate",
-          "required_for": [
-            "generate-video"
-          ],
-          "binding_scopes": [
-            "project",
-            "app-default"
-          ],
-          "delivery": "backend_adapter",
+          "required_for": ["create-video", "generate-video"],
+          "phase": "deferred-for-create-video",
           "setup_entry": "creator-video-model"
         }
       ],
       "setup_entries": [
         {
+          "id": "creator-llm-model",
+          "entry_ref": "creator.model-settings",
+          "focus": "llm",
+          "presentations": ["app_entry"]
+        },
+        {
           "id": "creator-image-model",
           "entry_ref": "creator.model-settings",
           "focus": "image-generation",
-          "presentations": [
-            "app_entry"
-          ],
-          "context_schema_version": "pawapp:setup-context@1",
-          "ui_owner": "app",
-          "fallback": {
-            "entry_ref": "creator-registered-project-page",
-            "behavior": "open-project-with-unresolved-setup-notice"
-          }
+          "presentations": ["app_entry"]
         },
         {
           "id": "creator-video-model",
           "entry_ref": "creator.model-settings",
           "focus": "video-generation",
-          "presentations": [
-            "app_entry"
-          ],
-          "context_schema_version": "pawapp:setup-context@1",
-          "ui_owner": "app",
-          "fallback": {
-            "entry_ref": "creator-registered-project-page",
-            "behavior": "open-project-with-unresolved-setup-notice"
-          }
+          "presentations": ["app_entry"]
         }
-      ]
+      ],
+      "task_linked_retry": "saved is not ready; recheck readiness, then advance setup_attempt and deterministically create or reuse the next request while the same task remains waiting_for_setup"
     }
   },
   "permissions": [
     {
-      "resource": "artifact",
-      "operations": [
-        "read-selected",
-        "publish"
-      ],
+      "resource": "project",
+      "operations": ["create", "read", "write"],
       "scope": "current-task"
     },
     {
       "resource": "provider",
-      "operations": [
-        "generate"
-      ],
-      "scope": "explicit-binding"
+      "operations": ["image.generate", "video.generate"],
+      "scope": "explicit-action-grant-and-exact-approval"
+    },
+    {
+      "resource": "artifact",
+      "operations": ["publish"],
+      "scope": "verified-canonical-final-video"
     }
   ]
 }

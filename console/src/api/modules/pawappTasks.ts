@@ -34,6 +34,49 @@ export interface PawAppProjectRef {
   revision: number;
 }
 
+export interface PawAppTaskInputOption {
+  label: string;
+  description: string;
+}
+
+export interface PawAppTaskInputQuestion {
+  question: string;
+  description: string;
+  multi_select: boolean;
+  options: PawAppTaskInputOption[];
+}
+
+export interface PawAppTaskInputRequest {
+  request_id: string;
+  title: string;
+  questions: PawAppTaskInputQuestion[];
+}
+
+export interface PawAppTaskAnswer {
+  question: string;
+  selected_options: string[];
+  custom_text: string | null;
+}
+
+export interface PawAppTaskCommand {
+  protocol_version: 1;
+  task_id: string;
+  command_id: string;
+  kind: "answer" | "cancel";
+  request_id: string | null;
+  state: "prepared" | "in_flight" | "accepted" | "rejected" | "unknown";
+  reason: string | null;
+}
+
+export interface PawAppSetupOpenAction {
+  schema_version: 1;
+  app_id: string;
+  request_id: string;
+  entry_id: string;
+  presentation: "chat_card" | "secure_form" | "app_entry";
+  path: string;
+}
+
 export interface PawAppTask {
   task_id: string;
   action_id: string;
@@ -44,6 +87,9 @@ export interface PawAppTask {
   text_result: string | null;
   output_refs?: PawAppArtifactRef[];
   project_ref?: PawAppProjectRef | null;
+  input_request?: PawAppTaskInputRequest | null;
+  setup_request_id?: string | null;
+  setup_attempt?: number;
 }
 
 export interface PawAppOpenAction {
@@ -97,6 +143,91 @@ function isProjectRef(value: unknown): value is PawAppProjectRef {
   );
 }
 
+function boundedString(value: unknown, maxLength: number): value is string {
+  return typeof value === "string" && value.length <= maxLength;
+}
+
+function isTaskInputRequest(value: unknown): value is PawAppTaskInputRequest {
+  if (
+    !record(value) ||
+    !identity(value.request_id) ||
+    !boundedString(value.title, 2000) ||
+    !Array.isArray(value.questions) ||
+    value.questions.length < 1 ||
+    value.questions.length > 4
+  )
+    return false;
+  return value.questions.every((question) => {
+    if (
+      !record(question) ||
+      !boundedString(question.question, 2000) ||
+      question.question.length === 0 ||
+      !boundedString(question.description, 4000) ||
+      typeof question.multi_select !== "boolean" ||
+      !Array.isArray(question.options) ||
+      question.options.length < 2 ||
+      question.options.length > 4
+    )
+      return false;
+    const labels = new Set<string>();
+    return question.options.every((option) => {
+      if (
+        !record(option) ||
+        !boundedString(option.label, 1000) ||
+        option.label.length === 0 ||
+        !boundedString(option.description, 2000) ||
+        labels.has(option.label)
+      )
+        return false;
+      labels.add(option.label);
+      return true;
+    });
+  });
+}
+
+function isSetupOpenAction(
+  value: unknown,
+  appId: string,
+  requestId: string,
+): value is PawAppSetupOpenAction {
+  if (
+    !record(value) ||
+    value.schema_version !== 1 ||
+    value.app_id !== appId ||
+    value.request_id !== requestId ||
+    !identity(value.entry_id) ||
+    !["chat_card", "secure_form", "app_entry"].includes(
+      String(value.presentation),
+    ) ||
+    typeof value.path !== "string" ||
+    value.path.length === 0 ||
+    value.path.length > 2000 ||
+    /[\\#%]/.test(value.path)
+  )
+    return false;
+  const appPath = `/apps/${appId}`;
+  const path = value.path.split("?", 1)[0];
+  return (
+    !path.split("/").includes("..") &&
+    (path === appPath || path.startsWith(`${appPath}/`))
+  );
+}
+
+function isTaskCommand(value: unknown): value is PawAppTaskCommand {
+  return (
+    record(value) &&
+    value.protocol_version === 1 &&
+    identity(value.task_id) &&
+    identity(value.command_id) &&
+    ["answer", "cancel"].includes(String(value.kind)) &&
+    (value.request_id === null || identity(value.request_id)) &&
+    ["prepared", "in_flight", "accepted", "rejected", "unknown"].includes(
+      String(value.state),
+    ) &&
+    (value.reason === null || identity(value.reason))
+  );
+}
+
 export function isPawAppTask(value: unknown): value is PawAppTask {
   if (!record(value) || !record(value.scope)) return false;
   return (
@@ -133,7 +264,25 @@ export function isPawAppTask(value: unknown): value is PawAppTask {
         ))) &&
     (value.project_ref === undefined ||
       value.project_ref === null ||
-      isProjectRef(value.project_ref))
+      isProjectRef(value.project_ref)) &&
+    (value.input_request === undefined ||
+      value.input_request === null ||
+      isTaskInputRequest(value.input_request)) &&
+    (value.setup_request_id === undefined ||
+      value.setup_request_id === null ||
+      identity(value.setup_request_id)) &&
+    (value.setup_attempt === undefined ||
+      (Number.isSafeInteger(value.setup_attempt) &&
+        Number(value.setup_attempt) >= 0)) &&
+    (value.setup_request_id === undefined ||
+      value.setup_request_id === null ||
+      (value.status === "waiting_for_setup" &&
+        Number(value.setup_attempt) >= 1)) &&
+    (value.input_request === undefined ||
+      value.input_request === null ||
+      ["waiting_for_input", "waiting_for_approval"].includes(
+        String(value.status),
+      ))
   );
 }
 
@@ -169,9 +318,8 @@ export function pawAppArtifactUrl(
   return getApiUrl(path);
 }
 
-export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {
-  try {
-    // Both Chat renderers may supply text directly or as ToolChunk blocks.
+function decodeToolValue(value: unknown): unknown {
+  for (let depth = 0; depth < 4; depth += 1) {
     if (Array.isArray(value)) {
       if (
         !value.every(
@@ -183,8 +331,20 @@ export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {
       )
         return null;
       value = value.map((block) => block.text).join("");
+      continue;
     }
-    if (typeof value === "string") value = JSON.parse(value);
+    if (typeof value === "string") {
+      value = JSON.parse(value);
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
+export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {
+  try {
+    value = decodeToolValue(value);
     if (
       !record(value) ||
       value.kind !== "pawapp_task" ||
@@ -219,22 +379,6 @@ export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {
   } catch {
     return null;
   }
-}
-
-function decodeToolValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    if (
-      !value.every(
-        (block) =>
-          record(block) &&
-          block.type === "text" &&
-          typeof block.text === "string",
-      )
-    )
-      return null;
-    value = value.map((block) => block.text).join("");
-  }
-  return typeof value === "string" ? JSON.parse(value) : value;
 }
 
 export function parsePawAppOpenResult(value: unknown): PawAppOpenResult | null {
@@ -298,4 +442,55 @@ export async function openPawAppTask(
     throw new Error("invalid_open_app_response");
   }
   return result.action;
+}
+
+export async function openPawAppSetup(
+  appId: string,
+  workspaceId: string,
+  requestId: string,
+): Promise<PawAppSetupOpenAction> {
+  const result = await request<{ open_action: unknown }>(
+    `/pawapps/${encodeURIComponent(appId)}/workspaces/${encodeURIComponent(
+      workspaceId,
+    )}/setup-requests/${encodeURIComponent(requestId)}/open`,
+    { method: "POST", headers: { "X-Agent-Id": workspaceId } },
+  );
+  if (!isSetupOpenAction(result.open_action, appId, requestId)) {
+    throw new Error("invalid_open_setup_response");
+  }
+  return result.open_action;
+}
+
+export async function answerPawAppTask(
+  appId: string,
+  workspaceId: string,
+  taskId: string,
+  commandId: string,
+  requestId: string,
+  answers: PawAppTaskAnswer[],
+): Promise<PawAppTaskCommand> {
+  const result = await request<{ command: unknown }>(
+    `/pawapps/${encodeURIComponent(appId)}/workspaces/${encodeURIComponent(
+      workspaceId,
+    )}/tasks/${encodeURIComponent(taskId)}/answer`,
+    {
+      method: "POST",
+      headers: { "X-Agent-Id": workspaceId },
+      body: JSON.stringify({
+        command_id: commandId,
+        request_id: requestId,
+        answers,
+      }),
+    },
+  );
+  if (
+    !isTaskCommand(result.command) ||
+    result.command.task_id !== taskId ||
+    result.command.command_id !== commandId ||
+    result.command.kind !== "answer" ||
+    result.command.request_id !== requestId
+  ) {
+    throw new Error("invalid_task_answer_response");
+  }
+  return result.command;
 }

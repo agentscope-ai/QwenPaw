@@ -9,10 +9,12 @@ The Data
 [adapter](../../plugins/apps/qwenpaw-data/backend/task_bridge/adapter.py)
 implements this boundary against the Engine's durable submission API. Its
 server-owned descriptor matches the [example](pawapp-vnext-data-action.example.json).
-Creator's reviewed fixtures cover
-[storyboard generation](pawapp-vnext-creator-storyboard-action.example.json) and
-[video generation](pawapp-vnext-creator-video-action.example.json). Neither a
-descriptor nor adapter registration is a permission grant.
+Creator's public delegated workflow is captured by the exact
+[`create-video` descriptor](pawapp-vnext-creator-create-video-action.example.json).
+The existing [storyboard](pawapp-vnext-creator-storyboard-action.example.json) and
+[video](pawapp-vnext-creator-video-action.example.json) descriptors are App-private
+implementation actions. Neither a descriptor nor adapter registration is a
+permission grant.
 
 ## Host ownership
 
@@ -35,6 +37,12 @@ Apps declare `app.task_action(ActionRegistration(...))`. The plugin registry
 checks ownership and stores the descriptor, adapter factory and local App settings
 entry. Registration does not construct the adapter, probe services or grant access.
 The Host owns `app.state.pawapp_tasks`, backed by `<WORKING_DIR>/pawapp/tasks.sqlite3`.
+Registration metadata also declares `exposure` (`host_public` or `app_private`)
+and disjoint eager/deferred requirement IDs. Private actions are absent from
+catalog, description and grant management, and reject new external dispatch,
+while their bindings remain available to reconcile and terminally deliver tasks
+accepted before an action became private. Grants remain descriptor/action scoped:
+a public `create-video` grant never authorizes either private media action.
 After managed services start, its supervisor reconciles nonterminal tasks and
 attaches event consumers. Shutdown cancels consumers and closes adapter pools
 before plugin shutdown stops the Engines. Plugin unload/replacement removes the
@@ -85,12 +93,14 @@ The base path is `/api/pawapps/{app_id}/workspaces/{workspace_id}`:
 | `POST /actions/{action_id}/prepare` | Readiness only; creates no task or grant. |
 | `POST /actions/{action_id}/tasks` | `202` with a durable task handle, or `200` with a structured blocked result. |
 | `GET /tasks/{task_id}` | Scoped task handle and current text snapshot. |
+| `POST /tasks/{task_id}/open` | Mint a local authenticated handoff for the task's published project reference. |
 | `POST /tasks/{task_id}/answer` | Persist and deliver an answer for the handle's current typed input request. |
 | `POST /tasks/{task_id}/cancel` | Persist cancellation intent and target the original submission/run. |
 | `GET /tasks/{task_id}/events?after=0&limit=100` | Ordered replay after the Host event sequence; maximum page size 1000. |
+| `POST /setup-requests/{request_id}/open` | Resolve one linked setup request to a validated local App path. |
 
-Both POST bodies accept only `request_id`, `chat_id`, `engagement` and `inputs`.
-For example, use an existing owned Main Chat ID with:
+Action preparation and task submission accept only `request_id`, `chat_id`,
+`engagement` and `inputs`. For example, use an existing owned Main Chat ID with:
 
 ```json
 {
@@ -131,11 +141,11 @@ minimal scoped grant is:
 ```
 
 Compute the digest offline from the reviewed descriptor using
-`ActionDescriptor.model_validate_json(...).descriptor_digest`; the fixtures are
-`docs/design/pawapp-vnext-data-action.example.json`,
-`docs/design/pawapp-vnext-creator-storyboard-action.example.json`, and
-`docs/design/pawapp-vnext-creator-video-action.example.json`. A changed descriptor
-requires a new grant. `input_values` constrains exact string input values; omitting
+`ActionDescriptor.model_validate_json(...).descriptor_digest`; public fixtures are
+`docs/design/pawapp-vnext-data-action.example.json` and
+`docs/design/pawapp-vnext-creator-create-video-action.example.json`. The Creator
+storyboard/video descriptor fixtures document App-private implementation actions
+and cannot receive new external grants. A changed descriptor requires a new grant. `input_values` constrains exact string input values; omitting
 it grants the action for all input resources in that scope. Policy is checked on
 each request and before recovery. Granting an action does not configure its
 provider, satisfy readiness, approve a future prompt, or expand the separate Host
@@ -161,40 +171,99 @@ the presentation and completes it with a typed, scoped receipt; browsers cannot
 submit completion receipts. Raw action inputs and credentials are not stored in
 the setup database; optional setup suggestions are explicitly non-secret.
 
-Creator registers App-local image and video generation requirements with focused
-entries in its existing model settings modal. The Host opens
-`?setup=image|video&setupRequest=<opaque-id>`; the UI removes those parameters
-after consuming them, and a successful server-side configuration save sends the
-receipt through the internal coordinator. The save idempotency record includes
-the setup request ID, and the backend resolves the workspace from the
-authenticated principal plus the Host-owned request. These checks are available
-to Creator's `generate-storyboard` and `generate-video` task actions.
+Creator exposes two public delegated actions. `create-project` intentionally
+creates and returns an empty workspace. `create-video` accepts the bounded
+intent-level schema in its [descriptor fixture](pawapp-vnext-creator-create-video-action.example.json),
+atomically creates the Project, Session, Conversation, initial Goal and initial
+Message, and then lets Creator's existing Agent/work-graph runtime plan and
+execute the work. It accepts no project, target, timeline, element, work-node,
+provider-job, credential, source-upload, template or preauthorization IDs.
 
-Both Creator media adapters accept an existing `project_id` and `element:<id>`
-target, then write a Creator-owned submission record before media admission. The
-storyboard action delegates to the existing image Task/Attempt ledger through its
-admission-only dispatch path; the video action delegates to the existing R2V
-Task/Attempt ledger. Both retain the canonical media-call budget check. The Host
-submission ID is also the Creator idempotency key. Replays return the same logical
-Host run even when Creator attaches the request to an already active equivalent
-media task. A crash with no provable acceptance remains `unknown`, so recovery
-cannot silently purchase a second generation. Deterministic Creator admission
-errors become durable failed runs with bounded reason codes and no internal error
-text. Cancellation has its own durable command receipt keyed by the exact Host
-command ID.
+The v1 mapping normalizes line endings, strips only outer whitespace, applies
+defaults before hashing, and persists the normalized input, mapping version,
+submission identity and exact rendered-goal digest. Its immutable text is:
 
-Successful and failed runs publish a `creator-project` reference. The Host mints
-an authenticated handoff only when the user opens that reference; Creator's
-outer plugin frame resolves it through the scoped PawApp SDK, validates the
-target App and project kind, removes the opaque handoff from the URL, and opens
-the project route inside the iframe. Registering the action does not grant it;
-the existing Host action policy must still contain a matching descriptor grant.
+```text
+[creator-video-workflow@1]
+Submission: <submission_id>
 
-A saved receipt does not claim readiness and does not start work. The caller
-explicitly retries task creation, which rechecks readiness immediately before
-submission. An already accepted or uncertain request keeps its durable identity
-even when setup changes. Readiness is not a connectivity guarantee or an
-authorization grant.
+Brief:
+<brief>
+
+User script:
+<script, or "Not provided; create a script from the brief.">
+
+Production constraints:
+- project_name: <resolved name>
+- description: <description, or "Not provided.">
+- scenario: <scenario>
+- aspect_ratio: <aspect_ratio>
+- resolution: <resolution>
+- content_type: <content_type, or "Not specified.">
+- duration_seconds: <integer, or "Not specified.">
+- language: <language>
+- completion: publish one final composed video
+```
+
+When `name` is absent, Creator uses the first non-empty brief line, normalized to
+at most 96 characters, then appends `-` and the first 12 hexadecimal characters
+of `sha256(submission_id)`. An explicit duplicate name is a durable business
+failure. Replay uses the stored v1 meaning; changing this rendering requires a
+new mapping version and adapter reference.
+
+Creator's LLM requirement is eager. If unavailable, dispatch returns the existing
+blocked/setup result and creates no task, Project or workflow; the caller retries
+the same request after setup. Image and video requirements are deferred until
+their earliest actionable work stages, image first when both are observed. A
+`waiting_for_setup` handle links exactly one Host request with its input digest
+and monotonic attempt. The Console or `open_task_setup` asks Host for the local
+App path; neither caller constructs it. A saved setup result is rechecked rather
+than treated as ready. If still unready, Host advances the attempt and creates or
+reuses the next deterministic request. Cancelled setup cancels the workflow;
+failed, expired or unrecoverable setup fails it. Setup never grants approval or
+starts a provider call.
+
+A correlated pending execution authorization becomes a typed
+`waiting_for_approval` request with `Approve once` and `Do not run`. It shows the
+immutable operation, semantic target, provider/model, candidate count, duration,
+resolution, aspect ratio and other billing-relevant arguments without tokens or
+internal references. Answering uses Creator's existing authorization
+compare-and-set. Readiness and the authorization fingerprint are rechecked
+immediately before dispatch; changed configuration or inputs require a new
+approval.
+
+The workflow derives one graph snapshot and observes only the receipt's exact
+goal/run/round/task chain. Ready or regeneration-ready nodes remain owned by the
+Creator runtime. Success requires exactly one live non-snapshot narrative
+timeline whose selected, non-stale `final_video` is an indexed `video/*` file,
+whose compose node is `DONE`, and whose selections/read set/fingerprint are
+current. Zero or multiple live timelines fail when no explicit recovery state can
+resolve them; the multiple-timeline result tells the user to open Creator, leave
+one live timeline and start again without exposing timeline IDs.
+
+Publication stores a verified Creator source receipt separately from a
+source-bound Host publication intent and completed `ArtifactRef`. The receipt
+keeps the graph compose fingerprint distinct from the executor/render request
+fingerprint and verifies the durable dispatch key that binds them. Bytes are read
+through Creator's verified asset store. Before terminal success, the workflow
+rereads the Project under its lock and republishes if the canonical source was
+superseded. Success returns non-empty text, the latest `creator-project`
+`ProjectRef`, and exactly one bound Host artifact. A Creator run, completed shots
+or script completion alone is nonterminal.
+
+The workflow lock linearizes cancellation and publication. Cancellation before a
+publication intent wins, expires only correlated authorization, stops only
+correlated active work and preserves the Project and partial outputs. Once the
+intent is durable, publication reconciliation determines eventual success or a
+proven unrecoverable publication failure; cancellation cannot produce a cancelled
+terminal result. An ambiguous publish remains `publishing` and reuses the same
+intent after restart.
+
+The App-private `generate-storyboard` and `generate-video` adapters continue to
+reconcile previously accepted tasks, but cannot be newly listed, described,
+granted or externally dispatched. Their existing-project IDs stay internal to
+Creator. Registering any action does not grant it; the Host policy must contain a
+matching public descriptor grant.
 
 The `task_audit` table records dispatch intent, blocked outcomes and authorization
 denials with scope and request identity, without prompts, credentials or output.
@@ -233,16 +302,18 @@ See the [Data adapter contract and integration command](pawapp-data-task-adapter
 
 ## Main Chat tools and task cards
 
-The Console chat entry point binds six tools to the authenticated principal,
+The Console chat entry point binds eight tools to the authenticated principal,
 resolved workspace and originating Main Chat:
 
 | Tool | Behavior |
 | --- | --- |
-| `list_apps(intent="")` | Compact granted action catalog, optionally ranked by intent; no readiness probes or dispatch. |
-| `describe_action(app_id, action_id)` | Full granted descriptor and digest, including the input schema and effects. |
-| `delegate(app_id, action_id, inputs, request_id)` | Submit an independent delegated task, returning its durable handle or a setup blocker. |
+| `list_apps(intent="")` | Compact granted public-action catalog, optionally ranked by intent; no readiness probes or dispatch. For Creator video intent, choose `create-video`; use `create-project` only for an explicitly empty workspace and never ask for Creator internal IDs. |
+| `describe_action(app_id, action_id)` | Full granted public descriptor and digest, including the input schema and effects. |
+| `delegate(app_id, action_id, inputs, request_id)` | Submit an independent delegated task, returning its durable handle or an eager setup blocker. |
 | `get_app_task(app_id, task_id)` | Read status and text for a task delegated from this Main Chat. |
-| `answer_task(app_id, task_id, command_id, request_id, answers)` | Answer the exact typed request currently pending on a task delegated from this chat. |
+| `open_app(app_id, task_id)` | Ask Host to mint a local authenticated handoff for the task's project reference. |
+| `open_task_setup(app_id, task_id)` | Ask Host to resolve the task's active linked setup request to a validated local App path. |
+| `answer_task(app_id, task_id, command_id, request_id, answers)` | Answer the exact typed input or approval request currently pending on a task delegated from this chat. |
 | `cancel_task(app_id, task_id, reason="")` | Request cancellation and return the task's durable command receipt. |
 
 Action schemas are loaded on demand, rather than injected as a separate top-level
@@ -267,8 +338,12 @@ task API, explicitly retaining the task's workspace when the selected workspace
 changes. It polls every two seconds until an authoritative terminal status, uses
 event sequences to reject stale snapshots, and aborts pending reads on unmount or
 a handle change. Refresh failures preserve the last output and offer a manual
-retry. Recovery and partial output never imply successful completion. Setup links
-are constructed from the App ID, not from a tool-supplied external URL. English
+retry. Recovery and partial output never imply successful completion. A linked
+setup button calls the Host open endpoint and accepts only a validated local path
+under that App. Typed input and approval requests render from the generic question
+schema; answer submission preserves one command ID across uncertain retries and
+refreshes immediately. Project handoffs and final artifacts use generic controls,
+with no interpretation of Creator element, timeline, work or provider IDs. English
 and Chinese labels are included; malformed results use the generic tool card.
 
 Delegated waiting/terminal transitions schedule a server-created Main Agent turn
@@ -295,19 +370,27 @@ EOF and transport failure record recovery state without inferring success or
 interruption. Only an authoritative executor event can establish interruption.
 
 An `ask_user_question` tool call projects a bounded `input_request` onto the task
-and ends that attachment at an intentional waiting boundary. The Host validates
-answer question identities, option labels and selection cardinality against this
-snapshot before persisting a command. Waiting tasks are not polled until a
-command exists; replay after an answer clears the request when the matching tool
-result arrives.
+and ends that attachment at an intentional waiting boundary. The same request is
+legal for `waiting_for_approval`, allowing an App adapter to project an immutable
+external authorization as ordinary typed questions. The Host validates request
+identity, exact question text, option labels and selection cardinality before
+persisting a command. Waiting tasks are not polled until a command exists; replay
+after an answer clears the request when the matching tool result arrives.
+
+A `waiting_for_setup` event may carry exactly one bounded requirement ID, stable
+reason code and user-facing reason. The task atomically stores one opaque setup
+request ID and monotonic attempt. Setup and approval are independent: neither
+transition grants, answers or mutates the other, and neither changes action grants.
 
 The Host records each answer/cancel meaning under a stable command ID before
 external I/O. Same-ID retries return the same receipt; changed answer content is
 `command_conflict`. A stale answer is rejected, while cancellation before
-submission terminalizes locally without dispatch. Once a run exists, terminal
-executor state wins cancellation races and its partial output remains available.
-Uncertain sends are reconciled through the executor receipt rather than assigned
-a new identity.
+submission terminalizes locally without dispatch. For ordinary adapters, terminal
+executor state wins cancellation races and partial output remains available. An
+adapter with a durable publication intent may define a stricter cutoff: Creator's
+`create-video` rejects cancellation after that intent and reconciles publication
+to success or a proven publication failure. Uncertain sends are reconciled through
+the executor receipt rather than assigned a new identity.
 
 Delegated waiting/terminal transitions create a continuation intent for the
 original Main Chat, in addition to a task update. Direct tasks create only updates
@@ -448,22 +531,19 @@ shutdown, user stop, bounded model retries, schema migration, stale waiting
 prompts, and publishing only committed output to live subscribers.
 
 `test_task_agent_tools.py` covers scoped discovery, schema loading, retries,
-blocked setup, grant revocation, invalid App IDs, cross-chat isolation and private
-invocation authority. `PawAppTaskCard.test.tsx` covers progress, completion,
-recovery, refresh failure/retry, stale responses, newer history snapshots,
-unmount cleanup, setup links and handle validation. Creator's adapter tests cover
-durable submission replay, ordered R2V attempt projection, redacted admission
-failure, exact command receipts, cancellation, input conflict detection, and
-project/target readiness. Its package verifier covers authenticated project
-handoff routing into the embedded UI.
+blocked setup, Host-resolved linked setup, grant revocation, invalid App IDs,
+cross-chat isolation and private invocation authority. `PawAppTaskCard.test.tsx`
+and `pawappTasks.test.ts` cover progress, recovery, stale snapshots, validated
+setup navigation, typed approval/input submission, stable retry IDs, project
+handoff and artifact preview without App-specific IDs.
 
-P1b artifact publication, task-card preview/download, typed project handoff,
-Creator media ArtifactRefs, and the P2 no-model file-browser adapter are
-implemented. File Browser covers conditional AppLocal setup, canonical input
-resolution before scoped Host authorization, durable bounded listings, and
-Delegated/Direct registration. The remaining P2 validation is the billable
-step of an explicitly authorized limited real provider run. Its checked-in
-acceptance runner performs a free redacted preflight, uses an isolated Project
-copy, bounds the output to two seconds at 480P, pins the exact Host grant, and
-durably refuses a second provider submission. Cross-App Exchange is not part
-of this implementation.
+Creator's workflow suites cover exact input/mapping snapshots, atomic bootstrap,
+crash recovery, correlation/precedence collisions, independent setup and approval,
+saved-but-unready retries across restart, canonical-selector parity, verified
+publication and supersession, all cancellation/publication orderings, and private
+action migration/grant isolation. The final validation gate is the isolated
+fake-provider real-App acceptance: Main Chat delegation, task-card reload,
+Creator execution, canonical artifact access and Main Chat continuation, with a
+hard failure if any real provider is selected. The separate limited real-provider
+runner remains opt-in and requires fresh confirmation before any billable call.
+Cross-App Exchange is not part of this implementation.

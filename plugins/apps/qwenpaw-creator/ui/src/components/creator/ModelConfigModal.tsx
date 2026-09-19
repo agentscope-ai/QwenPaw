@@ -892,7 +892,7 @@ function groundingSearchLabel(config: ModelConfigData): string {
 interface Props {
   open: boolean;
   onClose: () => void;
-  initialModel?: "image" | "video";
+  initialModel?: "llm" | "image" | "video";
   setupRequestId?: string;
 }
 

@@ -6,7 +6,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from agentscope.tool import FunctionTool
@@ -103,6 +103,79 @@ async def test_discover_describe_delegate_and_read(host):
     assert opened["kind"] == "pawapp_open_app"
     assert opened["action"]["path"].startswith("/apps/qwenpaw-data?handoff=")
     assert len(host.runs) == 1
+
+
+def test_creator_video_guidance_uses_intent_level_action():
+    list_apps = next(
+        tool
+        for tool in make_task_tools(MagicMock())
+        if tool.__name__ == "list_apps"
+    )
+    assert "choose create-video" in list_apps.__doc__
+    assert "explicitly wants an empty workspace" in list_apps.__doc__
+    assert "Never ask the user" in list_apps.__doc__
+
+
+@pytest.mark.asyncio
+async def test_open_task_setup_resolves_the_linked_request():
+    action = {
+        "schema_version": 1,
+        "app_id": SCOPE.app_id,
+        "request_id": "setup-one",
+        "entry_id": "settings",
+        "presentation": "app_entry",
+        "path": f"/apps/{SCOPE.app_id}?setup=image",
+    }
+    handle = SimpleNamespace(
+        origin=SimpleNamespace(
+            engagement="delegated",
+            origin_ref="main",
+        ),
+        status="waiting_for_setup",
+        setup_request_id="setup-one",
+    )
+    setup = SimpleNamespace()
+    setup.open = AsyncMock(
+        return_value=SimpleNamespace(
+            request=SimpleNamespace(scope=SCOPE, task_id="task-one"),
+            open_action=SimpleNamespace(
+                model_dump=lambda **_kwargs: action,
+            ),
+        ),
+    )
+    runtime = SimpleNamespace(
+        get=AsyncMock(return_value=SimpleNamespace(handle=handle)),
+        setup=setup,
+    )
+    bound = {
+        tool.__name__: FunctionTool(tool)
+        for tool in make_task_tools(
+            TaskToolContext(
+                runtime,
+                MagicMock(),
+                "alice",
+                "sales",
+                "main",
+                "main-session",
+            ),
+        )
+    }
+
+    opened = payload(
+        await bound["open_task_setup"](
+            app_id=SCOPE.app_id,
+            task_id="task-one",
+        ),
+    )
+
+    assert opened == {
+        "kind": "pawapp_open_setup",
+        "app_id": SCOPE.app_id,
+        "workspace_id": "sales",
+        "task_id": "task-one",
+        "action": action,
+    }
+    setup.open.assert_awaited_once_with(SCOPE, "setup-one")
 
 
 @pytest.mark.asyncio
@@ -291,6 +364,12 @@ async def test_task_identity_and_reads_are_bound_to_the_originating_chat(host):
             task_id=first_id,
         ),
     ) == {"state": "error", "reason": "task_not_found"}
+    assert payload(
+        await second["open_task_setup"](
+            app_id=SCOPE.app_id,
+            task_id=first_id,
+        ),
+    ) == {"state": "error", "reason": "task_not_found"}
 
 
 @pytest.mark.asyncio
@@ -439,6 +518,7 @@ async def test_builder_uses_private_context_not_payload_claims(
         "delegate",
         "get_app_task",
         "open_app",
+        "open_task_setup",
         "answer_task",
         "cancel_task",
     }

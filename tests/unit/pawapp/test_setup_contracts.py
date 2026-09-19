@@ -16,6 +16,7 @@ from qwenpaw.pawapp import (
     SetupEntryDescriptor,
     SetupEntryRegistration,
     SetupOpenAction,
+    SetupRequest,
     SetupRequirement,
     SuggestedValue,
 )
@@ -124,6 +125,46 @@ def test_setup_navigation_cannot_leave_own_app() -> None:
         )
 
 
+def test_task_linked_setup_requires_exact_durable_binding() -> None:
+    values = {
+        "request_id": "setup-1",
+        "scope": {
+            "principal_id": "alice",
+            "workspace_id": "workspace-1",
+            "app_id": "qwenpaw-creator",
+        },
+        "descriptor_digest": "descriptor-1",
+        "input_digest": "input-1",
+        "entry_id": "video-model",
+        "requirement_ids": ("shot-video",),
+        "origin_ref": "chat-1",
+        "task_id": "task-1",
+        "action_id": "create-video",
+        "attempt": 1,
+        "presentation": "app_entry",
+        "expires_at": 2000,
+        "return_target": "chat-1",
+        "created_at": 1000,
+        "updated_at": 1000,
+    }
+    request = SetupRequest.model_validate(values)
+    assert request.attempt == 1
+    assert request.input_digest == "input-1"
+
+    with pytest.raises(ValidationError, match="task-linked setup requires"):
+        SetupRequest.model_validate({**values, "attempt": None})
+    with pytest.raises(ValidationError, match="task-linked setup requires"):
+        SetupRequest.model_validate(
+            {
+                **values,
+                "requirement_ids": ("shot-image", "shot-video"),
+            },
+        )
+    without_task = {**values, "task_id": None}
+    with pytest.raises(ValidationError, match="require a linked task"):
+        SetupRequest.model_validate(without_task)
+
+
 def test_manifest_configuration_is_typed_and_rejects_duplicates() -> None:
     manifest = PluginManifest.from_dict(
         {
@@ -199,8 +240,22 @@ def test_registry_scopes_setup_and_validates_action_requirements(
         requirement=_requirement(),
         checker=_check_setup,
     )
+    deferred_check = SetupCheckRegistration(
+        requirement=_requirement().model_copy(
+            update={
+                "id": "shot-image",
+                "summary": "Configure an image generation model",
+                "check_ref": "creator.image-model-ready",
+            },
+        ),
+        checker=_check_setup,
+    )
     fresh_registry.register_pawapp_setup_entry("qwenpaw-creator", entry)
     fresh_registry.register_pawapp_setup_check("qwenpaw-creator", check)
+    fresh_registry.register_pawapp_setup_check(
+        "qwenpaw-creator",
+        deferred_check,
+    )
 
     action = ActionDescriptor(
         app_id="qwenpaw-creator",
@@ -215,12 +270,14 @@ def test_registry_scopes_setup_and_validates_action_requirements(
         factory=MagicMock(),
         settings_entry="/apps/qwenpaw-creator",
         requirement_ids=("shot-video",),
+        deferred_requirement_ids=("shot-image",),
     )
     fresh_registry.register_task_action("qwenpaw-creator", registration)
     stored = fresh_registry.get_task_actions()[
         ("qwenpaw-creator", "create-video")
     ]
     assert stored.requirement_ids == ("shot-video",)
+    assert stored.deferred_requirement_ids == ("shot-image",)
 
     fresh_registry.unregister_plugin("qwenpaw-creator")
     assert not fresh_registry.get_task_actions()
@@ -246,6 +303,35 @@ def test_registry_rejects_unregistered_setup_requirement(
                 action=action,
                 factory=MagicMock(),
                 settings_entry="/apps/qwenpaw-creator",
-                requirement_ids=("shot-video",),
+                deferred_requirement_ids=("shot-video",),
             ),
+        )
+
+
+def test_action_registration_separates_eager_and_deferred_requirements() -> (
+    None
+):
+    action = ActionDescriptor(
+        app_id="qwenpaw-creator",
+        action_id="create-video",
+        summary="Create a video",
+        engagements=("delegated",),
+        input_schema={"type": "object", "properties": {}},
+        adapter_ref="creator.video",
+    )
+    values = {
+        "action": action,
+        "factory": MagicMock(),
+        "settings_entry": "/apps/qwenpaw-creator",
+    }
+    with pytest.raises(ValueError, match="deferred.*unique"):
+        ActionRegistration(
+            **values,
+            deferred_requirement_ids=("shot-video", "shot-video"),
+        )
+    with pytest.raises(ValueError, match="eager and deferred"):
+        ActionRegistration(
+            **values,
+            requirement_ids=("shot-video",),
+            deferred_requirement_ids=("shot-video",),
         )

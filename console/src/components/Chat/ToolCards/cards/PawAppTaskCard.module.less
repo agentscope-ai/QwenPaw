@@ -62,6 +62,76 @@
   }
 }
 
+.inputRequest {
+  display: grid;
+  gap: 10px;
+
+  fieldset {
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    min-width: 0;
+    padding: 10px;
+  }
+
+  legend {
+    font-weight: 600;
+    padding: 0 4px;
+  }
+
+  > button {
+    border: 0;
+    border-radius: 6px;
+    background: var(--app-accent);
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+    justify-self: start;
+    padding: 6px 12px;
+
+    &:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+  }
+}
+
+.answerOptions {
+  display: grid;
+  gap: 6px;
+
+  label {
+    align-items: flex-start;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+  }
+
+  span {
+    display: grid;
+    gap: 2px;
+  }
+
+  small {
+    color: var(--app-text-secondary);
+  }
+}
+
+.customAnswer {
+  display: grid;
+  gap: 4px;
+
+  input {
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    color: var(--app-text);
+    font: inherit;
+    padding: 6px 8px;
+  }
+}
+
 .resultLabel {
   font-weight: 600;
   margin-bottom: 6px;

@@ -6,13 +6,16 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import datetime
-from pathlib import PurePosixPath
 from typing import Literal
 
 from pydantic import Field
 
 from domain.enums import CreatorCommandType, TaskKind, TaskStatus
-from domain.errors import CreatorError
+from domain.errors import (
+    CreatorError,
+    ValidationError as CreatorValidationError,
+)
+from schemas.projects import ProjectCreateRequest
 from services.media_files.image_execution import (
     FileImageDispatch,
     dispatch_file_image_command,
@@ -23,7 +26,11 @@ from services.media_files.r2v_execution import (
     execute_file_r2v_command,
     file_r2v_execution_service,
 )
-from services.project_files.assets import AssetFileError, AssetFileStore
+from services.pawapp_artifacts import (
+    CreatorArtifactMismatch,
+    CreatorArtifactUnavailable,
+    read_verified_creator_artifact,
+)
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.atomic_store import AtomicJsonRecordStore
 from services.runtime_files.errors import RecordNotFoundError
@@ -50,12 +57,13 @@ from qwenpaw.pawapp.tasks.binding import Readiness
 from qwenpaw.pawapp.tasks.contracts import content_digest
 
 APP_ID = "qwenpaw-creator"
+CREATE_PROJECT_ACTION_ID = "create-project"
 VIDEO_ACTION_ID = "generate-video"
 STORYBOARD_ACTION_ID = "generate-storyboard"
+CREATE_PROJECT_EXECUTOR_ID = "qwenpaw-creator.project-creation"
 VIDEO_EXECUTOR_ID = "qwenpaw-creator.video"
 STORYBOARD_EXECUTOR_ID = "qwenpaw-creator.storyboard"
 _ARTIFACT_VERSION_DETAIL = "creator_artifact_version_id"
-_MAX_HOST_ARTIFACT_BYTES = 64 * 1024 * 1024
 # Backward-compatible module names for the first shipped action.
 ACTION_ID = VIDEO_ACTION_ID
 EXECUTOR_ID = VIDEO_EXECUTOR_ID
@@ -65,6 +73,62 @@ _TERMINAL = {
     TaskStatus.CANCELLED,
     TaskStatus.QUARANTINED,
 }
+
+
+def creator_create_project_action_descriptor() -> ActionDescriptor:
+    return ActionDescriptor(
+        app_id=APP_ID,
+        action_id=CREATE_PROJECT_ACTION_ID,
+        summary=(
+            "Create a new empty Creator project and return a reference "
+            "that can be opened in Creator."
+        ),
+        engagements=("delegated",),
+        input_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": r"\S",
+                },
+                "description": {"type": "string", "default": ""},
+                "scenario": {
+                    "type": "string",
+                    "enum": ["short_drama", "video_edit", "general"],
+                    "default": "general",
+                },
+                "aspect_ratio": {
+                    "type": "string",
+                    "enum": ["16:9", "9:16", "1:1", "4:3", "3:4"],
+                    "default": "16:9",
+                },
+                "resolution": {
+                    "type": "string",
+                    "enum": ["720P", "1080P"],
+                    "default": "720P",
+                },
+                "content_type": {
+                    "type": "string",
+                    "enum": [
+                        "pet_video",
+                        "gaming",
+                        "sports",
+                        "travel_vlog",
+                        "interview",
+                        "general",
+                    ],
+                },
+            },
+            "required": ["name"],
+            "additionalProperties": False,
+        },
+        output_types=("text/plain",),
+        permissions=("creator.project.create",),
+        effects=("project_mutation",),
+        adapter_ref="qwenpaw-creator.project-creation.v1",
+    )
 
 
 def creator_video_action_descriptor() -> ActionDescriptor:
@@ -144,6 +208,368 @@ def creator_storyboard_action_descriptor() -> ActionDescriptor:
         effects=("model_usage", "project_mutation"),
         adapter_ref="qwenpaw-creator.storyboard-generation.v1",
     )
+
+
+class CreatorProjectCreationSubmission(StrictRuntimeModel):
+    schema_version: Literal[1] = 1
+    submission_id: str = Field(min_length=1, max_length=192)
+    meaning_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    project_id: str = Field(min_length=1, max_length=192)
+    state: Literal["prepared", "accepted", "failed"] = "prepared"
+    failure_code: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class CreatorCreateProjectTaskAdapter:
+    submission_protocol_version = 1
+
+    def __init__(self, services: Callable[[], CreatorFileServices]) -> None:
+        self._services = services
+
+    async def aclose(self) -> None:
+        pass
+
+    @staticmethod
+    def action_descriptor() -> ActionDescriptor:
+        return creator_create_project_action_descriptor()
+
+    @staticmethod
+    def _meaning(submission: TaskSubmission) -> str:
+        return content_digest(
+            {
+                "task_id": submission.handle.task_id,
+                "scope": submission.handle.scope.model_dump(mode="json"),
+                "origin": submission.handle.origin.model_dump(mode="json"),
+                "action": submission.action.descriptor_digest,
+                "inputs": submission.inputs,
+            },
+        )
+
+    def _validate(
+        self,
+        submission: TaskSubmission,
+    ) -> tuple[str, ProjectCreateRequest]:
+        descriptor = self.action_descriptor()
+        if (
+            submission.action.descriptor_digest != descriptor.descriptor_digest
+            or submission.handle.action_id != CREATE_PROJECT_ACTION_ID
+            or submission.handle.descriptor_digest
+            != descriptor.descriptor_digest
+        ):
+            raise TaskStoreError("creator_create_project_action_mismatch")
+        descriptor.validate_inputs(submission.inputs)
+        if submission.handle.scope.app_id != APP_ID:
+            raise TaskStoreError("creator_create_project_scope_mismatch")
+        submission_id = require_safe_runtime_segment(
+            submission.handle.submission_id,
+            label="Host submission_id",
+        )
+        inputs = submission.inputs
+        payload = {
+            "clientRequestId": submission_id,
+            "name": inputs["name"],
+            "description": inputs.get("description", ""),
+            "scenario": inputs.get("scenario", "general"),
+            "aspectRatio": inputs.get("aspect_ratio", "16:9"),
+            "resolution": inputs.get("resolution", "720P"),
+        }
+        if "content_type" in inputs:
+            payload["contentType"] = inputs["content_type"]
+        return submission_id, ProjectCreateRequest.model_validate(payload)
+
+    @staticmethod
+    def _store(
+        services: CreatorFileServices,
+        submission_id: str,
+    ) -> AtomicJsonRecordStore[CreatorProjectCreationSubmission]:
+        return AtomicJsonRecordStore(
+            services.root
+            / ".pawapp"
+            / "create-project-submissions"
+            / f"{submission_id}.json",
+            CreatorProjectCreationSubmission,
+        )
+
+    def _candidate(
+        self,
+        services: CreatorFileServices,
+        submission: TaskSubmission,
+    ) -> tuple[CreatorProjectCreationSubmission, ProjectCreateRequest]:
+        submission_id, request = self._validate(submission)
+        return (
+            CreatorProjectCreationSubmission(
+                submission_id=submission_id,
+                meaning_digest=self._meaning(submission),
+                project_id=services.project_creation.project_id(submission_id),
+            ),
+            request,
+        )
+
+    def _prepare(
+        self,
+        services: CreatorFileServices,
+        submission: TaskSubmission,
+    ) -> tuple[CreatorProjectCreationSubmission, ProjectCreateRequest]:
+        candidate, request = self._candidate(services, submission)
+        store = self._store(services, candidate.submission_id)
+        created = store.try_create(candidate)
+        current = created.value if created is not None else store.read()
+        self._require_same_submission(current, candidate)
+        return current, request
+
+    def _read(
+        self,
+        services: CreatorFileServices,
+        submission: TaskSubmission,
+    ) -> tuple[CreatorProjectCreationSubmission | None, ProjectCreateRequest]:
+        candidate, request = self._candidate(services, submission)
+        current = self._store(
+            services,
+            candidate.submission_id,
+        ).read_or_none()
+        if current is not None:
+            self._require_same_submission(current, candidate)
+        return current, request
+
+    @staticmethod
+    def _require_same_submission(
+        current: CreatorProjectCreationSubmission,
+        candidate: CreatorProjectCreationSubmission,
+    ) -> None:
+        if (
+            current.submission_id != candidate.submission_id
+            or current.meaning_digest != candidate.meaning_digest
+            or current.project_id != candidate.project_id
+        ):
+            raise TaskStoreError("creator_create_project_submission_conflict")
+
+    def _transition(
+        self,
+        services: CreatorFileServices,
+        record: CreatorProjectCreationSubmission,
+        *,
+        state: Literal["accepted", "failed"],
+        failure_code: str | None = None,
+    ) -> CreatorProjectCreationSubmission:
+        store = self._store(services, record.submission_id)
+
+        def update(current: CreatorProjectCreationSubmission):
+            self._require_same_submission(current, record)
+            if current.state != "prepared":
+                if (
+                    current.state == state
+                    and current.failure_code == failure_code
+                ):
+                    return current
+                raise TaskStoreError(
+                    "creator_create_project_submission_conflict",
+                )
+            return current.model_copy(
+                update={
+                    "state": state,
+                    "failure_code": failure_code,
+                    "updated_at": utc_now(),
+                },
+            )
+
+        return store.update(update).value
+
+    @staticmethod
+    def _run_ref(
+        record: CreatorProjectCreationSubmission,
+    ) -> ExecutorRunRef:
+        return ExecutorRunRef(
+            executor_id=CREATE_PROJECT_EXECUTOR_ID,
+            session_id=record.project_id,
+            run_id=record.submission_id,
+        )
+
+    def _reconcile(
+        self,
+        services: CreatorFileServices,
+        record: CreatorProjectCreationSubmission,
+        request: ProjectCreateRequest,
+    ) -> CreatorProjectCreationSubmission | None:
+        response = services.project_creation.lookup(request)
+        if response is None:
+            return None
+        if response.project_id != record.project_id:
+            raise TaskStoreError("creator_create_project_project_mismatch")
+        if record.state == "prepared":
+            return self._transition(services, record, state="accepted")
+        if record.state != "accepted":
+            raise TaskStoreError("creator_create_project_submission_conflict")
+        return record
+
+    async def readiness(self, scope: TaskScope, inputs: dict) -> Readiness:
+        if scope.app_id != APP_ID:
+            return Readiness(
+                state="blocked",
+                reason="creator_create_project_scope_mismatch",
+            )
+        try:
+            self.action_descriptor().validate_inputs(inputs)
+            self._services()
+        except Exception:  # noqa: BLE001
+            return Readiness(
+                state="blocked",
+                reason="creator_project_unavailable",
+            )
+        return Readiness(state="ready")
+
+    async def submit(self, submission: TaskSubmission) -> ExecutorRunRef:
+        services = self._services()
+        record, request = await asyncio.to_thread(
+            self._prepare,
+            services,
+            submission,
+        )
+        if record.state in {"accepted", "failed"}:
+            return self._run_ref(record)
+        try:
+            response = await asyncio.to_thread(
+                services.project_creation.create,
+                request,
+            )
+        except CreatorValidationError as error:
+            record = await asyncio.to_thread(
+                self._transition,
+                services,
+                record,
+                state="failed",
+                failure_code=str(error.code).casefold(),
+            )
+            return self._run_ref(record)
+        if response.project_id != record.project_id:
+            raise TaskStoreError("creator_create_project_project_mismatch")
+        record = await asyncio.to_thread(
+            self._transition,
+            services,
+            record,
+            state="accepted",
+        )
+        return self._run_ref(record)
+
+    async def query(self, submission: TaskSubmission) -> SubmissionLookup:
+        services = self._services()
+        record, request = await asyncio.to_thread(
+            self._read,
+            services,
+            submission,
+        )
+        if record is None:
+            candidate, _ = self._candidate(services, submission)
+            response = await asyncio.to_thread(
+                services.project_creation.lookup,
+                request,
+            )
+            if response is None:
+                return SubmissionLookup(state="not_found")
+            if response.project_id != candidate.project_id:
+                raise TaskStoreError("creator_create_project_project_mismatch")
+            record, _ = await asyncio.to_thread(
+                self._prepare,
+                services,
+                submission,
+            )
+        if record.state == "prepared":
+            reconciled = await asyncio.to_thread(
+                self._reconcile,
+                services,
+                record,
+                request,
+            )
+            if reconciled is None:
+                return SubmissionLookup(state="not_found")
+            record = reconciled
+        return SubmissionLookup(
+            state="accepted",
+            run_ref=self._run_ref(record),
+        )
+
+    async def attach(self, submission: TaskSubmission):
+        services = self._services()
+        record, _ = await asyncio.to_thread(
+            self._read,
+            services,
+            submission,
+        )
+        if record is None or record.state == "prepared":
+            raise TaskStoreError("creator_create_project_submission_unknown")
+        run_ref = self._run_ref(record)
+        after = submission.handle.executor_sequence
+        after = -1 if after is None else after
+        if record.state == "failed":
+            if after < 0:
+                yield ExecutorEvent(
+                    run_ref=run_ref,
+                    sequence=0,
+                    cursor="creator-create-project-failed",
+                    status="failed",
+                    text_result="Creator could not create the project.",
+                    detail={
+                        "reason_code": record.failure_code or "creator_error",
+                    },
+                )
+            return
+        if after < 0:
+            yield ExecutorEvent(
+                run_ref=run_ref,
+                sequence=0,
+                cursor="creator-create-project-running",
+                status="running",
+                text_result="Creator is creating the project.",
+            )
+        if after < 1:
+            yield ExecutorEvent(
+                run_ref=run_ref,
+                sequence=1,
+                cursor="creator-create-project-succeeded",
+                status="succeeded",
+                text_result="Creator project created.",
+                detail={
+                    "project_ref": {
+                        "schema_version": 1,
+                        "app_id": APP_ID,
+                        "project_id": record.project_id,
+                        "kind": "creator-project",
+                        "revision": 1,
+                    },
+                },
+            )
+
+    async def command(
+        self,
+        submission: TaskSubmission,
+        command: TaskCommand,
+    ) -> CommandLookup:
+        if command.task_id != submission.handle.task_id:
+            raise TaskStoreError(
+                "creator_create_project_command_task_mismatch"
+            )
+        record, _ = await asyncio.to_thread(
+            self._read,
+            self._services(),
+            submission,
+        )
+        if record is None:
+            return CommandLookup(state="not_found")
+        return CommandLookup(
+            state="rejected",
+            reason=(
+                "answer_unsupported"
+                if command.kind == "answer"
+                else "task_terminal"
+            ),
+        )
+
+    async def query_command(
+        self,
+        submission: TaskSubmission,
+        command: TaskCommand,
+    ) -> CommandLookup:
+        return await self.command(submission, command)
 
 
 class CreatorMediaSubmission(StrictRuntimeModel):
@@ -590,62 +1016,28 @@ class _CreatorMediaTaskAdapter:
         record: CreatorMediaSubmission,
         version_id: str,
     ) -> tuple[dict, bytes]:
-        try:
-            snapshot = services.projects.read(record.project_id)
-            version = snapshot.project.assets.artifact_versions_by_id.get(
-                version_id,
-            )
-            if version is None:
-                raise TaskStoreError(self._code("artifact_missing"))
-            indexed = snapshot.project.assets.files_by_id.get(version.file_id)
-            if indexed is None:
-                raise TaskStoreError(self._code("artifact_missing"))
-            publication_shape_valid = (
-                len(version.version_id) <= 256
-                and len(indexed.relative_uri) <= 4096
-                and len(indexed.media_type) <= 256
-                and indexed.media_type.casefold().startswith(
-                    self.media_type_prefix,
-                )
-                and indexed.size_bytes <= _MAX_HOST_ARTIFACT_BYTES
-            )
-            if (
-                version.owner_ref != record.target_ref
-                or version.metadata.get("taskId") != record.creator_task_id
-                or not publication_shape_valid
-            ):
-                raise TaskStoreError(self._code("artifact_mismatch"))
-            content = AssetFileStore(
-                services.projects.project_root(record.project_id),
-            ).read_verified(indexed)
-        except TaskStoreError:
-            raise
-        except (AssetFileError, OSError, ValueError):
-            raise TaskStoreError(self._code("artifact_unavailable")) from None
-
-        suffix = PurePosixPath(indexed.relative_uri).suffix
-        name = version.name.strip()
-        if (
-            not name
-            or name in {".", ".."}
-            or any(char in name for char in "/\\\x00")
-        ):
-            name = f"{version.version_id}{suffix}"
-        elif suffix and not name.casefold().endswith(suffix.casefold()):
-            name += suffix
-        if len(name) > 512:
-            name = f"{version.version_id}{suffix}"
-        return (
-            {
-                "source_id": version.version_id,
-                "name": name,
-                "path": indexed.relative_uri,
-                "media_type": indexed.media_type,
-                "size_bytes": indexed.size_bytes,
-                "digest": f"sha256:{indexed.sha256}",
-            },
-            content,
+        snapshot = services.projects.read(record.project_id)
+        version = snapshot.project.assets.artifact_versions_by_id.get(
+            version_id,
         )
+        if version is None:
+            raise TaskStoreError(self._code("artifact_missing"))
+        indexed = snapshot.project.assets.files_by_id.get(version.file_id)
+        if indexed is None:
+            raise TaskStoreError(self._code("artifact_missing"))
+        try:
+            artifact = read_verified_creator_artifact(
+                services.projects.project_root(record.project_id),
+                version=version,
+                indexed=indexed,
+                expected_owner_ref=record.target_ref,
+                expected_task_id=record.creator_task_id,
+            )
+        except CreatorArtifactMismatch:
+            raise TaskStoreError(self._code("artifact_mismatch")) from None
+        except CreatorArtifactUnavailable:
+            raise TaskStoreError(self._code("artifact_unavailable")) from None
+        return artifact.source, artifact.content
 
     async def materialize_event(self, submission, event, artifacts):
         """Publish one exact Creator output through Host artifact storage."""
@@ -1081,8 +1473,10 @@ class CreatorStoryboardTaskAdapter(_CreatorMediaTaskAdapter):
 
 
 __all__ = [
+    "CreatorCreateProjectTaskAdapter",
     "CreatorStoryboardTaskAdapter",
     "CreatorVideoTaskAdapter",
+    "creator_create_project_action_descriptor",
     "creator_storyboard_action_descriptor",
     "creator_video_action_descriptor",
 ]

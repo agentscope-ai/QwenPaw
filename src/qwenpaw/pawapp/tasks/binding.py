@@ -51,15 +51,25 @@ class ActionRegistration:
     factory: Callable[[], ManagedTaskAdapter]
     settings_entry: str
     requirement_ids: tuple[Identity, ...] = ()
+    deferred_requirement_ids: tuple[Identity, ...] = ()
     input_resolver: InputResolver | None = None
+    exposure: Literal["host_public", "app_private"] = "host_public"
 
     def __post_init__(self):
         if len(self.requirement_ids) != len(set(self.requirement_ids)):
             raise ValueError("action setup requirements must be unique")
+        if len(self.deferred_requirement_ids) != len(
+            set(self.deferred_requirement_ids),
+        ):
+            raise ValueError("deferred setup requirements must be unique")
+        if set(self.requirement_ids) & set(self.deferred_requirement_ids):
+            raise ValueError("setup requirements cannot be eager and deferred")
         if self.input_resolver is not None and not callable(
             self.input_resolver,
         ):
             raise ValueError("action input resolver must be callable")
+        if self.exposure not in {"host_public", "app_private"}:
+            raise ValueError("invalid action exposure")
         # Local App settings only: never accept an adapter-supplied redirect.
         prefix = f"/apps/{self.action.app_id}"
         if (

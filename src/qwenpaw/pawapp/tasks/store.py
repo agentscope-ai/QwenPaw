@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable, TypeVar
 
 from .contracts import (
+    ANSWERABLE_STATUSES,
     TERMINAL_STATUSES,
     WAITING_STATUSES,
     ActionDescriptor,
@@ -412,7 +413,7 @@ class TaskStore:
                 return existing[0]
             handle = submission.handle
             if (
-                handle.status != "waiting_for_input"
+                handle.status not in ANSWERABLE_STATUSES
                 or handle.input_request is None
                 or handle.input_request.request_id != request_id
             ):
@@ -486,9 +487,11 @@ class TaskStore:
                 kind="cancel",
                 payload=payload,
                 state=state,
-                reason="already_terminal"
-                if handle.status in TERMINAL_STATUSES
-                else None,
+                reason=(
+                    "already_terminal"
+                    if handle.status in TERMINAL_STATUSES
+                    else None
+                ),
                 created_at=now,
                 updated_at=now,
             )
@@ -501,12 +504,16 @@ class TaskStore:
             handle = handle.model_copy(
                 update={
                     "cancel_requested": True,
-                    "status": "cancelled"
-                    if terminal_before_submit
-                    else handle.status,
-                    "input_request": None
-                    if terminal_before_submit
-                    else handle.input_request,
+                    "status": (
+                        "cancelled"
+                        if terminal_before_submit
+                        else handle.status
+                    ),
+                    "input_request": (
+                        None
+                        if terminal_before_submit
+                        else handle.input_request
+                    ),
                 },
             )
             self._event(
@@ -811,6 +818,9 @@ class TaskStore:
         scope: TaskScope,
         task_id: str,
         event: ExecutorEvent,
+        *,
+        setup_request_id: str | None = None,
+        setup_attempt: int | None = None,
     ) -> TaskSubmission:
         """Commit result, status, sequences, cursor and outbox atomically."""
         event = ExecutorEvent.model_validate_json(
@@ -842,6 +852,22 @@ class TaskStore:
             status = event.status or handle.status
             if status == "pending" and handle.status != "pending":
                 raise TaskStoreError("invalid_transition")
+            next_setup_request_id = handle.setup_request_id
+            next_setup_attempt = handle.setup_attempt
+            if event.setup_need is not None:
+                if (
+                    setup_request_id is None
+                    or setup_attempt != handle.setup_attempt + 1
+                ):
+                    raise TaskStoreError("invalid_setup_link")
+                if handle.setup_request_id is not None:
+                    raise TaskStoreError("setup_request_active")
+                next_setup_request_id = setup_request_id
+                next_setup_attempt = setup_attempt
+            elif setup_request_id is not None or setup_attempt is not None:
+                raise TaskStoreError("unexpected_setup_link")
+            if event.status is not None and status != "waiting_for_setup":
+                next_setup_request_id = None
             result = (
                 event.text_result
                 if event.text_result is not None
@@ -892,17 +918,14 @@ class TaskStore:
             if status == "succeeded" and result is None and not output_refs:
                 raise TaskStoreError("result_required")
             input_request = handle.input_request
-            if event.status == "waiting_for_input":
+            if event.status in ANSWERABLE_STATUSES:
                 try:
                     input_request = TaskInputRequest.model_validate(
                         event.detail["input_request"],
                     )
                 except (KeyError, ValueError):
                     raise TaskStoreError("invalid_input_request") from None
-            elif (
-                event.status is not None
-                and event.status != "waiting_for_input"
-            ):
+            elif event.status is not None:
                 input_request = None
             wake = (
                 status != handle.status
@@ -915,6 +938,8 @@ class TaskStore:
                     "output_refs": tuple(output_refs),
                     "project_ref": project_ref,
                     "input_request": input_request,
+                    "setup_request_id": next_setup_request_id,
+                    "setup_attempt": next_setup_attempt,
                     "replay_cursor": event.cursor,
                     "executor_sequence": event.sequence,
                     "recovery_state": "none",
@@ -928,6 +953,131 @@ class TaskStore:
                 event.model_dump(mode="json"),
                 wake=wake,
                 source=event,
+            )
+
+        return await self._run(operation, write=True)
+
+    async def replace_setup_request(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        *,
+        expected_request_id: str,
+        expected_attempt: int,
+        request_id: str,
+        attempt: int,
+    ) -> TaskSubmission:
+        if attempt != expected_attempt + 1:
+            raise ValueError("setup attempts must increase by one")
+
+        def operation(connection: sqlite3.Connection) -> TaskSubmission:
+            submission = self._get(connection, scope, task_id)
+            handle = submission.handle
+            if (
+                handle.setup_request_id == request_id
+                and handle.setup_attempt == attempt
+            ):
+                return submission
+            if (
+                handle.status != "waiting_for_setup"
+                or handle.setup_request_id != expected_request_id
+                or handle.setup_attempt != expected_attempt
+            ):
+                raise TaskStoreError("setup_link_conflict")
+            handle = handle.model_copy(
+                update={
+                    "setup_request_id": request_id,
+                    "setup_attempt": attempt,
+                    "recovery_state": "none",
+                    "recovery_reason": None,
+                },
+            )
+            return self._event(
+                connection,
+                submission.model_copy(update={"handle": handle}),
+                "setup",
+                {"state": "requested", "attempt": attempt},
+            )
+
+        return await self._run(operation, write=True)
+
+    async def resume_after_setup(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        *,
+        expected_request_id: str,
+        expected_attempt: int,
+    ) -> TaskSubmission:
+        def operation(connection: sqlite3.Connection) -> TaskSubmission:
+            submission = self._get(connection, scope, task_id)
+            handle = submission.handle
+            if (
+                handle.status == "running"
+                and handle.setup_request_id is None
+                and handle.setup_attempt == expected_attempt
+            ):
+                return submission
+            if (
+                handle.status != "waiting_for_setup"
+                or handle.setup_request_id != expected_request_id
+                or handle.setup_attempt != expected_attempt
+            ):
+                raise TaskStoreError("setup_link_conflict")
+            handle = handle.model_copy(
+                update={
+                    "status": "running",
+                    "setup_request_id": None,
+                    "recovery_state": "none",
+                    "recovery_reason": None,
+                },
+            )
+            return self._event(
+                connection,
+                submission.model_copy(update={"handle": handle}),
+                "setup",
+                {"state": "ready", "attempt": expected_attempt},
+            )
+
+        return await self._run(operation, write=True)
+
+    async def fail_after_setup(
+        self,
+        scope: TaskScope,
+        task_id: str,
+        *,
+        expected_request_id: str | None,
+        expected_attempt: int,
+        reason_code: str,
+    ) -> TaskSubmission:
+        if not reason_code:
+            raise ValueError("setup failure requires a reason code")
+
+        def operation(connection: sqlite3.Connection) -> TaskSubmission:
+            submission = self._get(connection, scope, task_id)
+            handle = submission.handle
+            if handle.status in TERMINAL_STATUSES:
+                return submission
+            if (
+                handle.setup_request_id != expected_request_id
+                or handle.setup_attempt != expected_attempt
+            ):
+                raise TaskStoreError("setup_link_conflict")
+            handle = handle.model_copy(
+                update={
+                    "status": "failed",
+                    "text_result": "Required setup could not be completed.",
+                    "setup_request_id": None,
+                    "recovery_state": "none",
+                    "recovery_reason": None,
+                },
+            )
+            return self._event(
+                connection,
+                submission.model_copy(update={"handle": handle}),
+                "setup",
+                {"state": "failed", "reason": reason_code},
+                wake=True,
             )
 
         return await self._run(operation, write=True)

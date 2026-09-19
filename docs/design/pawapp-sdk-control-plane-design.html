@@ -132,7 +132,7 @@ body.mock-expanded { overflow: hidden; }
   <div class="meta-row">
     <span class="badge b-blue">产品与架构设计</span>
     <span class="badge b-blue">v1.0</span>
-    <span class="badge b-amber">2026-09-14</span>
+    <span class="badge b-amber">2026-09-18</span>
   </div>
   <h1>PawApp vNext<br>专业 App 的能力接入与协作</h1>
   <p class="lede">PawApp vNext 通过接入专业 App，扩展 QwenPaw 的能力边界，让平台能够组织并完成更多、更复杂的工作。App 带来领域知识、Agent/workflow、项目状态与专业界面，既能承接主 Agent 委托，也能直接与用户协作；执行时组合获准的 Host 公开 Skill/Tool 与自身私有能力。Host SDK 用任务、授权、配置和成果交接，把这些专业能力连接到完整的工作流程。</p>
@@ -197,10 +197,10 @@ body.mock-expanded { overflow: hidden; }
 
 <h3>2.1 Delegated：从委托到结果回流</h3>
 <ol>
-  <li>用户在 Main Chat 提出目标；主 Agent 发现 App，读取 action 描述并准备输入。</li>
-  <li>Host 校验身份、范围、action 权限与 readiness；满足条件后持久保存任务和提交身份，调用 App adapter。</li>
-  <li>App 后台执行；进度进入任务卡，必要补问通过 task/request 身份回到用户。</li>
-  <li>App 报告明确终态与结果；Host 保存并去重投递到原 Chat，主 Agent 据此继续目标级协作。</li>
+  <li>用户在 Main Chat 提出目标；主 Agent 发现 App，读取 action 描述并准备输入。Creator 视频意图直接选择 <code>create-video</code>，不是先创建空项目，也不向用户索取领域内部 ID。</li>
+  <li>Host 校验身份、范围、action 权限与 eager readiness；满足条件后持久保存任务和提交身份，调用 App adapter。eager 缺项不创建任务，设置后以同一请求重试。</li>
+  <li>App 后台执行；进度进入任务卡，普通补问、deferred setup 与独立生成 approval 均绑定同一 task 的当前请求，完成后恢复同一执行。</li>
+  <li>App 报告明确终态与结果；Host 保存并去重投递到原 Chat，主 Agent 据此继续目标级协作。Creator <code>create-video</code> 只有在当前规范 final video 发布为一个 Host artifact 后才成功，并同时返回项目入口。</li>
 </ol>
 
 <h3>2.2 Direct：在 App 中直接完成工作</h3>
@@ -378,11 +378,11 @@ body.mock-expanded { overflow: hidden; }
 <p>以下契约只标准化两条路径跨越 Host/App 边界时需要的信息：入口与 action、任务、配置、项目和成果。P1a 使用 action/task 与 Host/App 能力作用域的最小集合，P1b 增加 artifact/handoff，P2 接入 setup；跨 App CapabilitySpec 与交互切换字段仅供可选扩展。</p>
 <table>
   <tr><th style="width:20%">契约组</th><th>最小字段 / 类型</th><th style="width:32%">关键不变量</th></tr>
-  <tr><td>① Discovery / Skill / Tool</td><td>AppDescriptor、ActionSpec；ToolDescriptor（owner/id、schema、effects、权限、来源）、SkillDescriptor（owner/id、版本/digest、资源清单、tool refs）、CapabilityScope（host_public / app_private）。跨 App CapabilitySpec 为扩展。P1a 的 action 最小子集 <code>ActionDescriptor</code>：<code>action_id / app_id / summary / engagements[] / input_schema / output_types[] / permissions[] / effects[] / adapter_ref / descriptor_digest</code></td><td>描述能力不自动授予权限；默认私有；只按需注入相关 action 的完整 schema；<code>permissions[]</code> 是 dispatch 边界检查的输入；<code>adapter_ref</code> 由 Host 从已注册实现解析，不接受调用方替换</td></tr>
+  <tr><td>① Discovery / Skill / Tool</td><td>AppDescriptor、ActionSpec；ToolDescriptor（owner/id、schema、effects、权限、来源）、SkillDescriptor（owner/id、版本/digest、资源清单、tool refs）、CapabilityScope（host_public / app_private）。跨 App CapabilitySpec 为扩展。P1a 的 action 最小子集 <code>ActionDescriptor</code>：<code>action_id / app_id / summary / engagements[] / input_schema / output_types[] / permissions[] / effects[] / adapter_ref / descriptor_digest</code>。注册绑定另带 <code>exposure</code> 与 eager/deferred requirement IDs，不进入 descriptor digest。</td><td>描述能力不自动授予权限；只有 <code>host_public</code> action 可被列出、描述、授权和新 dispatch；<code>app_private</code> action 只供 App 内部使用，但已持久接受的旧任务仍可恢复、接收命令和交付终态；grant 按 descriptor/action 隔离；<code>permissions[]</code> 是 dispatch 边界检查的输入；<code>adapter_ref</code> 由 Host 从已注册实现解析，不接受调用方替换</td></tr>
   <tr><td>② Artifact</td><td>ArtifactType、ArtifactRef、ArtifactManifest、ProjectRef；schema version、digest、size、media type、producer、provenance、project revision</td><td>ArtifactRef 指向已发布不可变版本；ProjectRef 指向 App 管理的可变项目；引用不等于读取权限</td></tr>
-  <tr><td>③ Readiness / Setup</td><td>SetupRequirement、ReadinessResult、SetupRequest/Result（第 7 节）；缺项、影响操作、权威来源、设置入口、检查引用与有效期</td><td>App 判断领域条件，Host 校验自身资源与授权；模型绑定是可选类型；输出不含 secret</td></tr>
+  <tr><td>③ Readiness / Setup</td><td>SetupRequirement、ReadinessResult、SetupRequest/Result（第 7 节）；缺项、影响操作、权威来源、设置入口、检查引用与有效期</td><td>App 判断领域条件，Host 校验自身资源与授权；模型绑定是可选类型；输出不含 secret；eager 缺项在创建任务前阻塞，deferred 缺项只在既有任务到达对应步骤时请求</td></tr>
   <tr><td>④ Task Context / Handoff</td><td>TaskContext、ContextDelta、HandoffRequest、OpenAppAction；task_id、goal、scope、decision refs、context revision、artifact refs、resume_ref</td><td>Host 签发存储；URL 只含不具独立授权能力的 handoff ID；变更须确认应用的 revision</td></tr>
-  <tr><td>⑤ Task / Continuation</td><td>TaskHandle、TaskEvent、Continuation；<code>engagement / origin_ref / parent_task_id? / app_session_ref? / return_session_ref?</code>、executor/run、status、event sequence、output refs、resume policy。 <code>submission_id</code>（Host 签发、随提交送达引擎）、<code>executor_run_ref</code>（引擎 session/run 标识）、<code>replay_cursor</code>、<code>external_job_ids[]</code>；<code>InputRequest</code>（<code>request_id / task_id / questions[] / expires_at</code>）与 <code>InputAnswer</code>（<code>command_id / request_id / answer_digest</code>）。<strong>占位字段</strong>：interaction_owner_ref、interaction_epoch（按任务入口初始化，本版内不变）</td><td>Host 持久保存边界状态；来源与对话归属由 Host 校验，不能由事件改写；Direct 完成不自动唤醒 Main Chat；事件至少一次投递 + 消费端按 sequence 去重；成功与 output refs 同事务提交；<code>submission_id</code> 幂等——重复提交返回同一 run；答案按 task/request 匹配；相同命令重试返回持久回执，冲突或过期的新答案拒绝</td></tr>
+  <tr><td>⑤ Task / Continuation</td><td>TaskHandle、TaskEvent、Continuation；<code>engagement / origin_ref / parent_task_id? / app_session_ref? / return_session_ref?</code>、executor/run、status、event sequence、output refs、resume policy。 <code>submission_id</code>、<code>executor_run_ref</code>、<code>replay_cursor</code>、<code>external_job_ids[]</code>；<code>InputRequest</code> / <code>InputAnswer</code>；当前 task-linked setup 的 <code>setup_request_id / setup_attempt</code>；仅在 <code>waiting_for_setup</code> 合法且一次只含一个 requirement ID 的 setup need。<strong>占位字段</strong>：interaction_owner_ref、interaction_epoch（按任务入口初始化，本版内不变）</td><td>Host 持久保存边界状态；来源与对话归属由 Host 校验，不能由事件改写；Direct 完成不自动唤醒 Main Chat；事件至少一次投递 + 消费端按 sequence 去重；成功与 output refs 同事务提交；<code>submission_id</code> 幂等；普通补问与 <code>waiting_for_approval</code> 均用严格 request/question 身份的 InputRequest，setup 回执和 approval 答案互不替代、互不授予权限</td></tr>
   <tr><td>⑥ Manifest / Contract package</td><td>schema_version、pawapp、exchange、permissions、contract digest</td><td>静态校验先于执行插件；兼容旧格式且不默默启用新权限</td></tr>
 </table>
 <p>契约不变量：</p>
@@ -420,11 +420,12 @@ body.mock-expanded { overflow: hidden; }
 <h3>7.2 统一 Setup 对象</h3>
 <p>SetupRequest 表示一次配置请求，SetupResult 是其后端回执。Host 持久管理同一请求的生命周期：</p>
 <pre><code>SetupRequest {
-  request_id            // Host 签发，幂等键
+  request_id            // Host 签发；相同绑定与 attempt 幂等
   app_id / descriptor_digest / entry_id
-  requirement_ids[]     // 本次要满足的缺项
+  requirement_ids[]     // task-linked 请求恰好一个；手动设置可为所选集合
   origin_ref            // 已验证的发起入口；手动设置也必须有
   task_id? / action_id? / project_ref? / plan_digest?
+  input_digest? / setup_attempt?  // task-linked 重放绑定
   expected_revisions    // 仅包含本请求涉及的配置权威版本、policy，以及存在时的 context 版本
   scopes[]              // 本次允许的资源范围
   suggested_values[]    // 带来源的普通值建议，经 schema 校验后才可用
@@ -443,10 +444,12 @@ SetupResult {
 }</code></pre>
 <p>不变量：</p>
 <ul>
-  <li>身份与 workspace 由 Host 从请求上下文推导；URL 最多带 opaque request ID。</li>
+  <li>身份与 workspace 由 Host 从请求上下文推导；URL 最多带 opaque request ID。Main Agent 使用 <code>open_task_setup(app_id, task_id)</code>，由 Host 从当前 task link 解析入口，不接收模型构造的 request ID 或 URL。</li>
   <li>前端"保存成功"不是可信回执；App 后端提交 SetupResult，Host 校验请求、来源、版本后<strong>重新 prepare</strong>，saved 回执不直接当执行许可。手动设置没有 task/plan/context 时不伪造这些字段，仅校验相关配置与 policy 版本，复查所选 requirement 并返回 App；不创建任务或 continuation。</li>
-  <li>重复提交幂等；过期请求返回冲突；关闭表单只取消 request，不清除已保存配置或草稿；取消 setup 不取消原任务。</li>
-  <li>保存配置只改变配置；部署、重启、建库、索引重建、收费探测是另行声明和授权的 action，不能藏在 setup handler 或回执里。</li>
+  <li>task-linked 请求的幂等含 task/app/action/requirement、descriptor digest、plan digest、持久 submission input digest 与单调 attempt。相同含义重放返回同一请求，变化的含义冲突；Host 重启后由 supervisor 扫描终态请求并恢复同一 task。</li>
+  <li>保存后仍未 ready 时，Host 原子推进 attempt，创建或复用下一确定性请求并保持 <code>waiting_for_setup</code>；不重复请求、不启动 provider。一个 task 同时只有一个未解决 setup link；按最早可执行阶段选择缺项，Creator 中 image 先于 video。</li>
+  <li>关闭手动设置只取消 request，不清除已保存配置或草稿。task-linked setup 的 <code>cancelled</code> 取消关联 workflow；<code>failed</code>、<code>expired</code> 或明确不可恢复的 readiness 结果使任务以脱敏原因失败。迟到回执不得复活请求或执行。</li>
+  <li>保存配置只改变配置；部署、重启、建库、索引重建、收费探测是另行声明和授权的 action，不能藏在 setup handler 或回执里。Setup 完成不授予生成审批，approval 也不修改配置或 action grant。</li>
   <li>资源创建成功但绑定失败时，保留 resource ref 与表单草稿；重试先 reconcile，不重复创建。修改已有绑定使用 compare-and-swap。</li>
   <li>外部授权或异步配置检查使用 <code>waiting_external</code>，由配置权威方的 adapter 保存关联身份；授权跳转需绑定请求与防重放 state，回跳页面本身不算成功。经校验的服务端回调或有界轮询确认状态后，App 后端才报告终态。Host 重连按同一 request ID 查询；取消/到期后的迟到结果不得复活请求或启动任务，外部已发生的配置变更留待新的 prepare 确认。</li>
   <li>错误码至少区分：unsupported_setup / entry_unavailable / presentation_unsupported / context_conflict / request_expired / validation_failed / permission_denied / external_timeout。waiting_external 是未结束的设置请求，不用 <code>pending_effects</code> 冒充成功；pending_effects 只描述仍需单独授权的后续动作。</li>
@@ -475,7 +478,7 @@ SetupResult {
 <h3>7.5 App adapter 落点</h3>
 <table>
   <tr><th style="width:28%">入口</th><th>App 内落点</th><th style="width:34%">边界</th></tr>
-  <tr><td>creator-image-model / creator-video-model</td><td>现有 ModelConfigModal 按用途聚焦；共享选择器是可选来源</td><td>保存后原任务重查；不覆盖主 Chat 模型、不启动生成；<strong>凭证只由服务端使用；P0 完成泄漏路径修复后才能接入</strong></td></tr>
+  <tr><td>creator-llm-model / creator-image-model / creator-video-model</td><td>现有 ModelConfigModal 分别以 <code>focus=llm | image | video</code> 聚焦；共享选择器是可选来源</td><td><code>create-video</code> 的 LLM 是 eager requirement：缺失时在 task、项目和 workflow receipt 创建前阻塞；image/video 是 deferred requirements，只在相应 work kind 可执行时由同一任务依次请求。保存后重查，不覆盖主 Chat 模型、不启动生成；<strong>凭证只由服务端使用；P0 完成泄漏路径修复后才能接入</strong></td></tr>
   <tr><td>data-agent-models</td><td>Agent Configuration 分析模型设置</td><td>分析模型与 DataBridge 语义加工模型分别声明</td></tr>
   <tr><td>data-context-connection / data-graph-storage</td><td>DataBridgeSettings 连接/部署与 Neo4j 分区</td><td>托管模式才检查内部图存储；只保存配置，不顺带启动服务或改全局数据源</td></tr>
   <tr><td>data-semantic-model / data-embedding-index</td><td>DataBridge 语义模型与索引影响界面</td><td>embedding 改动先存草稿并显示影响，再单独批准重建（现有源码保存即可能自动重建，适配时必须拆开）</td></tr>
@@ -504,14 +507,17 @@ SetupResult {
 
 <h3>8.1 注入策略</h3>
 <ul>
-  <li>P1a 常驻工具：<code>list_apps(intent?)</code>、<code>describe_action(action_id)</code>、<code>delegate(action_id, inputs)</code>、<code>answer_task</code>、<code>cancel_task</code>（8.4）。P1b 增加 artifact 输入和 <code>open_app(handoff)</code>。不为每个 App action 生成一个顶层工具——目录膨胀会稀释所有工具的选择准确率。</li>
-  <li><code>list_apps</code> 返回简短 descriptor（一行摘要 + 输入类型 + engagements）；只有 <code>describe_action</code> 才加载完整 input/output schema。这兑现契约①"按需注入"。</li>
+  <li>常驻工具固定为八个：<code>list_apps(intent?)</code>、<code>describe_action(app_id, action_id)</code>、<code>delegate(app_id, action_id, inputs)</code>、<code>get_app_task</code>、<code>open_app(app_id, task_id)</code>、<code>open_task_setup(app_id, task_id)</code>、<code>answer_task</code>、<code>cancel_task</code>。不为每个 App action 生成一个顶层工具——目录膨胀会稀释所有工具的选择准确率。</li>
+  <li><code>list_apps</code> 只返回 <code>host_public</code> action 的简短 descriptor（一行摘要 + 输入类型 + engagements）；只有 <code>describe_action</code> 才加载完整 input/output schema。App-private action 不进入发现或新 dispatch，即使存在旧 grant。</li>
+  <li>Creator 视频意图选择 <code>create-video</code>；只有用户明确要空工作区时才使用 <code>create-project</code>。Main Agent 不向用户索取 Creator project、timeline、element、work、run 或 provider ID。</li>
   <li>@App mention 编译为 <code>delegate/open_app</code> 的目标约束，而非独立工具。</li>
 </ul>
 
 <h3>8.2 Readiness 在 prompt 中的呈现</h3>
 <ul>
-  <li><code>delegate</code> 被 readiness 阻塞时，工具结果返回结构化 blockers（分类 + 缺项 + setup entry ref），主 Agent 据此生成确认卡或转述缺项，<strong>不得</strong>自行编造配置值或代替用户确认授权。</li>
+  <li><code>delegate</code> 被 eager readiness 阻塞时，工具结果返回结构化 blockers（分类 + 缺项 + setup entry ref），不创建 TaskHandle、App 项目或 workflow receipt；主 Agent 据此生成确认卡或转述缺项，<strong>不得</strong>自行编造配置值或代替用户确认授权。设置完成后使用同一 request ID 重试，至多创建一个任务。</li>
+  <li>既有任务到达 deferred requirement 时转为 <code>waiting_for_setup</code>，任务卡和 <code>open_task_setup</code> 只打开 Host 当前关联的 setup；保存并重查 ready 后恢复同一任务，不要求用户重新 delegate。</li>
+  <li><code>waiting_for_approval</code> 使用同一 InputRequest/answer 命令边界；批准卡显示不可变 operation、语义目标、provider、model、候选数、时长、分辨率、画幅及其他计费相关参数，不含 token、凭证或内部引用。执行前重查 readiness 与 authorization fingerprint，变化则使审批过期并重新请求。</li>
   <li>suggested_values 由模型建议时必须带来源标记，经 schema 与 App 校验后才进入 SetupRequest。</li>
 </ul>
 
@@ -525,10 +531,11 @@ SetupResult {
 <p>本节定义 Delegated 的命令与 Main Chat 回流。Direct 由 App UI 调用同一任务范围的回答/取消协议（第 11 节）。Host 先持久保存命令，再交给 adapter；丢失网络响应不能改变命令含义。</p>
 <table>
   <tr><th style="width:26%">通道</th><th>语义</th><th style="width:30%">不变量</th></tr>
-  <tr><td><code>answer_task(task_id, request_id, command_id, answers)</code></td><td>回应该任务的 InputRequest；由主 Agent 在收到用户回答后调用，或由任务卡提交。Host 保存答案摘要与命令回执，adapter 传递同一命令身份；结果未知时按该身份查询。</td><td>相同命令身份与内容重试返回已有回执；同身份不同内容返回 <code>command_conflict</code>。新答案只能匹配当前 pending 请求，过期、已解决或终态任务返回 <code>stale_request</code>。任务间不消费彼此的答案。</td></tr>
-  <tr><td><code>cancel_task(task_id, reason?)</code></td><td>Host 持久记录 <code>cancel_requested</code>。尚未提交的任务停止派发；提交结果未知时先 reconcile，再向已存在的 run 传播取消。</td><td>无 run 且确定未接受时可直接取消；已有 run 需引擎确认。已有终态不改写，完成与取消竞态按权威终态处理；取消不删除输出，不重发外部计费作业。</td></tr>
+  <tr><td><code>answer_task(task_id, request_id, command_id, answers)</code></td><td>回答普通补问或 <code>waiting_for_approval</code> 的类型化 InputRequest；由主 Agent 在收到用户回答后调用，或由任务卡提交。Host 保存答案摘要与命令回执，adapter 传递同一命令身份；结果未知时按该身份查询。</td><td>相同命令身份与内容重试返回已有回执；同身份不同内容返回 <code>command_conflict</code>。新答案只能匹配当前 pending 请求，过期、已解决或终态任务返回 <code>stale_request</code>。批准只调用 App 已有 authorization compare-and-set，不直接 dispatch provider；任务间不消费彼此的答案。</td></tr>
+  <tr><td><code>open_task_setup(app_id, task_id)</code></td><td>Host 根据当前 task link 返回受控 App setup 入口；Console 也通过相同 Host API 打开设置。</td><td>校验 delegated origin、principal/workspace、App、task 与 request scope；调用方不提供 setup request ID 或 URL。只能打开当前 <code>waiting_for_setup</code> 请求。</td></tr>
+  <tr><td><code>cancel_task(task_id, reason?)</code></td><td>Host 持久记录 <code>cancel_requested</code>。尚未提交的任务停止派发；提交结果未知时先 reconcile，再向已存在的 run 传播取消。</td><td>无 run 且确定未接受时可直接取消；已有 run 需执行者确认。已有终态不改写，完成与取消竞态按权威终态处理；取消不删除项目或已持久输出，不重发外部计费作业。App 可以定义更严格的已持久副作用线性化点，见 Creator publication intent。</td></tr>
   <tr><td>完成 / 失败 / 等待的回流</td><td>对于 Delegated 任务，终态和 <code>waiting_*</code> 跃迁生成持久 continuation job，与任务变更、outbox 同事务保存。Host 写入会话摘要并排队一个主 Agent 轮次；运行中的进度仅更新任务卡。</td><td>会话按序处理 job；忙碌时排队，不能仅附着到现有 run。按 task/event 去重会话摘要与 continuation 身份，消费确认持久化；崩溃重试可能重新计算，但不能重复提交可见结果或副作用。原 Chat 不可恢复时保留任务入口并允许在新会话继续。</td></tr>
-  <tr><td>P1a 的 readiness 阻塞</td><td><code>delegate</code> 返回 <code>blocked</code>、分类原因与 App 已注册设置页链接；尚无统一 setup 的安装同时说明 <code>unsupported_setup</code>。此入口使用现有 App 导航，不依赖 P1b handoff。</td><td>不启动引擎、不生成失败终态；用户完成设置后显式重试。P1a 正常执行验收使用预配置的 Data 安装。</td></tr>
+  <tr><td>eager readiness 阻塞</td><td><code>delegate</code> 返回 <code>blocked</code>、分类原因与 App 已注册设置入口；尚无统一 setup 的安装同时说明 <code>unsupported_setup</code>。</td><td>不创建任务、项目或 workflow，不启动执行者、不生成失败终态；用户完成设置后以原 request ID 重试。deferred 缺项不走此分支，而是暂停已创建的同一任务。</td></tr>
 </table>
 
 <h2 id="s9">9. SDK 与开发路径</h2>
@@ -626,11 +633,39 @@ SetupResult {
 </ul>
 
 <h3>13.2 Creator（P2 主角）</h3>
+<p>Creator 对 Host 公开两个 delegated action，并把实现级媒体操作留在 App 内。<code>create-project</code> 只创建空工作区，不接收 brief/script、不启动 Agent；视频意图必须使用 <code>create-video</code>。原 <code>generate-storyboard</code> 与 <code>generate-video</code> descriptor 以 <code>app_private</code> 注册：不再发现、授权或接受新外部 dispatch，但隐私迁移前已接受的任务仍可恢复和完成。</p>
+<table>
+  <tr><th style="width:22%">公开 action</th><th>输入与效果</th><th style="width:34%">完成条件</th></tr>
+  <tr><td><code>create-project</code></td><td>显式空项目名称；只执行项目创建</td><td>空 Creator 项目可打开；不声称已规划或生成</td></tr>
+  <tr><td><code>create-video</code></td><td>delegated-only；必填 <code>brief</code>（1–8000，含非空白）；可选 <code>name</code>（1–120，含非空白）、<code>script</code>（1–50000，含非空白）、<code>description</code>（≤2000，默认空）、<code>scenario</code>（short_drama | video_edit | general，默认 general）、<code>aspect_ratio</code>（16:9 | 9:16 | 1:1 | 4:3 | 3:4，默认 16:9）、<code>resolution</code>（720P | 1080P，默认 720P）、<code>content_type</code>（pet_video | gaming | sports | travel_vlog | interview | general）、整数 <code>duration_seconds</code>（1–3600）与 BCP-47 风格 <code>language</code>（默认 zh-CN）；closed schema</td><td>当前规范的 final video 已作为恰好一个 Host ArtifactRef 持久发布，并与最新 Creator ProjectRef 一起提交；仅创建项目、完成脚本或生成镜头都不是成功</td></tr>
+</table>
+<p><code>create-video</code> 不接受 project、target、timeline、element、work-node、provider-job、credential、source-upload、template 或 preauthorization ID。未给 name 时，从 brief 第一条非空行生成最多 96 字符的可读名称，再追加 <code>-</code> 与 <code>sha256(submission_id)</code> 的前 12 个十六进制字符；显式重名是持久业务失败。字符串只将 CRLF/CR 转 LF 并去除外围空白，保留内部空白和 script 原文；默认值在 digest 和渲染前应用。</p>
+<p>映射版本固定为 <code>CREATOR_VIDEO_GOAL_MAPPING_VERSION = 1</code>，v1 receipt 保存 normalized input、submission identity、完整 rendered goal 与 digest；以后改变格式必须升级 mapping version 与 adapter ref，重放永远使用收据中的原含义：</p>
+<pre><code>[creator-video-workflow@1]
+Submission: &lt;submission_id&gt;
+
+Brief:
+&lt;brief&gt;
+
+User script:
+&lt;script, or "Not provided; create a script from the brief."&gt;
+
+Production constraints:
+- project_name: &lt;resolved name&gt;
+- description: &lt;description, or "Not provided."&gt;
+- scenario: &lt;scenario&gt;
+- aspect_ratio: &lt;aspect_ratio&gt;
+- resolution: &lt;resolution&gt;
+- content_type: &lt;content_type, or "Not specified."&gt;
+- duration_seconds: &lt;integer, or "Not specified."&gt;
+- language: &lt;language&gt;
+- completion: publish one final composed video</code></pre>
 <ul>
-  <li>复用现有项目与 ModelConfigModal；接 readiness + setup_entry + ModelBinding，只为下一步计划所需 slot 发起 setup；纯脚本编辑不要求 image/video 配置。</li>
-  <li>Delegated：主 Agent 提交明确的生成任务，Creator 通过 task action 执行并回传结果；外部生成作业保存 job ID 并 reconcile，未知结果不盲目重跑。</li>
-  <li>Direct：用户直接进入 Creator 项目，与领域 Agent/工作台编辑脚本、选择素材并明确发起生成；结果留在项目中。打开或编辑项目不自动消耗生成额度。</li>
-  <li>P2 演示：ScriptDraft 交接 → 缺项 setup → 授权生成 → VideoAsset ArtifactRef 回传 → 任务卡显示成果摘要 → 下载或打开 Creator 项目。（交互中途切换不在 P2。）</li>
+  <li><strong>原子 bootstrap</strong>：eager LLM ready 后，adapter 先保存 prepared receipt，再以 <code>submission_id</code> 幂等创建 Project、Session、Conversation、Goal 和初始 Message；创建收据保存精确 ID。原子边界到初始目标为止，后续 Agent 规划、timeline 填充和媒体执行由 Creator 现有 runtime 独立恢复，adapter 不另造 planner 或直接完成 work node。</li>
+  <li><strong>按需 setup 与 approval</strong>：LLM 缺失在 dispatch 前阻塞；image/video 仅在最早相关 work kind 可执行时依次暂停同一任务。付费生成另以 <code>waiting_for_approval</code> 展示冻结参数，<code>Approve once</code> / <code>Do not run</code> 只 compare-and-set Creator authorization；配置或 fingerprint 变化使旧批准过期。</li>
+  <li><strong>规范成果</strong>：项目必须恰有一个 live、non-snapshot narrative timeline；共享后端 selector 与 UI 的 <code>selectFinalFilmVersionId()</code> 同义，从该 timeline 的 render slot 选择 non-stale <code>final_video</code>，要求 compose node DONE、work-graph freshness、受信 owner/producer、<code>video/*</code> indexed file、大小与 SHA-256 校验。零 timeline 只在可恢复规划仍能创建时等待；多个 live timeline 只在明确 repair/review 可恢复时等待，否则以 <code>multiple_live_timelines</code> 失败并引导用户在 Creator 留下一个 live timeline 后重新发起。</li>
+  <li><strong>发布与取消线性化</strong>：Creator source receipt 保存 project generation/etag、canonical timeline、彼此独立的 graph compose fingerprint 与 executor/render fingerprint、source version/file/digest/provenance/read set/selections，并在捕获时通过 graph fingerprint 派生的 durable dispatch key 验证 producer；Host publication receipt 另存 source-bound intent、ArtifactRef、发布时间和 supersession。submission workflow lock 是边界：intent 前取消则取消 workflow、停止相关 work 并保留项目；intent 先持久化则必须 reconcile 为成功或已证明不可恢复的发布失败，不能再改成 cancelled。项目在发布中变化时，只有同一 source/fingerprint 仍规范才可提交，否则 supersede 并发布新规范 source。</li>
+  <li><strong>入口与呈现</strong>：任务卡只显示 planning、preparing storyboard、generating video、composing、publishing 等语义阶段，以及 setup、approval、Open Creator 和最终 artifact 控件；不显示 Creator 内部 ID。Direct 继续从 Creator 项目独立编辑与生成，完成不自动唤醒 Main Chat；打开 delegated 项目也不转移原任务对话权。</li>
 </ul>
 
 <h3>13.3 文件浏览器（P2 通用性验证）</h3>
@@ -660,8 +695,8 @@ SetupResult {
   <tr><td>exchange（可选，P3）</td><td>provides/requires、成员版本/schema、visibility、digest</td><td>静态先校验；实现注册后验证 digest 一致；未声明的 public member 拒绝导出</td></tr>
   <tr><td>meta / legacy</td><td>旧显示字段与已有 API</td><td>保留旧包装行为；严格验证只针对版本化语义段</td></tr>
 </table>
-<p>兼容原则：现有 <code>app.tool()</code>、<code>skill_provider()</code>、page registration、AgentScope hooks 继续工作；旧全局 tool 名保留 alias；<code>app.local_tool / app.local_skills</code> 是独立的私有注册入口，不能由现有公开注册路径代替。已有 App 可继续用自身 runtime 管理私有能力，不强制迁移；legacy tools 不自动重发布为跨 App exported。P0 静态校验先于激活；P1b 将安装与目录索引改为只读静态包，App 代码仅在显式激活阶段执行。</p>
-<p>配套示例：<a href="pawapp-vnext-creator.example.json">Creator Core 项目入口</a>（仅示意 Direct 打开项目，不是完整 P2 action manifest）、<a href="pawapp-configuration.example.json">配置与 Setup</a>、<a href="pawapp-collaboration.example.json">交互切换消息</a>（附录 A；命令仍走 Core task 边界，不要求 Exchange）。示例 schema 标识与本文档版本独立，交付时由类型化契约校验。</p>
+<p>兼容原则：现有 <code>app.tool()</code>、<code>skill_provider()</code>、page registration、AgentScope hooks 继续工作；旧全局 tool 名保留 alias；<code>app.local_tool / app.local_skills</code> 是独立的私有注册入口，不能由现有公开注册路径代替。已有 App 可继续用自身 runtime 管理私有能力，不强制迁移；legacy tools 不自动重发布为跨 App exported。Task action 的 <code>exposure</code> 属于运行注册绑定而非 ActionDescriptor：把同一 descriptor 从 public 迁为 private 不改变已接受任务的含义或恢复能力，但立即从目录、describe、grant mutation 和新外部 dispatch 中移除；旧 grant 和另一个 public action 的 grant 都不能授权该 private action。P0 静态校验先于激活；P1b 将安装与目录索引改为只读静态包，App 代码仅在显式激活阶段执行。</p>
+<p>配套示例：<a href="pawapp-vnext-creator-create-video-action.example.json">Creator create-video 精确 ActionDescriptor</a>、<a href="pawapp-vnext-creator.example.json">Creator 项目与完整 workflow 契约</a>、<a href="pawapp-configuration.example.json">配置与 Setup</a>、<a href="pawapp-collaboration.example.json">交互切换消息</a>（附录 A；命令仍走 Core task 边界，不要求 Exchange）。示例 schema 标识与本文档版本独立，交付时由类型化契约校验。</p>
 
 <h2 id="s15">15. 首期边界与失败处理</h2>
 
@@ -672,13 +707,16 @@ SetupResult {
 <table>
   <tr><th style="width:28%">风险</th><th>要求的行为</th></tr>
   <tr><td>同进程插件绕过 API</td><td>见 10.2；首期明确可信假设，不宣称进程级隔离</td></tr>
-  <tr><td>prepare 后配置/grant 变化</td><td>readiness 带 input digest、binding revision、有效期；open/start 重验；prepare 结果不是授权凭证</td></tr>
+  <tr><td>prepare 后配置/grant 变化</td><td>readiness 带 input digest、binding revision、有效期；open/start 重验；prepare 结果不是授权凭证。审批 fingerprint 在 provider dispatch 前再验，变化则旧审批过期</td></tr>
+  <tr><td>setup 保存但仍未 ready</td><td>推进持久 attempt 并创建或复用下一确定性请求；重启恢复同一 request/link，任务保持 waiting_for_setup，不调用 provider</td></tr>
   <tr><td>secret 泄漏</td><td>安全表单直达 secret store；服务端注入最小绑定；prompt/artifact/URL/日志不存 key；<strong>P0 修复现存泄漏端点</strong></td></tr>
   <tr><td>artifact 扩大访问</td><td>capability grant 与 artifact grant 独立检查；消费权不自动允许转授权</td></tr>
-  <tr><td>同名工具/Skill 与私有能力外泄</td><td>按 owner/kind/id 解析；本 App 私有项不进入 Host 或其他 App 目录；公开 action 不递归导出内部依赖</td></tr>
+  <tr><td>同名工具/Skill、private action 外泄</td><td>按 owner/kind/id 解析；本 App 私有项不进入 Host 或其他 App 目录；公开 action 不递归导出内部依赖；private action 拒绝目录、grant mutation 与新外部 dispatch，但保留旧任务恢复</td></tr>
   <tr><td>恶意指令随内容传播</td><td>App 输出与 Skill 内容保留来源并按数据处理，不修改 policy、不获得隐含权限</td></tr>
   <tr><td>并发修改</td><td>不可变输入 snapshot、expected_revision、context_revision 分别检查；冲突保留并显式合并</td></tr>
   <tr><td>重复交接/重复收费</td><td>handoff ID 与 idempotency key 持久去重；外部 provider 保存 job ID 并 reconcile；未知结果的付费 action 不自动重跑</td></tr>
+  <tr><td>Creator 规范成果不唯一或失效</td><td>零/多个 live timeline、stale selection、非视频文件、owner/producer/fingerprint/read-set 不匹配均不得发布；可恢复状态等待，否则以可操作原因失败</td></tr>
+  <tr><td>Creator 发布与取消竞态</td><td>workflow lock 下 publication intent 前的取消获胜；intent 后只 reconcile 同一 source-bound 发布。项目变化使旧 publication receipt supersede；最终只返回当前规范 source 的一个 ArtifactRef</td></tr>
   <tr><td>页面关闭 / Host 重启</td><td>task 独立保存；按原身份查询并恢复，结果未知则 unresolved，确认不可恢复才 interrupted；材料与项目仍可访问</td></tr>
   <tr><td>provider 失效/卸载</td><td>拒绝新调用、标记受影响 action、保留用户结果</td></tr>
   <tr><td>结果过大或缺失</td><td>配额、上传校验、发布原子性；输出引用有效后才报成功</td></tr>
@@ -692,7 +730,7 @@ SetupResult {
   <tr><th style="width:20%">阶段</th><th>Delegated 验收主线</th><th>Direct 验收主线</th></tr>
   <tr><td>P1a · Data 执行</td><td>委托 → 后台进度 → 补问/取消 → 文本结果回原 Chat</td><td>从 App 发起 → 根任务登记 → App 内补问/取消 → 结果留在 App；刷新不重跑</td></tr>
   <tr><td>P1b · 项目与成果</td><td>结果引用回传 → 下载或打开关联 App 项目</td><td>打开/恢复项目 → 查看或继续独立操作 → 显式分享成果</td></tr>
-  <tr><td>P2 · 配置协同</td><td>缺项定位 → 设置返回原任务 → 授权执行 → 结果回 Chat；覆盖模型与目录配置</td><td>App 内设置 → 保留项目/当前操作 → 明确发起执行；支持无任务的手动设置</td></tr>
+  <tr><td>P2 · 配置与 Creator</td><td><code>create-video</code> → eager LLM 设置/重试 → 原子项目与目标 → deferred image/video 设置 → 一次性审批 → 规范 final video 发布 → ProjectRef + ArtifactRef 回 Chat</td><td>App 内设置 → 保留项目/当前操作 → 明确发起执行；支持无任务的手动设置，完成不唤醒 Main Chat</td></tr>
 </table>
 <p><strong>P1a 的共同能力门槛</strong>：App 实际使用获准的 Host 公开 Skill/Tool，并能注册仅自身可见的 Skill/Tool；Delegated 与 Direct 两条路径都验证。跨 App 导出不作为前提。</p>
 <p>每阶段自带验收门槛。只有依赖 10.2 边界 (b) 的条目标注 <span class="badge b-amber">[隔离后]</span>。</p>
@@ -749,16 +787,21 @@ SetupResult {
 
 <h3>P2 · 通用配置协同与 Creator 双入口</h3>
 <div class="card">
-<p><strong>交付</strong>：SetupRequirement、ReadinessResult、统一 SetupRequest/Result 生命周期（7.2）、setup_entry/检查器注册、prepare_for_task；可选 Connection/ModelBinding 类型；Creator adapter 与 13.3 文件浏览器的最小适配。</p>
+<p><strong>交付</strong>：SetupRequirement、ReadinessResult、统一 SetupRequest/Result 生命周期（7.2）、task-linked attempt/recovery、setup_entry/检查器注册、prepare_for_task；类型化 approval；可选 Connection/ModelBinding；Creator 的 public <code>create-video</code> durable workflow、private 媒体 primitives、canonical final-film selector 与 source-bound artifact publication；13.3 文件浏览器最小适配。</p>
 <p><strong>门槛</strong>：</p>
 <ul>
-  <li><strong>Direct</strong>：无需先在 Main Chat 委托，从 Creator 打开/创建项目、编辑脚本、完成必要设置并明确发起生成；结果在项目中可查，设置后保留草稿，完成不自动唤醒 Main Chat。</li>
-  <li>读项目/编辑脚本不要求 video key；执行生成只请求当前计划依赖的配置。</li>
-  <li>已配置不弹窗；唯一兼容且获准候选可自动绑定（带 provenance 与撤销）；缺凭证走安全表单；领域配置回 App 原设置页并保留项目与草稿。</li>
-  <li>取消/过期/超时/重复回执不造成越权或重复执行；保存配置不触发生成、部署、重启或索引重建；在途作业固定 binding 版本。</li>
-  <li>Creator 委托生成闭环：ScriptDraft → setup → 授权生成 → VideoAsset 回传。 委托经 P1a 的 Core action dispatch 通路，不依赖 Broker。自动化测试用标注清楚的 fake provider 验证接线；产品演示用已授权真实 provider 完成一次受限生成后，才可宣称真实链路验证。</li>
-  <li>配置归属：AppLocal/ExternalManaged 保留不强制迁移；旧配置写路径不双写；embedding 保存不偷渡重建；外部 DataBridge 不索要本地 Neo4j。</li>
-  <li>Connection/ModelBinding 按 3.5 投影到执行配置并回归；Setup 端点的身份、workspace 与资源范围校验通过。</li>
+  <li><strong>Public contract</strong>：Main Chat 只发现 Creator 的 <code>create-project</code> 与 <code>create-video</code>；视频目标选择后者并以 closed intent schema 提交 brief/script，不索取内部 ID。两个 private primitive 不能 list/describe/grant/新 dispatch；已接受旧任务仍完成；<code>create-video</code> grant 不能授权 private action。</li>
+  <li><strong>Bootstrap 与重放</strong>：eager LLM 缺失时返回 blocked/setup，且没有 task/project/workflow；保存后以同一 request ID 重试只创建一个 task。成功 dispatch 原子创建并持久关联 Project、Session、Conversation、Goal、Message 和 exact v1 goal meaning；四处 crash/replay 均不创建替代项目或目标。</li>
+  <li><strong>Deferred setup</strong>：同一任务按 work-graph 可执行阶段依次请求 image/video，一次一个 requirement；saved 后重查，仍 unready 则推进到同一确定性下一 attempt。覆盖 Host 在 attempt 推进、request 创建与 link CAS 之间重启，不重复请求、不启动 provider。</li>
+  <li><strong>Approval</strong>：生成前以类型化 InputRequest 展示冻结的 provider/model/语义目标与计费相关参数；同一 command 重试幂等，拒绝或 stale request 不执行。立即执行前配置、输入或 authorization fingerprint 变化会使批准过期；setup、approval 和 action grant 三者不互相满足。</li>
+  <li><strong>Agent/work graph</strong>：adapter 只观察与唤醒 Creator 现有 Agent/runtime，按 persisted goal/run/round/task/authorization 精确关联，忽略同项目 Direct 活动；ready 或 regeneration-ready node 由原 runtime 执行，adapter 不直接完成。规划、storyboard、video、compose、setup、approval 和失败的 precedence collision 均有自动化覆盖。</li>
+  <li><strong>Canonical result</strong>：后端与 UI selector parity 覆盖 zero/one/multiple live timelines、snapshot 排除、missing/stale/wrong-media output 和有效 selection。只有恰好一个 live non-snapshot timeline、DONE compose、fresh fingerprint/read set、可信 provenance 和 verified bytes 可以发布；多个 timeline 的不可恢复失败给出打开 Creator、只留一个 live timeline 并重新发起的可操作说明，不暴露 timeline ID。</li>
+  <li><strong>Publication 与 cancellation</strong>：source receipt 和 Host publication receipt 分离；intent 前取消得到 cancelled 并保留项目，intent 后取消返回 publication committed 并继续同一幂等发布。覆盖 crash replay、项目发布中变化、receipt supersession、exact one-artifact replay 和三种取消顺序。<code>succeeded</code> 必须同时含非空文本、最新 ProjectRef 和当前 source 绑定的恰好一个 ArtifactRef。</li>
+  <li><strong>Generic presentation</strong>：Console 只按公共 task/input/setup/project/artifact contract 渲染阶段、Host-resolved setup、approval、Open Creator 与下载；刷新恢复同一 task，不显示 Creator 内部 ID。Main Chat continuation 只接收有限结构化摘要。</li>
+  <li><strong>Direct</strong>：无需先在 Main Chat 委托，从 Creator 打开/创建项目、编辑脚本、完成必要设置并明确发起生成；结果在项目中可查，设置后保留草稿，完成不自动唤醒 Main Chat。读项目/编辑脚本不要求 video key。</li>
+  <li>已配置不弹窗；唯一兼容且获准候选可自动绑定（带 provenance 与撤销）；缺凭证走安全表单；领域配置回 App 原设置页并保留项目与草稿。保存配置不触发生成、部署、重启或索引重建；在途作业固定 binding 版本。</li>
+  <li><strong>真实执行声明</strong>：自动化端到端必须使用明确隔离的 fake/local Agent、image 与 video providers，并在 harness 中拒绝真实 provider。任何真实模型或媒体 provider 请求前，必须展示 exact command、resolved provider/model/configuration 并获得针对该次调用的新确认；已有配置或过去批准不算本次授权。</li>
+  <li>配置归属：AppLocal/ExternalManaged 保留不强制迁移；旧配置写路径不双写；embedding 保存不偷渡重建；外部 DataBridge 不索要本地 Neo4j。Connection/ModelBinding 投影与 Setup 端点的身份、workspace 和资源范围校验通过。</li>
   <li><strong>无模型 App</strong>：文件浏览器在 Delegated/Direct 下读取获准目录；默认目录通过同一 SetupRequest 保存与复查。单次目录输入不强制持久化；保存范围外目录不授予访问；目录消失给出明确原因。该适配不改变 Host 的 Setup 状态机或加入 App 名称分支。</li>
   <li><strong>手动与异步设置</strong>：无 task/plan 的手动设置可保存、重查并返回 App，不创建任务；用契约 fixture 验证 waiting_external 的回调/轮询、断线查询、重复及取消后迟到回执，既不误判 ready，也不自动执行。真实外部授权集成按实际 App 单独验收。</li>
 </ul>
@@ -768,7 +811,8 @@ SetupResult {
 <div class="callout">
 <p><strong>交付决策</strong>：通过接入专业 App 扩展 QwenPaw 的任务完成能力，让平台覆盖更多领域工作、支持持续执行，并组合获准的能力与成果。Delegated 与 Direct 定义这些能力的使用方式；Host 公开 Skill/Tool 与 App 私有能力构成执行基础；task/setup/artifact/handoff 保障完整工作流程。P0 完成安全与运行地基，P1a 接入能力作用域与 Data 双入口执行，P1b 连接项目与成果，P2 用 Creator 和文件浏览器验证专业创作与通用配置。App 保留领域 Agent、项目、界面与私有实现；App 间 Exchange、生态扩展与运行中交互切换按附录另行立项。</p>
 </div>
-<p>设计可按阶段进入实施。P1a 的发布门槛是引擎幂等提交与命令协议、固定兼容版本及恢复验收；P1b 的 artifact 配额、P2 的真实 provider 预算各自在阶段开始前明确。源码基线不代表这些能力已经交付。</p>
+<p><strong>2026-09-18 Creator 实施状态</strong>：当前 PawApp worktree 已实现并以 focused 自动化验证 public/private action 边界、<code>create-video</code> exact contract/v1 mapping、原子 bootstrap 与 durable receipt、相关状态观察、task-linked deferred setup、独立 approval、canonical final-film selection、source-bound Host publication、取消线性化、Main Chat 八工具指导及通用 Console 控件。剩余发布门槛是 stage-seven 文档/浏览器集成检查和隔离 fake-provider 的真实 App 端到端验收；在该验收完成前不宣称完整产品链路或真实 provider 链路已验证。</p>
+<p>设计可按阶段进入实施。P1a 的发布门槛是引擎幂等提交与命令协议、固定兼容版本及恢复验收；P1b 的 artifact 配额、P2 的真实 provider 预算各自在阶段开始前明确。证据索引的历史源码基线不代表这些能力已经交付；上段状态仅描述当前 worktree，仍受对应验收门槛约束。</p>
 
 <h3>证据索引</h3>
 <p> 基线：Host checkout <code>4be5b4dd</code>（分支 <code>dev/qwenpaw-data-app</code>）；QwenPaw-Data 引擎源码 HEAD <code>1cbd681</code>（<code>/Users/yilei.z/dev/QwenPaw-Data</code>，仅审阅源码，运行/安装版本未核实）；行号对应上述源码基线。</p>
@@ -783,7 +827,9 @@ SetupResult {
   <tr><td>Driver / 审批 / 凭证</td><td><code>drivers/capabilities.py:15</code> · <code>drivers/approval.py:11</code> · <code>drivers/credentials/store.py:40</code></td></tr>
   <tr><td>Data bridge 与 env 写入</td><td><code>plugins/apps/qwenpaw-data/backend/main.py:172-209,263-279,840,959</code> · <code>backend/config.py:405</code> · <code>backend/bridge/{events,middleware,session_store,engine_client}.py</code></td></tr>
   <tr><td>Data 引擎（独立仓库）</td><td><code>packages/qwenpaw-data-host-core/src/qwenpaw_data/host/core/api/routers/events.py:54</code> · <code>api/app.py:78</code></td></tr>
-  <tr><td>Creator（含 P0 缺陷）</td><td><code>plugins/apps/qwenpaw-creator/backend/api/model_routes.py:489-500,1704,1893-1932,2076-2116</code> · <code>backend/schemas/models.py:281</code> · <code>ui/src/api/creator/models.ts:218-224</code></td></tr>
+  <tr><td>Creator（历史基线，含 P0 缺陷）</td><td><code>plugins/apps/qwenpaw-creator/backend/api/model_routes.py:489-500,1704,1893-1932,2076-2116</code> · <code>backend/schemas/models.py:281</code> · <code>ui/src/api/creator/models.ts:218-224</code></td></tr>
+  <tr><td>Creator create-video 当前实现</td><td><code>plugins/apps/qwenpaw-creator/backend/services/pawapp_video_workflow.py</code> · <code>services/project_files/creation.py</code> · <code>services/project_files/final_film.py</code> · <code>services/file_agent_runtime/{driver,work_graph,workgraph_execution}.py</code> · <code>backend/main.py</code> · <code>plugin.json</code></td></tr>
+  <tr><td>通用 task/setup 与 Console 当前实现</td><td><code>src/qwenpaw/pawapp/tasks/{binding,contracts,runtime,store,agent_tools}.py</code> · <code>src/qwenpaw/pawapp/setup/{contracts,runtime,store}.py</code> · <code>console/src/api/modules/pawappTasks.ts</code> · <code>console/src/components/Chat/ToolCards/cards/PawAppTaskCard.tsx</code></td></tr>
   <tr><td>Agent Kanban <code>/clear</code> 与 SSEChannel 使用</td><td><code>plugins/apps/agent-kanban/backend/main.py:34,497,533-539,690</code></td></tr>
   <tr><td>前端 SDK</td><td><code>console/src/plugins/pawapp-sdk/{index.ts,types.ts,task.ts,host.ts}</code></td></tr>
   <tr><td>环境管理决策</td><td><code>docs/design/environment-management-redesign.md</code>（ManagedService 边界见 3.5）</td></tr>
@@ -860,7 +906,7 @@ SetupResult {
 </details>
 
 <div class="foot">
-PawApp vNext · 专业 App 的能力接入与协作 · v1.0 · 2026-09-14<br>
+PawApp vNext · 专业 App 的能力接入与协作 · v1.0 · 2026-09-18<br>
 平台能力扩展、专业 App 接入、协作流程与验收标准。
 </div>
 

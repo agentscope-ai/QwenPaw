@@ -221,7 +221,7 @@ const SORT_OPTIONS: { value: SortField; labelKey: string }[] = [
 
 type HomeView = "create" | "projects";
 type ModelSetupTarget = {
-  purpose: "image" | "video";
+  purpose: "llm" | "image" | "video";
   requestId?: string;
 };
 
@@ -314,7 +314,11 @@ export default function HomePage() {
     if (rawView !== null) {
       setView(rawView === "projects" ? "projects" : "create");
     }
-    if (rawSetup === "image" || rawSetup === "video") {
+    if (
+      rawSetup === "llm" ||
+      rawSetup === "image" ||
+      rawSetup === "video"
+    ) {
       setModelSetup({
         purpose: rawSetup,
         requestId: searchParams.get("setupRequest") || undefined,
