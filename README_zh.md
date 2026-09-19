@@ -408,7 +408,7 @@ QwenPaw 内置五层核心安全防护：
 | [模型](https://qwenpaw.agentscope.io/docs/models)                    | 配置云端、本地与自定义提供商                     |
 | [频道配置](https://qwenpaw.agentscope.io/docs/channels)              | 钉钉、飞书、QQ、Discord、iMessage 等             |
 | [Skills](https://qwenpaw.agentscope.io/docs/skills)                  | 扩展与自定义能力                                 |
-| [插件系统](https://qwenpaw.agentscope.io/docs/plugins)               | 插件体系与 Plugin Market                         |
+| [插件系统](https://qwenpaw.agentscope.io/docs/plugins)               | 插件体系、工具策略钩子与 Plugin Market             |
 | [MCP 和工具](https://qwenpaw.agentscope.io/docs/mcp)                 | 管理 MCP 客户端                                  |
 | [Persona](https://qwenpaw.agentscope.io/docs/persona)                | 智能体人格定制（SOUL / PROFILE）                 |
 | [记忆](https://qwenpaw.agentscope.io/docs/memory)                    | 基于本地、可编辑、可检索且相互链接的 Markdown 记忆构建自进化个人知识库，由 [ReMe](https://github.com/agentscope-ai/ReMe) 驱动 |
