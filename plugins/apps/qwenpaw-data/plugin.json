@@ -40,6 +40,22 @@
     "min": "2.1.1b1",
     "max": "2.2.0"
   },
+  "pawapp": {
+    "schema_version": 1,
+    "runtime": {
+      "host_tools": [
+        "get_current_time"
+      ],
+      "host_skills": [
+        {
+          "id": "guidance",
+          "tool_refs": []
+        }
+      ],
+      "local_tools": [],
+      "local_skills": []
+    }
+  },
   "meta": {
     "pawapp": {
       "icon": "\ud83d\udcca",

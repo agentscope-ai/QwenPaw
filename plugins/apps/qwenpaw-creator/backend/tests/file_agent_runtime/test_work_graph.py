@@ -21,6 +21,7 @@ from services.file_agent_runtime.work_graph import (
     WorkNodeStatus,
     derive_work_graph,
     dispatch_ledger_fingerprint,
+    dispatch_model_scope,
     dispatch_slot,
 )
 from services.project_files.models import (
@@ -551,6 +552,63 @@ def test_completed_storyboard_reacts_only_to_its_content_inputs(
             node.node_id for node in graph.regeneration_nodes()
         }
     assert project.model_dump(mode="json") == before
+
+
+def test_completed_storyboard_ignores_video_model_changes() -> None:
+    project = _project()
+    _add_element(project, _element("elem:one"))
+    node_id = "storyboard:elem:one"
+    fingerprint = derive_work_graph(project).by_id[node_id].dispatch_fingerprint
+    baseline_scope = dispatch_model_scope(
+        "storyboard",
+        ("image-a", "video-a"),
+    )
+    assert baseline_scope == dispatch_model_scope(
+        "storyboard",
+        ("image-a", "video-b"),
+    )
+    assert baseline_scope != dispatch_model_scope(
+        "storyboard",
+        ("image-b", "video-b"),
+    )
+    ledger = dispatch_ledger_fingerprint(fingerprint, baseline_scope)
+    task = _task(
+        "image_generation",
+        "element:elem:one",
+        TaskStatus.SUCCEEDED,
+        idempotency_key=f"dag-{node_id}-{dispatch_slot(ledger)}",
+    )
+    _select_slot(
+        project,
+        slot_id="element:elem:one:storyboard",
+        kind="r2v_storyboard_image",
+        owner_ref="element:elem:one",
+        version_id="art:sb",
+        task_id=task.task_id,
+    )
+
+    assert (
+        derive_work_graph(
+            project,
+            tasks=[task],
+            media_models=("image-a", "video-b"),
+        )
+        .by_id[node_id]
+        .status
+        is WorkNodeStatus.DONE
+    )
+    # Completed outputs remain accepted across provider configuration changes;
+    # only a future dispatch identity is scoped to the changed image model.
+    assert (
+        derive_work_graph(
+            project,
+            tasks=[task],
+            media_models=("image-b", "video-b"),
+        )
+        .by_id[node_id]
+        .status
+        is WorkNodeStatus.DONE
+    )
 
 
 def test_failed_storyboard_reopens_when_aspect_ratio_changes() -> None:

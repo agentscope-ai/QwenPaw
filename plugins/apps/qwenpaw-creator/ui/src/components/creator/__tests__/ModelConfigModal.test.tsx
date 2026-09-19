@@ -96,7 +96,7 @@ const speechBaseConfig: ModelConfigData = {
     model_name: "fun-asr",
     base_url: DASH,
     protocol: "DashScope Fun-ASR",
-    provider: "fun-asr",
+    provider: "fun-asr" as const,
     language: "",
     reuse_llm_key: true,
   }),
@@ -223,6 +223,25 @@ function configRoutes(json: unknown, testJson?: Record<string, unknown>) {
 }
 
 describe("ModelConfigModal configuration lifecycle", () => {
+  it("opens the requested setup model directly", async () => {
+    installMockFetch(configRoutes(emptyConfig));
+    render(
+      <ModelConfigModal
+        open
+        initialModel="video"
+        setupRequestId="setup_123"
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: /媒体生成/ }),
+    ).toHaveAttribute("aria-current", "true");
+    expect(
+      await screen.findByRole("checkbox", { name: "视频生成模型" }),
+    ).toBeInTheDocument();
+  });
+
   it("preserves the saved governance mode when returning to full confirmation", async () => {
     const { calls } = installMockFetch(
       configRoutes({
@@ -283,11 +302,6 @@ describe("ModelConfigModal configuration lifecycle", () => {
         },
         { ok: true, ms: 8 },
       ),
-      {
-        match: "/models/real-api-key/llm",
-        method: "GET",
-        response: { json: { apiKey: "saved-secret" } },
-      },
     ]);
     render(<ModelConfigModal open onClose={onClose} />);
 
@@ -300,6 +314,13 @@ describe("ModelConfigModal configuration lifecycle", () => {
         true,
       ),
     );
+    expect(
+      calls.some(
+        (call) =>
+          call.url.includes("real-api-key") ||
+          call.url.includes("host-provider"),
+      ),
+    ).toBe(false);
 
     // The VLM badge keeps reflecting the reused LLM model.
     expect(screen.queryByText("qwen-vl-max（已停用）")).not.toBeInTheDocument();

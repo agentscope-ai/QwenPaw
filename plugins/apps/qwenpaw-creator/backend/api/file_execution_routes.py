@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import secrets
 import shutil
 import tempfile
 from pathlib import Path
@@ -24,6 +23,7 @@ from domain.enums import (
 )
 from domain.errors import ConflictError, NotFoundError, StorageIntegrityError
 from schemas.common import StrictModel
+from services.execution_authorization import decide_execution_authorization
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
@@ -45,7 +45,6 @@ from .dependencies import (
     project_file_services,
     resolve_idempotency_key,
 )
-
 
 router = APIRouter(
     prefix="/projects/{project_id}",
@@ -710,34 +709,13 @@ async def _decide_authorization(
 ) -> dict[str, Any]:
     store = _store(services)
     try:
-        current = await asyncio.to_thread(
-            store.get_execution_authorization,
-            project_id,
-            authorization_id,
-        )
-        if not secrets.compare_digest(
-            current.authorization_token,
-            authorization_token,
-        ):
-            raise ConflictError("execution authorization token 不匹配")
-        if current.status is target_status:
-            return _authorization_view(current)
-        if target_status is ExecutionAuthorizationStatus.APPROVED:
-            assert decision is not None
-            if (
-                decision.get("provider") != current.requested_provider
-                or decision.get("model") != current.requested_model
-            ):
-                raise ConflictError("批准的 provider/model 必须与原执行请求一致")
-            requested_candidates = current.requested_candidates or 1
-            if int(decision.get("maxCandidates") or 0) > requested_candidates:
-                raise ConflictError("批准的候选数量不能超过原执行请求")
         record = await asyncio.to_thread(
-            store.decide_execution_authorization,
+            decide_execution_authorization,
+            store,
             project_id,
             authorization_id,
             authorization_token=authorization_token,
-            status=target_status,
+            target_status=target_status,
             decision=decision,
         )
     except BaseException as error:

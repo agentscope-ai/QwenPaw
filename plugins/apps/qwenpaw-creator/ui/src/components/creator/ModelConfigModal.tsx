@@ -39,8 +39,6 @@ import {
   patchSelfReview,
   testModelConnection,
   getHostProviders,
-  getHostProviderApiKey,
-  getRealApiKey,
   getTtsCapabilities,
   getVideoCapabilities,
 } from "@/api/creator";
@@ -777,7 +775,7 @@ const CARD_TEXT_KEYS: Record<
 const REVIEW_TIER_ROUNDS = { sync: 2, media: 2, render: 3 } as const;
 
 function hasUsableApiKey(item: ModelConfigItem): boolean {
-  return item.api_key !== undefined && item.api_key.length > 0;
+  return Boolean(item.api_key?.length || item.host_provider_id?.length);
 }
 
 function isFreeTierProtocol(
@@ -894,6 +892,8 @@ function groundingSearchLabel(config: ModelConfigData): string {
 interface Props {
   open: boolean;
   onClose: () => void;
+  initialModel?: "llm" | "image" | "video";
+  setupRequestId?: string;
 }
 
 const CARD_META: {
@@ -990,7 +990,12 @@ const CARD_META: {
   },
 ];
 
-export default function ModelConfigModal({ open, onClose }: Props) {
+export default function ModelConfigModal({
+  open,
+  onClose,
+  initialModel,
+  setupRequestId,
+}: Props) {
   const { t } = useTranslation();
   const protocolLabel = (protocol: string): string => {
     const key = PROTOCOL_LABEL_KEYS[protocol];
@@ -1133,25 +1138,16 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     [dynamicProviderMap],
   );
 
-  // Resolve the real API key (for connection tests).
-  const resolveRealApiKey = async (
-    section: string,
+  // Tell the backend where a masked credential belongs. The backend resolves
+  // stored Creator and Host-provider secrets without returning them here.
+  const connectionCredential = (
+    section: ModelType | "grounding",
     item?: ModelConfigItem,
-  ): Promise<string> => {
-    // Use the key the frontend already holds when it is real (not the
-    // mask and not empty).
-    if (item && item.api_key && item.api_key !== "__CREATOR_SECRET__") {
-      return item.api_key;
-    }
-
-    // Otherwise fetch it from the backend.
-    try {
-      const result = await getRealApiKey(section);
-      return result.api_key;
-    } catch {
-      return "";
-    }
-  };
+  ) => ({
+    api_key: item?.api_key ?? "",
+    credential_section: section,
+    host_provider_id: item?.host_provider_id || undefined,
+  });
 
   const loadConfig = useCallback(async () => {
     try {
@@ -1287,7 +1283,15 @@ export default function ModelConfigModal({ open, onClose }: Props) {
   const updateItem = useCallback(
     (type: ModelType, field: string, value: unknown) => {
       setConfig((prev) => {
-        const updated = { ...prev, [type]: { ...prev[type], [field]: value } };
+        const item = { ...prev[type], [field]: value };
+        if (
+          field === "protocol" ||
+          field === "base_url" ||
+          (field === "api_key" && value !== "__CREATOR_SECRET__")
+        ) {
+          item.host_provider_id = "";
+        }
+        const updated = { ...prev, [type]: item };
         if (type === "tts" && field === "model_name") {
           // Speech models disagree about voices: those without system voices
           // reject any preset name, and the valid names differ per family, so
@@ -1380,6 +1384,10 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     setActivePane(PANE_OF_TYPE[type]);
     setExpanded((prev) => ({ ...prev, [type]: true }));
   }, []);
+
+  useEffect(() => {
+    if (open && initialModel) jumpToModel(initialModel);
+  }, [open, initialModel, jumpToModel]);
 
   // Persist one self-review tier; optimistic with rollback, mirroring the
   // permission ladder’s failure handling.
@@ -1555,8 +1563,9 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       try {
         const data = await testModelConnection({
           type: "vlm",
+          config_section: "vlm",
           base_url: vlmItem.base_url,
-          api_key: vlmItem.api_key,
+          ...connectionCredential("vlm", vlmItem),
           model_name: vlmItem.model_name,
           protocol: vlmItem.protocol,
           require_api_key: !vlmFree,
@@ -1624,12 +1633,11 @@ export default function ModelConfigModal({ open, onClose }: Props) {
 
       setTestingLlmMultimodal(true);
       try {
-        // Resolve the real API key (the frontend only stores the mask).
-        const realApiKey = await resolveRealApiKey("llm", llmItem);
         const data = await testModelConnection({
           type: "vlm",
+          config_section: "llm",
           base_url: llmItem.base_url,
-          api_key: realApiKey,
+          ...connectionCredential("llm", llmItem),
           model_name: llmItem.model_name,
           protocol: llmItem.protocol,
           require_api_key: !llmFree,
@@ -1688,8 +1696,8 @@ export default function ModelConfigModal({ open, onClose }: Props) {
 
       setTesting((prev) => ({ ...prev, [type]: true }));
       try {
-        // Resolve the real API key (the frontend only stores the mask).
-        let testApiKey: string;
+        let credentialSection: ModelType = type;
+        let credentialItem = item;
         if (
           (type === "asr" && config.asr.reuse_llm_key) ||
           (type === "tts" && config.tts.reuse_llm_key) ||
@@ -1699,26 +1707,23 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         ) {
           // ASR/TTS/S2V/Image/Video can reuse the LLM API key (same
           // DashScope credential).
-          testApiKey = await resolveRealApiKey("llm", config.llm);
+          credentialSection = "llm";
+          credentialItem = config.llm;
         } else if (type === "embedding" && config.embedding.reuse_vlm_key) {
           // Embedding reuses the VLM key (which may itself reuse the LLM).
-          const vlmSection = config.vlm.use_llm ? "llm" : "vlm";
-          const vlmItem = config.vlm.use_llm ? config.llm : config.vlm;
-          testApiKey =
-            (await resolveRealApiKey(vlmSection, vlmItem)) ||
-            (await resolveRealApiKey("llm", config.llm));
+          credentialSection = config.vlm.use_llm ? "llm" : "vlm";
+          credentialItem = config.vlm.use_llm ? config.llm : config.vlm;
         } else if (type === "vlm" && config.vlm.use_llm) {
           // VLM reuses the LLM config.
-          testApiKey = await resolveRealApiKey("llm", config.llm);
-        } else {
-          // Use the API key of the current section.
-          testApiKey = await resolveRealApiKey(type, item);
+          credentialSection = "llm";
+          credentialItem = config.llm;
         }
 
         const data = await testModelConnection({
           type,
+          config_section: type === "vlm" && config.vlm.use_llm ? "llm" : type,
           base_url: item.base_url,
-          api_key: testApiKey,
+          ...connectionCredential(credentialSection, credentialItem),
           model_name: item.model_name,
           protocol: item.protocol,
           provider: type === "asr" ? config.asr.provider : undefined,
@@ -1784,23 +1789,26 @@ export default function ModelConfigModal({ open, onClose }: Props) {
 
     setTesting((prev) => ({ ...prev, grounding: true }));
     try {
-      // Resolve the real API key (the frontend only stores the mask),
-      // picking the section that matches the validation model source.
-      let realApiKey = item.api_key;
+      let configSection: ModelType | "grounding" = "grounding";
+      let credentialSection: ModelType | "grounding" = "grounding";
+      let credentialItem = item;
       if (config.grounding.validation_source === "llm") {
-        realApiKey = await resolveRealApiKey("llm", config.llm);
+        configSection = "llm";
+        credentialSection = "llm";
+        credentialItem = config.llm;
       } else if (config.grounding.validation_source === "vlm") {
         const vlmSection = config.vlm.use_llm ? "llm" : "vlm";
         const vlmItem = config.vlm.use_llm ? config.llm : config.vlm;
-        realApiKey = await resolveRealApiKey(vlmSection, vlmItem);
-      } else {
-        realApiKey = await resolveRealApiKey("grounding", item);
+        configSection = vlmSection;
+        credentialSection = vlmSection;
+        credentialItem = vlmItem;
       }
 
       const data = await testModelConnection({
         type: "vlm",
+        config_section: configSection,
         base_url: item.base_url,
-        api_key: realApiKey,
+        ...connectionCredential(credentialSection, credentialItem),
         model_name: item.model_name,
         protocol: item.protocol,
         require_api_key: !groundingFree,
@@ -1897,12 +1905,12 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         }
       }
 
-      if (dirtySections.length > 0) {
+      if (dirtySections.length > 0 || setupRequestId) {
         // Save everything in one POST: sequential per-section PATCHes each
         // re-validate the full grounding config, so interdependent edits
         // (e.g. a generic LLM plus a Tavily key) could fail mid-sequence
         // and leave a partially saved configuration behind.
-        const res = await saveModelConfig(config);
+        const res = await saveModelConfig(config, { setupRequestId });
         if (!res.ok) throw new Error(t("modelConfig.saveFailedServer"));
       }
 
@@ -1916,7 +1924,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
     } finally {
       setSaving(false);
     }
-  }, [config, tested, saving, handleTest, onClose]);
+  }, [config, tested, saving, handleTest, onClose, setupRequestId]);
 
   const handleCancel = useCallback(() => {
     if (snapshotRef.current)
@@ -2072,8 +2080,8 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       }
     }
 
-    // For LLM/VLM on their first configuration (empty api_key), try to
-    // sync the API key from the host.
+    // Bind Host credentials by opaque provider ID. The backend resolves the
+    // key and checks the provider endpoint; plaintext never enters the UI.
     if ((type === "llm" || type === "vlm") && protocol !== "自定义") {
       const currentItem = config[type] as ModelConfigItem;
       if (
@@ -2082,22 +2090,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       ) {
         const providerId = mergedProviderMap[protocol];
         if (providerId) {
-          const hostProvider = hostProviders.find((p) => p.id === providerId);
-          if (hostProvider?.require_api_key === false) {
-            // Free-tier provider — no key needed.
-          } else {
-            try {
-              const result = await getHostProviderApiKey(providerId);
-              if (result.api_key) {
-                updateItem(type, "api_key", result.api_key);
-              }
-            } catch (error) {
-              console.warn(
-                `Failed to sync API key from host for ${providerId}:`,
-                error,
-              );
-            }
-          }
+          updateItem(type, "host_provider_id", providerId);
         }
       }
     }

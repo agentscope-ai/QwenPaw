@@ -54,7 +54,7 @@ def _list_plugins_from_disk() -> list[dict]:
 
     result: list[dict] = []
     for item in sorted(plugins_dir.iterdir()):
-        if not item.is_dir():
+        if not item.is_dir() or item.is_symlink():
             continue
         if _is_disabled_plugin_dir(item):
             continue
@@ -68,27 +68,65 @@ def _list_plugins_from_disk() -> list[dict]:
             logger.warning("Failed to read %s: %s", manifest_path, exc)
             continue
 
-        plugin_id = manifest.get("id", item.name)
-        frontend_entry = manifest.get("entry", {}).get("frontend")
-
         from ...plugins.architecture import PluginManifest
 
-        disk_manifest = PluginManifest.from_dict(manifest)
+        try:
+            disk_manifest = PluginManifest.from_dict(manifest)
+        except ValueError as exc:
+            logger.warning("Invalid manifest %s: %s", manifest_path, exc)
+            continue
+        from ...plugins.loader import PluginLoader
+
+        requires_activation = PluginLoader.requires_explicit_activation(
+            disk_manifest,
+        )
 
         result.append(
             {
-                "id": plugin_id,
-                "name": manifest.get("name", plugin_id),
-                "version": manifest.get("version", "0.0.0"),
-                "description": manifest.get("description", ""),
-                "author": manifest.get("author", ""),
-                "enabled": True,
+                "id": disk_manifest.id,
+                "name": disk_manifest.name,
+                "version": disk_manifest.version,
+                "description": disk_manifest.description,
+                "author": disk_manifest.author,
+                "enabled": not requires_activation,
                 "loaded": False,
+                "requires_activation": requires_activation,
+                "activation_status": (
+                    "installed" if requires_activation else "active"
+                ),
                 "plugin_type": disk_manifest.plugin_type,
-                "frontend_entry": frontend_entry,
+                "frontend_entry": disk_manifest.entry.frontend,
             },
         )
     return result
+
+
+def _list_plugins_with_runtime(loader) -> list[dict]:
+    """Merge static manifests with runtime state without importing packages."""
+    items = {item["id"]: item for item in _list_plugins_from_disk()}
+    for manifest, _path in loader.discover_plugins():
+        item = items.get(manifest.id)
+        if item is not None and item["requires_activation"]:
+            item["activation_status"] = loader.activation_status(manifest)
+    for plugin_id, record in loader.get_all_loaded_plugins().items():
+        manifest = record.manifest
+        requires_activation = loader.requires_explicit_activation(manifest)
+        items[plugin_id] = {
+            "id": manifest.id,
+            "name": manifest.name,
+            "version": manifest.version,
+            "description": manifest.description,
+            "author": manifest.author,
+            "enabled": record.enabled,
+            "loaded": record.enabled,
+            "requires_activation": requires_activation,
+            "activation_status": (
+                "active" if record.enabled else "unavailable"
+            ),
+            "plugin_type": manifest.plugin_type,
+            "frontend_entry": manifest.entry.frontend,
+        }
+    return list(items.values())
 
 
 def _safe_extract_zip(
@@ -482,15 +520,15 @@ async def _load_plugin_with_optional_force_reinstall(
     pawport_owner: dict | None = None,
     recover_incomplete: bool = False,
 ):
-    """Load a plugin, optionally unloading first under one lifecycle lock.
+    """Install a plugin, optionally unloading first under one lifecycle lock.
 
     Force-reinstall is handled inside
     :meth:`PluginLoader.load_plugin_from_path` so this router never reads
     ``plugin.json`` from a user-supplied path (CodeQL path-injection).
 
-    The full install transaction — unload (if force), load, and
-    :func:`_post_load_setup` — runs under one
-    :meth:`PluginLoader.plugin_lifecycle` critical section.
+    The install transaction runs under one
+    :meth:`PluginLoader.plugin_lifecycle` critical section. Legacy plugins
+    load immediately; versioned PawApps stop after static validation.
 
     On force-reinstall, tools present in the old manifest but absent from
     the new one are removed from agent configs (``old - new`` only).
@@ -538,16 +576,25 @@ async def _load_plugin_with_optional_force_reinstall(
             reload_agents=reload_agents,
         )
 
-    return await loader.load_plugin_from_path(
+    record = await loader.load_plugin_from_path(
         source_path=source_path,
         install_dir=get_plugins_dir(),
         force=force,
         before_force_unload=_before_force_unload if force else None,
         after_force_unload=_after_force_unload if force else None,
         after_load=_after_load,
+        defer_pawapp_activation=True,
         pawport_owner=pawport_owner,
         recover_incomplete=recover_incomplete,
     )
+    if force and not record.enabled:
+        await asyncio.to_thread(
+            _remove_named_tools_from_agents,
+            record.manifest.id,
+            sorted(collected["old_tools"]),
+        )
+        await _schedule_all_agents_reload(request)
+    return record
 
 
 async def _finish_plugin_install_after_load(
@@ -622,24 +669,7 @@ async def list_plugins(request: Request):
         )
         return _list_plugins_from_disk()
 
-    result = []
-    for _plugin_id, record in loader.get_all_loaded_plugins().items():
-        manifest = record.manifest
-        result.append(
-            {
-                "id": manifest.id,
-                "name": manifest.name,
-                "version": manifest.version,
-                "description": manifest.description,
-                "author": manifest.author,
-                "enabled": record.enabled,
-                "loaded": True,
-                "plugin_type": manifest.plugin_type,
-                "frontend_entry": manifest.entry.frontend,
-            },
-        )
-
-    return result
+    return _list_plugins_with_runtime(loader)
 
 
 @router.get(
@@ -724,7 +754,23 @@ async def uninstall_plugin_source(
     async with loader.plugin_lifecycle(plugin_id):
         record = loader.get_loaded_plugin(plugin_id)
         if record is None:
-            raise KeyError(f"Plugin '{plugin_id}' is not loaded.")
+            from ...config.utils import get_plugins_dir
+
+            plugins_dir = get_plugins_dir()
+            plugin_dir = plugins_dir / plugin_id
+            resolved_root = plugins_dir.resolve()
+            resolved_plugin = plugin_dir.resolve()
+            if (
+                resolved_plugin.parent != resolved_root
+                or plugin_dir.is_symlink()
+                or not resolved_plugin.is_dir()
+                or not (resolved_plugin / "plugin.json").is_file()
+            ):
+                raise KeyError(f"Plugin '{plugin_id}' is not installed.")
+            await asyncio.to_thread(shutil.rmtree, resolved_plugin)
+            await asyncio.to_thread(loader.clear_plugin_activation, plugin_id)
+            return
+
         meta: dict = record.manifest.meta or {}
         provider_ids, command_names = _collect_plugin_runtime_ids(
             loader.registry,
@@ -751,21 +797,20 @@ async def uninstall_plugin_source(
     summary="Install plugin from path or URL",
     description=(
         "Install a plugin at runtime from a local directory path or a "
-        "remote ZIP URL.  The plugin is loaded immediately — no restart "
-        "required."
+        "remote ZIP URL. Versioned PawApps remain inert until activation."
     ),
 )
 async def install_plugin(
     body: InstallPluginRequest,
     request: Request,
 ):
-    """Install and hot-load a plugin from a local path or HTTP(S) URL.
+    """Install a plugin from a local path or HTTP(S) URL.
 
-    On success the plugin is immediately available; all agents are
-    reloaded in the background so that newly registered tools can be
-    used without a server restart.
+    Legacy plugins remain hot-loaded for compatibility. A versioned PawApp is
+    copied and validated without dependency installation or code execution.
     """
-    if getattr(request.app.state, "plugin_loader", None) is None:
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
         raise HTTPException(
             status_code=503,
             detail="Plugin loader is not ready yet. Try again shortly.",
@@ -795,9 +840,19 @@ async def install_plugin(
         "version": record.manifest.version,
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": True,
+        "loaded": record.enabled,
+        "activation_required": (
+            loader.requires_explicit_activation(record.manifest)
+            and not record.enabled
+        ),
         "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
+            f"Plugin '{record.manifest.name}' installed successfully"
+            + (
+                "; activation required."
+                if loader.requires_explicit_activation(record.manifest)
+                and not record.enabled
+                else "."
+            )
         ),
     }
 
@@ -807,7 +862,7 @@ async def install_plugin(
     summary="Install plugin from ZIP upload",
     description=(
         "Upload a plugin ZIP file and install it at runtime.  The "
-        "plugin is loaded immediately — no restart required.  Pass "
+        "versioned PawApps remain inert until activation. Pass "
         "``force=true`` as a query parameter to reinstall an already-"
         "loaded plugin."
     ),
@@ -840,7 +895,7 @@ async def upload_plugin(
             temp_dir,
         )
 
-        # Load + post-load setup share one lifecycle lock.
+        # Install and any immediate legacy post-load setup share one lock.
         record = await _load_plugin_with_optional_force_reinstall(
             loader,
             request,
@@ -869,10 +924,104 @@ async def upload_plugin(
         "version": record.manifest.version,
         "description": record.manifest.description,
         "author": record.manifest.author,
-        "loaded": True,
-        "message": (
-            f"Plugin '{record.manifest.name}' installed successfully."
+        "loaded": record.enabled,
+        "activation_required": (
+            loader.requires_explicit_activation(record.manifest)
+            and not record.enabled
         ),
+        "message": (
+            f"Plugin '{record.manifest.name}' installed successfully"
+            + (
+                "; activation required."
+                if loader.requires_explicit_activation(record.manifest)
+                and not record.enabled
+                else "."
+            )
+        ),
+    }
+
+
+@router.post(
+    "/{plugin_id}/activate",
+    summary="Activate a statically installed plugin",
+    description=(
+        "Install runtime dependencies and execute a plugin after an explicit "
+        "authenticated activation request."
+    ),
+)
+async def activate_plugin(plugin_id: str, request: Request):
+    """Activate one installed plugin and persist the manifest-bound choice."""
+    loader = getattr(request.app.state, "plugin_loader", None)
+    if loader is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Plugin loader is not ready yet.",
+        )
+
+    existing = loader.get_loaded_plugin(plugin_id)
+    if existing is not None and existing.enabled:
+        await asyncio.to_thread(
+            loader.mark_plugin_activated,
+            existing.manifest,
+        )
+        return {
+            "id": plugin_id,
+            "loaded": True,
+            "status": "active",
+        }
+
+    try:
+        from ...config.utils import get_config_path, load_config
+
+        config = await asyncio.to_thread(load_config, get_config_path())
+        plugin_configs = getattr(config, "plugins", {})
+        record = await loader.activate_plugin(
+            plugin_id,
+            plugin_configs.get(plugin_id),
+        )
+        if not record.enabled:
+            raise HTTPException(
+                status_code=409,
+                detail=record.diagnostics[0]
+                if record.diagnostics
+                else "plugin_incompatible",
+            )
+        try:
+            await _finish_plugin_install_after_load(
+                request,
+                record,
+                force=False,
+                old_tools=set(),
+            )
+        except BaseException:
+            await loader.unload_plugin(plugin_id, delete_files=False)
+            raise
+        await asyncio.to_thread(loader.mark_plugin_activated, record.manifest)
+    except HTTPException:
+        raise
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Plugin '{plugin_id}' not found.",
+        ) from exc
+    except (FileNotFoundError, RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(
+            "Plugin activation failed for '%s': %s",
+            _log_safe(plugin_id),
+            exc,
+            exc_info=True,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Plugin activation failed: {exc}",
+        ) from exc
+
+    return {
+        "id": plugin_id,
+        "loaded": True,
+        "status": "active",
     }
 
 
@@ -931,16 +1080,51 @@ async def get_plugin_status(plugin_id: str, request: Request):
         if record is not None:
             return {
                 "id": plugin_id,
-                "loaded": True,
+                "loaded": record.enabled,
                 "enabled": record.enabled,
                 "version": record.manifest.version,
+                "requires_activation": (
+                    loader.requires_explicit_activation(record.manifest)
+                ),
+                "activation_status": (
+                    "active" if record.enabled else "unavailable"
+                ),
+            }
+
+        match = next(
+            (
+                manifest
+                for manifest, _path in loader.discover_plugins()
+                if manifest.id == plugin_id
+            ),
+            None,
+        )
+        if match is not None:
+            required = loader.requires_explicit_activation(match)
+            return {
+                "id": plugin_id,
+                "loaded": False,
+                "enabled": False,
+                "version": match.version,
+                "requires_activation": required,
+                "activation_status": (
+                    "activated"
+                    if required and loader.is_plugin_activated(match)
+                    else "installed"
+                ),
             }
 
     # Check disk even if loader is not ready or plugin is not loaded
     from ...config.utils import get_plugins_dir
 
-    plugin_dir = get_plugins_dir() / plugin_id
-    if plugin_dir.is_dir() and (plugin_dir / "plugin.json").exists():
+    plugins_dir = get_plugins_dir().resolve()
+    plugin_dir = (plugins_dir / plugin_id).resolve()
+    if (
+        plugin_dir.parent == plugins_dir
+        and plugin_dir.is_dir()
+        and not (plugins_dir / plugin_id).is_symlink()
+        and (plugin_dir / "plugin.json").is_file()
+    ):
         return {"id": plugin_id, "loaded": False, "enabled": False}
 
     raise HTTPException(

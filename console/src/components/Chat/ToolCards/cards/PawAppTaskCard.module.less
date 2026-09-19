@@ -1,0 +1,216 @@
+.body {
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 8px 0;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  color: var(--app-text);
+  font-size: 13px;
+
+  p {
+    margin: 0;
+    color: var(--app-text-secondary);
+  }
+  a {
+    color: var(--app-accent);
+  }
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.status {
+  font-weight: 600;
+  &[data-status="running"],
+  &[data-status="pending"] {
+    color: var(--app-accent);
+  }
+  &[data-status="failed"],
+  &[data-status="interrupted"] {
+    color: var(--app-error);
+  }
+}
+
+.refresh {
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+.openApp {
+  border: 0;
+  background: transparent;
+  color: var(--app-accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+}
+
+.inputRequest {
+  display: grid;
+  gap: 10px;
+
+  fieldset {
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    display: grid;
+    gap: 8px;
+    margin: 0;
+    min-width: 0;
+    padding: 10px;
+  }
+
+  legend {
+    font-weight: 600;
+    padding: 0 4px;
+  }
+
+  > button {
+    border: 0;
+    border-radius: 6px;
+    background: var(--app-accent);
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+    justify-self: start;
+    padding: 6px 12px;
+
+    &:disabled {
+      cursor: wait;
+      opacity: 0.6;
+    }
+  }
+}
+
+.answerOptions {
+  display: grid;
+  gap: 6px;
+
+  label {
+    align-items: flex-start;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+  }
+
+  span {
+    display: grid;
+    gap: 2px;
+  }
+
+  small {
+    color: var(--app-text-secondary);
+  }
+}
+
+.customAnswer {
+  display: grid;
+  gap: 4px;
+
+  input {
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    color: var(--app-text);
+    font: inherit;
+    padding: 6px 8px;
+  }
+}
+
+.resultLabel {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.result {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  font: inherit;
+}
+.artifacts {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+
+  li {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    padding: 8px;
+  }
+
+  a {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  span {
+    color: var(--app-text-secondary);
+    font-size: 11px;
+  }
+}
+.artifactHeader,
+.artifactActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+.artifactHeader strong {
+  overflow-wrap: anywhere;
+}
+.artifactActions {
+  justify-content: flex-start;
+
+  button {
+    border: 0;
+    background: transparent;
+    color: var(--app-accent);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: underline;
+  }
+}
+.reportPreview {
+  width: 100%;
+  min-height: 280px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  background: #fff;
+}
+.textPreview {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+  margin: 0;
+  font: inherit;
+}
+.identifier {
+  overflow-wrap: anywhere;
+  color: var(--app-text-secondary);
+  font-size: 11px;
+}

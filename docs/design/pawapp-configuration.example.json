@@ -1,0 +1,794 @@
+{
+  "$comment": "PROPOSAL ONLY. Illustrative configuration fragments, not an installable plugin manifest or an implemented SDK schema. All IDs and runtime mappings require a real adapter; no credentials are embedded.",
+  "schema_version": "pawapp-configuration/proposal-4",
+  "host_contract": {
+    "ui_ownership": "app-settings-retained; host-forms-optional",
+    "authority_modes": [
+      "HostBinding",
+      "AppLocal",
+      "ExternalManaged"
+    ],
+    "authority_rule": "one-explicit-authority-per-configuration-item; host-manages-HostBinding-only; no-silent-migration-or-bidirectional-sync",
+    "host_settings_sections": [
+      "models-and-providers",
+      "services-and-connections",
+      "resource-usage-and-grants"
+    ],
+    "app_settings_sections": [
+      "app-model-purpose-bindings",
+      "app-deployment-and-runtime",
+      "app-domain-settings"
+    ],
+    "ui_placement": {
+      "host_shell_embedding_does_not_transfer_ui_ownership": true,
+      "binding_storage_does_not_determine_ui_location": true,
+      "main_chat": "readiness-summary; inline-choice-or-consent; contextual-secure-modal; app-setup-handoff",
+      "shared_picker": "optional-component-inside-app-owned-form; create-or-select-in-place; no-required-host-settings-detour",
+      "app_setup": "registered-app-entry-with-purpose-focus; preserve-existing-project-draft-and-origin; reprepare-on-result",
+      "setup_handoff_changes_task_interaction_owner": false,
+      "review_controls_are_product_navigation": false
+    },
+    "binding_precedence": [
+      "project-explicit",
+      "app-default",
+      "workspace-approved-default"
+    ],
+    "invalid_explicit_binding": "block-without-silent-fallback",
+    "deployment_locked_fields": "reject-overrides",
+    "frontend_delivery": "public-settings-and-binding-status-only",
+    "backend_delivery": "scoped-model-or-service-handle",
+    "provider_sdk_exception": "explicitly-approved-backend-lease-or-injection",
+    "model_snapshot": "pin-binding-revision-at-job-start",
+    "secret_storage": "host-secret-store-for-HostBinding; app-or-external-owner-otherwise",
+    "configuration_is_execution_authorization": false,
+    "generic_layers": [
+      "SetupRequirement-and-SetupRequest-lifecycle",
+      "optional-typed-model-connection-permission-domain-adapters",
+      "app-owned-settings-and-checkers"
+    ],
+    "configuration_required_for_core": false,
+    "typed_declarations": "models/connections/domain_requirements are optional authoring forms; adapters normalize them to SetupRequirement with resolved authority and registered check_ref; reject duplicate requirement IDs"
+  },
+  "online_preparation": {
+    "$comment": "Proposed runtime contract. The mock evaluates changing in-memory facts; it does not probe real services or implement server-side enforcement.",
+    "trigger": [
+      "next-confirmed-plan-phase",
+      "setup-return",
+      "configuration-or-grant-change",
+      "reconnect",
+      "before-execution"
+    ],
+    "main_chat": "suggest-action-and-nonsecret-values-with-provenance; never-read-raw-credentials",
+    "host": "coordinate-registered-checkers; validate-host-owned-state-and-grants; never-override-host-denial-with-app-ready",
+    "app": "declare-conditional-needs; report-public-readiness; own-domain-setup; execution-effects-are-separate-actions",
+    "prepare_is_read_only": true,
+    "auto_binding_commit": "separate-host-step-under-existing-grant; the mock prepare button illustrates this whole sequence",
+    "auto_bind_requires": [
+      "explicit-authority-allows-reuse",
+      "unique-or-explicitly-preferred-compatible-candidate",
+      "existing-valid-use-grant",
+      "allowed-scope-data-boundary-and-budget-policy",
+      "fresh-state",
+      "no-invalid-explicit-binding"
+    ],
+    "interaction_kinds": [
+      "none",
+      "inline-choice-or-consent",
+      "app-owned-setup-with-optional-host-secure-component",
+      "retry-or-block"
+    ],
+    "freshness": {
+      "checked_at": "required",
+      "expires_at": "required",
+      "bounded_probe_deadline": true,
+      "invalidate_on_revision_change": true,
+      "timeout_result": "unknown-not-missing",
+      "recheck_before_commit_and_execute": true
+    },
+    "challenge_bound_fields": [
+      "challenge_id",
+      "principal",
+      "app_id",
+      "workspace_id",
+      "task_id-if-present",
+      "project_id-if-present",
+      "plan_digest-if-present",
+      "context_revision-if-present",
+      "relevant-owner-config-revisions",
+      "policy_revision",
+      "listed_resource_scopes",
+      "expires_at",
+      "registered_return_target"
+    ],
+    "commit": "validate-challenge-and-schema; compare-and-swap; record-scoped-change; return-public-refs-only",
+    "continuation": {
+      "reprepare_after_setup": true,
+      "requires_existing_execution_grant": true,
+      "idempotency_key": "task_id+continuation_id",
+      "cancel_preserves_draft": true,
+      "unknown_external_job": "reconcile-before-retry"
+    }
+  },
+  "apps": [
+    {
+      "app_id": "qwenpaw-creator",
+      "configuration": {
+        "version": 1,
+        "authorities": [
+          "HostBinding",
+          "AppLocal"
+        ],
+        "ordinary_value_prefill": "task-derived-with-provenance-and-schema-validation",
+        "models": [
+          {
+            "id": "creator-llm",
+            "capability": "chat.generate",
+            "required_for": [
+              "create-video"
+            ],
+            "readiness_phase": "eager-before-task-creation",
+            "binding_scopes": [
+              "app-default"
+            ],
+            "delivery": "model_handle",
+            "setup_entry": "creator-llm-model"
+          },
+          {
+            "id": "storyboard-image",
+            "capability": "image.generate",
+            "required_for": [
+              "create-video",
+              "generate-storyboard"
+            ],
+            "readiness_phase": "deferred-at-actionable-storyboard-stage",
+            "binding_scopes": [
+              "project",
+              "app-default"
+            ],
+            "delivery": "model_handle",
+            "setup_entry": "creator-image-model"
+          },
+          {
+            "id": "shot-video",
+            "capability": "video.generate",
+            "required_for": [
+              "create-video",
+              "generate-video"
+            ],
+            "readiness_phase": "deferred-at-actionable-video-stage",
+            "binding_scopes": [
+              "project",
+              "app-default"
+            ],
+            "delivery": "backend_adapter",
+            "setup_entry": "creator-video-model"
+          }
+        ],
+        "settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "aspect_ratio": {
+              "type": "string",
+              "enum": [
+                "16:9",
+                "9:16",
+                "1:1"
+              ],
+              "default": "16:9"
+            },
+            "visual_style": {
+              "type": "string",
+              "enum": [
+                "自然纪实",
+                "极简产品",
+                "动画叙事"
+              ],
+              "default": "自然纪实"
+            }
+          }
+        },
+        "settings_owner": "app-project",
+        "custom_setup": {
+          "setup_entry": "creator-project-preferences",
+          "ui_owner": "app",
+          "secret_fields": "host-secure-controls-for-HostBinding; app-owned-flow-for-AppLocal",
+          "binding_management": "host-shared-service-only-for-HostBinding"
+        },
+        "readiness": {
+          "edit-script": [],
+          "create-video": {
+            "eager": [
+              "model:creator-llm"
+            ],
+            "deferred_in_order": [
+              "model:storyboard-image",
+              "model:shot-video"
+            ],
+            "one_active_task_linked_request": true,
+            "saved_result": "recheck-readiness; if-still-unready-increment-attempt-and-reuse-the-deterministic-next-request"
+          },
+          "generate-storyboard": [
+            "model:storyboard-image"
+          ],
+          "generate-video": [
+            "model:shot-video"
+          ],
+          "confirmed-storyboard-and-video-phase": [
+            "model:storyboard-image",
+            "model:shot-video"
+          ]
+        },
+        "$comment": "create-video uses eager LLM readiness before task creation, then independent deferred image and video checks as work becomes actionable. The private primitive actions retain their direct model checks. Setup never grants generation approval or starts a provider call.",
+        "setup_entries": [
+          {
+            "id": "creator-llm-model",
+            "entry_ref": "creator.model-settings",
+            "focus": "llm",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "creator-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "creator-image-model",
+            "entry_ref": "creator.model-settings",
+            "focus": "image-generation",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "creator-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "creator-video-model",
+            "entry_ref": "creator.model-settings",
+            "focus": "video-generation",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "creator-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "creator-project-preferences",
+            "entry_ref": "creator.project-settings",
+            "focus": "creation-preferences",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "creator-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "app_id": "qwenpaw-data",
+      "configuration": {
+        "version": 1,
+        "authorities": [
+          "HostBinding",
+          "AppLocal",
+          "ExternalManaged"
+        ],
+        "deployment_modes": {
+          "managed": {
+            "context_endpoint": "derived-from-managed-service",
+            "internal_token": "launcher-managed",
+            "dependency_chain": [
+              "analysis-engine",
+              "context-service",
+              "knowledge-graph"
+            ]
+          },
+          "external": {
+            "requires": [
+              "selected-context-connection",
+              "authorized-workspace-and-datasource-scope"
+            ],
+            "internal_neo4j_required_locally": false,
+            "semantic_models_and_index_owner": "remote-service"
+          }
+        },
+        "models": [
+          {
+            "id": "analysis-llm",
+            "capability": "chat.generate",
+            "required_for": [
+              "analyze",
+              "graph-query"
+            ],
+            "binding_scopes": [
+              "project",
+              "app-default"
+            ],
+            "workspace_default": "only-if-approved",
+            "delivery": "model_handle",
+            "setup_entry": "data-agent-models"
+          },
+          {
+            "id": "knowledge-embedding",
+            "capability": "embedding.generate",
+            "required_for": [
+              "graph-query"
+            ],
+            "when": {
+              "context_mode": "managed",
+              "local_indexing_or_embedding_required": true
+            },
+            "binding_scopes": [
+              "project",
+              "app-default"
+            ],
+            "workspace_default": "only-if-approved",
+            "delivery": "model_handle",
+            "apply_effect": "validate-index-compatibility; rebuild-is-separately-authorized-action",
+            "setup_entry": "data-embedding-index"
+          },
+          {
+            "id": "semantic-processing",
+            "capability": "chat.generate",
+            "required_for": [
+              "build-semantic-context"
+            ],
+            "when": {
+              "context_mode": "managed"
+            },
+            "binding_scopes": [
+              "app-default"
+            ],
+            "delivery": "model_handle",
+            "setup_entry": "data-semantic-model"
+          }
+        ],
+        "connections": [
+          {
+            "id": "context-service",
+            "kind": "databridge",
+            "required_for": [
+              "analyze",
+              "graph-query"
+            ],
+            "delivery": "service_handle",
+            "operations": [
+              "query"
+            ],
+            "provision": "separate-action",
+            "setup_entry": "data-context-connection"
+          },
+          {
+            "id": "knowledge-graph",
+            "kind": "neo4j",
+            "required_for": [
+              "managed-context-ready"
+            ],
+            "when": {
+              "context_mode": "managed"
+            },
+            "internal_dependency_of": "context-service",
+            "delivery": "managed_process",
+            "operations": [
+              "read"
+            ],
+            "provision": "separate-action",
+            "setup_entry": "data-graph-storage"
+          }
+        ],
+        "settings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "query_timeout_seconds": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 600,
+              "default": 60
+            },
+            "entity_key": {
+              "type": "string",
+              "enum": [
+                "customer_id",
+                "account_id",
+                "organization_id"
+              ],
+              "default": "customer_id"
+            }
+          }
+        },
+        "setting_scopes": {
+          "query_timeout_seconds": "app-service",
+          "entity_key": "app-project"
+        },
+        "runtime": [
+          {
+            "service_ref": "context",
+            "when": {
+              "context_mode": "managed",
+              "authority": "HostBinding"
+            },
+            "apply_policy": "next-safe-start",
+            "environment": {
+              "NEO4J_URI": {
+                "from_connection": "knowledge-graph",
+                "field": "endpoint"
+              },
+              "NEO4J_PASSWORD": {
+                "from_connection": "knowledge-graph",
+                "field": "credential.password",
+                "secret": true,
+                "resolve_at": "host-launcher"
+              }
+            }
+          },
+          {
+            "service_ref": "engine",
+            "apply_policy": "next-safe-start",
+            "environment": {
+              "QWENPAW_DATA_CM_BASE_URL": {
+                "from_connection": "context-service",
+                "field": "endpoint"
+              },
+              "QWENPAW_DATA_CLIENT_API_TOKEN": {
+                "from_connection": "context-service",
+                "field": "credential.token",
+                "secret": true,
+                "resolve_at": "host-launcher"
+              },
+              "APP_QUERY_TIMEOUT_SECONDS": {
+                "from_setting": "query_timeout_seconds",
+                "serialize": "decimal-string",
+                "$comment": "Illustrative adapter variable, not a verified current engine configuration key."
+              }
+            }
+          }
+        ],
+        "custom_setup": {
+          "setup_entry": "data-semantic-mapping",
+          "ui_owner": "app",
+          "secret_fields": "host-secure-controls-for-HostBinding; app-or-external-owner-otherwise",
+          "binding_management": "host-shared-service-only-for-HostBinding"
+        },
+        "readiness": {
+          "browse-project": [],
+          "analyze": [
+            "model:analysis-llm",
+            "connection:context-service",
+            "domain:project-datasource"
+          ],
+          "graph-query": [
+            "model:analysis-llm",
+            "connection:context-service",
+            "conditional:local-embedding-and-graph",
+            "domain:project-datasource"
+          ],
+          "managed-context-ready": [
+            "connection:knowledge-graph"
+          ],
+          "build-semantic-context": [
+            "domain:semantic-mapping",
+            "conditional:managed-semantic-processing"
+          ]
+        },
+        "migration_coverage_required_beyond_this_fragment": [
+          "default-and-light-analysis-models",
+          "separate-semantic-processing-model",
+          "provider-extra-models-and-generate-kwargs",
+          "thinking",
+          "iteration-and-retry-settings",
+          "datasource-credentials-versus-semantic-content",
+          "embedding-rebuild-impact",
+          "all-legacy-write-paths",
+          "project-task-datasource-selection"
+        ],
+        "$comment": "Illustrative Data contract, not an installable manifest. Each declared setup entry needs an adapter to the real vendored settings UI. Local semantic/embedding requirements do not apply to remote DataBridge internals. The mock exercises a smaller entry set; production must cover the listed migration requirements.",
+        "setup_entries": [
+          {
+            "id": "data-agent-models",
+            "entry_ref": "data.agent-settings",
+            "focus": "analysis-models",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "data-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "data-context-connection",
+            "entry_ref": "data.databridge-settings",
+            "focus": "connection-and-deployment",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "data-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "data-graph-storage",
+            "entry_ref": "data.databridge-settings",
+            "focus": "neo4j",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "when": {
+              "context_mode": "managed"
+            },
+            "fallback": {
+              "entry_ref": "data-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "data-semantic-model",
+            "entry_ref": "data.databridge-settings",
+            "focus": "semantic-model",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "when": {
+              "context_mode": "managed"
+            },
+            "fallback": {
+              "entry_ref": "data-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "data-embedding-index",
+            "entry_ref": "data.context-models",
+            "focus": "embedding-and-index-impact",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "when": {
+              "context_mode": "managed"
+            },
+            "fallback": {
+              "entry_ref": "data-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "data-datasources",
+            "entry_ref": "data.datasources",
+            "focus": "project-datasource",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "data-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          },
+          {
+            "id": "data-semantic-mapping",
+            "entry_ref": "data.semantic-settings",
+            "focus": "entity-mapping",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app",
+            "fallback": {
+              "entry_ref": "data-registered-project-page",
+              "behavior": "open-project-with-unresolved-setup-notice"
+            }
+          }
+        ],
+        "domain_requirements": [
+          {
+            "id": "project-datasource",
+            "required_for": [
+              "analyze",
+              "graph-query"
+            ],
+            "setup_entry": "data-datasources",
+            "owner": "app-project",
+            "check": "selected-source-and-current-data-scope-authorized"
+          },
+          {
+            "id": "semantic-mapping",
+            "required_for": [
+              "build-semantic-context"
+            ],
+            "setup_entry": "data-semantic-mapping",
+            "owner": "app-project",
+            "apply_effect": "save-draft; index-build-is-separate-action"
+          }
+        ]
+      }
+    },
+    {
+      "app_id": "qwenpaw-file-browser",
+      "$comment": "Implemented as a narrow Host 2.2 adaptation. The changed Marketplace archive was not executed; the read-only implementation is derived from the inspected Apache-2.0 upstream commit and keeps default configuration separate from Host authorization.",
+      "source": {
+        "marketplace_id": "@archigram/qwenpaw-file-browser",
+        "version": "0.2.3",
+        "reviewed_archive_sha256": "6275013f0ce73279380f52d5b008cfbba1904c266778054f890e920b072b4377",
+        "observed_archive_sha256_2026_09_16": "4a35a29051be306982e0d07e16ef919301676577ccd37850c74fddeab8500cba",
+        "upstream_git_commit": "8870a8cc1344c758cabb9ba46e36d9a7e92b625e"
+      },
+      "configuration": {
+        "version": 1,
+        "requirements": [
+          {
+            "id": "default-root",
+            "summary": "Default directory for browsing",
+            "required_for": [
+              "list-directory"
+            ],
+            "authority": "AppLocal",
+            "setup_entry_ref": "file-browser-default-root",
+            "check_ref": "file-browser.check-default-root@1",
+            "type_ref": "qwenpaw-file-browser:directory-preference@1"
+          }
+        ],
+        "setup_entries": [
+          {
+            "id": "file-browser-default-root",
+            "entry_ref": "file-browser.directory-settings",
+            "focus": "default-directory",
+            "presentations": [
+              "app_entry"
+            ],
+            "context_schema_version": "pawapp:setup-context@1",
+            "ui_owner": "app"
+          }
+        ],
+        "settings_scope": "principal-and-workspace; app-owned-persistent-revision",
+        "models": [],
+        "readiness": {
+          "list-directory-with-explicit-input": "validate-path-input-and-current-read-grant; no-default-root-configuration-required",
+          "list-directory-using-default": [
+            "domain:default-root",
+            "current-read-grant"
+          ],
+          "default-not-set": "needs_configuration; caller-can-instead-retry-with-one-explicit-directory-input",
+          "path-outside-grant": "needs_authorization; saving-default-does-not-grant-read-access",
+          "path-unavailable": "report-dependency-or-configuration-reason; never-request-model-key"
+        },
+        "save_effect": "save-directory-preference-only; reprepare; no-listing-or-permission-expansion",
+        "execution": "one-bounded-read-only-list-directory-action; same-private-implementation-for-delegated-and-direct",
+        "excluded": [
+          "file-writes",
+          "terminal-execution",
+          "existing-ai-assistant-adaptation"
+        ]
+      }
+    }
+  ],
+  "setup_contract": {
+    "$comment": "Proposed generic protocol. Entry/check references resolve to App-registered handlers. Optional typed declarations normalize to SetupRequirement; no model or connection is required for an App.",
+    "optional_for_core": true,
+    "declared_entry_requires_handler": true,
+    "declaration_fields": [
+      "id",
+      "entry_ref",
+      "focus",
+      "presentations",
+      "context_schema_version",
+      "optional-when",
+      "optional-fallback"
+    ],
+    "registry_validation": [
+      "app-scoped-entry-id",
+      "manifest-handler-descriptor-digest-match",
+      "focus-and-presentation-supported",
+      "bounded-activation-and-ready-ack",
+      "unregister-on-dispose"
+    ],
+    "request_fields": [
+      "request_id",
+      "app_id",
+      "descriptor_digest",
+      "entry_id",
+      "requirement_ids",
+      "origin_ref",
+      "task_id-if-present",
+      "action_id-if-present",
+      "project_ref-if-present",
+      "plan_digest-if-present",
+      "input_digest-if-task-linked",
+      "attempt-if-task-linked",
+      "expected_revisions",
+      "scopes",
+      "suggested_values-with-provenance",
+      "presentation",
+      "expires_at",
+      "return_target"
+    ],
+    "identity": "principal-and-workspace-derived-by-host; request-id-is-not-authorization",
+    "navigation": "reuse-mounted-app-and-project; app-handles-internal-route-and-modal; URL-may-contain-opaque-request-id-only",
+    "lifecycle": [
+      "requested",
+      "opened",
+      "waiting_external-if-needed",
+      "saved|cancelled|failed|expired"
+    ],
+    "result_fields": [
+      "request_id",
+      "result_id",
+      "outcome",
+      "changed_requirement_ids",
+      "config_revisions",
+      "public_refs",
+      "pending_effects",
+      "error_code"
+    ],
+    "error_codes": [
+      "unsupported_setup",
+      "entry_unavailable",
+      "presentation_unsupported",
+      "context_conflict",
+      "request_expired",
+      "validation_failed",
+      "permission_denied",
+      "external_timeout"
+    ],
+    "completion": "app-backend-authenticated-receipt; host-validates-request-and-versions; saved-is-not-ready; linked cancellation cancels the waiting task; failed-or-expired fails it with a bounded reason",
+    "task_linked_retry": "bind task, action, descriptor, requirement, plan, input digest, and monotonic attempt; after saved-but-unready, durably advance the attempt and create-or-reuse exactly one next request",
+    "replay": "deduplicate-request-and-result; duplicate-open-focuses-existing-draft; duplicate-result-never-restarts-work",
+    "manual_open": "task/action/plan/context are absent unless applicable; check relevant configuration/policy revisions; recheck selected requirements; return to App without task creation or continuation",
+    "fallback": "registered-app-entry-or-explicit-error; preserve-draft; never-guess-URL-or-claim-ready",
+    "shared_resource_ui": "one-app-owned-form-may-create-connection-and-request-scoped-use-consent; operations-remain-separately-audited",
+    "partial_save": "retain-draft-and-created-resource-ref; reconcile-before-retry; no-duplicate-resource-or-auto-execution",
+    "effects": "save-configuration-only; restart-provision-index-rebuild-generation-are-separate-authorized-actions",
+    "requirement_fields": [
+      "id",
+      "summary",
+      "required_for",
+      "authority",
+      "setup_entry_ref",
+      "check_ref",
+      "type_ref-if-present"
+    ],
+    "result_outcomes": [
+      "saved",
+      "cancelled",
+      "failed"
+    ],
+    "external_completion": {
+      "waiting_state": "waiting_external",
+      "correlation": "owner-adapter-persists-request-and-provider-correlation; authorization-state-bound-to-request",
+      "verification": "authenticated-server-callback-or-bounded-poll; browser-return-is-not-proof",
+      "reconnect": "query-same-request-id",
+      "late_result": "do-not-revive-cancelled-or-expired-request; do-not-run-task; later-prepare-may-observe-external-change",
+      "timeout": "external_timeout-or-request_expired",
+      "verification_scope": "contract-fixture-only-until-an-app-provider-integration-is-tested"
+    },
+    "pending_effects": "separately-authorized-followup-actions; not unfinished configuration or authorization"
+  }
+}

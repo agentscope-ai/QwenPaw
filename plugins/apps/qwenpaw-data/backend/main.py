@@ -19,6 +19,8 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, HTTPException, Request, Response
 
 from qwenpaw.pawapp import DependencyHealth, DependencyProbe, PawApp
+from qwenpaw.pawapp.capabilities import task_capability_bridge
+from qwenpaw.pawapp.tasks.binding import ActionRegistration
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +30,12 @@ if __package__ and __package__.startswith("plugin_"):
         APP_DATA_DIR,
         CONFIG_JSON_PATH,
         DataAppConfig,
+        context_service_env,
         load_config,
         on_before_start,
         prepare_runtime_files,
         save_config,
         seed_from_env,
-        set_context_env_vars,
     )
     from .backend.bridge import (
         BridgeSessionStore,
@@ -46,6 +48,7 @@ if __package__ and __package__.startswith("plugin_"):
     )
     from .backend.context_gateway import ContextGateway
     from .backend.engine_gateway import EngineGateway
+    from .backend.task_bridge import DataTaskAdapter, data_action_descriptor
     from .backend.runtime import (
         context_python,
         context_working_dir,
@@ -61,12 +64,12 @@ else:
         APP_DATA_DIR,
         CONFIG_JSON_PATH,
         DataAppConfig,
+        context_service_env,
         load_config,
         on_before_start,
         prepare_runtime_files,
         save_config,
         seed_from_env,
-        set_context_env_vars,
     )
     from backend.bridge import (  # noqa: E402
         BridgeSessionStore,
@@ -79,6 +82,10 @@ else:
     )
     from backend.context_gateway import ContextGateway  # noqa: E402
     from backend.engine_gateway import EngineGateway  # noqa: E402
+    from backend.task_bridge import (  # noqa: E402
+        DataTaskAdapter,
+        data_action_descriptor,
+    )
     from backend.runtime import (  # noqa: E402
         context_python,
         context_working_dir,
@@ -105,6 +112,22 @@ app.agent_profile(
 _context_token = secrets.token_urlsafe(32)
 
 _active_restore_done = False
+
+# Network configuration is an explicit grant to these two sidecars, not an
+# SDK-wide default. App/model credentials come from saved settings instead.
+_NETWORK_ENV = (
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+)
 
 
 async def _on_before_start() -> None:
@@ -140,16 +163,31 @@ _context_service = app.managed_service(
     ),
     health_path="/api/health",
     cwd=context_working_dir(),
-    # Only pass plugin-owned overrides; the framework's
-    # ManagedService.start() already inherits os.environ.copy() and merges
-    # spec.env on top. Spreading **os.environ here would (a) freeze the
-    # snapshot at import time, pinning later env changes to stale values on
-    # restart, and (b) subject every inherited env var to
-    # _replace_placeholders(), silently rewriting literal {host}/{port}.
+    # Configure owns model/Neo4j credentials. Only the extra runtime knobs
+    # listed here may be inherited; Engine and Host credentials stay out.
+    inherit_env=(
+        *_NETWORK_ENV,
+        "QWENPAW_DATA_HOME",
+        "NEO4J_DATABASE_DEMO",
+        "NEO4J_DATABASE_MCP",
+        "DATASOURCES_CONFIG",
+        "SEMANTIC_CONFIG_DB_PATH",
+        "DOC_STORAGE_DIR",
+        "DOC_MAX_SIZE",
+        "QWENPAW_DATA_JOBS_DB",
+        "EMBEDDING_JOBS_DIR",
+        "LLM_HTTP_TIMEOUT",
+        "KNOWLEDGE_INGEST_LLM_TIMEOUT",
+        "EMBED_API_BATCH",
+        "EMBED_API_CONCURRENCY",
+        "EMBED_API_MAX_RETRIES",
+        "EMBED_API_MAX_INPUT_CHARS",
+    ),
     env={
         "QWENPAW_DATA_API_TOKEN": _context_token,
         "QWENPAW_DATA_CLIENT_API_TOKEN": _context_token,
     },
+    env_factory=context_service_env,
     external_url_env="QWENPAW_DATA_CONTEXT_URL",
     mode_env="QWENPAW_DATA_CONTEXT_MODE",
     on_before_start=_on_before_start,
@@ -169,15 +207,8 @@ _engine_token = secrets.token_urlsafe(32)
 ENGINE_HOME = APP_DATA_DIR / "engine"
 
 
-async def _engine_before_start() -> None:
-    """Inject CM connectivity and model defaults into the engine env.
-
-    The engine sidecar starts after the context service (registration
-    order), so the context endpoint is known here. ManagedService snapshots
-    ``os.environ`` at start time, which makes this the one place dynamic
-    values can be provided.
-    """
-    ENGINE_HOME.mkdir(parents=True, exist_ok=True)
+def _engine_context_connection() -> tuple[str, str]:
+    """Resolve Context connectivity after the earlier sidecar has started."""
     if _context_service.is_external:
         cm_url = os.getenv("QWENPAW_DATA_CONTEXT_URL", "").strip()
         cm_token = os.getenv("QWENPAW_DATA_CONTEXT_TOKEN", "").strip()
@@ -187,26 +218,37 @@ async def _engine_before_start() -> None:
         except RuntimeError:
             cm_url = ""
         cm_token = _context_token
+    return cm_url, cm_token
+
+
+async def _engine_before_start() -> None:
+    """Prepare the Engine workspace without modifying the Host environment."""
+    ENGINE_HOME.mkdir(parents=True, exist_ok=True)
+    cm_url, cm_token = _engine_context_connection()
     if cm_url:
-        os.environ["QWENPAW_DATA_CM_BASE_URL"] = cm_url
-        os.environ["QWENPAW_DATA_CLIENT_API_TOKEN"] = cm_token
         provision_engine_mcp(ENGINE_HOME, cm_url, cm_token)
+    config = _sync_reuse_from_host(load_config())
+    if config.llm.reuse_host or config.embedding.reuse_host:
+        save_config(config)
+
+
+def _engine_env() -> dict[str, str]:
+    """Build a fresh Engine-only configuration after startup preparation."""
+    environment: dict[str, str] = {}
+    cm_url, cm_token = _engine_context_connection()
+    if cm_url:
+        environment["QWENPAW_DATA_CM_BASE_URL"] = cm_url
+        environment["QWENPAW_DATA_CLIENT_API_TOKEN"] = cm_token
     config = load_config()
-    for name in (
-        "QWENPAW_DATA_MODEL_PROVIDER",
-        "QWENPAW_DATA_MODEL_NAME",
-        "QWENPAW_DATA_MODEL_API_KEY",
-        "QWENPAW_DATA_MODEL_BASE_URL",
-    ):
-        os.environ.pop(name, None)
     if config.llm.model and config.llm.api_key:
-        os.environ["QWENPAW_DATA_MODEL_PROVIDER"] = (
+        environment["QWENPAW_DATA_MODEL_PROVIDER"] = (
             config.llm.provider or "openai"
         )
-        os.environ["QWENPAW_DATA_MODEL_NAME"] = config.llm.model
-        os.environ["QWENPAW_DATA_MODEL_API_KEY"] = config.llm.api_key
+        environment["QWENPAW_DATA_MODEL_NAME"] = config.llm.model
+        environment["QWENPAW_DATA_MODEL_API_KEY"] = config.llm.api_key
         if config.llm.base_url:
-            os.environ["QWENPAW_DATA_MODEL_BASE_URL"] = config.llm.base_url
+            environment["QWENPAW_DATA_MODEL_BASE_URL"] = config.llm.base_url
+    return environment
 
 
 _engine_service = app.managed_service(
@@ -224,10 +266,26 @@ _engine_service = app.managed_service(
     ),
     health_path="/health",
     cwd=context_working_dir(),
+    inherit_env=(
+        *_NETWORK_ENV,
+        "DOCKER_HOST",
+        "DOCKER_CONTEXT",
+        "DOCKER_CONFIG",
+        "DOCKER_TLS_VERIFY",
+        "DOCKER_CERT_PATH",
+        "QWENPAW_DATA_STORE",
+        "QWENPAW_DATA_FOLLOWUP_ENABLED",
+        "QWENPAW_DATA_BIZ_TRACE_ENABLED",
+        "QWENPAW_DATA_SPAWN_SUBAGENT_ENABLED",
+        "QWENPAW_DATA_MCP_EXECUTION_TIMEOUT",
+        "QWENPAW_DATA_MCP_DISCOVERY_TIMEOUT",
+        "QWENPAW_DATA_CM_MCP_TIMEOUT",
+    ),
     env={
         "QWENPAW_DATA_API_TOKEN": _engine_token,
         "QWENPAW_DATA_HOME": str(ENGINE_HOME),
     },
+    env_factory=_engine_env,
     external_url_env="QWENPAW_DATA_ENGINE_URL",
     mode_env="QWENPAW_DATA_ENGINE_MODE",
     on_before_start=_engine_before_start,
@@ -259,6 +317,18 @@ def _engine_endpoint() -> tuple[str, str]:
     )
     return _engine_service.base_url, token
 
+
+app.task_action(
+    ActionRegistration(
+        action=data_action_descriptor(),
+        factory=lambda: DataTaskAdapter(
+            _engine_endpoint,
+            executor_id="qwenpaw-data.engine",
+            capability_bridge=task_capability_bridge,
+        ),
+        settings_entry="/apps/qwenpaw-data",
+    ),
+)
 
 _bridge_store = BridgeSessionStore(path=APP_DATA_DIR / "bridge_sessions.json")
 _bridge_client = EngineClient(_engine_endpoint)
@@ -430,13 +500,10 @@ async def _initialize_config() -> None:
     This runs before managed services start (priority 70) so the context
     service's on_before_start hook can read a fully initialized config.json.
     """
-    from qwenpaw.envs import load_envs_into_environ
-
-    # Framework-level envs (``qwenpaw env set``) participate in first-run
-    # seeding, mirroring what on_before_start reloads before every start.
-    load_envs_into_environ()
     config = load_config()
     if not CONFIG_JSON_PATH.is_file():
+        from qwenpaw.envs import load_envs
+
         host_llm = _host_llm_payload()
         if host_llm:
             config.llm.provider = "openai"
@@ -449,11 +516,11 @@ async def _initialize_config() -> None:
         # Fill anything the host model did not cover (Neo4j credentials,
         # embedding model) from the environment so the Configure page
         # reflects the values the service actually uses.
-        seed_from_env(config)
+        # Read persisted defaults without reloading them into the Host.
+        seed_from_env(config, {**os.environ, **load_envs()})
         save_config(config)
     else:
         prepare_runtime_files(config)
-        set_context_env_vars()
 
 
 @app.hook("startup", priority=90)
@@ -845,7 +912,6 @@ async def set_config(payload: dict[str, Any]) -> dict[str, Any]:
     # saving while reuse is enabled also follows host model switches.
     _sync_reuse_from_host(config)
     save_config(config)
-    set_context_env_vars()
     # If the context service is already running, push the new model
     # configuration so it takes effect without a manual restart.
     await _push_model_config(config)
@@ -956,7 +1022,6 @@ async def reuse_host_model(payload: dict[str, Any]) -> dict[str, Any]:
     if reuse:
         _sync_reuse_from_host(config, strict=True)
     save_config(config)
-    set_context_env_vars()
     await _push_model_config(config)
     return config.to_dict()
 

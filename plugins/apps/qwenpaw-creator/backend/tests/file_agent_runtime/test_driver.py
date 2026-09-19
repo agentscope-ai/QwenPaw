@@ -13,6 +13,7 @@ import pytest
 from PIL import Image
 
 from api.file_asset_routes import _AssetInput, _ingest_many_sync
+from domain.enums import CreatorGoalStatus, CreatorSessionStatus
 from services.file_agent_runtime import (
     AgentModelConfigurationError,
     AgentModelTurn,
@@ -2085,6 +2086,87 @@ def test_feedback_keeps_admitted_media_alive_but_hard_stop_cancels_it(
     asyncio.run(scenario())
 
 
+def test_correlated_cancellation_revokes_only_settled_run(tmp_path) -> None:
+    async def scenario():
+        services, snapshot = _create_project(
+            tmp_path,
+            initial_goal="请修改项目",
+        )
+        started = asyncio.Event()
+
+        async def stubborn_model(_messages, _tools):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return _tool_turn(
+                    call_id="late-correlated-write",
+                    name="jq_project",
+                    arguments={
+                        "projectId": PROJECT_ID,
+                        "baseEtag": snapshot.etag,
+                        "program": '.description = "must-not-commit"',
+                    },
+                )
+
+        driver = _driver(services, stubborn_model)
+        await driver.start()
+        driver.notify(PROJECT_ID)
+        await asyncio.wait_for(started.wait(), timeout=2.0)
+        run = driver.runs.list(PROJECT_ID)[0]
+        session = services.sessions.get_project_session(PROJECT_ID)
+        driver.runs.transition(
+            PROJECT_ID,
+            run.run_id,
+            expected_status=AgentRunStatus.RUNNING,
+            status=AgentRunStatus.CANCELLED,
+            updates={
+                "error": {
+                    "code": "HOST_CANCELLED",
+                    "message": "Host task cancelled this workflow.",
+                },
+            },
+        )
+        services.sessions.mark_messages_consumed(
+            PROJECT_ID,
+            SESSION_ID,
+            through_seq=run.caused_by_message_seq,
+            goal_id=run.goal_id,
+        )
+        services.sessions.set_goal_status(
+            PROJECT_ID,
+            run.goal_id,
+            CreatorGoalStatus.CANCELLED,
+        )
+        services.sessions.clear_active_run(
+            PROJECT_ID,
+            SESSION_ID,
+            expected_run_id=run.run_id,
+            status=CreatorSessionStatus.CANCELLED,
+        )
+
+        cancelled = await driver.cancel_correlated(
+            PROJECT_ID,
+            agent_run_ids=(run.run_id,),
+            specialist_run_ids=(),
+        )
+        await driver.wait_until_idle(PROJECT_ID)
+        project = services.projects.read(PROJECT_ID)
+        settled_session = services.sessions.get_project_session(PROJECT_ID)
+        settled_run = driver.runs.get(PROJECT_ID, run.run_id)
+        await driver.stop()
+        return cancelled, project, settled_session, settled_run
+
+    cancelled, project, session, run = asyncio.run(scenario())
+    assert cancelled is True
+    assert project.generation == 0
+    assert project.project.description == ""
+    assert run.status is AgentRunStatus.CANCELLED
+    assert run.error["code"] == "HOST_CANCELLED"
+    assert session.status is CreatorSessionStatus.CANCELLED
+    assert session.active_run_id is None
+
+
 def test_interrupt_returns_before_slow_task_cleanup_finishes(tmp_path) -> None:
     async def scenario():
         services, _snapshot = _create_project(
@@ -3420,14 +3502,16 @@ def test_delegate_accepted_then_terminal_notification_resumes(
         await _wait_for(lambda: parent_turn >= 3)
         await driver.wait_until_idle(PROJECT_ID)
         runs = driver.executions.list_specialist_runs(PROJECT_ID)
+        agent_runs = driver.runs.list(PROJECT_ID)
         messages = services.sessions.list_messages(PROJECT_ID, SESSION_ID)
         await driver.stop()
-        return runs, messages
+        return runs, agent_runs, messages
 
-    runs, messages = asyncio.run(scenario())
+    runs, agent_runs, messages = asyncio.run(scenario())
 
     assert len(runs) == 1
     assert runs[0].status.value == "SUCCEEDED"
+    assert runs[0].related_run_id == agent_runs[0].run_id
     notifications = [
         item
         for item in messages

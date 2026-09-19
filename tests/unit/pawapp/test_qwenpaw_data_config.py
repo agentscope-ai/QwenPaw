@@ -49,17 +49,6 @@ def config_module(tmp_path: Path, monkeypatch):
         "MODELS_JSON_PATH",
         module.APP_DATA_DIR / "models.json",
     )
-    # Snapshot app-managed env keys so tests that trigger load_app_env()
-    # cannot leak rewritten values into the surrounding pytest process.
-    for key in (
-        *module._APP_MANAGED_ENV_KEYS,
-        "QWENPAW_DATA_ENV_FILE",
-        "MODEL_CONFIG_PATH",
-    ):
-        if key in os.environ:
-            monkeypatch.setenv(key, os.environ[key])
-        else:
-            monkeypatch.delenv(key, raising=False)
     return module
 
 
@@ -132,7 +121,7 @@ def test_env_file_omits_empty_optional_values(config_module) -> None:
     assert "OPENAI_BASE_URL" not in env_text
 
 
-def test_models_json_falls_back_to_env_vars(
+def test_first_run_seeds_models_from_env_vars(
     config_module,
     monkeypatch,
 ) -> None:
@@ -146,7 +135,8 @@ def test_models_json_falls_back_to_env_vars(
     monkeypatch.delenv("EMBED_OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("EMBED_DIM", raising=False)
 
-    config_module.prepare_runtime_files(config_module.DataAppConfig())
+    config = config_module.seed_from_env(config_module.DataAppConfig())
+    config_module.save_config(config)
 
     models = json.loads(
         config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"),
@@ -278,22 +268,22 @@ def test_save_config_restricts_file_permissions(config_module) -> None:
     assert mode == 0o600
 
 
-def test_set_context_env_vars_points_at_generated_files(
+def test_context_env_points_at_generated_files(
     config_module,
 ) -> None:
     config_module.ensure_config_dir()
     config_module.prepare_runtime_files(config_module.DataAppConfig())
-    config_module.set_context_env_vars()
+    environment = config_module.context_service_env()
 
-    assert os.environ["QWENPAW_DATA_ENV_FILE"] == str(
+    assert environment["QWENPAW_DATA_ENV_FILE"] == str(
         config_module.ENV_FILE_PATH,
     )
-    assert os.environ["MODEL_CONFIG_PATH"] == str(
+    assert environment["MODEL_CONFIG_PATH"] == str(
         config_module.MODELS_JSON_PATH,
     )
 
 
-def test_set_context_env_vars_loads_app_env_with_authority(
+def test_context_env_uses_saved_config_without_modifying_host(
     config_module,
     monkeypatch,
 ) -> None:
@@ -307,37 +297,52 @@ def test_set_context_env_vars_loads_app_env_with_authority(
     )
     config_module.save_config(config)
 
-    config_module.set_context_env_vars()
+    environment = config_module.context_service_env()
 
-    assert os.environ["NEO4J_PASSWORD"] == "configured-password"
+    assert environment["NEO4J_PASSWORD"] == "configured-password"
+    assert os.environ["NEO4J_PASSWORD"] == "stale-user-level-password"
 
 
-def test_set_context_env_vars_clears_emptied_managed_keys(
+def test_context_env_and_models_do_not_resurrect_cleared_settings(
     config_module,
     monkeypatch,
 ) -> None:
     # Keys the app leaves blank are omitted from the generated .env; the
     # stale inherited value must be cleared so emptying a field sticks.
     monkeypatch.setenv("NEO4J_DATABASE", "stale-database")
+    monkeypatch.setenv("OPENAI_API_KEY", "stale-model-key")
+    monkeypatch.setenv("EMBED_OPENAI_API_KEY", "stale-embed-key")
+    config = config_module.DataAppConfig()
+    config.neo4j.database = "previous-database"
+    config.llm.api_key = "previous-model-key"
+    config_module.save_config(config)
+    old_environment = config_module.context_service_env()
     config_module.save_config(config_module.DataAppConfig())
 
-    config_module.set_context_env_vars()
+    environment = config_module.context_service_env()
 
-    assert "NEO4J_DATABASE" not in os.environ
+    assert old_environment["NEO4J_DATABASE"] == "previous-database"
+    assert "NEO4J_DATABASE" not in environment
+    assert "OPENAI_API_KEY" not in environment
+    assert "EMBED_OPENAI_API_KEY" not in environment
+    assert os.environ["NEO4J_DATABASE"] == "stale-database"
+    models = json.loads(config_module.MODELS_JSON_PATH.read_text())
+    assert models["llm"]["api_key"] == ""
+    assert models["embedding"]["api_key"] == ""
 
 
-def test_load_app_env_preserves_unmanaged_neo4j_keys(
+def test_context_env_preserves_literal_credentials(
     config_module,
     monkeypatch,
 ) -> None:
-    # Dataset-pipeline role databases (NEO4J_DATABASE_DEMO/MCP) are not owned
-    # by the Configure page and must survive the managed-key cleanup.
-    monkeypatch.setenv("NEO4J_DATABASE_DEMO", "demo-db")
-    config_module.save_config(config_module.DataAppConfig())
+    monkeypatch.setenv("OTHER_KEY", "must-not-interpolate")
+    config = config_module.DataAppConfig()
+    config.neo4j.password = 'with ${OTHER_KEY} {host} {port} # "quotes"'
+    config_module.save_config(config)
 
-    config_module.load_app_env()
+    environment = config_module.context_service_env()
 
-    assert os.environ["NEO4J_DATABASE_DEMO"] == "demo-db"
+    assert environment["NEO4J_PASSWORD"] == config.neo4j.password
 
 
 def test_password_value_is_quoted_when_it_contains_spaces(
@@ -353,6 +358,7 @@ def test_password_value_is_quoted_when_it_contains_spaces(
 
 async def test_on_before_start_regenerates_runtime_files(
     config_module,
+    monkeypatch,
 ) -> None:
     config = config_module.DataAppConfig(
         llm=config_module.LLMConfig(api_key="sk-restart"),
@@ -361,6 +367,8 @@ async def test_on_before_start_regenerates_runtime_files(
 
     # Pretend a stale runtime file exists.
     config_module.MODELS_JSON_PATH.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("QWENPAW_DATA_ENV_FILE", "host-owned.env")
+    monkeypatch.setenv("OPENAI_API_KEY", "host-owned-key")
 
     await config_module.on_before_start()
 
@@ -368,6 +376,5 @@ async def test_on_before_start_regenerates_runtime_files(
         config_module.MODELS_JSON_PATH.read_text(encoding="utf-8"),
     )
     assert models["llm"]["api_key"] == "sk-restart"
-    assert os.environ["QWENPAW_DATA_ENV_FILE"] == str(
-        config_module.ENV_FILE_PATH,
-    )
+    assert os.environ["QWENPAW_DATA_ENV_FILE"] == "host-owned.env"
+    assert os.environ["OPENAI_API_KEY"] == "host-owned-key"

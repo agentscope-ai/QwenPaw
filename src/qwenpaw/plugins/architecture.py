@@ -4,7 +4,7 @@
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -119,6 +119,100 @@ class QwenPawVersionConstraint(BaseModel):
     max: Optional[str] = None
 
 
+class PawAppSkillImport(BaseModel):
+    """One Host Skill an App runtime may load, plus its tool dependencies."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1, max_length=256)
+    tool_refs: List[str] = Field(default_factory=list)
+
+
+class PawAppRuntimeSection(BaseModel):
+    """Static capability request and private-registration declarations."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host_tools: List[str] = Field(default_factory=list)
+    host_skills: List[PawAppSkillImport] = Field(default_factory=list)
+    local_tools: List[str] = Field(default_factory=list)
+    local_skills: List[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_capability_names(self) -> "PawAppRuntimeSection":
+        groups = (self.host_tools, self.local_tools, self.local_skills)
+        if any(
+            not name or len(values) != len(set(values))
+            for values in groups
+            for name in values
+        ):
+            raise ValueError(
+                "PawApp capability names must be unique and non-empty",
+            )
+        skill_ids = [skill.id for skill in self.host_skills]
+        if len(skill_ids) != len(set(skill_ids)):
+            raise ValueError("PawApp Host Skill imports must be unique")
+        if any(
+            not ref or len(skill.tool_refs) != len(set(skill.tool_refs))
+            for skill in self.host_skills
+            for ref in skill.tool_refs
+        ):
+            raise ValueError(
+                "PawApp Skill tool_refs must be unique and non-empty",
+            )
+        return self
+
+
+class PawAppSetupEntry(BaseModel):
+    """Static declaration for one App-owned setup presentation target."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(min_length=1, max_length=256)
+    entry_ref: str = Field(min_length=1, max_length=256)
+    focus: str = Field(min_length=1, max_length=256)
+    presentations: List[
+        Literal["chat_card", "secure_form", "app_entry"]
+    ] = Field(min_length=1)
+    context_schema_version: str = Field(
+        default="pawapp:setup-context@1",
+        min_length=1,
+        max_length=256,
+    )
+
+    @model_validator(mode="after")
+    def validate_presentations(self) -> "PawAppSetupEntry":
+        if len(self.presentations) != len(set(self.presentations)):
+            raise ValueError("PawApp setup presentations must be unique")
+        return self
+
+
+class PawAppConfigurationSection(BaseModel):
+    """Optional generic setup declarations; Apps retain value ownership."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: Literal[1] = 1
+    setup_entries: List[PawAppSetupEntry] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_entry_ids(self) -> "PawAppConfigurationSection":
+        ids = [entry.id for entry in self.setup_entries]
+        if len(ids) != len(set(ids)):
+            raise ValueError("PawApp setup entry IDs must be unique")
+        return self
+
+
+class PawAppSection(BaseModel):
+    """Typed top-level PawApp manifest section."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    schema_version: Literal[1] = 1
+    runtime: PawAppRuntimeSection = Field(default_factory=PawAppRuntimeSection)
+    configuration: Optional[PawAppConfigurationSection] = None
+
+
 class PluginManifest(BaseModel):
     """Plugin manifest definition.
 
@@ -150,6 +244,7 @@ class PluginManifest(BaseModel):
     min_version: str = "0.1.0"
     max_version: Optional[str] = None
     qwenpaw_version: Optional[QwenPawVersionConstraint] = None
+    pawapp: Optional[PawAppSection] = None
     meta: Dict[str, Any] = Field(default_factory=dict)
     plugin_type: PluginType = PluginType.GENERAL
 

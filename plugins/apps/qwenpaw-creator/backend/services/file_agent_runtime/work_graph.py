@@ -514,6 +514,19 @@ def dispatch_key_predates_digest_ledger(key: str) -> bool:
     return _LEGACY_LEDGER_KEY_MARKER in key
 
 
+def dispatch_model_scope(
+    node_kind: str,
+    media_models: tuple[str, str],
+) -> tuple[str, str]:
+    """Return only the configured model family consumed by one node."""
+    image_model, video_model = media_models
+    if node_kind in {"visual", "lineup", "storyboard"}:
+        return image_model, ""
+    if node_kind == "video":
+        return "", video_model
+    return "", ""
+
+
 def dispatch_ledger_fingerprint(
     base: str,
     media_models: tuple[str, str],
@@ -572,9 +585,23 @@ def _dispatch_inputs_changed(
         if re.fullmatch(r"[a-f0-9]{16}(?:-m[a-f0-9]{16})?", identity):
             return False
         return True
-    ledger = dispatch_ledger_fingerprint(fingerprint, media_models)
-    legacy_slot = hashlib.sha256(ledger.encode("utf-8")).hexdigest()[:16]
-    return identity not in {ledger, dispatch_slot(ledger), legacy_slot}
+    scoped_models = dispatch_model_scope(
+        node_id.partition(":")[0],
+        media_models,
+    )
+    ledgers = {
+        dispatch_ledger_fingerprint(fingerprint, scoped_models),
+        dispatch_ledger_fingerprint(fingerprint, media_models),
+    }
+    accepted = {
+        *ledgers,
+        *(dispatch_slot(ledger) for ledger in ledgers),
+        *(
+            hashlib.sha256(ledger.encode("utf-8")).hexdigest()[:16]
+            for ledger in ledgers
+        ),
+    }
+    return identity not in accepted
 
 
 def _artifact_is_stale(

@@ -33,6 +33,11 @@ from ..constant import (
 from ..envs import load_envs_into_environ
 from ..local_models.manager import LocalModelManager
 from ..providers.provider_manager import ProviderManager
+from ..pawapp.tasks.routes import router as pawapp_task_router
+from ..pawapp.tasks.grant_routes import router as pawapp_grant_router
+from ..pawapp.setup.routes import router as pawapp_setup_router
+from ..pawapp.capability_routes import router as pawapp_capability_router
+from ..pawapp.artifact_routes import router as pawapp_artifact_router
 from ..utils.daily_telemetry import start_daily_telemetry
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import (
@@ -152,6 +157,18 @@ async def _stop_workspaces_after_dependents_impl(
         # A bounded cancellation attempt is not proof that a worker has
         # released its workspace. The process watchdog is the cutoff.
         imports_quiesced = await import_jobs.drain()
+
+    # PawApp consumers may still use plugin Engines or agent workspaces.
+    # Stop them after import workers drain and before plugin shutdown hooks.
+    pawapp_continuations = getattr(app.state, "pawapp_continuations", None)
+    if pawapp_continuations is not None:
+        await pawapp_continuations.aclose()
+    pawapp_capabilities = getattr(app.state, "pawapp_capabilities", None)
+    if pawapp_capabilities is not None:
+        await pawapp_capabilities.aclose()
+    pawapp_tasks = getattr(app.state, "pawapp_tasks", None)
+    if pawapp_tasks is not None:
+        await pawapp_tasks.aclose()
 
     plugin_registry = getattr(app.state, "plugin_registry", None)
     if plugin_registry is not None:
@@ -428,6 +445,55 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
     app.state.plugin_loader = None
     app.state.plugin_registry = None
 
+    from ..pawapp.tasks.store import TaskStore
+    from ..pawapp.artifacts import ArtifactStore
+    from ..pawapp.handoffs import HandoffStore
+    from ..pawapp.tasks.policy import FileTaskPolicy
+    from ..pawapp.tasks.runtime import HostTaskRuntime
+    from ..pawapp.tasks.continuation import ContinuationWorker
+    from ..pawapp.tasks.routes import HostOrigins, workspace_enabled
+    from ..pawapp.setup import SetupCoordinator, SetupStore
+    from ..plugins.registry import PluginRegistry
+
+    task_root = Path(WORKING_DIR) / "pawapp"
+    app.state.pawapp_task_origins = HostOrigins(
+        workspace_registry,
+        workspace_enabled,
+    )
+    app.state.pawapp_artifacts = await ArtifactStore.open(
+        task_root / "artifacts",
+    )
+    app.state.pawapp_handoffs = await HandoffStore.open(
+        task_root / "handoffs.sqlite3",
+        app.state.pawapp_artifacts,
+    )
+    app.state.pawapp_setup = SetupCoordinator(
+        checks=PluginRegistry().get_pawapp_setup_checks,
+        entries=PluginRegistry().get_pawapp_setup_entries,
+        store=await SetupStore.open(task_root / "setup.sqlite3"),
+    )
+    app.state.pawapp_tasks = HostTaskRuntime(
+        await TaskStore.open(task_root / "tasks.sqlite3"),
+        policy=FileTaskPolicy(task_root / "task-policy.json"),
+        registrations=PluginRegistry().get_task_actions,
+        authorize_origin=app.state.pawapp_task_origins,
+        artifacts=app.state.pawapp_artifacts,
+        handoffs=app.state.pawapp_handoffs,
+        setup=app.state.pawapp_setup,
+    )
+    from ..pawapp.capabilities import CapabilityBroker
+
+    app.state.pawapp_capabilities = CapabilityBroker(
+        workspace_manager=workspace_registry,
+        plugin_registry=PluginRegistry(),
+        task_runtime=app.state.pawapp_tasks,
+        state_dir=task_root,
+    )
+    app.state.pawapp_continuations = ContinuationWorker(
+        app.state.pawapp_tasks,
+        app.state.pawapp_task_origins,
+    )
+
     async def _get_agent_by_id(agent_id: str = None):
         """Get agent instance by ID, or active agent if not specified."""
         if agent_id is None:
@@ -629,6 +695,10 @@ async def lifespan(  # pylint: disable=too-many-statements,too-many-branches
                         f"from plugin '{hook.plugin_id}': {e}",
                         exc_info=True,
                     )
+
+            # Managed App services have started; recovery may now attach.
+            await app.state.pawapp_tasks.start()
+            await app.state.pawapp_continuations.start()
 
             # ---- Approval Service ----
             try:
@@ -913,6 +983,12 @@ async def post_desktop_shutdown(
 
 
 app.include_router(api_router, prefix="/api")
+
+app.include_router(pawapp_task_router, prefix="/api")
+app.include_router(pawapp_grant_router, prefix="/api")
+app.include_router(pawapp_setup_router, prefix="/api")
+app.include_router(pawapp_artifact_router, prefix="/api")
+app.include_router(pawapp_capability_router, prefix="/api")
 
 # These registrations require the fully constructed application instance.
 # pylint: disable-next=wrong-import-position,wrong-import-order

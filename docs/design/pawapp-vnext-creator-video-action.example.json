@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "app_id": "qwenpaw-creator",
+  "action_id": "generate-video",
+  "summary": "Generate video for one existing Creator project element using its committed prompt, storyboard, references, and settings.",
+  "engagements": ["delegated", "direct"],
+  "input_schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "project_id": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+      },
+      "target_ref": {
+        "type": "string",
+        "pattern": "^element:[A-Za-z0-9][A-Za-z0-9._:-]{0,191}$"
+      }
+    },
+    "required": ["project_id", "target_ref"],
+    "additionalProperties": false
+  },
+  "output_types": ["text/plain", "qwenpaw:file"],
+  "permissions": [
+    "creator.project.read",
+    "creator.project.write",
+    "creator.video.generate"
+  ],
+  "effects": ["model_usage", "project_mutation"],
+  "adapter_ref": "qwenpaw-creator.video-generation.v1"
+}

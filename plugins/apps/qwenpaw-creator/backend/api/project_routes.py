@@ -10,11 +10,11 @@ authorities used here.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 import re
 import shutil
 from typing import Any, Literal
-from uuid import NAMESPACE_URL, uuid4, uuid5
-from pathlib import Path
+from uuid import uuid4
 
 from fastapi import (
     APIRouter,
@@ -26,38 +26,29 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import ValidationError as PydanticValidationError
 from starlette.routing import Match
 from starlette.types import Scope
 from starlette.datastructures import UploadFile
 
 from domain.errors import (
+    BadRequestError,
     ConflictError,
     NotFoundError,
     StorageIntegrityError,
-    ValidationError,
-    BadRequestError,
 )
-from schemas.projects import (
-    ExecutionPreauthorizationPolicy,
-    ProjectCreateRequest,
-    ProjectCreateResponse,
-)
+from schemas.projects import ProjectCreateRequest, ProjectCreateResponse
 from services.file_agent_runtime import (
     interrupt_creator_agent_runtime,
     notify_creator_agent_runtime,
 )
+from services.project_files.creation import stable_project_resource_id
 from services.project_files.facade import CreatorFileServices
 from services.project_files import archive as project_archive
 from services.project_files.archive import (
     extract_archive as _extract_archive_sanitized,
 )
 from services.project_files.assets import AssetFileStore
-from services.project_files.models import (
-    ExecutionPreauthorization,
-    Project,
-    ProjectSettings,
-)
+from services.project_files.models import Project
 from services.project_files.store import (
     InvalidProjectId,
     ProjectAlreadyExists,
@@ -85,7 +76,6 @@ from .dependencies import (
 
 logger = setup_logger("project_routes")
 
-_CREATE_SCOPE = "POST /projects"
 _COPY_SCOPE = "POST /projects/{project_id}/copy"
 
 
@@ -116,27 +106,6 @@ archive_router = APIRouter(
 )
 
 
-def _stable_id(kind: str, identity: str) -> str:
-    return f"{kind}-{uuid5(NAMESPACE_URL, f'qwenpaw-creator:{kind}:{identity}').hex}"
-
-
-def _project_snapshot_id(project_id: str, generation: int = 0) -> str:
-    return f"project-snapshot-{uuid5(NAMESPACE_URL, f'{project_id}:{generation}').hex}"
-
-
-def _request_hash(request: ProjectCreateRequest) -> str:
-    return IdempotencyRecordStore.request_hash(
-        {
-            "scope": _CREATE_SCOPE,
-            "request": request.model_dump(
-                mode="json",
-                by_alias=True,
-                exclude_none=True,
-            ),
-        },
-    )
-
-
 def _copy_request_hash(source_project_id: str) -> str:
     return IdempotencyRecordStore.request_hash(
         {
@@ -144,94 +113,6 @@ def _copy_request_hash(source_project_id: str) -> str:
             "sourceProjectId": source_project_id,
         },
     )
-
-
-def _settings(request: ProjectCreateRequest) -> ProjectSettings:
-    preauthorization = (
-        ExecutionPreauthorization.model_validate(
-            request.execution_preauthorization.model_dump(mode="python"),
-        )
-        if request.execution_preauthorization is not None
-        else None
-    )
-    return ProjectSettings(
-        aspect_ratio=request.aspect_ratio,
-        resolution=request.resolution,
-        content_type=request.content_type,
-        execution_preauthorization=preauthorization,
-    )
-
-
-def _header(project: Project) -> dict[str, Any]:
-    preauthorization = project.settings.execution_preauthorization
-    return {
-        "id": project.project_id,
-        "name": project.name,
-        "description": project.description,
-        "scenario": project.scenario,
-        "aspectRatio": project.settings.aspect_ratio,
-        "resolution": project.settings.resolution,
-        "contentType": project.settings.content_type,
-        **(
-            {
-                "executionPreauthorization": (
-                    ExecutionPreauthorizationPolicy.model_validate(
-                        preauthorization.model_dump(mode="python"),
-                    ).model_dump(mode="json", by_alias=True)
-                ),
-            }
-            if preauthorization is not None
-            else {}
-        ),
-    }
-
-
-def _existing_bootstrap(
-    services: CreatorFileServices,
-    *,
-    project_id: str,
-    expected_session_id: str,
-    expected_conversation_id: str,
-    request_hash: str,
-) -> ProjectCreateResponse:
-    services.projects.read(project_id)
-    session = services.sessions.get_project_session(project_id)
-    conversations = services.sessions.list_conversations(
-        project_id,
-        session.session_id,
-    )
-    defaults = [item for item in conversations if item.is_default]
-    if len(defaults) != 1:
-        raise StorageIntegrityError(
-            "Project Runtime 必须且只能有一个默认 Conversation",
-        )
-    create_metadata = session.metadata.get("projectCreate")
-    if not isinstance(create_metadata, dict):
-        raise ConflictError("Project 已存在但缺少文件创建幂等记录")
-    if create_metadata.get("requestHash") != request_hash:
-        raise ConflictError("clientRequestId 已用于不同 Project payload")
-    project_snapshot_id = create_metadata.get("projectSnapshotId")
-    stored_response = create_metadata.get("response")
-    if (
-        session.session_id != expected_session_id
-        or defaults[0].conversation_id != expected_conversation_id
-        or not isinstance(project_snapshot_id, str)
-        or not project_snapshot_id
-    ):
-        raise StorageIntegrityError("Project Runtime 创建记录与确定性身份不一致")
-    try:
-        response = ProjectCreateResponse.model_validate(stored_response)
-    except PydanticValidationError as exc:
-        raise StorageIntegrityError("Project 创建响应快照损坏") from exc
-    if (
-        response.project_id != project_id
-        or response.creator_session_id != expected_session_id
-        or response.conversation_id != expected_conversation_id
-        or response.project_snapshot_id != project_snapshot_id
-        or response.header.get("id") != project_id
-    ):
-        raise StorageIntegrityError("Project 创建响应快照身份不一致")
-    return response
 
 
 def _existing_copy_receipt(
@@ -358,164 +239,11 @@ async def create_project(
         idempotency_key,
         stable_client_id=request.client_request_id,
     )
-    request_hash = _request_hash(request)
-    project_id = _stable_id("project", client_request_id)
-    session_id = _stable_id("session", client_request_id)
-    conversation_id = _stable_id("conversation", client_request_id)
-    goal_id = _stable_id("goal", client_request_id)
-    message_id = _stable_id("message", client_request_id)
-    project_snapshot_id = _project_snapshot_id(project_id)
-    project = Project.new(
-        project_id=project_id,
-        name=request.name.strip(),
-        description=request.description.strip(),
-        scenario=request.scenario,
-        settings=_settings(request),
+    request = request.model_copy(
+        update={"client_request_id": client_request_id},
     )
-    if request.template_id:
-        from services.media_files.video_templates import (
-            apply_video_template_to_project,
-            get_video_template,
-        )
-
-        template = get_video_template(request.template_id)
-        if template is None:
-            from services.media_files.user_templates import (
-                load_user_template,
-            )
-            from services.media_files.video_templates import (
-                VideoTemplate,
-                VideoTemplateDesignFloor,
-            )
-
-            user_tpl = load_user_template(request.template_id)
-            if user_tpl is None:
-                raise ValidationError(
-                    f"未知的视频模板: {request.template_id}",
-                )
-            template = VideoTemplate(
-                template_id=user_tpl.template_id,
-                name=user_tpl.name,
-                description=user_tpl.description,
-                content_type=user_tpl.content_type,
-                scenario=user_tpl.scenario,
-                opening_caption_blueprint=(user_tpl.opening_caption_blueprint),
-                closing_caption_blueprint=(user_tpl.closing_caption_blueprint),
-                default_transition_kind=(user_tpl.default_transition_kind),
-                transition_blend_seconds=(user_tpl.transition_blend_seconds),
-                caption_blueprint_order=tuple(
-                    user_tpl.caption_blueprint_order,
-                ),
-                color_grade=user_tpl.color_grade,
-                energy=user_tpl.energy,
-                density=user_tpl.density,
-                decoration=user_tpl.decoration,
-                design_floor=VideoTemplateDesignFloor(
-                    opening=user_tpl.design_floor_opening,
-                    transitions=user_tpl.design_floor_transitions,
-                    body=user_tpl.design_floor_body,
-                    ending=user_tpl.design_floor_ending,
-                ),
-                decoration_catalog=(),
-                frame_blueprint="",
-                preview_description=user_tpl.preview_description,
-                icon_emoji=user_tpl.icon_emoji,
-            )
-        project = apply_video_template_to_project(project, template)
-    initial_response = ProjectCreateResponse(
-        projectId=project_id,
-        creatorSessionId=session_id,
-        conversationId=conversation_id,
-        projectSnapshotId=project_snapshot_id,
-        header=_header(project),
-    )
-
-    def operation() -> ProjectCreateResponse:
-        # The global name lock only covers the uniqueness check.  The create
-        # itself stages privately and publishes via an atomic rename that
-        # refuses an existing Project id, so holding a global boundary across
-        # the Runtime bootstrap would only serialize unrelated creations.
-        target_name = request.name.strip()
-        with CrossProcessFileLock(
-            services.projects.root / ".project-names.lock",
-        ):
-            existing = services.projects.list()
-            if any(item.name == target_name for item in existing):
-                raise ValidationError(
-                    f"项目名称「{target_name}」已存在，请使用其他名称",
-                )
-
-        holder: list[ProjectRuntimeBootstrap] = []
-
-        def initialize(staged_project_root) -> None:
-            holder.append(
-                services.sessions.initialize_staged_project(
-                    staged_project_root,
-                    project_id,
-                    session_id=session_id,
-                    conversation_id=conversation_id,
-                    session_metadata={
-                        "projectCreate": {
-                            "clientRequestId": client_request_id,
-                            "requestHash": request_hash,
-                            "projectSnapshotId": project_snapshot_id,
-                            "response": initial_response.model_dump(
-                                mode="json",
-                                by_alias=True,
-                            ),
-                        },
-                    },
-                    initial_goal=request.initial_goal,
-                    goal_id=(
-                        goal_id if request.initial_goal is not None else None
-                    ),
-                    initial_message_id=(
-                        message_id
-                        if request.initial_goal is not None
-                        else None
-                    ),
-                    initial_client_message_id=(
-                        f"initial-goal:{client_request_id}"
-                        if request.initial_goal is not None
-                        else None
-                    ),
-                ),
-            )
-
-        try:
-            snapshot = services.projects.create(
-                project,
-                initialize_staged_project=initialize,
-            )
-        except ProjectAlreadyExists:
-            return _existing_bootstrap(
-                services,
-                project_id=project_id,
-                expected_session_id=session_id,
-                expected_conversation_id=conversation_id,
-                request_hash=request_hash,
-            )
-        if len(holder) != 1:
-            raise StorageIntegrityError("Project Runtime 未随 Project 原子创建")
-        services.poller.note_commit(snapshot)
-        # Return the response from the durable creation receipt as well.  This
-        # makes the first call and every later replay byte-for-byte stable even
-        # if project.json is subsequently edited.
-        return _existing_bootstrap(
-            services,
-            project_id=project_id,
-            expected_session_id=session_id,
-            expected_conversation_id=conversation_id,
-            request_hash=request_hash,
-        )
-
-    try:
-        result = await asyncio.to_thread(operation)
-    except (ConflictError, StorageIntegrityError):
-        raise
-    except (ProjectIntegrityError, ProjectStoreError, RuntimeFileError) as exc:
-        raise StorageIntegrityError(str(exc)) from exc
-    notify_creator_agent_runtime(project_id)
+    result = await asyncio.to_thread(services.project_creation.create, request)
+    notify_creator_agent_runtime(result.project_id)
     response.status_code = status.HTTP_201_CREATED
     return result
 
@@ -626,9 +354,12 @@ async def copy_project(
     client_request_id = resolve_idempotency_key(idempotency_key)
     request_hash = _copy_request_hash(project_id)
     copy_identity = f"{_COPY_SCOPE}:{client_request_id}"
-    new_project_id = _stable_id("project", copy_identity)
-    new_session_id = _stable_id("session", copy_identity)
-    new_conversation_id = _stable_id("conversation", copy_identity)
+    new_project_id = stable_project_resource_id("project", copy_identity)
+    new_session_id = stable_project_resource_id("session", copy_identity)
+    new_conversation_id = stable_project_resource_id(
+        "conversation",
+        copy_identity,
+    )
 
     def operation() -> dict[str, Any]:
         # The global name lock only covers the replay-receipt check and the

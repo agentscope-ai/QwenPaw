@@ -1144,6 +1144,7 @@
     "taskType": "タスクタイプ",
     "text": "メッセージ内容",
     "requestInput": "リクエスト内容",
+    "requestInputExample": "フォーマット: [{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"ここにメッセージを入力\"}]}]",
     "requestSessionId": "リクエストセッションID",
     "requestUserId": "リクエストユーザーID",
     "dispatchChannel": "対象チャンネル",
@@ -2772,7 +2773,8 @@
     },
     "pages": {
       "general": "一般",
-      "navigation": "サイドバー"
+      "navigation": "サイドバー",
+      "appAccess": "アプリアクセス"
     },
     "descriptions": {
       "general": "言語、テーマ、アプリの動作",
@@ -2794,8 +2796,19 @@
       "tokenUsage": "使用状況の統計と推移",
       "backups": "データのエクスポート、復元、移行",
       "debug": "ログと診断",
-      "extension": "拡張機能が提供する設定"
+      "extension": "拡張機能が提供する設定",
+      "appAccess": "このエージェントが実行できる App アクションを管理"
     },
+    "appAccessDescription": "選択したエージェントが実行できる登録済み App アクションを選択します。",
+    "appAccessGranted": "App アクションを有効にしました",
+    "appAccessRevoked": "App アクションを無効にしました",
+    "appAccessSaveFailed": "アクセス設定を保存できませんでした",
+    "appAccessLoadFailed": "App アクセスを読み込めませんでした",
+    "appAccessEmpty": "有効な App アクションは登録されていません。",
+    "appAccessChanged": "変更されたアクションを確認",
+    "appAccessLimits": "入力値の完全一致制限",
+    "appAccessLimitsHint": "すべて空欄にすると、すべての有効な入力を許可します。",
+    "appAccessAnyValue": "任意の値",
     "appearanceAndLanguage": "外観と言語",
     "desktopApplication": "デスクトップアプリ",
     "languageHint": "このデバイスの表示言語を変更します。",
@@ -4308,6 +4321,7 @@
     "tabClone": "リポジトリをクローン",
     "tabLocal": "ローカルプロジェクトをインポート",
     "tabNew": "新規プロジェクト",
+    "tabOpenDir": "ディレクトリを開く",
     "workspaceDesc": "現在の Agent の設定ディレクトリを使用",
     "cloneUrl": "GitリポジトリURL",
     "cloneUrlPlaceholder": "https://github.com/user/repo.git",
@@ -4333,7 +4347,12 @@
     "workingDir": "作業ディレクトリ",
     "importCopyNote": "フォルダは QwenPaw の管理対象プロジェクトライブラリにコピーされます。元のファイルは変更されません。",
     "importCopyDesc": "インポートするとフォルダのコピーが作成され、Agent はコピー上で作業します。元のファイルは変更されません。元のディレクトリで直接作業するには「既定のワークスペース」を使用してください。",
+    "openDirDesc": "ローカルの既存ディレクトリを直接開きます（ファイルはコピーされません）",
+    "openDirBtn": "このディレクトリを開く",
+    "openDirLoading": "読み込み中...",
     "openDirEmpty": "サブディレクトリがありません",
+    "openDirHome": "ホーム",
+    "openDirRefresh": "更新",
     "openDirHiddenFolders": "隠しフォルダ"
   },
   "market": {

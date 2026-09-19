@@ -83,6 +83,59 @@ def test_project_create_is_atomic_file_native_and_has_no_goal(
     assert not _sqlite_files(api_runtime_root)
 
 
+def test_project_create_replays_identical_request(
+    app,
+    api_runtime_root,
+    run_scenario,
+):
+    payload = _create_payload("project-create-replay-1", "Replay")
+
+    async def scenario(client):
+        first = await client.post("/projects", json=payload)
+        replay = await client.post("/projects", json=payload)
+        return first, replay
+
+    first, replay = run_scenario(app, scenario)
+
+    assert first.status_code == replay.status_code == 201
+    assert replay.json() == first.json()
+    assert len(list(api_runtime_root.glob("project-*/project.json"))) == 1
+
+
+def test_project_create_replays_concurrent_identical_request(
+    app,
+    api_runtime_root,
+    run_scenario,
+):
+    payload = _create_payload(
+        "project-create-concurrent-1", "Concurrent replay"
+    )
+
+    async def scenario(client):
+        return await asyncio.gather(
+            client.post("/projects", json=payload),
+            client.post("/projects", json=payload),
+        )
+
+    first, replay = run_scenario(app, scenario)
+
+    assert first.status_code == replay.status_code == 201
+    assert replay.json() == first.json()
+    assert len(list(api_runtime_root.glob("project-*/project.json"))) == 1
+
+
+def test_project_create_rejects_whitespace_name(app, api_request):
+    result = api_request(
+        app,
+        "POST",
+        "/projects",
+        json=_create_payload("project-create-empty-name", "  \t  "),
+    )
+
+    assert result.status_code == 422
+    assert result.json()["code"] == "VALIDATION_ERROR"
+
+
 def test_project_create_rejects_payload_drift_and_delete_is_idempotent(
     app,
     api_runtime_root,

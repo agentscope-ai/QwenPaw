@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # flake8: noqa: E501
 # pylint: disable=raise-missing-from,too-many-branches,too-many-statements
-# pylint: disable=try-except-raise
+# pylint: disable=no-name-in-module,try-except-raise
 """Task-first image generation against the file-native Project authority.
 
 One invocation freezes its Project snapshot, records a stable Run/Task/Attempt,
@@ -402,6 +402,17 @@ class FileImageExecutionResult:
             "transactionId": self.transaction_id,
             "workingHead": self.project_etag,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class FileImageDispatch:
+    """Durable image Task admission returned before provider completion."""
+
+    task_id: str
+    run_id: str
+    transaction_id: str
+    input_etag: str
+    replayed: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -1840,10 +1851,159 @@ class FileImageExecutionService:
         # keyed by Task id so one Task is never supervised twice.
         self._resume_jobs: dict[str, asyncio.Task] = {}
         self._resume_projects: dict[str, str] = {}
+        # Admission-only callers detach the existing execute coroutine after
+        # its durable Task appears. Keep a strong reference so provider work
+        # and terminal ledger writes survive the caller's response lifetime.
+        self._dispatch_jobs: dict[
+            tuple[str, str],
+            tuple[str, asyncio.Task[FileImageExecutionResult]],
+        ] = {}
         # (project_id, target_ref) -> reference ids of the last safety-
         # rejected call. Process-local: worth losing on restart, priceless
         # for cutting off same-refs resend loops within a session.
         self._safety_rejected_refs: dict[tuple[str, str], frozenset[str]] = {}
+
+    def _start_dispatch_job(
+        self,
+        *,
+        project_id: str,
+        command: CreatorCommandType,
+        target_ref: str,
+        arguments: Mapping[str, Any],
+        idempotency_key: str,
+        expected_object_versions: Sequence[str],
+    ) -> tuple[asyncio.Task[FileImageExecutionResult], bool]:
+        key = (project_id, idempotency_key)
+        meaning = _fingerprint(
+            {
+                "command": command.value,
+                "targetRef": target_ref,
+                "arguments": dict(arguments),
+                "expectedObjectVersions": list(expected_object_versions),
+            },
+        )
+        current = self._dispatch_jobs.get(key)
+        if current is not None and not current[1].done():
+            if current[0] != meaning:
+                raise ConflictError(
+                    "Idempotency-Key 已用于不同的图片命令",
+                )
+            return current[1], True
+        job = asyncio.create_task(
+            self.execute(
+                project_id=project_id,
+                command=command,
+                target_ref=target_ref,
+                arguments=arguments,
+                idempotency_key=idempotency_key,
+                expected_object_versions=expected_object_versions,
+            ),
+            name=f"file-image-dispatch:{project_id}:{idempotency_key}",
+        )
+        self._dispatch_jobs[key] = (meaning, job)
+
+        def discard(done: asyncio.Task[FileImageExecutionResult]) -> None:
+            if self._dispatch_jobs.get(key, (None, None))[1] is done:
+                self._dispatch_jobs.pop(key, None)
+            if done.cancelled():
+                return
+            error = done.exception()
+            if error is not None:
+                logger.info(
+                    "detached image dispatch finished with %s | project=%s",
+                    type(error).__name__,
+                    project_id,
+                )
+
+        job.add_done_callback(discard)
+        return job, False
+
+    async def dispatch(
+        self,
+        *,
+        project_id: str,
+        command: CreatorCommandType | str,
+        target_ref: str,
+        arguments: Mapping[str, Any],
+        idempotency_key: str,
+        expected_object_versions: Sequence[str] = (),
+    ) -> FileImageDispatch:
+        """Admit once and return as soon as the durable Task is visible.
+
+        The existing ``execute`` path remains the single provider and publish
+        implementation. This method only detaches it after Task admission;
+        startup recovery still fails closed around interrupted one-shot calls.
+        """
+
+        command_value = CreatorCommandType(command)
+        if command_value not in _IMAGE_COMMANDS:
+            raise ValidationError(
+                f"不支持的文件图片命令: {command_value.value}",
+            )
+        ids = self._ids(project_id, idempotency_key)
+        request_hash = _fingerprint(
+            {
+                "command": command_value.value,
+                "targetRef": target_ref,
+                "arguments": dict(arguments),
+            },
+        )
+        try:
+            existing = await asyncio.to_thread(
+                self.executions.get_task,
+                project_id,
+                ids["task_id"],
+            )
+        except RecordNotFoundError:
+            existing = None
+        if existing is not None:
+            self._assert_command_replay(
+                existing,
+                command=command_value,
+                target_ref=target_ref,
+                command_request_hash=request_hash,
+            )
+            return FileImageDispatch(
+                task_id=existing.task_id,
+                run_id=str(existing.run_id or ""),
+                transaction_id=ids["transaction_id"],
+                input_etag=str(existing.input_etag or ""),
+                replayed=True,
+            )
+
+        job, replayed = self._start_dispatch_job(
+            project_id=project_id,
+            command=command_value,
+            target_ref=target_ref,
+            arguments=arguments,
+            idempotency_key=idempotency_key,
+            expected_object_versions=expected_object_versions,
+        )
+        while True:
+            try:
+                task = await asyncio.to_thread(
+                    self.executions.get_task,
+                    project_id,
+                    ids["task_id"],
+                )
+            except RecordNotFoundError:
+                if job.done():
+                    await asyncio.shield(job)
+                await asyncio.sleep(0)
+                continue
+            self._assert_command_replay(
+                task,
+                command=command_value,
+                target_ref=target_ref,
+                command_request_hash=request_hash,
+            )
+            return FileImageDispatch(
+                task_id=task.task_id,
+                run_id=str(task.run_id or ""),
+                transaction_id=ids["transaction_id"],
+                input_etag=str(task.input_etag or ""),
+                replayed=replayed,
+            )
 
     async def execute(
         self,
@@ -1854,6 +2014,7 @@ class FileImageExecutionService:
         arguments: Mapping[str, Any],
         idempotency_key: str,
         expected_object_versions: Sequence[str] = (),
+        related_run_id: str | None = None,
     ) -> FileImageExecutionResult:
         command_value = CreatorCommandType(command)
         if command_value not in _IMAGE_COMMANDS:
@@ -2025,6 +2186,7 @@ class FileImageExecutionService:
             idempotency_key=idempotency_key,
             ids=ids,
             image_model_name=image_model_name,
+            related_run_id=related_run_id,
         )
         if task.status is TaskStatus.SUCCEEDED:
             return self._result_from_task(task, replayed=True)
@@ -2368,6 +2530,19 @@ class FileImageExecutionService:
                 return
             await asyncio.gather(*jobs, return_exceptions=True)
 
+    async def drain_dispatch_jobs(self) -> None:
+        """Await detached admission jobs (used by shutdown and tests)."""
+
+        while True:
+            jobs = [
+                item[1]
+                for item in self._dispatch_jobs.values()
+                if not item[1].done()
+            ]
+            if not jobs:
+                return
+            await asyncio.gather(*jobs, return_exceptions=True)
+
     def cancel_project(self, project_id: str) -> None:
         """Signal every detached image supervisor for a deleted Project."""
 
@@ -2381,13 +2556,23 @@ class FileImageExecutionService:
             self._resume_projects.pop(task_id, None)
             if job is not None:
                 job.cancel()
+        dispatch_keys = [
+            key for key in self._dispatch_jobs if key[0] == project_id
+        ]
+        for key in dispatch_keys:
+            _meaning, job = self._dispatch_jobs.pop(key)
+            job.cancel()
 
     async def shutdown(self) -> None:
         """Cancel background resume jobs; durable state stays resumable."""
 
-        jobs = list(self._resume_jobs.values())
+        jobs = [
+            *self._resume_jobs.values(),
+            *(item[1] for item in self._dispatch_jobs.values()),
+        ]
         self._resume_jobs.clear()
         self._resume_projects.clear()
+        self._dispatch_jobs.clear()
         for job in jobs:
             job.cancel()
         if jobs:
@@ -2440,6 +2625,7 @@ class FileImageExecutionService:
         idempotency_key: str,
         ids: Mapping[str, str],
         image_model_name: str = "",
+        related_run_id: str | None = None,
     ) -> tuple[SpecialistRunRecord, TaskRecord]:
         run_candidate = SpecialistRunRecord(
             run_id=ids["run_id"],
@@ -2451,6 +2637,7 @@ class FileImageExecutionService:
             input_etag=base.etag,
             request_fingerprint=request_fingerprint,
             read_set=list(resolved.read_set),
+            related_run_id=related_run_id,
             caused_by_request_id=idempotency_key,
             review_policy=ReviewPolicy.AUTO_FIX,
             metadata={
@@ -3665,6 +3852,26 @@ def file_image_execution_service(
         return worker
 
 
+def start_file_image_execution_service(
+    services: CreatorFileServices,
+    *,
+    provider: ImageProvider | None = None,
+) -> FileImageExecutionService:
+    """Register the process-wide worker used by every image dispatch path."""
+
+    root = services.root.resolve()
+    with _image_registry_lock:
+        worker = _image_registry.get(root)
+        if worker is None:
+            worker = FileImageExecutionService(services, provider=provider)
+            _image_registry[root] = worker
+        elif provider is not None and worker.provider is not provider:
+            raise RuntimeError(
+                "image execution service already uses another provider",
+            )
+        return worker
+
+
 async def shutdown_file_image_execution_services() -> None:
     """Cancel supervisors; the durable ledger keeps tasks resumable."""
 
@@ -3687,6 +3894,7 @@ async def execute_file_image_command(
     arguments: Mapping[str, Any],
     idempotency_key: str,
     expected_object_versions: Sequence[str] = (),
+    related_run_id: str | None = None,
     provider: ImageProvider | None = None,
 ) -> FileImageExecutionResult:
     """Small route/tool entry point with an injectable provider for tests."""
@@ -3702,17 +3910,44 @@ async def execute_file_image_command(
         arguments=arguments,
         idempotency_key=idempotency_key,
         expected_object_versions=expected_object_versions,
+        related_run_id=related_run_id,
+    )
+
+
+async def dispatch_file_image_command(
+    services: CreatorFileServices,
+    *,
+    project_id: str,
+    command: CreatorCommandType | str,
+    target_ref: str,
+    arguments: Mapping[str, Any],
+    idempotency_key: str,
+    expected_object_versions: Sequence[str] = (),
+) -> FileImageDispatch:
+    """Wallet-checked admission for an independently observed image Task."""
+
+    ensure_media_call_budget(services, project_id)
+    return await file_image_execution_service(services).dispatch(
+        project_id=project_id,
+        command=command,
+        target_ref=target_ref,
+        arguments=arguments,
+        idempotency_key=idempotency_key,
+        expected_object_versions=expected_object_versions,
     )
 
 
 __all__ = [
     "ExistingImageProvider",
+    "FileImageDispatch",
     "FileImageExecutionResult",
     "FileImageExecutionService",
     "ImageModelCapabilityError",
     "ImageReferenceBudgetError",
     "ImageProvider",
+    "dispatch_file_image_command",
     "execute_file_image_command",
     "file_image_execution_service",
     "shutdown_file_image_execution_services",
+    "start_file_image_execution_service",
 ]

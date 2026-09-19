@@ -282,6 +282,12 @@ class ConsoleChannel(BaseChannel):
         mso = payload.get("model_slot_override")
         if mso is not None:
             request.model_slot_override = mso
+        from ....pawapp.tasks.agent_tools import TaskToolContext
+
+        task_context = payload.get("_pawapp_task_context")
+        if isinstance(task_context, TaskToolContext):
+            # pylint: disable-next=protected-access
+            request._pawapp_task_context = task_context
         return request
 
     async def _extract_media_message(self, message: Message) -> Message | None:

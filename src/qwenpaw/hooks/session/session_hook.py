@@ -106,6 +106,11 @@ class SessionSaveHook(LifecycleHook):
         session = getattr(ctx.workspace, "session", None)
         if session is None:
             return HookResult()
+        continuation = getattr(
+            ctx.request,
+            "_pawapp_continuation_context",
+            None,
+        )
         try:
             request = ctx.request
             user_id = getattr(request, "user_id", "") or ctx.session_id
@@ -116,14 +121,29 @@ class SessionSaveHook(LifecycleHook):
             proxy.data = ctx.agent.state_dict()
             stamp_console_turn(proxy.data, request, "completed")
             proxy.data["mode_state"] = ctx.mode_state
-            await session.save_session_state(
-                session_id=ctx.session_id,
-                user_id=user_id,
-                channel=channel,
-                agent=proxy,
-            )
+            from ...pawapp.tasks.continuation import ContinuationTurnContext
+
+            if isinstance(continuation, ContinuationTurnContext):
+                await continuation.authorize()
+                await session.commit_task_continuation_state(
+                    continuation.queue,
+                    continuation.claim,
+                    session_id=ctx.session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    agent=proxy,
+                )
+            else:
+                await session.save_session_state(
+                    session_id=ctx.session_id,
+                    user_id=user_id,
+                    channel=channel,
+                    agent=proxy,
+                )
             ctx.extras[SESSION_SAVE_SUCCEEDED_KEY] = True
         except Exception:
+            if continuation is not None:
+                raise
             logger.debug("session_save: failed", exc_info=True)
         return HookResult()
 

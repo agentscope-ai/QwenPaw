@@ -2,6 +2,7 @@
 """Plugin loader for discovering and loading plugins."""
 
 import asyncio
+import hashlib
 import importlib.util
 import inspect
 import json
@@ -11,8 +12,9 @@ import platform
 import shutil
 import subprocess
 import sys
-import threading
 import tempfile
+import threading
+import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from pathlib import Path
@@ -22,7 +24,7 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _dist_version
 from packaging.requirements import Requirement
 
-from .architecture import PluginManifest, PluginRecord
+from .architecture import PluginManifest, PluginRecord, PluginType
 from .api import PluginApi
 from .module_isolation import (
     build_plugin_builtins,
@@ -204,19 +206,113 @@ def _ensure_plugin_site_on_path() -> None:
 class PluginLoader:
     """Plugin loader for discovering and loading plugins."""
 
-    def __init__(self, plugin_dirs: List[Path]):
+    def __init__(
+        self,
+        plugin_dirs: List[Path],
+        *,
+        activation_dir: Optional[Path] = None,
+    ):
         """Initialize plugin loader.
 
         Args:
             plugin_dirs: List of directories to search for plugins
         """
         self.plugin_dirs = [Path(d) for d in plugin_dirs]
+        self.activation_dir = Path(
+            activation_dir
+            if activation_dir is not None
+            else _plugin_runtime_dir() / "activations",
+        )
         self.registry = PluginRegistry()
         self._loaded_plugins: Dict[str, PluginRecord] = {}
         # In-process per-plugin serialization for load/unload/reinstall.
         # Distinct from the inter-process install-deps file lock.
         self._lifecycle_locks: Dict[str, asyncio.Lock] = {}
         self._lifecycle_locks_mu = threading.Lock()
+
+    @staticmethod
+    def requires_explicit_activation(manifest: PluginManifest) -> bool:
+        """Install versioned PawApps inertly while preserving legacy."""
+        return (
+            manifest.plugin_type == PluginType.APP
+            and manifest.pawapp is not None
+        )
+
+    @staticmethod
+    def _manifest_digest(manifest: PluginManifest) -> str:
+        payload = json.dumps(
+            manifest.model_dump(mode="json"),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+    def _activation_path(self, plugin_id: str) -> Path:
+        digest = hashlib.sha256(plugin_id.encode("utf-8")).hexdigest()
+        return self.activation_dir / f"{digest}.json"
+
+    def is_plugin_activated(self, manifest: PluginManifest) -> bool:
+        """Check a private marker bound to this exact static manifest."""
+        if not self.requires_explicit_activation(manifest):
+            return True
+        path = self._activation_path(manifest.id)
+        try:
+            descriptor = os.open(
+                path,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+            )
+            with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+                value = json.load(stream)
+        except (OSError, ValueError, TypeError):
+            return False
+        return value == {
+            "plugin_id": manifest.id,
+            "manifest_digest": self._manifest_digest(manifest),
+        }
+
+    def mark_plugin_activated(self, manifest: PluginManifest) -> None:
+        """Persist activation after runtime and post-load setup succeed."""
+        if not self.requires_explicit_activation(manifest):
+            return
+        self.activation_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        path = self._activation_path(manifest.id)
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        payload = json.dumps(
+            {
+                "plugin_id": manifest.id,
+                "manifest_digest": self._manifest_digest(manifest),
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        descriptor = os.open(
+            temporary,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+            0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def clear_plugin_activation(self, plugin_id: str) -> None:
+        """Require a fresh activation after install, replacement or delete."""
+        self._activation_path(plugin_id).unlink(missing_ok=True)
+
+    def activation_status(self, manifest: PluginManifest) -> str:
+        if not self.requires_explicit_activation(manifest):
+            return "active"
+        record = self._loaded_plugins.get(manifest.id)
+        if record is not None and record.enabled:
+            return "active"
+        return (
+            "activated" if self.is_plugin_activated(manifest) else "installed"
+        )
 
     def _lifecycle_lock_for(self, plugin_id: str) -> asyncio.Lock:
         """Return the asyncio lock that serializes *plugin_id* lifecycle."""
@@ -601,6 +697,10 @@ class PluginLoader:
                 "qwenpaw_version": qv_dict,
                 "meta": manifest.meta,
             }
+            if manifest.pawapp is not None:
+                manifest_dict["pawapp"] = manifest.pawapp.model_dump(
+                    mode="json",
+                )
             api = PluginApi(plugin_id, config or {}, manifest_dict)
             api.set_registry(self.registry)
             self.registry.register_plugin_manifest(plugin_id, manifest_dict)
@@ -819,6 +919,14 @@ class PluginLoader:
 
         for manifest, plugin_dir in discovered:
             if types is not None and manifest.plugin_type not in types:
+                continue
+            if self.requires_explicit_activation(
+                manifest,
+            ) and not self.is_plugin_activated(manifest):
+                logger.info(
+                    "Indexed inactive PawApp '%s' without executing code",
+                    manifest.id,
+                )
                 continue
             config = configs.get(manifest.id) if configs else None
 
@@ -1107,15 +1215,19 @@ class PluginLoader:
         before_force_unload: Optional[Any] = None,
         after_force_unload: Optional[Any] = None,
         after_load: Optional[Any] = None,
+        defer_pawapp_activation: bool = False,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
     ) -> PluginRecord:
-        """Copy plugin files, install deps, and load plugin at runtime.
+        """Copy plugin files and normally load the plugin at runtime.
 
         The plugin directory is copied into ``install_dir`` (defaults
         to the first entry of ``self.plugin_dirs``) when it is not
         already located there.  Python dependencies listed in
-        ``requirements.txt`` are installed before loading.
+        ``requirements.txt`` are installed before loading. When
+        *defer_pawapp_activation* is true, versioned PawApps are copied and
+        statically validated without installing dependencies or importing
+        their code.
 
         When *force* is true and the plugin id is already loaded, the
         existing instance is unloaded under :meth:`plugin_lifecycle`
@@ -1135,6 +1247,7 @@ class PluginLoader:
             before_force_unload: ``callback(plugin_id)`` before unload
             after_force_unload: ``callback(plugin_id)`` after unload
             after_load: ``callback(record)`` after successful load
+            defer_pawapp_activation: Install versioned PawApps inertly
 
         Returns:
             Loaded PluginRecord
@@ -1172,11 +1285,16 @@ class PluginLoader:
                     manifest,
                     config,
                     install_dir,
+                    defer_pawapp_activation=defer_pawapp_activation,
                     replace_files=force,
                     pawport_owner=pawport_owner,
                     recover_incomplete=recover_incomplete,
                 )
-                if after_load is not None:
+                deferred = (
+                    defer_pawapp_activation
+                    and self.requires_explicit_activation(record.manifest)
+                )
+                if after_load is not None and not deferred:
                     maybe_loaded = after_load(record)
                     if inspect.isawaitable(maybe_loaded):
                         await maybe_loaded
@@ -1208,6 +1326,7 @@ class PluginLoader:
         config: Optional[Dict] = None,
         install_dir: Optional[Path] = None,
         *,
+        defer_pawapp_activation: bool = False,
         replace_files: bool = False,
         pawport_owner: Optional[dict[str, Any]] = None,
         recover_incomplete: bool = False,
@@ -1247,6 +1366,18 @@ class PluginLoader:
                 f"Plugin id '{plugin_id}' does not resolve to a safe child "
                 f"of the plugin directory ({resolved_install_dir}). "
                 "Refusing to install.",
+            )
+
+        if (
+            defer_pawapp_activation
+            and self.requires_explicit_activation(manifest)
+            and source_path == target_dir
+            and await asyncio.to_thread(target_dir.exists)
+            and not replace_files
+        ):
+            raise ValueError(
+                f"Plugin '{plugin_id}' is already installed. "
+                "Use force to replace it.",
             )
 
         # Copy files when source is not already the target (off the loop).
@@ -1301,15 +1432,6 @@ class PluginLoader:
                 f"Copied plugin '{plugin_id}' to {target_dir}",
             )
 
-        # Install Python dependencies (off the event loop)
-        requirements_file = target_dir / "requirements.txt"
-        if await asyncio.to_thread(requirements_file.exists):
-            await asyncio.to_thread(
-                self._install_requirements_locked,
-                requirements_file,
-                plugin_id,
-            )
-
         # Re-read manifest from the installed location so that
         # source_path in the record points to the correct directory
         _installed_path, installed_manifest = await asyncio.to_thread(
@@ -1317,7 +1439,73 @@ class PluginLoader:
             target_dir,
         )
         del _installed_path
+        if defer_pawapp_activation and self.requires_explicit_activation(
+            installed_manifest,
+        ):
+            await asyncio.to_thread(
+                self.clear_plugin_activation,
+                plugin_id,
+            )
+            backend_entry = installed_manifest.entry.backend
+            frontend_entry = installed_manifest.entry.frontend
+            self._validate_entry_points(
+                plugin_id,
+                target_dir / backend_entry if backend_entry else None,
+                target_dir / frontend_entry if frontend_entry else None,
+            )
+            compatible, message = self._check_version_compatibility(
+                installed_manifest,
+            )
+            diagnostics = ["installed_not_activated"]
+            if not compatible:
+                diagnostics.append(message)
+            logger.info(
+                "Installed PawApp '%s' without activating it",
+                plugin_id,
+            )
+            return PluginRecord(
+                manifest=installed_manifest,
+                source_path=target_dir,
+                enabled=False,
+                diagnostics=diagnostics,
+            )
+
+        # Dependency installation and imports belong to activation.
+        requirements_file = target_dir / "requirements.txt"
+        if await asyncio.to_thread(requirements_file.exists):
+            await asyncio.to_thread(
+                self._install_requirements_locked,
+                requirements_file,
+                plugin_id,
+            )
         return await self.load_plugin(installed_manifest, target_dir, config)
+
+    async def activate_plugin(
+        self,
+        plugin_id: str,
+        config: Optional[Dict] = None,
+    ) -> PluginRecord:
+        """Load one statically installed plugin by its trusted manifest."""
+        async with self.plugin_lifecycle(plugin_id):
+            existing = self._loaded_plugins.get(plugin_id)
+            if existing is not None:
+                return existing
+            match = next(
+                (
+                    (manifest, path)
+                    for manifest, path in self.discover_plugins()
+                    if manifest.id == plugin_id
+                ),
+                None,
+            )
+            if match is None:
+                raise KeyError(plugin_id)
+            manifest, source_path = match
+            return await self._load_plugin_unlocked(
+                manifest,
+                source_path,
+                config,
+            )
 
     def _remove_incomplete_pawport_plugin(
         self,
@@ -1481,6 +1669,10 @@ class PluginLoader:
                 logger.info(
                     f"Deleted plugin files at {source_path}",
                 )
+            await asyncio.to_thread(
+                self.clear_plugin_activation,
+                plugin_id,
+            )
 
         logger.info(f"Unloaded plugin '{plugin_id}'")
 

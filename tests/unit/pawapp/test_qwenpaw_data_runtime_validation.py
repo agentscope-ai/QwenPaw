@@ -134,6 +134,7 @@ async def test_engine_start_replaces_then_clears_model_environment(
         model="test-model",
         api_key="test-api-key",
         base_url="https://model.invalid/v1",
+        reuse_host=False,
     )
     monkeypatch.setattr(backend, "ENGINE_HOME", tmp_path / "engine")
     monkeypatch.setattr(
@@ -144,7 +145,10 @@ async def test_engine_start_replaces_then_clears_model_environment(
     monkeypatch.setattr(
         backend,
         "load_config",
-        lambda: SimpleNamespace(llm=llm),
+        lambda: SimpleNamespace(
+            llm=llm,
+            embedding=SimpleNamespace(reuse_host=False),
+        ),
     )
     for name in (
         "QWENPAW_DATA_MODEL_PROVIDER",
@@ -155,12 +159,13 @@ async def test_engine_start_replaces_then_clears_model_environment(
         monkeypatch.setenv(name, "stale-value")
 
     await backend._engine_before_start()
+    environment = backend._engine_env()
 
-    assert backend.os.environ["QWENPAW_DATA_MODEL_PROVIDER"] == "test-provider"
-    assert backend.os.environ["QWENPAW_DATA_MODEL_NAME"] == "test-model"
-    assert backend.os.environ["QWENPAW_DATA_MODEL_API_KEY"] == "test-api-key"
+    assert environment["QWENPAW_DATA_MODEL_PROVIDER"] == "test-provider"
+    assert environment["QWENPAW_DATA_MODEL_NAME"] == "test-model"
+    assert environment["QWENPAW_DATA_MODEL_API_KEY"] == "test-api-key"
     assert (
-        backend.os.environ["QWENPAW_DATA_MODEL_BASE_URL"]
+        environment["QWENPAW_DATA_MODEL_BASE_URL"]
         == "https://model.invalid/v1"
     )
 
@@ -169,9 +174,10 @@ async def test_engine_start_replaces_then_clears_model_environment(
     llm.api_key = ""
     llm.base_url = ""
     await backend._engine_before_start()
+    environment = backend._engine_env()
 
     assert all(
-        name not in backend.os.environ
+        name not in environment and backend.os.environ[name] == "stale-value"
         for name in (
             "QWENPAW_DATA_MODEL_PROVIDER",
             "QWENPAW_DATA_MODEL_NAME",
