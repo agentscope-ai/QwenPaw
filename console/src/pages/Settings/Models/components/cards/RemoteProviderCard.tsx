@@ -1,4 +1,4 @@
-import { Switch } from "antd";
+import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
 import { Button, Modal, Input } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
@@ -75,30 +75,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
 
   return (
     <div className={styles.groupCardGlass}>
+      {!isManaged && (
+        <ProviderCloseButton ids={[provider.id]} onSaved={onSaved} />
+      )}
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={provider.id} size={36} />
         <span className={styles.groupCardName}>{provider.name}</span>
         {providerTag}
-        {!isManaged && (
-          <Switch
-            size="small"
-            checked={provider.enabled !== false}
-            aria-label={t("models.providerEnabled")}
-            loading={apiKeySaving}
-            onChange={async (enabled) => {
-              setApiKeySaving(true);
-              try {
-                await providerApi.configureProvider(provider.id, { enabled });
-                await onSaved();
-              } catch (error) {
-                message.error(String(error));
-              } finally {
-                setApiKeySaving(false);
-              }
-            }}
-          />
-        )}
         {provider.is_free_tier && (
           <span className={styles.freeTag}>
             {t("models.includesFreeModels")}

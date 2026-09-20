@@ -1,5 +1,6 @@
+import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
-import { Button, Input, Modal } from "@agentscope-ai/design";
+import { Button, Input } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../../../api/types";
 import type { ProviderGroup } from "../../utils";
@@ -68,6 +69,10 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
 
   return (
     <div className={styles.groupCardGlass}>
+      <ProviderCloseButton
+        ids={group.providers.map((provider) => provider.id)}
+        onSaved={onSaved}
+      />
       {/* Header */}
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={group.providers[0]?.id ?? ""} size={36} />
@@ -187,44 +192,6 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
         >
           {t("models.settings")}
         </button>
-        {getIsConfigured(activeProvider) &&
-          activeProvider.require_api_key !== false && (
-            <button
-              className={`${styles.groupCardActBtn} ${styles.groupCardActBtnDanger}`}
-              onClick={() => {
-                Modal.confirm({
-                  title: t("models.disableProvider"),
-                  content: t("models.disableProviderConfirm", {
-                    name: activeProvider.name,
-                  }),
-                  okText: t("models.disableBtn"),
-                  okButtonProps: { danger: true },
-                  cancelText: t("models.cancel"),
-                  onOk: async () => {
-                    try {
-                      await providerApi.configureProvider(activeProvider.id, {
-                        api_key: "",
-                      });
-                      message.success(
-                        t("models.providerDisabled", {
-                          name: activeProvider.name,
-                        }),
-                      );
-                      onSaved();
-                    } catch (err) {
-                      const msg =
-                        err instanceof Error
-                          ? err.message
-                          : t("models.failedToSave");
-                      message.error(msg);
-                    }
-                  },
-                });
-              }}
-            >
-              {t("models.disableBtn")}
-            </button>
-          )}
       </div>
     </div>
   );

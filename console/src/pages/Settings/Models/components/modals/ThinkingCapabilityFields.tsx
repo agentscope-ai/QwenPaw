@@ -1,3 +1,4 @@
+import InlineHelp from "@/components/InlineHelp";
 import { InputNumber, Select, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 import type {
@@ -18,10 +19,8 @@ export function ThinkingCapabilityFields({
     <details style={{ marginBlock: 12 }}>
       <summary style={{ cursor: "pointer", fontSize: 13 }}>
         {t("thinkingControl.declaration")}
+        <InlineHelp>{t("thinkingControl.declarationHint")}</InlineHelp>
       </summary>
-      <p style={{ color: "var(--app-text-tertiary)", fontSize: 12 }}>
-        {t("thinkingControl.declarationHint")}
-      </p>
       <div
         style={{
           display: "grid",

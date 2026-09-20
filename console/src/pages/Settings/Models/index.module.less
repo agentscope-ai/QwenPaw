@@ -2648,3 +2648,33 @@
     margin: 12px;
   }
 }
+
+.groupCardGlass {
+  position: relative;
+}
+.providerClose {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--app-text-tertiary);
+  cursor: pointer;
+}
+.providerClose:hover {
+  background: var(--app-fill);
+  color: var(--app-text);
+}
+.providerClose:focus-visible {
+  outline: 2px solid var(--app-accent);
+}
+.providerClose:disabled {
+  opacity: 0.4;
+  cursor: wait;
+}

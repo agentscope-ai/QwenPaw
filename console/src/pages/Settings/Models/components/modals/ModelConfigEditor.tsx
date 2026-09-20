@@ -1,3 +1,4 @@
+import styles from "./ModelConfigEditor.module.less";
 import InlineHelp from "../../../../../components/InlineHelp";
 import { ThinkingControl } from "@/features/thinking/ThinkingControl";
 import type { ThinkingLevel } from "@/features/thinking/types";
@@ -185,98 +186,98 @@ export function ModelConfigEditor({
   };
 
   return (
-    <div style={{ padding: "8px 0 4px" }}>
-      <ThinkingCapabilityFields
-        value={
-          thinkingDeclaration === undefined
-            ? model.thinking_control
-            : thinkingDeclaration
-        }
-        onChange={(next) => {
-          setThinkingDeclaration(next);
-          setDirty(true);
-        }}
-      />
-      <ModelCapabilitiesFields
-        model={model}
-        changes={capabilities}
-        onChange={(value) => {
-          setCapabilities(value);
-          setDirty(true);
-        }}
-      />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: 16,
-          marginBottom: 12,
-        }}
-      >
-        <OutputTokenLimitField
-          value={maxTokens}
-          onChange={handleMaxTokensChange}
+    <div className={styles.editor}>
+      <section className={styles.capabilities}>
+        <ModelCapabilitiesFields
           model={model}
-          chatModel={chatModel}
-        />
-        <ContextLengthField
-          value={effectiveMaxInputLength}
-          onChange={handleMaxInputLengthChange}
-          source={
-            maxInputLengthDirty && maxInputLength !== null
-              ? "user"
-              : maxInputLength === null
-              ? "automatic"
-              : model.context_length_source
-          }
-          onReset={
-            model.max_input_length_configured ||
-            (maxInputLengthDirty && maxInputLength !== null)
-              ? () => handleMaxInputLengthChange(null)
-              : undefined
-          }
-        />
-      </div>
-      {(model.thinking_control || thinkingParamStyle) && (
-        <ThinkingControl
-          control={
-            model.thinking_control ?? {
-              kind: thinkingParamStyle === "budget" ? "budget" : "effort",
-              supports_off: true,
-              efforts: (
-                reasoningEffortOptions ?? ["low", "medium", "high"]
-              ).filter((v) => v !== "none") as ThinkingLevel[],
-              budget_min: thinkingBudgetRange[0],
-              budget_max: thinkingBudgetRange[1],
-            }
-          }
-          value={
-            thinkingEnabled === false || reasoningEffort === "none"
-              ? { level: "off" }
-              : thinkingBudget != null
-              ? { level: "budget", budget_tokens: thinkingBudget }
-              : { level: (reasoningEffort || "inherit") as ThinkingLevel }
-          }
-          onChange={(next) => {
-            setThinkingEnabled(
-              next.level === "inherit" ? null : next.level !== "off",
-            );
-            setThinkingBudget(
-              next.level === "budget" ? next.budget_tokens ?? null : null,
-            );
-            setReasoningEffort(
-              next.level !== "inherit" &&
-                next.level !== "off" &&
-                next.level !== "budget"
-                ? next.level
-                : null,
-            );
+          changes={capabilities}
+          onChange={(value) => {
+            setCapabilities(value);
             setDirty(true);
           }}
         />
-      )}
-      <details style={{ marginTop: 16 }}>
+      </section>
+      <div className={styles.basics}>
+        <section className={styles.limits}>
+          <OutputTokenLimitField
+            value={maxTokens}
+            onChange={handleMaxTokensChange}
+            model={model}
+            chatModel={chatModel}
+          />
+          <ContextLengthField
+            value={effectiveMaxInputLength}
+            onChange={handleMaxInputLengthChange}
+            source={
+              maxInputLengthDirty && maxInputLength !== null
+                ? "user"
+                : maxInputLength === null
+                ? "automatic"
+                : model.context_length_source
+            }
+            onReset={
+              model.max_input_length_configured ||
+              (maxInputLengthDirty && maxInputLength !== null)
+                ? () => handleMaxInputLengthChange(null)
+                : undefined
+            }
+          />
+        </section>
+        {(model.thinking_control || thinkingParamStyle) && (
+          <section className={styles.thinking}>
+            <ThinkingControl
+              control={
+                model.thinking_control ?? {
+                  kind: thinkingParamStyle === "budget" ? "budget" : "effort",
+                  supports_off: true,
+                  efforts: (
+                    reasoningEffortOptions ?? ["low", "medium", "high"]
+                  ).filter((v) => v !== "none") as ThinkingLevel[],
+                  budget_min: thinkingBudgetRange[0],
+                  budget_max: thinkingBudgetRange[1],
+                }
+              }
+              value={
+                thinkingEnabled === false || reasoningEffort === "none"
+                  ? { level: "off" }
+                  : thinkingBudget != null
+                  ? { level: "budget", budget_tokens: thinkingBudget }
+                  : { level: (reasoningEffort || "inherit") as ThinkingLevel }
+              }
+              onChange={(next) => {
+                setThinkingEnabled(
+                  next.level === "inherit" ? null : next.level !== "off",
+                );
+                setThinkingBudget(
+                  next.level === "budget" ? next.budget_tokens ?? null : null,
+                );
+                setReasoningEffort(
+                  next.level !== "inherit" &&
+                    next.level !== "off" &&
+                    next.level !== "budget"
+                    ? next.level
+                    : null,
+                );
+                setDirty(true);
+              }}
+            />
+          </section>
+        )}
+      </div>
+      <details className={styles.advanced}>
         <summary>{t("common.advancedSettings")}</summary>
+        <ThinkingCapabilityFields
+          value={
+            thinkingDeclaration === undefined
+              ? model.thinking_control
+              : thinkingDeclaration
+          }
+          onChange={(next) => {
+            setThinkingDeclaration(next);
+            setDirty(true);
+          }}
+        />
+
         {/* Responses API models handle reasoning via native reasoning items
          that the API requires to be echoed back; relay_reasoning has no
          effect, so hide the toggle to avoid confusion. */}
@@ -311,21 +312,17 @@ export function ModelConfigEditor({
           </div>
         )}
 
-        <InlineHelp>{t("models.modelGenerateConfigHint")}</InlineHelp>
+        <div className={styles.jsonHeading}>
+          <span>JSON</span>
+          <InlineHelp>{t("models.modelGenerateConfigHint")}</InlineHelp>
+        </div>
         <JsonConfigEditor
           value={text}
           onChange={handleChange}
-          placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
+          placeholder="{}"
         />
       </details>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginTop: 8,
-          gap: 8,
-        }}
-      >
+      <div className={styles.actions}>
         <Button
           type="primary"
           size="small"
