@@ -508,13 +508,15 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         if self._reme is None:
             return
 
-        memory_slot = await self._memory_model_slot()
+        agent_config = await load_agent_config_async(self.agent_id)
+        memory_slot = self._memory_model_slot(agent_config)
         model = None
         if memory_slot is not None:
             try:
                 model, _formatter = await create_model_and_formatter_async(
                     self.agent_id,
                     model_slot_override=memory_slot,
+                    agent_config=agent_config,
                 )
             except ProviderError as exc:
                 logger.warning(
@@ -527,6 +529,7 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         if model is None:
             model, _formatter = await create_model_and_formatter_async(
                 self.agent_id,
+                agent_config=agent_config,
             )
         await self._reme.update_component(
             "as_llm",
@@ -534,14 +537,16 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
             model=model,
         )
 
-    async def _memory_model_slot(self) -> ModelSlotConfig | None:
+    def _memory_model_slot(
+        self,
+        agent_config: AgentProfileConfig,
+    ) -> ModelSlotConfig | None:
         """Return the configured memory-writing model slot, if any.
 
         A bare model name (empty ``provider_id``) inherits the provider of
         the agent's main model.  Returns ``None`` when no usable slot is
         configured.
         """
-        agent_config = await load_agent_config_async(self.agent_id)
         slot = agent_config.running.reme_light_memory_config.memory_model
         if slot is None or not slot.model.strip():
             if slot is not None:

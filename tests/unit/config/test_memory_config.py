@@ -133,11 +133,14 @@ def test_auto_fin_window_rejects_values_outside_boundaries(window_hours):
         ),
         (
             "dashscope:qwenpaw-flash-4b",
-            ModelSlotConfig(provider_id="dashscope", model="qwenpaw-flash-4b"),
+            ModelSlotConfig(
+                provider_id="",
+                model="dashscope:qwenpaw-flash-4b",
+            ),
         ),
         (
-            "ollama:qwen2.5:7b",
-            ModelSlotConfig(provider_id="ollama", model="qwen2.5:7b"),
+            "qwen2.5:7b",
+            ModelSlotConfig(provider_id="", model="qwen2.5:7b"),
         ),
         (
             "qwenpaw-flash-4b",
@@ -150,7 +153,12 @@ def test_memory_model_accepts_slot_forms(value, expected):
 
 
 def test_memory_model_survives_serialization_round_trip():
-    cfg = ReMeLightMemoryConfig(memory_model="dashscope:qwenpaw-flash-4b")
+    cfg = ReMeLightMemoryConfig(
+        memory_model={
+            "provider_id": "dashscope",
+            "model": "qwenpaw-flash-4b",
+        },
+    )
 
     reloaded = ReMeLightMemoryConfig.model_validate(cfg.model_dump())
 

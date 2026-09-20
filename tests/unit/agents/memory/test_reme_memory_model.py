@@ -108,12 +108,13 @@ async def test_update_model_slot_selection(
     """The factory must receive the resolved slot, or none when unusable."""
     injected = SimpleNamespace(name="injected")
     factory = AsyncMock(return_value=(injected, None))
+    agent_config = _agent_config(
+        memory_model=memory_model,
+        active_model=active_model,
+    )
     _patch_deps(
         monkeypatch,
-        agent_config=_agent_config(
-            memory_model=memory_model,
-            active_model=active_model,
-        ),
+        agent_config=agent_config,
         factory=factory,
         global_model=global_model,
     )
@@ -122,11 +123,15 @@ async def test_update_model_slot_selection(
     await manager._update_qwenpaw_model()
 
     if expected_override is None:
-        factory.assert_awaited_once_with("default")
+        factory.assert_awaited_once_with(
+            "default",
+            agent_config=agent_config,
+        )
     else:
         factory.assert_awaited_once_with(
             "default",
             model_slot_override=expected_override,
+            agent_config=agent_config,
         )
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
@@ -158,7 +163,9 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
 
     assert factory.await_count == 2
     assert factory.await_args_list[1].args == ("default",)
-    assert "model_slot_override" not in factory.await_args_list[1].kwargs
+    assert factory.await_args_list[1].kwargs == {
+        "agent_config": factory.await_args_list[0].kwargs["agent_config"],
+    }
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
