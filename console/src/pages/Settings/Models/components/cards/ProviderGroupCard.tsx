@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
 import { Button, Input } from "@agentscope-ai/design";
@@ -72,6 +73,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       <ProviderCloseButton
         ids={group.providers.map((provider) => provider.id)}
         onSaved={onSaved}
+        onConfigure={() => onOpenConfig(activeProvider)}
       />
       {/* Header */}
       <div className={styles.groupCardHeader}>
@@ -170,27 +172,13 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           )}
         </div>
 
-        <div className={styles.groupCardField}>
-          <span className={styles.groupCardFieldLabel}>Models</span>
-          <span className={styles.groupCardFieldValue}>
-            {t("models.pool.selected", { count: totalModels })}
-          </span>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className={styles.groupCardActions}>
         <button
-          className={`${styles.groupCardActBtn} ${styles.groupCardPrimaryAction}`}
+          type="button"
+          className={styles.selectedModelsLink}
           onClick={() => onOpenModels(activeProvider)}
         >
-          {t("models.models")}
-        </button>
-        <button
-          className={styles.groupCardActBtn}
-          onClick={() => onOpenConfig(activeProvider)}
-        >
-          {t("models.settings")}
+          <span>{t("models.pool.selected", { count: totalModels })}</span>
+          <ChevronRight size={16} />
         </button>
       </div>
     </div>

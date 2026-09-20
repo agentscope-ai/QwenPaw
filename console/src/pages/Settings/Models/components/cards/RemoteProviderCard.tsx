@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
 import { Button, Modal, Input } from "@agentscope-ai/design";
@@ -76,7 +77,11 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   return (
     <div className={styles.groupCardGlass}>
       {!isManaged && (
-        <ProviderCloseButton ids={[provider.id]} onSaved={onSaved} />
+        <ProviderCloseButton
+          ids={[provider.id]}
+          onSaved={onSaved}
+          onConfigure={() => onOpenConfig(provider)}
+        />
       )}
       {/* Header - same layout as GroupCard */}
       <div className={styles.groupCardHeader}>
@@ -174,12 +179,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
             </div>
           </>
         )}
-        <div className={styles.groupCardField}>
-          <span className={styles.groupCardFieldLabel}>Models</span>
-          <span className={styles.groupCardFieldValue}>
-            {t("models.pool.selected", { count: totalCount })}
-          </span>
-        </div>
+        <button
+          type="button"
+          className={styles.selectedModelsLink}
+          onClick={() => onOpenModels(provider)}
+        >
+          <span>{t("models.pool.selected", { count: totalCount })}</span>
+          <ChevronRight size={16} />
+        </button>
         {isManaged && <HubProviderUsage />}
       </div>
 
@@ -191,20 +198,6 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
             onClick={() => setOauthModalOpen(true)}
           >
             {t("models.connect")}
-          </button>
-        )}
-        <button
-          className={`${styles.groupCardActBtn} ${styles.groupCardPrimaryAction}`}
-          onClick={() => onOpenModels(provider)}
-        >
-          {t("models.models")}
-        </button>
-        {!isManaged && (
-          <button
-            className={styles.groupCardActBtn}
-            onClick={() => onOpenConfig(provider)}
-          >
-            {t("models.settings")}
           </button>
         )}
         {!isManaged && provider.is_custom && (
