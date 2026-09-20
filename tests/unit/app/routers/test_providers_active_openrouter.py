@@ -672,7 +672,7 @@ class TestSetActiveModel:
             )
         assert exc_info.value.status_code == 400
 
-    async def test_global_scope_syncs_unset_agent_model(
+    async def test_global_scope_preserves_agent_inheritance(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -716,11 +716,8 @@ class TestSetActiveModel:
         )
 
         assert result.active_llm == manager.get_active_model()
-        assert configs[0].active_model == ModelSlotConfig(
-            provider_id="p",
-            model="m",
-        )
-        assert reload_calls == ["agent-1"]
+        assert configs == []
+        assert reload_calls == []
 
     async def test_global_scope_keeps_existing_agent_model(
         self,

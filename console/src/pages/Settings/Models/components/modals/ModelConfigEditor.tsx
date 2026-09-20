@@ -1,8 +1,10 @@
+import InlineHelp from "../../../../../components/InlineHelp";
+import { ThinkingControl } from "@/features/thinking/ThinkingControl";
+import type { ThinkingLevel } from "@/features/thinking/types";
 import { ThinkingCapabilityFields } from "./ThinkingCapabilityFields";
 import type { ThinkingControlSpec } from "@/features/thinking/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, InputNumber, Slider, Switch } from "@agentscope-ai/design";
-import { Segmented } from "antd";
+import { Button, Switch } from "@agentscope-ai/design";
 import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
@@ -182,12 +184,6 @@ export function ModelConfigEditor({
     }
   };
 
-  const labelStyle: React.CSSProperties = {
-    fontSize: 13,
-    color: "var(--app-text)",
-    marginBottom: 4,
-  };
-
   return (
     <div style={{ padding: "8px 0 4px" }}>
       <ThinkingCapabilityFields
@@ -241,9 +237,50 @@ export function ModelConfigEditor({
           }
         />
       </div>
-      {/* Enable Thinking (only for providers that support thinking config) */}
-      {thinkingParamStyle && (
-        <>
+      {(model.thinking_control || thinkingParamStyle) && (
+        <ThinkingControl
+          control={
+            model.thinking_control ?? {
+              kind: thinkingParamStyle === "budget" ? "budget" : "effort",
+              supports_off: true,
+              efforts: (
+                reasoningEffortOptions ?? ["low", "medium", "high"]
+              ).filter((v) => v !== "none") as ThinkingLevel[],
+              budget_min: thinkingBudgetRange[0],
+              budget_max: thinkingBudgetRange[1],
+            }
+          }
+          value={
+            thinkingEnabled === false || reasoningEffort === "none"
+              ? { level: "off" }
+              : thinkingBudget != null
+              ? { level: "budget", budget_tokens: thinkingBudget }
+              : { level: (reasoningEffort || "inherit") as ThinkingLevel }
+          }
+          onChange={(next) => {
+            setThinkingEnabled(
+              next.level === "inherit" ? null : next.level !== "off",
+            );
+            setThinkingBudget(
+              next.level === "budget" ? next.budget_tokens ?? null : null,
+            );
+            setReasoningEffort(
+              next.level !== "inherit" &&
+                next.level !== "off" &&
+                next.level !== "budget"
+                ? next.level
+                : null,
+            );
+            setDirty(true);
+          }}
+        />
+      )}
+      <details style={{ marginTop: 16 }}>
+        <summary>{t("common.advancedSettings")}</summary>
+        {/* Responses API models handle reasoning via native reasoning items
+         that the API requires to be echoed back; relay_reasoning has no
+         effect, so hide the toggle to avoid confusion. */}
+        {chatModel !== "OpenAIResponseModel" && (
           <div
             style={{
               display: "flex",
@@ -260,188 +297,27 @@ export function ModelConfigEditor({
                   color: "var(--app-text)",
                 }}
               >
-                {t("models.thinkingModeLabel")}
+                {t("models.relayReasoningLabel")}
               </span>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "var(--app-text-quaternary)",
-                  marginTop: 2,
-                }}
-              >
-                {t("models.thinkingModeHint")}
-              </div>
+              <InlineHelp>{t("models.relayReasoningHint")}</InlineHelp>
             </div>
             <Switch
-              checked={thinkingEnabled === true}
+              checked={relayReasoning}
               onChange={(checked) => {
-                setThinkingEnabled(checked);
+                setRelayReasoning(checked);
                 setDirty(true);
               }}
             />
           </div>
+        )}
 
-          {thinkingEnabled === true && (
-            <div style={{ marginBottom: 12 }}>
-              {thinkingParamStyle === "budget" ? (
-                <div>
-                  <div
-                    style={{
-                      ...labelStyle,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                    }}
-                  >
-                    <span>{t("models.thinkingBudgetLabel")}</span>
-                    <a
-                      style={{ fontSize: 11, cursor: "pointer" }}
-                      onClick={() => {
-                        setThinkingBudget(
-                          thinkingBudget === null
-                            ? thinkingBudgetRange[0]
-                            : null,
-                        );
-                        setDirty(true);
-                      }}
-                    >
-                      {thinkingBudget === null
-                        ? t("models.switchToManual")
-                        : t("models.switchToAuto")}
-                    </a>
-                  </div>
-                  {thinkingBudget !== null ? (
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 12 }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <Slider
-                          min={thinkingBudgetRange[0]}
-                          max={thinkingBudgetRange[1]}
-                          step={1024}
-                          value={thinkingBudget}
-                          onChange={(val: number) => {
-                            setThinkingBudget(val);
-                            setDirty(true);
-                          }}
-                        />
-                      </div>
-                      <InputNumber
-                        style={{ width: 100 }}
-                        min={thinkingBudgetRange[0]}
-                        max={thinkingBudgetRange[1]}
-                        step={1024}
-                        value={thinkingBudget}
-                        onChange={(val) => {
-                          setThinkingBudget(val);
-                          setDirty(true);
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      style={{
-                        fontSize: 11,
-                        color: "var(--app-text-quaternary)",
-                        marginTop: 2,
-                      }}
-                    >
-                      {t("models.thinkingBudgetHint")}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div>
-                  <div style={labelStyle}>
-                    {t("models.reasoningEffortLabel")}
-                  </div>
-                  <Segmented
-                    block
-                    value={reasoningEffort ?? "__auto__"}
-                    onChange={(val) => {
-                      const v = val as string;
-                      setReasoningEffort(v === "__auto__" ? null : v);
-                      setDirty(true);
-                    }}
-                    options={[
-                      { label: t("models.switchToAuto"), value: "__auto__" },
-                      ...(
-                        reasoningEffortOptions ?? [
-                          "none",
-                          "minimal",
-                          "low",
-                          "medium",
-                          "high",
-                          "xhigh",
-                        ]
-                      ).map((v) => ({
-                        label: v.charAt(0).toUpperCase() + v.slice(1),
-                        value: v,
-                      })),
-                    ]}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
-      {/* Responses API models handle reasoning via native reasoning items
-         that the API requires to be echoed back; relay_reasoning has no
-         effect, so hide the toggle to avoid confusion. */}
-      {chatModel !== "OpenAIResponseModel" && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 8,
-            padding: "6px 0",
-          }}
-        >
-          <div>
-            <span
-              style={{
-                fontSize: 13,
-                color: "var(--app-text)",
-              }}
-            >
-              {t("models.relayReasoningLabel")}
-            </span>
-            <div
-              style={{
-                fontSize: 11,
-                color: "var(--app-text-quaternary)",
-                marginTop: 2,
-              }}
-            >
-              {t("models.relayReasoningHint")}
-            </div>
-          </div>
-          <Switch
-            checked={relayReasoning}
-            onChange={(checked) => {
-              setRelayReasoning(checked);
-              setDirty(true);
-            }}
-          />
-        </div>
-      )}
-
-      <div
-        style={{
-          fontSize: 12,
-          color: "var(--app-text-tertiary)",
-          marginBottom: 4,
-        }}
-      >
-        {t("models.modelGenerateConfigHint")}
-      </div>
-      <JsonConfigEditor
-        value={text}
-        onChange={handleChange}
-        placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
-      />
+        <InlineHelp>{t("models.modelGenerateConfigHint")}</InlineHelp>
+        <JsonConfigEditor
+          value={text}
+          onChange={handleChange}
+          placeholder={`Example:\n{\n  "extra_body": {\n    "enable_thinking": false\n  }\n}`}
+        />
+      </details>
       <div
         style={{
           display: "flex",

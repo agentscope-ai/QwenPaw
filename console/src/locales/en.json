@@ -35,7 +35,8 @@
     "clear": "Clear",
     "paste": "Paste",
     "yes": "Yes",
-    "no": "No"
+    "no": "No",
+    "advancedSettings": "Advanced"
   },
   "desktop": {
     "closeWindow": {
@@ -2744,7 +2745,8 @@
         "family": "Model family"
       }
     },
-    "includesFreeModels": "Includes free models"
+    "includesFreeModels": "Includes free models",
+    "agentDefaults": "Agent defaults"
   },
   "files": {
     "title": "Files",
@@ -5246,6 +5248,11 @@
       "anthropic_adaptive": "Anthropic · adaptive / effort",
       "gemini_budget": "Gemini · thinking_budget",
       "gemini_level": "Gemini · thinking_level"
+    },
+    "modelSource": {
+      "session": "Conversation model",
+      "agent": "Agent default",
+      "global": "Default LLM"
     }
   }
 }

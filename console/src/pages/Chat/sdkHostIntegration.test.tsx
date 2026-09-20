@@ -809,7 +809,7 @@ describe("ChatPage coverage", () => {
       initialEntries: ["/chat/test-session"],
     });
     await screen.findByTestId("chat-ui");
-    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
     expect(screen.getByTestId("header-title")).toBeInTheDocument();
   });

@@ -22,6 +22,9 @@ describe("ThinkingControl", () => {
         onChange={changed}
       />,
     );
+    fireEvent.click(
+      screen.getByRole("button", { name: "thinkingControl.budget" }),
+    );
     const input = screen.getByRole("spinbutton", {
       name: "thinkingControl.budget",
     });

@@ -144,7 +144,9 @@ class BackendSettingsRequest(BaseModel):
 
 
 class AgentModelSettingsPatch(BaseModel):
-    """Model-routing fields editable from the Chat model selector."""
+    """Model-routing fields editable from the model settings page."""
+
+    active_model: ModelSlotConfig | None = None
 
     fallback_models: list[ModelSlotConfig] | None = None
     fallback_policy: FallbackPolicyConfig | None = None
@@ -856,20 +858,6 @@ async def create_agent(
     active_model = (
         request.active_model if request.backend == "qwenpaw" else None
     )
-    if request.backend == "qwenpaw" and (
-        not active_model or not active_model.provider_id
-    ):
-        try:
-            from ...providers import ProviderManager
-
-            global_model = await run_sync_io(
-                ProviderManager.get_instance().get_active_model,
-            )
-            if global_model and global_model.provider_id:
-                active_model = global_model
-        except Exception:
-            pass
-
     agent_config = AgentProfileConfig(
         id=new_id,
         name=request.name,

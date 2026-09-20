@@ -56,6 +56,11 @@ async def thinking_view(
 ) -> dict:
     """Return requested and effective values plus model-owned constraints."""
     config = await run_sync_io(load_agent_config, workspace.agent_id)
+    model_source = (
+        f"session"
+        if model_override
+        else f"agent" if config.active_model else f"global"
+    )
     config = await run_sync_io(_with_session_model, config, model_override)
     inherited = ThinkingPreference(
         level=config.thinking_level,
@@ -100,6 +105,7 @@ async def thinking_view(
     )
     effective, reason = resolve_thinking(requested, control)
     return {
+        f"model_source": model_source,
         f"model": model,
         f"provider_id": provider_id,
         f"model_key": model_key,
@@ -110,9 +116,7 @@ async def thinking_view(
         f"source": (
             f"session"
             if override and override.level != f"inherit"
-            else f"agent"
-            if inherited.level != f"inherit"
-            else f"model"
+            else f"agent" if inherited.level != f"inherit" else f"model"
         ),
         f"reason": reason,
     }

@@ -87,31 +87,6 @@ vi.mock("react-i18next", () => ({
   }),
 }));
 
-vi.mock("lucide-react", () => ({
-  Brain: () => "Brain",
-  CircleHelp: () => "CircleHelp",
-  RotateCcw: () => "RotateCcw",
-  AlertTriangle: () => "AlertTriangle",
-  Check: () => "Check",
-  ChevronDown: () => "ChevronDown",
-  ChevronUp: () => "ChevronUp",
-  Eye: () => "Eye",
-  EyeOff: () => "EyeOff",
-  ExternalLink: () => "ExternalLink",
-  GitBranch: () => "GitBranch",
-  Link: () => "Link",
-  Loader2: () => "Loader2",
-  LoaderCircle: () => "LoaderCircle",
-  Plus: () => "Plus",
-  Minus: () => "Minus",
-  Search: () => "Search",
-  Save: () => "Save",
-  Settings: () => "Settings",
-  Settings2: () => "Settings2",
-  Trash2: () => "Trash2",
-  XCircle: () => "XCircle",
-}));
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -799,7 +774,7 @@ describe("ModelSelector", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("expands each provider by default and limits each to five models", async () => {
+  it("expands only the active provider and limits each to five models", async () => {
     localStorage.setItem(
       "qwenpaw_model_selector_collapsed",
       JSON.stringify(["openai", "anthropic"]),
@@ -840,10 +815,12 @@ describe("ModelSelector", () => {
     );
     expect(screen.getByText("Anthropic").closest("button")).toHaveAttribute(
       "aria-expanded",
-      "true",
+      "false",
     );
     expect(screen.getByText("OpenAI Model 4")).toBeInTheDocument();
     expect(screen.queryByText("OpenAI Model 5")).not.toBeInTheDocument();
+    expect(screen.queryByText("Anthropic Model 4")).not.toBeInTheDocument();
+    await user.click(screen.getByText("Anthropic").closest("button")!);
     expect(screen.getByText("Anthropic Model 4")).toBeInTheDocument();
     expect(screen.queryByText("Anthropic Model 5")).not.toBeInTheDocument();
   });
@@ -1686,7 +1663,7 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByText("thinkingControl.unknown"),
+      await screen.findByRole("img", { name: "thinkingControl.unknown" }),
     ).toBeInTheDocument();
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /common.save/ }));
@@ -1861,10 +1838,8 @@ describe("ModelSelector", () => {
     renderWithProviders(<ModelSelector showAdvancedModelControls />);
 
     expect(
-      await screen.findByText(
-        (_, element) => element?.textContent === "GitBranchGPT-3.5 Turbo",
-      ),
-    ).toBeInTheDocument();
+      await screen.findByLabelText("modelSelector.fallbackActive"),
+    ).toHaveTextContent("GPT-3.5 Turbo");
   });
 
   it("hides the fallback badge when actual usage matches the active model", async () => {

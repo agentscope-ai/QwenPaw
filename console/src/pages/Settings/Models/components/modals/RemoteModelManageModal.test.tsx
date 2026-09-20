@@ -203,7 +203,9 @@ describe("model pool switches", () => {
   });
   it("updates OpenRouter through the common refresh action", async () => {
     const { onSaved } = await render();
-    fireEvent.click(screen.getByText("models.autoDiscoverModels"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.autoDiscoverModels" }),
+    );
     await waitFor(() =>
       expect(api.discoverModels).toHaveBeenCalledWith(
         "openrouter",
@@ -221,7 +223,9 @@ describe("model pool switches", () => {
       models: [],
     });
     await render();
-    fireEvent.click(screen.getByText("models.autoDiscoverModels"));
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.autoDiscoverModels" }),
+    );
     await waitFor(() =>
       expect(message.error).toHaveBeenCalledWith("Authentication failed"),
     );

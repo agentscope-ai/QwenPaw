@@ -35,7 +35,8 @@
     "clear": "清除",
     "paste": "粘贴",
     "yes": "是",
-    "no": "否"
+    "no": "否",
+    "advancedSettings": "高级"
   },
   "desktop": {
     "closeWindow": {
@@ -2602,7 +2603,8 @@
         "family": "模型系列"
       }
     },
-    "includesFreeModels": "含免费模型"
+    "includesFreeModels": "含免费模型",
+    "agentDefaults": "智能体默认模型"
   },
   "files": {
     "title": "文件",
@@ -5264,6 +5266,11 @@
       "anthropic_adaptive": "Anthropic · adaptive / effort",
       "gemini_budget": "Gemini · thinking_budget",
       "gemini_level": "Gemini · thinking_level"
+    },
+    "modelSource": {
+      "session": "当前会话指定",
+      "agent": "跟随 Agent 模型",
+      "global": "跟随默认 LLM"
     }
   }
 }

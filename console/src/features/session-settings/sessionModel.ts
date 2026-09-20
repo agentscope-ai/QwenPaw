@@ -98,3 +98,23 @@ export async function saveSessionModel(
     ),
   );
 }
+
+export async function resetSessionModel(
+  agent: string,
+  scope: SessionModelScope,
+) {
+  if (!scope.chatId) {
+    sessionStorage.removeItem(key(agent, scope.sessionId));
+    return loadSessionModel(agent, scope);
+  }
+  return activeModels(
+    await request<ThinkingView>(
+      `/chats/${encodeURIComponent(scope.chatId)}/model`,
+      {
+        method: "PUT",
+        headers: { "X-Agent-Id": agent },
+        body: "null",
+      },
+    ),
+  );
+}

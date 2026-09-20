@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Literal, Optional
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from agentscope.message import Msg
@@ -776,18 +776,21 @@ async def set_chat_thinking(
 @router.put(f"/{{chat_id}}/model")
 async def set_chat_model(
     chat_id: str,
-    model: ModelSlotConfig,
+    model: ModelSlotConfig | None = Body(None),
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ):
     """Select the model for this conversation only."""
     view = await thinking_view(workspace, model_override=model)
-    if (view[f"provider_id"], view[f"model"]) != (
+    if model is not None and (view[f"provider_id"], view[f"model"]) != (
         model.provider_id,
         model.model,
     ):
         raise HTTPException(422, f"Model provider is unavailable")
-    chat = await mgr.set_session_model(chat_id, model.model_dump())
+    chat = await mgr.set_session_model(
+        chat_id,
+        model.model_dump() if model else None,
+    )
     if chat is None:
         raise HTTPException(404, f"Chat not found")
     return await thinking_view(

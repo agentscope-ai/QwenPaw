@@ -1029,35 +1029,6 @@ async def set_active_model(
                 raise HTTPException(status_code=404, detail=message) from exc
             raise HTTPException(status_code=400, detail=message) from exc
 
-        # Sync to active agent if its active_model is unset (#4937)
-        try:
-            workspace = await get_agent_for_request(request)
-            changed = False
-
-            def apply_global_default(
-                agent_config: AgentProfileConfig,
-            ) -> None:
-                nonlocal changed
-                if (
-                    agent_config.active_model
-                    and agent_config.active_model.provider_id
-                ):
-                    return
-                agent_config.active_model = ModelSlotConfig(
-                    provider_id=body.provider_id,
-                    model=body.model,
-                )
-                changed = True
-
-            await update_agent_config_async(
-                workspace.agent_id,
-                apply_global_default,
-            )
-            if changed:
-                schedule_agent_reload(request, workspace.agent_id)
-        except Exception:
-            pass
-
         return await run_sync_io(
             _active_models_info,
             manager,

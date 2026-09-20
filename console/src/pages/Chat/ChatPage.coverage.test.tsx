@@ -739,7 +739,7 @@ describe("ChatPage coverage", () => {
     });
     await screen.findByTestId("chat-ui");
     await act(async () => {});
-    expect(screen.getByTestId("model-selector")).toBeInTheDocument();
+    expect(screen.queryByTestId("model-selector")).not.toBeInTheDocument();
     expect(screen.getByTestId("action-group")).toBeInTheDocument();
     expect(screen.getByTestId("header-title")).toBeInTheDocument();
   });

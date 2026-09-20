@@ -1,3 +1,7 @@
+import {
+  BillingTag,
+  CapabilityTags,
+} from "../../Settings/Models/components/modals/ModelCapabilityTags";
 import { saveSessionModel } from "../../../features/session-settings/sessionModel";
 import {
   lazy,
@@ -75,6 +79,8 @@ const DEFAULT_VISIBLE_MODELS = 5;
 const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
+  embedded?: boolean;
+  onSelected?: () => void;
   showAdvancedModelControls?: boolean;
   sessionId?: string;
   chatId?: string | null;
@@ -92,6 +98,8 @@ function readStoredModelKeys(key: string): string[] {
 }
 
 export default function ModelSelector({
+  embedded = false,
+  onSelected,
   showAdvancedModelControls = false,
   sessionId,
   chatId,
@@ -100,7 +108,7 @@ export default function ModelSelector({
   const [saving, setSaving] = useState(false);
   const [addingKey, setAddingKey] = useState<string | null>(null);
   const [visibilityKey, setVisibilityKey] = useState<string | null>(null);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(embedded);
   const [managingModels, setManagingModels] = useState(false);
   const [addingProvider, setAddingProvider] = useState<string | null>(null);
   const [removingModel, setRemovingModel] = useState<string | null>(null);
@@ -246,6 +254,29 @@ export default function ModelSelector({
 
   const activeProviderId = activeModels?.active_llm?.provider_id;
   const activeModelId = activeModels?.active_llm?.model;
+  const expansionSession = useRef<string>();
+  useEffect(() => {
+    if (!open) {
+      expansionSession.current = undefined;
+      return;
+    }
+    if (!providers.length || !activeModels) return;
+    const key = `${selectedAgent}:${sessionId ?? ""}:${activeProviderId ?? ""}`;
+    if (expansionSession.current === key) return;
+    expansionSession.current = key;
+    setCollapsedProviders(
+      new Set(
+        providers.filter((p) => p.id !== activeProviderId).map((p) => p.id),
+      ),
+    );
+  }, [
+    open,
+    providers,
+    activeModels,
+    selectedAgent,
+    sessionId,
+    activeProviderId,
+  ]);
   const actualUsage = useTurnUsageStore((state) => state.snapshot?.usage);
   const fallbackModel = useMemo(() => {
     const providerId = actualUsage?.provider_id;
@@ -380,6 +411,7 @@ export default function ModelSelector({
     if (savingRef.current) return;
     if (providerId === activeProviderId && modelId === activeModelId) {
       setOpen(false);
+      onSelected?.();
       return;
     }
 
@@ -416,6 +448,7 @@ export default function ModelSelector({
       );
       publishActiveMaxInputLength(updated?.effective_max_input_length);
       rememberRecent(providerId, modelId);
+      onSelected?.();
     } catch (err) {
       if (
         activationRevision !== activationRevisionRef.current ||
@@ -609,7 +642,7 @@ export default function ModelSelector({
       provider.supports_oauth &&
       !provider.has_api_key &&
       !provider.oauth_connected;
-    const isCollapsed = collapsedProviders.has(provider.id);
+    const isCollapsed = !searchQuery && collapsedProviders.has(provider.id);
     const shouldLimitModels = !trimmedSearch && limitInitialModels;
     const visibleCount = shouldLimitModels
       ? Math.min(
@@ -709,16 +742,8 @@ export default function ModelSelector({
                         className={styles.oauthWarningIcon}
                       />
                     )}
-                    {model.is_free && !needsOAuth && (
-                      <span className={styles.freeTag}>
-                        {t("modelSelector.free")}
-                      </span>
-                    )}
-                    {(model.supports_image || model.supports_multimodal) && (
-                      <span className={styles.visionTag}>
-                        {t("modelSelector.vision")}
-                      </span>
-                    )}
+                    {!needsOAuth && <BillingTag model={model} iconOnly />}
+                    <CapabilityTags model={model} iconOnly />
                     {isActive && (
                       <Check size={14} className={styles.checkIcon} />
                     )}
@@ -985,7 +1010,10 @@ export default function ModelSelector({
   };
 
   const dropdownContent = (
-    <div id={panelId} className={styles.panel}>
+    <div
+      id={panelId}
+      className={[styles.panel, embedded ? styles.embedded : ""].join(" ")}
+    >
       <div className={styles.searchWrapper}>
         <Search size={15} className={styles.searchIcon} />
         <input
@@ -1136,61 +1164,68 @@ export default function ModelSelector({
 
   return (
     <>
-      <Dropdown
-        open={open}
-        onOpenChange={handleOpenChange}
-        popupRender={() => (
-          <div style={{ transform: "translateY(0)" }}>{dropdownContent}</div>
-        )}
-        trigger={["click"]}
-        placement={isMobile ? "bottomCenter" : "bottomLeft"}
-      >
-        <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
-          <button
-            type="button"
-            aria-expanded={open}
-            aria-controls={panelId}
-            aria-label={t("chat.modelSelectTooltip")}
-            className={[styles.trigger, open ? styles.triggerActive : ""].join(
-              " ",
-            )}
-          >
-            {saving && <LoaderCircle size={12} className={styles.spinning} />}
-            {showActiveProviderIcon && activeProviderId && (
-              <ProviderIcon providerId={activeProviderId} size={16} />
-            )}
-            {showAdvancedModelControls && fallbackModel && (
-              <Tooltip
-                title={t("modelSelector.fallbackActive", {
-                  provider: fallbackModel.providerName,
-                  model: fallbackModel.label,
-                })}
-              >
-                <span
-                  className={styles.fallbackBadge}
-                  aria-label={t("modelSelector.fallbackActive", {
+      {embedded ? (
+        dropdownContent
+      ) : (
+        <Dropdown
+          open={open}
+          onOpenChange={handleOpenChange}
+          popupRender={() => (
+            <div style={{ transform: "translateY(0)" }}>{dropdownContent}</div>
+          )}
+          trigger={["click"]}
+          placement={isMobile ? "bottomCenter" : "bottomLeft"}
+        >
+          <Tooltip title={t("chat.modelSelectTooltip")} mouseEnterDelay={0.5}>
+            <button
+              type="button"
+              aria-expanded={open}
+              aria-controls={panelId}
+              aria-label={t("chat.modelSelectTooltip")}
+              className={[
+                styles.trigger,
+                open ? styles.triggerActive : "",
+              ].join(" ")}
+            >
+              {saving && <LoaderCircle size={12} className={styles.spinning} />}
+              {showActiveProviderIcon && activeProviderId && (
+                <ProviderIcon providerId={activeProviderId} size={16} />
+              )}
+              {showAdvancedModelControls && fallbackModel && (
+                <Tooltip
+                  title={t("modelSelector.fallbackActive", {
                     provider: fallbackModel.providerName,
                     model: fallbackModel.label,
                   })}
                 >
-                  <ProviderIcon
-                    providerId={fallbackModel.providerId}
-                    size={13}
-                  />
-                  <GitBranch size={12} />
-                  <span>{fallbackModel.label}</span>
+                  <span
+                    className={styles.fallbackBadge}
+                    aria-label={t("modelSelector.fallbackActive", {
+                      provider: fallbackModel.providerName,
+                      model: fallbackModel.label,
+                    })}
+                  >
+                    <ProviderIcon
+                      providerId={fallbackModel.providerId}
+                      size={13}
+                    />
+                    <GitBranch size={12} />
+                    <span>{fallbackModel.label}</span>
+                  </span>
+                </Tooltip>
+              )}
+              <span className={styles.triggerName} title={activeModelName}>
+                {activeModelName}
+              </span>
+              {activeModelIsFree && (
+                <span className={styles.freeTag}>
+                  {t("modelSelector.free")}
                 </span>
-              </Tooltip>
-            )}
-            <span className={styles.triggerName} title={activeModelName}>
-              {activeModelName}
-            </span>
-            {activeModelIsFree && (
-              <span className={styles.freeTag}>{t("modelSelector.free")}</span>
-            )}
-          </button>
-        </Tooltip>
-      </Dropdown>
+              )}
+            </button>
+          </Tooltip>
+        </Dropdown>
+      )}
 
       <Modal
         open={configNavModal.open}

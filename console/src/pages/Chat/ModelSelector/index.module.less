@@ -1457,3 +1457,58 @@
 .candidateRow {
   flex-wrap: nowrap;
 }
+
+.embedded {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-shadow: none;
+  border: 0;
+  border-radius: 0;
+}
+
+.embedded .tabBar {
+  width: fit-content;
+  margin: 4px 12px 8px;
+  padding: 3px;
+  border-radius: 9px;
+}
+.embedded .tabButton {
+  min-height: 26px;
+  height: 26px;
+  padding: 0 16px;
+  font-size: 11px;
+  border-radius: 6px;
+}
+
+.agentModelSettings {
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+}
+.agentSettingsToggle {
+  background: transparent;
+  color: var(--app-text-secondary);
+  padding-inline: 4px;
+}
+.agentSettingsBody {
+  padding: 12px 4px;
+}
+.saveAgentSettings {
+  box-shadow: none;
+  min-height: 32px;
+  padding: 0 16px;
+}
+
+.embedded .searchWrapper {
+  min-height: 44px;
+  padding: 4px 12px;
+}
+
+.agentSettingsToggle[aria-expanded="true"] {
+  background: transparent;
+  color: var(--app-text);
+}
+.agentSettingsBody > section {
+  max-width: 360px;
+}

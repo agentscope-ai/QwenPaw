@@ -12,7 +12,7 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react";
-import { Segmented, Select } from "antd";
+import { Segmented, Select, Switch } from "antd";
 import { useTranslation } from "react-i18next";
 
 import { agentsApi } from "@/api/modules/agents";
@@ -110,7 +110,6 @@ export function AgentModelSettings({
   agentIdRef.current = agentId;
   const bodyId = useId();
   const subagentSelectId = `${bodyId}-subagent-model`;
-  const fallbackScopeSelectId = `${bodyId}-fallback-scope`;
   const fallbackSelectId = `${bodyId}-fallback-model`;
   const draftTokenRef = useRef<number | undefined>();
 
@@ -461,11 +460,10 @@ export function AgentModelSettings({
               </div>
               <div className={styles.settingsSection}>
                 <label className={styles.settingsCheckRow}>
-                  <input
-                    type="checkbox"
+                  <Switch
+                    size="small"
                     checked={fallbackEnabled}
-                    onChange={(event) => {
-                      const nextFallbackEnabled = event.target.checked;
+                    onChange={(nextFallbackEnabled) => {
                       setFallbackEnabled(nextFallbackEnabled);
                       notifyDraft({ fallbackEnabled: nextFallbackEnabled });
                     }}
@@ -478,56 +476,28 @@ export function AgentModelSettings({
                       <span className={styles.settingsFieldLabel}>
                         {t("modelSelector.fallbackScope")}
                       </span>
-                      {showThinking ? (
-                        <Select
-                          id={fallbackScopeSelectId}
-                          aria-label={t("modelSelector.fallbackScope")}
-                          className={styles.agentSelect}
-                          classNames={{
-                            popup: { root: styles.agentSelectDropdown },
-                          }}
-                          value={fallbackScope}
-                          options={[
-                            {
-                              label: t("modelSelector.configuredModels"),
-                              value: "configured",
-                            },
-                            {
-                              label: t("modelSelector.freeModelsOnly"),
-                              value: "free_only",
-                            },
-                          ]}
-                          onChange={(value) => {
-                            const nextFallbackScope =
-                              value as typeof fallbackScope;
-                            setFallbackScope(nextFallbackScope);
-                            notifyDraft({ fallbackScope: nextFallbackScope });
-                          }}
-                        />
-                      ) : (
-                        <Segmented
-                          aria-label={t("modelSelector.fallbackScope")}
-                          className={styles.fallbackScope}
-                          block
-                          value={fallbackScope}
-                          options={[
-                            {
-                              label: t("modelSelector.configuredModels"),
-                              value: "configured",
-                            },
-                            {
-                              label: t("modelSelector.freeModelsOnly"),
-                              value: "free_only",
-                            },
-                          ]}
-                          onChange={(value) => {
-                            const nextFallbackScope =
-                              value as typeof fallbackScope;
-                            setFallbackScope(nextFallbackScope);
-                            notifyDraft({ fallbackScope: nextFallbackScope });
-                          }}
-                        />
-                      )}
+                      <Segmented
+                        aria-label={t("modelSelector.fallbackScope")}
+                        className={styles.fallbackScope}
+                        block
+                        value={fallbackScope}
+                        options={[
+                          {
+                            label: t("modelSelector.configuredModels"),
+                            value: "configured",
+                          },
+                          {
+                            label: t("modelSelector.freeModelsOnly"),
+                            value: "free_only",
+                          },
+                        ]}
+                        onChange={(value) => {
+                          const nextFallbackScope =
+                            value as typeof fallbackScope;
+                          setFallbackScope(nextFallbackScope);
+                          notifyDraft({ fallbackScope: nextFallbackScope });
+                        }}
+                      />
                     </div>
                     <div className={styles.settingsField}>
                       <span className={styles.settingsFieldLabel}>

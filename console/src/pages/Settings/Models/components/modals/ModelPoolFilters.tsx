@@ -1,5 +1,6 @@
+import type { ReactNode } from "react";
 import { Input, Button } from "@agentscope-ai/design";
-import { Popover, Select, Tag } from "antd";
+import { Popover, Select, Tag, Tooltip } from "antd";
 import { Boxes, Gift, Search, SlidersHorizontal, Wrench } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -12,10 +13,12 @@ export function ModelPoolFilters({
   value,
   onChange,
   families,
+  actions,
 }: {
   value: Filters;
   onChange: (filters: Filters) => void;
   families: string[];
+  actions?: ReactNode;
 }) {
   const { t } = useTranslation();
   const labels: Record<string, string> = {
@@ -58,14 +61,19 @@ export function ModelPoolFilters({
   );
   return (
     <div className={styles.filters}>
-      <Input
-        aria-label={t("models.searchModelPlaceholder")}
-        prefix={<Search size={18} />}
-        placeholder={t("models.searchModelPlaceholder")}
-        value={value.search}
-        allowClear
-        onChange={(event) => onChange({ ...value, search: event.target.value })}
-      />
+      <div className={styles.searchTools}>
+        <Input
+          aria-label={t("models.searchModelPlaceholder")}
+          prefix={<Search size={18} />}
+          placeholder={t("models.searchModelPlaceholder")}
+          value={value.search}
+          allowClear
+          onChange={(event) =>
+            onChange({ ...value, search: event.target.value })
+          }
+        />
+        {actions}
+      </div>
       <div className={styles.quickFilters}>
         <button
           type="button"
@@ -78,8 +86,9 @@ export function ModelPoolFilters({
             })
           }
         >
-          <Gift size={14} />
-          {t("models.billing.free")}
+          <Tooltip title={t("models.billing.free")}>
+            <Gift size={16} aria-label={t("models.billing.free")} />
+          </Tooltip>
         </button>
         <button
           type="button"
@@ -87,8 +96,9 @@ export function ModelPoolFilters({
           aria-pressed={value.multimodal}
           onClick={() => onChange({ ...value, multimodal: !value.multimodal })}
         >
-          <Boxes size={14} />
-          {t("models.tagMultimodal")}
+          <Tooltip title={t("models.tagMultimodal")}>
+            <Boxes size={16} aria-label={t("models.tagMultimodal")} />
+          </Tooltip>
         </button>
         <button
           type="button"
@@ -96,8 +106,12 @@ export function ModelPoolFilters({
           aria-pressed={value.tools}
           onClick={() => onChange({ ...value, tools: !value.tools })}
         >
-          <Wrench size={14} />
-          {t("models.pool.capabilityOptions.tool_calling")}
+          <Tooltip title={t("models.pool.capabilityOptions.tool_calling")}>
+            <Wrench
+              size={16}
+              aria-label={t("models.pool.capabilityOptions.tool_calling")}
+            />
+          </Tooltip>
         </button>
         <Popover
           trigger="click"
@@ -150,12 +164,18 @@ export function ModelPoolFilters({
             </div>
           }
         >
-          <Button type="text" icon={<SlidersHorizontal size={15} />}>
-            {t("models.pool.moreFilters")}
-          </Button>
+          <Button
+            type="text"
+            title={t("models.pool.moreFilters")}
+            aria-label={t("models.pool.moreFilters")}
+            icon={<SlidersHorizontal size={17} />}
+          />
         </Popover>
       </div>
-      <div className={styles.activeFilters}>
+      <div
+        className={styles.activeFilters}
+        style={{ display: active.length || value.search ? undefined : "none" }}
+      >
         {active.map(([key, label]) => (
           <Tag
             key={key}

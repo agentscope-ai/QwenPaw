@@ -1,3 +1,4 @@
+import { AgentModelDefaults } from "./AgentModelDefaults";
 import {
   useCallback,
   useDeferredValue,
@@ -326,6 +327,44 @@ function ModelsPage() {
                 }
               />
             )}
+            <div className={styles.defaultsBlock}>
+              <button
+                type="button"
+                className={[
+                  styles.llmPill,
+                  activeModels?.active_llm
+                    ? styles.llmPillOn
+                    : styles.llmPillOff,
+                ].join(" ")}
+                onClick={() => setLlmModalOpen(true)}
+              >
+                <span
+                  className={
+                    activeModels?.active_llm
+                      ? styles.llmPillDot
+                      : styles.llmPillDotOff
+                  }
+                />
+                <span className={styles.llmPillLabel}>
+                  {t("models.defaultLlm")}:
+                </span>
+                <span className={styles.llmPillValue}>
+                  {activeProvider?.id === "hub-managed"
+                    ? "Hub"
+                    : activeModels?.active_llm?.provider_id || "—"}{" "}
+                  /{" "}
+                  {activeHubModel?.name ||
+                    activeModels?.active_llm?.model ||
+                    "—"}
+                </span>
+                <span className={styles.llmPillEdit}>{t("common.edit")}</span>
+              </button>
+
+              <AgentModelDefaults
+                providers={providers}
+                activeModels={activeModels}
+              />
+            </div>
             {/* ---- Providers Section ---- */}
             <div className={styles.providersBlock}>
               <div className={styles.sectionHeaderRow}>
@@ -334,38 +373,6 @@ function ModelsPage() {
                   className={styles.providersPageHeader}
                 />
                 <div className={styles.headerRight}>
-                  <div
-                    className={[
-                      styles.llmPill,
-                      activeModels?.active_llm
-                        ? styles.llmPillOn
-                        : styles.llmPillOff,
-                    ].join(" ")}
-                    onClick={() => setLlmModalOpen(true)}
-                  >
-                    <span
-                      className={
-                        activeModels?.active_llm
-                          ? styles.llmPillDot
-                          : styles.llmPillDotOff
-                      }
-                    />
-                    <span className={styles.llmPillLabel}>
-                      {t("models.defaultLlm")}:
-                    </span>
-                    <span className={styles.llmPillValue}>
-                      {activeProvider?.id === "hub-managed"
-                        ? "Hub"
-                        : activeModels?.active_llm?.provider_id || "—"}{" "}
-                      /{" "}
-                      {activeHubModel?.name ||
-                        activeModels?.active_llm?.model ||
-                        "—"}
-                    </span>
-                    <span className={styles.llmPillEdit}>
-                      {t("common.edit")}
-                    </span>
-                  </div>
                   {/* ---- Search ---- */}
                   <div className={styles.searchRow}>
                     <Input

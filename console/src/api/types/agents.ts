@@ -129,6 +129,7 @@ export interface AgentProfileConfig {
 }
 
 export interface AgentModelSettingsPatch {
+  active_model?: ModelSlotConfig | null;
   fallback_models?: ModelSlotConfig[];
   fallback_policy?: {
     enabled: boolean;

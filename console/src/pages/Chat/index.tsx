@@ -60,7 +60,6 @@ import { getApiUrl } from "../../api/config";
 import { buildAuthHeaders } from "../../api/authHeaders";
 import { providerApi } from "../../api/modules/provider";
 import type { ProviderInfo, ModelInfo, SkillSpec } from "../../api/types";
-import ModelSelector from "./ModelSelector";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAgentStore } from "../../stores/agentStore";
 import {
@@ -3953,14 +3952,6 @@ export default function ChatPage() {
             />
             <ChatHeaderTitle />
             <span className={styles.headerSpacer} />
-            {usesQwenPawBackend ? (
-              <ModelSelector
-                sessionId={queueSessionId}
-                chatId={backendChatId}
-              />
-            ) : backendCapabilities?.model_selection ? (
-              <HarnessModelSelector providerId={selectedAgentBackend} />
-            ) : null}
             <ChatActionGroup
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
@@ -4023,13 +4014,15 @@ export default function ChatPage() {
                 compact={isMobile}
               />
             )}
-            {usesQwenPawBackend && (
+            {usesQwenPawBackend ? (
               <SessionThinking
                 agentId={selectedAgent}
                 sessionId={queueSessionId}
                 chatId={backendChatId}
               />
-            )}
+            ) : backendCapabilities?.model_selection ? (
+              <HarnessModelSelector providerId={selectedAgentBackend} />
+            ) : null}
             {pluginSenderPrefix}
           </>
         ),

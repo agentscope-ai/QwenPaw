@@ -2622,3 +2622,29 @@
   background: var(--models-accent-soft);
   font-weight: 500;
 }
+
+.defaultsBlock {
+  margin: 24px;
+  max-width: 800px;
+}
+.defaultsBlock .llmPill {
+  display: flex;
+  width: 100%;
+  padding: 16px 20px;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 16px;
+  background: var(--app-surface);
+  color: var(--app-text);
+  justify-content: flex-start;
+}
+.defaultsBlock .llmPillDot {
+  display: none;
+}
+.defaultsBlock .llmPillEdit {
+  margin-left: auto;
+}
+@media (max-width: 600px) {
+  .defaultsBlock {
+    margin: 12px;
+  }
+}

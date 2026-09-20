@@ -1,9 +1,9 @@
-import InlineHelp from "../../../../../components/InlineHelp";
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
 import { Pagination, Spin, Switch } from "antd";
 import {
   ChevronDown,
+  ArrowLeft,
   FlaskConical,
   PlugZap,
   Plus,
@@ -259,6 +259,7 @@ export function RemoteModelManageModal({
   const number = (value?: number | null) =>
     value == null ? t("models.unknown") : value.toLocaleString(i18n.language);
 
+  const configuredModel = rows.find((model) => model.id === configId);
   return (
     <Modal
       title={t("models.manageModelsTitle", { provider: current.name })}
@@ -270,269 +271,271 @@ export function RemoteModelManageModal({
       destroyOnHidden
       className={styles.modal}
     >
-      <div className={styles.toolbar}>
-        <div className={styles.selectionSummary}>
-          <span>
-            {t("models.pool.enabledSummary", {
-              selected: page?.selected_count ?? selectedIds.size,
-              total:
-                (page?.candidate_count ?? 0) +
-                (page?.selected_count ?? selectedIds.size),
+      <div style={{ display: configId ? "none" : "contents" }}>
+        {!current.support_model_discovery &&
+          current.discovery_support_reason && (
+            <p className={styles.hint}>{current.discovery_support_reason}</p>
+          )}
+        <ModelPoolFilters
+          actions={
+            <>
+              <div className={styles.toolbar}>
+                <div className={styles.selectionSummary}>
+                  <label className={styles.selectedFilter}>
+                    <Switch
+                      size="small"
+                      aria-label={t("models.pool.onlyEnabled")}
+                      checked={tab === "selected"}
+                      onChange={(checked) => {
+                        setTab(checked ? "selected" : "all");
+                        setOffset(0);
+                        setConfigId(null);
+                      }}
+                    />
+                    {t("models.pool.onlyEnabled")}
+                  </label>
+                </div>
+                {!managed && current.support_model_discovery && (
+                  <Tooltip
+                    title={`${t("models.autoDiscoverModels")}${
+                      current.models_last_synced_at
+                        ? ` · ${new Date(
+                            current.models_last_synced_at,
+                          ).toLocaleString()}`
+                        : ""
+                    }`}
+                  >
+                    <Button
+                      aria-label={t("models.autoDiscoverModels")}
+                      icon={<RefreshCw size={16} />}
+                      loading={syncing || current.models_syncing}
+                      onClick={discover}
+                    />
+                  </Tooltip>
+                )}
+              </div>
+            </>
+          }
+          value={filters}
+          onChange={(value) => {
+            setFilters(value);
+            setOffset(0);
+            setConfigId(null);
+          }}
+          families={families}
+        />
+        {current.models_last_sync_error && (
+          <div role="alert" className={styles.error}>
+            {current.models_last_sync_error}
+          </div>
+        )}
+        <div className={styles.list} aria-busy={loading}>
+          <Spin spinning={loading} delay={150}>
+            {loading && !page && (
+              <div role="status" className={styles.empty}>
+                {t("common.loading")}
+              </div>
+            )}
+            {!loading && rows.length === 0 && (
+              <div className={styles.empty}>
+                <strong>{t("models.pool.empty")}</strong>
+                <span>{t("models.pool.emptyHint")}</span>
+              </div>
+            )}
+            {rows.map((model) => {
+              const isSelected = selectedIds.has(model.id);
+              const isNew = !isSelected && !seenIds.has(model.id);
+              const expanded = configId === model.id;
+              return (
+                <div
+                  key={model.id}
+                  className={`${styles.entry} ${
+                    isSelected ? styles.selectedEntry : ""
+                  }`}
+                  data-model-id={model.id}
+                  onMouseEnter={() => startHover(model.id)}
+                  onMouseLeave={() => endHover(model.id)}
+                  onFocus={() => markSeen(model.id)}
+                  onClick={() => markSeen(model.id)}
+                >
+                  <div className={styles.row}>
+                    <div className={styles.identity}>
+                      <div className={styles.name}>
+                        <strong>{model.name}</strong>
+                        {isNew && <span className={styles.newBadge}>New</span>}
+                      </div>
+                      <span className={styles.id} title={model.id}>
+                        {model.id}
+                      </span>
+                      <div className={styles.facts}>
+                        <CapabilityTags model={model} />
+                        {model.remote_missing && (
+                          <Tag color="warning">{t("models.remoteMissing")}</Tag>
+                        )}
+                        <BillingTag model={model} />
+                        <span>
+                          {t("models.pool.context")}:{" "}
+                          {number(
+                            model.effective_max_input_length ??
+                              model.max_input_length,
+                          )}
+                        </span>
+                        <span>
+                          {t("models.pool.output")}:{" "}
+                          {number(model.max_output_length)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className={styles.actions}>
+                      {!managed && (
+                        <>
+                          {model.requires_paid_confirmation && isSelected && (
+                            <Button
+                              onClick={async () => {
+                                try {
+                                  await apply(
+                                    await api.configureModel(
+                                      provider.id,
+                                      model.id,
+                                      { confirm_paid: true },
+                                    ),
+                                  );
+                                } catch (error) {
+                                  failure(error);
+                                }
+                              }}
+                            >
+                              {t("models.enablePaidModel")}
+                            </Button>
+                          )}
+                          <Tooltip title={t("models.testConnection")}>
+                            <Button
+                              type="text"
+                              icon={<PlugZap size={17} />}
+                              aria-label={t("models.testConnection")}
+                              disabled={loading || busy !== null}
+                              onClick={() => test(model)}
+                            />
+                          </Tooltip>
+                          <Tooltip title={t("models.modelConfigLabel")}>
+                            <Button
+                              disabled={loading}
+                              type="text"
+                              icon={
+                                expanded ? (
+                                  <ChevronDown size={17} />
+                                ) : (
+                                  <Settings size={17} />
+                                )
+                              }
+                              aria-label={t("models.modelConfigLabel")}
+                              onClick={() =>
+                                setConfigId(expanded ? null : model.id)
+                              }
+                            />
+                          </Tooltip>
+                        </>
+                      )}
+                      <label className={styles.selectionToggle}>
+                        <span>
+                          {t(
+                            isSelected
+                              ? "models.pool.enabled"
+                              : "models.pool.disabled",
+                          )}
+                        </span>
+                        <Switch
+                          checked={isSelected}
+                          aria-label={`${t("models.pool.selectorToggle")} ${
+                            model.name
+                          }`}
+                          loading={busy === model.id}
+                          disabled={
+                            loading ||
+                            syncing ||
+                            current.models_syncing ||
+                            (busy !== null && busy !== model.id)
+                          }
+                          onChange={(checked) => select(model, checked)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              );
             })}
-          </span>
-          <label className={styles.selectedFilter}>
-            <Switch
+          </Spin>
+        </div>
+        <div className={styles.pagination}>
+          {(page?.total ?? 0) > 30 && (
+            <Pagination
               size="small"
-              aria-label={t("models.pool.onlyEnabled")}
-              checked={tab === "selected"}
-              onChange={(checked) => {
-                setTab(checked ? "selected" : "all");
-                setOffset(0);
+              current={Math.floor((page?.offset ?? offset) / 30) + 1}
+              pageSize={30}
+              total={page?.total ?? 0}
+              showSizeChanger={false}
+              disabled={loading}
+              onChange={(number) => {
+                setOffset((number - 1) * 30);
                 setConfigId(null);
               }}
             />
-            {t("models.pool.onlyEnabled")}
-          </label>
+          )}
         </div>
-        <InlineHelp>
-          {t(managed ? "models.pool.managedHint" : "models.pool.hint")}
-        </InlineHelp>
-        {!managed && current.support_model_discovery && (
-          <Button
-            icon={<RefreshCw size={16} />}
-            loading={syncing || current.models_syncing}
-            onClick={discover}
-          >
-            {t("models.autoDiscoverModels")}
-          </Button>
+        {!managed && (
+          <div className={styles.footer}>
+            <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
+              {t("models.addModel")}
+            </Button>
+          </div>
         )}
       </div>
-
-      {!current.support_model_discovery && current.discovery_support_reason && (
-        <p className={styles.hint}>{current.discovery_support_reason}</p>
-      )}
-      <ModelPoolFilters
-        value={filters}
-        onChange={(value) => {
-          setFilters(value);
-          setOffset(0);
-          setConfigId(null);
-        }}
-        families={families}
-      />
-      <div className={styles.summary}>
-        <span>{t("models.pool.results", { count: page?.total ?? 0 })}</span>
-        <span>
-          {current.models_last_synced_at &&
-            t("models.modelsLastSynced", {
-              time: new Date(current.models_last_synced_at).toLocaleString(),
-            })}
-        </span>
-      </div>
-      {current.models_last_sync_error && (
-        <div role="alert" className={styles.error}>
-          {current.models_last_sync_error}
-        </div>
-      )}
-      <div className={styles.list} aria-busy={loading}>
-        <Spin spinning={loading} delay={150}>
-          {loading && !page && (
-            <div role="status" className={styles.empty}>
-              {t("common.loading")}
-            </div>
-          )}
-          {!loading && rows.length === 0 && (
-            <div className={styles.empty}>
-              <strong>{t("models.pool.empty")}</strong>
-              <span>{t("models.pool.emptyHint")}</span>
-            </div>
-          )}
-          {rows.map((model) => {
-            const isSelected = selectedIds.has(model.id);
-            const isNew = !isSelected && !seenIds.has(model.id);
-            const expanded = configId === model.id;
-            return (
-              <div
-                key={model.id}
-                className={`${styles.entry} ${
-                  isSelected ? styles.selectedEntry : ""
-                }`}
-                data-model-id={model.id}
-                onMouseEnter={() => startHover(model.id)}
-                onMouseLeave={() => endHover(model.id)}
-                onFocus={() => markSeen(model.id)}
-                onClick={() => markSeen(model.id)}
-              >
-                <div className={styles.row}>
-                  <div className={styles.identity}>
-                    <div className={styles.name}>
-                      <strong>{model.name}</strong>
-                      {isNew && <span className={styles.newBadge}>New</span>}
-                    </div>
-                    <span className={styles.id} title={model.id}>
-                      {model.id}
-                    </span>
-                    <div className={styles.facts}>
-                      <CapabilityTags model={model} />
-                      {model.remote_missing && (
-                        <Tag color="warning">{t("models.remoteMissing")}</Tag>
-                      )}
-                      <BillingTag model={model} />
-                      <span>
-                        {t("models.pool.context")}:{" "}
-                        {number(
-                          model.effective_max_input_length ??
-                            model.max_input_length,
-                        )}
-                      </span>
-                      <span>
-                        {t("models.pool.output")}:{" "}
-                        {number(model.max_output_length)}
-                      </span>
-                    </div>
-                  </div>
-                  <div className={styles.actions}>
-                    {!managed && (
-                      <>
-                        {model.requires_paid_confirmation && isSelected && (
-                          <Button
-                            onClick={async () => {
-                              try {
-                                await apply(
-                                  await api.configureModel(
-                                    provider.id,
-                                    model.id,
-                                    { confirm_paid: true },
-                                  ),
-                                );
-                              } catch (error) {
-                                failure(error);
-                              }
-                            }}
-                          >
-                            {t("models.enablePaidModel")}
-                          </Button>
-                        )}
-                        <Tooltip title={t("models.testConnection")}>
-                          <Button
-                            type="text"
-                            icon={<PlugZap size={17} />}
-                            aria-label={t("models.testConnection")}
-                            disabled={loading || busy !== null}
-                            onClick={() => test(model)}
-                          />
-                        </Tooltip>
-                        <Tooltip title={t("models.modelConfigLabel")}>
-                          <Button
-                            disabled={loading}
-                            type="text"
-                            icon={
-                              expanded ? (
-                                <ChevronDown size={17} />
-                              ) : (
-                                <Settings size={17} />
-                              )
-                            }
-                            aria-label={t("models.modelConfigLabel")}
-                            onClick={() =>
-                              setConfigId(expanded ? null : model.id)
-                            }
-                          />
-                        </Tooltip>
-                      </>
-                    )}
-                    <label className={styles.selectionToggle}>
-                      <span>
-                        {t(
-                          isSelected
-                            ? "models.pool.enabled"
-                            : "models.pool.disabled",
-                        )}
-                      </span>
-                      <Switch
-                        checked={isSelected}
-                        aria-label={`${t("models.pool.selectorToggle")} ${
-                          model.name
-                        }`}
-                        loading={busy === model.id}
-                        disabled={
-                          loading ||
-                          syncing ||
-                          current.models_syncing ||
-                          (busy !== null && busy !== model.id)
-                        }
-                        onChange={(checked) => select(model, checked)}
-                      />
-                    </label>
-                  </div>
-                </div>
-                {expanded && (
-                  <div className={styles.details}>
-                    <>
-                      <ModelConfigEditor
-                        providerId={current.id}
-                        model={model}
-                        onSaved={onSaved}
-                        onProviderUpdated={(updated) => {
-                          setCurrent(updated);
-                          refresh();
-                          onProviderUpdated?.(updated);
-                        }}
-                        onClose={() => setConfigId(null)}
-                        chatModel={current.chat_model}
-                        thinkingParamStyle={
-                          model.thinking_param_style ??
-                          current.thinking_param_style
-                        }
-                        reasoningEffortOptions={
-                          model.reasoning_effort_options ??
-                          current.reasoning_effort_options
-                        }
-                        thinkingBudgetRange={
-                          (model.thinking_budget_range ??
-                            current.thinking_budget_range) as
-                            | [number, number]
-                            | undefined
-                        }
-                      />
-                      <Button
-                        type="text"
-                        icon={<FlaskConical size={16} />}
-                        disabled={loading || busy !== null}
-                        onClick={() => test(model, true)}
-                      >
-                        {t("models.probeMultimodal")}
-                      </Button>
-                    </>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </Spin>
-      </div>
-      <div className={styles.pagination}>
-        {(page?.total ?? 0) > 30 && (
-          <Pagination
-            size="small"
-            current={Math.floor((page?.offset ?? offset) / 30) + 1}
-            pageSize={30}
-            total={page?.total ?? 0}
-            showSizeChanger={false}
-            disabled={loading}
-            onChange={(number) => {
-              setOffset((number - 1) * 30);
-              setConfigId(null);
-            }}
-          />
-        )}
-      </div>
-      {!managed && (
-        <div className={styles.footer}>
-          <InlineHelp>{t("models.pool.manualHint")}</InlineHelp>
-          <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
-            {t("models.addModel")}
-          </Button>
+      {configuredModel && (
+        <div className={styles.detailPage}>
+          <div className={styles.toolbar}>
+            <Button
+              type="text"
+              aria-label={t("common.back")}
+              icon={<ArrowLeft size={18} />}
+              onClick={() => setConfigId(null)}
+            />
+            <strong>{configuredModel.name || configuredModel.id}</strong>
+            <Tooltip title={t("models.probeMultimodal")}>
+              <Button
+                type="text"
+                aria-label={t("models.probeMultimodal")}
+                icon={<FlaskConical size={16} />}
+                disabled={busy !== null}
+                onClick={() => test(configuredModel, true)}
+              />
+            </Tooltip>
+          </div>
+          <div className={styles.detailScroll}>
+            <ModelConfigEditor
+              providerId={current.id}
+              model={configuredModel}
+              onSaved={onSaved}
+              onProviderUpdated={(updated) => {
+                setCurrent(updated);
+                refresh();
+                onProviderUpdated?.(updated);
+              }}
+              onClose={() => setConfigId(null)}
+              chatModel={current.chat_model}
+              thinkingParamStyle={
+                configuredModel.thinking_param_style ??
+                current.thinking_param_style
+              }
+              reasoningEffortOptions={
+                configuredModel.reasoning_effort_options ??
+                current.reasoning_effort_options
+              }
+              thinkingBudgetRange={
+                (configuredModel.thinking_budget_range ??
+                  current.thinking_budget_range) as [number, number] | undefined
+              }
+            />
+          </div>
         </div>
       )}
       <Modal

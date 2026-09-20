@@ -318,3 +318,59 @@
     background: transparent;
   }
 }
+
+.detailPage {
+  display: flex;
+  flex: 1 1 0 !important;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
+  .toolbar {
+    justify-content: flex-start;
+  }
+}
+.detailScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 8px;
+}
+
+.searchTools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  > :first-child {
+    flex: 1;
+    min-width: 0;
+  }
+  .toolbar {
+    flex-wrap: nowrap;
+  }
+  .selectedFilter {
+    white-space: nowrap;
+  }
+}
+@media (max-width: 600px) {
+  .searchTools {
+    flex-wrap: wrap;
+    > :first-child {
+      flex-basis: 100%;
+    }
+  }
+}
+
+.detailPage .toolbar {
+  flex-wrap: nowrap;
+  > * {
+    width: auto;
+  }
+  strong {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}

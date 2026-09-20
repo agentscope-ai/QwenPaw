@@ -5,32 +5,46 @@
   box-sizing: border-box;
   padding: 16px;
   border-radius: 16px;
-  background: var(--model-inset);
+  background: transparent;
   width: 100%;
   min-width: 0;
   :global(.qwenpaw-slider-track),
   :global(.ant-slider-track) {
     background: transparent !important;
-    height: 8px;
+    height: 20px;
     border-radius: 8px;
   }
   :global(.qwenpaw-slider-rail),
   :global(.ant-slider-rail) {
-    height: 8px;
-    border-radius: 8px;
+    height: 20px;
+    border-radius: 16px;
     background: linear-gradient(90deg, #ffe9cf, #f8b96c 50%, #ad510f);
     opacity: 1;
   }
   :global(.qwenpaw-slider-handle),
   :global(.ant-slider-handle) {
-    top: 3px;
+    top: 13px;
   }
+  // Keep the thumb centered at every value, including the library's endpoints.
+  :global(
+      .qwenpaw-slider.qwenpaw-slider-horizontal:not(.qwenpaw-slider-reverse)
+    )
+    :global(.qwenpaw-slider-handle[style]),
+  :global(.ant-slider.ant-slider-horizontal:not(.ant-slider-reverse))
+    :global(.ant-slider-handle[style]) {
+    transform: translateX(-50%) !important;
+  }
+  :global(.qwenpaw-slider-handle:hover::after),
+  :global(.qwenpaw-slider-handle:focus::after),
+  :global(.ant-slider-handle:hover::after),
+  :global(.ant-slider-handle:focus::after),
   :global(.qwenpaw-slider-handle::after),
   :global(.ant-slider-handle::after) {
-    width: 16px;
-    height: 16px;
-    inset-inline-start: -3px;
-    inset-block-start: -3px;
+    width: 26px;
+    height: 26px;
+    inset-inline-start: 50%;
+    inset-block-start: 50%;
+    transform: translate(-50%, -50%);
     background: var(--model-card);
     box-shadow:
       0 0 0 1px var(--model-hairline),
@@ -49,8 +63,7 @@
   }
 }
 .header,
-.summary,
-.range {
+.summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -60,7 +73,7 @@
   margin-bottom: 12px;
   font-size: 13px;
   font-weight: 500;
-  span {
+  > span {
     display: flex;
     align-items: center;
     gap: 7px;
@@ -73,11 +86,7 @@
     font-weight: 600;
   }
 }
-.range {
-  color: var(--app-text-tertiary);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
+
 .iconButton {
   .model-focus();
   display: inline-flex;
@@ -98,27 +107,7 @@
     cursor: default;
   }
 }
-.modes {
-  display: flex;
-  gap: 6px;
-  margin-top: 14px;
-  button {
-    .model-focus();
-    min-height: 36px;
-    border: 1px solid var(--app-border);
-    border-radius: 10px;
-    background: transparent;
-    color: var(--app-text-secondary);
-    padding: 4px 9px;
-    cursor: pointer;
-    &[aria-pressed="true"] {
-      color: var(--app-accent);
-      border-color: transparent;
-      background: var(--model-card);
-      box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
-    }
-  }
-}
+
 .hint {
   color: var(--app-text-tertiary);
   font-size: 12px;
@@ -145,7 +134,7 @@
   }
 }
 .popover {
-  width: min(288px, calc(100vw - 56px));
+  width: min(320px, calc(100vw - 56px));
 }
 
 .overlay {
@@ -158,17 +147,146 @@
   }
 }
 
-.sessionCaption {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 4px 8px 0;
-  color: var(--app-text-tertiary);
-  font-size: 12px;
+.identity {
+  flex: 1;
+  text-align: left;
+  min-width: 0;
+  strong {
+    color: var(--thinking-color);
+    font-size: 16px;
+  }
+}
+.modelChoice {
+  border: 0;
+  background: transparent;
+  color: var(--app-text-secondary);
+  border-radius: 10px;
+  padding: 4px 0;
+  max-width: 100%;
+  cursor: pointer;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+  align-items: flex-start;
+  font: inherit;
   span {
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  &:hover {
+    background: var(--app-fill);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+  }
+}
+.summary:empty {
+  display: none;
+}
+.summary {
+  justify-content: flex-end;
+}
+.picker {
+  width: min(400px, calc(100vw - 48px));
+}
+.back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+.source {
+  font-size: 11px;
+  color: var(--app-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.budgetValue {
+  border: 0;
+  background: transparent;
+  color: var(--app-text);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  span {
+    color: var(--app-text-tertiary);
+  }
+  &:hover {
+    background: var(--app-fill);
+  }
+}
+
+.control :global(.qwenpaw-slider),
+.control :global(.ant-slider) {
+  margin: 16px 12px 8px;
+  padding-block: 8px;
+  height: 28px;
+}
+.control :global(.qwenpaw-slider-dot),
+.control :global(.ant-slider-dot) {
+  top: 12px;
+  width: 4px;
+  height: 4px;
+  border: 0;
+  background: rgb(80 60 40 / 30%);
+}
+.trigger > span:first-of-type {
+  max-width: min(220px, 35vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+@media (prefers-reduced-motion: reduce) {
+  .control *,
+  .trigger {
+    transition: none !important;
+  }
+}
+
+.modelChoice strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.back > .source {
+  flex: 1;
+}
+.control[data-budget-off="true"] :global(.ant-slider-rail),
+.control[data-budget-off="true"] :global(.qwenpaw-slider-rail) {
+  background: linear-gradient(
+    90deg,
+    var(--app-fill-strong) 0 2%,
+    transparent 2% 8%,
+    #ffe9cf 11%,
+    #f8b96c 55%,
+    #ad510f
+  );
+}
+
+.header {
+  position: relative;
+  padding-inline: 0 32px;
+  margin-bottom: 4px;
+}
+.header > .iconButton {
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.staticRail {
+  height: 20px;
+  margin: 24px 12px 16px;
+  border-radius: 16px;
+  background: var(--app-fill-strong, #e5e5e7);
+}
+.summary {
+  min-height: 24px;
 }

@@ -453,7 +453,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             await self._repo.upsert_chat(updated)
             return updated
 
-    async def set_session_model(self, chat_id: str, model: dict):
+    async def set_session_model(self, chat_id: str, model: dict | None):
         """Persist a model override without changing agent defaults."""
         async with self._lock:
             existing = await self._repo.get_chat(chat_id)
@@ -461,7 +461,10 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 return None
             meta = dict(existing.meta or {})
             runtime = dict(meta.get(f"runtime_context") or {})
-            runtime[f"model"] = model
+            if model is None:
+                runtime.pop(f"model", None)
+            else:
+                runtime[f"model"] = model
             meta[f"runtime_context"] = runtime
             updated = existing.model_copy(update={f"meta": meta})
             updated.updated_at = datetime.now(timezone.utc)

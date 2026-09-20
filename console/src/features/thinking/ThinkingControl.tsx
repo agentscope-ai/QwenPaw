@@ -1,9 +1,8 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { InputNumber, Slider, Tooltip } from "antd";
-import { Brain, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
-import InlineHelp from "../../components/InlineHelp";
 import styles from "./thinking.module.less";
 
 export function ThinkingControl({
@@ -11,18 +10,30 @@ export function ThinkingControl({
   value,
   onChange,
   disabled = false,
+  modelLabel,
+  onChooseModel,
+  effective,
 }: {
   control: ThinkingControlSpec;
   value: ThinkingPreference;
   onChange: (value: ThinkingPreference) => void;
   disabled?: boolean;
+  modelLabel?: ReactNode;
+  onChooseModel?: () => void;
+  effective?: ThinkingPreference;
 }) {
   const { t } = useTranslation();
+  const displayed = value.level === "inherit" ? effective ?? value : value;
+  const efforts = control.supports_off
+    ? ["off" as const, ...control.efforts.filter((level) => level !== "off")]
+    : control.efforts;
   const low = control.budget_min ?? 1;
   const high = control.budget_max ?? low;
+  const offPosition = low - Math.max(1, Math.round((high - low) * 0.12));
+  const [editingBudget, setEditingBudget] = useState(false);
   const initial = Math.min(
     high,
-    Math.max(low, value.budget_tokens ?? control.budget_default ?? low),
+    Math.max(low, displayed.budget_tokens ?? control.budget_default ?? low),
   );
   const [budget, setBudget] = useState(initial);
   useEffect(() => setBudget(initial), [initial]);
@@ -30,16 +41,16 @@ export function ThinkingControl({
   const unsupported =
     control.kind === "unsupported" || control.kind === "unknown";
   const [effortIndex, setEffortIndex] = useState(
-    Math.max(0, control.efforts.indexOf(value.level)),
+    Math.max(0, efforts.indexOf(displayed.level)),
   );
   const [adjusting, setAdjusting] = useState(false);
   useEffect(() => {
-    setEffortIndex(Math.max(0, control.efforts.indexOf(value.level)));
+    setEffortIndex(Math.max(0, efforts.indexOf(displayed.level)));
     setAdjusting(false);
-  }, [value.level, control]);
+  }, [displayed.level, control]);
   const ratio = isBudget
-    ? (budget - low) / Math.max(1, high - low)
-    : effortIndex / Math.max(1, control.efforts.length - 1);
+    ? Math.min(1, Math.max(0, (budget - low) / Math.max(1, high - low)))
+    : effortIndex / Math.max(1, efforts.length - 1);
   const band =
     ratio < 0.25
       ? "light"
@@ -50,11 +61,13 @@ export function ThinkingControl({
       : "intensive";
   const color = `hsl(27 92% ${66 - ratio * 27}%)`;
   const label =
-    value.level === "budget" || (isBudget && adjusting)
+    isBudget && adjusting && budget < low
+      ? t("thinkingControl.off")
+      : displayed.level === "budget" || (isBudget && adjusting)
       ? t(`thinkingControl.${band}`)
       : t(
           `thinkingControl.${
-            adjusting ? control.efforts[effortIndex] : value.level
+            adjusting ? efforts[effortIndex] : displayed.level
           }`,
         );
   function commitBudget(next: number) {
@@ -66,22 +79,28 @@ export function ThinkingControl({
   return (
     <section
       className={styles.control}
+      data-budget-off={isBudget && control.supports_off}
       style={{ "--thinking-color": color } as CSSProperties}
     >
       <header className={styles.header}>
-        <span>
-          <Brain size={16} strokeWidth={1.7} />
-          {t("thinkingControl.title")}
-          {!unsupported && (
-            <InlineHelp>
-              {t(
-                isBudget
-                  ? "thinkingControl.budgetHint"
-                  : "thinkingControl.effortHint",
+        <div className={styles.identity}>
+          {onChooseModel ? (
+            <button
+              type="button"
+              className={styles.modelChoice}
+              onClick={onChooseModel}
+            >
+              {!unsupported && (
+                <strong>
+                  {label} <span aria-hidden="true">›</span>
+                </strong>
               )}
-            </InlineHelp>
+              <span>{modelLabel}</span>
+            </button>
+          ) : (
+            <strong>{label}</strong>
           )}
-        </span>
+        </div>
         <Tooltip title={t("thinkingControl.reset")}>
           <button
             type="button"
@@ -95,102 +114,110 @@ export function ThinkingControl({
         </Tooltip>
       </header>
       {unsupported ? (
-        <p className={styles.hint}>
-          {t(
+        <Tooltip
+          title={t(
             control.kind === "unknown"
               ? "thinkingControl.unknown"
               : "thinkingControl.unsupported",
           )}
-        </p>
+        >
+          <div
+            className={styles.staticRail}
+            role="img"
+            aria-label={t(
+              control.kind === "unknown"
+                ? "thinkingControl.unknown"
+                : "thinkingControl.unsupported",
+            )}
+          />
+        </Tooltip>
       ) : (
         <>
-          <div className={styles.summary}>
-            <strong>{label}</strong>
-            {isBudget && (
-              <InputNumber
-                aria-label={t("thinkingControl.budget")}
-                value={budget}
-                min={low}
-                max={high}
-                precision={0}
-                step={1}
-                disabled={disabled}
-                onChange={(next) => {
-                  if (next !== null) {
-                    setBudget(next);
-                    setAdjusting(true);
-                  }
-                }}
-                onBlur={() => {
-                  if (adjusting) commitBudget(budget);
-                }}
-                onPressEnter={() => {
-                  if (adjusting) commitBudget(budget);
-                }}
-                suffix="tokens"
-              />
-            )}
-          </div>
           <Slider
             ariaLabelForHandle={t("thinkingControl.title")}
-            disabled={disabled || (!isBudget && control.efforts.length < 2)}
-            min={isBudget ? low : 0}
-            max={isBudget ? high : Math.max(1, control.efforts.length - 1)}
+            disabled={disabled || (!isBudget && efforts.length < 2)}
+            min={isBudget ? (control.supports_off ? offPosition : low) : 0}
+            max={isBudget ? high : Math.max(1, efforts.length - 1)}
             step={1}
-            value={isBudget ? budget : effortIndex}
+            value={
+              isBudget
+                ? displayed.level === "off" && !adjusting
+                  ? offPosition
+                  : budget
+                : effortIndex
+            }
+            marks={
+              isBudget && control.supports_off
+                ? { [offPosition]: "", [low]: "" }
+                : undefined
+            }
             dots={!isBudget}
             tooltip={{
               formatter: (next) =>
                 isBudget
-                  ? `${next?.toLocaleString()} tokens`
-                  : t(`thinkingControl.${control.efforts[next ?? 0]}`),
+                  ? next != null && next < low
+                    ? t("thinkingControl.off")
+                    : `${next?.toLocaleString()} tokens`
+                  : t(`thinkingControl.${efforts[next ?? 0]}`),
             }}
             onChange={(next) => {
               setAdjusting(true);
-              if (isBudget) setBudget(next);
+              if (isBudget)
+                setBudget(
+                  next < low
+                    ? next < (low + offPosition) / 2
+                      ? offPosition
+                      : low
+                    : next,
+                );
               else setEffortIndex(next);
             }}
             onChangeComplete={(next) => {
               setAdjusting(false);
-              if (isBudget) commitBudget(next as number);
-              else onChange({ level: control.efforts[next as number] });
+              if (isBudget && next < (low + offPosition) / 2)
+                onChange({ level: "off" });
+              else if (isBudget) commitBudget(next as number);
+              else onChange({ level: efforts[next as number] });
             }}
           />
-          <div className={styles.range}>
-            <span>
-              {isBudget
-                ? low.toLocaleString()
-                : t(`thinkingControl.${control.efforts[0]}`)}
-            </span>
-            <span>
-              {isBudget
-                ? high.toLocaleString()
-                : t(
-                    `thinkingControl.${
-                      control.efforts[control.efforts.length - 1]
-                    }`,
-                  )}
-            </span>
-          </div>
-          <div className={styles.modes}>
-            <button
-              type="button"
-              disabled={disabled}
-              aria-pressed={value.level === "inherit"}
-              onClick={() => onChange({ level: "inherit" })}
-            >
-              {t("thinkingControl.inherit")}
-            </button>
-            {control.supports_off && (
-              <button
-                type="button"
-                disabled={disabled}
-                aria-pressed={value.level === "off"}
-                onClick={() => onChange({ level: "off" })}
-              >
-                {t("thinkingControl.off")}
-              </button>
-            )}
+          <div className={styles.summary}>
+            {isBudget &&
+              (editingBudget ? (
+                <InputNumber
+                  autoFocus
+                  aria-label={t("thinkingControl.budget")}
+                  value={budget}
+                  min={low}
+                  max={high}
+                  precision={0}
+                  step={1}
+                  disabled={disabled}
+                  onChange={(next) => {
+                    if (next !== null) {
+                      setBudget(next);
+                      setAdjusting(true);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (adjusting) commitBudget(budget);
+                    setEditingBudget(false);
+                  }}
+                  onPressEnter={() => {
+                    if (adjusting) commitBudget(budget);
+                    setEditingBudget(false);
+                  }}
+                  suffix="tokens"
+                />
+              ) : (
+                <button
+                  type="button"
+                  className={styles.budgetValue}
+                  aria-label={t("thinkingControl.budget")}
+                  onClick={() => setEditingBudget(true)}
+                >
+                  {Math.max(low, budget).toLocaleString()} <span>tokens</span>
+                </button>
+              ))}
           </div>
         </>
       )}

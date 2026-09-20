@@ -150,13 +150,15 @@ export function CapabilityTags({
     : "models.tagNotProbed";
   return (
     <>
-      <CapabilityTag
-        icon={icon}
-        iconOnly={iconOnly}
-        tone={modalities.some(Boolean) ? "info" : "neutral"}
-      >
-        {t(label)}
-      </CapabilityTag>
+      {(!iconOnly || modalities.some(Boolean)) && (
+        <CapabilityTag
+          icon={icon}
+          iconOnly={iconOnly}
+          tone={modalities.some(Boolean) ? "info" : "neutral"}
+        >
+          {t(label)}
+        </CapabilityTag>
+      )}
       {model.supports_tool_calling === true && (
         <CapabilityTag icon={Wrench} iconOnly={iconOnly}>
           {t("models.pool.capabilityOptions.tool_calling")}
