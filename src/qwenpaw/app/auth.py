@@ -45,6 +45,17 @@ logger = logging.getLogger(__name__)
 _RUNTIME_TOKEN_ENV = "QWENPAW_RUNTIME_INTERNAL_TOKEN"
 _RUNTIME_TOKEN_HEADER = "x-qwenpaw-runtime-token"
 
+
+def runtime_token_matches(expected: str, supplied: str) -> bool:
+    """Compare runtime tokens without accepting malformed or empty values."""
+    return (
+        bool(expected)
+        and expected.isascii()
+        and supplied.isascii()
+        and (hmac.compare_digest(expected, supplied))
+    )
+
+
 AUTH_FILE = SECRET_DIR / "auth.json"
 
 # Token validity: 7 days (default)
@@ -804,7 +815,7 @@ class RuntimeBoundaryMiddleware:
             for key, value in scope.get("headers", [])
         }
         supplied = headers.get(_RUNTIME_TOKEN_HEADER, "")
-        if hmac.compare_digest(runtime_token, supplied):
+        if runtime_token_matches(runtime_token, supplied):
             await self.app(scope, receive, send)
             return
         if scope["type"] == "websocket":

@@ -10,7 +10,11 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from qwenpaw.app.routers import terminal
-from qwenpaw.app.auth import AuthMiddleware, RuntimeBoundaryMiddleware
+from qwenpaw.app.auth import (
+    AuthMiddleware,
+    RuntimeBoundaryMiddleware,
+    runtime_token_matches,
+)
 
 
 @pytest.fixture(name="client")
@@ -123,6 +127,54 @@ def test_hub_authentication_with_enabled_switch(client, monkeypatch):
         == 200
     )
     assert manager.create.call_args.args[0][0] == "hub-runtime"
+
+
+@pytest.mark.parametrize(
+    "expected,supplied,matches",
+    [
+        ("boundary", "boundary", True),
+        ("boundary", "wrong", False),
+        ("", "", False),
+        ("boundary", "boundary\u00ff", False),
+        ("boundary\u00ff", "boundary\u00ff", False),
+    ],
+)
+def test_runtime_token_comparison(expected, supplied, matches):
+    assert runtime_token_matches(expected, supplied) is matches
+
+
+def test_non_ascii_runtime_token_is_not_trusted(client, monkeypatch):
+    http, manager = client
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "boundary")
+    http.headers.pop("Authorization")
+    response = http.post(
+        f"/api/terminals/{uuid4()}",
+        headers=[(b"x-qwenpaw-runtime-token", b"boundary\xff")],
+    )
+    assert response.status_code == 401
+    assert not manager.mock_calls
+
+
+@pytest.mark.parametrize("protocol", ["http", "websocket"])
+async def test_boundary_rejects_non_ascii_runtime_token(monkeypatch, protocol):
+    monkeypatch.setenv("QWENPAW_RUNTIME_INTERNAL_TOKEN", "boundary")
+    downstream = AsyncMock()
+    send = AsyncMock()
+    await RuntimeBoundaryMiddleware(downstream)(
+        {
+            "type": protocol,
+            "headers": [(b"x-qwenpaw-runtime-token", b"boundary\xff")],
+        },
+        AsyncMock(),
+        send,
+    )
+    downstream.assert_not_awaited()
+    first = send.call_args_list[0].args[0]
+    if protocol == "websocket":
+        assert first == {"type": "websocket.close", "code": 4401}
+    else:
+        assert first["type"] == "http.response.start"
+        assert first["status"] == 401
 
 
 @pytest.mark.parametrize("origin", ["https://attacker.test", "null"])

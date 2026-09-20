@@ -2,7 +2,6 @@
 """Authenticated terminal control over the existing HTTP/Hub boundary."""
 
 import asyncio
-import hmac
 import os
 from contextlib import asynccontextmanager
 from urllib.parse import urlsplit
@@ -12,7 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from ..agent_context import get_agent_for_request, get_project_dir_for_request
-from ..auth import has_registered_users, is_auth_enabled, verify_token
+from ..auth import (
+    has_registered_users,
+    is_auth_enabled,
+    runtime_token_matches,
+    verify_token,
+)
 from ...services.terminal import TerminalManager
 from ...constant import CORS_ORIGINS
 
@@ -46,7 +50,7 @@ async def context(request: Request, group: UUID):
         )
     origin = request.headers.get("origin")
     runtime_token = os.environ.get("QWENPAW_RUNTIME_INTERNAL_TOKEN", "")
-    trusted_runtime = bool(runtime_token) and hmac.compare_digest(
+    trusted_runtime = runtime_token_matches(
         runtime_token,
         request.headers.get("x-qwenpaw-runtime-token", ""),
     )
