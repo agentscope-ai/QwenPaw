@@ -8,6 +8,12 @@ const requiredPaths = [
   "models.addAllDiscoveredModels",
   "models.discoveredModelsAdded",
   "models.discoveredModelsAddFailed",
+  "models.maxInputLengthInherited",
+  "models.maxInputLengthSource_user",
+  "models.maxInputLengthSource_api",
+  "models.maxInputLengthSource_catalog",
+  "models.maxInputLengthSource_default",
+  "models.resetMaxInputLength",
 ] as const;
 
 function getTranslation(locale: Record<string, unknown>, path: string): string {
