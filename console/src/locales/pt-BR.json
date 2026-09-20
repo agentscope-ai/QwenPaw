@@ -1903,14 +1903,10 @@
     "viewMore": "Ver mais ({{count}})",
     "manageSelectorModels": "Manage selector models",
     "addSelectorModel": "Add to selector",
-    "backToSelected": "Back to selected models",
-    "selectedCount": "{{count}} selected models",
-    "chooseProviderFirst": "Choose a provider first",
     "currentModelProtected": "Switch the current model before removing it",
-    "managedModelProtected": "Managed by the provider",
     "addToSelector": "Add to selector",
     "removeFromSelector": "Remove from selector",
-    "finishEditing": "Done"
+    "searchCandidates": "Search candidate models..."
   },
   "tokenUsage": {
     "title": "Uso de Tokens",

@@ -2162,14 +2162,10 @@
     "fallbackActive": "实际处理模型：{{provider}} / {{model}}",
     "manageSelectorModels": "管理选择器模型",
     "addSelectorModel": "添加到选择器",
-    "backToSelected": "返回已选模型",
-    "selectedCount": "已选 {{count}} 个模型",
-    "chooseProviderFirst": "先选择提供商",
     "currentModelProtected": "当前使用中，请先切换模型",
-    "managedModelProtected": "由提供商管理",
     "addToSelector": "加入选择器",
     "removeFromSelector": "移出选择器",
-    "finishEditing": "完成"
+    "searchCandidates": "搜索候选模型..."
   },
   "models": {
     "partialLoadWarning": "部分模型信息暂时不可用，仍可管理个人供应商。",

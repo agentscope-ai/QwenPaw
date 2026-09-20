@@ -1383,3 +1383,65 @@
     background: var(--app-fill-hover);
   }
 }
+
+.providerHeading {
+  display: flex;
+  align-items: center;
+  .providerHeader {
+    flex: 1;
+    min-width: 0;
+  }
+}
+.addModelControl,
+.removeModelControl {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  &:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+  &:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
+}
+.addModelControl {
+  color: var(--app-success-text);
+  background: var(--app-success-bg);
+}
+.removeModelControl {
+  color: var(--app-error-text);
+  background: var(--app-error-bg);
+}
+.candidatePicker {
+  margin: 8px 12px 12px;
+  padding: 10px;
+  border: 1px solid var(--app-border);
+  border-radius: 10px;
+}
+.candidateList {
+  max-height: 220px;
+  overflow-y: auto;
+}
+.candidateRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  > span {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 13px;
+  }
+}

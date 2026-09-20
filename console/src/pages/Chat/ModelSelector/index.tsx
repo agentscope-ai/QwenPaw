@@ -21,6 +21,8 @@ import {
   LoaderCircle,
   Search,
   Settings,
+  Plus,
+  Minus,
   XCircle,
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -33,6 +35,7 @@ import { useTurnUsageStore } from "../turnUsageStore";
 import { OAuthConfirmModal } from "./OAuthConfirmModal";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { CandidateModelSection } from "./CandidateModelSection";
+import { providerApi } from "../../../api/modules/provider";
 import { modelSelectorApi } from "./modelSelectorApi";
 import {
   buildDiscoveryCandidates,
@@ -45,7 +48,7 @@ import type { CandidateModel, EligibleProvider } from "./modelSelectorModels";
 import { useModelSelectorData } from "./useModelSelectorData";
 import styles from "./index.module.less";
 
-const SelectorModelManager = lazy(() => import("./SelectorModelManager"));
+const ProviderCandidatePicker = lazy(() => import("./ProviderCandidatePicker"));
 
 /** Sync Chat context ring with the active model's effective window. */
 function publishActiveMaxInputLength(
@@ -93,6 +96,8 @@ export default function ModelSelector({
   const [visibilityKey, setVisibilityKey] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [managingModels, setManagingModels] = useState(false);
+  const [addingProvider, setAddingProvider] = useState<string | null>(null);
+  const [removingModel, setRemovingModel] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"pro" | "free">(
     () =>
@@ -590,23 +595,56 @@ export default function ModelSelector({
 
     return (
       <div key={provider.id} className={styles.providerGroup}>
-        <button
-          type="button"
-          className={styles.providerHeader}
-          aria-expanded={!isCollapsed}
-          onClick={() => toggleProviderCollapse(provider.id)}
-        >
-          <ProviderIcon providerId={provider.id} size={16} />
-          <span className={styles.providerHeaderName} title={provider.name}>
-            {provider.name}
-          </span>
-          {needsOAuth && (
-            <AlertTriangle size={12} className={styles.oauthWarningIcon} />
+        <div className={styles.providerHeading}>
+          <button
+            type="button"
+            className={styles.providerHeader}
+            aria-expanded={!isCollapsed}
+            onClick={() => toggleProviderCollapse(provider.id)}
+          >
+            <ProviderIcon providerId={provider.id} size={16} />
+            <span className={styles.providerHeaderName} title={provider.name}>
+              {provider.name}
+            </span>
+            {needsOAuth && (
+              <AlertTriangle size={12} className={styles.oauthWarningIcon} />
+            )}
+            <span className={styles.collapseIcon}>
+              {isCollapsed ? (
+                <ChevronDown size={12} />
+              ) : (
+                <ChevronUp size={12} />
+              )}
+            </span>
+          </button>
+          {managingModels && (
+            <button
+              type="button"
+              className={styles.addModelControl}
+              aria-label={`${t("modelSelector.addToSelector")} ${
+                provider.name
+              }`}
+              aria-expanded={addingProvider === provider.id}
+              onClick={() =>
+                setAddingProvider((value) =>
+                  value === provider.id ? null : provider.id,
+                )
+              }
+            >
+              <Plus size={17} />
+            </button>
           )}
-          <span className={styles.collapseIcon}>
-            {isCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
-          </span>
-        </button>
+        </div>
+        {managingModels && addingProvider === provider.id && (
+          <Suspense fallback={<Spin size="small" />}>
+            <ProviderCandidatePicker
+              providerId={provider.id}
+              onSaved={async () => {
+                await fetchData();
+              }}
+            />
+          </Suspense>
+        )}
         {!isCollapsed && (
           <>
             {visibleModels.map((model) => {
@@ -655,6 +693,50 @@ export default function ModelSelector({
                       <Check size={14} className={styles.checkIcon} />
                     )}
                   </div>
+                  {managingModels && (
+                    <Tooltip
+                      title={
+                        isActive
+                          ? t("modelSelector.currentModelProtected")
+                          : undefined
+                      }
+                    >
+                      <button
+                        type="button"
+                        className={styles.removeModelControl}
+                        aria-label={`${t("modelSelector.removeFromSelector")} ${
+                          model.name || model.id
+                        }`}
+                        disabled={isActive || removingModel !== null}
+                        onClick={async () => {
+                          setRemovingModel(`${provider.id}:${model.id}`);
+                          try {
+                            const updated = await providerApi.updateModelPool(
+                              provider.id,
+                              model.id,
+                              { selected: false },
+                            );
+                            setProviders((previous) =>
+                              previous.map((item) =>
+                                item.id === updated.id ? updated : item,
+                              ),
+                            );
+                            await fetchData();
+                          } catch (error) {
+                            message.error(
+                              error instanceof Error
+                                ? error.message
+                                : String(error),
+                            );
+                          } finally {
+                            setRemovingModel(null);
+                          }
+                        }}
+                      >
+                        <Minus size={17} />
+                      </button>
+                    </Tooltip>
+                  )}
                 </div>
               );
             })}
@@ -874,178 +956,151 @@ export default function ModelSelector({
 
   const dropdownContent = (
     <div id={panelId} className={styles.panel}>
-      {managingModels ? (
-        <Suspense fallback={<Spin style={{ padding: 32 }} />}>
-          <SelectorModelManager
-            key={selectedAgent}
-            providers={providers}
+      <div className={styles.searchWrapper}>
+        <Search size={15} className={styles.searchIcon} />
+        <input
+          ref={searchInputRef}
+          className={styles.searchInput}
+          aria-label={t("modelSelector.searchModels")}
+          placeholder={t("modelSelector.searchModels")}
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            className={styles.searchClear}
+            aria-label={t("modelSelector.clearSearch")}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSearchQuery("");
+              searchInputRef.current?.focus();
+            }}
+          >
+            <XCircle size={15} />
+          </button>
+        )}
+        <Tooltip title={t("modelSelector.manageSelectorModels")}>
+          <button
+            type="button"
+            className={styles.manageButton}
+            aria-label={t("modelSelector.manageSelectorModels")}
+            aria-pressed={managingModels}
+            onClick={() => {
+              setManagingModels((value) => !value);
+              setAddingProvider(null);
+            }}
+          >
+            <Settings size={17} />
+          </button>
+        </Tooltip>
+      </div>
+
+      <div className={styles.tabBar} role="tablist">
+        <button
+          type="button"
+          id={proTabId}
+          role="tab"
+          aria-selected={activeTab === "pro"}
+          aria-controls={tabPanelId}
+          className={[
+            styles.tabButton,
+            activeTab === "pro" ? styles.tabButtonActive : "",
+          ].join(" ")}
+          onClick={() => {
+            setActiveTab("pro");
+            localStorage.setItem("qwenpaw_model_selector_tab", "pro");
+          }}
+        >
+          PRO
+        </button>
+        <button
+          type="button"
+          id={freeTabId}
+          role="tab"
+          aria-selected={activeTab === "free"}
+          aria-controls={tabPanelId}
+          className={[
+            styles.tabButton,
+            activeTab === "free" ? styles.tabButtonActive : "",
+          ].join(" ")}
+          onClick={() => {
+            setActiveTab("free");
+            localStorage.setItem("qwenpaw_model_selector_tab", "free");
+          }}
+        >
+          FREE
+        </button>
+      </div>
+
+      <div
+        id={tabPanelId}
+        className={styles.listContainer}
+        role="tabpanel"
+        aria-labelledby={activeTab === "free" ? freeTabId : proTabId}
+      >
+        {loadError && (
+          <div className={styles.loadError} role="alert">
+            <span>{t("modelSelector.partialLoadFailed")}</span>
+            <button type="button" onClick={fetchData}>
+              {t("modelSelector.retry")}
+            </button>
+          </div>
+        )}
+        {activeTab === "free" ? renderFreeTab() : renderProTab()}
+        {showAdvancedModelControls && (
+          <CandidateModelSection
+            candidates={visibleCandidates}
+            expanded={candidateModelsExpanded}
+            controlsId={candidateModelsId}
+            searchActive={Boolean(trimmedSearch)}
+            addingKey={addingKey}
+            visibilityKey={visibilityKey}
+            t={t}
+            onToggle={() => setShowCandidateModels((value) => !value)}
+            onAdd={handleAddCandidate}
+            onHide={(candidate) => handleVisibility(candidate, true)}
+          />
+        )}
+        {showAdvancedModelControls &&
+          !trimmedSearch &&
+          hiddenCandidates.length > 0 && (
+            <details className={styles.hiddenModels}>
+              <summary>
+                {t("modelSelector.hiddenModels", {
+                  count: hiddenCandidates.length,
+                })}
+              </summary>
+              {hiddenCandidates.map((candidate) => {
+                const key = modelKey(candidate.provider.id, candidate.model.id);
+                return (
+                  <div key={key} className={styles.hiddenModelItem}>
+                    <span title={candidate.model.name || candidate.model.id}>
+                      {candidate.model.name || candidate.model.id}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={t("modelSelector.restoreModel")}
+                      disabled={visibilityKey === key}
+                      onClick={() => handleVisibility(candidate, false)}
+                    >
+                      <Eye size={14} />
+                      {t("modelSelector.restore")}
+                    </button>
+                  </div>
+                );
+              })}
+            </details>
+          )}
+        {showAdvancedModelControls && (
+          <AgentModelSettings
+            agentId={selectedAgent}
+            providers={eligibleProviders}
             activeProviderId={activeProviderId}
             activeModelId={activeModelId}
-            onClose={() => setManagingModels(false)}
-            onSaved={async () => {
-              await fetchData();
-            }}
-            onProviderUpdated={(updated) =>
-              setProviders((previous) =>
-                previous.map((provider) =>
-                  provider.id === updated.id ? updated : provider,
-                ),
-              )
-            }
           />
-        </Suspense>
-      ) : (
-        <>
-          <div className={styles.searchWrapper}>
-            <Search size={15} className={styles.searchIcon} />
-            <input
-              ref={searchInputRef}
-              className={styles.searchInput}
-              aria-label={t("modelSelector.searchModels")}
-              placeholder={t("modelSelector.searchModels")}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                className={styles.searchClear}
-                aria-label={t("modelSelector.clearSearch")}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSearchQuery("");
-                  searchInputRef.current?.focus();
-                }}
-              >
-                <XCircle size={15} />
-              </button>
-            )}
-            <Tooltip title={t("modelSelector.manageSelectorModels")}>
-              <button
-                type="button"
-                className={styles.manageButton}
-                aria-label={t("modelSelector.manageSelectorModels")}
-                onClick={() => {
-                  setManagingModels(true);
-                }}
-              >
-                <Settings size={17} />
-              </button>
-            </Tooltip>
-          </div>
-
-          <div className={styles.tabBar} role="tablist">
-            <button
-              type="button"
-              id={proTabId}
-              role="tab"
-              aria-selected={activeTab === "pro"}
-              aria-controls={tabPanelId}
-              className={[
-                styles.tabButton,
-                activeTab === "pro" ? styles.tabButtonActive : "",
-              ].join(" ")}
-              onClick={() => {
-                setActiveTab("pro");
-                localStorage.setItem("qwenpaw_model_selector_tab", "pro");
-              }}
-            >
-              PRO
-            </button>
-            <button
-              type="button"
-              id={freeTabId}
-              role="tab"
-              aria-selected={activeTab === "free"}
-              aria-controls={tabPanelId}
-              className={[
-                styles.tabButton,
-                activeTab === "free" ? styles.tabButtonActive : "",
-              ].join(" ")}
-              onClick={() => {
-                setActiveTab("free");
-                localStorage.setItem("qwenpaw_model_selector_tab", "free");
-              }}
-            >
-              FREE
-            </button>
-          </div>
-
-          <div
-            id={tabPanelId}
-            className={styles.listContainer}
-            role="tabpanel"
-            aria-labelledby={activeTab === "free" ? freeTabId : proTabId}
-          >
-            {loadError && (
-              <div className={styles.loadError} role="alert">
-                <span>{t("modelSelector.partialLoadFailed")}</span>
-                <button type="button" onClick={fetchData}>
-                  {t("modelSelector.retry")}
-                </button>
-              </div>
-            )}
-            {activeTab === "free" ? renderFreeTab() : renderProTab()}
-            {showAdvancedModelControls && (
-              <CandidateModelSection
-                candidates={visibleCandidates}
-                expanded={candidateModelsExpanded}
-                controlsId={candidateModelsId}
-                searchActive={Boolean(trimmedSearch)}
-                addingKey={addingKey}
-                visibilityKey={visibilityKey}
-                t={t}
-                onToggle={() => setShowCandidateModels((value) => !value)}
-                onAdd={handleAddCandidate}
-                onHide={(candidate) => handleVisibility(candidate, true)}
-              />
-            )}
-            {showAdvancedModelControls &&
-              !trimmedSearch &&
-              hiddenCandidates.length > 0 && (
-                <details className={styles.hiddenModels}>
-                  <summary>
-                    {t("modelSelector.hiddenModels", {
-                      count: hiddenCandidates.length,
-                    })}
-                  </summary>
-                  {hiddenCandidates.map((candidate) => {
-                    const key = modelKey(
-                      candidate.provider.id,
-                      candidate.model.id,
-                    );
-                    return (
-                      <div key={key} className={styles.hiddenModelItem}>
-                        <span
-                          title={candidate.model.name || candidate.model.id}
-                        >
-                          {candidate.model.name || candidate.model.id}
-                        </span>
-                        <button
-                          type="button"
-                          aria-label={t("modelSelector.restoreModel")}
-                          disabled={visibilityKey === key}
-                          onClick={() => handleVisibility(candidate, false)}
-                        >
-                          <Eye size={14} />
-                          {t("modelSelector.restore")}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </details>
-              )}
-            {showAdvancedModelControls && (
-              <AgentModelSettings
-                agentId={selectedAgent}
-                providers={eligibleProviders}
-                activeProviderId={activeProviderId}
-                activeModelId={activeModelId}
-              />
-            )}
-          </div>
-        </>
-      )}
+        )}
+      </div>
     </div>
   );
 

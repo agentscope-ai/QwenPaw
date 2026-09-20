@@ -6,18 +6,9 @@ import ModelSelector from "./index";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { useTurnUsageStore } from "../turnUsageStore";
 
-vi.mock("./SelectorModelManager", () => ({
-  default: ({
-    onSaved,
-    onClose,
-  }: {
-    onSaved: () => Promise<void>;
-    onClose: () => void;
-  }) => (
-    <div role="region" aria-label="selector-manager">
-      <button onClick={onSaved}>save-selector</button>
-      <button onClick={onClose}>close-selector</button>
-    </div>
+vi.mock("./ProviderCandidatePicker", () => ({
+  default: ({ providerId }: { providerId: string }) => (
+    <div data-testid="candidate-picker">{providerId}</div>
   ),
 }));
 
@@ -34,6 +25,7 @@ vi.mock("@/api/modules/provider", () => ({
     getActiveModels: vi.fn(),
     setActiveLlm: vi.fn(),
     addModel: vi.fn(),
+    updateModelPool: vi.fn(),
     setModelVisibility: vi.fn(),
   },
 }));
@@ -108,6 +100,7 @@ vi.mock("lucide-react", () => ({
   Loader2: () => "Loader2",
   LoaderCircle: () => "LoaderCircle",
   Plus: () => "Plus",
+  Minus: () => "Minus",
   Search: () => "Search",
   Save: () => "Save",
   Settings: () => "Settings",
@@ -228,7 +221,49 @@ describe("ModelSelector", () => {
     vi.clearAllMocks();
   });
 
-  it("opens selector management and refreshes models after saving", async () => {
+  it("keeps the existing selector and toggles per-row editing controls", async () => {
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.modelSelectTooltip" }),
+    );
+    const gear = await screen.findByRole("button", {
+      name: "modelSelector.manageSelectorModels",
+    });
+    const search = screen.getByRole("textbox", {
+      name: "modelSelector.searchModels",
+    });
+    fireEvent.click(gear);
+    expect(
+      screen.getByRole("textbox", { name: "modelSelector.searchModels" }),
+    ).toBe(search);
+    expect(screen.getByRole("tab", { name: "PRO" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "FREE" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "modelSelector.removeFromSelector GPT-4",
+      }),
+    ).toBeDisabled();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "modelSelector.addToSelector OpenAI",
+      }),
+    );
+    expect(await screen.findByTestId("candidate-picker")).toHaveTextContent(
+      "openai",
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(gear);
+    expect(screen.queryByTestId("candidate-picker")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", {
+        name: "modelSelector.removeFromSelector GPT-4",
+      }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("removes a model without activating it or replacing the selector", async () => {
+    vi.mocked(providerApi.updateModelPool).mockResolvedValue(mockProvider);
     renderWithProviders(<ModelSelector />);
     await screen.findAllByText("GPT-4");
     fireEvent.click(
@@ -239,18 +274,21 @@ describe("ModelSelector", () => {
         name: "modelSelector.manageSelectorModels",
       }),
     );
-    expect(
-      await screen.findByRole("region", { name: "selector-manager" }),
-    ).toBeInTheDocument();
-    const calls = vi.mocked(providerApi.listProviders).mock.calls.length;
-    fireEvent.click(screen.getByText("save-selector"));
-    await waitFor(() =>
-      expect(providerApi.listProviders).toHaveBeenCalledTimes(calls + 1),
+    const model = mockProvider.models[1];
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: `modelSelector.removeFromSelector ${model.name}`,
+      }),
     );
-    fireEvent.click(screen.getByText("close-selector"));
-    expect(
-      screen.queryByRole("region", { name: "selector-manager" }),
-    ).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(providerApi.updateModelPool).toHaveBeenCalledWith(
+        "openai",
+        model.id,
+        { selected: false },
+      ),
+    );
+    expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
+    expect(screen.getByRole("tab", { name: "PRO" })).toBeInTheDocument();
   });
 
   it("displays current active model name on trigger button after loading", async () => {
