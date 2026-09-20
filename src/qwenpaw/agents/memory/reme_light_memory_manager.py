@@ -518,12 +518,13 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
         model = main_model
         if memory_slot is not None:
             try:
-                memory_model, _formatter = (
-                    await create_model_and_formatter_async(
-                        self.agent_id,
-                        model_slot_override=memory_slot,
-                        agent_config=agent_config,
-                    )
+                (
+                    memory_model,
+                    _formatter,
+                ) = await create_model_and_formatter_async(
+                    self.agent_id,
+                    model_slot_override=memory_slot,
+                    agent_config=agent_config,
                 )
                 model = FallbackChatModel(
                     [memory_model, main_model],
