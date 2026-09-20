@@ -13,6 +13,10 @@ why the wrapper now has to forward parameters it does not read itself
 instead of listing them.
 """
 
+# Fixtures are requested by name, and several are used only for their
+# side effects, which is exactly what these two checks flag.
+# pylint: disable=redefined-outer-name,unused-argument
+
 from __future__ import annotations
 
 import inspect
