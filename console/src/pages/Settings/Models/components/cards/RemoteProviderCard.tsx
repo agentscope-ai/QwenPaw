@@ -61,7 +61,9 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
     });
   };
 
-  const totalCount = provider.models.length + provider.extra_models.length;
+  const totalCount = new Set(
+    [...provider.models, ...provider.extra_models].map((model) => model.id),
+  ).size;
   const isConfigured = getIsConfigured(provider);
   const hasModels = totalCount > 0;
   const isAvailable = isConfigured && hasModels;
@@ -184,7 +186,17 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           className={styles.selectedModelsLink}
           onClick={() => onOpenModels(provider)}
         >
-          <span>{t("models.pool.selected", { count: totalCount })}</span>
+          <span>
+            {t(
+              provider.model_count == null
+                ? "models.pool.enabledCount"
+                : "models.pool.modelCount",
+              {
+                count: totalCount,
+                total: provider.model_count ?? "—",
+              },
+            )}
+          </span>
           <ChevronRight size={16} />
         </button>
         {isManaged && <HubProviderUsage />}

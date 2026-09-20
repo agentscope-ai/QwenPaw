@@ -1,5 +1,6 @@
+import { ModelPickerPopover } from "../../pages/Chat/ModelSelector/ModelPickerPopover";
 import { useEffect, useRef, useState } from "react";
-import { Popover, Spin, Tooltip } from "antd";
+import { Spin, Tooltip } from "antd";
 import { ChevronDown, ArrowLeft, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
@@ -102,10 +103,8 @@ export function SessionThinking({
   const value = view?.value ?? { level: "inherit" as const };
   const display = value.level === "inherit" ? view?.effective ?? value : value;
   return (
-    <Popover
-      overlayClassName={styles.overlay}
-      trigger="click"
-      placement="topLeft"
+    <ModelPickerPopover
+      picker={choosing}
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
@@ -125,18 +124,11 @@ export function SessionThinking({
                 >
                   <ArrowLeft size={17} />
                 </button>
-                <span className={styles.source}>
-                  {t(
-                    `thinkingControl.modelSource.${
-                      view?.model_source ?? "global"
-                    }`,
-                  )}
-                </span>
-                <Tooltip title={t("thinkingControl.inherit")}>
+                <Tooltip title={t("thinkingControl.reset")}>
                   <button
                     type="button"
                     className={styles.iconButton}
-                    aria-label={t("thinkingControl.inherit")}
+                    aria-label={t("thinkingControl.reset")}
                     disabled={busy || view?.model_source !== "session"}
                     onClick={async () => {
                       setBusy(true);
@@ -205,18 +197,22 @@ export function SessionThinking({
           <ProviderIcon providerId={view.provider_id} size={16} />
         )}
         <span>{view?.model || t("modelSelector.selectModel")}</span>
-        <span
-          className={styles.source}
-          title={t(
-            `thinkingControl.modelSource.${view?.model_source ?? "global"}`,
+        {view &&
+          !["unsupported", "unknown"].includes(view.control.kind) &&
+          display.level !== "inherit" && (
+            <span
+              className={styles.source}
+              title={t(
+                `thinkingControl.modelSource.${view?.model_source ?? "global"}`,
+              )}
+            >
+              {display.level === "budget"
+                ? `${display.budget_tokens?.toLocaleString()}`
+                : t(`thinkingControl.${display.level}`)}
+            </span>
           )}
-        >
-          {display.level === "budget"
-            ? `${display.budget_tokens?.toLocaleString()}`
-            : t(`thinkingControl.${display.level}`)}
-        </span>
         <ChevronDown size={12} />
       </button>
-    </Popover>
+    </ModelPickerPopover>
   );
 }

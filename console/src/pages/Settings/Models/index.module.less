@@ -2765,3 +2765,37 @@
   gap: 16px;
   font-size: 13px;
 }
+
+.headerRight .globalModelRow {
+  width: auto;
+  margin: 0;
+  padding: 0 8px;
+  gap: 8px;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  > span {
+    white-space: nowrap;
+    font-size: 12px;
+    color: var(--app-text-tertiary);
+  }
+  button {
+    max-width: 240px;
+  }
+}
+@media (max-width: 900px) {
+  .settingsPage .headerRight {
+    flex-wrap: wrap;
+  }
+}
+
+.settingsPage .headerRight {
+  min-width: 0;
+}
+.settingsPage .sectionHeaderRow {
+  gap: 16px;
+}
+
+.settingsPage .sectionHeaderRow {
+  box-sizing: border-box;
+}

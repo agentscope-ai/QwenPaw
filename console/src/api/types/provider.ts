@@ -71,6 +71,7 @@ export interface ModelInfo {
 }
 
 export interface ProviderInfo {
+  model_count?: number | null;
   enabled?: boolean;
   seen_model_ids?: string[];
   id: string;

@@ -45,8 +45,11 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   const [saving, setSaving] = useState(false);
 
   const activeProvider = group.providers[activeIdx] || group.providers[0];
-  const totalModels =
-    activeProvider.models.length + activeProvider.extra_models.length;
+  const totalModels = new Set(
+    [...activeProvider.models, ...activeProvider.extra_models].map(
+      (model) => model.id,
+    ),
+  ).size;
   const liveCount = group.providers.filter(getIsConfigured).length;
   const hasFreeTier = activeProvider.is_free_tier;
 
@@ -177,7 +180,17 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           className={styles.selectedModelsLink}
           onClick={() => onOpenModels(activeProvider)}
         >
-          <span>{t("models.pool.selected", { count: totalModels })}</span>
+          <span>
+            {t(
+              activeProvider.model_count == null
+                ? "models.pool.enabledCount"
+                : "models.pool.modelCount",
+              {
+                count: totalModels,
+                total: activeProvider.model_count ?? "—",
+              },
+            )}
+          </span>
           <ChevronRight size={16} />
         </button>
       </div>

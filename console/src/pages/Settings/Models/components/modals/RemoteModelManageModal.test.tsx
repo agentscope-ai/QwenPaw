@@ -6,6 +6,7 @@ import { RemoteModelManageModal } from "./RemoteModelManageModal";
 const api = vi.hoisted(() => ({
   getModelPool: vi.fn(),
   updateModelPool: vi.fn(),
+  selectAllModels: vi.fn(),
   discoverModels: vi.fn(),
   addModel: vi.fn(),
   testModelConnection: vi.fn(),
@@ -200,6 +201,27 @@ describe("model pool switches", () => {
       ),
     );
     expect(screen.getByText("Chosen model")).toBeInTheDocument();
+    api.selectAllModels.mockResolvedValue({ ...provider, extra_models: [] });
+    const closeAll = screen.getByRole("button", {
+      name: "models.pool.disableAll",
+    });
+    await waitFor(() => expect(closeAll).not.toBeDisabled());
+    fireEvent.click(closeAll);
+    await waitFor(() =>
+      expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", false),
+    );
+    api.selectAllModels.mockResolvedValue({
+      ...provider,
+      extra_models: [chosen, candidate],
+    });
+    const enableAll = screen.getByRole("button", {
+      name: "models.pool.enableAll",
+    });
+    await waitFor(() => expect(enableAll).not.toBeDisabled());
+    fireEvent.click(enableAll);
+    await waitFor(() =>
+      expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", true),
+    );
   });
   it("updates OpenRouter through the common refresh action", async () => {
     const { onSaved } = await render();

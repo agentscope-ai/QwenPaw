@@ -54,6 +54,11 @@ export const providerApi = {
         Object.entries(query).map(([key, value]) => [key, String(value)]),
       )}`,
     ),
+  selectAllModels: (providerId: string, selected: boolean) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/pool/selection`,
+      { method: "PUT", body: JSON.stringify({ selected }) },
+    ),
   updateModelPool: (
     providerId: string,
     modelId: string,

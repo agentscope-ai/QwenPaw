@@ -97,6 +97,7 @@ class ManagedProvider(OpenAIProvider):
     async def get_info(self, mock_secret=True, *, include_candidates=True):
         """Expose safe catalog metadata without the runtime credential."""
         return ProviderInfo(
+            model_count=len({m.id for m in self.discovery_candidates()}),
             id=PROVIDER_ID,
             name=f"Hub",
             models=self.configured_models(),

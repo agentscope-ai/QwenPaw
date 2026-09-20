@@ -180,9 +180,7 @@ async def test_list_all_providers_returns_manager_listing() -> None:
     manager = _make_manager()
     info = [ProviderInfo(id="openai", name="OpenAI")]
     manager.list_provider_info = AsyncMock(return_value=info)
-    result = await providers_mod.list_all_providers(
-        request=None, manager=manager
-    )
+    result = await providers_mod.list_all_providers(manager=manager)
     assert result == info
 
 

@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { InputNumber, Slider, Tooltip } from "antd";
-import { RotateCcw } from "lucide-react";
+import { LockKeyhole, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
 import styles from "./thinking.module.less";
@@ -101,20 +101,23 @@ export function ThinkingControl({
             <strong>{label}</strong>
           )}
         </div>
-        <Tooltip title={t("thinkingControl.reset")}>
-          <button
-            type="button"
-            className={styles.iconButton}
-            disabled={disabled || value.level === "inherit"}
-            aria-label={t("thinkingControl.reset")}
-            onClick={() => onChange({ level: "inherit" })}
-          >
-            <RotateCcw size={15} />
-          </button>
-        </Tooltip>
+        {!unsupported && (
+          <Tooltip title={t("thinkingControl.reset")}>
+            <button
+              type="button"
+              className={styles.iconButton}
+              disabled={disabled || value.level === "inherit"}
+              aria-label={t("thinkingControl.reset")}
+              onClick={() => onChange({ level: "inherit" })}
+            >
+              <RotateCcw size={15} />
+            </button>
+          </Tooltip>
+        )}
       </header>
       {unsupported ? (
         <Tooltip
+          trigger={["hover", "focus", "click"]}
           title={t(
             control.kind === "unknown"
               ? "thinkingControl.unknown"
@@ -123,13 +126,16 @@ export function ThinkingControl({
         >
           <div
             className={styles.staticRail}
+            tabIndex={0}
             role="img"
             aria-label={t(
               control.kind === "unknown"
                 ? "thinkingControl.unknown"
                 : "thinkingControl.unsupported",
             )}
-          />
+          >
+            <LockKeyhole size={12} />
+          </div>
         </Tooltip>
       ) : (
         <>

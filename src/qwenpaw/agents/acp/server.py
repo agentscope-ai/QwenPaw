@@ -1335,9 +1335,7 @@ class QwenPawACPAgent(Agent):
             manager = await run_sync_io(ProviderManager.get_instance)
             agent_id = self._resolve_agent_id()
             agent_config = await run_sync_io(load_agent_config, agent_id)
-            provider_infos = await manager.list_provider_info(
-                active_model=agent_config.active_model,
-            )
+            provider_infos = await manager.list_provider_info()
 
             available_models: list[ACPModelInfo] = []
             for pinfo in provider_infos:

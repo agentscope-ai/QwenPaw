@@ -137,16 +137,6 @@
   width: min(320px, calc(100vw - 56px));
 }
 
-.overlay {
-  .model-surface-tokens();
-  :global(.qwenpaw-popover-inner),
-  :global(.ant-popover-inner) {
-    border-radius: 24px;
-    padding: 12px;
-    box-shadow: var(--model-overlay-shadow);
-  }
-}
-
 .identity {
   flex: 1;
   text-align: left;
@@ -255,9 +245,6 @@
   gap: 6px;
 }
 
-.back > .source {
-  flex: 1;
-}
 .control[data-budget-off="true"] :global(.ant-slider-rail),
 .control[data-budget-off="true"] :global(.qwenpaw-slider-rail) {
   background: linear-gradient(
@@ -289,4 +276,28 @@
 }
 .summary {
   min-height: 24px;
+}
+
+.back {
+  justify-content: space-between;
+  padding-bottom: 4px;
+}
+.staticRail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 14px;
+  margin: 16px 0 4px;
+  color: var(--app-text-tertiary);
+}
+
+.picker {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+.popover {
+  width: 100%;
 }

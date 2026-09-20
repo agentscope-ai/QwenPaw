@@ -48,6 +48,31 @@ async def test_catalog_is_candidate_until_selected(isolated_secret_dir):
     assert card.id not in {model.id for model in deselected.models}
     assert card.id in {model.id for model in deselected.discovered_models}
 
+    await manager.update_model_config(
+        provider.id,
+        card.id,
+        {f"max_input_length": 64000},
+    )
+    enabled = await manager.select_all_models(provider.id, selected=True)
+    pool_ids = {
+        model.id
+        for model in manager.get_provider(provider.id).discovery_candidates()
+    }
+    assert pool_ids <= {
+        model.id for model in enabled.models + enabled.extra_models
+    }
+    await manager.save_active_model_async(
+        ModelSlotConfig(provider_id=provider.id, model=card.id),
+    )
+    disabled = await manager.select_all_models(provider.id, selected=False)
+    assert not disabled.models and not disabled.extra_models
+    assert manager.get_active_model() is None
+    reloaded = ProviderManager().get_provider(provider.id)
+    retained = next(
+        m for m in reloaded.discovery_candidates() if m.id == card.id
+    )
+    assert retained.max_input_length == 64000
+
 
 async def test_new_free_discovery_never_selects_itself(
     isolated_secret_dir,
@@ -79,7 +104,7 @@ async def test_new_free_discovery_never_selects_itself(
     assert not info.models and not info.extra_models
 
 
-async def test_active_and_manual_models_stay_selected(isolated_secret_dir):
+async def test_listing_preserves_explicit_selection(isolated_secret_dir):
     manager = ProviderManager()
     manager.active_model = ModelSlotConfig(
         provider_id=f"deepseek",
@@ -94,7 +119,7 @@ async def test_active_and_manual_models_stay_selected(isolated_secret_dir):
         for provider in await manager.list_provider_info()
         if provider.id == f"deepseek"
     )
-    assert f"deepseek-flash" in {model.id for model in info.models}
+    assert f"deepseek-flash" not in {model.id for model in info.models}
     assert f"manual" in {model.id for model in info.extra_models}
 
 

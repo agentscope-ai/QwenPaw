@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
 import { Pagination, Spin, Switch } from "antd";
 import {
+  ListChecks,
+  ListX,
   ChevronDown,
   ArrowLeft,
   FlaskConical,
@@ -174,6 +176,18 @@ export function RemoteModelManageModal({
       setBusy(null);
     }
   };
+  const selectAll = async (selected: boolean) => {
+    setBusy("bulk");
+    try {
+      await apply(await api.selectAllModels(provider.id, selected));
+      setOffset(0);
+      window.dispatchEvent(new Event("session-model-changed"));
+    } catch (error) {
+      failure(error);
+    } finally {
+      setBusy(null);
+    }
+  };
   const discover = async () => {
     setSyncing(true);
     try {
@@ -294,6 +308,35 @@ export function RemoteModelManageModal({
                     />
                     {t("models.pool.onlyEnabled")}
                   </label>
+                </div>
+                <div className={styles.bulkActions}>
+                  {[true, false].map((selected) => (
+                    <Tooltip
+                      key={String(selected)}
+                      title={t(
+                        selected
+                          ? "models.pool.enableAll"
+                          : "models.pool.disableAll",
+                      )}
+                    >
+                      <Button
+                        aria-label={t(
+                          selected
+                            ? "models.pool.enableAll"
+                            : "models.pool.disableAll",
+                        )}
+                        icon={
+                          selected ? (
+                            <ListChecks size={16} />
+                          ) : (
+                            <ListX size={16} />
+                          )
+                        }
+                        disabled={busy !== null || loading}
+                        onClick={() => void selectAll(selected)}
+                      />
+                    </Tooltip>
+                  ))}
                 </div>
                 {!managed && current.support_model_discovery && (
                   <Tooltip

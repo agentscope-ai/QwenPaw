@@ -349,14 +349,9 @@ async def _load_agent_model(
     summary="List all providers",
 )
 async def list_all_providers(
-    request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
 ) -> List[ProviderInfo]:
-    if request is None:
-        return await manager.list_provider_info()
-    workspace = await get_agent_for_request(request)
-    active = await _load_agent_model(request, workspace.agent_id)
-    return await manager.list_provider_info(active_model=active)
+    return await manager.list_provider_info()
 
 
 @router.get(
@@ -778,6 +773,29 @@ async def add_model_endpoint(
 class ModelPoolRequest(BaseModel):
     selected: bool | None = None
     seen: bool = False
+
+
+class ModelPoolSelectionRequest(BaseModel):
+    selected: bool
+
+
+@router.put(
+    f"/{{provider_id}}/pool/selection",
+    response_model=ProviderInfo,
+    summary=f"Enable or disable the entire model pool",
+)
+async def select_all_provider_models(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    body: ModelPoolSelectionRequest = Body(...),
+) -> ProviderInfo:
+    try:
+        return await manager.select_all_models(
+            provider_id,
+            selected=body.selected,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put(

@@ -1,6 +1,7 @@
+import { ModelPickerPopover } from "./ModelPickerPopover";
 import { ProviderIcon } from "../../Settings/Models/components/ProviderIconComponent";
 import { lazy, Suspense, useState } from "react";
-import { Popover, Spin } from "antd";
+import { Spin } from "antd";
 import { ChevronRight } from "lucide-react";
 import type { ModelSlotConfig } from "@/api/types";
 import styles from "./index.module.less";
@@ -29,14 +30,11 @@ export function ModelChoice({
     onOpenChange?.(next);
   };
   return (
-    <Popover
-      trigger="click"
+    <ModelPickerPopover
       open={open}
       onOpenChange={(next) => !disabled && setOpen(next)}
-      placement="bottomLeft"
-      destroyOnHidden
       content={
-        <div style={{ width: "min(400px, calc(100vw - 48px))" }}>
+        <>
           {open && (
             <Suspense fallback={<Spin />}>
               <ModelSelector
@@ -49,7 +47,7 @@ export function ModelChoice({
               />
             </Suspense>
           )}
-        </div>
+        </>
       }
     >
       <button
@@ -63,6 +61,6 @@ export function ModelChoice({
         <span>{label}</span>
         <ChevronRight size={15} />
       </button>
-    </Popover>
+    </ModelPickerPopover>
   );
 }

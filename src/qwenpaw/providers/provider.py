@@ -135,6 +135,7 @@ class ProviderInfo(BaseModel):
         validate_default=False,
     )
 
+    model_count: int | None = None
     enabled: bool = True
 
     id: str = Field(..., description="Provider identifier")
@@ -1469,7 +1470,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 for model in self.discovered_models
             )
         )
+        candidates = self.discovery_candidates() if include_candidates else []
+        pool = candidates if include_candidates else self._resolved_pool
+        pool_ids = (
+            {model.id for model in pool + self.configured_models()}
+            if pool is not None
+            else None
+        )
         return ProviderInfo(
+            model_count=len(pool_ids) if pool_ids is not None else None,
             id=self.id,
             name=self.name,
             enabled=self.enabled,
@@ -1488,12 +1497,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 for model in self.extra_models
                 if model.id not in removed
             ],
-            discovered_models=[
-                serialize_model(model)
-                for model in (
-                    self.discovery_candidates() if include_candidates else []
-                )
-            ],
+            discovered_models=[serialize_model(model) for model in candidates],
             seen_model_ids=list(self.seen_model_ids),
             models_last_synced_at=self.models_last_synced_at,
             models_last_sync_error=self.models_last_sync_error,

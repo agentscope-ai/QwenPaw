@@ -43,7 +43,7 @@
     flex: 1;
     min-width: 0;
   }
-  button {
+  > button {
     width: 36px;
     border: 0;
     background: transparent;
@@ -96,4 +96,10 @@
 }
 .choice > button {
   width: auto;
+}
+
+.choice > span:has(button) {
+  margin-left: auto;
+  min-width: 0;
+  flex-shrink: 1;
 }

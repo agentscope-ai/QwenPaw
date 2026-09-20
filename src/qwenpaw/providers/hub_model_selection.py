@@ -35,6 +35,15 @@ def update_selection(
         return state
 
 
+def replace_selection(path: Path, model_ids: list[str]) -> dict:
+    """Replace personal membership while preserving other preferences."""
+    with get_sync_path_lock(path):
+        state = read_selection(path)
+        state[f"selected"] = sorted(set(model_ids))
+        write_json_atomic(path, state)
+        return state
+
+
 def apply_selection(provider, state: dict, active=None):
     """Intersect personal choices with the currently authorized catalog."""
     selected = set(state.get(f"selected", []))

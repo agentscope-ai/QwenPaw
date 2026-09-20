@@ -350,30 +350,6 @@ function ModelsPage() {
               />
             )}
             <div hidden={scopeTab !== "global"}>
-              <div className={styles.defaultsBlock}>
-                <div className={styles.globalModelRow}>
-                  <span>{t("models.defaultLlm")}</span>
-                  <ModelChoice
-                    value={activeModels?.active_llm}
-                    label={
-                      activeHubModel?.name ||
-                      activeModels?.active_llm?.model ||
-                      "—"
-                    }
-                    onChange={async (slot) => {
-                      try {
-                        await providerApi.setActiveLlm({
-                          ...slot,
-                          scope: "global",
-                        });
-                        await fetchAll(false);
-                      } catch (error) {
-                        message.error(String(error));
-                      }
-                    }}
-                  />
-                </div>
-              </div>
               {/* ---- Providers Section ---- */}
               <div className={styles.providersBlock}>
                 <div className={styles.sectionHeaderRow}>
@@ -382,6 +358,29 @@ function ModelsPage() {
                     className={styles.providersPageHeader}
                   />
                   <div className={styles.headerRight}>
+                    <div className={styles.globalModelRow}>
+                      <span>{t("models.defaultLlm")}</span>
+                      <ModelChoice
+                        value={activeModels?.active_llm}
+                        label={
+                          activeHubModel?.name ||
+                          activeModels?.active_llm?.model ||
+                          "—"
+                        }
+                        onChange={async (slot) => {
+                          try {
+                            await providerApi.setActiveLlm({
+                              ...slot,
+                              scope: "global",
+                            });
+                            await fetchAll(false);
+                          } catch (error) {
+                            message.error(String(error));
+                          }
+                        }}
+                      />
+                    </div>
+
                     {/* ---- Search ---- */}
                     <div className={styles.searchRow}>
                       <Input

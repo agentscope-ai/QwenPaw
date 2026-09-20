@@ -159,25 +159,8 @@ class ProviderManager(
             provider.configuration_snapshot()
         )
 
-    async def list_provider_info(
-        self,
-        active_model: ModelSlotConfig | None = None,
-    ) -> List[ProviderInfo]:
-        for active in (await run_sync_io(self.get_active_model), active_model):
-            if active is None:
-                continue
-            active_provider = await run_sync_io(
-                self.get_provider, active.provider_id
-            )
-            if active_provider is not None:
-                active_info = active_provider.get_model_info(active.model)
-                if active_info is None:
-                    active_info = await run_sync_io(
-                        active_provider.resolve_model_info,
-                        active.model,
-                    )
-                    active_provider.extra_models.append(active_info)
-                active_info.source = f"user"
+    async def list_provider_info(self) -> List[ProviderInfo]:
+        """Read explicit model membership without changing selection."""
         tasks = [
             provider.get_info(include_candidates=False)
             for provider in self.builtin_providers.values()
@@ -191,13 +174,6 @@ class ProviderManager(
         if hub_mode():
             try:
                 provider = await run_sync_io(self.get_provider, PROVIDER_ID)
-                if (
-                    active_model is not None
-                    and active_model.provider_id == PROVIDER_ID
-                ):
-                    for model in provider.models:
-                        if model.id == active_model.model:
-                            model.source = f"user"
                 hub_info = await provider.get_info()
             except ProviderError:
                 hub_info = ProviderInfo(
@@ -871,6 +847,67 @@ class ProviderManager(
         if provider is None:
             raise ProviderError(message=f"Provider '{provider_id}' not found")
         return await provider.get_info(include_candidates=selected is not None)
+
+    async def select_all_models(
+        self,
+        provider_id: str,
+        *,
+        selected: bool,
+    ) -> ProviderInfo:
+        """Change the entire pool in one save, retaining model overrides."""
+        if hub_mode() and provider_id == PROVIDER_ID:
+            provider = await run_sync_io(self.get_provider, provider_id)
+            ids = [model.id for model in provider.models] if selected else []
+            state = await run_sync_io(
+                hub_model_selection.replace_selection,
+                self.root_path / f"hub-model-selection.json",
+                ids,
+            )
+            if not selected:
+                await self.clear_active_model_async(provider_id)
+            hub_model_selection.apply_selection(
+                provider,
+                state,
+                self.active_model,
+            )
+            return await provider.get_info()
+
+        async def update(candidate: Provider) -> None:
+            configured = candidate.configured_models()
+            selected_ids = {model.id for model in configured}
+            pool = await run_sync_io(candidate.discovery_candidates)
+            if selected:
+                for model in pool:
+                    if model.id in selected_ids:
+                        continue
+                    added, error = await candidate.add_model(
+                        model.model_copy(deep=True),
+                    )
+                    if not added and error:
+                        raise ProviderError(message=error)
+            else:
+                retained = {
+                    model.id: model for model in candidate.discovered_models
+                }
+                for model in configured:
+                    copy = model.model_copy(deep=True)
+                    copy.source = f"discovered"
+                    retained[model.id] = copy
+                candidate.discovered_models = list(retained.values())
+                candidate.extra_models = []
+                if candidate.is_custom:
+                    candidate.models = []
+                else:
+                    for model in candidate.models:
+                        model.source = f"builtin"
+
+        await self._mutate_provider_async(provider_id, update)
+        if not selected:
+            await self.clear_active_model_async(provider_id)
+        provider = await run_sync_io(self.get_provider, provider_id)
+        if provider is None:
+            raise ProviderError(message=f"Provider '{provider_id}' not found")
+        return await provider.get_info(include_candidates=False)
 
     async def _update_hub_selection(self, model_id, **changes):
         """Store personal membership without mutating managed providers."""

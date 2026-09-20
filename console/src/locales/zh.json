@@ -184,6 +184,7 @@
     "done": "完成"
   },
   "nav": {
+    "moreFunctions": "更多功能",
     "chat": "聊天",
     "files": "文件",
     "control": "控制",
@@ -2547,6 +2548,10 @@
       "ranking_version_mismatch": "评分版本待更新"
     },
     "pool": {
+      "enabledCount": "模型 {{count}}",
+      "modelCount": "模型 {{count}} / {{total}}",
+      "enableAll": "全部启用",
+      "disableAll": "全部关闭",
       "unsupported": "此提供商地址不支持模型列表接口，已保留内置目录和已有模型。可手动添加模型。",
       "candidates": "候选模型 ({{count}})",
       "selected": "已选模型 ({{count}})",
@@ -5241,13 +5246,13 @@
     "deep": "深入思考",
     "intensive": "充分思考",
     "budget": "思考预算",
-    "unsupported": "当前模型未声明可调节的思考能力",
+    "unsupported": "此模型不支持调整思考强度",
     "budgetHint": "连续调节思考 Token 上限，文字随比例变化，不代表固定档位。",
     "effortHint": "仅显示当前模型支持的档位。",
     "sessionHint": "仅当前会话生效，从下一次请求开始应用。",
     "adapted": "当前模型无法原样应用已保存的偏好，已按模型能力调整。",
     "saveFailed": "思考设置保存失败",
-    "unknown": "尚无思考能力信息。可在模型参数中手动声明能力，或通过高级 JSON 配置请求参数。",
+    "unknown": "思考设置未确认",
     "declaration": "思考能力声明（高级）",
     "declarationHint": "无 model card 的模型也可手动声明。请按接口文档填写，示例档位与范围并非已验证能力。恢复自动将使用模型目录或插件声明。",
     "controlType": "控制方式",

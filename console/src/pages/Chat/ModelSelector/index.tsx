@@ -8,6 +8,7 @@ import {
   Suspense,
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useId,
   useRef,
@@ -637,7 +638,29 @@ export default function ModelSelector({
     });
   };
 
-  const toggleProviderCollapse = (providerId: string) => {
+  const listRef = useRef<HTMLDivElement>(null);
+  const collapseAnchor = useRef<{ element: HTMLElement; top: number } | null>(
+    null,
+  );
+  useLayoutEffect(() => {
+    const anchor = collapseAnchor.current;
+    const list = listRef.current;
+    if (!anchor || !list) return;
+    collapseAnchor.current = null;
+    const shift = anchor.element.getBoundingClientRect().top - anchor.top;
+    const target = Math.max(0, list.scrollTop + shift);
+    list.style.paddingBottom = "0px";
+    const missing = target - (list.scrollHeight - list.clientHeight);
+    if (missing > 0) list.style.paddingBottom = `${missing}px`;
+    list.scrollTop = target;
+    anchor.element.focus({ preventScroll: true });
+  }, [collapsedProviders]);
+
+  const toggleProviderCollapse = (providerId: string, element: HTMLElement) => {
+    collapseAnchor.current = {
+      element,
+      top: element.getBoundingClientRect().top,
+    };
     setCollapsedProviders((prev) => {
       const next = new Set(prev);
       if (next.has(providerId)) {
@@ -676,7 +699,9 @@ export default function ModelSelector({
             type="button"
             className={styles.providerHeader}
             aria-expanded={!isCollapsed}
-            onClick={() => toggleProviderCollapse(provider.id)}
+            onClick={(event) =>
+              toggleProviderCollapse(provider.id, event.currentTarget)
+            }
           >
             <ProviderIcon providerId={provider.id} size={16} />
             <span className={styles.providerHeaderName} title={provider.name}>
@@ -939,10 +964,6 @@ export default function ModelSelector({
 
     return (
       <>
-        <div className={styles.freeBanner}>
-          <AlertTriangle size={14} className={styles.freeBannerIcon} />
-          <span>{t("modelSelector.freeBannerText")}</span>
-        </div>
         {rankModels(readyProviders).map((provider) =>
           renderProviderModels(provider, false),
         )}
@@ -1082,6 +1103,7 @@ export default function ModelSelector({
 
       <div
         id={tabPanelId}
+        ref={listRef}
         className={styles.listContainer}
         role="region"
         aria-label={t("models.models")}

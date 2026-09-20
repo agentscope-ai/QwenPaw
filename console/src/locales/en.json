@@ -184,6 +184,7 @@
     "done": "Done"
   },
   "nav": {
+    "moreFunctions": "More",
     "chat": "Chat",
     "files": "Files",
     "control": "Control",
@@ -2689,6 +2690,10 @@
       "ranking_version_mismatch": "Ranking version needs review"
     },
     "pool": {
+      "enabledCount": "Models {{count}}",
+      "modelCount": "Models {{count}} / {{total}}",
+      "enableAll": "Enable all",
+      "disableAll": "Disable all",
       "unsupported": "This endpoint does not support model listing. The built-in catalog and existing models are preserved; you can add models manually.",
       "candidates": "Candidates ({{count}})",
       "selected": "Selected ({{count}})",
@@ -5223,13 +5228,13 @@
     "deep": "Deep",
     "intensive": "Intensive",
     "budget": "Thinking budget",
-    "unsupported": "This model does not declare adjustable thinking controls.",
+    "unsupported": "This model does not support adjusting thinking.",
     "budgetHint": "Adjust the exact thinking token limit. Labels indicate intensity, not fixed presets.",
     "effortHint": "Only levels supported by this model are shown.",
     "sessionHint": "Applies to this conversation, starting with the next request.",
     "adapted": "The saved preference was adjusted to this model’s capabilities.",
     "saveFailed": "Could not save thinking settings",
-    "unknown": "Thinking capabilities are unknown. Declare them in model settings or use advanced request JSON.",
+    "unknown": "Thinking settings unconfirmed",
     "declaration": "Thinking capabilities (advanced)",
     "declarationHint": "Declare capabilities for models without a card. Confirm levels and limits against your endpoint documentation; initial values are examples. Automatic uses catalog or plugin metadata.",
     "controlType": "Control type",
