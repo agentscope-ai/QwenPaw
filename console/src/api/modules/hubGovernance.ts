@@ -31,6 +31,7 @@ export interface ModelProviderPreset {
   id: string;
   name: string;
   base_url: string;
+  api_key_url?: string;
   api_key_prefix: string;
   api_key_prefixes?: string[];
   freeze_url: boolean;

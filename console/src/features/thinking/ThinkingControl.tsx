@@ -26,7 +26,8 @@ export function ThinkingControl({
   const [budget, setBudget] = useState(initial);
   useEffect(() => setBudget(initial), [initial]);
   const isBudget = control.kind === "budget";
-  const unsupported = control.kind === "unsupported";
+  const unsupported =
+    control.kind === "unsupported" || control.kind === "unknown";
   const [effortIndex, setEffortIndex] = useState(
     Math.max(0, control.efforts.indexOf(value.level)),
   );
@@ -84,7 +85,13 @@ export function ThinkingControl({
         </Tooltip>
       </header>
       {unsupported ? (
-        <p className={styles.hint}>{t("thinkingControl.unsupported")}</p>
+        <p className={styles.hint}>
+          {t(
+            control.kind === "unknown"
+              ? "thinkingControl.unknown"
+              : "thinkingControl.unsupported",
+          )}
+        </p>
       ) : (
         <>
           <div className={styles.summary}>

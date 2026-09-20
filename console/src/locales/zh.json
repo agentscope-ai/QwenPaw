@@ -2189,6 +2189,7 @@
     "llmDescription": "在这里设置全局默认的 LLM 模型。你也可以在聊天页面为具体 Agent 单独选择使用的模型。",
     "configureProvider": "配置 {{name}}",
     "baseURL": "基础 URL",
+    "getApiKey": "获取 API Key",
     "apiKey": "API 密钥",
     "advancedConfig": "进阶配置",
     "authMode": "鉴权方式",
@@ -5202,6 +5203,30 @@
     "effortHint": "仅显示当前模型支持的档位。",
     "sessionHint": "仅当前会话生效，从下一次请求开始应用。",
     "adapted": "当前模型无法原样应用已保存的偏好，已按模型能力调整。",
-    "saveFailed": "思考设置保存失败"
+    "saveFailed": "思考设置保存失败",
+    "unknown": "尚无思考能力信息。可在模型参数中手动声明能力，或通过高级 JSON 配置请求参数。",
+    "declaration": "思考能力声明（高级）",
+    "declarationHint": "无 model card 的模型也可手动声明。请按接口文档填写，示例档位与范围并非已验证能力。恢复自动将使用模型目录或插件声明。",
+    "controlType": "控制方式",
+    "wire": "请求参数格式",
+    "efforts": "支持的档位",
+    "minimum": "最小预算",
+    "maximum": "最大预算",
+    "canDisable": "支持关闭思考",
+    "type": {
+      "unknown": "自动 / 未知",
+      "unsupported": "不支持",
+      "effort": "离散档位",
+      "budget": "数值预算"
+    },
+    "wireType": {
+      "native": "提供商协议默认",
+      "compat_budget": "OpenAI 兼容 · thinking_budget",
+      "compat_effort": "OpenAI 兼容 · reasoning_effort",
+      "anthropic_budget": "Anthropic · budget_tokens",
+      "anthropic_adaptive": "Anthropic · adaptive / effort",
+      "gemini_budget": "Gemini · thinking_budget",
+      "gemini_level": "Gemini · thinking_level"
+    }
   }
 }

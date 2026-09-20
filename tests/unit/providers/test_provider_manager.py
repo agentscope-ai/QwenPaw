@@ -1604,7 +1604,7 @@ async def test_provider_info_does_not_guess_unknown_thinking_capability(
     model = next(model for model in info.extra_models if model.id == model_id)
 
     assert model.supports_agent_thinking is False
-    assert model.thinking_control.kind == f"unsupported"
+    assert model.thinking_control.kind == f"unknown"
 
 
 def test_update_provider_for_builtin_persists_to_builtin_path(
@@ -4266,3 +4266,23 @@ async def test_restore_latest_snapshot_removes_orphan_file(
     await manager._restore_latest_snapshot("ghost", orphan_path)
 
     assert not orphan_path.exists()
+
+
+async def test_agentscope_platform_configuration_reloads(isolated_secret_dir):
+    manager = ProviderManager()
+    provider = manager.get_provider(f"agentscope-platform")
+    assert provider is not None
+    provider_class = type(provider)
+    assert provider_class.__name__ == f"AgentScopePlatformProvider"
+    assert provider.support_model_discovery
+    assert provider.discovery_strategy == f"openai_models"
+    assert await manager.update_provider_async(
+        provider.id,
+        {f"api_key": f"test-platform-key"},
+    )
+    restored = ProviderManager().get_provider(provider.id)
+    assert isinstance(restored, provider_class)
+    assert restored.api_key == f"test-platform-key"
+    assert restored.meta[f"api_key_url"] == (
+        f"https://platform.agentscope.io/model-calls"
+    )

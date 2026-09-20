@@ -19,6 +19,7 @@ from .model_catalog import models_for_catalog_key
 from .openai_response_provider import OpenAIResponseProvider
 from .openrouter_provider import OpenRouterProvider
 from .provider import ModelInfo, Provider
+from .services.agentscope_platform import AgentScopePlatformProvider
 from .services.deepseek import DeepSeekProvider
 from .services.kimi import KimiProvider
 from .services.zhipu import ZhipuProvider
@@ -215,6 +216,14 @@ PROVIDER_QWENPAW = QwenPawProvider(
     name="QwenPaw Local",
     is_local=True,
     require_api_key=False,
+)
+
+PROVIDER_AGENTSCOPE_PLATFORM = AgentScopePlatformProvider(
+    id=f"agentscope-platform",
+    name=f"AgentScope Platform",
+    base_url=f"https://platform.agentscope.io/compatible-mode/v1",
+    api_key_prefix=f"",
+    meta={f"api_key_url": f"https://platform.agentscope.io/model-calls"},
 )
 
 PROVIDER_OPENAI = OpenAIProvider(
@@ -517,6 +526,7 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_LMSTUDIO,
     PROVIDER_OPENROUTER,
     PROVIDER_MODELSCOPE,
+    PROVIDER_AGENTSCOPE_PLATFORM,
     PROVIDER_DASHSCOPE,
     PROVIDER_ALIYUN_CODINGPLAN,
     PROVIDER_ALIYUN_CODINGPLAN_INTL,
@@ -600,6 +610,7 @@ __all__ = [
     "PROVIDER_OLLAMA",
     "PROVIDER_OPENCODE",
     "PROVIDER_OPENAI",
+    "PROVIDER_AGENTSCOPE_PLATFORM",
     "PROVIDER_OPENAI_RESPONSE",
     "PROVIDER_OPENROUTER",
     "PROVIDER_QWENPAW",

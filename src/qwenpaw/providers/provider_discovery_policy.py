@@ -77,6 +77,7 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "opencode": _OPENAI_FREE,
     "kilo": _OPENAI_FREE,
     "openai": _OPENAI_DYNAMIC,
+    f"agentscope-platform": _OPENAI_DYNAMIC,
     "openai-response": _OPENAI_DYNAMIC,
     "azure-openai": ProviderDiscoveryPolicy(
         "catalog_only",

@@ -1673,7 +1673,7 @@ describe("ModelSelector", () => {
     ).toBeChecked();
   });
 
-  it("disables thinking controls for unsupported active models", async () => {
+  it("does not invent thinking controls for undeclared active models", async () => {
     const user = userEvent.setup();
     renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
@@ -1685,7 +1685,7 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByText("thinkingControl.unsupported"),
+      await screen.findByText("thinkingControl.unknown"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("slider")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /common.save/ }));

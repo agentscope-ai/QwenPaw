@@ -56,6 +56,7 @@ def provider_presets() -> list[dict]:
             "id": provider.id,
             "name": provider.name,
             "base_url": provider.base_url,
+            f"api_key_url": provider.meta.get(f"api_key_url"),
             "api_key_prefix": provider.api_key_prefix,
             "api_key_prefixes": provider.api_key_prefixes,
             "freeze_url": provider.freeze_url,

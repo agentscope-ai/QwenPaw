@@ -35,7 +35,7 @@ class ThinkingPreference(BaseModel):
 class ThinkingControl(BaseModel):
     """Verified control surface carried by each model card."""
 
-    kind: Literal["unsupported", "effort", "budget"] = f"unsupported"
+    kind: Literal["unknown", "unsupported", "effort", "budget"] = f"unknown"
     efforts: list[
         Literal[
             "minimal",
@@ -86,8 +86,8 @@ def resolve_thinking(
     """Resolve against the actual serving model, including fallback models."""
     if preference.level == f"inherit":
         return preference, None
-    if control.kind == f"unsupported":
-        return ThinkingPreference(), f"unsupported"
+    if control.kind in {f"unknown", f"unsupported"}:
+        return ThinkingPreference(), control.kind
     if preference.level == f"off":
         if control.supports_off:
             return preference, None

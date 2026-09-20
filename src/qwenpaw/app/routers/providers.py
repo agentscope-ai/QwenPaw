@@ -28,6 +28,7 @@ from ...config.config import (
     load_agent_config,
     update_agent_config_async,
 )
+from ...providers.thinking import ThinkingControl
 from ...providers.model_pool import (
     ModelPoolPage,
     ModelPoolQuery,
@@ -231,6 +232,7 @@ class AddModelRequest(BaseModel):
 
 
 class ModelConfigRequest(BaseModel):
+    thinking_control: ThinkingControl | None = None
     supports_image: bool | None = None
     supports_video: bool | None = None
     supports_audio: bool | None = None

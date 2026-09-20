@@ -2331,6 +2331,7 @@
     "llmDescription": "Set the global default LLM model from an authorized provider. You can choose a specific model for each Agent in the Chat page.",
     "configureProvider": "Configure {{name}}",
     "baseURL": "Base URL",
+    "getApiKey": "Get API Key",
     "apiKey": "API Key",
     "advancedConfig": "Advanced Configuration",
     "authMode": "Authentication Mode",
@@ -5184,6 +5185,30 @@
     "effortHint": "Only levels supported by this model are shown.",
     "sessionHint": "Applies to this conversation, starting with the next request.",
     "adapted": "The saved preference was adjusted to this model’s capabilities.",
-    "saveFailed": "Could not save thinking settings"
+    "saveFailed": "Could not save thinking settings",
+    "unknown": "Thinking capabilities are unknown. Declare them in model settings or use advanced request JSON.",
+    "declaration": "Thinking capabilities (advanced)",
+    "declarationHint": "Declare capabilities for models without a card. Confirm levels and limits against your endpoint documentation; initial values are examples. Automatic uses catalog or plugin metadata.",
+    "controlType": "Control type",
+    "wire": "Wire parameters",
+    "efforts": "Supported levels",
+    "minimum": "Minimum budget",
+    "maximum": "Maximum budget",
+    "canDisable": "Supports disabling thinking",
+    "type": {
+      "unknown": "Automatic / unknown",
+      "unsupported": "Unsupported",
+      "effort": "Effort levels",
+      "budget": "Token budget"
+    },
+    "wireType": {
+      "native": "Provider protocol default",
+      "compat_budget": "OpenAI 兼容 · thinking_budget",
+      "compat_effort": "OpenAI 兼容 · reasoning_effort",
+      "anthropic_budget": "Anthropic · budget_tokens",
+      "anthropic_adaptive": "Anthropic · adaptive / effort",
+      "gemini_budget": "Gemini · thinking_budget",
+      "gemini_level": "Gemini · thinking_level"
+    }
   }
 }

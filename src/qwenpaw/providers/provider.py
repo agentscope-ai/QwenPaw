@@ -280,6 +280,8 @@ class ProviderInfo(BaseModel):
         default="",
         description="Variant identifier within a group",
     )
+    default_thinking_control: ThinkingControl | None = None
+
     thinking_param_style: str | None = Field(
         default=None,
         description="Which thinking-parameter UI to show: "
@@ -729,7 +731,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     def thinking_control(self, model_id: str) -> ThinkingControl:
         """Read model-owned controls, never infer support from a protocol."""
         info = self.resolve_model_info(model_id)
-        control = getattr(info, f"thinking_control", None)
+        control = info.thinking_control or self.default_thinking_control
         if control is not None:
             compatible = {
                 f"anthropic_adaptive": {f"anthropic"},
@@ -744,7 +746,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 model_id,
             )
             if allowed and protocol not in allowed:
-                return ThinkingControl()
+                return ThinkingControl(kind=f"unsupported")
             return control.model_copy(deep=True)
         style = info.thinking_param_style
         if style == f"effort" and info.reasoning_effort_options:
@@ -766,7 +768,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def supports_agent_thinking(self, model_id: str) -> bool:
         """Whether this model card declares a usable control surface."""
-        return self.thinking_control(model_id).kind != f"unsupported"
+        return self.thinking_control(model_id).kind in {f"effort", f"budget"}
 
     def get_agent_thinking_kwargs(
         self,
@@ -784,24 +786,45 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             return {}
         result: dict = {}
         level = preference.level
-        if control.wire == f"anthropic_adaptive":
+        wire = control.wire
+        if wire == f"native":
+            protocol = self.thinking_wire_protocol or self.model_protocol(
+                model_id,
+            )
+            if protocol == f"anthropic":
+                wire = (
+                    f"anthropic_budget"
+                    if control.kind == f"budget"
+                    else f"anthropic_adaptive"
+                )
+            elif protocol == f"gemini":
+                wire = (
+                    f"gemini_budget"
+                    if control.kind == f"budget"
+                    else f"gemini_level"
+                )
+            elif control.kind == f"budget" and (
+                self.chat_model == f"OpenAIChatModel"
+            ):
+                wire = f"compat_budget"
+        if wire == f"anthropic_adaptive":
             result[f"thinking"] = {
                 f"type": f"disabled" if level == f"off" else f"adaptive",
             }
             if level != f"off":
                 result[f"output_config"] = {f"effort": level}
             result[f"thinking_enable"] = False
-        elif control.wire == f"anthropic_budget":
+        elif wire == f"anthropic_budget":
             result[f"thinking_enable"] = level != f"off"
             if level != f"off":
                 result[f"thinking_budget"] = preference.budget_tokens
-        elif control.wire == f"gemini_budget":
+        elif wire == f"gemini_budget":
             result[f"thinking_config"] = {
                 f"thinking_budget": (
                     0 if level == f"off" else preference.budget_tokens
                 ),
             }
-        elif control.wire == f"compat_effort":
+        elif wire == f"compat_effort":
             result[f"extra_body"] = {
                 f"thinking": {
                     f"type": f"disabled" if level == f"off" else f"enabled",
@@ -809,7 +832,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             }
             if level != f"off":
                 result[f"reasoning_effort"] = level
-        elif control.wire == f"compat_budget" and (
+        elif wire == f"compat_budget" and (
             self.chat_model == f"OpenAIChatModel"
         ):
             result[f"extra_body"] = {
@@ -819,7 +842,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 result[f"extra_body"][
                     f"thinking_budget"
                 ] = preference.budget_tokens
-        elif control.wire == f"gemini_level":
+        elif wire == f"gemini_level":
             result[f"thinking_config"] = {f"thinking_level": level}
         elif (
             level == f"off"
@@ -994,6 +1017,21 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                         ]
                     else:
                         changed_fields.append(field)
+                if f"thinking_control" in config:
+                    raw_control = config[f"thinking_control"]
+                    model.thinking_control = (
+                        ThinkingControl.model_validate(raw_control)
+                        if raw_control is not None
+                        else None
+                    )
+                    if raw_control is None:
+                        model.config_overrides = [
+                            key
+                            for key in model.config_overrides
+                            if key != f"thinking_control"
+                        ]
+                    else:
+                        changed_fields.append(f"thinking_control")
                 if f"template_id" in config:
                     model.template_id = config[f"template_id"]
                     changed_fields.append(f"template_id")
@@ -1320,7 +1358,10 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             payload[f"recommendation_reason"] = recommendation.reason
             control = self.thinking_control(model.id)
             payload[f"thinking_control"] = control.model_dump()
-            payload["supports_agent_thinking"] = control.kind != f"unsupported"
+            payload["supports_agent_thinking"] = control.kind in {
+                f"effort",
+                f"budget",
+            }
             return payload
 
         # Serialize models/extra_models to plain dicts so that
@@ -1384,6 +1425,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             provider_group=self.provider_group,
             provider_group_name=self.provider_group_name,
             provider_variant=self.provider_variant,
+            default_thinking_control=self.default_thinking_control,
             thinking_param_style=self.thinking_param_style,
             reasoning_effort_options=self.reasoning_effort_options,
             thinking_budget_range=self.thinking_budget_range,

@@ -1,3 +1,5 @@
+import { ThinkingCapabilityFields } from "./ThinkingCapabilityFields";
+import type { ThinkingControlSpec } from "@/features/thinking/types";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button, InputNumber, Slider, Switch } from "@agentscope-ai/design";
 import { Segmented } from "antd";
@@ -7,7 +9,10 @@ import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { ContextLengthField, OutputTokenLimitField } from "./ModelTokenFields";
 import { JsonConfigEditor } from "./JsonConfigEditor";
-import { ModelCapabilitiesFields, type CapabilityOverrides } from "./ModelCapabilitiesFields";
+import {
+  ModelCapabilitiesFields,
+  type CapabilityOverrides,
+} from "./ModelCapabilitiesFields";
 
 function requestMaxTokens(model: ModelInfo): number | null {
   const value = model.generate_kwargs?.max_tokens;
@@ -46,6 +51,9 @@ export function ModelConfigEditor({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
+  const [thinkingDeclaration, setThinkingDeclaration] = useState<
+    ThinkingControlSpec | null | undefined
+  >();
   const [capabilities, setCapabilities] = useState<CapabilityOverrides>({});
   const configuredMaxTokens = requestMaxTokens(model);
 
@@ -83,6 +91,7 @@ export function ModelConfigEditor({
 
   useEffect(() => {
     setCapabilities({});
+    setThinkingDeclaration(undefined);
     setText(initialText);
     setMaxTokens(configuredMaxTokens);
     setMaxInputLength(resolvedContext);
@@ -146,6 +155,9 @@ export function ModelConfigEditor({
     try {
       const updated = await api.configureModel(providerId, model.id, {
         ...capabilities,
+        ...(thinkingDeclaration !== undefined
+          ? { thinking_control: thinkingDeclaration }
+          : {}),
         ...(maxInputLengthDirty ? { max_input_length: maxInputLength } : {}),
         generate_kwargs: parsed,
         relay_reasoning: relayReasoning,
@@ -178,10 +190,24 @@ export function ModelConfigEditor({
 
   return (
     <div style={{ padding: "8px 0 4px" }}>
+      <ThinkingCapabilityFields
+        value={
+          thinkingDeclaration === undefined
+            ? model.thinking_control
+            : thinkingDeclaration
+        }
+        onChange={(next) => {
+          setThinkingDeclaration(next);
+          setDirty(true);
+        }}
+      />
       <ModelCapabilitiesFields
         model={model}
         changes={capabilities}
-        onChange={(value) => { setCapabilities(value); setDirty(true); }}
+        onChange={(value) => {
+          setCapabilities(value);
+          setDirty(true);
+        }}
       />
       <div
         style={{

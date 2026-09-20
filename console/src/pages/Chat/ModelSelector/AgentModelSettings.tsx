@@ -416,7 +416,7 @@ export function AgentModelSettings({
                 <ThinkingControl
                   control={
                     activeOption?.thinkingControl ?? {
-                      kind: "unsupported",
+                      kind: "unknown",
                       efforts: [],
                       supports_off: false,
                     }

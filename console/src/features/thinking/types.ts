@@ -13,7 +13,15 @@ export interface ThinkingPreference {
   budget_tokens?: number | null;
 }
 export interface ThinkingControlSpec {
-  kind: "unsupported" | "effort" | "budget";
+  kind: "unknown" | "unsupported" | "effort" | "budget";
+  wire?:
+    | "native"
+    | "anthropic_budget"
+    | "gemini_budget"
+    | "anthropic_adaptive"
+    | "gemini_level"
+    | "compat_budget"
+    | "compat_effort";
   efforts: ThinkingLevel[];
   supports_off: boolean;
   budget_min?: number | null;

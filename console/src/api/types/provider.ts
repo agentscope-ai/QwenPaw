@@ -198,6 +198,7 @@ export interface AddModelRequest {
 }
 
 export interface ModelConfigRequest {
+  thinking_control?: ThinkingControlSpec | null;
   supports_image?: boolean | null;
   supports_video?: boolean | null;
   supports_audio?: boolean | null;

@@ -1,3 +1,4 @@
+import { ProviderApiKeyLink } from "../../Settings/Models/components/ProviderApiKeyLink";
 import { CircleHelp } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { Form, Input, InputNumber, Select, Switch } from "antd";
@@ -102,7 +103,12 @@ export function ConnectionFields({
         canEditBaseUrl={!preset?.freeze_url}
         baseUrlOptions={preset?.base_url_options ?? []}
         baseUrlPlaceholder={preset?.base_url || "https://example.com/v1"}
-        apiKeyLabel="API Key"
+        apiKeyLabel={
+          <span>
+            API Key
+            <ProviderApiKeyLink url={preset?.api_key_url} />
+          </span>
+        }
         apiKeyPlaceholder={
           connectionId
             ? t("hub.governance.models.keepKey")
