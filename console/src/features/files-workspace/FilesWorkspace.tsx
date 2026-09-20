@@ -90,6 +90,10 @@ export default function FilesWorkspace({
     setTabEtag,
   } = useCodingTabsStore();
   const hydratedTabs = useRef(new Set<string>());
+  const revalidatedScope = useRef("");
+  const revalidationSequence = useRef(new Map<string, number>());
+  const scopeKeyRef = useRef(scopeKey);
+  scopeKeyRef.current = scopeKey;
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const targetsByTab = useRef(new Map<string, FileTarget>());
@@ -269,7 +273,7 @@ export default function FilesWorkspace({
     [chatId, projectDirOverride],
   );
 
-  const loadTabContent = useCallback(
+  const loadTab = useCallback(
     async (tabPath: string) => {
       const tab = tabsRef.current.find((item) => item.path === tabPath);
       const separator = tabPath.indexOf("::");
@@ -285,11 +289,75 @@ export default function FilesWorkspace({
           root: tab?.workspaceRoot,
           artifactUrl: tab?.artifactUrl,
         } satisfies FileTarget);
-      const loaded = await loadTarget(target);
+      return loadTarget(target);
+    },
+    [loadTarget],
+  );
+
+  const loadTabContent = useCallback(
+    async (tabPath: string) => {
+      const loaded = await loadTab(tabPath);
       setTabEtag(scopeKey, tabPath, loaded.etag);
       return loaded.content;
     },
-    [loadTarget, scopeKey, setTabEtag],
+    [loadTab, scopeKey, setTabEtag],
+  );
+
+  const revalidateTab = useCallback(
+    async (tabPath: string) => {
+      const tab = tabsRef.current.find((item) => item.path === tabPath);
+      const previewKind =
+        tab?.previewKind ??
+        inferPreviewKind(tab?.displayPath ?? tab?.path ?? tabPath);
+      if (
+        !tab ||
+        tab.dirty ||
+        (previewKind !== "text" && previewKind !== "csv")
+      ) {
+        return;
+      }
+
+      const sequence = (revalidationSequence.current.get(tabPath) ?? 0) + 1;
+      revalidationSequence.current.set(tabPath, sequence);
+      try {
+        const loaded = await loadTab(tabPath);
+        const currentTab = tabsRef.current.find(
+          (item) => item.path === tabPath,
+        );
+        if (
+          scopeKeyRef.current !== scopeKey ||
+          revalidationSequence.current.get(tabPath) !== sequence ||
+          !currentTab ||
+          currentTab.dirty
+        ) {
+          return;
+        }
+        if (currentTab.etag !== loaded.etag) {
+          setTabEtag(scopeKey, tabPath, loaded.etag);
+        }
+        if (currentTab.content !== loaded.content) {
+          setTabContent(scopeKey, tabPath, loaded.content);
+        }
+      } catch {
+        if (
+          scopeKeyRef.current === scopeKey &&
+          revalidationSequence.current.get(tabPath) === sequence
+        ) {
+          setLoadError(t("files.loadFailed"));
+        }
+      }
+    },
+    [loadTab, scopeKey, setTabContent, setTabEtag, t],
+  );
+
+  const activateTab = useCallback(
+    (tabPath: string) => {
+      revalidatedScope.current = scopeKey;
+      setLoadError("");
+      setActiveTab(scopeKey, tabPath);
+      void revalidateTab(tabPath);
+    },
+    [revalidateTab, scopeKey, setActiveTab],
   );
 
   const openTarget = useCallback(
@@ -320,8 +388,7 @@ export default function FilesWorkspace({
       }
       const existing = tabsRef.current.find((tab) => tab.path === tabPath);
       if (existing) {
-        setLoadError("");
-        setActiveTab(scopeKey, tabPath);
+        activateTab(tabPath);
         return;
       }
       try {
@@ -339,16 +406,26 @@ export default function FilesWorkspace({
           readOnly: loaded.readOnly,
           etag: loaded.etag,
         });
+        revalidatedScope.current = scopeKey;
         setActiveTab(scopeKey, tabPath);
       } catch {
         setLoadError(t("files.loadFailed"));
       }
     },
-    [loadTarget, openTab, resolveEditableTarget, scopeKey, setActiveTab, t],
+    [
+      activateTab,
+      loadTarget,
+      openTab,
+      resolveEditableTarget,
+      scopeKey,
+      setActiveTab,
+      t,
+    ],
   );
 
   useEffect(() => {
     hydratedTabs.current.clear();
+    revalidationSequence.current.clear();
   }, [scopeKey]);
 
   useEffect(() => {
@@ -376,14 +453,21 @@ export default function FilesWorkspace({
     if (initialTarget) void openTarget(initialTarget);
   }, [initialTarget, openTarget]);
 
+  useEffect(() => {
+    if (!activeTabPath || revalidatedScope.current === scopeKey) return;
+    revalidatedScope.current = scopeKey;
+    const activeTab = tabsRef.current.find((tab) => tab.path === activeTabPath);
+    // Empty restored tabs are already handled by the hydration effect above.
+    if (activeTab?.content) void revalidateTab(activeTabPath);
+  }, [activeTabPath, revalidateTab, scopeKey]);
+
   const handleClose = (path: string) => {
     const index = tabs.findIndex((tab) => tab.path === path);
     closeTab(scopeKey, path);
     if (activeTabPath === path) {
-      setActiveTab(
-        scopeKey,
-        tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "",
-      );
+      const nextPath = tabs[index + 1]?.path ?? tabs[index - 1]?.path ?? "";
+      if (nextPath) activateTab(nextPath);
+      else setActiveTab(scopeKey, "");
     }
   };
 
@@ -391,7 +475,7 @@ export default function FilesWorkspace({
     tabs.forEach((tab) => {
       if (tab.path !== path) closeTab(scopeKey, tab.path);
     });
-    setActiveTab(scopeKey, path);
+    activateTab(path);
   };
 
   return (
@@ -469,7 +553,7 @@ export default function FilesWorkspace({
             tabs={tabs}
             activeTabPath={activeTabPath}
             scopeKey={scopeKey}
-            onTabSelect={(path) => setActiveTab(scopeKey, path)}
+            onTabSelect={activateTab}
             onTabClose={handleClose}
             onCloseOtherTabs={handleCloseOthers}
             onTabDirtyChange={(path, dirty) =>
