@@ -22,7 +22,9 @@ def _catalog_decision(provider_class: Any) -> bool | None:
     change again as soon as the provider is saved and re-read through
     ``get_info``). The caller reports no effective window for those models
     rather than a wrong one. A class declaring both hooks is trusted, since
-    the class-level answer is then deliberate.
+    the class-level answer is then deliberate. Implement the class-level hook
+    as a ``@classmethod`` accepting only ``cls``. A TypeError leaves the
+    registration unprojected so one malformed hook cannot break the list.
     """
     for klass in provider_class.__mro__:
         if klass is Provider:
@@ -32,7 +34,15 @@ def _catalog_decision(provider_class: Any) -> bool | None:
         ):
             return None
     hook = getattr(provider_class, "context_catalog_enabled", None)
-    return bool(hook()) if callable(hook) else True
+    try:
+        return bool(hook()) if callable(hook) else True
+    except TypeError as exc:
+        logger.warning(
+            f"Cannot project context windows for "
+            f"{provider_class.__module__}.{provider_class.__qualname__}: "
+            f"context_catalog_enabled must be a classmethod: {exc}",
+        )
+        return None
 
 
 class PluginProviderRegistry:

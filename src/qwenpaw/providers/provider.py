@@ -37,12 +37,12 @@ _AGENT_THINKING_LEVEL: ContextVar[str] = ContextVar(
     "qwenpaw_agent_thinking_level",
     default="inherit",
 )
-# Ambient id -> configured-model index for one provider response. The
+# Ambient instance and configured-model index for one provider response. The
 # serializer publishes it so per-model derived fields do not re-scan the model
 # collections (which made ``get_info()`` quadratic); scoping it to the provider
-# id keeps a nested response from consulting another provider's index.
+# instance keeps nested reads from consulting another provider's index.
 _SERIALIZED_MODEL_INDEX: ContextVar[
-    tuple[str, Mapping[str, ModelInfo]] | None
+    tuple[Provider, Mapping[str, ModelInfo]] | None
 ] = ContextVar("qwenpaw_serialized_model_index", default=None)
 AGENT_THINKING_BUDGETS = {
     "low": 2_048,
@@ -262,12 +262,10 @@ def declared_window_to_catalog(models: List[ModelInfo]) -> List[ModelInfo]:
 
     A window a provider class declares in its own default models is
     provider/catalog data, not a user override: the override slot is only
-    written by :meth:`Provider.update_model_config`. Left in the override slot
-    the declaration outranked an API-detected window and made the console
-    offer a "clear override" action the user never asked for, so the plugin
-    registration boundary moves it -- the same normalization
-    :func:`.model_catalog._catalog_input_window` applies to the packaged
-    catalog.
+    written by :meth:`Provider.update_model_config`. Under the new schema,
+    leaving a declaration there would outrank API metadata and offer a
+    "clear override" action the user never asked for. Moving it preserves
+    the ordinary legacy declaration's priority below API metadata.
 
     Provider code that read the declaration back from ``max_input_length``
     (for example to size a local server) now sees ``None`` there and has to
@@ -1308,9 +1306,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         Same result as :meth:`get_model_info`; the index only removes the
         per-model scan, which is what made a response quadratic.
+
+        The index is keyed by the provider instance and only used when
+        ``get_model_info`` is the base implementation, so a nested response
+        from another instance and a plugin overriding the lookup both keep
+        their own semantics.
         """
         scoped = _SERIALIZED_MODEL_INDEX.get()
-        if scoped is not None and scoped[0] == self.id:
+        if (
+            scoped is not None
+            and scoped[0] is self
+            and type(self).get_model_info is Provider.get_model_info
+        ):
             return scoped[1].get(model_id)
         return self.get_model_info(model_id)
 
@@ -1357,6 +1364,9 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         (it never materializes an instance), so both have to be overridden
         together. Keep this the source of truth and let
         :meth:`_context_catalog_enabled` delegate.
+
+        Override with ``@classmethod def context_catalog_enabled(cls)``;
+        an ordinary instance method cannot be called by the registry.
         """
         return True
 
@@ -1479,7 +1489,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         # Publish the index for the duration of the serialization so the
         # derived fields above resolve without re-scanning the collections.
-        index_token = _SERIALIZED_MODEL_INDEX.set((self.id, configured_by_id))
+        index_token = _SERIALIZED_MODEL_INDEX.set((self, configured_by_id))
         try:
             serialized_models = [
                 serialize_model(model)

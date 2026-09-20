@@ -9,6 +9,7 @@ from typing import List, Literal
 
 from pydantic import BaseModel, Field
 
+from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider import ModelInfo, Provider
 
 DiscoveryErrorKind = Literal[
@@ -85,14 +86,27 @@ def merge_discovered_model(
             ):
                 continue
         payload[field] = getattr(remote, field)
-    if discovered_window is not None:
+    if (
+        discovered_window is not None
+        and "max_input_length_catalog" not in remote.model_fields_set
+    ):
         # The catalog slot is the semantic home for a window a fetch reports:
         # it can never become a user override (the override slot is only
         # written by ``update_model_config``). Built-in providers also report
         # the same window as ``max_input_length_auto_detected``, which wins by
         # precedence, so this copy is a fallback for providers that only set
         # ``max_input_length``.
-        payload["max_input_length_catalog"] = discovered_window
+        # A legacy fetch used 128k for an unknown window. Normalize it to
+        # "not provided" here, at the fetch boundary, the same way
+        # ``model_catalog._catalog_input_window`` does for catalog documents:
+        # the slot is reset, so a placeholder cannot pin the window and an
+        # older value recorded under this convention converges on the next
+        # sync. Real values in the API/catalog slots are handled above.
+        payload["max_input_length_catalog"] = (
+            None
+            if discovered_window == DEFAULT_CONTEXT_WINDOW
+            else discovered_window
+        )
     payload.update(
         {
             "id": remote.id,

@@ -27,6 +27,16 @@ function renderField(model: WindowModel, value: number | null = null) {
 }
 
 describe("ContextLengthField", () => {
+  it("keeps the fallback placeholder for the Hub call without a model", () => {
+    renderWithProviders(
+      <ContextLengthField value={null} onChange={vi.fn()} showHint={false} />,
+    );
+
+    expect(screen.getByPlaceholderText("131072")).toBeInTheDocument();
+    expect(screen.queryByRole("button")).toBeNull();
+    expect(screen.queryByText(/Inherited/)).toBeNull();
+  });
+
   it("shows the inherited window and where it comes from", () => {
     renderField({
       max_input_length: null,

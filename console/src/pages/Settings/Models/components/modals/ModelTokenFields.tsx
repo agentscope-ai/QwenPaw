@@ -65,7 +65,7 @@ export function ContextLengthField({
         min={1000}
         step={1024}
         value={value}
-        placeholder={effective != null ? String(effective) : undefined}
+        placeholder={String(effective ?? 131072)}
         onChange={onChange}
       />
       {showHint && (

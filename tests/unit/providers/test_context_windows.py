@@ -14,6 +14,7 @@ inherit), ``max_input_length_auto_detected`` (provider API) and
 ``max_input_length_catalog`` (provider catalog document).
 """
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -25,6 +26,8 @@ from qwenpaw.providers.context_windows import (
     resolve_context_window_details,
 )
 from qwenpaw.providers.provider import ModelInfo, Provider
+from qwenpaw.providers import provider as provider_module
+from qwenpaw.providers.openai_provider import OpenAIProvider
 
 
 @pytest.mark.parametrize(
@@ -423,27 +426,19 @@ def test_provider_info_serialization_does_not_rescan_per_model():
     ``get_info()`` used to resolve every derived per-model field by scanning
     the model collections, which made one response quadratic -- and since the
     method never awaits, it blocked the event loop for ~40 ms with 800 models.
-    Counting id comparisons keeps this deterministic: a per-model scan gives
-    N*(N_models+N_extra+N_discovered) comparisons (120,000 at 200 models per
-    collection), while a linear number of lookups stays within a small
-    multiple of N. All three collections are populated so no counter is
-    vacuously zero.
+    Count actual model visits without overriding lookup methods: plugins
+    overriding those methods intentionally bypass the base-method index.
+    All three collections are populated so no counter is vacuously zero.
     """
-    import asyncio
-
-    from qwenpaw.providers.openai_provider import OpenAIProvider
 
     def comparisons_for(model_count: int) -> int:
         counts = {"cmp": 0}
 
-        class _Counting(OpenAIProvider):
-            def get_model_info(self, model_id):
-                counts["cmp"] += len(self.extra_models) + len(self.models)
-                return super().get_model_info(model_id)
-
-            def get_discovered_model_info(self, model_id):
-                counts["cmp"] += len(self.discovered_models)
-                return super().get_discovered_model_info(model_id)
+        class _CountingModels(list):
+            def __iter__(self):
+                for model in super().__iter__():
+                    counts["cmp"] += 1
+                    yield model
 
         def models(source: str) -> list[ModelInfo]:
             return [
@@ -455,7 +450,7 @@ def test_provider_info_serialization_does_not_rescan_per_model():
                 for index in range(model_count)
             ]
 
-        provider = _Counting(
+        provider = OpenAIProvider(
             id="openai",
             name="OpenAI",
             api_key="sk-test",
@@ -463,11 +458,84 @@ def test_provider_info_serialization_does_not_rescan_per_model():
             extra_models=models("user"),
             discovered_models=models("discovered"),
         )
+        for field in ("models", "extra_models", "discovered_models"):
+            object.__setattr__(
+                provider,
+                field,
+                _CountingModels(getattr(provider, field)),
+            )
         asyncio.run(provider.get_info())
         return counts["cmp"]
 
     model_count = 200
-    assert comparisons_for(model_count) <= 2 * model_count
+    assert comparisons_for(model_count) <= 12 * model_count
+
+
+async def test_serialization_index_is_scoped_to_instance():
+    peer = OpenAIProvider(
+        id="same",
+        name="Peer",
+        models=[
+            ModelInfo(
+                id="custom-model",
+                name="Custom",
+                thinking_enabled=True,
+            )
+        ],
+    )
+
+    class NestedRead(OpenAIProvider):
+        def supports_agent_thinking(self, model_id):
+            return peer.supports_agent_thinking(model_id)
+
+    outer = NestedRead(
+        id="same",
+        name="Outer",
+        models=[ModelInfo(id="custom-model", name="Custom")],
+    )
+
+    assert peer.supports_agent_thinking("custom-model") is True
+    info = await outer.get_info()
+    assert info.models[0].supports_agent_thinking is True
+    assert provider_module._SERIALIZED_MODEL_INDEX.get() is None
+
+
+async def test_serialization_honors_model_lookup_override():
+    class CustomLookup(OpenAIProvider):
+        def get_model_info(self, model_id):
+            model = super().get_model_info(model_id)
+            return model.model_copy(update={"thinking_enabled": True})
+
+    provider = CustomLookup(
+        id="custom",
+        name="Custom",
+        models=[ModelInfo(id="custom-model", name="Custom")],
+    )
+
+    assert provider.supports_agent_thinking("custom-model") is True
+    info = await provider.get_info()
+    assert info.models[0].supports_agent_thinking is True
+
+
+async def test_serialization_restores_enclosing_index_on_error():
+    class FailingProvider(OpenAIProvider):
+        def supports_agent_thinking(self, model_id):
+            raise RuntimeError("projection failed")
+
+    provider = FailingProvider(
+        id="broken",
+        name="Broken",
+        models=[ModelInfo(id="custom-model", name="Custom")],
+    )
+    enclosing = OpenAIProvider(id="enclosing", name="Enclosing")
+    scope = (enclosing, {})
+    token = provider_module._SERIALIZED_MODEL_INDEX.set(scope)
+    try:
+        with pytest.raises(RuntimeError, match="projection failed"):
+            await provider.get_info()
+        assert provider_module._SERIALIZED_MODEL_INDEX.get() is scope
+    finally:
+        provider_module._SERIALIZED_MODEL_INDEX.reset(token)
 
 
 def test_provider_info_projection_matches_the_resolution():

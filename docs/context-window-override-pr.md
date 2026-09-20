@@ -124,9 +124,9 @@ legacy cruft.
 - **Provider-declared windows are catalog data, not user overrides.** The
   plugin registration boundary moves a window declared in a provider class's
   own default models (`get_default_models()`) into `max_input_length_catalog`.
-  Previously such a declaration occupied the override slot, where it outranked
-  an API-detected window and made the Console offer a "clear override" action
-  the user never asked for.
+  In the old schema, an ordinary declaration ranked below API metadata.
+  Leaving it in the new override-only slot would incorrectly promote it above
+  API metadata and offer a "clear override" action the user never asked for.
 - **Clearing an override is now expressible.** `PATCH
   /models/{provider}/{model}/config` accepts `max_input_length: null` to clear
   (absent = unchanged, `ge=1000` rejects non-positive values) and drops the
@@ -134,7 +134,9 @@ legacy cruft.
 - **Snapshot migration v2 → v3** converts the legacy value+flag pair:
   explicit → kept as the user override; a data-provided value → the catalog
   slot; the 128k placeholder → dropped. Legacy snapshots keep resolving to the
-  same window.
+  same window for explicit flags. A missing or null legacy flag now identifies
+  catalog data; the old restore helper could infer an override from a
+  non-default value in that case, so an API value may now win instead.
 - **Discovery can no longer turn reported data into a user override.**
   OpenRouter's legacy write into the override slot is gone (its value is also
   written to `max_input_length_auto_detected`, so the outcome is unchanged),
@@ -188,9 +190,15 @@ Breaking-change scope — three items, all plugin-facing:
    for it. Provider code that read the field to size its own serving (for
    example a local `num_ctx`) must read `max_input_length_catalog`, or — better
    — call `get_context_size()`, which returns the declared window and honors a
-   user override on top of it. Note the declared window keeps the *same*
-   precedence it had before this change (rank 3, below an API-detected value),
-   so resolved windows are unchanged.
+   user override on top of it. An ordinary declaration remains rank 3, below
+   API metadata. Normal old snapshots stored an explicit configured=false
+   flag, so saving and restoring did not automatically promote declarations.
+   The old restore helper inferred rank 1 only for a missing/null flag with a
+   non-default value; plugin default-model registration did not call that
+   helper. V3 migration keeps configured=true values as overrides. For a
+   flagless legacy value reclassified as catalog data, a smaller API value
+   can now win and trigger compaction earlier. Neither "all windows are
+   unchanged" nor "every declaration is now rank 3" describes every case.
 3. A plugin that overrides the instance-level hook
    `_context_catalog_enabled()` (the only hook available before this PR) and
    does not declare the class-level `context_catalog_enabled()` is no longer
@@ -198,7 +206,24 @@ Breaking-change scope — three items, all plugin-facing:
    class-level answer would contradict the instance-level one the runtime uses.
    The Console tolerates a missing projection (it shows the raw hint only), and
    the runtime resolution is untouched. Override the class-level hook to get
-   the projection back.
+   the projection back, using `@classmethod` and a single `cls` parameter:
+
+   ```python
+   @classmethod
+   def context_catalog_enabled(cls) -> bool:
+       return False
+   ```
+
+   A TypeError in this hook is logged and leaves that registration unprojected
+   instead of failing the entire provider list. That instance-method hook also
+   fails when the runtime resolves a window for the provider, so the plugin
+   still has to be corrected.
+
+Legacy discovery `max_input_length=131072` is normalized as an unknown window
+at the fetch boundary, matching the old resolver convention. Plugins reporting
+a real 131072 window should use `max_input_length_auto_detected` (API metadata)
+or `max_input_length_catalog` (explicit catalog data). These slots and user
+overrides retain literal 131072 values.
 
 ## Component(s) Affected
 
