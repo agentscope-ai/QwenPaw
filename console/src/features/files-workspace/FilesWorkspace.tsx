@@ -13,6 +13,7 @@ import {
   useCodingTabsStore,
   useActiveTabPathForScope,
   useTabsForScope,
+  type EditorTab,
 } from "../../stores/codingTabsStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
@@ -92,6 +93,7 @@ export default function FilesWorkspace({
   const hydratedTabs = useRef(new Set<string>());
   const revalidatedScope = useRef("");
   const revalidationSequence = useRef(new Map<string, number>());
+  const mountedRef = useRef(false);
   const scopeKeyRef = useRef(scopeKey);
   scopeKeyRef.current = scopeKey;
   const tabsRef = useRef(tabs);
@@ -110,6 +112,13 @@ export default function FilesWorkspace({
     column?: number;
     sequence: number;
   } | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(
     () =>
@@ -294,18 +303,43 @@ export default function FilesWorkspace({
     [loadTarget],
   );
 
+  const getLiveTab = useCallback(
+    (tabPath: string) =>
+      useCodingTabsStore
+        .getState()
+        .tabsByAgent[scopeKey]?.find((item) => item.path === tabPath),
+    [scopeKey],
+  );
+
+  const isTabSnapshotCurrent = useCallback(
+    (tabPath: string, snapshot: EditorTab | undefined) => {
+      if (!mountedRef.current || !snapshot) return false;
+      const currentTab = getLiveTab(tabPath);
+      // Store updates replace tab objects, so identity is the buffer version.
+      return currentTab === snapshot && !currentTab.dirty;
+    },
+    [getLiveTab],
+  );
+
   const loadTabContent = useCallback(
     async (tabPath: string) => {
+      const snapshot = getLiveTab(tabPath);
       const loaded = await loadTab(tabPath);
-      setTabEtag(scopeKey, tabPath, loaded.etag);
+      if (
+        snapshot &&
+        isTabSnapshotCurrent(tabPath, snapshot) &&
+        snapshot.etag !== loaded.etag
+      ) {
+        setTabEtag(scopeKey, tabPath, loaded.etag);
+      }
       return loaded.content;
     },
-    [loadTab, scopeKey, setTabEtag],
+    [getLiveTab, isTabSnapshotCurrent, loadTab, scopeKey, setTabEtag],
   );
 
   const revalidateTab = useCallback(
     async (tabPath: string) => {
-      const tab = tabsRef.current.find((item) => item.path === tabPath);
+      const tab = getLiveTab(tabPath);
       const previewKind =
         tab?.previewKind ??
         inferPreviewKind(tab?.displayPath ?? tab?.path ?? tabPath);
@@ -321,33 +355,39 @@ export default function FilesWorkspace({
       revalidationSequence.current.set(tabPath, sequence);
       try {
         const loaded = await loadTab(tabPath);
-        const currentTab = tabsRef.current.find(
-          (item) => item.path === tabPath,
-        );
         if (
           scopeKeyRef.current !== scopeKey ||
           revalidationSequence.current.get(tabPath) !== sequence ||
-          !currentTab ||
-          currentTab.dirty
+          !isTabSnapshotCurrent(tabPath, tab)
         ) {
           return;
         }
-        if (currentTab.etag !== loaded.etag) {
+        if (tab.etag !== loaded.etag) {
           setTabEtag(scopeKey, tabPath, loaded.etag);
         }
-        if (currentTab.content !== loaded.content) {
+        if (tab.content !== loaded.content) {
           setTabContent(scopeKey, tabPath, loaded.content);
         }
       } catch {
         if (
+          mountedRef.current &&
           scopeKeyRef.current === scopeKey &&
-          revalidationSequence.current.get(tabPath) === sequence
+          revalidationSequence.current.get(tabPath) === sequence &&
+          isTabSnapshotCurrent(tabPath, tab)
         ) {
           setLoadError(t("files.loadFailed"));
         }
       }
     },
-    [loadTab, scopeKey, setTabContent, setTabEtag, t],
+    [
+      getLiveTab,
+      isTabSnapshotCurrent,
+      loadTab,
+      scopeKey,
+      setTabContent,
+      setTabEtag,
+      t,
+    ],
   );
 
   const activateTab = useCallback(
@@ -440,14 +480,30 @@ export default function FilesWorkspace({
         return;
       }
       hydratedTabs.current.add(tab.path);
-      void loadTabContent(tab.path)
-        .then((content) => setTabContent(scopeKey, tab.path, content))
+      void loadTab(tab.path)
+        .then((loaded) => {
+          if (!isTabSnapshotCurrent(tab.path, tab)) return;
+          if (tab.etag !== loaded.etag) {
+            setTabEtag(scopeKey, tab.path, loaded.etag);
+          }
+          setTabContent(scopeKey, tab.path, loaded.content);
+        })
         .catch(() => {
+          if (!isTabSnapshotCurrent(tab.path, tab)) return;
           closeTab(scopeKey, tab.path);
           setLoadError(t("files.loadFailed"));
         });
     });
-  }, [closeTab, loadTabContent, scopeKey, setTabContent, t, tabs]);
+  }, [
+    closeTab,
+    isTabSnapshotCurrent,
+    loadTab,
+    scopeKey,
+    setTabContent,
+    setTabEtag,
+    t,
+    tabs,
+  ]);
 
   useEffect(() => {
     if (initialTarget) void openTarget(initialTarget);

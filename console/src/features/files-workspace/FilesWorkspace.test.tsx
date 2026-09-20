@@ -40,19 +40,32 @@ vi.mock("../../stores/codingModeStore", () => ({
   useCodingMode: () => ({ codingMode: false }),
 }));
 
-vi.mock("../../stores/codingTabsStore", () => ({
-  useTabsForScope: () => lifecycle.tabs,
-  useActiveTabPathForScope: () => lifecycle.activeTabPath,
-  useCodingTabsStore: () => ({
-    clearProjectTabs: lifecycle.clearProjectTabs,
-    closeTab: lifecycle.closeTab,
-    openTab: vi.fn(),
-    setActiveTab: lifecycle.setActiveTab,
-    setTabContent: lifecycle.setTabContent,
-    setTabDirty: vi.fn(),
-    setTabEtag: lifecycle.setTabEtag,
-  }),
-}));
+vi.mock("../../stores/codingTabsStore", () => {
+  const useCodingTabsStore = Object.assign(
+    () => ({
+      clearProjectTabs: lifecycle.clearProjectTabs,
+      closeTab: lifecycle.closeTab,
+      openTab: vi.fn(),
+      setActiveTab: lifecycle.setActiveTab,
+      setTabContent: lifecycle.setTabContent,
+      setTabDirty: vi.fn(),
+      setTabEtag: lifecycle.setTabEtag,
+    }),
+    {
+      getState: () => ({
+        tabsByAgent: {
+          "agent:agent-a": lifecycle.tabs,
+          "session:agent-a:session-a": lifecycle.tabs,
+        },
+      }),
+    },
+  );
+  return {
+    useTabsForScope: () => lifecycle.tabs,
+    useActiveTabPathForScope: () => lifecycle.activeTabPath,
+    useCodingTabsStore,
+  };
+});
 
 vi.mock("../../api/modules/workspace", () => ({
   workspaceApi: {
