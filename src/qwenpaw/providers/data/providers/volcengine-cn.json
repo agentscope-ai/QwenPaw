@@ -43,7 +43,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-23"
+      "released_at": "2026-06-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-1-pro-260628",
@@ -65,7 +70,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-23"
+      "released_at": "2026-06-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-1-turbo-260628",
@@ -87,7 +97,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-23"
+      "released_at": "2026-06-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-0-lite-260428",
@@ -109,7 +124,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-14"
+      "released_at": "2026-02-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-0-mini-260428",
@@ -131,7 +151,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-14"
+      "released_at": "2026-02-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-0-pro-260215",
@@ -153,7 +178,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-14"
+      "released_at": "2026-02-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-0-lite-260215",
@@ -171,7 +201,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-0-mini-260215",
@@ -189,7 +224,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2-0-code-preview-260215",
@@ -211,7 +251,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-14"
+      "released_at": "2026-02-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-character-260628",
@@ -233,7 +278,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-23"
+      "released_at": "2026-06-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-character-251128",
@@ -251,7 +301,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "glm-5-2-260617",
@@ -273,7 +328,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-13"
+      "released_at": "2026-06-13",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-v4-pro-ga-260813",
@@ -295,7 +355,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-08-12"
+      "released_at": "2026-08-12",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-v4-flash-ga-260731",
@@ -317,7 +382,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-07-31"
+      "released_at": "2026-07-31",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-v4-pro-260425",
@@ -335,7 +405,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-v4-flash-260425",
@@ -353,7 +428,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-1-8-251228",

@@ -113,6 +113,18 @@ class OpenRouterProvider(Provider):
             return model_id.split("/")[-1]
         return model_id
 
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """OpenRouter prices include request and modality charges."""
+        pricing = normalize_pricing(getattr(row, f"pricing", None))
+        billing = classify_pricing(pricing)
+        return {
+            f"pricing": pricing,
+            f"billing": billing,
+            f"is_free": billing == f"free",
+            f"billing_source": f"api",
+        }
+
     @staticmethod
     def _normalize_pricing(
         pricing: dict[str, Any] | None,
@@ -125,8 +137,9 @@ class OpenRouterProvider(Provider):
         """Determine whether a model is free based on pricing fields."""
         return classify_pricing(pricing) == f"free"
 
-    @staticmethod
+    @classmethod
     def _normalize_models_payload(
+        cls,
         payload: Any,
         include_extended: bool = False,
     ) -> List[ModelInfo] | List[ExtendedModelInfo]:
@@ -165,7 +178,7 @@ class OpenRouterProvider(Provider):
                     getattr(row, "pricing", None),
                 )
                 is_free = OpenRouterProvider._is_free_model(pricing_dict)
-                billing = classify_pricing(pricing_dict)
+                billing = cls.parse_model_pricing(row)[f"billing"]
                 # OpenRouter's /models reports authoritative context metadata.
                 # Store it as auto-detected so it wins over catalog and static
                 # values without becoming an explicit user override.
@@ -217,6 +230,8 @@ class OpenRouterProvider(Provider):
                     name=model_name,
                     is_free=is_free,
                     billing=billing,
+                    billing_source=f"api",
+                    pricing=pricing_dict,
                     **capabilities,
                     **window_kwargs,
                 )
@@ -226,7 +241,6 @@ class OpenRouterProvider(Provider):
                         provider=provider,
                         input_modalities=input_modalities or [],
                         output_modalities=output_modalities or [],
-                        pricing=pricing_dict,
                     )
                 else:
                     models[model_id] = ModelInfo(**common)

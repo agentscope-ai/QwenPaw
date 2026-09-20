@@ -39,7 +39,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-12-11"
+      "released_at": "2025-12-11",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-5",
@@ -61,7 +66,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-08-07"
+      "released_at": "2025-08-07",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-5-mini",
@@ -83,7 +93,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-08-07"
+      "released_at": "2025-08-07",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-5-nano",
@@ -105,7 +120,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-08-07"
+      "released_at": "2025-08-07",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-4.1",
@@ -127,7 +147,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-04-14"
+      "released_at": "2025-04-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-4.1-mini",
@@ -149,7 +174,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-04-14"
+      "released_at": "2025-04-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-4.1-nano",
@@ -171,7 +201,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-04-14"
+      "released_at": "2025-04-14",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "o3",
@@ -193,7 +228,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-04-16"
+      "released_at": "2025-04-16",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "o4-mini",
@@ -215,7 +255,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-04-16"
+      "released_at": "2025-04-16",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-4o",
@@ -237,7 +282,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2024-05-13"
+      "released_at": "2024-05-13",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-4o-mini",
@@ -259,7 +309,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2024-07-18"
+      "released_at": "2024-07-18",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gpt-4o-2024-05-13",
@@ -279,7 +334,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -301,7 +357,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -323,7 +380,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -345,7 +403,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -367,7 +426,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -389,7 +449,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -411,7 +472,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -433,7 +495,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -455,7 +518,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -477,7 +541,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -499,7 +564,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -521,7 +587,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -543,7 +610,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -565,7 +633,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -599,7 +668,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -621,7 +691,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -643,7 +714,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -665,7 +737,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -687,7 +760,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -721,7 +795,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -755,7 +830,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -777,7 +853,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -799,7 +876,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -821,7 +899,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -843,7 +922,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -865,7 +945,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -887,7 +968,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -909,7 +991,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -931,7 +1014,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://developers.openai.com/api/docs/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     }

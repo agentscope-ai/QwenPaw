@@ -19,8 +19,16 @@ from qwenpaw.exceptions import ProviderError
 from ..utils.io_utils import run_sync_io
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .thinking import ThinkingControl, ThinkingPreference, resolve_thinking
-from .model_catalog import packaged_free_model_ids
-from .model_billing import effective_billing
+from .model_catalog import (
+    packaged_free_model_ids,
+    catalog_documents,
+    matching_catalog_keys,
+)
+from .model_billing import (
+    effective_billing,
+    classify_pricing,
+    normalize_pricing,
+)
 from .model_info import ExtendedModelInfo as ExtendedModelInfo
 from .model_info import ModelInfo
 from .model_resolution import resolve_model_info
@@ -387,6 +395,66 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     @abstractmethod
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch the list of available models from the provider."""
+
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """Read explicit endpoint prices, including custom provider data."""
+        pricing = normalize_pricing(getattr(row, f"pricing", None))
+        flag = getattr(row, f"isFree", getattr(row, f"is_free", None))
+        billing = classify_pricing(pricing, flag)
+        return {
+            f"pricing": pricing,
+            f"billing": billing,
+            f"is_free": billing == f"free",
+            f"billing_source": f"api",
+        }
+
+    async def fetch_model_pricing(
+        self,
+        models: List[ModelInfo] | None = None,
+        timeout: float = 5,
+    ) -> dict[str, ModelInfo]:
+        """Get endpoint pricing first, then explicit service card presets.
+
+        Reuse a fetched model list to avoid duplicate network requests.
+        Providers with a separate official pricing API can override this
+        method. Catalog access stays off the event loop.
+        """
+        if models is None:
+            models = await self.fetch_models(timeout=timeout)
+        return await run_sync_io(self._resolve_model_pricing, models)
+
+    def _resolve_model_pricing(
+        self,
+        models: List[ModelInfo],
+    ) -> dict[str, ModelInfo]:
+        """Resolve only pricing; never reuse stale discovery state."""
+        endpoint = self.base_url.rstrip(f"/")
+        presets: dict[str, ModelInfo] = {}
+        keys = matching_catalog_keys(self.id, endpoint, f"", None)
+        for document, _ in catalog_documents(keys):
+            for key, entry in document.providers.items():
+                if endpoint in {
+                    url.rstrip(f"/") for url in entry.api_urls
+                } or (key == self.id and not entry.api_urls):
+                    presets.update({m.id: m for m in entry.models})
+        result = {}
+        for model in models:
+            card = model.model_copy(deep=True)
+            preset = presets.get(model.id)
+            if card.billing == f"unknown" and preset is not None:
+                card.billing = preset.billing
+                card.pricing = dict(preset.pricing)
+                card.billing_source = f"catalog"
+                card.billing_checked_at = preset.billing_checked_at
+                card.capability_provenance[f"billing"] = dict(
+                    preset.capability_provenance.get(f"billing", {}),
+                )
+            if card.billing == f"unknown" and card.is_free:
+                card.billing = f"free"
+            card.is_free = card.billing == f"free"
+            result[model.id] = card
+        return result
 
     @abstractmethod
     async def check_model_connection(

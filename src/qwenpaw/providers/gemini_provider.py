@@ -200,8 +200,8 @@ class GeminiProvider(Provider):
             ),
         )
 
-    @staticmethod
-    def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
+    @classmethod
+    def _normalize_models_payload(cls, payload: Any) -> List[ModelInfo]:
         models: List[ModelInfo] = []
         for row in payload or []:
             model_id = str(getattr(row, "name", "") or "").strip()
@@ -221,7 +221,7 @@ class GeminiProvider(Provider):
             if not display_name or display_name.startswith("models/"):
                 display_name = model_id
 
-            metadata: dict[str, int] = {}
+            metadata: dict[str, Any] = cls.parse_model_pricing(row)
             input_limit = getattr(row, "input_token_limit", None)
             if isinstance(input_limit, (int, float)) and input_limit >= 1000:
                 metadata["max_input_length_auto_detected"] = int(input_limit)
@@ -325,9 +325,7 @@ class GeminiProvider(Provider):
                 error_kind=(
                     "permission_denied"
                     if status in (401, 403)
-                    else "model_not_found"
-                    if status == 404
-                    else None
+                    else "model_not_found" if status == 404 else None
                 ),
             )
         except Exception as exc:

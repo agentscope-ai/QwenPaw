@@ -37,7 +37,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-02"
+      "released_at": "2026-06-02",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "qwen3.6-plus",
@@ -59,7 +64,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-04-02"
+      "released_at": "2026-04-02",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "qwen3.5-plus",
@@ -81,7 +91,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-16"
+      "released_at": "2026-02-16",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "glm-5",
@@ -103,7 +118,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-11"
+      "released_at": "2026-02-11",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "glm-4.7",
@@ -125,7 +145,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-12-22"
+      "released_at": "2025-12-22",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "MiniMax-M2.5",
@@ -147,7 +172,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-12"
+      "released_at": "2026-02-12",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "kimi-k2.5",
@@ -169,7 +199,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-01-27"
+      "released_at": "2026-01-27",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "qwen3-max-2026-01-23",
@@ -191,7 +226,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-01-23"
+      "released_at": "2026-01-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "qwen3-coder-next",
@@ -213,7 +253,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-02-03"
+      "released_at": "2026-02-03",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "qwen3-coder-plus",
@@ -235,7 +280,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-07-23"
+      "released_at": "2025-07-23",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "qwen3.7-max",

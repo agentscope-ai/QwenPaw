@@ -38,7 +38,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-07-16"
+      "released_at": "2026-07-16",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "kimi-k2.7-code",
@@ -60,7 +65,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-12"
+      "released_at": "2026-06-12",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "kimi-k2.7-code-highspeed",
@@ -82,7 +92,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-12"
+      "released_at": "2026-06-12",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "kimi-k2.6",
@@ -104,7 +119,12 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-04-21"
+      "released_at": "2026-04-21",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "kimi-k2.5",
@@ -122,7 +142,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     }
   ]
 }

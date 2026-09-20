@@ -34,7 +34,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2.0-mini",
@@ -52,7 +57,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-v4-flash",
@@ -70,7 +80,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-v4-pro",
@@ -88,7 +103,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "minimax-m3",
@@ -106,7 +126,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "glm-5.3",
@@ -124,7 +149,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-2.1-turbo",
@@ -142,7 +172,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "doubao-seed-evolving",
@@ -160,7 +195,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "kimi-k3",
@@ -178,7 +218,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "kimi-k2.7-code",
@@ -196,7 +241,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "ark-code-latest",
@@ -214,7 +264,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     }
   ]
 }

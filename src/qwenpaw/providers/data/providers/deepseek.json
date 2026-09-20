@@ -25,7 +25,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-reasoner",
@@ -42,7 +47,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "deepseek-v4-flash",
@@ -88,6 +98,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       },
       "released_at": "2026-09-10",
@@ -146,6 +159,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       },
       "released_at": "2026-08-12",
@@ -196,6 +212,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       },
       "released_at": "2026-09-10",
@@ -246,6 +265,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       },
       "released_at": "2026-09-10",

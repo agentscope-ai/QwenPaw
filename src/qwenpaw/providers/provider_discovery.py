@@ -103,8 +103,12 @@ def merge_discovered_model(
             "name": remote.name or remote.id,
             "source": "discovered",
             "discovered_at": discovered_at,
-            f"billing_source": f"api",
-            f"billing_checked_at": discovered_at,
+            f"billing_source": remote.billing_source,
+            f"billing_checked_at": (
+                discovered_at
+                if remote.billing_source == f"api"
+                else remote.billing_checked_at
+            ),
         },
     )
     if remote.max_output_length is not None and not user_output_capability:

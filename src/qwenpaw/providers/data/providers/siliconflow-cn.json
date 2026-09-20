@@ -40,7 +40,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -66,7 +67,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -92,7 +94,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -118,7 +121,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -144,7 +148,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -170,7 +175,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -196,7 +202,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -222,7 +229,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -248,7 +256,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -274,7 +283,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -300,7 +310,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -326,7 +337,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -352,7 +364,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -378,7 +391,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -404,7 +418,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -430,7 +445,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -456,7 +472,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -494,7 +511,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -520,7 +538,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -558,7 +577,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -584,7 +604,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -622,7 +643,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -648,7 +670,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -674,7 +697,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -700,7 +724,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -750,7 +775,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -776,7 +802,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -802,7 +829,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -828,7 +856,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -854,7 +883,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -880,7 +910,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -906,7 +937,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -932,7 +964,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -958,7 +991,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -984,7 +1018,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1046,7 +1081,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1072,7 +1108,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1098,7 +1135,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1119,7 +1157,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1140,7 +1179,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1161,7 +1201,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1182,7 +1223,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -1203,7 +1245,8 @@
         "billing": {
           "source": "documentation",
           "reference": "https://siliconflow.cn/pricing",
-          "updated_at": "2026-09-20"
+          "updated_at": "2026-09-20",
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     }

@@ -127,8 +127,8 @@ class AnthropicProvider(Provider):
         if close is not None:
             await close()
 
-    @staticmethod
-    def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
+    @classmethod
+    def _normalize_models_payload(cls, payload: Any) -> List[ModelInfo]:
         if isinstance(payload, dict):
             rows = payload.get("data", [])
         else:
@@ -146,6 +146,7 @@ class AnthropicProvider(Provider):
             if not model_id:
                 continue
             metadata: dict[str, Any] = {
+                **cls.parse_model_pricing(row),
                 f"released_at": release_date(
                     getattr(row, f"created_at", None)
                 ),

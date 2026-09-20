@@ -24,7 +24,7 @@
     },
     "modelscope": {
       "path": "providers/modelscope.json",
-      "sha256": "86c64099b67909d5af68a0524ac37fc4929ceae1ab6e946fc280976d94cb77da",
+      "sha256": "8c891d3f82730b737de126e22ec816fcc9bfd54bcf17cb1c30f9bc0cddbfbf48",
       "api_urls": [
         "https://api-inference.modelscope.cn/v1"
       ],
@@ -55,7 +55,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "ZhipuAI/GLM-5",
@@ -72,7 +77,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -80,7 +90,7 @@
     },
     "dashscope": {
       "path": "providers/dashscope.json",
-      "sha256": "0e625be66c3b17bce10e9e866045730b5368203a1be81ab7fb3765cf49c32ffa",
+      "sha256": "ea5fa24fedd90a67a40c18a49006ecf2a03cb19db5ec2c030c83c695fc69b833",
       "api_urls": [
         "https://dashscope.aliyuncs.com/compatible-mode/v1"
       ],
@@ -198,6 +208,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -236,6 +249,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -273,6 +289,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -310,6 +329,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -352,6 +374,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -394,6 +419,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           }
@@ -474,7 +502,7 @@
     },
     "aliyun-codingplan": {
       "path": "providers/aliyun-codingplan.json",
-      "sha256": "84abe9183e3b4d8b4a7e15912321896eb35a244aa8b86b8f54cbe44b4de1b58d",
+      "sha256": "1b20167c95e5f94449ef14eaaf254803a5fbb40856a59f7c858a9c73bb439bb1",
       "api_urls": [
         "https://coding.dashscope.aliyuncs.com/v1"
       ],
@@ -518,7 +546,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-02"
+            "released_at": "2026-06-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.6-plus",
@@ -540,7 +573,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-02"
+            "released_at": "2026-04-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.5-plus",
@@ -562,7 +600,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-16"
+            "released_at": "2026-02-16",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -584,7 +627,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-11"
+            "released_at": "2026-02-11",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-4.7",
@@ -606,7 +654,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-22"
+            "released_at": "2025-12-22",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5",
@@ -628,7 +681,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.5",
@@ -650,7 +708,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01-27"
+            "released_at": "2026-01-27",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3-max-2026-01-23",
@@ -672,7 +735,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01-23"
+            "released_at": "2026-01-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3-coder-next",
@@ -694,7 +762,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-03"
+            "released_at": "2026-02-03",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3-coder-plus",
@@ -716,7 +789,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-07-23"
+            "released_at": "2025-07-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -724,7 +802,7 @@
     },
     "aliyun-codingplan-intl": {
       "path": "providers/aliyun-codingplan-intl.json",
-      "sha256": "a2ade3f333d20727d8c3c67904692acd1d5765d5cffe1fa203ec11dd7d5fab99",
+      "sha256": "780493f01f5ec5b32230e999cfe39e922a259ef9d6a1d13872b8a4a2525f1267",
       "api_urls": [
         "https://coding-intl.dashscope.aliyuncs.com/v1"
       ],
@@ -768,7 +846,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-02"
+            "released_at": "2026-06-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.6-plus",
@@ -790,7 +873,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-02"
+            "released_at": "2026-04-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.5-plus",
@@ -812,7 +900,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-16"
+            "released_at": "2026-02-16",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -834,7 +927,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-11"
+            "released_at": "2026-02-11",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-4.7",
@@ -856,7 +954,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-22"
+            "released_at": "2025-12-22",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5",
@@ -878,7 +981,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.5",
@@ -900,7 +1008,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01-27"
+            "released_at": "2026-01-27",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3-max-2026-01-23",
@@ -922,7 +1035,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01-23"
+            "released_at": "2026-01-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3-coder-next",
@@ -944,7 +1062,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-03"
+            "released_at": "2026-02-03",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3-coder-plus",
@@ -966,7 +1089,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-07-23"
+            "released_at": "2025-07-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -974,7 +1102,7 @@
     },
     "aliyun-tokenplan": {
       "path": "providers/aliyun-tokenplan.json",
-      "sha256": "ae0a21bcab1e36fed7b8be4e4828b0d5461b2e4b50daf9bdc7440f9f80685df1",
+      "sha256": "2729e8d12b395d04fcf065b639219e1df2c326f0c116e19b5aace7c609668e1e",
       "api_urls": [
         "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
       ],
@@ -1023,7 +1151,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-08-03"
+            "released_at": "2026-08-03",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.7-plus",
@@ -1045,7 +1178,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-02"
+            "released_at": "2026-06-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.7-max",
@@ -1067,7 +1205,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-05-21"
+            "released_at": "2026-05-21",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.6-plus",
@@ -1089,7 +1232,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-02"
+            "released_at": "2026-04-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.6-flash",
@@ -1111,7 +1259,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-27"
+            "released_at": "2026-04-27",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-pro",
@@ -1133,7 +1286,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-flash",
@@ -1155,7 +1313,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v3.2",
@@ -1177,7 +1340,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-03"
+            "released_at": "2025-12-03",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.2",
@@ -1199,7 +1367,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-13"
+            "released_at": "2026-06-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.1",
@@ -1221,7 +1394,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-07"
+            "released_at": "2026-04-07",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -1243,7 +1421,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5",
@@ -1265,7 +1448,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code",
@@ -1287,7 +1475,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-12"
+            "released_at": "2026-06-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.6",
@@ -1309,7 +1502,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-21"
+            "released_at": "2026-04-21",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.5",
@@ -1331,7 +1529,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01"
+            "released_at": "2026-01",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -1339,7 +1542,7 @@
     },
     "aliyun-tokenplan-intl": {
       "path": "providers/aliyun-tokenplan-intl.json",
-      "sha256": "1dde9cfb57ae618af79fe95f973262b6e7b0a38ba2fd6043904dfe422516744a",
+      "sha256": "24b2e52f53ef1559e5b93295c38e186663aa37ac39325e591a628a2a9e12fa99",
       "api_urls": [
         "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
       ],
@@ -1388,7 +1591,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-08-03"
+            "released_at": "2026-08-03",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.7-plus",
@@ -1410,7 +1618,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-02"
+            "released_at": "2026-06-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.7-max",
@@ -1432,7 +1645,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-05-21"
+            "released_at": "2026-05-21",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.6-plus",
@@ -1454,7 +1672,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-02"
+            "released_at": "2026-04-02",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "qwen3.6-flash",
@@ -1476,7 +1699,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-27"
+            "released_at": "2026-04-27",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-pro",
@@ -1498,7 +1726,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-flash",
@@ -1520,7 +1753,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v3.2",
@@ -1542,7 +1780,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-03"
+            "released_at": "2025-12-03",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.2",
@@ -1564,7 +1807,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-13"
+            "released_at": "2026-06-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.1",
@@ -1586,7 +1834,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-07"
+            "released_at": "2026-04-07",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -1608,7 +1861,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5",
@@ -1630,7 +1888,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code",
@@ -1652,7 +1915,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-12"
+            "released_at": "2026-06-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.6",
@@ -1674,7 +1942,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-21"
+            "released_at": "2026-04-21",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.5",
@@ -1696,7 +1969,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01"
+            "released_at": "2026-01",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -1704,7 +1982,7 @@
     },
     "opencode": {
       "path": "providers/opencode.json",
-      "sha256": "bdba3cd8178dd51f7caab90a9f04a567d5d5dcdbdaf3f55f84bb2deabe894aa4",
+      "sha256": "08a5c8527fc83d234a14637b8eecd2e9880c85681c6d210a85c146cb1aa4327b",
       "api_urls": [
         "https://opencode.ai/zen/v1"
       ],
@@ -1750,7 +2028,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://opencode.ai/docs/zen/",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -1784,7 +2063,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://opencode.ai/docs/zen/",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           }
@@ -1853,7 +2133,7 @@
     },
     "kilo": {
       "path": "providers/kilo.json",
-      "sha256": "6fdd62e04de6bf8113a859c5c2f35cc182212f1a6bd1373d876fdf84b031979a",
+      "sha256": "a941c4033c19545315dbd388810a60d318014dd1b7b3230eb67b2f67ae488445",
       "api_urls": [
         "https://api.kilo.ai/api/gateway"
       ],
@@ -1909,7 +2189,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://api.kilo.ai/api/gateway/models",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -1944,7 +2225,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://api.kilo.ai/api/gateway/models",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -1979,7 +2261,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://api.kilo.ai/api/gateway/models",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2014,7 +2297,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://api.kilo.ai/api/gateway/models",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2049,7 +2333,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://api.kilo.ai/api/gateway/models",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2089,7 +2374,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://api.kilo.ai/api/gateway/models",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           }
@@ -2121,7 +2407,7 @@
     },
     "openai": {
       "path": "providers/openai.json",
-      "sha256": "b3e78645a77e920d51a21fb71897842b332798375e5b03ad528423e882c3663f",
+      "sha256": "65a63afbfb1eeeb72217d3ec0916a2afe031c466415b7a6bcd96bb9f03b0dcc1",
       "api_urls": [
         "https://api.openai.com/v1"
       ],
@@ -2226,6 +2512,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2263,6 +2552,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2300,6 +2592,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2337,6 +2632,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2360,7 +2658,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-14"
+            "released_at": "2025-04-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1-mini",
@@ -2382,7 +2685,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-14"
+            "released_at": "2025-04-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1-nano",
@@ -2404,7 +2712,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-14"
+            "released_at": "2025-04-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "o3",
@@ -2439,6 +2752,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2475,6 +2791,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -2498,7 +2817,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2024-05-13"
+            "released_at": "2024-05-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4o-mini",
@@ -2520,7 +2844,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2024-07-18"
+            "released_at": "2024-07-18",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -2528,7 +2857,7 @@
     },
     "openai-response": {
       "path": "providers/openai-response.json",
-      "sha256": "afc82e854341449802e9ba30ac5583675e4f342f9e42c57bfb3e984c6731ce51",
+      "sha256": "1a1d2651d8208ba48647aff31f2a81f6f230462a8228f379b61df52ca4ff9447",
       "api_urls": [
         "https://api.openai.com/v1"
       ],
@@ -2574,7 +2903,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-11"
+            "released_at": "2025-12-11",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-5",
@@ -2596,7 +2930,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-08-07"
+            "released_at": "2025-08-07",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-5-mini",
@@ -2618,7 +2957,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-08-07"
+            "released_at": "2025-08-07",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-5-nano",
@@ -2640,7 +2984,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-08-07"
+            "released_at": "2025-08-07",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1",
@@ -2662,7 +3011,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-14"
+            "released_at": "2025-04-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1-mini",
@@ -2684,7 +3038,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-14"
+            "released_at": "2025-04-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1-nano",
@@ -2706,7 +3065,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-14"
+            "released_at": "2025-04-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "o3",
@@ -2728,7 +3092,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-16"
+            "released_at": "2025-04-16",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "o4-mini",
@@ -2750,7 +3119,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-16"
+            "released_at": "2025-04-16",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4o",
@@ -2772,7 +3146,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2024-05-13"
+            "released_at": "2024-05-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4o-mini",
@@ -2794,7 +3173,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2024-07-18"
+            "released_at": "2024-07-18",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -2802,7 +3186,7 @@
     },
     "azure-openai": {
       "path": "providers/azure-openai.json",
-      "sha256": "a3bdf5e7914ede62b3d3b177d31eec3096c2167373fba72aecf7edc4bf786d01",
+      "sha256": "b3aa8f6be40651614e9038d3e0227acc6178ebe86e33a11c6372a965d032d6b4",
       "api_urls": [],
       "templates": [],
       "defaults": {
@@ -2835,7 +3219,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-5-mini",
@@ -2852,7 +3241,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-5-nano",
@@ -2869,7 +3263,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1",
@@ -2886,7 +3285,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1-mini",
@@ -2903,7 +3307,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4.1-nano",
@@ -2920,7 +3329,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4o",
@@ -2937,7 +3351,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "gpt-4o-mini",
@@ -2954,7 +3373,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -2962,7 +3386,7 @@
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "9bb2797e4c8a6c7acb0b7142bf5d83f78ca7e3e707c71a3cd0d80e4f814b34c4",
+      "sha256": "60d63b3d2662de4c1b39a27741d7c1a096bcde5e31bc1f713b28bdf46912dab2",
       "api_urls": [
         "https://api.anthropic.com"
       ],
@@ -2995,7 +3419,7 @@
     },
     "gemini": {
       "path": "providers/gemini.json",
-      "sha256": "d50cc5ba6ecdb4d37eb668319cba3bb9d54d39ccb3596ae2210b4f5464503849",
+      "sha256": "dec600cb1f8902aae25651f87cfd5065a4f301ac95fcb03db4af4647c85af6eb",
       "api_urls": [
         "https://generativelanguage.googleapis.com",
         "https://generativelanguage.googleapis.com/v1beta"
@@ -3094,6 +3518,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -3132,6 +3559,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -3170,6 +3600,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -3206,6 +3639,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -3242,6 +3678,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -3278,6 +3717,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -3296,7 +3738,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -3304,7 +3751,7 @@
     },
     "deepseek": {
       "path": "providers/deepseek.json",
-      "sha256": "7630c690a2d652613536136e61ad203d733bdb2b648f7f41c4a3bd495f9e72b6",
+      "sha256": "90439cf16559962f1252fe3b756d8f4052fb4a0a2b5efad4f859fbf8f9864c3f",
       "api_urls": [
         "https://api.deepseek.com"
       ],
@@ -3371,6 +3818,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             },
             "released_at": "2026-08-12",
@@ -3421,6 +3871,9 @@
               "thinking_control": {
                 "source": "catalog",
                 "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
+              },
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             },
             "released_at": "2026-09-10",
@@ -3441,7 +3894,7 @@
     },
     "kimi-cn": {
       "path": "providers/kimi-cn.json",
-      "sha256": "63bfe9940625520932cdbe646e1635e6b1f21383d472893fdad6f4cfb47679f3",
+      "sha256": "63eeca08754e97d02461b3d7873e9708e5b03ff7f8b438129499e6d6e4f837c8",
       "api_urls": [
         "https://api.moonshot.cn/v1"
       ],
@@ -3492,7 +3945,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-07-16"
+            "released_at": "2026-07-16",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code",
@@ -3514,7 +3972,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-12"
+            "released_at": "2026-06-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code-highspeed",
@@ -3536,7 +3999,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-12"
+            "released_at": "2026-06-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.6",
@@ -3558,7 +4026,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-21"
+            "released_at": "2026-04-21",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.5",
@@ -3576,7 +4049,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -3584,7 +4062,7 @@
     },
     "kimi-intl": {
       "path": "providers/kimi-intl.json",
-      "sha256": "8b0a52fcaf10be85f08bc73935824e4dba9729e768c62824a5321de580df9bb9",
+      "sha256": "79a86196c0b8e6a4f36a128549dd2f0280a6fe262ac5c95af976064ae736ab27",
       "api_urls": [
         "https://api.moonshot.ai/v1"
       ],
@@ -3629,7 +4107,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-07-16"
+            "released_at": "2026-07-16",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code",
@@ -3651,7 +4134,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-12"
+            "released_at": "2026-06-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code-highspeed",
@@ -3673,7 +4161,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-12"
+            "released_at": "2026-06-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.6",
@@ -3695,7 +4188,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-21"
+            "released_at": "2026-04-21",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.5",
@@ -3713,7 +4211,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -3721,7 +4224,7 @@
     },
     "kimi-codingplan": {
       "path": "providers/kimi-codingplan.json",
-      "sha256": "aeeebf40b5888d830278e0f17a0d531d1483c31c74a57ecc0552fff25b742ede",
+      "sha256": "c5ae6ad261fb5d26c8efc16579ef5a70909b1de997081bdf83c593765d2f83b5",
       "api_urls": [
         "https://api.kimi.com/coding/v1"
       ],
@@ -3751,7 +4254,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -3759,7 +4267,7 @@
     },
     "minimax-cn": {
       "path": "providers/minimax-cn.json",
-      "sha256": "e982f21a3da463cdec4db4de3c6e157156ae1772394721402646ead7b9785e79",
+      "sha256": "48788e394570d249201d5da1ce1cba80670814166952347081e316c17c3e78d0",
       "api_urls": [
         "https://api.minimaxi.com/anthropic",
         "https://api.minimaxi.com/anthropic/v1"
@@ -3804,7 +4312,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-01"
+            "released_at": "2026-06-01",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.7",
@@ -3826,7 +4339,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-18"
+            "released_at": "2026-03-18",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.7-highspeed",
@@ -3848,7 +4366,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-18"
+            "released_at": "2026-03-18",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5",
@@ -3870,7 +4393,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5-highspeed",
@@ -3892,7 +4420,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-13"
+            "released_at": "2026-02-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.1",
@@ -3914,7 +4447,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-23"
+            "released_at": "2025-12-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.1-highspeed",
@@ -3931,7 +4469,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2",
@@ -3953,7 +4496,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-10-27"
+            "released_at": "2025-10-27",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -3961,7 +4509,7 @@
     },
     "minimax": {
       "path": "providers/minimax.json",
-      "sha256": "42e2a8b5c129dae41b8cc1bd0b387d1b0ac3be0bb6fc9a8fbb2c9436d95b15a8",
+      "sha256": "199a5007c526fec4345ab6d548c752508d2bbb3ee0c47e4c4e32d5df52f4e62a",
       "api_urls": [
         "https://api.minimax.io/anthropic",
         "https://api.minimax.io/anthropic/v1"
@@ -4015,7 +4563,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-01"
+            "released_at": "2026-06-01",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.7",
@@ -4037,7 +4590,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-18"
+            "released_at": "2026-03-18",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.7-highspeed",
@@ -4059,7 +4617,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-18"
+            "released_at": "2026-03-18",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5",
@@ -4081,7 +4644,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.5-highspeed",
@@ -4103,7 +4671,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-13"
+            "released_at": "2026-02-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.1",
@@ -4125,7 +4698,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-23"
+            "released_at": "2025-12-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2.1-highspeed",
@@ -4142,7 +4720,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "MiniMax-M2",
@@ -4164,7 +4747,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-10-27"
+            "released_at": "2025-10-27",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -4172,7 +4760,7 @@
     },
     "zhipu-cn": {
       "path": "providers/zhipu-cn.json",
-      "sha256": "1874a8371ae9ec7189bf1e8c754ecf7839fce374d702c9a8ebdfe7bff0649067",
+      "sha256": "37507bf93fe81ec741186b4de0465dd92906d538aebeeb141a39f1d43afa7bb1",
       "api_urls": [
         "https://open.bigmodel.cn/api/paas/v4"
       ],
@@ -4229,7 +4817,12 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01-19"
+            "released_at": "2026-01-19",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -4251,7 +4844,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-11"
+            "released_at": "2026-02-11",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.2",
@@ -4273,7 +4871,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-13"
+            "released_at": "2026-06-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.1",
@@ -4295,7 +4898,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-27"
+            "released_at": "2026-03-27",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5-turbo",
@@ -4312,7 +4920,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5v-turbo",
@@ -4334,7 +4947,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-01"
+            "released_at": "2026-04-01",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -4344,7 +4962,7 @@
     },
     "zhipu-cn-codingplan": {
       "path": "providers/zhipu-cn-codingplan.json",
-      "sha256": "94ac03838b1b8eb4c3da87aab47da4349846322ab3bc0d164031bbac3e89534c",
+      "sha256": "e95b71f73e4e470ccc6d7681f0f7032cb87c7fdf732fc96bfcb9f871cd2d9c4d",
       "api_urls": [
         "https://open.bigmodel.cn/api/coding/paas/v4"
       ],
@@ -4385,7 +5003,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4410,7 +5029,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4435,7 +5055,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4460,7 +5081,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4485,7 +5107,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4510,7 +5133,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           }
@@ -4520,7 +5144,7 @@
     },
     "zhipu-intl": {
       "path": "providers/zhipu-intl.json",
-      "sha256": "bb56df9a46ed87a103d80bdabe02050c2a1fec718e73ccadd6d864799996c490",
+      "sha256": "a5135312894c40523c13719347260ee4891ff4e6d24fa923ca46f2733d0c7dd6",
       "api_urls": [
         "https://api.z.ai/api/paas/v4"
       ],
@@ -4560,7 +5184,12 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-01-19"
+            "released_at": "2026-01-19",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -4582,7 +5211,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-12"
+            "released_at": "2026-02-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.2",
@@ -4604,7 +5238,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-13"
+            "released_at": "2026-06-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.1",
@@ -4626,7 +5265,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-07"
+            "released_at": "2026-04-07",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5-turbo",
@@ -4648,7 +5292,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-16"
+            "released_at": "2026-03-16",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5v-turbo",
@@ -4670,7 +5319,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-01"
+            "released_at": "2026-04-01",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -4680,7 +5334,7 @@
     },
     "zhipu-intl-codingplan": {
       "path": "providers/zhipu-intl-codingplan.json",
-      "sha256": "d327a9661ca0a02dee0b6e144c3ccbc6e5bd1a554664a251bb3cf60de5c67701",
+      "sha256": "4f906b8cab2010da1724ac0a35d1c7bed0c2133eebbaa2e74baff924c15b32af",
       "api_urls": [
         "https://api.z.ai/api/coding/paas/v4"
       ],
@@ -4721,7 +5375,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.z.ai/devpack/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4746,7 +5401,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.z.ai/devpack/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4776,7 +5432,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.z.ai/devpack/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4801,7 +5458,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.z.ai/devpack/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4831,7 +5489,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.z.ai/devpack/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           },
@@ -4856,7 +5515,8 @@
               "billing": {
                 "source": "documentation",
                 "reference": "https://docs.z.ai/devpack/overview",
-                "updated_at": "2026-09-20"
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
               }
             }
           }
@@ -4866,7 +5526,7 @@
     },
     "siliconflow-cn": {
       "path": "providers/siliconflow-cn.json",
-      "sha256": "b1fc609e0b028381e08ab67e1811985743d90ec5079229f2ab4f93c40ac16c17",
+      "sha256": "324b34bce4a35e7a1b127dd0c156cca932e000757f14df815d3c8e45ddcddad4",
       "api_urls": [
         "https://api.siliconflow.cn/v1"
       ],
@@ -4895,7 +5555,7 @@
     },
     "siliconflow-intl": {
       "path": "providers/siliconflow-intl.json",
-      "sha256": "9fef827b611baa9e533bd0e5e6a6117b13023c6184fcd3d09cc5969e6a37ecbb",
+      "sha256": "143bc3b37d2bef6d05b95619429051513e3c2904d7699b7cb7643c7df93a8256",
       "api_urls": [
         "https://api.siliconflow.com/v1"
       ],
@@ -4913,7 +5573,7 @@
     },
     "volcengine-cn": {
       "path": "providers/volcengine-cn.json",
-      "sha256": "70245827cb2f367f84e93caf2bee6ec1debb33808363a770571d45e384200420",
+      "sha256": "916538803f0a39b9ef07b4540a1cdcfc52dbe86459471309333f185252b08e00",
       "api_urls": [
         "https://ark.cn-beijing.volces.com/api/v3"
       ],
@@ -4963,7 +5623,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-23"
+            "released_at": "2026-06-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-1-pro-260628",
@@ -4985,7 +5650,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-23"
+            "released_at": "2026-06-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-1-turbo-260628",
@@ -5007,7 +5677,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-23"
+            "released_at": "2026-06-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-0-lite-260428",
@@ -5029,7 +5704,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-14"
+            "released_at": "2026-02-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-0-mini-260428",
@@ -5051,7 +5731,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-14"
+            "released_at": "2026-02-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-0-pro-260215",
@@ -5073,7 +5758,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-14"
+            "released_at": "2026-02-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-0-lite-260215",
@@ -5091,7 +5781,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-0-mini-260215",
@@ -5109,7 +5804,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2-0-code-preview-260215",
@@ -5131,7 +5831,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-14"
+            "released_at": "2026-02-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-character-260628",
@@ -5153,7 +5858,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-23"
+            "released_at": "2026-06-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-character-251128",
@@ -5171,7 +5881,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5-2-260617",
@@ -5193,7 +5908,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-13"
+            "released_at": "2026-06-13",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-pro-ga-260813",
@@ -5215,7 +5935,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-08-12"
+            "released_at": "2026-08-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-flash-ga-260731",
@@ -5237,7 +5962,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-07-31"
+            "released_at": "2026-07-31",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-pro-260425",
@@ -5255,7 +5985,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-flash-260425",
@@ -5273,7 +6008,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -5281,7 +6021,7 @@
     },
     "volcengine-cn-codingplan": {
       "path": "providers/volcengine-cn-codingplan.json",
-      "sha256": "2ef02093e5c143f19cf7e58ed6079430346306c2e0fb8246bf05e36ba487ca35",
+      "sha256": "5a78b51cbbfa6e0f38917ca0953cf3b10968f39c93306ea7c6067df82476283e",
       "api_urls": [
         "https://ark.cn-beijing.volces.com/api/coding/v3"
       ],
@@ -5320,7 +6060,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2.1-turbo",
@@ -5342,7 +6087,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-23"
+            "released_at": "2026-06-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2.0-lite",
@@ -5364,7 +6114,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-02-14"
+            "released_at": "2026-02-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "minimax-m3",
@@ -5386,7 +6141,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-01"
+            "released_at": "2026-06-01",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code",
@@ -5408,7 +6168,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-12"
+            "released_at": "2026-06-12",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-evolving",
@@ -5430,7 +6195,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-23"
+            "released_at": "2026-06-23",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.3",
@@ -5452,7 +6222,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-08-14"
+            "released_at": "2026-08-14",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-flash",
@@ -5474,7 +6249,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-pro",
@@ -5496,7 +6276,12 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -5504,7 +6289,7 @@
     },
     "volcengine-cn-agentplan": {
       "path": "providers/volcengine-cn-agentplan.json",
-      "sha256": "af84c6a05734cc28ceb7fb766c6190fc0c2823999023f943110c5aeb0378066f",
+      "sha256": "cce26c16763fdcfeeb5fd560d5a2772761905807b753bedbf93a5cd1d7990ac0",
       "api_urls": [
         "https://ark.cn-beijing.volces.com/api/plan/v3"
       ],
@@ -5545,7 +6330,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2.0-mini",
@@ -5563,7 +6353,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-flash",
@@ -5581,7 +6376,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "deepseek-v4-pro",
@@ -5599,7 +6399,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "minimax-m3",
@@ -5617,7 +6422,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "glm-5.3",
@@ -5635,7 +6445,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-2.1-turbo",
@@ -5653,7 +6468,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "doubao-seed-evolving",
@@ -5671,7 +6491,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k3",
@@ -5689,7 +6514,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "kimi-k2.7-code",
@@ -5707,7 +6537,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "ark-code-latest",
@@ -5725,7 +6560,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -5733,7 +6573,7 @@
     },
     "mimo-tokenplan": {
       "path": "providers/mimo-tokenplan.json",
-      "sha256": "1fd488999698885581454433a9ab3ecba3b40caa6c597e7fb32de294b1a159e3",
+      "sha256": "36f6a945c2f0e6fd0ae791c838d5aa71480572cedff4759815a0b5a6426cb5e0",
       "api_urls": [
         "https://token-plan-cn.xiaomimimo.com/v1"
       ],
@@ -5765,7 +6605,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "mimo-v2.5",
@@ -5783,7 +6628,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },
@@ -5791,7 +6641,7 @@
     },
     "mimo": {
       "path": "providers/mimo.json",
-      "sha256": "8332a8e30fc7eb622386a6c4f5c538c5ea626be8c3a9899e0a985c74e1cf019d",
+      "sha256": "dac666c0e9f014bd8b6c3fb90124afa6e41690ed44f00bc6954c2e1c052a09a1",
       "api_urls": [
         "https://api.xiaomimimo.com/v1"
       ],
@@ -5826,7 +6676,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           },
           {
             "id": "mimo-v2.5",
@@ -5844,7 +6699,12 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "capability_provenance": {
+              "billing": {
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
           }
         ]
       },

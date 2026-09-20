@@ -50,6 +50,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -88,6 +91,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -126,6 +132,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -162,6 +171,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -198,6 +210,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -234,6 +249,9 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        },
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
         }
       }
     },
@@ -252,7 +270,12 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "capability_provenance": {
+        "billing": {
+          "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
     },
     {
       "id": "gemma-4-26b-a4b-it",

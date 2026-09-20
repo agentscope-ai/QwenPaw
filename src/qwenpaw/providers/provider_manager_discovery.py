@@ -321,6 +321,24 @@ class ProviderManagerDiscoveryMixin(
                 if model.id.strip() not in removed_ids
             ]
 
+            prices = await fetch_provider.fetch_model_pricing(
+                models=fetched,
+                timeout=timeout,
+            )
+            for model in fetched:
+                price = prices.get(model.id)
+                if price is None:
+                    continue
+                model.billing = price.billing
+                model.is_free = price.is_free
+                model.pricing = dict(price.pricing)
+                model.billing_source = price.billing_source
+                model.billing_checked_at = price.billing_checked_at
+                if f"billing" in price.capability_provenance:
+                    model.capability_provenance[f"billing"] = (
+                        price.capability_provenance[f"billing"]
+                    )
+
             synced_at = datetime.now(timezone.utc).isoformat()
             models, api_ids = await run_sync_io(
                 normalize_discovered_models, provider, fetched, synced_at

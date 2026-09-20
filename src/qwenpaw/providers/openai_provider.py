@@ -24,7 +24,6 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
-from .model_billing import classify_pricing, normalize_pricing
 from .model_info import release_date
 from ..utils.io_utils import run_sync_io
 from .model_catalog import catalog_documents
@@ -191,8 +190,8 @@ class OpenAIProvider(Provider):
         if close is not None:
             await close()
 
-    @staticmethod
-    def _normalize_models_payload(payload: Any) -> List[ModelInfo]:
+    @classmethod
+    def _normalize_models_payload(cls, payload: Any) -> List[ModelInfo]:
         models: List[ModelInfo] = []
         rows = getattr(payload, "data", [])
         for row in rows or []:
@@ -202,14 +201,8 @@ class OpenAIProvider(Provider):
             model_name = (
                 str(getattr(row, "name", "") or model_id).strip() or model_id
             )
-            pricing = normalize_pricing(getattr(row, f"pricing", None))
-            flag = getattr(row, f"isFree", getattr(row, f"is_free", None))
-            billing = classify_pricing(pricing, flag)
             metadata: dict[str, Any] = {
-                f"pricing": pricing,
-                f"billing": billing,
-                f"is_free": billing == f"free",
-                f"billing_source": f"api",
+                **cls.parse_model_pricing(row),
                 f"released_at": release_date(getattr(row, f"created", None)),
             }
             for field in (
@@ -886,7 +879,7 @@ class OpenAIProvider(Provider):
 class _FreeSuffixProviderMixin:
     """Mixin for providers with API or suffix-based free model flags."""
 
-    _FREE_SUFFIX = "-free"
+    _FREE_SUFFIX: ClassVar[str] = "-free"
 
     async def fetch_models(
         self,
@@ -909,18 +902,7 @@ class _FreeSuffixProviderMixin:
             if not model_id or model_id in seen:
                 continue
             seen.add(model_id)
-            # Prefer the gateway's explicit pricing flag when available.
-            # Some Kilo free routes, such as ``kilo-auto/free``, do not use
-            # the provider's usual ``:free`` suffix.
-            api_free = getattr(row, "isFree", None)
-            if api_free is None:
-                api_free = getattr(row, "is_free", None)
-            pricing = normalize_pricing(getattr(row, f"pricing", None))
-            billing = classify_pricing(pricing, api_free)
-            if billing == f"unknown" and not pricing:
-                if model_id.endswith(suffix):
-                    billing = f"free"
-            is_free = billing == f"free"
+            price = self.parse_model_pricing(row)
             display_name = (
                 model_id.removesuffix(suffix)
                 .replace("-", " ")
@@ -931,10 +913,7 @@ class _FreeSuffixProviderMixin:
                 ModelInfo(
                     id=model_id,
                     name=display_name,
-                    is_free=is_free,
-                    billing=billing,
-                    pricing=pricing,
-                    billing_source=f"api",
+                    **price,
                 ),
             )
         return models
@@ -943,7 +922,20 @@ class _FreeSuffixProviderMixin:
 class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """OpenCode provider with dynamic free model detection."""
 
-    _FREE_SUFFIX = "-free"
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """Prefer explicit prices over the service's free-route convention."""
+        price = super().parse_model_pricing(row)
+        model_id = f"{getattr(row, 'id', '')}"
+        if (
+            price[f"billing"] == f"unknown"
+            and not price[f"pricing"]
+            and model_id.endswith(cls._FREE_SUFFIX)
+        ):
+            price.update(billing=f"free", is_free=True)
+        return price
+
+    _FREE_SUFFIX: ClassVar[str] = "-free"
     session_header_name: ClassVar[str | None] = f"x-opencode-session"
     cache_modes: ClassVar[frozenset[str]] = frozenset({f"implicit"})
     cache_documentation: ClassVar[str | None] = f"https://opencode.ai/docs/go/"
@@ -1007,7 +999,20 @@ class OpenCodeProvider(_FreeSuffixProviderMixin, OpenAIProvider):
 class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     """Kilo Code provider with dynamic free model detection."""
 
-    _FREE_SUFFIX = ":free"
+    @classmethod
+    def parse_model_pricing(cls, row: Any) -> dict[str, Any]:
+        """Prefer explicit prices over the service's free-route convention."""
+        price = super().parse_model_pricing(row)
+        model_id = f"{getattr(row, 'id', '')}"
+        if (
+            price[f"billing"] == f"unknown"
+            and not price[f"pricing"]
+            and model_id.endswith(cls._FREE_SUFFIX)
+        ):
+            price.update(billing=f"free", is_free=True)
+        return price
+
+    _FREE_SUFFIX: ClassVar[str] = ":free"
     session_header_name: ClassVar[str | None] = f"X-KiloCode-TaskId"
     cache_modes: ClassVar[frozenset[str]] = frozenset({f"implicit"})
     cache_documentation: ClassVar[str | None] = (
