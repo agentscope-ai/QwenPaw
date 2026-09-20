@@ -1,11 +1,40 @@
 # -*- coding: utf-8 -*-
 """Keep Windows PTY handles and console control outside the server process."""
 
+import ctypes
 import importlib
 import multiprocessing
 import threading
+import time
 
 import psutil
+
+
+def interrupt_console(pid):
+    """Send Ctrl+C only from the isolated worker to its shell's console."""
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.FreeConsole()
+    if not kernel.AttachConsole(pid):
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not kernel.SetConsoleCtrlHandler(None, True):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if not kernel.GenerateConsoleCtrlEvent(0, 0):
+            raise ctypes.WinError(ctypes.get_last_error())
+        # Control handlers run asynchronously; stay attached for delivery.
+        time.sleep(0.1)
+    finally:
+        kernel.FreeConsole()
+
+
+def write_input(process, data):
+    """Preserve text order while translating ETX into a console event."""
+    parts = data.split("\x03")
+    for index, part in enumerate(parts):
+        if index:
+            interrupt_console(process.pid)
+        if part:
+            process.write(part)
 
 
 def pty_worker(control, output, command, cwd, env, dimensions):
@@ -36,7 +65,7 @@ def pty_worker(control, output, command, cwd, env, dimensions):
             operation, args = control.recv()
             try:
                 if operation == "write":
-                    process.write(*args)
+                    write_input(process, *args)
                     result = None
                 elif operation == "resize":
                     process.setwinsize(*args)
