@@ -373,7 +373,11 @@ vi.mock("@/plugins/registry/useChatExtensions", () => ({
 }));
 
 vi.mock("./components/ContextUsageIndicator", () => ({
-  default: () => <div data-testid="context-usage" />,
+  default: ({ onCompact }: { onCompact: () => void }) => (
+    <div data-testid="context-usage">
+      <button data-testid="context-usage-compact" onClick={onCompact} />
+    </div>
+  ),
 }));
 
 vi.mock("../../components/ApprovalCard/ApprovalCard", () => ({
@@ -1245,6 +1249,27 @@ describe("ChatPage coverage", () => {
   });
 
   // ── handleBeforeSubmit: SDK query override ─────────────────────────────
+  it("compact command uses execution.execute with current session identity", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId("context-usage-compact"));
+
+    expect(mockRuntimeSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: "/compact",
+        session_id: "test-session",
+        user_id: "test-user",
+        channel: "console",
+        agent_id: "default",
+      }),
+      { sessionId: "test-session", source: "direct" },
+    );
+  });
+
   it("returns the prepared query after the SDK captures input data", async () => {
     mockBeginLoopModeSubmission.mockImplementation(
       (text: string) => `/goal ${text}`,

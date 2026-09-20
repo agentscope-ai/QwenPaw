@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ...providers.context_windows import DEFAULT_CONTEXT_WINDOW
 from .provider_setup import supported_presets
 
 
@@ -90,8 +91,16 @@ class ModelBody(StrictBody):
     enabled: bool = True
     all_members: bool = True
     user_ids: list[str] = Field(default_factory=list, max_length=10000)
-    input_token_limit: int = Field(ge=1000, le=10000000)
-    output_token_limit: int = Field(default=4096, ge=1, le=1000000)
+    input_token_limit: int = Field(
+        default=DEFAULT_CONTEXT_WINDOW,
+        ge=1000,
+        le=10000000,
+    )
+    output_token_limit: int | None = Field(
+        default=None,
+        ge=1,
+        le=1000000,
+    )
     output_limit_field: Literal[
         "max_tokens",
         "max_completion_tokens",

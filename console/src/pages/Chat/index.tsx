@@ -2768,8 +2768,25 @@ export default function ChatPage() {
   }, []);
 
   const handleCompactCommand = useCallback(() => {
-    chatRef.current?.input.submit({ query: "/compact" });
-  }, []);
+    const execution = chatRef.current?.execution;
+    if (!execution || !queueSessionId || queueSessionId === "new") return;
+    const identity = sessionApi.getSessionIdentity(queueSessionId);
+    execution.execute(
+      {
+        query: "/compact",
+        session_id: identity.sessionId,
+        user_id: identity.userId,
+        channel: identity.channel,
+        agent_id: selectedAgent,
+        context: buildChatSubmissionContext(
+          captureRequestContext(),
+          identity,
+          selectedAgent,
+        ),
+      },
+      { sessionId: queueSessionId, source: "direct" },
+    );
+  }, [queueSessionId, selectedAgent, captureRequestContext]);
 
   const handleNewCommand = useCallback(() => {
     const current = useTurnUsageStore.getState().snapshot;

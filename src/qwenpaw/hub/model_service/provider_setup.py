@@ -9,6 +9,10 @@ from ...providers.openrouter_provider import OpenRouterProvider
 from ...providers.provider_catalog import BUILTIN_PROVIDERS
 from ...providers.provider_discovery import merge_discovered_model
 from ...providers.provider import ModelInfo
+from ...providers.context_windows import (
+    DEFAULT_CONTEXT_WINDOW,
+    known_context_size,
+)
 
 
 def supported_presets():
@@ -58,6 +62,23 @@ def model_provider(model: dict, connection: dict):
     if provider.get_model_info(model_id) is None:
         provider.models.append(ModelInfo(id=model_id, name=model_id))
     return provider
+
+
+def model_token_defaults(model_id: str, connection: dict) -> dict:
+    """Reuse provider capability resolution and label fallback estimates."""
+    provider = model_provider({"upstream_model": model_id}, connection)
+    info = provider.get_model_info(model_id)
+    return {
+        "input_token_limit": provider.get_context_size(model_id),
+        "input_limit_known": bool(
+            info.max_input_length_configured
+            or info.max_input_length_auto_detected
+            or info.max_input_length != DEFAULT_CONTEXT_WINDOW
+            or known_context_size(model_id),
+        ),
+        "output_token_limit": info.max_output_length,
+        "output_limit_known": info.max_output_length is not None,
+    }
 
 
 def _discovery_provider(catalog, connection_id: str):

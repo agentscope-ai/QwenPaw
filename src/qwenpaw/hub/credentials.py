@@ -12,6 +12,7 @@ from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
 
+from ..utils.runtime_environment import user_environment_key_allowed
 from .database import (
     connect_hub_database,
     ensure_tenant,
@@ -22,35 +23,11 @@ from .database import (
 _CREDENTIAL_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,127}$")
 _SYSTEM_TENANT_ID = "__qwenpaw_hub_system__"
 _SYSTEM_SCOPE = "control"
-_RUNTIME_CONTROL_NAMES = {
-    "BASH_ENV",
-    "COMSPEC",
-    "CONDA_PREFIX",
-    "ENV",
-    "HOME",
-    "PATH",
-    "PATHEXT",
-    "SHELLOPTS",
-    "SYSTEMROOT",
-    "TEMP",
-    "TMP",
-    "TMPDIR",
-    "VIRTUAL_ENV",
-    "WINDIR",
-}
-_RUNTIME_CONTROL_PREFIXES = (
-    "DYLD_",
-    "LD_",
-    "PYTHON",
-    "QWENPAW_",
-)
 
 
 def runtime_credential_name_allowed(name: str) -> bool:
     """Return whether a tenant may project a credential into a runtime."""
-    return name not in _RUNTIME_CONTROL_NAMES and not name.startswith(
-        _RUNTIME_CONTROL_PREFIXES,
-    )
+    return user_environment_key_allowed(name)
 
 
 class TenantCredentialVault:

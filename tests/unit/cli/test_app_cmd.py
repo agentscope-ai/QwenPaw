@@ -143,6 +143,7 @@ def test_reload_child_exposes_graceful_shutdown_event(tmp_path) -> None:
                     host="127.0.0.1",
                     port=0,
                     reload=True,
+                    app_dir=sys.argv[1],
                     reload_dirs=[sys.argv[1]],
                 )
             """,

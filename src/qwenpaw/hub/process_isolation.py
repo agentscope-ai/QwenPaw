@@ -15,6 +15,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from typing import IO, Any, Mapping, Protocol, Sequence
 
+from .user_profile import runtime_workspace
 from .models import RuntimeRecord
 
 
@@ -150,6 +151,9 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
                 "Local isolation requires bubblewrap (bwrap) on Linux.",
             )
         runtime_root = _runtime_root(record)
+        workspace = runtime_workspace(record)
+        filesystem_root = runtime_root / "filesystem"
+        filesystem_root.mkdir(exist_ok=True)
         args = [
             self._executable,
             "--die-with-parent",
@@ -160,7 +164,8 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             "--unshare-uts",
             "--cap-drop",
             "ALL",
-            "--tmpfs",
+            "--bind",
+            str(filesystem_root),
             "/",
         ]
         for path in (
@@ -173,26 +178,48 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             if Path(path).exists():
                 args.extend(["--ro-bind", path, path])
         for path in _read_roots():
+            mount_path = Path(workspace)
+            if mount_path.is_relative_to(path) or path.is_relative_to(
+                mount_path,
+            ):
+                raise ProcessIsolationError(
+                    "User workspace overlaps the shared runtime installation.",
+                )
             args.extend(["--ro-bind", str(path), str(path)])
+        args.extend(["--tmpfs", "/tmp"])
+        for source, target in (
+            (record.working_dir, workspace),
+            (record.secret_dir, "/secrets"),
+            (record.backup_dir, "/backups"),
+        ):
+            args.extend(["--bind", str(source.resolve()), target])
         args.extend(
             [
-                "--tmpfs",
-                "/tmp",
-                "--bind",
-                str(runtime_root),
-                str(runtime_root),
                 "--dev",
                 "/dev",
                 "--proc",
                 "/proc",
                 "--chdir",
-                str(record.working_dir.resolve()),
+                workspace,
                 "--",
                 *command,
             ],
         )
-        self._probe(args, runtime_root, environment)
-        return IsolatedLaunch(args, dict(environment))
+        sandbox_environment = dict(environment)
+        sandbox_environment.update(
+            {
+                "HOME": workspace,
+                "PWD": workspace,
+                "TMP": f"{workspace}/tmp",
+                "TEMP": f"{workspace}/tmp",
+                "TMPDIR": f"{workspace}/tmp",
+                "QWENPAW_WORKING_DIR": workspace,
+                "QWENPAW_SECRET_DIR": "/secrets",
+                "QWENPAW_BACKUP_DIR": "/backups",
+            },
+        )
+        self._probe(args, runtime_root, sandbox_environment)
+        return IsolatedLaunch(args, sandbox_environment)
 
     def _probe(
         self,
@@ -200,7 +227,7 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
         runtime_root: Path,
         environment: Mapping[str, str],
     ) -> None:
-        probe_file = runtime_root / ".isolation-probe"
+        probe_file = runtime_root / "working" / ".isolation-probe"
         probe_file.write_text("probe", encoding="utf-8")
         marker = runtime_root.parent / (f"qwenpaw-hub-forbidden-{os.getpid()}")
         marker.write_text("forbidden", encoding="utf-8")
@@ -209,7 +236,10 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             *runtime_args[: separator + 1],
             "/bin/sh",
             "-c",
-            f'test -r "{probe_file}" && test ! -e "{marker}"',
+            'test -r "$HOME/.isolation-probe" && test "$PWD" = "$HOME" '
+            '&& test ! -e "$1"',
+            "probe",
+            str(marker),
         ]
         try:
             result = subprocess.run(

@@ -77,6 +77,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install Linux isolation dependency
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          if sysctl kernel.apparmor_restrict_unprivileged_userns \
+            >/dev/null 2>&1; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
       - name: Set up Node.js (for console build)
         uses: actions/setup-node@v4
         with:
@@ -472,10 +483,17 @@ jobs:
     secrets: inherit
 
   # ── Release gate form: reviewed blocking set + report-only set ──────────
-  # Maintainer decision 2026-09-09: release-time E2E runs the p0 blocking set
-  # only; p1/p2 stay in the nightly form. The blocking set is an explicit,
-  # reviewed node-id list (see .github/ci/e2e-release-gate-manifest.md), not a
-  # marker, so entry/exit is auditable and never automatic.
+  # Maintainer decision 2026-09-09: release-time E2E runs the p0 set only;
+  # p1/p2 stay in the nightly form. The p0 set is split into two explicit,
+  # reviewed node-id lists (gate + watch, see
+  # .github/ci/e2e-release-gate-manifest.md), not a marker, so entry/exit is
+  # auditable and never automatic.
+  #
+  # BOTH lists are blocking. The watch list was report-only from 2026-09-10 to
+  # 2026-09-18 and was promoted to blocking on maintainer instruction. The
+  # p0-only scope is the maintainer's; the report-only split of the 7 then-red
+  # cases was an implementation split by Qin Qiong, tacitly accepted, never an
+  # explicit maintainer decision (the old comment claimed otherwise).
   e2e-release-gate:
     if: inputs.form == 'release'
     uses: ./.github/workflows/_e2e-job.yml
@@ -747,7 +765,7 @@ jobs:
           echo "E2E p1: ${{ needs.e2e-p1.result }}"
           echo "E2E p2: ${{ needs.e2e-p2.result }}"
           echo "E2E release gate: ${{ needs.e2e-release-gate.result }}"
-          echo "E2E release watch (report-only, never blocks): ${{ needs.e2e-release-watch.result }}"
+          echo "E2E release watch (blocking): ${{ needs.e2e-release-watch.result }}"
           echo "Frontend tests: ${{ needs.frontend-tests.result }}"
 
           # Fail-closed: any result that is not an outright success
@@ -759,8 +777,14 @@ jobs:
           FORM="${{ inputs.form }}"
           # Form-aware fail-closed: in the nightly form the three E2E shards
           # must all succeed; in the release form they are intentionally
-          # skipped and the reviewed gate set must succeed instead. The watch
-          # set never blocks (report-only by maintainer decision).
+          # skipped and BOTH the reviewed gate set and the watch set must
+          # succeed instead. The watch set is blocking too (promoted from
+          # report-only on 2026-09-18 by maintainer instruction), so a red
+          # case in either list now fails the release gate.
+          #
+          # Both E2E release jobs carry `if: inputs.form == 'release'`, so in
+          # the nightly form their result is "skipped"; the FORM guards below
+          # keep that from turning the nightly summary permanently red.
           if [ "${{ needs.unit-tests.result }}" != "success" ] || \
              [ "${{ needs.contract-tests.result }}" != "success" ] || \
              [ "${{ needs.integrated-tests.result }}" != "success" ] || \
@@ -768,7 +792,8 @@ jobs:
              { [ "$FORM" != "release" ] && { [ "${{ needs.e2e-p0.result }}" != "success" ] || \
                [ "${{ needs.e2e-p1.result }}" != "success" ] || \
                [ "${{ needs.e2e-p2.result }}" != "success" ]; }; } || \
-             { [ "$FORM" == "release" ] && [ "${{ needs.e2e-release-gate.result }}" != "success" ]; }; then
+             { [ "$FORM" == "release" ] && { [ "${{ needs.e2e-release-gate.result }}" != "success" ] || \
+               [ "${{ needs.e2e-release-watch.result }}" != "success" ]; }; }; then
             echo "❌ Some tests did not succeed"
             exit 1
           else

@@ -265,6 +265,8 @@ export interface QwenPawHostNamespace {
   apiBaseUrl: string;
   getApiUrl(path: string): string;
   getApiToken(): string | null;
+  prepareBrowserSession(appId: string): Promise<number | null>;
+  usesBrowserSession(appId: string): boolean;
 
   // ── Hooks (call only inside plugin-supplied React components) ─────────────
   useTheme(): HostThemeMode;
