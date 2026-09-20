@@ -70,3 +70,41 @@ def test_persisted_value_overrides_then_restores_inherited_value(
 def test_missing_store_stays_sparse(isolated_store) -> None:
     assert store.load_envs() == {}
     assert not isolated_store.exists()
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "PATH",
+        "PythonPath",
+        "PIP_TARGET",
+        "UV_PYTHON",
+        "CONDA_PREFIX",
+        "BASH_ENV",
+        "LD_PRELOAD",
+        "QWENPAW_HUB_MODEL_TOKEN",
+        "HOME",
+    ],
+)
+def test_managed_runtime_rejects_persisted_control_overrides(
+    isolated_store,
+    monkeypatch,
+    key,
+):
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "user-a")
+    with pytest.raises(ValueError, match="managed"):
+        store.update_env_vars({key: "injected"})
+    isolated_store.write_text(json.dumps({key: "enc:injected"}))
+    before = store.os.environ.get(key)
+    store.load_envs_into_environ()
+    assert store.os.environ.get(key) == before
+
+
+def test_managed_runtime_does_not_migrate_shared_envs(tmp_path, monkeypatch):
+    shared = tmp_path / "shared-envs.json"
+    shared.write_text('{"HOST_ONLY": "host"}', encoding="utf-8")
+    target = tmp_path / "user" / "envs.json"
+    monkeypatch.setenv("QWENPAW_RUNTIME_ID", "user-runtime")
+    monkeypatch.setattr(store, "_LEGACY_ENVS_JSON_CANDIDATES", (shared,))
+    assert store.load_envs(target) == {}
+    assert not target.exists()

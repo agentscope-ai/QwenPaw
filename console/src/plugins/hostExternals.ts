@@ -1,3 +1,7 @@
+import {
+  prepareBrowserSession,
+  usesBrowserSession,
+} from "./pawapp-sdk/browserSession";
 /**
  * hostExternals.ts
  *
@@ -52,6 +56,8 @@ export interface HostExternals {
   apiBaseUrl: string;
   getApiUrl: typeof getApiUrl;
   getApiToken: typeof getApiToken;
+  prepareBrowserSession: typeof prepareBrowserSession;
+  usesBrowserSession: typeof usesBrowserSession;
   // ── Hooks + helpers attached later by installHostSdk() ─────────────────────
   useTheme?: () => HostThemeMode;
   useLocale?: () => string;
@@ -253,6 +259,8 @@ export function installHostExternals(): void {
       apiBaseUrl,
       getApiUrl,
       getApiToken,
+      prepareBrowserSession,
+      usesBrowserSession,
     };
   }
 

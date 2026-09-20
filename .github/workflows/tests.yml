@@ -108,9 +108,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux isolation dependency
-        if: |
-          runner.os == 'Linux' &&
-          matrix.python-version == '3.11'
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           sudo apt-get update

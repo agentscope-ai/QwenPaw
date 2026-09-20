@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Tests for QwenPaw Hub users, roles, and token invalidation."""
 
+import json
 import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -211,7 +212,7 @@ def test_user_pages_filter_without_loading_all_accounts(
     assert admins[0].username == "member-4"
 
 
-def test_usernames_are_loaded_in_one_batch(tmp_path: Path) -> None:
+def test_users_are_loaded_in_one_batch(tmp_path: Path) -> None:
     auth = _auth_service(tmp_path)
     owner, _ = auth.register("owner", "safe-password")
     member = auth.create_user(
@@ -219,14 +220,15 @@ def test_usernames_are_loaded_in_one_batch(tmp_path: Path) -> None:
         password="safe-password",
     )
 
-    usernames = auth.get_usernames(
+    users = auth.get_users(
         {owner.user_id, member.user_id, "missing-user"},
     )
 
-    assert usernames == {
-        owner.user_id: "owner",
-        member.user_id: "member",
+    assert users == {
+        owner.user_id: owner,
+        member.user_id: member,
     }
+    assert users[owner.user_id].role == "admin"
 
 
 def test_change_password_rotates_token_and_preserves_username(
@@ -246,3 +248,50 @@ def test_change_password_rotates_token_and_preserves_username(
     assert auth.authenticate("owner", "new-safe-password")[0].user_id == (
         user.user_id
     )
+
+
+def test_workspace_profile_backfills_old_users_and_preserves_custom_values(
+    tmp_path,
+):
+    auth = _auth_service(tmp_path)
+    admin, _ = auth.register("owner", "safe-password")
+    member = auth.create_user(username="member", password="safe-password")
+    with sqlite3.connect(tmp_path / "control.db") as db:
+        db.execute(
+            "UPDATE hub_users SET profile_json = ? WHERE user_id = ?",
+            (
+                json.dumps({"schema_version": 1, "display_name": "Owner"}),
+                admin.user_id,
+            ),
+        )
+    auth.update_user(member.user_id, profile={"workspace_dir": "/data/member"})
+    reopened = _auth_service(tmp_path)
+    assert (
+        reopened.get_user(admin.user_id).profile["workspace_dir"]
+        == "/workspace"
+    )
+    assert reopened.get_user(admin.user_id).profile["display_name"] == "Owner"
+    assert (
+        reopened.get_user(member.user_id).profile["workspace_dir"]
+        == "/data/member"
+    )
+    with sqlite3.connect(tmp_path / "control.db") as db:
+        profile = json.loads(
+            db.execute(
+                "SELECT profile_json FROM hub_users WHERE user_id = ?",
+                (admin.user_id,),
+            ).fetchone()[0],
+        )
+    assert profile["workspace_dir"] == "/workspace"
+    for invalid in (
+        "/",
+        "/usr/share",
+        "/app/working",
+        "/home/../usr",
+        "relative",
+    ):
+        with pytest.raises(ValueError):
+            auth.update_user(
+                member.user_id,
+                profile={"workspace_dir": invalid},
+            )

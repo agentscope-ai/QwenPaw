@@ -153,12 +153,19 @@ class TokenBudgetService:
             )
             cap = model["output_token_limit"]
             if output_limit is not None:
-                cap = min(cap, output_limit)
-            reserved = model["input_token_limit"] + cap
+                cap = (
+                    min(cap, output_limit) if cap is not None else output_limit
+                )
+            reserved = model["input_token_limit"] + (cap or 0)
             period = self.period(db)
             for subject in ("organization", identity["user_id"]):
                 usage = self.usage(db, subject, period)
                 if usage["token_limit"] is not None:
+                    if cap is None:
+                        raise ValueError(
+                            "An output limit is required for a finite "
+                            "token budget",
+                        )
                     if not model["budget_verified"]:
                         raise ValueError("Model budget bounds are unverified")
                     if usage["remaining"] < reserved:

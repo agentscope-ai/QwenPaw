@@ -61,6 +61,7 @@ import OrganizationBudget from "./governance/OrganizationBudget";
 import OrganizationModels from "./governance/OrganizationModels";
 import {
   dockerReferenceParts,
+  dockerReferenceKey,
   emptyPage,
   formatDate,
   formatImageSize,
@@ -189,7 +190,9 @@ export default function HubPage() {
         if (
           configuredSource === "custom" &&
           imageResult.local_images.some(
-            (image) => image.reference === configuredImage,
+            (image) =>
+              dockerReferenceKey(image.reference) ===
+              dockerReferenceKey(configuredImage || ""),
           )
         ) {
           settingsForm.setFieldValue("dockerSource", "local");
@@ -687,27 +690,37 @@ export default function HubPage() {
                       )}
                       <Select
                         allowClear
-                        value={runtimeState}
+                        value={runtimeState ?? ""}
                         placeholder={t("hub.table.allStates")}
                         className={styles.filterSelect}
-                        onChange={setRuntimeState}
-                        options={Object.keys(STATE_COLORS).map((state) => ({
-                          value: state,
-                          label: t(`hub.runtimeStates.${state}`),
-                        }))}
+                        onChange={(value) =>
+                          setRuntimeState(value || undefined)
+                        }
+                        options={[
+                          { value: "", label: t("hub.table.allStates") },
+                          ...Object.keys(STATE_COLORS).map((state) => ({
+                            value: state,
+                            label: t(`hub.runtimeStates.${state}`),
+                          })),
+                        ]}
                       />
                       <Select
                         allowClear
-                        value={runtimeExecution}
+                        value={runtimeExecution ?? ""}
                         placeholder={t("hub.table.allExecutions")}
                         className={styles.filterSelect}
-                        onChange={setRuntimeExecution}
-                        options={Object.keys(
-                          health?.provisioner_statuses || {},
-                        ).map((name) => ({
-                          value: name,
-                          label: t(`hub.runtimes.${name}Execution`),
-                        }))}
+                        onChange={(value) =>
+                          setRuntimeExecution(value || undefined)
+                        }
+                        options={[
+                          { value: "", label: t("hub.table.allExecutions") },
+                          ...Object.keys(
+                            health?.provisioner_statuses || {},
+                          ).map((name) => ({
+                            value: name,
+                            label: t(`hub.runtimes.${name}Execution`),
+                          })),
+                        ]}
                       />
                     </>
                   }
@@ -759,13 +772,23 @@ export default function HubPage() {
                               <EntityCell
                                 icon={<Users size={16} />}
                                 title={
-                                  runtime.owner_username ||
-                                  runtime.owner_user_id
+                                  <>
+                                    {runtime.owner_username ||
+                                      runtime.owner_user_id}
+                                    {runtime.owner_role === "admin" && (
+                                      <>
+                                        {" "}
+                                        <Tag>{t("hub.roles.admin")}</Tag>
+                                      </>
+                                    )}
+                                  </>
                                 }
                                 detail={runtime.owner_user_id}
                               />
                             </td>
-                            <td className={styles.mono}>{runtime.endpoint}</td>
+                            <td className={styles.mono}>
+                              {runtime.endpoint || "—"}
+                            </td>
                             <td>
                               <strong>
                                 {t(
@@ -1314,12 +1337,20 @@ function SettingsPanel({
   const runtimeProvisioner = Form.useWatch("runtimeProvisioner", form);
   const dockerSource = Form.useWatch("dockerSource", form);
   const dockerImage = Form.useWatch("dockerImage", form);
+  const findLocalImage = (reference: string) => {
+    const key = dockerReferenceKey(reference);
+    return dockerImages?.local_images.find((image) =>
+      [image.reference, ...image.digests].some(
+        (name) => dockerReferenceKey(name) === key,
+      ),
+    );
+  };
   const officialOptions = (dockerImages?.official_images || [])
     .filter((image) => image.source === dockerSource)
     .map((image) => ({
       value: image.reference,
       label: `${image.tag} · ${t(
-        image.downloaded
+        findLocalImage(image.reference)
           ? "hub.settings.docker.downloaded"
           : "hub.settings.docker.notDownloaded",
       )}`,
@@ -1332,9 +1363,7 @@ function SettingsPanel({
         image.size,
       )}`,
     }));
-  const selectedLocalImage = dockerImages?.local_images.find(
-    (image) => image.reference === dockerImage,
-  );
+  const selectedLocalImage = findLocalImage(dockerImage || "");
   const imageParts = dockerReferenceParts(dockerImage || "");
   const imageOrigin =
     dockerSource === "docker_hub"
@@ -1987,7 +2016,7 @@ function EntityCell({
   detail,
 }: {
   icon: React.ReactNode;
-  title: string;
+  title: React.ReactNode;
   detail: string;
 }) {
   return (
