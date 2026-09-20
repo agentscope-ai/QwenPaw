@@ -11,7 +11,6 @@ from .mimo_provider import MiMoProvider
 from .modelscope_provider import ModelScopeProvider
 from .ollama_provider import OllamaProvider
 from .openai_provider import (
-    GitHubModelsProvider,
     KiloProvider,
     OpenAIProvider,
     OpenCodeProvider,
@@ -61,7 +60,6 @@ VOLCENGINE_AGENTPLAN_MODELS = _models("volcengine-cn-agentplan")
 ANTHROPIC_MODELS = _models("anthropic")
 GEMINI_MODELS = _models("gemini")
 KIMI_CODINGPLAN_MODELS = _models("kimi-codingplan")
-GITHUB_MODELS_MODELS = _models("github-models")
 
 PROVIDER_MODELSCOPE = ModelScopeProvider(
     id="modelscope",
@@ -401,20 +399,6 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     },
 )
 
-PROVIDER_GITHUB_MODELS = GitHubModelsProvider(
-    id="github-models",
-    name="GitHub Models",
-    base_url="https://models.github.ai/inference",
-    api_key_prefix="ghp_",
-    api_key_prefixes=["ghp_", "github_pat_"],
-    models=_models("github-models"),
-    freeze_url=False,
-    meta={
-        "is_free_tier": True,
-    },
-)
-
-
 PROVIDER_LMSTUDIO = LMStudioProvider(
     id="lmstudio",
     name="LM Studio",
@@ -532,7 +516,6 @@ BUILTIN_PROVIDERS: tuple[Provider, ...] = (
     PROVIDER_OLLAMA,
     PROVIDER_LMSTUDIO,
     PROVIDER_OPENROUTER,
-    PROVIDER_GITHUB_MODELS,
     PROVIDER_MODELSCOPE,
     PROVIDER_DASHSCOPE,
     PROVIDER_ALIYUN_CODINGPLAN,
@@ -586,7 +569,6 @@ __all__ = [
     "DASHSCOPE_MODELS",
     "DEEPSEEK_MODELS",
     "GEMINI_MODELS",
-    "GITHUB_MODELS_MODELS",
     "KILO_MODELS",
     "KIMI_CODINGPLAN_MODELS",
     "KIMI_MODELS",
@@ -605,7 +587,6 @@ __all__ = [
     "PROVIDER_DASHSCOPE",
     "PROVIDER_DEEPSEEK",
     "PROVIDER_GEMINI",
-    "PROVIDER_GITHUB_MODELS",
     "PROVIDER_KILO",
     "PROVIDER_KIMI_CN",
     "PROVIDER_KIMI_CODINGPLAN",

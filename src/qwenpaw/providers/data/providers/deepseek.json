@@ -5,9 +5,7 @@
   "remote_id": "deepseek",
   "template_owner": true,
   "default_model_ids": [
-    "deepseek-chat",
-    "deepseek-reasoner",
-    "deepseek-v4-flash",
+    "deepseek-flash",
     "deepseek-v4-pro"
   ],
   "models": [
@@ -49,7 +47,7 @@
     {
       "id": "deepseek-v4-flash",
       "name": "DeepSeek V4 Flash",
-      "supports_image": false,
+      "supports_image": true,
       "supports_video": false,
       "probe_source": "documentation",
       "is_free": false,
@@ -65,7 +63,30 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        }
+      },
+      "released_at": "2026-09-10"
     },
     {
       "id": "deepseek-v4-pro",
@@ -86,7 +107,30 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        }
+      },
+      "released_at": "2026-08-12"
     },
     {
       "id": "deepseek-v4-flash-vision-exp",
@@ -97,7 +141,32 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "billing": "paid",
+      "probe_source": "documentation",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        }
+      },
+      "released_at": "2026-09-10"
     },
     {
       "id": "deepseek-flash",
@@ -108,7 +177,32 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "billing": "paid",
+      "probe_source": "documentation",
+      "capability_provenance": {
+        "max_input_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "max_output_length": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_image": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        },
+        "supports_tool_calling": {
+          "source": "documentation",
+          "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+          "updated_at": "2026-09-18"
+        }
+      },
+      "released_at": "2026-09-10"
     }
   ]
 }

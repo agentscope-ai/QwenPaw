@@ -1364,3 +1364,22 @@
   --ms-free-border: var(--app-success-border);
   --ms-dropdown-shadow: 0 16px 38px rgba(0, 0, 0, 0.32);
 }
+
+.manageButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  &:hover,
+  &:focus-visible {
+    color: var(--app-accent);
+    background: var(--app-fill-hover);
+  }
+}

@@ -18,12 +18,13 @@ from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 from qwenpaw.exceptions import ProviderError
 
+from ..utils.io_utils import run_sync_io
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .model_info import ExtendedModelInfo as ExtendedModelInfo
 from .model_info import ModelInfo
 from .model_resolution import resolve_model_info
 from .model_ranking import Recommendation, recommend
-from .model_sync import automatic_models
+from .model_metadata import provider_catalog_models
 from .adapters.cache_policy import cache_request
 from .adapters.request_context import session_header
 from .adapters.wire_protocol import protocol_url
@@ -140,6 +141,7 @@ class ProviderInfo(BaseModel):
         default_factory=list,
         description="Last model list fetched from the provider API",
     )
+    seen_model_ids: List[str] = Field(default_factory=list)
     models_last_synced_at: str | None = Field(
         default=None,
         description="UTC timestamp of the latest successful model sync",
@@ -322,7 +324,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     wire_protocol: ClassVar[str] = f"chat"
     cache_documentation: ClassVar[str | None] = None
     session_header_name: ClassVar[str | None] = None
+    _resolved_pool: list[ModelInfo] | None = PrivateAttr(default=None)
+    _billing_blocks: set[str] = PrivateAttr(default_factory=set)
     _request_session: str = PrivateAttr(default_factory=lambda: uuid4().hex)
+
+    def configuration_snapshot(self) -> Provider:
+        """Copy validated configuration without live clients or locks."""
+        snapshot = type(self).model_validate(self.model_dump())
+        snapshot._request_session = self._request_session
+        return snapshot
+
+    async def close(self) -> None:
+        """Release resources owned by this runtime provider instance."""
 
     def model_protocol(self, model_id: str) -> str:
         """Return this service's protocol for one model."""
@@ -558,8 +571,15 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         )
 
     def all_models(self) -> List[ModelInfo]:
-        """Return configured models only."""
-        return Provider.configured_models(self)
+        """Return persisted model records, including unselected defaults."""
+        removed = set(self.removed_model_ids)
+        return list(
+            {
+                model.id: model
+                for model in self.models + self.extra_models
+                if model.id not in removed
+            }.values()
+        )
 
     def configured_models(self) -> List[ModelInfo]:
         """Return the effective configured model list."""
@@ -567,12 +587,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         ordered_ids: list[str] = []
         by_id: dict[str, ModelInfo] = {}
         for collection in (
-            automatic_models(self),
-            [
-                model
-                for model in getattr(self, f"models", [])
-                if Provider.automatically_listed(self, model)
-            ],
+            [m for m in self.models if self.automatically_listed(m)],
             getattr(self, "extra_models", []),
         ):
             for model in collection:
@@ -589,7 +604,13 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """Return models visible to the add-model discovery flow."""
         ordered_ids: list[str] = []
         by_id: dict[str, ModelInfo] = {}
+        catalog = (
+            provider_catalog_models(self.id, self.base_url)
+            if not self.is_local
+            else []
+        )
         for collection in (
+            catalog,
             getattr(self, "models", []),
             getattr(self, "discovered_models", []),
         ):
@@ -597,12 +618,31 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 if model.id not in by_id:
                     ordered_ids.append(model.id)
                 by_id[model.id] = model
+        for configured in self.models:
+            if configured.id in by_id and getattr(
+                configured, f"config_overrides", []
+            ):
+                overrides = {
+                    field: getattr(configured, field)
+                    for field in configured.config_overrides
+                    if field in ModelInfo.model_fields
+                }
+                overrides[f"config_overrides"] = configured.config_overrides
+                by_id[configured.id] = by_id[configured.id].model_copy(
+                    update=overrides
+                )
         hidden = set(getattr(self, "hidden_model_ids", []))
         removed = set(getattr(self, "removed_model_ids", []))
+        selected = {model.id for model in self.configured_models()}
         return [
             by_id[model_id]
             for model_id in ordered_ids
-            if model_id not in hidden and model_id not in removed
+            if model_id not in hidden
+            and model_id not in removed
+            and (
+                not getattr(by_id[model_id], f"remote_missing", False)
+                or model_id in selected
+            )
         ]
 
     def get_chat_model_cls(self) -> Type[ChatModelBase]:
@@ -646,7 +686,9 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         discovered = self.get_discovered_model_info(model_id)
         configured = self.get_model_info(model_id)
         selected = configured or discovered
-        if selected and selected.requires_paid_confirmation:
+        if model_id in self._billing_blocks or (
+            selected and selected.requires_paid_confirmation
+        ):
             raise ProviderError(
                 message=f"Model '{model_id}' is no longer confirmed free; "
                 f"review its pricing and explicitly enable it before use.",
@@ -838,7 +880,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         config: Dict,
     ) -> bool:
         """Update per-model configuration (e.g. generate_kwargs)."""
-        for model in Provider.all_models(self):
+        for model in Provider.all_models(self) + self.discovered_models:
             if model.id == model_id:
                 changed_fields: list[str] = []
                 for field in (
@@ -963,7 +1005,6 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         for collection in (
             getattr(self, "extra_models", []),
             getattr(self, "models", []),
-            automatic_models(self),
         ):
             for model in collection:
                 if model.id == model_id:
@@ -1089,12 +1130,13 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         )
 
     def automatically_listed(self, model: ModelInfo) -> bool:
-        """Keep unreviewed built-in freebies out of every selector."""
-        if getattr(model, f"source", None) == f"user" or not getattr(
-            model, f"is_free", False
-        ):
-            return True
-        return self.model_recommendation(model).eligible
+        """Only explicit choices enter remote model selectors."""
+        return (
+            self.is_local
+            or self.is_custom
+            or self.id == f"hub-managed"
+            or getattr(model, f"source", None) == f"user"
+        )
 
     def get_context_size(self, model_id: str) -> int:
         """Return the effective context used by runtime and usage displays."""
@@ -1132,8 +1174,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
         return ProbeResult()
 
-    async def get_info(self, mock_secret: bool = True) -> ProviderInfo:
-        """Return a ProviderInfo instance with the provider's details."""
+    async def get_info(
+        self, mock_secret: bool = True, *, include_candidates: bool = True
+    ) -> ProviderInfo:
+        """Build metadata off the event loop, loading candidates on demand."""
+        return await run_sync_io(
+            self._build_info, mock_secret, include_candidates
+        )
+
+    def _build_info(
+        self, mock_secret: bool, include_candidates: bool
+    ) -> ProviderInfo:
+        """Serialize a provider without retaining runtime clients."""
         if mock_secret and self.api_key:
             # Determine which prefix to show in the masked key.
             # If api_key_prefixes is set, pick the one matching the
@@ -1154,12 +1206,18 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         removed = set(self.removed_model_ids)
 
         def serialize_model(model: ModelInfo) -> dict[str, Any]:
-            payload = resolve_model_info(
+            card = resolve_model_info(
                 self,
                 model,
                 self.get_discovered_model_info(model.id),
-            ).model_dump()
-            recommendation = self.model_recommendation(model)
+            )
+            payload = card.model_dump()
+            recommendation = recommend(
+                card.ranking_id,
+                self.model_pricing(card),
+                card.supports_tool_calling,
+                self.model_available(card),
+            )
             payload[f"is_recommended"] = recommendation.eligible
             payload[f"recommendation_reason"] = recommendation.reason
             payload["supports_agent_thinking"] = self.supports_agent_thinking(
@@ -1183,7 +1241,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             # Do not expose it as configured models to selectors or lists.
             models=[
                 serialize_model(model)
-                for model in self.models + automatic_models(self)
+                for model in self.models
                 if model.id not in removed and self.automatically_listed(model)
             ],
             extra_models=[
@@ -1193,17 +1251,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             ],
             discovered_models=[
                 serialize_model(model)
-                for model in {
-                    item.id: item
-                    for item in self.discovered_models
-                    + [
-                        item
-                        for item in self.models
-                        if not self.automatically_listed(item)
-                    ]
-                }.values()
-                if model.id not in removed
+                for model in (
+                    self.discovery_candidates() if include_candidates else []
+                )
             ],
+            seen_model_ids=list(self.seen_model_ids),
             models_last_synced_at=self.models_last_synced_at,
             models_last_sync_error=self.models_last_sync_error,
             models_syncing=self.models_syncing,

@@ -1,0 +1,193 @@
+.modal {
+  :global(.qwenpaw-modal-body) {
+    padding-top: 8px;
+    height: min(620px, calc(100dvh - 160px));
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    > * {
+      flex-shrink: 0;
+    }
+  }
+}
+.toolbar,
+.summary,
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.toolbar {
+  flex-wrap: wrap;
+}
+.hint {
+  margin: 12px 0 16px;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.filters {
+  display: grid;
+  gap: 10px;
+}
+.filterRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  :global(.qwenpaw-select) {
+    min-width: 128px;
+    flex: 1;
+  }
+}
+.summary {
+  margin: 16px 0 8px;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.list {
+  flex: 1 1 0;
+  min-height: 0;
+  position: relative;
+  &[aria-busy="true"] {
+    pointer-events: none;
+  }
+  :global(.qwenpaw-spin-nested-loading) {
+    min-height: 100%;
+  }
+  :global(.qwenpaw-spin-container)::after {
+    background: transparent;
+  }
+  overflow-y: auto;
+  border: 1px solid var(--app-border-subtle);
+  border-radius: 12px;
+  scrollbar-gutter: stable;
+}
+.entry + .entry {
+  border-top: 1px solid var(--app-border-subtle);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+.identity {
+  flex: 1;
+  min-width: 0;
+}
+.name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 14px;
+  strong {
+    overflow-wrap: anywhere;
+    font-weight: 600;
+  }
+}
+.id {
+  display: block;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  margin: 3px 0 10px;
+  overflow-wrap: anywhere;
+}
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  :global(.qwenpaw-tag) {
+    margin: 0;
+  }
+}
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  > button,
+  > span > button {
+    min-height: 40px;
+    min-width: 40px;
+  }
+}
+.details {
+  padding: 16px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+.footer {
+  padding-top: 16px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.empty {
+  display: grid;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--app-text-secondary);
+}
+.error {
+  padding: 10px 0;
+  color: var(--app-text-error, #b42318);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 640px) {
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px;
+  }
+  .actions {
+    justify-content: flex-end;
+  }
+  .summary,
+  .footer {
+    flex-wrap: wrap;
+  }
+  .modal :global(.qwenpaw-modal-body) {
+    height: calc(100dvh - 130px);
+  }
+  .toolbar > * {
+    width: 100%;
+  }
+}
+
+.newBadge {
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--app-info-text);
+  background: var(--app-info-bg);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.pagination {
+  min-height: 36px;
+  padding-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.selectionToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 96px;
+  justify-content: flex-end;
+  margin-left: 8px;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+}
+.toolbar > :global(.qwenpaw-select) {
+  min-width: 168px;
+}

@@ -36,7 +36,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-01"
     },
     {
       "id": "MiniMax-M2.7",
@@ -57,7 +58,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-03-18"
     },
     {
       "id": "MiniMax-M2.7-highspeed",
@@ -78,7 +80,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-03-18"
     },
     {
       "id": "MiniMax-M2.5",
@@ -99,7 +102,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "MiniMax-M2.5-highspeed",
@@ -120,7 +124,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-13"
     },
     {
       "id": "MiniMax-M2.1",
@@ -141,7 +146,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-12-23"
     },
     {
       "id": "MiniMax-M2.1-highspeed",
@@ -179,7 +185,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-10-27"
     }
   ]
 }

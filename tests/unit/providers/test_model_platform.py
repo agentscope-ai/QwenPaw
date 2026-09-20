@@ -269,7 +269,7 @@ async def test_manual_add_overrides_ranking_gate_and_survives_restore():
         api_key=f"test",
     )
     assert provider.configured_models() == []
-    assert provider.discovery_candidates()[0].id == model.id
+    assert model.id in {m.id for m in provider.discovery_candidates()}
     success, _ = await provider.add_model(model.model_copy(deep=True))
     assert success
     assert provider.configured_models()[0].source == f"user"

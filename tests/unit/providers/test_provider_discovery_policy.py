@@ -44,17 +44,10 @@ def test_catalog_only_provider_reports_reason() -> None:
     assert provider.discovery_support_reason
 
 
-def test_github_models_uses_catalog_only_policy() -> None:
-    provider = next(
-        item for item in BUILTIN_PROVIDERS if item.id == "github-models"
-    )
-
-    assert provider.discovery_strategy == "catalog_only"
-    assert provider.model_sync_mode == "manual"
-    assert provider.discovery_requires_auth is True
-    assert provider.support_model_discovery is False
-    assert provider.discovery_support_reason
-    assert provider.models
+def test_retired_github_models_is_not_a_builtin_provider() -> None:
+    assert f"github-models" not in {
+        provider.id for provider in BUILTIN_PROVIDERS
+    }
 
 
 def test_dynamic_policy_enables_previously_disabled_openai_provider() -> None:
@@ -79,9 +72,9 @@ def test_hidden_models_are_filtered_without_deleting_cache() -> None:
     ]
     provider.hidden_model_ids = ["hidden"]
 
-    assert [model.id for model in provider.discovery_candidates()] == [
-        "visible",
-    ]
+    candidates = {model.id for model in provider.discovery_candidates()}
+    assert f"visible" in candidates
+    assert f"hidden" not in candidates
     assert [model.id for model in provider.discovered_models] == [
         "visible",
         "hidden",

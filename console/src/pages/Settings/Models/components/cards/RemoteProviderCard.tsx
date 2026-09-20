@@ -165,9 +165,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         <div className={styles.groupCardField}>
           <span className={styles.groupCardFieldLabel}>Models</span>
           <span className={styles.groupCardFieldValue}>
-            {totalCount > 0
-              ? t("models.modelsCount", { count: totalCount })
-              : t("models.noModels")}
+            {t("models.pool.selected", { count: totalCount })}
           </span>
         </div>
         {isManaged && <HubProviderUsage />}

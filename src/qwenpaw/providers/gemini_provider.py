@@ -28,6 +28,7 @@ from qwenpaw.providers.provider import (
     ModelInfo,
     Provider,
 )
+from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
 from .capping_formatter import _CappingGeminiFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
@@ -243,7 +244,7 @@ class GeminiProvider(Provider):
         client = None
         response = None
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             # Use the async list models endpoint to verify connectivity
             response = await client.aio.models.list()
             async for _ in response:
@@ -270,17 +271,13 @@ class GeminiProvider(Provider):
         client = None
         response = None
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             payload = []
             response = await client.aio.models.list()
             async for model in response:
                 payload.append(model)
             models = self._normalize_models_payload(payload)
             return models
-        except genai_errors.APIError:
-            return []
-        except Exception:
-            return []
         finally:
             await self._close_async_resource(response)
             if client is not None:
@@ -302,7 +299,7 @@ class GeminiProvider(Provider):
         client = None
         response = None
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             response = await client.aio.models.generate_content_stream(
                 model=target,
                 contents="ping",
@@ -449,7 +446,7 @@ class GeminiProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             image_bytes = base64.b64decode(_PROBE_IMAGE_B64)
             response = await client.aio.models.generate_content(
@@ -513,7 +510,7 @@ class GeminiProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             response = await client.aio.models.generate_content(
                 model=model_id,

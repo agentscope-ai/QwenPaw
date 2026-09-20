@@ -6,6 +6,7 @@ Covers ``_validate_model_slot``, ``_load_agent_model``,
 endpoints (series / discover-extended / models filter), and the
 GET/PUT ``/active`` model endpoints with their scope handling.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument,use-implicit-booleaness-not-comparison  # noqa: E501
 from __future__ import annotations
 
@@ -179,7 +180,9 @@ async def test_list_all_providers_returns_manager_listing() -> None:
     manager = _make_manager()
     info = [ProviderInfo(id="openai", name="OpenAI")]
     manager.list_provider_info = AsyncMock(return_value=info)
-    result = await providers_mod.list_all_providers(manager=manager)
+    result = await providers_mod.list_all_providers(
+        request=None, manager=manager
+    )
     assert result == info
 
 

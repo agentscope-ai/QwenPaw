@@ -33,7 +33,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-08-03"
     },
     {
       "id": "qwen3.7-max",
@@ -56,7 +57,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-05-21"
     },
     {
       "id": "qwen3.7-plus",
@@ -78,7 +80,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-02"
     },
     {
       "id": "qwen3.6-plus",
@@ -100,7 +103,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-02"
     },
     {
       "id": "deepseek-v4-pro",
@@ -127,7 +131,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "glm-5.2",
@@ -154,7 +159,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-13"
     },
     {
       "id": "qwen2-5-72b-instruct",
@@ -165,7 +171,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "deepseek-r1-distill-qwen-7b",
@@ -176,7 +183,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen3-coder-plus",
@@ -187,7 +195,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-23"
     },
     {
       "id": "qwen3-next-80b-a3b-thinking",
@@ -198,7 +207,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09"
     },
     {
       "id": "deepseek-v3",
@@ -209,7 +219,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-12-01"
     },
     {
       "id": "qwen2-5-omni-7b",
@@ -220,7 +231,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2024-12"
     },
     {
       "id": "qwen-mt-turbo",
@@ -231,7 +243,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01"
     },
     {
       "id": "deepseek-v3-1",
@@ -242,7 +255,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen-deep-research",
@@ -253,7 +267,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01"
     },
     {
       "id": "qwen-vl-max",
@@ -264,7 +279,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-04-08"
     },
     {
       "id": "qwen3-next-80b-a3b-instruct",
@@ -275,7 +291,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09"
     },
     {
       "id": "qwen3-coder-flash",
@@ -286,7 +303,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "qwen3-14b",
@@ -297,7 +315,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "qwen-max",
@@ -308,7 +327,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-04-03"
     },
     {
       "id": "moonshot-kimi-k2-instruct",
@@ -319,7 +339,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen-vl-plus",
@@ -330,7 +351,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01-25"
     },
     {
       "id": "qwen-omni-turbo-realtime",
@@ -341,7 +363,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-08"
     },
     {
       "id": "kimi-k2.6",
@@ -352,7 +375,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-21"
     },
     {
       "id": "qwen-flash",
@@ -363,7 +387,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "qwen-turbo",
@@ -374,7 +399,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-11-01"
     },
     {
       "id": "qwen3-vl-30b-a3b",
@@ -385,7 +411,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "qwen-vl-ocr",
@@ -396,7 +423,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-10-28"
     },
     {
       "id": "tongyi-intent-detect-v3",
@@ -407,7 +435,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01"
     },
     {
       "id": "deepseek-v4-flash",
@@ -418,7 +447,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "kimi-k2-thinking",
@@ -429,7 +459,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-06"
     },
     {
       "id": "qwen3-32b",
@@ -440,7 +471,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "qwq-plus",
@@ -451,7 +483,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-03-05"
     },
     {
       "id": "qwen3.5-flash",
@@ -462,7 +495,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-02-23"
     },
     {
       "id": "qwen3-vl-plus",
@@ -473,7 +507,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-23"
     },
     {
       "id": "deepseek-v3-2-exp",
@@ -484,7 +519,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen2-5-7b-instruct",
@@ -495,7 +531,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "qwen3-coder-30b-a3b-instruct",
@@ -506,7 +543,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "qwen2-5-math-7b-instruct",
@@ -517,7 +555,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "qwen3.5-397b-a17b",
@@ -528,7 +567,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-02-16"
     },
     {
       "id": "qwq-32b",
@@ -539,7 +579,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-12"
     },
     {
       "id": "deepseek-r1",
@@ -550,7 +591,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen3-asr-flash",
@@ -561,7 +603,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": true,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-08"
     },
     {
       "id": "qwen3-omni-flash",
@@ -572,7 +615,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2025-09-15"
     },
     {
       "id": "deepseek-r1-distill-qwen-1-5b",
@@ -583,7 +627,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen3.7-flash",
@@ -594,7 +639,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-15"
     },
     {
       "id": "kimi-k3",
@@ -605,7 +651,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-16"
     },
     {
       "id": "qwen2-5-vl-72b-instruct",
@@ -616,7 +663,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "deepseek-r1-0528",
@@ -627,7 +675,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-28"
     },
     {
       "id": "deepseek-r1-distill-qwen-32b",
@@ -638,7 +687,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen3-max",
@@ -649,7 +699,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-23"
     },
     {
       "id": "qwen2-5-coder-32b-instruct",
@@ -660,7 +711,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-11"
     },
     {
       "id": "deepseek-r1-distill-llama-70b",
@@ -671,7 +723,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen2-5-math-72b-instruct",
@@ -682,7 +735,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "qwen-plus",
@@ -693,7 +747,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01-25"
     },
     {
       "id": "MiniMax-M2.5",
@@ -704,7 +759,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "qwen3-omni-flash-realtime",
@@ -715,7 +771,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-15"
     },
     {
       "id": "qwen2-5-vl-7b-instruct",
@@ -726,7 +783,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "qwen3.6-flash",
@@ -737,7 +795,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-27"
     },
     {
       "id": "qwen3.8-flash",
@@ -748,7 +807,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-26"
     },
     {
       "id": "qwen2-5-14b-instruct",
@@ -759,7 +819,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "qwen-math-turbo",
@@ -770,7 +831,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09-19"
     },
     {
       "id": "qwen-plus-character",
@@ -781,7 +843,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01"
     },
     {
       "id": "qwen3.6-max-preview",
@@ -792,7 +855,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-20"
     },
     {
       "id": "glm-5",
@@ -803,7 +867,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-11"
     },
     {
       "id": "kimi-k2.5",
@@ -814,7 +879,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-01-27"
     },
     {
       "id": "qwen3-8b",
@@ -825,7 +891,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "glm-5.1",
@@ -836,7 +903,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-14"
     },
     {
       "id": "qwen3-235b-a22b",
@@ -847,7 +915,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "qwen-omni-turbo",
@@ -858,7 +927,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2025-01-19"
     },
     {
       "id": "qwen3-coder-480b-a35b-instruct",
@@ -869,7 +939,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "qwen2-5-32b-instruct",
@@ -880,7 +951,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09"
     },
     {
       "id": "qwen2-5-coder-7b-instruct",
@@ -891,7 +963,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-11"
     },
     {
       "id": "glm-5.3",
@@ -902,7 +975,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-14"
     },
     {
       "id": "qwen-long",
@@ -913,7 +987,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-25"
     },
     {
       "id": "deepseek-r1-distill-llama-8b",
@@ -924,7 +999,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "deepseek-r1-distill-qwen-14b",
@@ -935,7 +1011,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01-01"
     },
     {
       "id": "qwen3-vl-235b-a22b",
@@ -946,7 +1023,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04"
     },
     {
       "id": "qwen3.5-plus",
@@ -957,7 +1035,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-02-16"
     },
     {
       "id": "qwen-math-plus",
@@ -968,7 +1047,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-08-16"
     },
     {
       "id": "qwen-doc-turbo",
@@ -979,7 +1059,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01"
     },
     {
       "id": "qwen-mt-plus",
@@ -990,7 +1071,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-01"
     },
     {
       "id": "qvq-max",
@@ -1001,7 +1083,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-03-25"
     },
     {
       "id": "MiniMax/MiniMax-M2.7",
@@ -1012,7 +1095,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-18"
     },
     {
       "id": "siliconflow/deepseek-r1-0528",
@@ -1023,7 +1107,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-28"
     },
     {
       "id": "siliconflow/deepseek-v3.2",
@@ -1034,7 +1119,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-03"
     },
     {
       "id": "siliconflow/deepseek-v3.1-terminus",
@@ -1045,7 +1131,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-29"
     },
     {
       "id": "siliconflow/deepseek-v3-0324",
@@ -1056,7 +1143,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-12-26"
     },
     {
       "id": "kimi/kimi-k2.5",
@@ -1067,7 +1155,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-01-27"
     }
   ],
   "template_families": [

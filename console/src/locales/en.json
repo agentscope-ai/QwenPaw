@@ -2235,7 +2235,17 @@
     "moveFallbackUp": "Move {{model}} up",
     "moveFallbackDown": "Move {{model}} down",
     "removeFallback": "Remove {{model}}",
-    "fallbackActive": "Actual processing model: {{provider}} / {{model}}"
+    "fallbackActive": "Actual processing model: {{provider}} / {{model}}",
+    "manageSelectorModels": "Manage selector models",
+    "addSelectorModel": "Add to selector",
+    "backToSelected": "Back to selected models",
+    "selectedCount": "{{count}} selected models",
+    "chooseProviderFirst": "Choose a provider first",
+    "currentModelProtected": "Switch the current model before removing it",
+    "managedModelProtected": "Managed by the provider",
+    "addToSelector": "Add to selector",
+    "removeFromSelector": "Remove from selector",
+    "finishEditing": "Done"
   },
   "tokenUsage": {
     "title": "Token Usage",
@@ -2479,7 +2489,7 @@
     "userAdded": "User-added",
     "addModel": "Add Model",
     "addModels": "Add Models",
-    "autoDiscoverModels": "Auto Discover Models",
+    "autoDiscoverModels": "Update model list",
     "addModelTitle": "Add Model to {{provider}}",
     "modelIdLabel": "Model ID",
     "modelIdPlaceholder": "e.g. gpt-4o, gemini-2.0-flash",
@@ -2492,7 +2502,7 @@
     "modelAlreadyExists": "Model ID \"{{id}}\" already exists",
     "autoDiscoverModelsSuccess": "Model catalog synced. Discovered {{count}} new candidates",
     "autoDiscoverModelsNoNew": "Model catalog synced. No new candidates found",
-    "autoDiscoverModelsFailed": "Failed to auto discover models",
+    "autoDiscoverModelsFailed": "Could not update models. The previous list is preserved.",
     "modelsLastSynced": "Last synced: {{time}}",
     "modelsNeverSynced": "Models have not been synced yet",
     "modelsSyncFailed": "Last sync failed",
@@ -2653,7 +2663,8 @@
     "enablePaidModel": "Enable paid use",
     "billing": {
       "paid": "Paid",
-      "unknown": "Pricing unknown"
+      "unknown": "Pricing unknown",
+      "free": "Free"
     },
     "anthropicOutputHint": "Automatic mode supplies an output budget within model capacity and thinking constraints.",
     "capabilities": {
@@ -2674,6 +2685,53 @@
       "billing_unknown": "Free status unverified",
       "billing_paid": "Paid model",
       "ranking_version_mismatch": "Ranking version needs review"
+    },
+    "pool": {
+      "unsupported": "This endpoint does not support model listing. The built-in catalog and existing models are preserved; you can add models manually.",
+      "candidates": "Candidates ({{count}})",
+      "selected": "Selected ({{count}})",
+      "hint": "Enable a model to include it in chat and default model selectors. Every model can be configured directly.",
+      "managedHint": "Organization models are managed by your administrator.",
+      "billing": "All prices",
+      "capability": "All capabilities",
+      "availability": "All availability",
+      "family": "All families",
+      "clear": "Clear filters",
+      "capabilityOptions": {
+        "image": "Image input",
+        "audio": "Audio input",
+        "video": "Video input",
+        "tool_calling": "Tool calling",
+        "unknown": "Capabilities unknown"
+      },
+      "status": {
+        "available": "Available",
+        "unverified": "Unverified",
+        "permission_denied": "No permission",
+        "model_not_found": "Not found",
+        "rate_limited": "Rate limited",
+        "transient_error": "Temporarily unavailable",
+        "incompatible_api": "Incompatible protocol"
+      },
+      "results": "{{count}} models",
+      "empty": "No matching models",
+      "emptyHint": "Adjust filters or discover more models.",
+      "select": "Select",
+      "deselect": "Move to candidates",
+      "context": "Context",
+      "output": "Max output",
+      "manualHint": "Missing a model? Add it manually.",
+      "discovered": "Found {{count}} new candidates. They have not been added to selectors.",
+      "probeFinished": "Probe completed. Capabilities refreshed.",
+      "autoValue": "Auto: {{value}}",
+      "autoUnknown": "Auto: unknown",
+      "outputDefault": "Provider default (limit {{value}})",
+      "cardCounts": "{{selected}} selected · {{candidates}} candidates",
+      "all": "All models ({{count}})",
+      "selectionFilter": "Selection status",
+      "selectorToggle": "Enable in model selector",
+      "enabled": "Selected",
+      "disabled": "Not selected"
     }
   },
   "files": {

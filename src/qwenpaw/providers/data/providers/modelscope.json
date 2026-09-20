@@ -52,7 +52,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "ZhipuAI/GLM-4.6",
@@ -63,7 +64,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-30"
     },
     {
       "id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
@@ -74,7 +76,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-30"
     },
     {
       "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
@@ -85,7 +88,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-31"
     },
     {
       "id": "Qwen/Qwen3-235B-A22B-Instruct-2507",
@@ -96,7 +100,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04-28"
     },
     {
       "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
@@ -107,7 +112,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-25"
     },
     {
       "id": "Qwen/Qwen3-30B-A3B-Thinking-2507",
@@ -118,7 +124,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-30"
     }
   ]
 }

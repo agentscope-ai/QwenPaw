@@ -32,7 +32,8 @@
       "max_output_length_source": "catalog",
       "billing": "free",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-01-19"
     },
     {
       "id": "glm-5",
@@ -53,7 +54,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "glm-5.2",
@@ -74,7 +76,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-13"
     },
     {
       "id": "glm-5.1",
@@ -95,7 +98,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-07"
     },
     {
       "id": "glm-5-turbo",
@@ -116,7 +120,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-03-16"
     },
     {
       "id": "glm-5v-turbo",
@@ -137,7 +142,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-01"
     },
     {
       "id": "glm-4.7",
@@ -148,7 +154,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-22"
     },
     {
       "id": "glm-4.5-air",
@@ -159,7 +166,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "glm-4.6",
@@ -170,7 +178,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-30"
     },
     {
       "id": "glm-4.6v",
@@ -181,7 +190,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2025-12-08"
     },
     {
       "id": "glm-4.5-flash",
@@ -192,7 +202,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "glm-5.3-flash",
@@ -204,7 +215,8 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "ranking_id": "z-ai/glm-5.3-flash"
+      "ranking_id": "z-ai/glm-5.3-flash",
+      "released_at": "2026-08-26"
     },
     {
       "id": "glm-4.5",
@@ -215,7 +227,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "glm-4.5v",
@@ -226,7 +239,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2025-08-11"
     },
     {
       "id": "glm-4.7-flashx",
@@ -237,7 +251,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-01-19"
     },
     {
       "id": "glm-5.3",
@@ -248,7 +263,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-14"
     }
   ]
 }

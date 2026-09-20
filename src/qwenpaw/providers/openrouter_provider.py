@@ -17,6 +17,8 @@ from qwenpaw.providers.provider import (
     ExtendedModelInfo,
     ModelInfo,
 )
+from .model_info import release_date
+from ..utils.io_utils import run_sync_io
 from .capping_formatter import _CappingOpenAIFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .multimodal_prober import ProbeResult
@@ -196,7 +198,11 @@ class OpenRouterProvider(Provider):
                 # OpenRouter's /models reports authoritative context metadata.
                 # Store it as auto-detected so it wins over catalog and static
                 # values without becoming an explicit user override.
-                window_kwargs: dict[str, int] = {}
+                window_kwargs: dict[str, Any] = {
+                    f"released_at": release_date(
+                        getattr(row, f"created", None)
+                    ),
+                }
                 try:
                     context_length = int(
                         getattr(row, "context_length", 0) or 0,
@@ -216,47 +222,43 @@ class OpenRouterProvider(Provider):
                 if type(output_limit) is int and output_limit > 0:
                     window_kwargs[f"max_output_length"] = output_limit
 
+                architecture = getattr(row, f"architecture", None) or {}
+                input_modalities = architecture.get(f"input_modalities")
+                output_modalities = architecture.get(f"output_modalities")
+                capabilities: dict[str, Any] = {}
+                if isinstance(input_modalities, list) and input_modalities:
+                    for modality in (f"image", f"audio", f"video"):
+                        capabilities[f"supports_{modality}"] = (
+                            modality in input_modalities
+                        )
+                    capabilities[f"supports_multimodal"] = any(
+                        modality in input_modalities
+                        for modality in (f"image", f"audio", f"video")
+                    )
+                    capabilities[f"probe_source"] = f"api"
+                parameters = getattr(row, f"supported_parameters", None)
+                if isinstance(parameters, list):
+                    capabilities[f"supports_tool_calling"] = (
+                        f"tools" in parameters
+                    )
+                common = dict(
+                    id=model_id,
+                    name=model_name,
+                    is_free=is_free,
+                    billing=billing,
+                    **capabilities,
+                    **window_kwargs,
+                )
                 if include_extended:
-                    # Get architecture and pricing from the API response
-                    # These are dict attributes of the Model object
-                    architecture = getattr(row, "architecture", None) or {}
-
-                    # Extract modalities from architecture dict
-                    arch_input = architecture.get("input_modalities", [])
-                    arch_output = architecture.get("output_modalities", [])
-                    input_modalities = list(arch_input) if arch_input else []
-                    output_modalities = (
-                        list(arch_output) if arch_output else []
-                    )
-                    supports_image = "image" in input_modalities
-                    supports_video = "video" in input_modalities
-                    supports_multimodal = any(
-                        modality != "text" for modality in input_modalities
-                    )
-
                     models[model_id] = ExtendedModelInfo(
-                        id=model_id,
-                        name=model_name,
-                        supports_multimodal=supports_multimodal,
-                        supports_image=supports_image,
-                        supports_video=supports_video,
-                        probe_source="documentation",
-                        is_free=is_free,
-                        billing=billing,
+                        **common,
                         provider=provider,
-                        input_modalities=input_modalities,
-                        output_modalities=output_modalities,
+                        input_modalities=input_modalities or [],
+                        output_modalities=output_modalities or [],
                         pricing=pricing_dict,
-                        **window_kwargs,
                     )
                 else:
-                    models[model_id] = ModelInfo(
-                        id=model_id,
-                        name=model_name,
-                        is_free=is_free,
-                        billing=billing,
-                        **window_kwargs,
-                    )
+                    models[model_id] = ModelInfo(**common)
 
         return list(models.values())
 
@@ -286,7 +288,7 @@ class OpenRouterProvider(Provider):
         Returns:
             List of ModelInfo (or ExtendedModelInfo if include_extended=True)
         """
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(
@@ -332,7 +334,7 @@ class OpenRouterProvider(Provider):
         flags over previously known values.
         """
         try:
-            client = self._client(timeout=timeout)
+            client = await run_sync_io(self._client, timeout=timeout)
             payload = await client.models.list(timeout=timeout)
         except APIError as exc:
             raise ProviderError(

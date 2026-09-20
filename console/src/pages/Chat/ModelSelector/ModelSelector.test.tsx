@@ -6,6 +6,21 @@ import ModelSelector from "./index";
 import { AgentModelSettings } from "./AgentModelSettings";
 import { useTurnUsageStore } from "../turnUsageStore";
 
+vi.mock("./SelectorModelManager", () => ({
+  default: ({
+    onSaved,
+    onClose,
+  }: {
+    onSaved: () => Promise<void>;
+    onClose: () => void;
+  }) => (
+    <div role="region" aria-label="selector-manager">
+      <button onClick={onSaved}>save-selector</button>
+      <button onClick={onClose}>close-selector</button>
+    </div>
+  ),
+}));
+
 const agentStoreState = vi.hoisted(() => ({ selectedAgent: "default" }));
 const navigateMock = vi.hoisted(() => vi.fn());
 
@@ -211,6 +226,31 @@ describe("ModelSelector", () => {
 
   afterEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("opens selector management and refreshes models after saving", async () => {
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+    fireEvent.click(
+      screen.getByRole("button", { name: "chat.modelSelectTooltip" }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "modelSelector.manageSelectorModels",
+      }),
+    );
+    expect(
+      await screen.findByRole("region", { name: "selector-manager" }),
+    ).toBeInTheDocument();
+    const calls = vi.mocked(providerApi.listProviders).mock.calls.length;
+    fireEvent.click(screen.getByText("save-selector"));
+    await waitFor(() =>
+      expect(providerApi.listProviders).toHaveBeenCalledTimes(calls + 1),
+    );
+    fireEvent.click(screen.getByText("close-selector"));
+    expect(
+      screen.queryByRole("region", { name: "selector-manager" }),
+    ).not.toBeInTheDocument();
   });
 
   it("displays current active model name on trigger button after loading", async () => {

@@ -41,7 +41,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-08-03"
     },
     {
       "id": "qwen3.7-plus",
@@ -62,7 +63,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-02"
     },
     {
       "id": "qwen3.7-max",
@@ -83,7 +85,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-05-21"
     },
     {
       "id": "qwen3.6-plus",
@@ -104,7 +107,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-02"
     },
     {
       "id": "qwen3.6-flash",
@@ -125,7 +129,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-27"
     },
     {
       "id": "deepseek-v4-pro",
@@ -146,7 +151,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "deepseek-v4-flash",
@@ -167,7 +173,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "deepseek-v3.2",
@@ -188,7 +195,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-12-03"
     },
     {
       "id": "glm-5.2",
@@ -209,7 +217,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-13"
     },
     {
       "id": "glm-5.1",
@@ -230,7 +239,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-07"
     },
     {
       "id": "glm-5",
@@ -251,7 +261,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "MiniMax-M2.5",
@@ -272,7 +283,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "kimi-k2.7-code",
@@ -293,7 +305,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-12"
     },
     {
       "id": "kimi-k2.6",
@@ -314,7 +327,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-21"
     },
     {
       "id": "kimi-k2.5",
@@ -335,7 +349,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-01"
     },
     {
       "id": "deepseek-v4-pro-0813",
@@ -346,7 +361,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-12"
     },
     {
       "id": "deepseek-v4-flash-0731",
@@ -357,7 +373,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-31"
     },
     {
       "id": "qwen3.8-max-preview",
@@ -368,7 +385,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-19"
     },
     {
       "id": "wan2.7-image-pro",
@@ -377,7 +395,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-05-29"
     },
     {
       "id": "deepseek-v4.1-flash",
@@ -388,7 +407,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-09-10"
     },
     {
       "id": "qwen-image-2.0-pro",
@@ -397,7 +417,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-03"
     },
     {
       "id": "qwen-image-2.0",
@@ -406,7 +427,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-03"
     },
     {
       "id": "qwen3.8-flash",
@@ -417,7 +439,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-26"
     },
     {
       "id": "glm-5.3",
@@ -428,7 +451,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-14"
     },
     {
       "id": "wan2.7-image",
@@ -437,7 +461,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-05-29"
     }
   ]
 }

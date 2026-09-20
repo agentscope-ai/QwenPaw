@@ -43,6 +43,7 @@ def resolve_model_info(
         f"supports_audio",
         f"supports_tool_calling",
         f"ranking_id",
+        f"released_at",
     ):
         for match in matches:
             value = getattr(match.model, field)
@@ -120,9 +121,49 @@ def resolve_model_info(
         f"supports_audio",
         f"supports_tool_calling",
         f"ranking_id",
+        f"released_at",
     ):
-        if getattr(result, field) is None and field in catalog_values:
+        if field in catalog_values and (
+            getattr(result, field) is None
+            or (
+                field != f"released_at"
+                and field not in result.config_overrides
+                and result.probe_source != f"probed"
+                and (
+                    result.source != f"discovered"
+                    or result.probe_source == f"documentation"
+                )
+            )
+        ):
             setattr(result, field, catalog_values[field])
+    if result.billing == f"unknown":
+        for match in matches:
+            if (
+                match.source != f"template"
+                and match.model.billing != f"unknown"
+            ):
+                result.billing = match.model.billing
+                result.billing_source = f"catalog"
+                result.is_free = result.billing == f"free"
+                break
+    if discovered is not None and discovered.probe_source == f"api":
+        for field in (
+            f"supports_image",
+            f"supports_audio",
+            f"supports_video",
+            f"supports_tool_calling",
+        ):
+            if field not in result.config_overrides and (
+                getattr(discovered, field) is not None
+            ):
+                setattr(result, field, getattr(discovered, field))
+                provenance[field] = {
+                    f"source": f"api",
+                    f"reference": provider.base_url,
+                    f"updated_at": discovered.discovered_at,
+                }
+    if discovered is not None and discovered.released_at:
+        result.released_at = discovered.released_at
     result.ranking = model_ranking(result.ranking_id)
     modalities = (
         result.supports_image,

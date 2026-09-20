@@ -28,7 +28,8 @@
       "max_output_length_source": "catalog",
       "billing": "free",
       "supports_tool_calling": true,
-      "supports_audio": true
+      "supports_audio": true,
+      "released_at": "2026-04-24"
     },
     {
       "id": "nemotron-3-ultra-free",
@@ -49,7 +50,8 @@
       "max_output_length_source": "catalog",
       "billing": "free",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-04"
     },
     {
       "id": "claude-sonnet-4-6",
@@ -60,7 +62,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-17"
     },
     {
       "id": "gemini-3.1-pro",
@@ -71,7 +74,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-02-19"
     },
     {
       "id": "gpt-5-nano",
@@ -82,7 +86,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-07"
     },
     {
       "id": "glm-4.7",
@@ -93,7 +98,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-22"
     },
     {
       "id": "hy3-preview-free",
@@ -104,7 +110,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-20"
     },
     {
       "id": "deepseek-v4-flash-vision-exp",
@@ -115,7 +122,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-21"
     },
     {
       "id": "grok-code",
@@ -126,7 +134,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-20"
     },
     {
       "id": "muse-spark-1.3",
@@ -137,7 +146,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-09-02"
     },
     {
       "id": "muse-spark-1.3-contributor-free",
@@ -148,7 +158,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-09-02"
     },
     {
       "id": "gpt-5-codex",
@@ -159,7 +170,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-15"
     },
     {
       "id": "muse-spark-1.2",
@@ -170,7 +182,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-05"
     },
     {
       "id": "glm-4.6",
@@ -181,7 +194,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-30"
     },
     {
       "id": "north-mini-code-free",
@@ -192,7 +206,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-09"
     },
     {
       "id": "minimax-m2.1",
@@ -203,7 +218,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-23"
     },
     {
       "id": "minimax-m2.1-free",
@@ -214,7 +230,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-23"
     },
     {
       "id": "gpt-5.1-codex-mini",
@@ -225,7 +242,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-13"
     },
     {
       "id": "qwen3.6-plus",
@@ -236,7 +254,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-02"
     },
     {
       "id": "gpt-5.1-codex",
@@ -247,7 +266,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-13"
     },
     {
       "id": "gpt-5.6-sol",
@@ -258,7 +278,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-09"
     },
     {
       "id": "claude-opus-5",
@@ -269,7 +290,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-24"
     },
     {
       "id": "minimax-m2.7",
@@ -280,7 +302,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-18"
     },
     {
       "id": "kimi-k2.6",
@@ -291,7 +314,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-21"
     },
     {
       "id": "gpt-5.2-codex",
@@ -302,7 +326,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-01-14"
     },
     {
       "id": "longcat-2.0-free",
@@ -313,7 +338,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-30"
     },
     {
       "id": "glm-5.2",
@@ -324,7 +350,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-13"
     },
     {
       "id": "gpt-6-astra",
@@ -335,7 +362,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-09-04"
     },
     {
       "id": "claude-opus-4-5",
@@ -346,7 +374,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-24"
     },
     {
       "id": "deepseek-v4-flash-free",
@@ -357,7 +386,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-31"
     },
     {
       "id": "minimax-m2.5",
@@ -368,7 +398,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "minimax-m3",
@@ -379,7 +410,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-06-01"
     },
     {
       "id": "laguna-s-2.1-free",
@@ -390,7 +422,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-21"
     },
     {
       "id": "deepseek-v4-flash",
@@ -401,7 +434,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-31"
     },
     {
       "id": "kimi-k2.7-code",
@@ -412,7 +446,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-06-12"
     },
     {
       "id": "kimi-k2-thinking",
@@ -423,7 +458,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-05"
     },
     {
       "id": "gpt-5.3-codex-spark",
@@ -434,7 +470,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "grok-4.5",
@@ -445,7 +482,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-08"
     },
     {
       "id": "gemini-3.6-flash",
@@ -456,7 +494,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-21"
     },
     {
       "id": "minimax-m3-free",
@@ -467,7 +506,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-05-31"
     },
     {
       "id": "gpt-5.4",
@@ -478,7 +518,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-05"
     },
     {
       "id": "grok-build-0.1",
@@ -489,7 +530,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-16"
     },
     {
       "id": "qwen3-coder",
@@ -500,7 +542,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-23"
     },
     {
       "id": "claude-fable-5-1",
@@ -511,7 +554,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-09-01"
     },
     {
       "id": "gpt-5.1",
@@ -522,7 +566,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-13"
     },
     {
       "id": "gpt-5.1-codex-max",
@@ -533,7 +578,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-13"
     },
     {
       "id": "claude-opus-4-6",
@@ -544,7 +590,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-05"
     },
     {
       "id": "gemini-3.5-flash",
@@ -555,7 +602,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-05-19"
     },
     {
       "id": "muse-spark-1.2-contributor-free",
@@ -566,7 +614,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-05"
     },
     {
       "id": "x-preview-f-free",
@@ -577,7 +626,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-21"
     },
     {
       "id": "gpt-5.6-luna",
@@ -588,7 +638,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-09"
     },
     {
       "id": "claude-opus-4-7",
@@ -599,7 +650,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-16"
     },
     {
       "id": "kimi-k3",
@@ -610,7 +662,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-16"
     },
     {
       "id": "ling-2.6-flash-free",
@@ -621,7 +674,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-21"
     },
     {
       "id": "gemini-3-pro",
@@ -632,7 +686,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2025-11-18"
     },
     {
       "id": "nemotron-3.5-lightning-free",
@@ -643,7 +698,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-11"
     },
     {
       "id": "hy3-free",
@@ -654,7 +710,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-06"
     },
     {
       "id": "gpt-5.3-codex",
@@ -665,7 +722,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-24"
     },
     {
       "id": "kimi-k2.5-free",
@@ -676,7 +734,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-01-27"
     },
     {
       "id": "glm-5.3-flash",
@@ -688,7 +747,8 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "ranking_id": "z-ai/glm-5.3-flash"
+      "ranking_id": "z-ai/glm-5.3-flash",
+      "released_at": "2026-08-26"
     },
     {
       "id": "ring-2.6-1t-free",
@@ -699,7 +759,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-05-08"
     },
     {
       "id": "claude-fable-5",
@@ -710,7 +771,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-09"
     },
     {
       "id": "gemini-3.5-flash-lite",
@@ -721,7 +783,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-21"
     },
     {
       "id": "claude-3-5-haiku",
@@ -732,7 +795,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-10-22"
     },
     {
       "id": "nemotron-3-super-free",
@@ -743,7 +807,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-11"
     },
     {
       "id": "gpt-5.4-nano",
@@ -754,7 +819,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-17"
     },
     {
       "id": "gpt-5.5-pro",
@@ -765,7 +831,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "big-pickle",
@@ -776,7 +843,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-17"
     },
     {
       "id": "gpt-5.4-mini",
@@ -787,7 +855,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-17"
     },
     {
       "id": "ling-3.0-flash-fin-free",
@@ -798,7 +867,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-27"
     },
     {
       "id": "kimi-k2",
@@ -809,7 +879,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-05"
     },
     {
       "id": "grok-4.6",
@@ -820,7 +891,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-12"
     },
     {
       "id": "claude-haiku-4-5",
@@ -831,7 +903,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-15"
     },
     {
       "id": "claude-sonnet-4-5",
@@ -842,7 +915,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-29"
     },
     {
       "id": "glm-5",
@@ -853,7 +927,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-11"
     },
     {
       "id": "claude-opus-4-1",
@@ -864,7 +939,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-05"
     },
     {
       "id": "kimi-k2.5",
@@ -875,7 +951,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-01-27"
     },
     {
       "id": "glm-5.1",
@@ -886,7 +963,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-07"
     },
     {
       "id": "jev-latest",
@@ -895,7 +973,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-09-15"
     },
     {
       "id": "ling-3.0-flash-free",
@@ -906,7 +985,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-23"
     },
     {
       "id": "trinity-large-preview-free",
@@ -917,7 +997,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-01-27"
     },
     {
       "id": "gemini-3.8-flash",
@@ -928,7 +1009,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-09-02"
     },
     {
       "id": "claude-opus-4-8",
@@ -939,7 +1021,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-05-28"
     },
     {
       "id": "deepseek-v4-pro",
@@ -950,7 +1033,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "gpt-5.4-pro",
@@ -961,7 +1045,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-05"
     },
     {
       "id": "gemini-3.7-flash",
@@ -972,7 +1057,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-13"
     },
     {
       "id": "glm-4.7-free",
@@ -983,7 +1069,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-22"
     },
     {
       "id": "glm-5-free",
@@ -994,7 +1081,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-11"
     },
     {
       "id": "gpt-5.6-terra",
@@ -1005,7 +1093,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-09"
     },
     {
       "id": "glm-5.3",
@@ -1016,7 +1105,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-14"
     },
     {
       "id": "mimo-v2-flash-free",
@@ -1027,7 +1117,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-16"
     },
     {
       "id": "gpt-5.2",
@@ -1038,7 +1129,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-11"
     },
     {
       "id": "gemini-3-flash",
@@ -1049,7 +1141,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2025-12-17"
     },
     {
       "id": "gpt-5",
@@ -1060,7 +1153,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-07"
     },
     {
       "id": "claude-sonnet-4",
@@ -1071,7 +1165,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-22"
     },
     {
       "id": "claude-sonnet-5",
@@ -1082,7 +1177,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-30"
     },
     {
       "id": "minimax-m2.5-free",
@@ -1093,7 +1189,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "mimo-v2-omni-free",
@@ -1104,7 +1201,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-18"
     },
     {
       "id": "mimo-v2-pro-free",
@@ -1115,7 +1213,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-18"
     },
     {
       "id": "qwen3.6-plus-free",
@@ -1126,7 +1225,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-02"
     },
     {
       "id": "qwen3.5-plus",
@@ -1137,7 +1237,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-02-16"
     },
     {
       "id": "gpt-5.5",
@@ -1148,7 +1249,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-23"
     },
     {
       "id": "ling-3.0-tiny-free",
@@ -1159,7 +1261,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-06"
     }
   ],
   "protocols": {

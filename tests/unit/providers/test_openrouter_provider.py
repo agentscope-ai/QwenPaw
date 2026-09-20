@@ -88,3 +88,36 @@ async def test_empty_discovery_closes_client_without_probing(
     assert result.error == "Provider returned no models"
     fetch_close.assert_awaited_once()
     probe_close.assert_not_awaited()
+
+
+@pytest.mark.parametrize(f"extended", [False, True])
+def test_discovery_always_reads_capabilities(extended):
+    payload = SimpleNamespace(
+        data=[
+            SimpleNamespace(
+                id=f"vendor/vision",
+                architecture={
+                    f"input_modalities": [f"text", f"image", f"audio"],
+                    f"output_modalities": [f"text"],
+                },
+                supported_parameters=[f"tools"],
+            )
+        ]
+    )
+    model = OpenRouterProvider._normalize_models_payload(
+        payload,
+        include_extended=extended,
+    )[0]
+    assert model.supports_image is True
+    assert model.supports_audio is True
+    assert model.supports_video is False
+    assert model.supports_tool_calling is True
+    assert model.probe_source == f"api"
+
+
+def test_missing_modalities_remain_unknown():
+    payload = SimpleNamespace(data=[SimpleNamespace(id=f"vendor/unknown")])
+    model = OpenRouterProvider._normalize_models_payload(payload)[0]
+    assert model.supports_image is None
+    assert model.supports_audio is None
+    assert model.supports_tool_calling is None

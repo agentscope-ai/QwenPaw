@@ -8,11 +8,12 @@ import logging
 import time
 from typing import Any, ClassVar, Dict, List
 
-import httpx
 from agentscope.model import ChatModelBase
 import anthropic
 from pydantic import Field
 
+from .model_info import release_date
+from ..utils.io_utils import run_sync_io
 from .adapters.wire_protocol import anthropic_base_url
 from .multimodal_prober import (
     ProbeResult,
@@ -48,34 +49,9 @@ TOKEN_PLAN_BASE_URL = (
 )
 
 
-class _StripApiKeyTransport(httpx.AsyncHTTPTransport):
-    """Async transport that removes the x-api-key header from every request.
-
-    Used when auth_mode='auth_token' to avoid sending both x-api-key and
-    Authorization headers simultaneously, which some proxies reject.
-
-    The request is reconstructed with ``extensions`` preserved so that
-    per-request configuration such as timeouts and SSE hints set by the
-    Anthropic SDK are not lost.
-    """
-
-    async def handle_async_request(
-        self,
-        request: httpx.Request,
-    ) -> httpx.Response:
-        filtered = [
-            (k, v)
-            for k, v in request.headers.items()
-            if k.lower() != "x-api-key"
-        ]
-        new_request = httpx.Request(
-            method=request.method,
-            url=request.url,
-            headers=filtered,
-            content=request.content,
-            extensions=request.extensions,
-        )
-        return await super().handle_async_request(new_request)
+async def _strip_api_key_header(request: Any) -> None:
+    """Keep bearer authentication exclusive on the SDK's HTTP client."""
+    request.headers.pop(f"x-api-key", None)
 
 
 class AnthropicProvider(Provider):
@@ -104,16 +80,22 @@ class AnthropicProvider(Provider):
     # Cached AsyncClient for auth_token mode; re-created when auth_mode
     # changes so that the transport is always consistent with the current
     # provider config.
-    _strip_http_client: httpx.AsyncClient | None = None
+    _strip_http_client: Any | None = None
+
+    async def close(self) -> None:
+        """Release the cached transport after replacing configuration."""
+        client, self._strip_http_client = self._strip_http_client, None
+        if client is not None:
+            await client.aclose()
 
     def _build_default_headers(self) -> Dict[str, str]:
         return dict(self.custom_headers) if self.custom_headers else {}
 
-    def _get_strip_http_client(self) -> httpx.AsyncClient:
-        """Return a cached AsyncClient backed by _StripApiKeyTransport."""
+    def _get_strip_http_client(self) -> Any:
+        """Use the SDK's client type and strip API keys before sending."""
         if self._strip_http_client is None:
-            self._strip_http_client = httpx.AsyncClient(
-                transport=_StripApiKeyTransport(),
+            self._strip_http_client = anthropic.DefaultAsyncHttpxClient(
+                event_hooks={f"request": [_strip_api_key_header]},
             )
         return self._strip_http_client
 
@@ -163,7 +145,11 @@ class AnthropicProvider(Provider):
 
             if not model_id:
                 continue
-            metadata: dict[str, Any] = {}
+            metadata: dict[str, Any] = {
+                f"released_at": release_date(
+                    getattr(row, f"created_at", None)
+                ),
+            }
             context_window = getattr(row, f"max_input_tokens", None)
             if (
                 isinstance(context_window, (int, float))
@@ -197,7 +183,7 @@ class AnthropicProvider(Provider):
         call so that custom proxies that only expose the messages API still
         pass the connection test.
         """
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             await client.models.list()
             return True, ""
@@ -245,7 +231,7 @@ class AnthropicProvider(Provider):
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             payload = await client.models.list()
             if hasattr(payload, "__aiter__"):
@@ -284,7 +270,7 @@ class AnthropicProvider(Provider):
             ],
             "stream": True,
         }
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             resp = await client.messages.create(**body)
             try:
@@ -501,7 +487,7 @@ class AnthropicProvider(Provider):
         actual rejection reason.
         """
         log_model = sanitize_log_value(model_id)
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             resp = await client.messages.create(
                 model=model_id,
@@ -606,7 +592,7 @@ class AnthropicProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             resp = await client.messages.create(
                 model=model_id,

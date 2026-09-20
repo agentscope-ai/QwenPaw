@@ -35,7 +35,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": true
+      "supports_audio": true,
+      "released_at": "2026-02-19"
     },
     {
       "id": "gemini-3-flash-preview",
@@ -56,7 +57,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": true
+      "supports_audio": true,
+      "released_at": "2025-12-17"
     },
     {
       "id": "gemini-3.1-flash-lite-preview",
@@ -77,7 +79,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": true
+      "supports_audio": true,
+      "released_at": "2026-03-03"
     },
     {
       "id": "gemini-2.5-pro",
@@ -98,7 +101,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": true
+      "supports_audio": true,
+      "released_at": "2025-06-17"
     },
     {
       "id": "gemini-2.5-flash",
@@ -119,7 +123,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": true
+      "supports_audio": true,
+      "released_at": "2025-06-17"
     },
     {
       "id": "gemini-2.5-flash-lite",
@@ -140,7 +145,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": true
+      "supports_audio": true,
+      "released_at": "2025-06-17"
     },
     {
       "id": "gemini-2.0-flash",
@@ -168,7 +174,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-02"
     },
     {
       "id": "gemini-3.1-pro-preview-customtools",
@@ -179,7 +186,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-02-19"
     },
     {
       "id": "gemini-3.1-flash-lite-image",
@@ -190,7 +198,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-30"
     },
     {
       "id": "lyria-3-clip-preview",
@@ -201,7 +210,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-25"
     },
     {
       "id": "gemini-2.5-flash-image",
@@ -212,7 +222,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-26"
     },
     {
       "id": "deep-research-max-preview-04-2026",
@@ -223,7 +234,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-21"
     },
     {
       "id": "gemini-3-pro-image",
@@ -234,7 +246,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-05-28"
     },
     {
       "id": "deep-research-preview-04-2026",
@@ -245,7 +258,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-21"
     },
     {
       "id": "gemini-2.5-computer-use-preview-10-2025",
@@ -256,7 +270,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-07"
     },
     {
       "id": "gemini-3.6-flash",
@@ -267,7 +282,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-21"
     },
     {
       "id": "gemini-3.1-flash-lite",
@@ -278,7 +294,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-05-07"
     },
     {
       "id": "gemini-3.1-flash-live-preview",
@@ -289,7 +306,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-03-26"
     },
     {
       "id": "gemini-2.5-pro-preview-tts",
@@ -300,7 +318,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-01"
     },
     {
       "id": "gemini-3.5-flash",
@@ -311,7 +330,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-05-19"
     },
     {
       "id": "veo-3.1-generate-preview",
@@ -321,7 +341,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-15"
     },
     {
       "id": "veo-3.1-fast-generate-preview",
@@ -331,7 +352,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2025-10-15"
     },
     {
       "id": "gemini-2.5-flash-preview-tts",
@@ -342,7 +364,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-01"
     },
     {
       "id": "gemini-embedding-001",
@@ -353,7 +376,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-20"
     },
     {
       "id": "gemini-3.1-flash-image",
@@ -364,7 +388,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-05-28"
     },
     {
       "id": "gemini-3.5-flash-lite",
@@ -375,7 +400,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-21"
     },
     {
       "id": "gemini-3-pro-image-preview",
@@ -386,7 +412,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-20"
     },
     {
       "id": "gemini-3.1-flash-tts-preview",
@@ -397,7 +424,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-15"
     },
     {
       "id": "veo-3.1-lite-generate-preview",
@@ -407,7 +435,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-31"
     },
     {
       "id": "gemini-flash-lite-latest",
@@ -418,7 +447,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-21"
     },
     {
       "id": "gemma-4-31b-it",
@@ -429,7 +459,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-02"
     },
     {
       "id": "gemini-embedding-2",
@@ -440,7 +471,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-22"
     },
     {
       "id": "gemini-3.8-flash",
@@ -451,7 +483,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-09-02"
     },
     {
       "id": "gemini-3.5-live-translate-preview",
@@ -462,7 +495,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": true,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-09"
     },
     {
       "id": "lyria-3-pro-preview",
@@ -473,7 +507,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-25"
     },
     {
       "id": "gemini-3.7-flash",
@@ -484,7 +519,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-13"
     },
     {
       "id": "gemini-flash-latest",
@@ -495,7 +531,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-08-13"
     },
     {
       "id": "gemini-3.1-flash-image-preview",
@@ -506,7 +543,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-26"
     },
     {
       "id": "gemini-omni-flash-preview",
@@ -517,7 +555,8 @@
       "supports_tool_calling": false,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-06-30"
     }
   ]
 }

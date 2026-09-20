@@ -15,7 +15,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-02"
     },
     {
       "id": "stepfun-ai/Step-3.5-Flash",
@@ -26,7 +27,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-11"
     },
     {
       "id": "deepseek-ai/DeepSeek-V3",
@@ -37,7 +39,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-12-26"
     },
     {
       "id": "deepseek-ai/DeepSeek-V4-Flash",
@@ -48,7 +51,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "deepseek-ai/DeepSeek-V3.1",
@@ -59,7 +63,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-25"
     },
     {
       "id": "deepseek-ai/DeepSeek-V3.1-Terminus",
@@ -70,7 +75,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-29"
     },
     {
       "id": "deepseek-ai/DeepSeek-V3.2-Exp",
@@ -81,7 +87,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-10"
     },
     {
       "id": "deepseek-ai/DeepSeek-R1",
@@ -92,7 +99,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-05-28"
     },
     {
       "id": "deepseek-ai/DeepSeek-V3.2",
@@ -103,7 +111,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-03"
     },
     {
       "id": "deepseek-ai/DeepSeek-V4-Pro",
@@ -114,7 +123,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "inclusionAI/Ling-flash-2.0",
@@ -125,7 +135,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-18"
     },
     {
       "id": "google/gemma-4-31B-it",
@@ -136,7 +147,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-02"
     },
     {
       "id": "google/gemma-4-26B-A4B-it",
@@ -147,7 +159,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-02"
     },
     {
       "id": "zai-org/GLM-5.1",
@@ -158,7 +171,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-08"
     },
     {
       "id": "zai-org/GLM-5V-Turbo",
@@ -169,7 +183,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-01"
     },
     {
       "id": "zai-org/GLM-4.5-Air",
@@ -180,7 +195,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "zai-org/GLM-5.2",
@@ -191,7 +207,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-13"
     },
     {
       "id": "zai-org/GLM-5",
@@ -202,7 +219,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
@@ -213,7 +231,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-30"
     },
     {
       "id": "Qwen/Qwen3-VL-30B-A3B-Thinking",
@@ -224,7 +243,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-11"
     },
     {
       "id": "Qwen/Qwen3.5-27B",
@@ -235,7 +255,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-23"
     },
     {
       "id": "Qwen/Qwen3-8B",
@@ -246,7 +267,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04-30"
     },
     {
       "id": "Qwen/Qwen3-VL-32B-Thinking",
@@ -257,7 +279,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-21"
     },
     {
       "id": "Qwen/Qwen3-14B",
@@ -268,7 +291,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04-30"
     },
     {
       "id": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
@@ -279,7 +303,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-01"
     },
     {
       "id": "Qwen/Qwen3.5-9B",
@@ -290,7 +315,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-03"
     },
     {
       "id": "Qwen/Qwen3.5-122B-A10B",
@@ -301,7 +327,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-23"
     },
     {
       "id": "Qwen/Qwen3-VL-235B-A22B-Instruct",
@@ -312,7 +339,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-04"
     },
     {
       "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
@@ -323,7 +351,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-31"
     },
     {
       "id": "Qwen/Qwen2.5-7B-Instruct",
@@ -334,7 +363,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09-18"
     },
     {
       "id": "Qwen/Qwen2.5-72B-Instruct",
@@ -345,7 +375,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-09-18"
     },
     {
       "id": "Qwen/Qwen3.5-397B-A17B",
@@ -356,7 +387,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-15"
     },
     {
       "id": "Qwen/Qwen3.5-35B-A3B",
@@ -367,7 +399,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-23"
     },
     {
       "id": "Qwen/Qwen3-VL-32B-Instruct",
@@ -378,7 +411,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-21"
     },
     {
       "id": "Qwen/Qwen3-32B",
@@ -389,7 +423,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-04-30"
     },
     {
       "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
@@ -400,7 +435,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-07-28"
     },
     {
       "id": "Qwen/Qwen3.6-27B",
@@ -411,7 +447,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-22"
     },
     {
       "id": "Qwen/Qwen3-VL-8B-Instruct",
@@ -422,7 +459,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-15"
     },
     {
       "id": "Qwen/Qwen3.6-35B-A3B",
@@ -433,7 +471,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-17"
     },
     {
       "id": "Qwen/Qwen3-VL-235B-A22B-Thinking",
@@ -444,7 +483,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-04"
     },
     {
       "id": "Qwen/Qwen3-VL-30B-A3B-Instruct",
@@ -455,7 +495,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-05"
     },
     {
       "id": "ByteDance-Seed/Seed-OSS-36B-Instruct",
@@ -466,7 +507,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-09-04"
     },
     {
       "id": "MiniMaxAI/MiniMax-M2.5",
@@ -477,7 +519,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-15"
     },
     {
       "id": "openai/gpt-oss-20b",
@@ -488,7 +531,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-13"
     },
     {
       "id": "openai/gpt-oss-120b",
@@ -499,7 +543,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-08-13"
     },
     {
       "id": "moonshotai/Kimi-K2.5",
@@ -510,7 +555,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-01-27"
     },
     {
       "id": "moonshotai/Kimi-K2.6",
@@ -521,7 +567,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-21"
     },
     {
       "id": "tencent/Hunyuan-A13B-Instruct",
@@ -532,7 +579,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-06-30"
     },
     {
       "id": "tencent/Hy3-preview",
@@ -543,7 +591,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-20"
     }
   ]
 }

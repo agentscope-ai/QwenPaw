@@ -2159,7 +2159,17 @@
     "moveFallbackUp": "上移 {{model}}",
     "moveFallbackDown": "下移 {{model}}",
     "removeFallback": "移除 {{model}}",
-    "fallbackActive": "实际处理模型：{{provider}} / {{model}}"
+    "fallbackActive": "实际处理模型：{{provider}} / {{model}}",
+    "manageSelectorModels": "管理选择器模型",
+    "addSelectorModel": "添加到选择器",
+    "backToSelected": "返回已选模型",
+    "selectedCount": "已选 {{count}} 个模型",
+    "chooseProviderFirst": "先选择提供商",
+    "currentModelProtected": "当前使用中，请先切换模型",
+    "managedModelProtected": "由提供商管理",
+    "addToSelector": "加入选择器",
+    "removeFromSelector": "移出选择器",
+    "finishEditing": "完成"
   },
   "models": {
     "partialLoadWarning": "部分模型信息暂时不可用，仍可管理个人供应商。",
@@ -2337,7 +2347,7 @@
     "userAdded": "用户添加",
     "addModel": "添加模型",
     "addModels": "添加模型",
-    "autoDiscoverModels": "自动发现模型",
+    "autoDiscoverModels": "更新模型列表",
     "addModelTitle": "为 {{provider}} 添加模型",
     "modelIdLabel": "模型 ID",
     "modelIdPlaceholder": "例如 gpt-4o, gemini-2.0-flash",
@@ -2350,11 +2360,11 @@
     "modelAlreadyExists": "模型 ID \"{{id}}\" 已存在",
     "autoDiscoverModelsSuccess": "模型目录已同步，发现 {{count}} 个新候选模型",
     "autoDiscoverModelsNoNew": "模型目录已同步，没有新的候选模型",
-    "autoDiscoverModelsFailed": "自动发现模型失败",
+    "autoDiscoverModelsFailed": "更新模型列表失败，已保留原列表",
     "modelsLastSynced": "最后同步：{{time}}",
     "modelsNeverSynced": "模型尚未同步",
     "modelsSyncFailed": "上次同步失败",
-    "modelsSyncing": "正在发现模型候选项...",
+    "modelsSyncing": "正在更新模型列表...",
     "discoveredModelsReady": "已发现 {{count}} 个模型候选项，添加后即可使用",
     "addAllDiscoveredModels": "添加全部可用模型（{{count}} 个）",
     "discoveredModelsAdded": "已添加 {{count}} 个已发现模型",
@@ -2511,7 +2521,8 @@
     "enablePaidModel": "确认启用付费使用",
     "billing": {
       "paid": "付费",
-      "unknown": "价格未知"
+      "unknown": "价格未知",
+      "free": "免费"
     },
     "anthropicOutputHint": "自动模式由适配器提供输出预算，并遵守模型上限和 thinking 预算约束。",
     "capabilities": {
@@ -2532,6 +2543,53 @@
       "billing_unknown": "免费状态待确认",
       "billing_paid": "付费模型",
       "ranking_version_mismatch": "评分版本待更新"
+    },
+    "pool": {
+      "unsupported": "此提供商地址不支持模型列表接口，已保留内置目录和已有模型。可手动添加模型。",
+      "candidates": "候选模型 ({{count}})",
+      "selected": "已选模型 ({{count}})",
+      "hint": "打开开关后，模型将出现在聊天与默认模型选择器中。所有模型均可直接配置参数。",
+      "managedHint": "组织提供的模型由管理员管理。",
+      "billing": "全部价格",
+      "capability": "全部能力",
+      "availability": "全部可用性",
+      "family": "全部系列",
+      "clear": "清除筛选",
+      "capabilityOptions": {
+        "image": "图片输入",
+        "audio": "音频输入",
+        "video": "视频输入",
+        "tool_calling": "工具调用",
+        "unknown": "能力待确认"
+      },
+      "status": {
+        "available": "可用",
+        "unverified": "未验证",
+        "permission_denied": "无权限",
+        "model_not_found": "模型不存在",
+        "rate_limited": "限流",
+        "transient_error": "暂时不可用",
+        "incompatible_api": "协议不兼容"
+      },
+      "results": "{{count}} 个模型",
+      "empty": "没有匹配的模型",
+      "emptyHint": "调整筛选条件，或更新模型列表。",
+      "select": "加入已选",
+      "deselect": "移回候选",
+      "context": "上下文",
+      "output": "最大输出",
+      "manualHint": "没有找到需要的模型？可以手动添加。",
+      "discovered": "发现 {{count}} 个新候选模型，尚未加入选择器。",
+      "probeFinished": "探测已完成，能力信息已刷新。",
+      "autoValue": "自动：{{value}}",
+      "autoUnknown": "自动：待确认",
+      "outputDefault": "服务商默认（上限 {{value}}）",
+      "cardCounts": "已选 {{selected}} · 候选 {{candidates}}",
+      "all": "全部模型 ({{count}})",
+      "selectionFilter": "选择状态",
+      "selectorToggle": "在模型选择器中启用",
+      "enabled": "已选",
+      "disabled": "未选"
     }
   },
   "files": {

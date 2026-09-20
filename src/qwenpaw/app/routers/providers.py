@@ -28,6 +28,11 @@ from ...config.config import (
     load_agent_config,
     update_agent_config_async,
 )
+from ...providers.model_pool import (
+    ModelPoolPage,
+    ModelPoolQuery,
+    model_pool_page,
+)
 from ...providers.provider import (
     ModelInfo,
     ProviderInfo,
@@ -338,9 +343,31 @@ async def _load_agent_model(
     summary="List all providers",
 )
 async def list_all_providers(
+    request: Request,
     manager: ProviderManager = Depends(get_provider_manager),
 ) -> List[ProviderInfo]:
-    return await manager.list_provider_info()
+    if request is None:
+        return await manager.list_provider_info()
+    workspace = await get_agent_for_request(request)
+    active = await _load_agent_model(request, workspace.agent_id)
+    return await manager.list_provider_info(active_model=active)
+
+
+@router.get(
+    f"/{{provider_id}}/pool",
+    response_model=ModelPoolPage,
+    response_model_exclude_none=True,
+)
+async def provider_model_pool(
+    provider_id: str,
+    query: ModelPoolQuery = Depends(),
+    manager: ProviderManager = Depends(get_provider_manager),
+) -> ModelPoolPage:
+    """Load only the requested page without blocking the event loop."""
+    provider = await run_sync_io(manager.get_provider, provider_id)
+    if provider is None:
+        raise HTTPException(status_code=404, detail=f"Provider not found")
+    return await run_sync_io(model_pool_page, provider, query)
 
 
 @router.get(f"/model-templates")
@@ -624,14 +651,18 @@ async def discover_models(
             "base_url": body.base_url if body else None,
             "chat_model": body.chat_model if body else None,
         }
-        if save:
+        overrides = {
+            key: value for key, value in overrides.items() if value is not None
+        }
+        if save and overrides:
             ok = await manager.update_provider_async(provider_id, overrides)
             if not ok:
                 raise HTTPException(
                     status_code=404,
                     detail=f"Provider '{provider_id}' not found",
                 )
-        provider_override = manager.materialize_discovery_provider(
+        provider_override = await run_sync_io(
+            manager.materialize_discovery_provider,
             provider_id,
             overrides,
         )
@@ -735,6 +766,33 @@ async def add_model_endpoint(
     except (ValueError, AppBaseException) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return provider
+
+
+class ModelPoolRequest(BaseModel):
+    selected: bool | None = None
+    seen: bool = False
+
+
+@router.put(
+    "/{provider_id}/models/{model_id:path}/pool",
+    response_model=ProviderInfo,
+    summary=f"Select a candidate or mark it as read",
+)
+async def update_model_pool(
+    manager: ProviderManager = Depends(get_provider_manager),
+    provider_id: str = Path(...),
+    model_id: str = Path(...),
+    body: ModelPoolRequest = Body(...),
+) -> ProviderInfo:
+    try:
+        return await manager.update_model_pool(
+            provider_id,
+            model_id,
+            selected=body.selected,
+            seen=body.seen,
+        )
+    except (ValueError, AppBaseException) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.put(

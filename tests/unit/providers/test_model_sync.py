@@ -34,13 +34,18 @@ async def test_free_discovery_paid_transition_and_explicit_enable(
     fetch = AsyncMock(return_value=[remote])
     monkeypatch.setattr(OpenRouterProvider, f"fetch_models", fetch)
     assert (await manager.discover_provider_models(provider.id)).success
+    provider = manager.get_provider(provider.id)
+    assert provider.get_model_info(remote.id) is None
+    assert not (await provider.get_info()).models
+    await manager.update_model_pool(provider.id, remote.id, selected=True)
+    provider = manager.get_provider(provider.id)
     assert provider.get_model_info(remote.id) is not None
-    assert (await provider.get_info()).models[0].auto_enabled
     instance = provider.get_chat_model_instance(remote.id)
     remote.is_free = False
     remote.billing = f"paid"
     assert (await manager.discover_provider_models(provider.id)).success
-    assert provider.get_model_info(remote.id) is None
+    provider = manager.get_provider(provider.id)
+    assert provider.get_model_info(remote.id).requires_paid_confirmation
     with pytest.raises(ProviderError, match=f"no longer confirmed free"):
         provider.check_model_billing(remote.id)
     with pytest.raises(ProviderError, match=f"no longer confirmed free"):
@@ -48,10 +53,12 @@ async def test_free_discovery_paid_transition_and_explicit_enable(
     reloaded = ProviderManager().get_provider(provider.id)
     with pytest.raises(ProviderError):
         reloaded.check_model_billing(remote.id)
-    await manager.add_model_to_provider(
+    await manager.update_model_config(
         provider.id,
-        ModelInfo(id=remote.id, name=remote.name),
+        remote.id,
+        {f"confirm_paid": True},
     )
+    provider = manager.get_provider(provider.id)
     provider.check_model_billing(remote.id)
     assert not provider.get_model_info(remote.id).auto_enabled
 
@@ -78,6 +85,7 @@ async def test_removed_free_model_does_not_return_after_sync_or_restart(
     await manager.delete_model_from_provider(provider.id, remote.id)
     await manager.discover_provider_models(provider.id)
     assert provider.get_model_info(remote.id) is None
+    provider = manager.get_provider(provider.id)
     assert remote.id in provider.removed_model_ids
     reloaded = ProviderManager().get_provider(provider.id)
     assert remote.id in reloaded.removed_model_ids
@@ -104,11 +112,13 @@ async def test_failed_sync_preserves_cache_but_complete_sync_marks_missing(
     await manager.discover_provider_models(provider.id)
     fetch.side_effect = TimeoutError(f"timeout")
     assert not (await manager.discover_provider_models(provider.id)).success
-    assert provider.get_model_info(remote.id) is not None
+    provider = manager.get_provider(provider.id)
+    assert provider.get_discovered_model_info(remote.id) is not None
     fetch.side_effect = None
     fetch.return_value = [ModelInfo(id=f"other", name=f"Other")]
     await manager.discover_provider_models(provider.id)
     assert provider.get_model_info(remote.id) is None
+    provider = manager.get_provider(provider.id)
     assert provider.get_discovered_model_info(remote.id).remote_missing
     with pytest.raises(ProviderError):
         provider.check_model_billing(remote.id)

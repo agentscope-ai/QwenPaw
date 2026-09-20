@@ -98,3 +98,21 @@ def list_model_templates() -> list[dict[str, str]]:
                         f"provider_id": key,
                     }
     return list(templates.values())
+
+
+def provider_catalog_models(
+    provider_id: str, base_url: str
+) -> list[ModelInfo]:
+    """Load the complete service shard for its candidate pool."""
+    endpoint = base_url.rstrip(f"/")
+    keys = matching_catalog_keys(provider_id, endpoint, f"", None)
+    models = {}
+    for document, _ in catalog_documents(keys):
+        for key, entry in document.providers.items():
+            if key != provider_id and endpoint not in {
+                url.rstrip(f"/") for url in entry.api_urls
+            }:
+                continue
+            for model in entry.models:
+                models[model.id] = model
+    return list(models.values())

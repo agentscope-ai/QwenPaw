@@ -23,7 +23,10 @@ def sync_due(provider: Provider) -> bool:
     except ValueError:
         return True
     has_free = any(
-        model.is_free for model in provider.models + provider.discovered_models
+        model.is_free
+        for model in provider.models
+        + provider.discovered_models
+        + provider.extra_models
     ) or provider.id in {f"opencode", f"kilo"}
     ttl = (6 if has_free else 24) * 3600
     age = (datetime.now(timezone.utc) - synced).total_seconds()
@@ -38,7 +41,9 @@ def reconcile_models(
     """Retain preferences and gate formerly free models after price changes."""
     previous = {
         model.id: model
-        for model in provider.models + provider.discovered_models
+        for model in provider.models
+        + provider.discovered_models
+        + provider.extra_models
     }
     removed = set(provider.removed_model_ids)
     by_id = {model.id: model for model in models}
@@ -55,34 +60,16 @@ def reconcile_models(
             or old.auto_enabled
             or old.is_free
         )
-        current.auto_enabled = old.auto_enabled or old.is_free
-        if current.auto_enabled:
+        for field in old.config_overrides:
+            if field in type(old).model_fields:
+                setattr(current, field, getattr(old, field))
+        current.config_overrides = list(old.config_overrides)
+        current.auto_enabled = old.auto_enabled
+        if old.billing == f"free" or old.requires_paid_confirmation:
             current.requires_paid_confirmation = (
                 current.billing != f"free" or current.remote_missing
             )
-    for model in by_id.values():
-        if model.billing == f"free" and not model.remote_missing:
-            model.auto_enabled = True
-            model.requires_paid_confirmation = False
     return list(by_id.values())
-
-
-def automatic_models(provider: Provider) -> list[ModelInfo]:
-    """Expose live free discoveries while retaining user choices."""
-    hidden = set(provider.hidden_model_ids) | set(provider.removed_model_ids)
-    configured = {
-        model.id for model in provider.models + provider.extra_models
-    }
-    return [
-        model
-        for model in provider.discovered_models
-        if model.auto_enabled
-        and model.id not in hidden | configured
-        and not model.remote_missing
-        and not model.requires_paid_confirmation
-        and model.billing == f"free"
-        and provider.model_recommendation(model).eligible
-    ]
 
 
 def invalidate_api_metadata(provider: Provider) -> None:

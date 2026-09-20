@@ -66,8 +66,8 @@ BUILTIN_DISCOVERY_POLICIES: dict[str, ProviderDiscoveryPolicy] = {
     "openrouter": ProviderDiscoveryPolicy(
         "provider_specific",
         sync_mode="startup",
+        requires_auth=False,
     ),
-    "github-models": _CATALOG_PLAN,
     "modelscope": ProviderDiscoveryPolicy("provider_specific"),
     "dashscope": ProviderDiscoveryPolicy("provider_specific"),
     "aliyun-codingplan": _CATALOG_PLAN,

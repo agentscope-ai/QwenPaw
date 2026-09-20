@@ -20,7 +20,7 @@ from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..constant import EnvVarLoader, WORKING_DIR
-from .model_info import ModelInfo
+from .model_info import ModelInfo, release_date
 
 CATALOG_SCHEMA_VERSION = 2
 PACKAGED_CATALOG_PATH = Path(__file__).parent / f"data" / f"index.json"
@@ -567,6 +567,9 @@ def update_model_metadata(timeout: float = 10) -> None:
             if not isinstance(limits, dict):
                 continue
             fields = {}
+            released = release_date(row.get(f"release_date"))
+            if released:
+                fields[f"released_at"] = released
             if type(row.get(f"tool_call")) is bool:
                 fields[f"supports_tool_calling"] = row[f"tool_call"]
             modalities = row.get(f"modalities")

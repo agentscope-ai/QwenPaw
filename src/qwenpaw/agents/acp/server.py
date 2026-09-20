@@ -344,9 +344,9 @@ class QwenPawACPAgent(Agent):
         ):
             info[ACP_EPHEMERAL_META_KEY] = True
         if self._runtime_provider is not None:
-            info[
-                _ACP_RUNTIME_MODEL_SLOT_KEY
-            ] = self._runtime_provider.model_slot
+            info[_ACP_RUNTIME_MODEL_SLOT_KEY] = (
+                self._runtime_provider.model_slot
+            )
         return info
 
     async def _install_runtime_provider(self) -> None:
@@ -426,9 +426,9 @@ class QwenPawACPAgent(Agent):
 
         return WorkspaceBootstrapFactory.build_bootstrap_kwargs(
             app_services,
-            extra_command_specs=extra_command_specs
-            if extra_command_specs
-            else None,
+            extra_command_specs=(
+                extra_command_specs if extra_command_specs else None
+            ),
         )
 
     async def _ensure_workspace(self) -> Any:
@@ -1332,8 +1332,12 @@ class QwenPawACPAgent(Agent):
                     current_model_id=model_id,
                 )
 
-            manager = ProviderManager.get_instance()
-            provider_infos = await manager.list_provider_info()
+            manager = await run_sync_io(ProviderManager.get_instance)
+            agent_id = self._resolve_agent_id()
+            agent_config = await run_sync_io(load_agent_config, agent_id)
+            provider_infos = await manager.list_provider_info(
+                active_model=agent_config.active_model,
+            )
 
             available_models: list[ACPModelInfo] = []
             for pinfo in provider_infos:
@@ -1345,8 +1349,6 @@ class QwenPawACPAgent(Agent):
                         ),
                     )
 
-            agent_id = self._resolve_agent_id()
-            agent_config = load_agent_config(agent_id)
             active = agent_config.active_model
             if active and active.provider_id and active.model:
                 current_model_id = f"{active.provider_id}:{active.model}"

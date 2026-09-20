@@ -66,7 +66,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-13"
     },
     {
       "id": "glm-5.1",
@@ -104,7 +105,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-03-16"
     },
     {
       "id": "glm-5v-turbo",
@@ -132,7 +134,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-06-13"
     },
     {
       "id": "glm-4.7",
@@ -143,7 +146,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-22"
     },
     {
       "id": "glm-5.3-highspeed",
@@ -154,7 +158,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-14"
     },
     {
       "id": "glm-5.3-flash",
@@ -166,7 +171,8 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "ranking_id": "z-ai/glm-5.3-flash"
+      "ranking_id": "z-ai/glm-5.3-flash",
+      "released_at": "2026-08-26"
     },
     {
       "id": "glm-5.3",
@@ -177,7 +183,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-08-14"
     }
   ]
 }

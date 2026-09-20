@@ -102,5 +102,5 @@ class TestOpenCodeProvider:
         info = asyncio.run(provider.get_info())
         assert info.models == []
         model_ids = {m.id for m in info.discovered_models}
-        assert model_ids == {m.id for m in OPENCODE_MODELS}
+        assert model_ids >= {m.id for m in OPENCODE_MODELS}
         assert all(m.recommendation_reason for m in info.discovered_models)

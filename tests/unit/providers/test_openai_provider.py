@@ -10,7 +10,6 @@ import pytest
 
 import qwenpaw.providers.openai_provider as openai_provider_module
 from qwenpaw.providers.openai_provider import (
-    GitHubModelsProvider,
     KiloProvider,
     OpenCodeProvider,
     OpenAIProvider,
@@ -335,44 +334,6 @@ async def test_multimodal_probes_close_clients_on_success_and_error(
     assert video_result == (None, "Probe failed: video probe failed")
     image_close.assert_awaited_once()
     video_close.assert_awaited_once()
-
-
-async def test_github_models_connection_closes_client(monkeypatch) -> None:
-    provider = GitHubModelsProvider(
-        id="github-models",
-        name="GitHub Models",
-        base_url="https://models.github.ai/inference",
-        api_key="gh-test",
-        chat_model="OpenAIChatModel",
-    )
-    response_close = AsyncMock()
-    client_close = AsyncMock()
-
-    class FakeStream:
-        response = SimpleNamespace(aclose=response_close)
-
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            raise StopAsyncIteration
-
-    class FakeCompletions:
-        async def create(self, **kwargs):
-            _ = kwargs
-            return FakeStream()
-
-    fake_client = SimpleNamespace(
-        chat=SimpleNamespace(completions=FakeCompletions()),
-        close=client_close,
-    )
-    monkeypatch.setattr(provider, "_client", lambda timeout=5: fake_client)
-
-    result = await provider.check_connection(timeout=2)
-
-    assert result == (True, "")
-    response_close.assert_awaited_once()
-    client_close.assert_awaited_once()
 
 
 async def test_check_gpt5_model_uses_max_completion_tokens(

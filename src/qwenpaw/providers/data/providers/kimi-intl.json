@@ -37,7 +37,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-07-16"
     },
     {
       "id": "kimi-k2.7-code",
@@ -58,7 +59,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-12"
     },
     {
       "id": "kimi-k2.7-code-highspeed",
@@ -79,7 +81,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-12"
     },
     {
       "id": "kimi-k2.6",
@@ -100,7 +103,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-21"
     },
     {
       "id": "kimi-k2.5",

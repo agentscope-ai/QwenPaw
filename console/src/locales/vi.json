@@ -1953,7 +1953,17 @@
     "error": "Tải mô hình thất bại",
     "default": "Mặc định",
     "custom": "Tùy chỉnh",
-    "refresh": "Làm mới danh sách mô hình"
+    "refresh": "Làm mới danh sách mô hình",
+    "manageSelectorModels": "Manage selector models",
+    "addSelectorModel": "Add to selector",
+    "backToSelected": "Back to selected models",
+    "selectedCount": "{{count}} selected models",
+    "chooseProviderFirst": "Choose a provider first",
+    "currentModelProtected": "Switch the current model before removing it",
+    "managedModelProtected": "Managed by the provider",
+    "addToSelector": "Add to selector",
+    "removeFromSelector": "Remove from selector",
+    "finishEditing": "Done"
   },
   "modelConfig": {
     "title": "Cấu hình mô hình",
@@ -2724,7 +2734,58 @@
     "tagNotProbed": "Chưa kiểm tra",
     "tagText": "Văn bản",
     "tagVideo": "Video",
-    "tagMultimodal": "Đa phương thức"
+    "tagMultimodal": "Đa phương thức",
+    "pool": {
+      "unsupported": "This endpoint does not support model listing. The built-in catalog and existing models are preserved; you can add models manually.",
+      "candidates": "Candidates ({{count}})",
+      "selected": "Selected ({{count}})",
+      "hint": "Enable a model to include it in chat and default model selectors. Every model can be configured directly.",
+      "managedHint": "Organization models are managed by your administrator.",
+      "billing": "All prices",
+      "capability": "All capabilities",
+      "availability": "All availability",
+      "family": "All families",
+      "clear": "Clear filters",
+      "capabilityOptions": {
+        "image": "Image input",
+        "audio": "Audio input",
+        "video": "Video input",
+        "tool_calling": "Tool calling",
+        "unknown": "Capabilities unknown"
+      },
+      "status": {
+        "available": "Available",
+        "unverified": "Unverified",
+        "permission_denied": "No permission",
+        "model_not_found": "Not found",
+        "rate_limited": "Rate limited",
+        "transient_error": "Temporarily unavailable",
+        "incompatible_api": "Incompatible protocol"
+      },
+      "results": "{{count}} models",
+      "empty": "No matching models",
+      "emptyHint": "Adjust filters or discover more models.",
+      "select": "Select",
+      "deselect": "Move to candidates",
+      "context": "Context",
+      "output": "Max output",
+      "configureHint": "Select this model to configure its parameters.",
+      "manualHint": "Missing a model? Add it manually.",
+      "discovered": "Found {{count}} new candidates. They have not been added to selectors.",
+      "probeFinished": "Probe completed. Capabilities refreshed.",
+      "autoValue": "Auto: {{value}}",
+      "autoUnknown": "Auto: unknown",
+      "outputDefault": "Provider default (limit {{value}})",
+      "cardCounts": "{{selected}} selected · {{candidates}} candidates",
+      "all": "All models ({{count}})",
+      "selectionFilter": "Selection status",
+      "selectorToggle": "Enable in model selector",
+      "enabled": "Selected",
+      "disabled": "Not selected"
+    },
+    "billing": {
+      "free": "Free"
+    }
   },
   "security": {
     "parent": "Cài đặt",

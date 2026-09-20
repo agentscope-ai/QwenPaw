@@ -13,7 +13,7 @@ export function ModelInfoPreview({
   providerId: string;
   modelId?: string;
   templateId?: string;
-  onTemplateChange: (value?: string) => void;
+  onTemplateChange?: (value?: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const [info, setInfo] = useState<ModelInfo | null>(null);
@@ -22,6 +22,7 @@ export function ModelInfoPreview({
   >([]);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
+    if (!onTemplateChange) return;
     let active = true;
     api
       .listModelTemplates()
@@ -40,7 +41,7 @@ export function ModelInfoPreview({
     return () => {
       active = false;
     };
-  }, []);
+  }, [onTemplateChange]);
   useEffect(() => {
     let active = true;
     setInfo(null);
@@ -66,20 +67,22 @@ export function ModelInfoPreview({
     value?.toLocaleString(i18n.language) ?? t("models.unknown");
   return (
     <div style={{ marginBottom: 16, display: "grid", gap: 8 }}>
-      <label>
-        {t("models.modelTemplate")}
-        <Select
-          style={{ width: "100%", marginTop: 4 }}
-          showSearch
-          allowClear
-          aria-label={t("models.modelTemplate")}
-          placeholder={t("models.automatic")}
-          optionFilterProp="label"
-          options={templates}
-          value={templateId}
-          onChange={onTemplateChange}
-        />
-      </label>
+      {onTemplateChange && (
+        <label>
+          {t("models.modelTemplate")}
+          <Select
+            style={{ width: "100%", marginTop: 4 }}
+            showSearch
+            allowClear
+            aria-label={t("models.modelTemplate")}
+            placeholder={t("models.automatic")}
+            optionFilterProp="label"
+            options={templates}
+            value={templateId}
+            onChange={onTemplateChange}
+          />
+        </label>
+      )}
       <div
         role="status"
         style={{

@@ -164,9 +164,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
         <div className={styles.groupCardField}>
           <span className={styles.groupCardFieldLabel}>Models</span>
           <span className={styles.groupCardFieldValue}>
-            {totalModels > 0
-              ? t("models.modelsCount", { count: totalModels })
-              : t("models.noModels")}
+            {t("models.pool.selected", { count: totalModels })}
           </span>
         </div>
       </div>

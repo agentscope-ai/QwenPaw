@@ -38,7 +38,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-12-11"
     },
     {
       "id": "gpt-5",
@@ -59,7 +60,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-08-07"
     },
     {
       "id": "gpt-5-mini",
@@ -80,7 +82,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-08-07"
     },
     {
       "id": "gpt-5-nano",
@@ -101,7 +104,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-08-07"
     },
     {
       "id": "gpt-4.1",
@@ -122,7 +126,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-04-14"
     },
     {
       "id": "gpt-4.1-mini",
@@ -143,7 +148,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-04-14"
     },
     {
       "id": "gpt-4.1-nano",
@@ -164,7 +170,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-04-14"
     },
     {
       "id": "o3",
@@ -185,7 +192,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-04-16"
     },
     {
       "id": "o4-mini",
@@ -206,7 +214,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-04-16"
     },
     {
       "id": "gpt-4o",
@@ -227,7 +236,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2024-05-13"
     },
     {
       "id": "gpt-4o-mini",
@@ -248,7 +258,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2024-07-18"
     },
     {
       "id": "gpt-4o-2024-05-13",
@@ -259,7 +270,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-05-13"
     },
     {
       "id": "gpt-5-pro",
@@ -270,7 +282,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-10-06"
     },
     {
       "id": "gpt-5.6-sol",
@@ -281,7 +294,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-09"
     },
     {
       "id": "gpt-4o-2024-08-06",
@@ -292,7 +306,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-08-06"
     },
     {
       "id": "gpt-6-astra",
@@ -303,7 +318,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-09-04"
     },
     {
       "id": "gpt-5.2-pro",
@@ -314,7 +330,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-11"
     },
     {
       "id": "gpt-5.3-codex-spark",
@@ -325,7 +342,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-05"
     },
     {
       "id": "gpt-5.4",
@@ -336,7 +354,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-05"
     },
     {
       "id": "gpt-4-turbo",
@@ -347,7 +366,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2023-11-06"
     },
     {
       "id": "gpt-5.1",
@@ -358,7 +378,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-11-13"
     },
     {
       "id": "o1",
@@ -369,7 +390,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-12-05"
     },
     {
       "id": "gpt-5.6-luna",
@@ -380,7 +402,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-09"
     },
     {
       "id": "gpt-5.3-codex",
@@ -391,7 +414,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-02-05"
     },
     {
       "id": "o1-pro",
@@ -402,7 +426,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-03-19"
     },
     {
       "id": "text-embedding-ada-002",
@@ -413,7 +438,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2022-12-15"
     },
     {
       "id": "gpt-5.4-nano",
@@ -424,7 +450,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-17"
     },
     {
       "id": "gpt-5.5-pro",
@@ -435,7 +462,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-23"
     },
     {
       "id": "gpt-5.4-mini",
@@ -446,7 +474,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-17"
     },
     {
       "id": "gpt-3.5-turbo",
@@ -457,7 +486,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2023-03-01"
     },
     {
       "id": "gpt-5.6",
@@ -468,7 +498,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-09"
     },
     {
       "id": "text-embedding-3-small",
@@ -479,7 +510,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01-25"
     },
     {
       "id": "gpt-5.4-pro",
@@ -490,7 +522,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-05"
     },
     {
       "id": "text-embedding-3-large",
@@ -501,7 +534,8 @@
       "supports_tool_calling": false,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-01-25"
     },
     {
       "id": "gpt-5.6-terra",
@@ -512,7 +546,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-09"
     },
     {
       "id": "gpt-4",
@@ -523,7 +558,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2023-11-06"
     },
     {
       "id": "gpt-5.2-chat-latest",
@@ -534,7 +570,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-12-11"
     },
     {
       "id": "gpt-realtime-2.1",
@@ -545,7 +582,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": true,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-07-06"
     },
     {
       "id": "o3-mini",
@@ -556,7 +594,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-12-20"
     },
     {
       "id": "o3-pro",
@@ -567,7 +606,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2025-06-10"
     },
     {
       "id": "gpt-5.3-chat-latest",
@@ -578,7 +618,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-03-03"
     },
     {
       "id": "gpt-5.5",
@@ -589,7 +630,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-04-23"
     },
     {
       "id": "gpt-4o-2024-11-20",
@@ -600,7 +642,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2024-11-20"
     }
   ]
 }

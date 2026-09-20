@@ -8,12 +8,19 @@ export type ModelAvailabilityStatus =
   | "unverified";
 
 export interface ModelInfo {
+  released_at?: string | null;
   config_overrides?: string[];
   supports_audio?: boolean | null;
   supports_tool_calling?: boolean | null;
   recommendation_reason?: string;
   ranking_id?: string | null;
-  ranking?: { metric: string; version: string; score: number; estimated: boolean; source: string } | null;
+  ranking?: {
+    metric: string;
+    version: string;
+    score: number;
+    estimated: boolean;
+    source: string;
+  } | null;
   id: string;
   name: string;
   supports_multimodal: boolean | null;
@@ -62,6 +69,7 @@ export interface ModelInfo {
 }
 
 export interface ProviderInfo {
+  seen_model_ids?: string[];
   id: string;
   name: string;
   api_key_prefix: string;
@@ -80,6 +88,7 @@ export interface ProviderInfo {
   is_local: boolean;
   /** Whether this provider supports fetching available models from the provider's API. */
   support_model_discovery: boolean;
+  discovery_support_reason?: string;
   /** Whether this provider supports checking connection to the API without model configuration. */
   support_connection_check: boolean;
   /** True when the base_url should be frozen (not editable). */
@@ -293,6 +302,7 @@ export interface TestModelRequest {
 }
 
 export interface DiscoverModelsResponse {
+  last_synced_at?: string | null;
   success: boolean;
   message: string;
   models: ModelInfo[];
@@ -342,4 +352,14 @@ export interface FilterModelsResponse {
   success: boolean;
   models: ExtendedModelInfo[];
   total_count: number;
+}
+
+export interface ModelPoolPage {
+  models: ModelInfo[];
+  total: number;
+  selected_count: number;
+  candidate_count: number;
+  families: string[];
+  offset: number;
+  limit: number;
 }

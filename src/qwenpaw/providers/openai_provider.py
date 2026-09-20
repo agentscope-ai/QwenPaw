@@ -24,6 +24,8 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
+from .model_info import release_date
+from ..utils.io_utils import run_sync_io
 from .model_catalog import catalog_documents
 from .multimodal_prober import evaluate_video_probe_answer
 from ..utils.logging import sanitize_log_value
@@ -199,7 +201,9 @@ class OpenAIProvider(Provider):
             model_name = (
                 str(getattr(row, "name", "") or model_id).strip() or model_id
             )
-            metadata: dict[str, Any] = {}
+            metadata: dict[str, Any] = {
+                f"released_at": release_date(getattr(row, f"created", None)),
+            }
             for field in (
                 "context_length",
                 "max_model_len",
@@ -229,7 +233,7 @@ class OpenAIProvider(Provider):
 
     async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
         """Check if OpenAI provider is reachable with current configuration."""
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             await client.models.list(timeout=timeout)
             return True, ""
@@ -252,7 +256,7 @@ class OpenAIProvider(Provider):
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
         """Fetch available models."""
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(payload)
@@ -279,7 +283,7 @@ class OpenAIProvider(Provider):
                 timeout,
             )
 
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             common_kwargs = {
                 "model": model_id,
@@ -649,7 +653,7 @@ class OpenAIProvider(Provider):
             self.base_url,
         )
         start_time = time.monotonic()
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             res = await client.chat.completions.create(
                 model=model_id,
@@ -881,11 +885,9 @@ class _FreeSuffixProviderMixin:
         timeout: float = 5,
     ) -> List[ModelInfo]:
         """Fetch models and resolve free status from API data or suffix."""
-        client = self._client(timeout=timeout)
+        client = await run_sync_io(self._client, timeout=timeout)
         try:
             payload = await client.models.list(timeout=timeout)
-        except Exception:
-            return []
         finally:
             await self._close_client(client)
 
@@ -1004,70 +1006,3 @@ class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     cache_documentation: ClassVar[str | None] = (
         f"https://kilo.ai/docs/gateway/authentication"
     )
-
-
-class GitHubModelsProvider(OpenAIProvider):
-    """GitHub Models provider.
-
-    GitHub Models exposes an OpenAI-compatible chat completions endpoint at
-    ``https://models.github.ai/inference``.  Unlike many OpenAI-compatible
-    providers it does **not** implement the ``/models`` listing endpoint, so
-    the generic ``OpenAIProvider.check_connection`` (which calls
-    ``client.models.list()``) receives a 404 response.  This override checks
-    connectivity by issuing a minimal chat completion request instead.
-    """
-
-    async def check_connection(self, timeout: float = 5) -> tuple[bool, str]:
-        """Check connectivity via a tiny chat completion request."""
-        # Prefer a built-in model; fall back to a well-known GitHub Models id.
-        model_id = ""
-        for candidate in ("openai/gpt-4o-mini", "gpt-4o-mini"):
-            if any(m.id == candidate for m in self.models):
-                model_id = candidate
-                break
-        if not model_id:
-            model_id = (
-                self.models[0].id if self.models else "openai/gpt-4o-mini"
-            )
-
-        client = self._client(timeout=timeout)
-        try:
-            res = await client.chat.completions.create(
-                model=model_id,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": "ping",
-                            },
-                        ],
-                    },
-                ],
-                timeout=timeout,
-                stream=True,
-                **token_limit_kwargs(model_id, 5),
-            )
-            try:
-                async for _ in res:
-                    break
-            finally:
-                await res.response.aclose()
-            return True, ""
-        except APIError as exc:
-            detail = self.connection_error_message(exc)
-            status = getattr(exc, "status_code", "unknown")
-            return (
-                False,
-                f"API error when connecting to `{self.base_url}` "
-                f"(status={status}): {detail}",
-            )
-        except Exception as exc:
-            return (
-                False,
-                f"Unknown exception when connecting to `{self.base_url}`: "
-                f"{self.connection_error_message(exc)}",
-            )
-        finally:
-            await self._close_client(client)

@@ -53,7 +53,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-23"
     },
     {
       "id": "doubao-seed-2.0-lite",
@@ -74,7 +75,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-14"
     },
     {
       "id": "minimax-m3",
@@ -95,7 +97,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-01"
     },
     {
       "id": "kimi-k2.7-code",
@@ -116,7 +119,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-12"
     },
     {
       "id": "doubao-seed-evolving",
@@ -137,7 +141,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-23"
     },
     {
       "id": "glm-5.3",
@@ -158,7 +163,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-08-14"
     },
     {
       "id": "deepseek-v4-flash",
@@ -179,7 +185,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "deepseek-v4-pro",
@@ -200,7 +207,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-24"
     },
     {
       "id": "kimi-k3",
@@ -211,7 +219,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-07-16"
     },
     {
       "id": "glm-5.3-flash",
@@ -223,7 +232,8 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "ranking_id": "z-ai/glm-5.3-flash"
+      "ranking_id": "z-ai/glm-5.3-flash",
+      "released_at": "2026-08-26"
     }
   ]
 }

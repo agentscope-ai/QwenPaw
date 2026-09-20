@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal
 
 from pydantic import BaseModel, Field, model_validator
@@ -11,9 +12,30 @@ from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .model_ranking import RankingEvidence
 
 
+def release_date(value: Any) -> str | None:
+    """Normalize documented release dates and API creation timestamps."""
+    try:
+        if type(value) in (int, float) and value > 0:
+            date = datetime.fromtimestamp(value, tz=timezone.utc)
+        elif isinstance(value, datetime):
+            date = value
+        elif isinstance(value, str) and value.strip():
+            date = datetime.fromisoformat(value.replace(f"Z", f"+00:00"))
+        else:
+            return None
+        if date.tzinfo is None:
+            date = date.replace(tzinfo=timezone.utc)
+        return date.astimezone(timezone.utc).isoformat()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
 class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
+    released_at: str | None = Field(
+        default=None, description=f"Documented model release or creation date."
+    )
     supports_multimodal: bool | None = Field(
         default=None,
         description="Whether this model supports multimodal input "

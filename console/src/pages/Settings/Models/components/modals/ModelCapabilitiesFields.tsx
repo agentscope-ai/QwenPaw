@@ -52,7 +52,19 @@ export function ModelCapabilitiesFields({
                 })
               }
               options={[
-                { value: "auto", label: t("models.capabilities.auto") },
+                {
+                  value: "auto",
+                  label:
+                    model[field] == null
+                      ? t("models.pool.autoUnknown")
+                      : t("models.pool.autoValue", {
+                          value: t(
+                            model[field]
+                              ? "models.capabilities.supported"
+                              : "models.capabilities.unsupported",
+                          ),
+                        }),
+                },
                 { value: "true", label: t("models.capabilities.supported") },
                 { value: "false", label: t("models.capabilities.unsupported") },
               ]}

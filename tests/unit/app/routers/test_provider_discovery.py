@@ -209,7 +209,6 @@ async def test_discover_preview_does_not_persist_credentials() -> None:
         "openai",
         {
             "api_key": "preview-key",
-            "base_url": None,
             "chat_model": "AnthropicChatModel",
         },
     )
@@ -261,7 +260,6 @@ async def test_discover_save_persists_protocol_override(
     manager.update_provider_async.assert_awaited_once_with(
         "custom-provider",
         {
-            "api_key": None,
             "base_url": "https://example.test/v1",
             "chat_model": chat_model,
         },

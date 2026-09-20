@@ -21,64 +21,9 @@
         "models": []
       }
     },
-    "github-models": {
-      "path": "providers/github-models.json",
-      "sha256": "70583ebaab3ba00e05cdd86ead096f12e0e4ca109047dec65712e20a8f1dd634",
-      "api_urls": [
-        "https://models.github.ai/inference"
-      ],
-      "templates": [],
-      "defaults": {
-        "api_urls": [
-          "https://models.github.ai/inference"
-        ],
-        "remote_id": null,
-        "template_owner": false,
-        "default_model_ids": [
-          "openai/gpt-4o-mini",
-          "openai/gpt-4o"
-        ],
-        "models": [
-          {
-            "id": "openai/gpt-4o-mini",
-            "name": "GPT-4o Mini",
-            "supports_image": true,
-            "supports_video": false,
-            "probe_source": "documentation",
-            "is_free": true,
-            "source": "builtin",
-            "availability_status": "unverified",
-            "availability_retryable": true,
-            "config_overrides": [],
-            "max_input_length": 131072,
-            "max_input_length_configured": false,
-            "generate_kwargs": {},
-            "relay_reasoning": true,
-            "billing": "free"
-          },
-          {
-            "id": "openai/gpt-4o",
-            "name": "GPT-4o",
-            "supports_image": true,
-            "supports_video": false,
-            "probe_source": "documentation",
-            "is_free": true,
-            "source": "builtin",
-            "availability_status": "unverified",
-            "availability_retryable": true,
-            "config_overrides": [],
-            "max_input_length": 131072,
-            "max_input_length_configured": false,
-            "generate_kwargs": {},
-            "relay_reasoning": true,
-            "billing": "free"
-          }
-        ]
-      }
-    },
     "modelscope": {
       "path": "providers/modelscope.json",
-      "sha256": "71fa649d001e24668000e9d9add5ff2f8ffeada12b3a15f6151b7ddd767551ec",
+      "sha256": "86c64099b67909d5af68a0524ac37fc4929ceae1ab6e946fc280976d94cb77da",
       "api_urls": [
         "https://api-inference.modelscope.cn/v1"
       ],
@@ -133,7 +78,7 @@
     },
     "dashscope": {
       "path": "providers/dashscope.json",
-      "sha256": "ba316427c97c135f8aa0bf5db6317977f459b3072b178ee2f39f9d60d7a1cdc6",
+      "sha256": "47ee41e28d51c1f0eb357258dd46169906810c3bbaa93f2bd86301a90c5d113c",
       "api_urls": [
         "https://dashscope.aliyuncs.com/compatible-mode/v1"
       ],
@@ -237,7 +182,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-08-03"
           },
           {
             "id": "qwen3.7-max",
@@ -260,7 +206,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-05-21"
           },
           {
             "id": "qwen3.7-plus",
@@ -282,7 +229,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-02"
           },
           {
             "id": "qwen3.6-plus",
@@ -304,7 +252,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-02"
           },
           {
             "id": "deepseek-v4-pro",
@@ -331,7 +280,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-24"
           },
           {
             "id": "glm-5.2",
@@ -358,7 +308,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-13"
           }
         ],
         "template_families": [
@@ -436,7 +387,7 @@
     },
     "aliyun-codingplan": {
       "path": "providers/aliyun-codingplan.json",
-      "sha256": "de082f11649d47cef582bb4d91b17aa08174e2050bd63e6f375e3d80a36f8a08",
+      "sha256": "84abe9183e3b4d8b4a7e15912321896eb35a244aa8b86b8f54cbe44b4de1b58d",
       "api_urls": [
         "https://coding.dashscope.aliyuncs.com/v1"
       ],
@@ -479,7 +430,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-02"
           },
           {
             "id": "qwen3.6-plus",
@@ -500,7 +452,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-02"
           },
           {
             "id": "qwen3.5-plus",
@@ -521,7 +474,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-16"
           },
           {
             "id": "glm-5",
@@ -542,7 +496,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-11"
           },
           {
             "id": "glm-4.7",
@@ -563,7 +518,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-22"
           },
           {
             "id": "MiniMax-M2.5",
@@ -584,7 +540,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "kimi-k2.5",
@@ -605,7 +562,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01-27"
           },
           {
             "id": "qwen3-max-2026-01-23",
@@ -626,7 +584,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01-23"
           },
           {
             "id": "qwen3-coder-next",
@@ -647,7 +606,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-03"
           },
           {
             "id": "qwen3-coder-plus",
@@ -668,14 +628,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-07-23"
           }
         ]
       }
     },
     "aliyun-codingplan-intl": {
       "path": "providers/aliyun-codingplan-intl.json",
-      "sha256": "5d7cbc4779a95fa94b0353463f3521032aea2720c42e1f3a3826f88d0b4eefd7",
+      "sha256": "a2ade3f333d20727d8c3c67904692acd1d5765d5cffe1fa203ec11dd7d5fab99",
       "api_urls": [
         "https://coding-intl.dashscope.aliyuncs.com/v1"
       ],
@@ -718,7 +679,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-02"
           },
           {
             "id": "qwen3.6-plus",
@@ -739,7 +701,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-02"
           },
           {
             "id": "qwen3.5-plus",
@@ -760,7 +723,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-16"
           },
           {
             "id": "glm-5",
@@ -781,7 +745,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-11"
           },
           {
             "id": "glm-4.7",
@@ -802,7 +767,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-22"
           },
           {
             "id": "MiniMax-M2.5",
@@ -823,7 +789,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "kimi-k2.5",
@@ -844,7 +811,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01-27"
           },
           {
             "id": "qwen3-max-2026-01-23",
@@ -865,7 +833,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01-23"
           },
           {
             "id": "qwen3-coder-next",
@@ -886,7 +855,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-03"
           },
           {
             "id": "qwen3-coder-plus",
@@ -907,14 +877,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-07-23"
           }
         ]
       }
     },
     "aliyun-tokenplan": {
       "path": "providers/aliyun-tokenplan.json",
-      "sha256": "dae0fc4f6465d6a6b348779cfcff0e0a0a68d3b38f740b72df5d36c8dc5c8cbe",
+      "sha256": "ae0a21bcab1e36fed7b8be4e4828b0d5461b2e4b50daf9bdc7440f9f80685df1",
       "api_urls": [
         "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
       ],
@@ -962,7 +933,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-08-03"
           },
           {
             "id": "qwen3.7-plus",
@@ -983,7 +955,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-02"
           },
           {
             "id": "qwen3.7-max",
@@ -1004,7 +977,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-05-21"
           },
           {
             "id": "qwen3.6-plus",
@@ -1025,7 +999,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-02"
           },
           {
             "id": "qwen3.6-flash",
@@ -1046,7 +1021,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-27"
           },
           {
             "id": "deepseek-v4-pro",
@@ -1067,7 +1043,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-24"
           },
           {
             "id": "deepseek-v4-flash",
@@ -1088,7 +1065,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-24"
           },
           {
             "id": "deepseek-v3.2",
@@ -1109,7 +1087,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-03"
           },
           {
             "id": "glm-5.2",
@@ -1130,7 +1109,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-13"
           },
           {
             "id": "glm-5.1",
@@ -1151,7 +1131,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-07"
           },
           {
             "id": "glm-5",
@@ -1172,7 +1153,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "MiniMax-M2.5",
@@ -1193,7 +1175,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "kimi-k2.7-code",
@@ -1214,7 +1197,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-12"
           },
           {
             "id": "kimi-k2.6",
@@ -1235,7 +1219,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-21"
           },
           {
             "id": "kimi-k2.5",
@@ -1256,14 +1241,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01"
           }
         ]
       }
     },
     "aliyun-tokenplan-intl": {
       "path": "providers/aliyun-tokenplan-intl.json",
-      "sha256": "2292eb3b8207c2d4bb1b07cf3f12211392670932033afd7e14b6be5dcb77d6d3",
+      "sha256": "1dde9cfb57ae618af79fe95f973262b6e7b0a38ba2fd6043904dfe422516744a",
       "api_urls": [
         "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
       ],
@@ -1311,7 +1297,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-08-03"
           },
           {
             "id": "qwen3.7-plus",
@@ -1332,7 +1319,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-02"
           },
           {
             "id": "qwen3.7-max",
@@ -1353,7 +1341,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-05-21"
           },
           {
             "id": "qwen3.6-plus",
@@ -1374,7 +1363,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-02"
           },
           {
             "id": "qwen3.6-flash",
@@ -1395,7 +1385,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-27"
           },
           {
             "id": "deepseek-v4-pro",
@@ -1416,7 +1407,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-24"
           },
           {
             "id": "deepseek-v4-flash",
@@ -1437,7 +1429,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-24"
           },
           {
             "id": "deepseek-v3.2",
@@ -1458,7 +1451,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-03"
           },
           {
             "id": "glm-5.2",
@@ -1479,7 +1473,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-13"
           },
           {
             "id": "glm-5.1",
@@ -1500,7 +1495,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-07"
           },
           {
             "id": "glm-5",
@@ -1521,7 +1517,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "MiniMax-M2.5",
@@ -1542,7 +1539,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "kimi-k2.7-code",
@@ -1563,7 +1561,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-12"
           },
           {
             "id": "kimi-k2.6",
@@ -1584,7 +1583,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-21"
           },
           {
             "id": "kimi-k2.5",
@@ -1605,14 +1605,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01"
           }
         ]
       }
     },
     "opencode": {
       "path": "providers/opencode.json",
-      "sha256": "51e3b34d6e9992a1faa2fe3c3c135471e528f1900829def32316c86df6c9427f",
+      "sha256": "e9e68625a22da2f4d048ef0bd8d7026dbbcc4c1cd3c83c3199c654fe2911fa88",
       "api_urls": [
         "https://opencode.ai/zen/v1"
       ],
@@ -1647,7 +1648,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": true
+            "supports_audio": true,
+            "released_at": "2026-04-24"
           },
           {
             "id": "nemotron-3-ultra-free",
@@ -1668,7 +1670,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-04"
           }
         ],
         "protocols": {
@@ -1727,7 +1730,7 @@
     },
     "kilo": {
       "path": "providers/kilo.json",
-      "sha256": "58a70f41198cafc9af1aa0090723e760ff4b40bdda6996a1b85bc32d836c0ec4",
+      "sha256": "2413d2d2425bd29367ae88f572f6583107267c2fc7724d1bcac51b6e2f8501ad",
       "api_urls": [
         "https://api.kilo.ai/api/gateway"
       ],
@@ -1766,7 +1769,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "1970-01-01"
           },
           {
             "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -1787,7 +1791,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-04"
           },
           {
             "id": "nvidia/nemotron-3-super-120b-a12b:free",
@@ -1808,7 +1813,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-11"
           },
           {
             "id": "poolside/laguna-s-2.1:free",
@@ -1829,7 +1835,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-07-21"
           },
           {
             "id": "poolside/laguna-xs-2.1:free",
@@ -1850,7 +1857,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-07-02"
           },
           {
             "id": "stepfun/step-3.7-flash:free",
@@ -1872,14 +1880,15 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "ranking_id": "stepfun/step-3.7-flash"
+            "ranking_id": "stepfun/step-3.7-flash",
+            "released_at": "2026-05-29"
           }
         ]
       }
     },
     "openai": {
       "path": "providers/openai.json",
-      "sha256": "df3cfe78587c193660f71c7975463881e7b3b1dbc0bbd3254866592029af487c",
+      "sha256": "fff59ac7a039d4e7a722bec42ef7ab75fc30ab935af4de53c7c66aecad7e74f3",
       "api_urls": [
         "https://api.openai.com/v1"
       ],
@@ -1968,7 +1977,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-11"
           },
           {
             "id": "gpt-5",
@@ -1989,7 +1999,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-08-07"
           },
           {
             "id": "gpt-5-mini",
@@ -2010,7 +2021,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-08-07"
           },
           {
             "id": "gpt-5-nano",
@@ -2031,7 +2043,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-08-07"
           },
           {
             "id": "gpt-4.1",
@@ -2052,7 +2065,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-14"
           },
           {
             "id": "gpt-4.1-mini",
@@ -2073,7 +2087,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-14"
           },
           {
             "id": "gpt-4.1-nano",
@@ -2094,7 +2109,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-14"
           },
           {
             "id": "o3",
@@ -2115,7 +2131,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-16"
           },
           {
             "id": "o4-mini",
@@ -2136,7 +2153,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-16"
           },
           {
             "id": "gpt-4o",
@@ -2157,7 +2175,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2024-05-13"
           },
           {
             "id": "gpt-4o-mini",
@@ -2178,14 +2197,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2024-07-18"
           }
         ]
       }
     },
     "openai-response": {
       "path": "providers/openai-response.json",
-      "sha256": "fc87cdbefd125badf518bf4a7fe1d2679d31ffa9aa94a896390c431e52297be6",
+      "sha256": "2c5a4b53d86c180d4f9db863bf4563e197cf0cfe19a7ed8d6878a137fb47f356",
       "api_urls": [
         "https://api.openai.com/v1"
       ],
@@ -2230,7 +2250,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-11"
           },
           {
             "id": "gpt-5",
@@ -2251,7 +2272,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-08-07"
           },
           {
             "id": "gpt-5-mini",
@@ -2272,7 +2294,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-08-07"
           },
           {
             "id": "gpt-5-nano",
@@ -2293,7 +2316,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-08-07"
           },
           {
             "id": "gpt-4.1",
@@ -2314,7 +2338,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-14"
           },
           {
             "id": "gpt-4.1-mini",
@@ -2335,7 +2360,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-14"
           },
           {
             "id": "gpt-4.1-nano",
@@ -2356,7 +2382,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-14"
           },
           {
             "id": "o3",
@@ -2377,7 +2404,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-16"
           },
           {
             "id": "o4-mini",
@@ -2398,7 +2426,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-04-16"
           },
           {
             "id": "gpt-4o",
@@ -2419,7 +2448,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2024-05-13"
           },
           {
             "id": "gpt-4o-mini",
@@ -2440,7 +2470,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2024-07-18"
           }
         ]
       }
@@ -2606,7 +2637,7 @@
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "441001dd6f8168cc5bcd24aa51ef6a5d58238f3140d6b803a566e38163f81aa5",
+      "sha256": "dda1ab62962db70376465d5b95a9e5a89a2d318867e52b00b5e7718dd70d1138",
       "api_urls": [
         "https://api.anthropic.com"
       ],
@@ -2638,7 +2669,7 @@
     },
     "gemini": {
       "path": "providers/gemini.json",
-      "sha256": "11c8c6b6b81db96024b06530c5a15fb464f33457f07ab5bf4489fff234e0e7a6",
+      "sha256": "d8a656ac890eccacb6ae120460e3dc9ceacf2056cfadfa40b7701a2790c4a24f",
       "api_urls": [
         "https://generativelanguage.googleapis.com",
         "https://generativelanguage.googleapis.com/v1beta"
@@ -2722,7 +2753,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": true
+            "supports_audio": true,
+            "released_at": "2026-02-19"
           },
           {
             "id": "gemini-3-flash-preview",
@@ -2743,7 +2775,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": true
+            "supports_audio": true,
+            "released_at": "2025-12-17"
           },
           {
             "id": "gemini-3.1-flash-lite-preview",
@@ -2764,7 +2797,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": true
+            "supports_audio": true,
+            "released_at": "2026-03-03"
           },
           {
             "id": "gemini-2.5-pro",
@@ -2785,7 +2819,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": true
+            "supports_audio": true,
+            "released_at": "2025-06-17"
           },
           {
             "id": "gemini-2.5-flash",
@@ -2806,7 +2841,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": true
+            "supports_audio": true,
+            "released_at": "2025-06-17"
           },
           {
             "id": "gemini-2.5-flash-lite",
@@ -2827,7 +2863,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": true
+            "supports_audio": true,
+            "released_at": "2025-06-17"
           },
           {
             "id": "gemini-2.0-flash",
@@ -2851,7 +2888,7 @@
     },
     "deepseek": {
       "path": "providers/deepseek.json",
-      "sha256": "17787606ae317b266e1386b8eeb03831b7e91a57844cba3eecfe3359cfea0f9f",
+      "sha256": "74f15adb090b5551fbd5839a5a41e1100e8aef7c6ab26f53ade53e00a509b953",
       "api_urls": [
         "https://api.deepseek.com"
       ],
@@ -2870,68 +2907,10 @@
         "remote_id": "deepseek",
         "template_owner": true,
         "default_model_ids": [
-          "deepseek-chat",
-          "deepseek-reasoner",
-          "deepseek-v4-flash",
+          "deepseek-flash",
           "deepseek-v4-pro"
         ],
         "models": [
-          {
-            "id": "deepseek-chat",
-            "name": "DeepSeek Chat",
-            "supports_image": false,
-            "supports_video": false,
-            "probe_source": "documentation",
-            "is_free": false,
-            "is_recommended": true,
-            "source": "builtin",
-            "availability_status": "unverified",
-            "availability_retryable": true,
-            "config_overrides": [],
-            "max_input_length": 131072,
-            "max_input_length_configured": false,
-            "generate_kwargs": {},
-            "relay_reasoning": true,
-            "billing": "paid"
-          },
-          {
-            "id": "deepseek-reasoner",
-            "name": "DeepSeek Reasoner",
-            "supports_image": false,
-            "supports_video": false,
-            "probe_source": "documentation",
-            "is_free": false,
-            "source": "builtin",
-            "availability_status": "unverified",
-            "availability_retryable": true,
-            "config_overrides": [],
-            "max_input_length": 131072,
-            "max_input_length_configured": false,
-            "generate_kwargs": {},
-            "relay_reasoning": true,
-            "billing": "paid"
-          },
-          {
-            "id": "deepseek-v4-flash",
-            "name": "DeepSeek V4 Flash",
-            "supports_image": false,
-            "supports_video": false,
-            "probe_source": "documentation",
-            "is_free": false,
-            "source": "builtin",
-            "availability_status": "unverified",
-            "availability_retryable": true,
-            "config_overrides": [],
-            "max_input_length": 1000000,
-            "max_input_length_configured": false,
-            "generate_kwargs": {},
-            "relay_reasoning": true,
-            "max_output_length": 384000,
-            "max_output_length_source": "catalog",
-            "billing": "paid",
-            "supports_tool_calling": true,
-            "supports_audio": false
-          },
           {
             "id": "deepseek-v4-pro",
             "name": "DeepSeek V4 Pro",
@@ -2951,14 +2930,73 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "capability_provenance": {
+              "max_input_length": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              },
+              "max_output_length": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              },
+              "supports_image": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              },
+              "supports_tool_calling": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              }
+            },
+            "released_at": "2026-08-12"
+          },
+          {
+            "id": "deepseek-flash",
+            "name": "deepseek-flash",
+            "max_input_length": 1000000,
+            "max_output_length": 384000,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": false,
+            "billing": "paid",
+            "probe_source": "documentation",
+            "capability_provenance": {
+              "max_input_length": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              },
+              "max_output_length": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              },
+              "supports_image": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              },
+              "supports_tool_calling": {
+                "source": "documentation",
+                "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
+                "updated_at": "2026-09-18"
+              }
+            },
+            "released_at": "2026-09-10"
           }
         ]
       }
     },
     "kimi-cn": {
       "path": "providers/kimi-cn.json",
-      "sha256": "a25270c6e616abc5a41f7fb6b01de72bde45a94456ba8223976bd996ac04239c",
+      "sha256": "63bfe9940625520932cdbe646e1635e6b1f21383d472893fdad6f4cfb47679f3",
       "api_urls": [
         "https://api.moonshot.cn/v1"
       ],
@@ -3008,7 +3046,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-07-16"
           },
           {
             "id": "kimi-k2.7-code",
@@ -3029,7 +3068,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-12"
           },
           {
             "id": "kimi-k2.7-code-highspeed",
@@ -3050,7 +3090,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-12"
           },
           {
             "id": "kimi-k2.6",
@@ -3071,7 +3112,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-21"
           },
           {
             "id": "kimi-k2.5",
@@ -3096,7 +3138,7 @@
     },
     "kimi-intl": {
       "path": "providers/kimi-intl.json",
-      "sha256": "4e143e5167121e65cb35a94fe8173dca50f037d0166b86a880f70d9f70b0ccc3",
+      "sha256": "8b0a52fcaf10be85f08bc73935824e4dba9729e768c62824a5321de580df9bb9",
       "api_urls": [
         "https://api.moonshot.ai/v1"
       ],
@@ -3140,7 +3182,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-07-16"
           },
           {
             "id": "kimi-k2.7-code",
@@ -3161,7 +3204,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-12"
           },
           {
             "id": "kimi-k2.7-code-highspeed",
@@ -3182,7 +3226,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-12"
           },
           {
             "id": "kimi-k2.6",
@@ -3203,7 +3248,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-21"
           },
           {
             "id": "kimi-k2.5",
@@ -3265,7 +3311,7 @@
     },
     "minimax-cn": {
       "path": "providers/minimax-cn.json",
-      "sha256": "5b15b254f0329e3756df72c6e39a2a163e9042cb1366325782dd38a9c378f07e",
+      "sha256": "e982f21a3da463cdec4db4de3c6e157156ae1772394721402646ead7b9785e79",
       "api_urls": [
         "https://api.minimaxi.com/anthropic",
         "https://api.minimaxi.com/anthropic/v1"
@@ -3309,7 +3355,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-01"
           },
           {
             "id": "MiniMax-M2.7",
@@ -3330,7 +3377,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-18"
           },
           {
             "id": "MiniMax-M2.7-highspeed",
@@ -3351,7 +3399,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-18"
           },
           {
             "id": "MiniMax-M2.5",
@@ -3372,7 +3421,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "MiniMax-M2.5-highspeed",
@@ -3393,7 +3443,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-13"
           },
           {
             "id": "MiniMax-M2.1",
@@ -3414,7 +3465,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-23"
           },
           {
             "id": "MiniMax-M2.1-highspeed",
@@ -3452,14 +3504,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-10-27"
           }
         ]
       }
     },
     "minimax": {
       "path": "providers/minimax.json",
-      "sha256": "a266a81e9b3aeb54635e9763cf08d69649186f095e38b8bcc0ec6daac7ae21aa",
+      "sha256": "42e2a8b5c129dae41b8cc1bd0b387d1b0ac3be0bb6fc9a8fbb2c9436d95b15a8",
       "api_urls": [
         "https://api.minimax.io/anthropic",
         "https://api.minimax.io/anthropic/v1"
@@ -3512,7 +3565,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-01"
           },
           {
             "id": "MiniMax-M2.7",
@@ -3533,7 +3587,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-18"
           },
           {
             "id": "MiniMax-M2.7-highspeed",
@@ -3554,7 +3609,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-18"
           },
           {
             "id": "MiniMax-M2.5",
@@ -3575,7 +3631,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "MiniMax-M2.5-highspeed",
@@ -3596,7 +3653,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-13"
           },
           {
             "id": "MiniMax-M2.1",
@@ -3617,7 +3675,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-12-23"
           },
           {
             "id": "MiniMax-M2.1-highspeed",
@@ -3655,14 +3714,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2025-10-27"
           }
         ]
       }
     },
     "zhipu-cn": {
       "path": "providers/zhipu-cn.json",
-      "sha256": "5d0a8ba4eb04a2704b33b7385eaecd81d03f92a9f124aaef1c38347701088748",
+      "sha256": "1874a8371ae9ec7189bf1e8c754ecf7839fce374d702c9a8ebdfe7bff0649067",
       "api_urls": [
         "https://open.bigmodel.cn/api/paas/v4"
       ],
@@ -3718,7 +3778,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01-19"
           },
           {
             "id": "glm-5",
@@ -3739,7 +3800,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-11"
           },
           {
             "id": "glm-5.2",
@@ -3760,7 +3822,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-13"
           },
           {
             "id": "glm-5.1",
@@ -3781,7 +3844,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-27"
           },
           {
             "id": "glm-5-turbo",
@@ -3819,14 +3883,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-01"
           }
         ]
       }
     },
     "zhipu-cn-codingplan": {
       "path": "providers/zhipu-cn-codingplan.json",
-      "sha256": "95dda8ba55c76f9c4f7e36b31eebb414c83003e3b57f199ee99fdfaf1468f819",
+      "sha256": "f38a68fc786b5ed53be75ddecb596ba24ec25f0d33f00e6922c50e6dc81ba695",
       "api_urls": [
         "https://open.bigmodel.cn/api/coding/paas/v4"
       ],
@@ -3953,7 +4018,7 @@
     },
     "zhipu-intl": {
       "path": "providers/zhipu-intl.json",
-      "sha256": "e4897d340b4a8affd2c7e1d2969d03032fef149c7f1e1e12298338c905d4ea72",
+      "sha256": "bb56df9a46ed87a103d80bdabe02050c2a1fec718e73ccadd6d864799996c490",
       "api_urls": [
         "https://api.z.ai/api/paas/v4"
       ],
@@ -3992,7 +4057,8 @@
             "max_output_length_source": "catalog",
             "billing": "free",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-01-19"
           },
           {
             "id": "glm-5",
@@ -4013,7 +4079,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-12"
           },
           {
             "id": "glm-5.2",
@@ -4034,7 +4101,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-13"
           },
           {
             "id": "glm-5.1",
@@ -4055,7 +4123,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-07"
           },
           {
             "id": "glm-5-turbo",
@@ -4076,7 +4145,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-16"
           },
           {
             "id": "glm-5v-turbo",
@@ -4097,14 +4167,15 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-01"
           }
         ]
       }
     },
     "zhipu-intl-codingplan": {
       "path": "providers/zhipu-intl-codingplan.json",
-      "sha256": "d1f9b29eec8d7a346153ba847d1722ec4f38ab2eeeed864ae682c74050a8f1ea",
+      "sha256": "bd1e4280823258433d04acea0f2d520ad7d72ecb752e28317032308edaa98365",
       "api_urls": [
         "https://api.z.ai/api/coding/paas/v4"
       ],
@@ -4177,7 +4248,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-13"
           },
           {
             "id": "glm-5.1",
@@ -4215,7 +4287,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-03-16"
           },
           {
             "id": "glm-5v-turbo",
@@ -4239,7 +4312,7 @@
     },
     "siliconflow-cn": {
       "path": "providers/siliconflow-cn.json",
-      "sha256": "e2b22d027c4f598bb60810f99a931fc256b8723be3520ba4415e21dfc7711010",
+      "sha256": "24f947471bf4c8724a944d38fc557c5d10aa687791f144e3b58be2070631f313",
       "api_urls": [
         "https://api.siliconflow.cn/v1"
       ],
@@ -4256,7 +4329,7 @@
     },
     "siliconflow-intl": {
       "path": "providers/siliconflow-intl.json",
-      "sha256": "344b6bc433dfe66b2f183711e7a080fac80afba28e0fe366b9bff9573d4a9001",
+      "sha256": "b30b9125f0bfc7e1b3e089c49a9779e7153ea20ea89599fdb627b130e4fa87c0",
       "api_urls": [
         "https://api.siliconflow.com/v1"
       ],
@@ -4273,7 +4346,7 @@
     },
     "volcengine-cn": {
       "path": "providers/volcengine-cn.json",
-      "sha256": "f0406f8e8941286a56d69b9ae4adc6734ff702c02e80f164a69cc834595f4fc8",
+      "sha256": "70245827cb2f367f84e93caf2bee6ec1debb33808363a770571d45e384200420",
       "api_urls": [
         "https://ark.cn-beijing.volces.com/api/v3"
       ],
@@ -4322,7 +4395,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-23"
           },
           {
             "id": "doubao-seed-2-1-pro-260628",
@@ -4343,7 +4417,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-23"
           },
           {
             "id": "doubao-seed-2-1-turbo-260628",
@@ -4364,7 +4439,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-23"
           },
           {
             "id": "doubao-seed-2-0-lite-260428",
@@ -4385,7 +4461,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-14"
           },
           {
             "id": "doubao-seed-2-0-mini-260428",
@@ -4406,7 +4483,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-14"
           },
           {
             "id": "doubao-seed-2-0-pro-260215",
@@ -4427,7 +4505,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-14"
           },
           {
             "id": "doubao-seed-2-0-lite-260215",
@@ -4484,7 +4563,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-14"
           },
           {
             "id": "doubao-seed-character-260628",
@@ -4505,7 +4585,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-23"
           },
           {
             "id": "doubao-seed-character-251128",
@@ -4544,7 +4625,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-13"
           },
           {
             "id": "deepseek-v4-pro-ga-260813",
@@ -4565,7 +4647,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-08-12"
           },
           {
             "id": "deepseek-v4-flash-ga-260731",
@@ -4586,7 +4669,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-07-31"
           },
           {
             "id": "deepseek-v4-pro-260425",
@@ -4629,7 +4713,7 @@
     },
     "volcengine-cn-codingplan": {
       "path": "providers/volcengine-cn-codingplan.json",
-      "sha256": "e8d00626ba8f7273eef7a3ea019e13089c7d41781b6b3ff912cfc9fa80f67b89",
+      "sha256": "2ef02093e5c143f19cf7e58ed6079430346306c2e0fb8246bf05e36ba487ca35",
       "api_urls": [
         "https://ark.cn-beijing.volces.com/api/coding/v3"
       ],
@@ -4689,7 +4773,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-23"
           },
           {
             "id": "doubao-seed-2.0-lite",
@@ -4710,7 +4795,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-02-14"
           },
           {
             "id": "minimax-m3",
@@ -4731,7 +4817,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-01"
           },
           {
             "id": "kimi-k2.7-code",
@@ -4752,7 +4839,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-12"
           },
           {
             "id": "doubao-seed-evolving",
@@ -4773,7 +4861,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-06-23"
           },
           {
             "id": "glm-5.3",
@@ -4794,7 +4883,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-08-14"
           },
           {
             "id": "deepseek-v4-flash",
@@ -4815,7 +4905,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-24"
           },
           {
             "id": "deepseek-v4-pro",
@@ -4836,7 +4927,8 @@
             "max_output_length_source": "catalog",
             "billing": "paid",
             "supports_tool_calling": true,
-            "supports_audio": false
+            "supports_audio": false,
+            "released_at": "2026-04-24"
           }
         ]
       }

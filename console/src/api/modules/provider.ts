@@ -1,6 +1,7 @@
 import { request } from "../request";
 import type {
   ProviderInfo,
+  ModelPoolPage,
   ModelInfo,
   ProviderConfigRequest,
   ActiveModelsInfo,
@@ -44,6 +45,26 @@ let listProvidersPromise: Promise<ProviderInfo[]> | null = null;
 const activeModelPromises = new Map<string, Promise<ActiveModelsInfo>>();
 
 export const providerApi = {
+  getModelPool: (
+    providerId: string,
+    query: Record<string, string | number> = {},
+  ) =>
+    request<ModelPoolPage>(
+      `/models/${encodeURIComponent(providerId)}/pool?${new URLSearchParams(
+        Object.entries(query).map(([key, value]) => [key, String(value)]),
+      )}`,
+    ),
+  updateModelPool: (
+    providerId: string,
+    modelId: string,
+    body: { selected?: boolean; seen?: boolean },
+  ) =>
+    request<ProviderInfo>(
+      `/models/${encodeURIComponent(providerId)}/models/${encodeURIComponent(
+        modelId,
+      )}/pool`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
   listModelTemplates: () =>
     request<
       { id: string; name: string; model_id: string; provider_id: string }[]

@@ -36,7 +36,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-06-02"
     },
     {
       "id": "qwen3.6-plus",
@@ -57,7 +58,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-04-02"
     },
     {
       "id": "qwen3.5-plus",
@@ -78,7 +80,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-16"
     },
     {
       "id": "glm-5",
@@ -99,7 +102,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-11"
     },
     {
       "id": "glm-4.7",
@@ -120,7 +124,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-12-22"
     },
     {
       "id": "MiniMax-M2.5",
@@ -141,7 +146,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-12"
     },
     {
       "id": "kimi-k2.5",
@@ -162,7 +168,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-01-27"
     },
     {
       "id": "qwen3-max-2026-01-23",
@@ -183,7 +190,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-01-23"
     },
     {
       "id": "qwen3-coder-next",
@@ -204,7 +212,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2026-02-03"
     },
     {
       "id": "qwen3-coder-plus",
@@ -225,7 +234,8 @@
       "max_output_length_source": "catalog",
       "billing": "paid",
       "supports_tool_calling": true,
-      "supports_audio": false
+      "supports_audio": false,
+      "released_at": "2025-07-23"
     },
     {
       "id": "qwen3.7-max",
@@ -236,7 +246,8 @@
       "supports_tool_calling": true,
       "supports_image": false,
       "supports_audio": false,
-      "supports_video": false
+      "supports_video": false,
+      "released_at": "2026-05-21"
     },
     {
       "id": "qwen3.6-flash",
@@ -247,7 +258,8 @@
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
-      "supports_video": true
+      "supports_video": true,
+      "released_at": "2026-04-27"
     }
   ]
 }

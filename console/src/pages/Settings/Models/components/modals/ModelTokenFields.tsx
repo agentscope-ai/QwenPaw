@@ -113,7 +113,13 @@ export function OutputTokenLimitField({
         min={1}
         step={1024}
         value={value}
-        placeholder={t("models.providerDefault")}
+        placeholder={
+          model?.max_output_length
+            ? t("models.pool.outputDefault", {
+                value: model.max_output_length.toLocaleString(i18n.language),
+              })
+            : t("models.providerDefault")
+        }
         onChange={onChange}
       />
       {showHint && (

@@ -15,10 +15,13 @@ import json
 import logging
 from typing import Any, Dict, List
 
+import httpx
+
 from agentscope.model import ChatModelBase
 from pydantic import Field
 
 from .provider import ModelInfo
+from .dashscope_discovery import directory_url, fetch_directory
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 from .capping_formatter import _CappingDashScopeFormatter
 from .openai_chat_model_compat import _sanitize_nullable_tool_schemas
@@ -70,7 +73,18 @@ class DashScopeProvider(OpenAIProvider):
         return any(marker in normalized for marker in non_chat_markers)
 
     async def fetch_models(self, timeout: float = 5) -> List[ModelInfo]:
-        """Fetch only catalog entries compatible with chat completions."""
+        """Use the native directory, with compatible listing for older APIs."""
+        url = directory_url(self.base_url)
+        if url:
+            headers = {
+                f"Authorization": f"Bearer {self.api_key}",
+                **self.custom_headers,
+            }
+            try:
+                return await fetch_directory(url, headers, timeout)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code not in {404, 405}:
+                    raise
         models = await super().fetch_models(timeout)
         return [
             model for model in models if not self._is_non_chat_model(model.id)
