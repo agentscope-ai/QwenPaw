@@ -3,6 +3,7 @@ import { InputNumber, Slider, Tooltip } from "antd";
 import { Brain, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
+import InlineHelp from "../../components/InlineHelp";
 import styles from "./thinking.module.less";
 
 export function ThinkingControl({
@@ -71,6 +72,15 @@ export function ThinkingControl({
         <span>
           <Brain size={16} strokeWidth={1.7} />
           {t("thinkingControl.title")}
+          {!unsupported && (
+            <InlineHelp>
+              {t(
+                isBudget
+                  ? "thinkingControl.budgetHint"
+                  : "thinkingControl.effortHint",
+              )}
+            </InlineHelp>
+          )}
         </span>
         <Tooltip title={t("thinkingControl.reset")}>
           <button
@@ -182,13 +192,6 @@ export function ThinkingControl({
               </button>
             )}
           </div>
-          <p className={styles.hint}>
-            {t(
-              isBudget
-                ? "thinkingControl.budgetHint"
-                : "thinkingControl.effortHint",
-            )}
-          </p>
         </>
       )}
     </section>

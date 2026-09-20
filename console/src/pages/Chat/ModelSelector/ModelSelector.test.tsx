@@ -89,6 +89,7 @@ vi.mock("react-i18next", () => ({
 
 vi.mock("lucide-react", () => ({
   Brain: () => "Brain",
+  CircleHelp: () => "CircleHelp",
   RotateCcw: () => "RotateCcw",
   AlertTriangle: () => "AlertTriangle",
   Check: () => "Check",

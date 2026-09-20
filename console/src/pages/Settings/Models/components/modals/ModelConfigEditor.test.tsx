@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import api from "../../../../../api";
@@ -149,8 +149,14 @@ describe("ModelConfigEditor automatic context", () => {
     expect(
       screen.getByRole("spinbutton", { name: "models.maxInputLengthLabel" }),
     ).toHaveValue(1000000);
+    await user.hover(
+      within(screen.getByText("models.maxInputLengthLabel")).getByRole(
+        "button",
+        { name: "common.help" },
+      ),
+    );
     expect(
-      screen.getByText(/models.metadataSource.template/),
+      await screen.findByText(/models.metadataSource.template/),
     ).toBeInTheDocument();
     await user.click(screen.getAllByRole("switch")[0]);
     await user.click(screen.getByRole("button", { name: /Save/i }));

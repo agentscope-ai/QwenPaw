@@ -10,6 +10,7 @@ import {
   setPendingThinking,
 } from "./sessionThinkingApi";
 import type { ThinkingPreference, ThinkingView } from "./types";
+import InlineHelp from "../../components/InlineHelp";
 import styles from "./thinking.module.less";
 
 export function SessionThinking({
@@ -106,8 +107,10 @@ export function SessionThinking({
               {t("thinkingControl.adapted")}
             </p>
           )}
-          <p className={styles.hint}>{view?.model}</p>
-          <p className={styles.hint}>{t("thinkingControl.sessionHint")}</p>
+          <div className={styles.sessionCaption}>
+            <span>{view?.model}</span>
+            <InlineHelp>{t("thinkingControl.sessionHint")}</InlineHelp>
+          </div>
         </div>
       }
     >

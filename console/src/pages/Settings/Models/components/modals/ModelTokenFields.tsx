@@ -1,3 +1,4 @@
+import InlineHelp from "../../../../../components/InlineHelp";
 import { Button, InputNumber } from "@agentscope-ai/design";
 import { RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -13,11 +14,6 @@ const labelStyle = {
   fontSize: 13,
   color: "var(--app-text)",
   marginBottom: 4,
-};
-const hintStyle = {
-  fontSize: 11,
-  color: "var(--app-text-quaternary)",
-  marginTop: 2,
 };
 
 export function ContextLengthField({
@@ -38,7 +34,20 @@ export function ContextLengthField({
           justifyContent: "space-between",
         }}
       >
-        <span>{t("models.maxInputLengthLabel")}</span>
+        <span>
+          {t("models.maxInputLengthLabel")}
+          {showHint && (
+            <InlineHelp>
+              {t("models.maxInputLengthHint")}
+              {source && (
+                <>
+                  <br />
+                  {t(`models.metadataSource.${source}`)}
+                </>
+              )}
+            </InlineHelp>
+          )}
+        </span>
         {onReset && (
           <Button
             type="text"
@@ -59,17 +68,6 @@ export function ContextLengthField({
         placeholder={t("models.automatic")}
         onChange={onChange}
       />
-      {showHint && (
-        <div style={hintStyle}>
-          {t("models.maxInputLengthHint")}
-          {source && (
-            <>
-              <br />
-              {t(`models.metadataSource.${source}`)}
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -95,7 +93,32 @@ export function OutputTokenLimitField({
           justifyContent: "space-between",
         }}
       >
-        <span>{t("models.maxTokensLabel")}</span>
+        <span>
+          {t("models.maxTokensLabel")}
+          {showHint && (
+            <InlineHelp>
+              {t(
+                chatModel === "AnthropicChatModel"
+                  ? "models.anthropicOutputHint"
+                  : "models.maxTokensHint",
+              )}
+              <br />
+              {t("models.maxOutputCapabilityLabel")}:{" "}
+              {model?.max_output_length?.toLocaleString(i18n.language) ??
+                t("models.unknown")}
+              {model?.max_output_length_source &&
+                model.max_output_length_source !== "unknown" && (
+                  <>
+                    {" "}
+                    ·{" "}
+                    {t(
+                      `models.metadataSource.${model.max_output_length_source}`,
+                    )}
+                  </>
+                )}
+            </InlineHelp>
+          )}
+        </span>
         {value !== null && (
           <Button
             type="text"
@@ -123,26 +146,6 @@ export function OutputTokenLimitField({
         }
         onChange={onChange}
       />
-      {showHint && (
-        <div style={hintStyle}>
-          {t(
-            chatModel === "AnthropicChatModel"
-              ? "models.anthropicOutputHint"
-              : "models.maxTokensHint",
-          )}
-          <br />
-          {t("models.maxOutputCapabilityLabel")}:{" "}
-          {model?.max_output_length?.toLocaleString(i18n.language) ??
-            t("models.unknown")}
-          {model?.max_output_length_source &&
-            model.max_output_length_source !== "unknown" && (
-              <>
-                {" "}
-                · {t(`models.metadataSource.${model.max_output_length_source}`)}
-              </>
-            )}
-        </div>
-      )}
     </div>
   );
 }

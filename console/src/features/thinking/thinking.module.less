@@ -10,11 +10,31 @@
   min-width: 0;
   :global(.qwenpaw-slider-track),
   :global(.ant-slider-track) {
-    background: var(--thinking-color);
+    background: transparent !important;
+    height: 8px;
+    border-radius: 8px;
+  }
+  :global(.qwenpaw-slider-rail),
+  :global(.ant-slider-rail) {
+    height: 8px;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #ffe9cf, #f8b96c 50%, #ad510f);
+    opacity: 1;
+  }
+  :global(.qwenpaw-slider-handle),
+  :global(.ant-slider-handle) {
+    top: 3px;
   }
   :global(.qwenpaw-slider-handle::after),
   :global(.ant-slider-handle::after) {
-    box-shadow: 0 0 0 2px var(--thinking-color);
+    width: 16px;
+    height: 16px;
+    inset-inline-start: -3px;
+    inset-block-start: -3px;
+    background: var(--model-card);
+    box-shadow:
+      0 0 0 1px var(--model-hairline),
+      0 2px 5px rgb(0 0 0 / 18%);
   }
   :global(.qwenpaw-input-number-affix-wrapper),
   :global(.ant-input-number-affix-wrapper) {
@@ -135,5 +155,20 @@
     border-radius: 24px;
     padding: 12px;
     box-shadow: var(--model-overlay-shadow);
+  }
+}
+
+.sessionCaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px 8px 0;
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }

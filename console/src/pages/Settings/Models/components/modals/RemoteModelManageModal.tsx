@@ -1,3 +1,4 @@
+import InlineHelp from "../../../../../components/InlineHelp";
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
 import { Pagination, Spin, Switch } from "antd";
@@ -295,6 +296,9 @@ export function RemoteModelManageModal({
             </label>
           )}
         </div>
+        <InlineHelp>
+          {t(managed ? "models.pool.managedHint" : "models.pool.hint")}
+        </InlineHelp>
         {!managed && current.support_model_discovery && (
           <Button
             icon={<RefreshCw size={16} />}
@@ -305,9 +309,7 @@ export function RemoteModelManageModal({
           </Button>
         )}
       </div>
-      <p className={styles.hint}>
-        {t(managed ? "models.pool.managedHint" : "models.pool.hint")}
-      </p>
+
       {!current.support_model_discovery && current.discovery_support_reason && (
         <p className={styles.hint}>{current.discovery_support_reason}</p>
       )}
@@ -529,7 +531,7 @@ export function RemoteModelManageModal({
       </div>
       {!managed && (
         <div className={styles.footer}>
-          <span>{t("models.pool.manualHint")}</span>
+          <InlineHelp>{t("models.pool.manualHint")}</InlineHelp>
           <Button icon={<Plus size={16} />} onClick={() => setAdding(true)}>
             {t("models.addModel")}
           </Button>
