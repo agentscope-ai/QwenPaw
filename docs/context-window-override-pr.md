@@ -285,23 +285,26 @@ $ pytest tests/unit/providers tests/unit/app/routers \
     --ignore=tests/unit/providers/test_retry_chat_model.py \
     --deselect tests/unit/providers/test_gemini_provider.py::test_summary_thinking_override_is_concurrency_safe
 
-branch (a2a4d9d1 + fourth-round fixes):  24 failed, 1468 passed, 2 skipped
-baseline (origin/main ee0c08e7):         23 failed, 1432 passed, 2 skipped
+baseline (origin/main ee0c08e7):                     23 failed, 1432 passed, 2 skipped
+branch, before merging main (3d406c91):              24 failed, 1468 passed, 2 skipped
+branch, after merging main (2ed45e4e):               24 failed, 1468 passed, 2 skipped
 
-$ diff <(sorted baseline FAILED) <(sorted branch FAILED)   # only on this branch
+$ diff <pre-merge branch FAILED> <post-merge branch FAILED>   # only on this branch
 FAILED tests/unit/app/routers/test_tools_router_web_search_config.py::test_update_tool_config_keyless_provider_skips_credential_io
+FAILED tests/unit/app/routers/test_tools_router_web_search_config.py::test_update_tool_config_masked_value_preserves_existing
 
-$ pytest "<that test>" -q       # three times
-1 passed in 4.08s / 3.73s / 6.94s
+$ pytest "<each of those>" -q          # alone: 1 passed, 3 times each
+$ pytest tests/unit/app/routers/test_tools_router_web_search_config.py -q   # twice: 15 passed
 ```
 
-The one extra failure is the load-induced flake this box is known for (it is on
-the `test_update_tool_config_*_skips_credential_io` family, passes 3/3 in
-isolation, and does not import any provider module this PR touches). The other
-23 are identical on both sides: stale local `agentscope` checkout
-(`InjectionConfig` missing), missing optional packages, and this account's
-missing symlink privilege / non-ASCII temp path. The two exclusions fail or hang
-on the baseline too (the gemini test deadlocks by design). The pass-count
+The 23 stable failures are identical on every run and on the baseline: stale
+local `agentscope` checkout (`InjectionConfig` missing), missing optional
+packages, and this account's missing symlink privilege / non-ASCII temp path.
+The 24th is the load-induced flake family this box is known for
+(`test_update_tool_config_*`): it rotates between members of that file, passes
+in isolation, and the whole file passes on re-run — including after the merge,
+so merging `main` introduced no new failures. The two exclusions fail or hang on
+the baseline too (the gemini test deadlocks by design). The pass-count
 difference is exactly the cases this PR adds.
 
 Focused files (fourth round included):
@@ -495,3 +498,10 @@ trust the `console format check` job.
   `max_input_length` read-back change, this description's data figures and
   checkbox accuracy, locale contract) are all recorded — reproduction steps,
   attribution and re-tests — in sections 13–16 of the design doc.
+- `main` was merged in (commit `2ed45e4e`) to clear the merge conflict. The only
+  conflict was `console/src/pages/Hub/governance/HubModelIdentityFields.tsx`,
+  resolved in favour of upstream: #7833 had rewritten that region to take the
+  limits from the hub's `token-defaults` endpoint and removed the client-side
+  catalog lookup this branch had been adjusting, so the form no longer reads
+  `max_input_length` at all and nothing is lost. Section 16.4 of the design doc
+  records the resolution and the re-test.

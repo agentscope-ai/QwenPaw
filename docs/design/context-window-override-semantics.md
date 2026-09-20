@@ -803,9 +803,27 @@ ja 2848、ru 2863、id 2427、vi 1863、pt-BR 2881，且 `models.*` 命名空间
 
 | 手段 | 结果 |
 | --- | --- |
-| 后端切片（providers + app/routers + acp + local_models） | 24 failed / 1468 passed：其中 23 条与基线逐条相同，另 1 条是本机已知的负载抖动（`test_update_tool_config_keyless_provider_skips_credential_io`，单独跑 3/3 通过，且不 import 本次触碰的模块）；新增用例通过 |
+| 后端切片（providers + app/routers + acp + local_models） | 24 failed / 1468 passed：其中 23 条与基线逐条相同，另 1 条是本机已知的负载抖动（`test_update_tool_config_*` 家族的成员，单独跑 3/3 通过，整文件重跑 15/15，且不 import 本次触碰的模块）；新增用例通过 |
 | 聚焦 9 文件 | 346 passed, 1 skipped |
 | 插件相关用例 | 17 passed（含"只覆写实例钩子 ⇒ 不投影"的新用例） |
 | `vitest`（locale 契约 + 两个模型弹窗文件） | locale 20 passed；弹窗 10 passed |
 | 静态检查 | `black 23.3.0 --line-length=79` unchanged；`flake8` clean；`eslint` clean |
 | 探针 | 只覆写实例钩子的插件：列表投影 `(None, None)`、运行时 `131072`，注册信息未被写脏 |
+
+### 16.4 与 main 的合并（`2ed45e4e`）
+
+`origin/main` 在此期间前进了 15 个提交（含 #7833 hub 修复、#7863 测试稳定化）。
+唯一冲突是 `console/src/pages/Hub/governance/HubModelIdentityFields.tsx`：
+本分支第三轮把它改成读新槽位（`max_input_length_catalog`），而 #7833 把同一段
+重写成"默认值来自 hub 的 `admin/model-connections/{id}/token-defaults` 接口"，
+并删掉了客户端的目录回退。**冲突按 main 版本解决**：合并后的治理表单根本不再读
+`max_input_length`，本分支那一处的意图（别再读旧占位符字段）由新机制达成，
+没有语义损失。其余 5 个文件（en/zh、`ModelTokenFields.tsx`、`config.py`、
+`hub_managed.py`）自动合并，逐个人工核对：main 带来的是无关新增（飞书折叠思考、
+hub 容量文案）与一处 hub 输出上限来源修正（`output_token_limit` 为 None 时标
+`unknown`），未重新引入旧槽位语义（`grep 'max_input_length='` 只命中迁移代码）。
+
+合并前后各跑一次后端切片，`FAILED` 集合除"抖动家族里换了一个成员"外完全相同
+（合并前 `test_update_tool_config_keyless_provider_skips_credential_io`，
+合并后 `test_update_tool_config_masked_value_preserves_existing`），两者单独跑
+均通过，因此合并未引入新失败。
