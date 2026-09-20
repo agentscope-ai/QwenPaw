@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from pathlib import Path
 from typing import Literal, Optional
 from uuid import uuid4
@@ -14,8 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from agentscope.message import Msg
 from agentscope.state import AgentState
 
+from ...schemas import Message
 from .session import SafeJSONSession
 from .manager import ChatManager, MAX_BATCH_SIZE
+from .durable_history import read_durable_session
 from .models import (
     BatchArchiveResult,
     ChatGroup,
@@ -38,6 +41,37 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/chats", tags=["chats"])
+
+
+async def _read_durable_chat_history(
+    workspace,
+    session_id: str,
+) -> list[Message]:
+    """Read durable history, returning empty so callers can fall back."""
+    workspace_dir = getattr(workspace, "workspace_dir", None)
+    if workspace_dir is None:
+        return []
+
+    running = getattr(workspace.config, "running", None)
+    light_context = getattr(running, "light_context_config", None)
+    scroll_config = getattr(light_context, "scroll_config", None)
+    db_filename = getattr(scroll_config, "db_filename", "history.db")
+    db_path = Path(workspace_dir) / db_filename
+    try:
+        durable_memories = await asyncio.to_thread(
+            read_durable_session,
+            db_path,
+            session_id,
+        )
+        return agentscope_msg_to_message(durable_memories)
+    except (OSError, sqlite3.Error, ValueError, TypeError):
+        logger.warning(
+            "Failed to read durable history for session %s; "
+            "falling back to session state",
+            session_id,
+            exc_info=True,
+        )
+        return []
 
 
 def _is_app_owned_chat(chat: ChatSpec) -> bool:
@@ -757,6 +791,15 @@ async def get_chat(
             detail=f"Chat not found: {chat_id}",
         )
 
+    status = await workspace.task_tracker.get_status(chat_id)
+
+    durable_messages = await _read_durable_chat_history(
+        workspace,
+        chat_spec.session_id,
+    )
+    if durable_messages:
+        return ChatHistory(messages=durable_messages, status=status)
+
     state = await session.get_session_state_dict(
         chat_spec.session_id,
         chat_spec.user_id,
@@ -784,7 +827,7 @@ async def get_chat(
                 chat_spec.session_id,
                 exc_info=True,
             )
-    status = await workspace.task_tracker.get_status(chat_id)
+
     if not state:
         return ChatHistory(messages=[], status=status)
 
