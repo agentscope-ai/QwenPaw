@@ -72,6 +72,7 @@ from ...config.config import (
 )
 from ...exceptions import ProviderError
 from ...providers import ProviderManager
+from ...providers.fallback_chat_model import FallbackChatModel
 from ...utils.io_utils import run_sync_io
 
 if TYPE_CHECKING:
@@ -510,13 +511,23 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
 
         agent_config = await load_agent_config_async(self.agent_id)
         memory_slot = self._memory_model_slot(agent_config)
-        model = None
+        main_model, _formatter = await create_model_and_formatter_async(
+            self.agent_id,
+            agent_config=agent_config,
+        )
+        model = main_model
         if memory_slot is not None:
             try:
-                model, _formatter = await create_model_and_formatter_async(
-                    self.agent_id,
-                    model_slot_override=memory_slot,
-                    agent_config=agent_config,
+                memory_model, _formatter = (
+                    await create_model_and_formatter_async(
+                        self.agent_id,
+                        model_slot_override=memory_slot,
+                        agent_config=agent_config,
+                    )
+                )
+                model = FallbackChatModel(
+                    [memory_model, main_model],
+                    fallback_on_any_error=True,
                 )
             except ProviderError as exc:
                 logger.warning(
@@ -526,11 +537,6 @@ class ReMeLightMemoryManager(BaseMemoryManager, MemoryActionProvider):
                     memory_slot.model,
                     exc,
                 )
-        if model is None:
-            model, _formatter = await create_model_and_formatter_async(
-                self.agent_id,
-                agent_config=agent_config,
-            )
         await self._reme.update_component(
             "as_llm",
             "default",

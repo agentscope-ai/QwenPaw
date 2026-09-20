@@ -3,7 +3,7 @@
 """Tests for the configurable memory-writing model slot."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -35,7 +35,7 @@ def _patch_deps(
     agent_config: SimpleNamespace,
     factory: AsyncMock,
     global_model: ModelSlotConfig | None = None,
-) -> None:
+) -> Mock:
     monkeypatch.setattr(
         reme_light_memory_manager,
         "load_agent_config_async",
@@ -54,6 +54,15 @@ def _patch_deps(
         "ProviderManager",
         SimpleNamespace(get_instance=lambda: provider_manager),
     )
+    fallback_factory = Mock(
+        return_value=SimpleNamespace(name="memory-fallback"),
+    )
+    monkeypatch.setattr(
+        reme_light_memory_manager,
+        "FallbackChatModel",
+        fallback_factory,
+    )
+    return fallback_factory
 
 
 def _build_manager() -> ReMeLightMemoryManager:
@@ -106,13 +115,19 @@ async def test_update_model_slot_selection(
     expected_override: ModelSlotConfig | None,
 ) -> None:
     """The factory must receive the resolved slot, or none when unusable."""
-    injected = SimpleNamespace(name="injected")
-    factory = AsyncMock(return_value=(injected, None))
+    main_model = SimpleNamespace(name="main")
+    memory_model_instance = SimpleNamespace(name="memory")
+    factory = AsyncMock(
+        side_effect=[
+            (main_model, None),
+            (memory_model_instance, None),
+        ],
+    )
     agent_config = _agent_config(
         memory_model=memory_model,
         active_model=active_model,
     )
-    _patch_deps(
+    fallback_factory = _patch_deps(
         monkeypatch,
         agent_config=agent_config,
         factory=factory,
@@ -127,16 +142,27 @@ async def test_update_model_slot_selection(
             "default",
             agent_config=agent_config,
         )
+        expected_model = main_model
+        fallback_factory.assert_not_called()
     else:
-        factory.assert_awaited_once_with(
-            "default",
-            model_slot_override=expected_override,
-            agent_config=agent_config,
+        assert factory.await_args_list[0].args == ("default",)
+        assert factory.await_args_list[0].kwargs == {
+            "agent_config": agent_config,
+        }
+        assert factory.await_args_list[1].args == ("default",)
+        assert factory.await_args_list[1].kwargs == {
+            "model_slot_override": expected_override,
+            "agent_config": agent_config,
+        }
+        expected_model = fallback_factory.return_value
+        fallback_factory.assert_called_once_with(
+            [memory_model_instance, main_model],
+            fallback_on_any_error=True,
         )
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",
-        model=injected,
+        model=expected_model,
     )
 
 
@@ -148,8 +174,8 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
     main_model = SimpleNamespace(name="main")
     factory = AsyncMock(
         side_effect=[
-            ProviderError("Provider 'missing' not found."),
             (main_model, None),
+            ProviderError("Provider 'missing' not found."),
         ],
     )
     _patch_deps(
@@ -162,10 +188,10 @@ async def test_update_model_unavailable_slot_falls_back_to_main_model(
     await manager._update_qwenpaw_model()
 
     assert factory.await_count == 2
-    assert factory.await_args_list[1].args == ("default",)
-    assert factory.await_args_list[1].kwargs == {
-        "agent_config": factory.await_args_list[0].kwargs["agent_config"],
+    assert factory.await_args_list[0].kwargs == {
+        "agent_config": factory.await_args_list[1].kwargs["agent_config"],
     }
+    assert factory.await_args_list[1].kwargs["model_slot_override"] == slot
     manager._reme.update_component.assert_awaited_once_with(
         "as_llm",
         "default",

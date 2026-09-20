@@ -39,7 +39,12 @@ def install_fallback_notice_sink() -> dict[str, Any]:
 class FallbackChatModel(ChatModelBase):
     """Try configured models in order before any response becomes visible."""
 
-    def __init__(self, models: list[ChatModelBase]) -> None:
+    def __init__(
+        self,
+        models: list[ChatModelBase],
+        *,
+        fallback_on_any_error: bool = False,
+    ) -> None:
         if not models:
             raise ValueError("FallbackChatModel requires at least one model")
         primary = models[0]
@@ -62,6 +67,7 @@ class FallbackChatModel(ChatModelBase):
             context_size=getattr(primary, "context_size", 32_768),
         )
         self._models = models
+        self._fallback_on_any_error = fallback_on_any_error
         self._thinking_omit_ids: set[str] = set()
         self._activate_model(primary)
 
@@ -336,7 +342,11 @@ class FallbackChatModel(ChatModelBase):
         # engages at all.  Once the chain is running, a broken candidate
         # (revoked key, deleted model, ...) must not mask the healthy
         # candidates behind it, so its own error never stops the walk.
-        return index > 0 or is_fallback_eligible(exc)
+        return (
+            self._fallback_on_any_error
+            or index > 0
+            or is_fallback_eligible(exc)
+        )
 
     def _record_fallback(
         self,
