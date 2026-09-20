@@ -19,6 +19,9 @@ export function readPendingModel(
   const raw = sessionStorage.getItem(key(agent, session));
   return raw ? JSON.parse(raw) : null;
 }
+export function clearPendingModel(agent: string, session: string) {
+  sessionStorage.removeItem(key(agent, session));
+}
 export function migratePendingModel(agent: string, from: string, to: string) {
   if (from === to) return;
   const raw = sessionStorage.getItem(key(agent, from));

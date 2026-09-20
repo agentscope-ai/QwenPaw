@@ -33,6 +33,10 @@ export function setPendingThinking(
   else settings[modelKey] = value;
   sessionStorage.setItem(storageKey, JSON.stringify(settings));
 }
+export function clearPendingThinking(agentId: string, sessionId: string) {
+  sessionStorage.removeItem(key(agentId, sessionId));
+  sessionStorage.removeItem(`${key(agentId, sessionId)}:active`);
+}
 export function migratePendingThinking(
   agentId: string,
   from: string,
