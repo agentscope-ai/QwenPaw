@@ -436,18 +436,13 @@ class ProviderManager(
         self._validate_realtime_voice_model(registration, model)
         return EffectiveRealtimeVoiceConfig.from_model(slot.provider_id, model)
 
-    def update_realtime_voice_model(
+    async def update_realtime_voice_model(
         self,
         provider_id: str,
         model_id: str,
         config: dict,
     ) -> RealtimeVoiceModelConfig:
-        provider = self.get_provider(provider_id)
-        current = self.get_realtime_voice_model(provider_id, model_id)
-        if provider is None or current is None:
-            raise ValueError(
-                f"Realtime model '{provider_id}/{model_id}' not found.",
-            )
+        provider_id = self._normalize_provider_id(provider_id)
         editable_fields = {
             "region",
             "realtime_model",
@@ -467,17 +462,37 @@ class ProviderManager(
                 "Unsupported realtime model fields: "
                 + ", ".join(sorted(unsupported)),
             )
-        updated = RealtimeVoiceModelConfig.model_validate(
-            {**current.model_dump(), **config},
-        )
         registration = self.get_realtime_voice_registration(provider_id)
-        assert registration is not None
-        self._validate_realtime_voice_model(registration, updated)
-        provider.realtime_models = [
-            updated if model.id == model_id else model
-            for model in provider.realtime_models
-        ]
-        self.save_provider_config(provider_id, provider)
+        if registration is None:
+            raise ValueError(f"Provider '{provider_id}' has no realtime voice.")
+        config_snapshot = dict(config)
+
+        async def update(candidate: Provider) -> RealtimeVoiceModelConfig:
+            current = next(
+                (
+                    model
+                    for model in candidate.realtime_models
+                    if model.id == model_id
+                ),
+                None,
+            )
+            if current is None:
+                raise ValueError(
+                    f"Realtime model '{provider_id}/{model_id}' not found.",
+                )
+            updated = RealtimeVoiceModelConfig.model_validate(
+                {**current.model_dump(), **config_snapshot},
+            )
+            self._validate_realtime_voice_model(registration, updated)
+            candidate.realtime_models = [
+                updated if model.id == model_id else model
+                for model in candidate.realtime_models
+            ]
+            return updated
+
+        updated = await self._mutate_provider_async(provider_id, update)
+        if updated is None:
+            raise ValueError(f"Provider '{provider_id}' not found.")
         return updated
 
     def activate_realtime_model(self, provider_id: str, model_id: str) -> None:

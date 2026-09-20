@@ -37,6 +37,7 @@ from qwenpaw.providers.provider import (
     ProviderInfo,
 )
 from qwenpaw.providers.provider_manager import ProviderManager
+from qwenpaw.providers.realtime_voice.dashscope import DASHSCOPE_REGISTRATION
 
 
 def _install_v210_provider_fixture(
@@ -157,6 +158,49 @@ def test_builtin_zhipu_providers_registered(isolated_secret_dir) -> None:
         model_ids = [m.id for m in provider.models]
         assert len(model_ids) > 0
         assert len(model_ids) == len(set(model_ids))
+
+
+async def test_realtime_voice_model_update_is_transactional(
+    isolated_secret_dir,
+    monkeypatch,
+) -> None:
+    manager = ProviderManager()
+    manager.register_realtime_voice_provider(DASHSCOPE_REGISTRATION)
+    original = manager.get_realtime_voice_model(
+        "dashscope",
+        "qwen-audio-realtime",
+    )
+    assert original is not None
+    updated = await manager.update_realtime_voice_model(
+        "dashscope",
+        "qwen-audio-realtime",
+        {"voice": "longanhuan"},
+    )
+
+    assert updated.voice == "longanhuan"
+    current = manager.get_realtime_voice_model(
+        "dashscope",
+        "qwen-audio-realtime",
+    )
+    assert current is not None
+    assert current.voice == "longanhuan"
+
+    def fail_save(*_args, **_kwargs):
+        raise OSError("write failed")
+
+    monkeypatch.setattr(manager, "_save_provider_snapshot_locked", fail_save)
+    with pytest.raises(OSError, match="write failed"):
+        await manager.update_realtime_voice_model(
+            "dashscope",
+            "qwen-audio-realtime",
+            {"voice": "longanqian"},
+        )
+    current = manager.get_realtime_voice_model(
+        "dashscope",
+        "qwen-audio-realtime",
+    )
+    assert current is not None
+    assert current.voice == "longanhuan"
 
 
 def test_builtin_restore_preserves_catalog_free_flags() -> None:

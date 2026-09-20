@@ -999,7 +999,7 @@ async def configure_realtime_voice_model(
     body: RealtimeVoiceModelConfigRequest = Body(...),
 ) -> RealtimeVoiceModelConfig:
     try:
-        return manager.update_realtime_voice_model(
+        return await manager.update_realtime_voice_model(
             provider_id,
             model_id,
             body.model_dump(),

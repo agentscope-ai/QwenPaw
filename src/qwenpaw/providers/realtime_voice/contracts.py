@@ -98,6 +98,7 @@ class RealtimeVoiceCapabilityInfo(BaseModel):
     supports_item_deletion: bool = True
     supports_manual_response: bool = True
     supports_output_cancel: bool = True
+    supports_native_delegation: bool = False
 
 
 class EffectiveRealtimeVoiceConfig(BaseModel):
@@ -155,6 +156,24 @@ class RealtimeSessionConfig:
     """Application-owned speech instructions for one session."""
 
     instructions: str
+    delegation_tool: RealtimeDelegationTool | None = None
+
+
+@dataclass(frozen=True)
+class RealtimeDelegationTool:
+    """Provider-neutral signal for handing work to the ordinary Agent.
+
+    The tool deliberately has no semantic arguments.  Its call is only a
+    routing signal; the application submits the provider's finalized input
+    transcript as the authoritative request.
+    """
+
+    name: str = "delegate_to_agent"
+    description: str = (
+        "Hand a user request that needs tools, files, application state, or "
+        "long-running execution to the ordinary Agent. The call only signals "
+        "delegation; it does not carry or rewrite the request."
+    )
 
 
 @dataclass(frozen=True)
@@ -211,6 +230,14 @@ class RealtimeProviderSession(Protocol):
     async def request_response(self) -> ProviderResponseResult:
         ...
 
+    async def complete_delegation(
+        self,
+        call_id: str,
+        output: dict[str, Any],
+    ) -> str:
+        """Return immediate custody metadata for one native delegation."""
+        ...
+
     async def delete_items(self, item_ids: Iterable[str]) -> None:
         ...
 
@@ -243,6 +270,7 @@ class RealtimeProviderRegistration:
     factory: ProviderFactory
     # Budget for one application-supplied, quoted history data item.
     context_max_chars: int = 1800
+    supports_native_delegation: bool = False
 
     def public_capability(self) -> RealtimeVoiceCapabilityInfo:
         return RealtimeVoiceCapabilityInfo(
@@ -250,6 +278,7 @@ class RealtimeProviderRegistration:
             vad_modes=list(self.vad_modes),
             speech_models=list(self.speech_models),
             media=self.media,
+            supports_native_delegation=self.supports_native_delegation,
         )
 
 
@@ -260,6 +289,7 @@ __all__ = [
     "ProviderEvent",
     "ProviderResponseOrigin",
     "ProviderResponseResult",
+    "RealtimeDelegationTool",
     "RealtimeProviderRegistration",
     "RealtimeProviderSession",
     "RealtimeSessionConfig",
