@@ -2057,6 +2057,35 @@ async def put_agents_running_config(
                                 "failed for agent '%s'",
                                 sanitize_log_value(workspace.agent_id),
                             )
+                        else:
+                            # The failed reload may have left a newer candidate
+                            # running with the rejected backend while the
+                            # persisted config is now restored. Schedule a fresh
+                            # reload after the rollback so runtime and disk
+                            # converge. This also bumps the config generation,
+                            # invalidating candidates still being built from the
+                            # rejected configuration.
+                            try:
+                                runtime_restore_scheduled = (
+                                    schedule_agent_reload(
+                                        request,
+                                        workspace.agent_id,
+                                    )
+                                )
+                            except Exception:
+                                logger.exception(
+                                    "Backend config rolled back for agent '%s' "
+                                    "but runtime restore scheduling failed",
+                                    sanitize_log_value(workspace.agent_id),
+                                )
+                            else:
+                                if not runtime_restore_scheduled:
+                                    logger.error(
+                                        "Backend config rolled back for agent "
+                                        "'%s' but runtime restore could not be "
+                                        "scheduled",
+                                        sanitize_log_value(workspace.agent_id),
+                                    )
                 finally:
                     selection_lease.release()
 
