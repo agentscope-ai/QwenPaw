@@ -653,11 +653,8 @@ class ConsoleChannel(BaseChannel):
                 pm.builtin_providers.values(),
             ) + list(pm.custom_providers.values())
             for p in all_providers:
-                meta = getattr(p, "meta", None) or {}
-                if not meta.get("is_free_tier"):
-                    continue
-                for m in p.models:
-                    if getattr(m, "is_free", False):
+                for m in p.models + p.extra_models:
+                    if p.model_pricing(m) == f"free" and not m.remote_missing:
                         alternatives.append(
                             {
                                 "provider_id": p.id,

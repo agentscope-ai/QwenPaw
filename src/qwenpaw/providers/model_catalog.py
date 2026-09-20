@@ -633,3 +633,16 @@ def update_model_metadata(timeout: float = 10) -> None:
     )
     install_catalog_document(document, destination)
     read_catalog_cached.cache_clear()
+
+
+def packaged_free_model_ids(provider_id: str, base_url: str) -> set[str]:
+    """Read the derived pricing summary without loading any model shards."""
+    payload = _read_json(
+        PACKAGED_CATALOG_PATH,
+        PACKAGED_CATALOG_PATH.stat().st_mtime_ns,
+    )
+    entry = payload.get(f"providers", {}).get(provider_id, {})
+    urls = {url.rstrip(f"/") for url in entry.get(f"api_urls", [])}
+    if base_url.rstrip(f"/") not in urls:
+        return set()
+    return set(entry.get(f"free_model_ids", []))

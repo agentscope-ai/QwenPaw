@@ -2739,7 +2739,8 @@
         "availability": "Connection status",
         "family": "Model family"
       }
-    }
+    },
+    "includesFreeModels": "Includes free models"
   },
   "files": {
     "title": "Files",

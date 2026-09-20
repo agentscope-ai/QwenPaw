@@ -46,7 +46,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   const totalModels =
     activeProvider.models.length + activeProvider.extra_models.length;
   const liveCount = group.providers.filter(getIsConfigured).length;
-  const hasFreeTier = group.providers.some((p) => p.is_free_tier);
+  const hasFreeTier = activeProvider.is_free_tier;
 
   const handleSaveKey = async () => {
     if (!apiKeyInput.trim()) return;
@@ -72,7 +72,11 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={group.providers[0]?.id ?? ""} size={36} />
         <span className={styles.groupCardName}>{group.groupName}</span>
-        {hasFreeTier && <span className={styles.freeTag}>FREE</span>}
+        {hasFreeTier && (
+          <span className={styles.freeTag}>
+            {t("models.includesFreeModels")}
+          </span>
+        )}
         {liveCount > 0 && (
           <div className={styles.groupCardLiveBadge}>
             <span className={styles.groupCardPulse} />

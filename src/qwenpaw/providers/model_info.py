@@ -147,6 +147,11 @@ class ModelInfo(BaseModel):
     recommendation_reason: str = f"unranked"
     supports_audio: bool | None = None
     supports_tool_calling: bool | None = None
+    pricing: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Pricing info (prompt/completion)",
+    )
+
     billing_source: str = f"unknown"
     billing_checked_at: str | None = None
     input_token_limit: int | None = Field(default=None, ge=1)
@@ -266,8 +271,4 @@ class ExtendedModelInfo(ModelInfo):
     output_modalities: List[str] = Field(
         default_factory=list,
         description="Supported output modalities",
-    )
-    pricing: Dict[str, str] = Field(
-        default_factory=dict,
-        description="Pricing info (prompt/completion)",
     )

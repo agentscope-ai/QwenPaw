@@ -79,7 +79,11 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         <ProviderIcon providerId={provider.id} size={36} />
         <span className={styles.groupCardName}>{provider.name}</span>
         {providerTag}
-        {provider.is_free_tier && <span className={styles.freeTag}>FREE</span>}
+        {provider.is_free_tier && (
+          <span className={styles.freeTag}>
+            {t("models.includesFreeModels")}
+          </span>
+        )}
         {isAvailable && (
           <div className={styles.groupCardLiveBadge}>
             <span className={styles.groupCardPulse} />

@@ -8,7 +8,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 import re
 from uuid import uuid4
-from datetime import datetime, timezone
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Type
 
@@ -20,6 +19,8 @@ from qwenpaw.exceptions import ProviderError
 from ..utils.io_utils import run_sync_io
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .thinking import ThinkingControl, ThinkingPreference, resolve_thinking
+from .model_catalog import packaged_free_model_ids
+from .model_billing import effective_billing
 from .model_info import ExtendedModelInfo as ExtendedModelInfo
 from .model_info import ModelInfo
 from .model_resolution import resolve_model_info
@@ -1222,17 +1223,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         model: ModelInfo,
     ) -> Literal["free", "paid", "unknown"]:
         """Return billing evidence, never infer price from model capability."""
-        if model.billing == f"free" and model.billing_checked_at:
-            try:
-                checked = datetime.fromisoformat(model.billing_checked_at)
-                if checked.tzinfo is None:
-                    checked = checked.replace(tzinfo=timezone.utc)
-                age = (datetime.now(timezone.utc) - checked).total_seconds()
-                if age < 0 or age > 86400:
-                    return f"unknown"
-            except ValueError:
-                return f"unknown"
-        return model.billing
+        return effective_billing(model)
 
     def model_available(self, model: ModelInfo) -> bool:
         """Separate endpoint access from billing and model quality."""
@@ -1341,7 +1332,11 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             api_key = self.api_key
         removed = set(self.removed_model_ids)
 
+        serialized_cards: dict[str, dict[str, Any]] = {}
+
         def serialize_model(model: ModelInfo) -> dict[str, Any]:
+            if model.id in serialized_cards:
+                return serialized_cards[model.id]
             card = resolve_model_info(
                 self,
                 model,
@@ -1362,6 +1357,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 f"effort",
                 f"budget",
             }
+            serialized_cards[model.id] = payload
             return payload
 
         # Serialize models/extra_models to plain dicts so that
@@ -1370,6 +1366,36 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         # class-identity mismatches when the same module is loaded
         # via two different import paths (e.g. PYTHONPATH + pip install).
         meta = self.meta or {}
+        selected_cards = [
+            serialize_model(model) for model in self.configured_models()
+        ]
+        free_ids = packaged_free_model_ids(self.id, self.base_url)
+        free_ids.difference_update(removed)
+        for raw in self.models + self.extra_models + self.discovered_models:
+            model = ModelInfo.model_validate(raw.model_dump())
+            if (
+                model.remote_missing
+                or model.billing == f"paid"
+                or (
+                    model.billing_source == f"api"
+                    and model.billing == f"free"
+                    and self.model_pricing(model) != f"free"
+                )
+            ):
+                free_ids.discard(model.id)
+        has_free_models = (
+            bool(free_ids)
+            or any(
+                card[f"billing"] == f"free" and not card[f"remote_missing"]
+                for card in selected_cards
+            )
+            or any(
+                self.model_pricing(model) == f"free"
+                and not model.remote_missing
+                and model.id not in removed
+                for model in self.discovered_models
+            )
+        )
         return ProviderInfo(
             id=self.id,
             name=self.name,
@@ -1421,7 +1447,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             oauth_connected=bool(
                 meta.get("supports_oauth") and self.api_key,
             ),
-            is_free_tier=meta.get("is_free_tier", False),
+            is_free_tier=has_free_models,
             provider_group=self.provider_group,
             provider_group_name=self.provider_group_name,
             provider_variant=self.provider_variant,

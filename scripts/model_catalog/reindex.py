@@ -20,6 +20,11 @@ def main() -> None:
         payload = shard.read_bytes()
         provider = json.loads(payload)
         defaults = provider.get(f"default_model_ids")
+        entry[f"free_model_ids"] = [
+            model[f"id"]
+            for model in provider[f"models"]
+            if model.get(f"billing") == f"free"
+        ]
         entry[f"sha256"] = hashlib.sha256(payload).hexdigest()
         entry[f"api_urls"] = provider.get(f"api_urls", [])
         template_ids = provider.get(f"template_model_ids")

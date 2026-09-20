@@ -29,7 +29,19 @@
       "billing": "free",
       "supports_tool_calling": true,
       "supports_audio": true,
-      "released_at": "2026-04-24"
+      "released_at": "2026-04-24",
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "nemotron-3-ultra-free",
@@ -51,7 +63,19 @@
       "billing": "free",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-04"
+      "released_at": "2026-06-04",
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "claude-sonnet-4-6",
@@ -159,7 +183,21 @@
       "supports_image": true,
       "supports_audio": true,
       "supports_video": true,
-      "released_at": "2026-09-02"
+      "released_at": "2026-09-02",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5-codex",
@@ -303,7 +341,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-03-18"
+      "released_at": "2026-03-18",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi-k2.6",
@@ -315,7 +363,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-04-21"
+      "released_at": "2026-04-21",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.2-codex",
@@ -351,7 +409,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-06-13"
+      "released_at": "2026-06-13",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-6-astra",
@@ -399,7 +467,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-12"
+      "released_at": "2026-02-12",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "minimax-m3",
@@ -411,7 +489,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-06-01"
+      "released_at": "2026-06-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "laguna-s-2.1-free",
@@ -447,7 +535,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-06-12"
+      "released_at": "2026-06-12",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi-k2-thinking",
@@ -663,7 +761,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-07-16"
+      "released_at": "2026-07-16",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "ling-2.6-flash-free",
@@ -699,7 +807,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-08-11"
+      "released_at": "2026-08-11",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "hy3-free",
@@ -748,7 +870,17 @@
       "supports_audio": false,
       "supports_video": true,
       "ranking_id": "z-ai/glm-5.3-flash",
-      "released_at": "2026-08-26"
+      "released_at": "2026-08-26",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "ring-2.6-1t-free",
@@ -844,7 +976,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-17"
+      "released_at": "2025-10-17",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.4-mini",
@@ -868,7 +1014,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-08-27"
+      "released_at": "2026-08-27",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi-k2",
@@ -928,7 +1088,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-11"
+      "released_at": "2026-02-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "claude-opus-4-1",
@@ -952,7 +1122,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-01-27"
+      "released_at": "2026-01-27",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.1",
@@ -964,7 +1144,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-07"
+      "released_at": "2026-04-07",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "jev-latest",
@@ -1106,7 +1296,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-08-14"
+      "released_at": "2026-08-14",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://opencode.ai/docs/zen/",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "mimo-v2-flash-free",

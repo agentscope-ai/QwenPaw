@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation
 from typing import ClassVar, Any, List, Optional
 
 from agentscope.model import ChatModelBase
@@ -17,6 +16,7 @@ from qwenpaw.providers.provider import (
     ExtendedModelInfo,
     ModelInfo,
 )
+from .model_billing import classify_pricing, normalize_pricing
 from .model_info import release_date
 from ..utils.io_utils import run_sync_io
 from .capping_formatter import _CappingOpenAIFormatter
@@ -118,33 +118,12 @@ class OpenRouterProvider(Provider):
         pricing: dict[str, Any] | None,
     ) -> dict[str, str]:
         """Normalize OpenRouter pricing dicts for downstream checks."""
-        if not pricing:
-            return {}
-
-        return {
-            str(key): str(value)
-            for key, value in pricing.items()
-            if value is not None
-        }
+        return normalize_pricing(pricing)
 
     @staticmethod
     def _is_free_model(pricing: dict[str, str]) -> bool:
         """Determine whether a model is free based on pricing fields."""
-        if not {f"prompt", f"completion"}.issubset(pricing):
-            return False
-        numeric_values: list[Decimal] = []
-        for value in pricing.values():
-            text = str(value).strip()
-            if not text:
-                continue
-            try:
-                numeric_values.append(Decimal(text))
-            except InvalidOperation:
-                return False
-
-        return bool(numeric_values) and all(
-            value == 0 for value in numeric_values
-        )
+        return classify_pricing(pricing) == f"free"
 
     @staticmethod
     def _normalize_models_payload(
@@ -186,15 +165,7 @@ class OpenRouterProvider(Provider):
                     getattr(row, "pricing", None),
                 )
                 is_free = OpenRouterProvider._is_free_model(pricing_dict)
-                billing = f"free" if is_free else f"unknown"
-                try:
-                    if any(
-                        Decimal(pricing_dict.get(field, f"0")) > 0
-                        for field in (f"prompt", f"completion")
-                    ):
-                        billing = f"paid"
-                except InvalidOperation:
-                    pass
+                billing = classify_pricing(pricing_dict)
                 # OpenRouter's /models reports authoritative context metadata.
                 # Store it as auto-detected so it wins over catalog and static
                 # values without becoming an explicit user override.

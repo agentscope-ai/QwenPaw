@@ -19,7 +19,7 @@
       "supports_image": false,
       "supports_video": false,
       "probe_source": "documentation",
-      "is_free": true,
+      "is_free": false,
       "source": "builtin",
       "availability_status": "unverified",
       "availability_retryable": true,
@@ -28,7 +28,15 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "free"
+      "billing": "paid",
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5",
@@ -45,7 +53,15 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.2",
@@ -67,7 +83,15 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-13"
+      "released_at": "2026-06-13",
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.1",
@@ -84,7 +108,15 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5-turbo",
@@ -106,7 +138,15 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-03-16"
+      "released_at": "2026-03-16",
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5v-turbo",
@@ -123,7 +163,15 @@
       "max_input_length_configured": false,
       "generate_kwargs": {},
       "relay_reasoning": true,
-      "billing": "paid"
+      "billing": "paid",
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.2-highspeed",
@@ -135,7 +183,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-06-13"
+      "released_at": "2026-06-13",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-4.7",
@@ -147,7 +205,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-12-22"
+      "released_at": "2025-12-22",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.3-highspeed",
@@ -159,7 +227,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-08-14"
+      "released_at": "2026-08-14",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.3-flash",
@@ -172,7 +250,17 @@
       "supports_audio": false,
       "supports_video": true,
       "ranking_id": "z-ai/glm-5.3-flash",
-      "released_at": "2026-08-26"
+      "released_at": "2026-08-26",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.3",
@@ -184,7 +272,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-08-14"
+      "released_at": "2026-08-14",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://docs.z.ai/devpack/overview",
+          "updated_at": "2026-09-20"
+        }
+      }
     }
   ]
 }

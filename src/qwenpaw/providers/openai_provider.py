@@ -24,6 +24,7 @@ from qwenpaw.providers.provider import (
     Provider,
 )
 
+from .model_billing import classify_pricing, normalize_pricing
 from .model_info import release_date
 from ..utils.io_utils import run_sync_io
 from .model_catalog import catalog_documents
@@ -201,7 +202,14 @@ class OpenAIProvider(Provider):
             model_name = (
                 str(getattr(row, "name", "") or model_id).strip() or model_id
             )
+            pricing = normalize_pricing(getattr(row, f"pricing", None))
+            flag = getattr(row, f"isFree", getattr(row, f"is_free", None))
+            billing = classify_pricing(pricing, flag)
             metadata: dict[str, Any] = {
+                f"pricing": pricing,
+                f"billing": billing,
+                f"is_free": billing == f"free",
+                f"billing_source": f"api",
                 f"released_at": release_date(getattr(row, f"created", None)),
             }
             for field in (
@@ -907,11 +915,12 @@ class _FreeSuffixProviderMixin:
             api_free = getattr(row, "isFree", None)
             if api_free is None:
                 api_free = getattr(row, "is_free", None)
-            is_free = (
-                api_free
-                if type(api_free) is bool
-                else model_id.endswith(suffix)
-            )
+            pricing = normalize_pricing(getattr(row, f"pricing", None))
+            billing = classify_pricing(pricing, api_free)
+            if billing == f"unknown" and not pricing:
+                if model_id.endswith(suffix):
+                    billing = f"free"
+            is_free = billing == f"free"
             display_name = (
                 model_id.removesuffix(suffix)
                 .replace("-", " ")
@@ -923,11 +932,9 @@ class _FreeSuffixProviderMixin:
                     id=model_id,
                     name=display_name,
                     is_free=is_free,
-                    billing=(
-                        f"free"
-                        if is_free
-                        else (f"paid" if api_free is False else f"unknown")
-                    ),
+                    billing=billing,
+                    pricing=pricing,
+                    billing_source=f"api",
                 ),
             )
         return models

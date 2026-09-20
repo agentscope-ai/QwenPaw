@@ -268,7 +268,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-01-01"
+      "released_at": "2025-01-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-coder-plus",
@@ -280,7 +290,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-07-23"
+      "released_at": "2025-07-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-next-80b-a3b-thinking",
@@ -292,7 +312,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09"
+      "released_at": "2025-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-v3",
@@ -304,7 +334,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-12-01"
+      "released_at": "2024-12-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen2-5-omni-7b",
@@ -328,7 +368,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-01"
+      "released_at": "2025-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-v3-1",
@@ -352,7 +402,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01"
+      "released_at": "2024-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-vl-max",
@@ -364,7 +424,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-04-08"
+      "released_at": "2024-04-08",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-next-80b-a3b-instruct",
@@ -376,7 +446,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09"
+      "released_at": "2025-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-coder-flash",
@@ -388,7 +468,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-07-28"
+      "released_at": "2025-07-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-14b",
@@ -400,7 +490,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04"
+      "released_at": "2025-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-max",
@@ -412,7 +512,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-04-03"
+      "released_at": "2024-04-03",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "moonshot-kimi-k2-instruct",
@@ -436,7 +546,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01-25"
+      "released_at": "2024-01-25",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-omni-turbo-realtime",
@@ -448,7 +568,17 @@
       "supports_image": true,
       "supports_audio": true,
       "supports_video": false,
-      "released_at": "2025-05-08"
+      "released_at": "2025-05-08",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi-k2.6",
@@ -460,7 +590,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-04-21"
+      "released_at": "2026-04-21",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-flash",
@@ -472,7 +612,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-07-28"
+      "released_at": "2025-07-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-turbo",
@@ -484,7 +634,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-11-01"
+      "released_at": "2024-11-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-vl-30b-a3b",
@@ -508,7 +668,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-10-28"
+      "released_at": "2024-10-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "tongyi-intent-detect-v3",
@@ -520,7 +690,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01"
+      "released_at": "2024-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-v4-flash",
@@ -532,7 +712,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-24"
+      "released_at": "2026-04-24",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi-k2-thinking",
@@ -544,7 +734,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-11-06"
+      "released_at": "2025-11-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-32b",
@@ -556,7 +756,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04"
+      "released_at": "2025-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwq-plus",
@@ -568,7 +778,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-03-05"
+      "released_at": "2025-03-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3.5-flash",
@@ -580,7 +800,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-02-23"
+      "released_at": "2026-02-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-vl-plus",
@@ -592,7 +822,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-23"
+      "released_at": "2025-09-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-v3-2-exp",
@@ -628,7 +868,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04"
+      "released_at": "2025-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen2-5-math-7b-instruct",
@@ -652,7 +902,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-02-16"
+      "released_at": "2026-02-16",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwq-32b",
@@ -676,7 +936,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-01-01"
+      "released_at": "2025-01-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-asr-flash",
@@ -688,7 +958,17 @@
       "supports_image": false,
       "supports_audio": true,
       "supports_video": false,
-      "released_at": "2025-09-08"
+      "released_at": "2025-09-08",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-omni-flash",
@@ -700,7 +980,17 @@
       "supports_image": true,
       "supports_audio": true,
       "supports_video": true,
-      "released_at": "2025-09-15"
+      "released_at": "2025-09-15",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-r1-distill-qwen-1-5b",
@@ -724,7 +1014,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-07-15"
+      "released_at": "2026-07-15",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi-k3",
@@ -736,7 +1036,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-07-16"
+      "released_at": "2026-07-16",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen2-5-vl-72b-instruct",
@@ -760,7 +1070,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-05-28"
+      "released_at": "2025-05-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-r1-distill-qwen-32b",
@@ -772,7 +1092,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-01-01"
+      "released_at": "2025-01-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-max",
@@ -784,7 +1114,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-23"
+      "released_at": "2025-09-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen2-5-coder-32b-instruct",
@@ -832,7 +1172,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01-25"
+      "released_at": "2024-01-25",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "MiniMax-M2.5",
@@ -844,7 +1194,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-12"
+      "released_at": "2026-02-12",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-omni-flash-realtime",
@@ -856,7 +1216,17 @@
       "supports_image": true,
       "supports_audio": true,
       "supports_video": false,
-      "released_at": "2025-09-15"
+      "released_at": "2025-09-15",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen2-5-vl-7b-instruct",
@@ -880,7 +1250,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-04-27"
+      "released_at": "2026-04-27",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3.8-flash",
@@ -892,7 +1272,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-08-26"
+      "released_at": "2026-08-26",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen2-5-14b-instruct",
@@ -916,7 +1306,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-09-19"
+      "released_at": "2024-09-19",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-plus-character",
@@ -928,7 +1328,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01"
+      "released_at": "2024-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3.6-max-preview",
@@ -940,7 +1350,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-20"
+      "released_at": "2026-04-20",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5",
@@ -952,7 +1372,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-11"
+      "released_at": "2026-02-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi-k2.5",
@@ -964,7 +1394,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-01-27"
+      "released_at": "2026-01-27",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-8b",
@@ -976,7 +1416,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04"
+      "released_at": "2025-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "glm-5.1",
@@ -988,7 +1438,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-14"
+      "released_at": "2026-04-14",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-235b-a22b",
@@ -1000,7 +1460,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04"
+      "released_at": "2025-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-omni-turbo",
@@ -1012,7 +1482,17 @@
       "supports_image": true,
       "supports_audio": true,
       "supports_video": true,
-      "released_at": "2025-01-19"
+      "released_at": "2025-01-19",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-coder-480b-a35b-instruct",
@@ -1024,7 +1504,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04"
+      "released_at": "2025-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen2-5-32b-instruct",
@@ -1060,7 +1550,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-08-14"
+      "released_at": "2026-08-14",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-long",
@@ -1072,7 +1572,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-01-25"
+      "released_at": "2025-01-25",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-r1-distill-llama-8b",
@@ -1096,7 +1606,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-01-01"
+      "released_at": "2025-01-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen3-vl-235b-a22b",
@@ -1120,7 +1640,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-02-16"
+      "released_at": "2026-02-16",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-math-plus",
@@ -1132,7 +1662,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-08-16"
+      "released_at": "2024-08-16",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-doc-turbo",
@@ -1144,7 +1684,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-01"
+      "released_at": "2024-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qwen-mt-plus",
@@ -1156,7 +1706,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-01"
+      "released_at": "2025-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "qvq-max",
@@ -1168,7 +1728,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-03-25"
+      "released_at": "2025-03-25",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "MiniMax/MiniMax-M2.7",
@@ -1180,7 +1750,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-03-18"
+      "released_at": "2026-03-18",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "siliconflow/deepseek-r1-0528",
@@ -1192,7 +1772,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-05-28"
+      "released_at": "2025-05-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "siliconflow/deepseek-v3.2",
@@ -1204,7 +1794,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-12-03"
+      "released_at": "2025-12-03",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "siliconflow/deepseek-v3.1-terminus",
@@ -1216,7 +1816,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-29"
+      "released_at": "2025-09-29",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "siliconflow/deepseek-v3-0324",
@@ -1228,7 +1838,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-12-26"
+      "released_at": "2024-12-26",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "kimi/kimi-k2.5",
@@ -1240,7 +1860,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-01-27"
+      "released_at": "2026-01-27",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     }
   ],
   "template_families": [

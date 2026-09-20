@@ -19,7 +19,8 @@
         "template_owner": false,
         "default_model_ids": [],
         "models": []
-      }
+      },
+      "free_model_ids": []
     },
     "modelscope": {
       "path": "providers/modelscope.json",
@@ -74,11 +75,12 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "dashscope": {
       "path": "providers/dashscope.json",
-      "sha256": "9f1f50b1a7476aa9d886f246a7a620802c6a432cfb76bbff7b8f61cde669f762",
+      "sha256": "0e625be66c3b17bce10e9e866045730b5368203a1be81ab7fb3765cf49c32ffa",
       "api_urls": [
         "https://dashscope.aliyuncs.com/compatible-mode/v1"
       ],
@@ -467,7 +469,8 @@
           "qwen-mt-plus",
           "qvq-max"
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "aliyun-codingplan": {
       "path": "providers/aliyun-codingplan.json",
@@ -716,7 +719,8 @@
             "released_at": "2025-07-23"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "aliyun-codingplan-intl": {
       "path": "providers/aliyun-codingplan-intl.json",
@@ -965,7 +969,8 @@
             "released_at": "2025-07-23"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "aliyun-tokenplan": {
       "path": "providers/aliyun-tokenplan.json",
@@ -1329,7 +1334,8 @@
             "released_at": "2026-01"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "aliyun-tokenplan-intl": {
       "path": "providers/aliyun-tokenplan-intl.json",
@@ -1693,11 +1699,12 @@
             "released_at": "2026-01"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "opencode": {
       "path": "providers/opencode.json",
-      "sha256": "e9e68625a22da2f4d048ef0bd8d7026dbbcc4c1cd3c83c3199c654fe2911fa88",
+      "sha256": "bdba3cd8178dd51f7caab90a9f04a567d5d5dcdbdaf3f55f84bb2deabe894aa4",
       "api_urls": [
         "https://opencode.ai/zen/v1"
       ],
@@ -1733,7 +1740,19 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": true,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://opencode.ai/docs/zen/",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "nemotron-3-ultra-free",
@@ -1755,7 +1774,19 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-04"
+            "released_at": "2026-06-04",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://opencode.ai/docs/zen/",
+                "updated_at": "2026-09-20"
+              }
+            }
           }
         ],
         "protocols": {
@@ -1810,11 +1841,19 @@
           "gemini-3.1-pro": "gemini",
           "gemini-3-flash": "gemini"
         }
-      }
+      },
+      "free_model_ids": [
+        "mimo-v2.5-free",
+        "nemotron-3-ultra-free",
+        "muse-spark-1.3-contributor-free",
+        "nemotron-3.5-lightning-free",
+        "big-pickle",
+        "ling-3.0-flash-fin-free"
+      ]
     },
     "kilo": {
       "path": "providers/kilo.json",
-      "sha256": "2413d2d2425bd29367ae88f572f6583107267c2fc7724d1bcac51b6e2f8501ad",
+      "sha256": "6fdd62e04de6bf8113a859c5c2f35cc182212f1a6bd1373d876fdf84b031979a",
       "api_urls": [
         "https://api.kilo.ai/api/gateway"
       ],
@@ -1854,7 +1893,25 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "1970-01-01"
+            "released_at": "1970-01-01",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0",
+              "input_cache_read": "0",
+              "input_cache_write": "0",
+              "request": "0",
+              "image": "0",
+              "web_search": "0",
+              "internal_reasoning": "0"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -1876,7 +1933,20 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-04"
+            "released_at": "2026-06-04",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0",
+              "discount": "0"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "nvidia/nemotron-3-super-120b-a12b:free",
@@ -1898,7 +1968,20 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-11"
+            "released_at": "2026-03-11",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0",
+              "discount": "0"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "poolside/laguna-s-2.1:free",
@@ -1920,7 +2003,20 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-07-21"
+            "released_at": "2026-07-21",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0",
+              "discount": "0"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "poolside/laguna-xs-2.1:free",
@@ -1942,7 +2038,20 @@
             "billing": "free",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-07-02"
+            "released_at": "2026-07-02",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0",
+              "discount": "0"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "stepfun/step-3.7-flash:free",
@@ -1965,14 +2074,54 @@
             "supports_tool_calling": true,
             "supports_audio": false,
             "ranking_id": "stepfun/step-3.7-flash",
-            "released_at": "2026-05-29"
+            "released_at": "2026-05-29",
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0.000000000000",
+              "completion": "0.000000000000",
+              "request": "0",
+              "image": "0",
+              "web_search": "0",
+              "internal_reasoning": "0",
+              "input_cache_read": "0.000000000000"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20"
+              }
+            }
           }
         ]
-      }
+      },
+      "free_model_ids": [
+        "kilo-auto/free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "poolside/laguna-s-2.1:free",
+        "poolside/laguna-xs-2.1:free",
+        "stepfun/step-3.7-flash:free",
+        "qwen/qwen3.8-27b:free",
+        "dots-studio/dots-3-note-preview:free",
+        "nvidia/nemotron-3.5-lightning:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "nvidia/nemotron-3.5-content-safety:free",
+        "nex-agi/nex-n2.5-mini:free",
+        "nex-agi/nex-n2.5-pro:free",
+        "thinkingmachines/inkling-small:free",
+        "inclusionai/ling-3.0-flash-fin:free",
+        "inclusionai/ling-3.0-flash-sante:free",
+        "inclusionai/ling-3.0-flash-vl:free",
+        "openrouter/free",
+        "cohere/north-mini-code:free",
+        "liquid/lfm-2.5-2.6b:free",
+        "z-ai/glm-5.2:free"
+      ]
     },
     "openai": {
       "path": "providers/openai.json",
-      "sha256": "c99d413641ab4eac0ae065d3b52e56b2273e7fb20b3a01a94592fad5ca3f2307",
+      "sha256": "b3e78645a77e920d51a21fb71897842b332798375e5b03ad528423e882c3663f",
       "api_urls": [
         "https://api.openai.com/v1"
       ],
@@ -2374,11 +2523,12 @@
             "released_at": "2024-07-18"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "openai-response": {
       "path": "providers/openai-response.json",
-      "sha256": "2c5a4b53d86c180d4f9db863bf4563e197cf0cfe19a7ed8d6878a137fb47f356",
+      "sha256": "afc82e854341449802e9ba30ac5583675e4f342f9e42c57bfb3e984c6731ce51",
       "api_urls": [
         "https://api.openai.com/v1"
       ],
@@ -2647,7 +2797,8 @@
             "released_at": "2024-07-18"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "azure-openai": {
       "path": "providers/azure-openai.json",
@@ -2806,11 +2957,12 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "773020113572cca30726c6d767369a52c046d6c435e5c5cb83270717c2c3a851",
+      "sha256": "9bb2797e4c8a6c7acb0b7142bf5d83f78ca7e3e707c71a3cd0d80e4f814b34c4",
       "api_urls": [
         "https://api.anthropic.com"
       ],
@@ -2838,7 +2990,8 @@
         "template_owner": true,
         "default_model_ids": [],
         "models": []
-      }
+      },
+      "free_model_ids": []
     },
     "gemini": {
       "path": "providers/gemini.json",
@@ -3146,7 +3299,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "deepseek": {
       "path": "providers/deepseek.json",
@@ -3282,7 +3436,8 @@
             }
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "kimi-cn": {
       "path": "providers/kimi-cn.json",
@@ -3424,7 +3579,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "kimi-intl": {
       "path": "providers/kimi-intl.json",
@@ -3560,7 +3716,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "kimi-codingplan": {
       "path": "providers/kimi-codingplan.json",
@@ -3597,7 +3754,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "minimax-cn": {
       "path": "providers/minimax-cn.json",
@@ -3798,7 +3956,8 @@
             "released_at": "2025-10-27"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "minimax": {
       "path": "providers/minimax.json",
@@ -4008,7 +4167,8 @@
             "released_at": "2025-10-27"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "zhipu-cn": {
       "path": "providers/zhipu-cn.json",
@@ -4177,11 +4337,14 @@
             "released_at": "2026-04-01"
           }
         ]
-      }
+      },
+      "free_model_ids": [
+        "glm-4.7-flash"
+      ]
     },
     "zhipu-cn-codingplan": {
       "path": "providers/zhipu-cn-codingplan.json",
-      "sha256": "f38a68fc786b5ed53be75ddecb596ba24ec25f0d33f00e6922c50e6dc81ba695",
+      "sha256": "94ac03838b1b8eb4c3da87aab47da4349846322ab3bc0d164031bbac3e89534c",
       "api_urls": [
         "https://open.bigmodel.cn/api/coding/paas/v4"
       ],
@@ -4207,7 +4370,7 @@
             "supports_image": false,
             "supports_video": false,
             "probe_source": "documentation",
-            "is_free": true,
+            "is_free": false,
             "source": "builtin",
             "availability_status": "unverified",
             "availability_retryable": true,
@@ -4216,7 +4379,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "free"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -4233,7 +4404,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5.2",
@@ -4250,7 +4429,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5.1",
@@ -4267,7 +4454,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5-turbo",
@@ -4284,7 +4479,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5v-turbo",
@@ -4301,10 +4504,19 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.bigmodel.cn/cn/coding-plan/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "zhipu-intl": {
       "path": "providers/zhipu-intl.json",
@@ -4461,11 +4673,14 @@
             "released_at": "2026-04-01"
           }
         ]
-      }
+      },
+      "free_model_ids": [
+        "glm-4.7-flash"
+      ]
     },
     "zhipu-intl-codingplan": {
       "path": "providers/zhipu-intl-codingplan.json",
-      "sha256": "bd1e4280823258433d04acea0f2d520ad7d72ecb752e28317032308edaa98365",
+      "sha256": "d327a9661ca0a02dee0b6e144c3ccbc6e5bd1a554664a251bb3cf60de5c67701",
       "api_urls": [
         "https://api.z.ai/api/coding/paas/v4"
       ],
@@ -4491,7 +4706,7 @@
             "supports_image": false,
             "supports_video": false,
             "probe_source": "documentation",
-            "is_free": true,
+            "is_free": false,
             "source": "builtin",
             "availability_status": "unverified",
             "availability_retryable": true,
@@ -4500,7 +4715,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "free"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5",
@@ -4517,7 +4740,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5.2",
@@ -4539,7 +4770,15 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-13"
+            "released_at": "2026-06-13",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5.1",
@@ -4556,7 +4795,15 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5-turbo",
@@ -4578,7 +4825,15 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-03-16"
+            "released_at": "2026-03-16",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           },
           {
             "id": "glm-5v-turbo",
@@ -4595,14 +4850,23 @@
             "max_input_length_configured": false,
             "generate_kwargs": {},
             "relay_reasoning": true,
-            "billing": "paid"
+            "billing": "paid",
+            "billing_source": "catalog",
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://docs.z.ai/devpack/overview",
+                "updated_at": "2026-09-20"
+              }
+            }
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "siliconflow-cn": {
       "path": "providers/siliconflow-cn.json",
-      "sha256": "24f947471bf4c8724a944d38fc557c5d10aa687791f144e3b58be2070631f313",
+      "sha256": "b1fc609e0b028381e08ab67e1811985743d90ec5079229f2ab4f93c40ac16c17",
       "api_urls": [
         "https://api.siliconflow.cn/v1"
       ],
@@ -4615,11 +4879,23 @@
         "template_owner": false,
         "default_model_ids": [],
         "models": []
-      }
+      },
+      "free_model_ids": [
+        "deepseek-ai/DeepSeek-OCR",
+        "Qwen/Qwen3-8B",
+        "Qwen/Qwen3.5-4B",
+        "Qwen/Qwen2.5-7B-Instruct",
+        "PaddlePaddle/PaddleOCR-VL-1.5",
+        "XingChenAGI/Xing4.0-29B",
+        "tencent/Hunyuan-MT-7B",
+        "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+        "THUDM/GLM-Z1-9B-0414",
+        "THUDM/GLM-4-9B-0414"
+      ]
     },
     "siliconflow-intl": {
       "path": "providers/siliconflow-intl.json",
-      "sha256": "b30b9125f0bfc7e1b3e089c49a9779e7153ea20ea89599fdb627b130e4fa87c0",
+      "sha256": "9fef827b611baa9e533bd0e5e6a6117b13023c6184fcd3d09cc5969e6a37ecbb",
       "api_urls": [
         "https://api.siliconflow.com/v1"
       ],
@@ -4632,7 +4908,8 @@
         "template_owner": false,
         "default_model_ids": [],
         "models": []
-      }
+      },
+      "free_model_ids": []
     },
     "volcengine-cn": {
       "path": "providers/volcengine-cn.json",
@@ -4999,7 +5276,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "volcengine-cn-codingplan": {
       "path": "providers/volcengine-cn-codingplan.json",
@@ -5221,7 +5499,8 @@
             "released_at": "2026-04-24"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "volcengine-cn-agentplan": {
       "path": "providers/volcengine-cn-agentplan.json",
@@ -5449,7 +5728,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "mimo-tokenplan": {
       "path": "providers/mimo-tokenplan.json",
@@ -5506,7 +5786,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     },
     "mimo": {
       "path": "providers/mimo.json",
@@ -5566,7 +5847,8 @@
             "billing": "paid"
           }
         ]
-      }
+      },
+      "free_model_ids": []
     }
   }
 }

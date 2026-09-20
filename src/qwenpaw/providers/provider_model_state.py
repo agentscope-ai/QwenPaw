@@ -35,6 +35,7 @@ PERSISTED_MODEL_STATE_FIELDS = (
     "probe_source",
     "is_free",
     f"billing",
+    f"pricing",
     f"billing_source",
     f"billing_checked_at",
     f"supports_audio",

@@ -2597,7 +2597,8 @@
         "availability": "连接状态",
         "family": "模型系列"
       }
-    }
+    },
+    "includesFreeModels": "含免费模型"
   },
   "files": {
     "title": "文件",

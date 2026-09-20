@@ -28,7 +28,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-11"
+      "released_at": "2026-02-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2.1",
+        "prompt": "0.7"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-ai/DeepSeek-V4-Flash",
@@ -40,7 +54,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-24"
+      "released_at": "2026-04-24",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2",
+        "prompt": "1"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-ai/DeepSeek-V3.1-Terminus",
@@ -52,7 +80,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-29"
+      "released_at": "2025-09-29",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "12",
+        "prompt": "4"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-ai/DeepSeek-OCR",
@@ -64,7 +106,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-20"
+      "released_at": "2025-10-20",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "0",
+        "prompt": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-ai/DeepSeek-R1",
@@ -76,7 +132,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-05-28"
+      "released_at": "2025-05-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "16",
+        "prompt": "4"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-ai/DeepSeek-V3.2",
@@ -88,7 +158,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-12-03"
+      "released_at": "2025-12-03",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "3",
+        "prompt": "2"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-ai/DeepSeek-V4-Pro",
@@ -100,7 +184,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-24"
+      "released_at": "2026-04-24",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "24",
+        "prompt": "12"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "deepseek-ai/DeepSeek-V3",
@@ -112,7 +210,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-12-26"
+      "released_at": "2024-12-26",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "8",
+        "prompt": "2"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "inclusionAI/Ling-flash-2.0",
@@ -124,7 +236,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-18"
+      "released_at": "2025-09-18",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "4",
+        "prompt": "1"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "zai-org/GLM-5.2",
@@ -136,7 +262,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-06-13"
+      "released_at": "2026-06-13",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "28",
+        "prompt": "6"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "zai-org/GLM-4.5-Air",
@@ -148,7 +288,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-07-28"
+      "released_at": "2025-07-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "6",
+        "prompt": "1"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3.5-27B",
@@ -160,7 +314,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-02-25"
+      "released_at": "2026-02-25",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "14.4",
+        "prompt": "1.8"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-8B",
@@ -172,7 +340,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04-30"
+      "released_at": "2025-04-30",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "0",
+        "prompt": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-14B",
@@ -184,7 +366,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04-30"
+      "released_at": "2025-04-30",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2",
+        "prompt": "0.5"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3.5-4B",
@@ -196,7 +392,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-03-03"
+      "released_at": "2026-03-03",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "0",
+        "prompt": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3.5-9B",
@@ -208,7 +418,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-03-03"
+      "released_at": "2026-03-03",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "12",
+        "prompt": "1.5"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3.5-122B-A10B",
@@ -220,7 +444,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-02-26"
+      "released_at": "2026-02-26",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "16",
+        "prompt": "2"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3.5-397B-A17B",
@@ -244,7 +482,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-02-25"
+      "released_at": "2026-02-25",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "12.8",
+        "prompt": "1.6"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-32B",
@@ -256,7 +508,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-04-30"
+      "released_at": "2025-04-30",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "4",
+        "prompt": "1"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-235B-A22B-Thinking-2507",
@@ -280,7 +546,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": true,
-      "released_at": "2026-04-17"
+      "released_at": "2026-04-17",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "12.8",
+        "prompt": "1.6"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-VL-30B-A3B-Instruct",
@@ -292,7 +572,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-05"
+      "released_at": "2025-10-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2.8",
+        "prompt": "0.7"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-VL-235B-A22B-Thinking",
@@ -316,7 +610,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-15"
+      "released_at": "2025-10-15",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2",
+        "prompt": "0.5"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-VL-32B-Instruct",
@@ -328,7 +636,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-21"
+      "released_at": "2025-10-21",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "4",
+        "prompt": "1"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen2.5-72B-Instruct",
@@ -340,7 +662,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-09-18"
+      "released_at": "2024-09-18",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "4.13",
+        "completion": "4.13"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen2.5-7B-Instruct",
@@ -352,7 +688,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-09-18"
+      "released_at": "2024-09-18",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-Coder-480B-A35B-Instruct",
@@ -388,7 +738,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-08-01"
+      "released_at": "2025-08-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2.8",
+        "prompt": "0.7"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-VL-32B-Thinking",
@@ -400,7 +764,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-21"
+      "released_at": "2025-10-21",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "10",
+        "prompt": "1"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-VL-30B-A3B-Thinking",
@@ -412,7 +790,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-11"
+      "released_at": "2025-10-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2.8",
+        "prompt": "0.7"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Qwen/Qwen3-30B-A3B-Instruct-2507",
@@ -424,7 +816,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-07-30"
+      "released_at": "2025-07-30",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "2.8",
+        "prompt": "0.7"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "ByteDance-Seed/Seed-OSS-36B-Instruct",
@@ -436,7 +842,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-04"
+      "released_at": "2025-09-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "4",
+        "prompt": "1.5"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Pro/deepseek-ai/DeepSeek-V3",
@@ -448,7 +868,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-12-26"
+      "released_at": "2024-12-26",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "8",
+        "prompt": "2"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Pro/deepseek-ai/DeepSeek-V3.1-Terminus",
@@ -460,7 +894,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-29"
+      "released_at": "2025-09-29",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "12",
+        "prompt": "4"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Pro/deepseek-ai/DeepSeek-R1",
@@ -472,7 +920,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-05-28"
+      "released_at": "2025-05-28",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "16",
+        "prompt": "4"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Pro/deepseek-ai/DeepSeek-V3.2",
@@ -484,7 +946,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-12-03"
+      "released_at": "2025-12-03",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "3",
+        "prompt": "2"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Pro/zai-org/GLM-5.1",
@@ -496,7 +972,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-08"
+      "released_at": "2026-04-08",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "28",
+        "prompt": "6"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "Pro/zai-org/GLM-5",
@@ -544,7 +1034,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-21"
+      "released_at": "2026-04-21",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "27",
+        "prompt": "6.5"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "tencent/Hunyuan-A13B-Instruct",
@@ -556,7 +1060,21 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-06-30"
+      "released_at": "2025-06-30",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "4",
+        "prompt": "1"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "PaddlePaddle/PaddleOCR-VL-1.5",
@@ -568,7 +1086,126 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-01-29"
+      "released_at": "2026-01-29",
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "XingChenAGI/Xing4.0-29B",
+      "name": "Xing4.0-29B",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "max_input_length": 262144,
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "prompt": "0",
+        "completion": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "tencent/Hunyuan-MT-7B",
+      "name": "Hunyuan-MT-7B",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "max_input_length": 32768,
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "0",
+        "prompt": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "deepseek-ai/DeepSeek-R1-0528-Qwen3-8B",
+      "name": "DeepSeek-R1-0528-Qwen3-8B (Free)",
+      "supports_tool_calling": false,
+      "supports_image": false,
+      "max_input_length": 131072,
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "0",
+        "prompt": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "THUDM/GLM-Z1-9B-0414",
+      "name": "GLM-Z1-9B-0414",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "max_input_length": 131072,
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "0",
+        "prompt": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "THUDM/GLM-4-9B-0414",
+      "name": "GLM-4-9B-0414",
+      "supports_tool_calling": true,
+      "supports_image": false,
+      "max_input_length": 32768,
+      "billing": "free",
+      "is_free": true,
+      "billing_source": "catalog",
+      "pricing": {
+        "completion": "0",
+        "prompt": "0"
+      },
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://siliconflow.cn/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     }
   ]
 }

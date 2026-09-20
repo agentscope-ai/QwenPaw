@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .context_windows import DEFAULT_CONTEXT_WINDOW, known_context_size
+from .model_billing import effective_billing
 from .model_info import ModelInfo
 from .model_metadata import model_metadata
 from .model_ranking import model_ranking
@@ -32,7 +33,7 @@ def resolve_model_info(
             result.template_id,
         )
     )
-    provenance = {}
+    provenance: dict[str, dict[str, Any]] = {}
     catalog_values = {}
     for field in (
         f"max_input_length",
@@ -140,7 +141,18 @@ def resolve_model_info(
             )
         ):
             setattr(result, field, catalog_values[field])
-    if result.billing == f"unknown":
+    # Endpoint evidence wins over cards, including an explicit paid change.
+    if discovered is not None and discovered.billing != f"unknown":
+        result.billing = discovered.billing
+        result.billing_source = discovered.billing_source
+        result.billing_checked_at = discovered.billing_checked_at
+        result.pricing = dict(discovered.pricing)
+        provenance[f"billing"] = {
+            f"source": discovered.billing_source or f"api",
+            f"reference": provider.base_url,
+            f"updated_at": discovered.billing_checked_at,
+        }
+    if result.billing == f"unknown" or result.billing_source == f"catalog":
         for match in matches:
             if (
                 match.source != f"template"
@@ -148,8 +160,19 @@ def resolve_model_info(
             ):
                 result.billing = match.model.billing
                 result.billing_source = f"catalog"
-                result.is_free = result.billing == f"free"
+                result.billing_checked_at = match.model.billing_checked_at
+                result.pricing = dict(match.model.pricing)
+                provenance[f"billing"] = dict(
+                    match.model.capability_provenance.get(
+                        f"billing",
+                        {f"source": f"catalog"},
+                    ),
+                )
                 break
+    if result.billing == f"unknown" and result.is_free:
+        result.billing = f"free"
+    result.billing = effective_billing(result)
+    result.is_free = result.billing == f"free"
     if discovered is not None and discovered.probe_source == f"api":
         for field in (
             f"supports_image",
@@ -178,9 +201,7 @@ def resolve_model_info(
         result.supports_multimodal = (
             True
             if True in modalities
-            else False
-            if all(value is False for value in modalities)
-            else None
+            else False if all(value is False for value in modalities) else None
         )
     if result.input_token_limit is not None:
         result.automatic_max_input_length = min(

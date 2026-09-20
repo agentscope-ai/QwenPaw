@@ -35,6 +35,7 @@ DISCOVERY_MODEL_FIELDS = (
     "supports_video",
     "probe_source",
     "is_free",
+    f"pricing",
     f"billing",
     f"billing_source",
     f"billing_checked_at",

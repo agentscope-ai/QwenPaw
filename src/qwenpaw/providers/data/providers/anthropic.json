@@ -31,8 +31,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-opus-5",
@@ -61,8 +69,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-opus-4-5",
@@ -87,8 +103,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-fable-5-1",
@@ -117,8 +141,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-opus-4-6",
@@ -146,8 +178,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-sonnet-4-5-20250929",
@@ -164,6 +204,11 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
       },
       "supports_tool_calling": true,
@@ -178,7 +223,10 @@
         "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-opus-4-7",
@@ -207,8 +255,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-haiku-4-5-20251001",
@@ -233,8 +289,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-fable-5",
@@ -263,8 +327,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-haiku-4-5",
@@ -289,8 +361,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-sonnet-4-5",
@@ -307,6 +387,11 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
       },
       "supports_tool_calling": true,
@@ -321,7 +406,10 @@
         "budget_default": 8192,
         "supports_off": true,
         "wire": "anthropic_budget"
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-opus-4-8",
@@ -350,8 +438,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-sonnet-5",
@@ -380,8 +476,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     },
     {
       "id": "claude-opus-4-5-20251101",
@@ -406,8 +510,16 @@
         "thinking_control": {
           "source": "catalog",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        },
+        "billing": {
+          "source": "documentation",
+          "reference": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog"
     }
   ]
 }

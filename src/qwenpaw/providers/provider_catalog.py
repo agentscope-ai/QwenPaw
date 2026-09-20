@@ -170,7 +170,6 @@ PROVIDER_ZHIPU_CN = ZhipuProvider(
     provider_group="zhipu",
     provider_group_name="Zhipu",
     provider_variant="open_platform_cn",
-    meta={"is_free_tier": True},
 )
 
 PROVIDER_ZHIPU_CN_CODINGPLAN = ZhipuProvider(
@@ -259,7 +258,6 @@ PROVIDER_OPENCODE = OpenCodeProvider(
             {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},
             {"label": "OpenCode Go", "value": "https://opencode.ai/zen/go/v1"},
         ],
-        "is_free_tier": True,
     },
     freeze_url=False,
 )
@@ -271,7 +269,6 @@ PROVIDER_KILO = KiloProvider(
     api_key_prefix="",
     models=_models("kilo"),
     require_api_key=False,
-    meta={"is_free_tier": True},
     freeze_url=True,
 )
 
@@ -380,9 +377,6 @@ PROVIDER_GEMINI = GeminiProvider(
     chat_model="GeminiChatModel",
     support_model_discovery=True,
     freeze_url=True,
-    meta={
-        "is_free_tier": True,
-    },
 )
 
 PROVIDER_OLLAMA = OllamaProvider(
@@ -404,7 +398,6 @@ PROVIDER_OPENROUTER = OpenRouterProvider(
     support_model_discovery=True,
     meta={
         "supports_oauth": True,
-        "is_free_tier": True,
     },
 )
 
@@ -431,9 +424,6 @@ PROVIDER_SILICONFLOW_CN = SiliconFlowProvider(
     provider_group="siliconflow",
     provider_group_name="SiliconFlow",
     provider_variant="china",
-    meta={
-        "is_free_tier": True,
-    },
 )
 
 PROVIDER_SILICONFLOW_INTL = SiliconFlowProvider(
@@ -448,9 +438,6 @@ PROVIDER_SILICONFLOW_INTL = SiliconFlowProvider(
     provider_group="siliconflow",
     provider_group_name="SiliconFlow",
     provider_variant="international",
-    meta={
-        "is_free_tier": True,
-    },
 )
 
 PROVIDER_VOLCENGINE_CN = VolcengineProvider(

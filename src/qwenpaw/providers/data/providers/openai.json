@@ -360,7 +360,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-05-13"
+      "released_at": "2024-05-13",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5-pro",
@@ -372,7 +382,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-06"
+      "released_at": "2025-10-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.6-sol",
@@ -384,7 +404,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-07-09"
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-4o-2024-08-06",
@@ -396,7 +426,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-08-06"
+      "released_at": "2024-08-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-6-astra",
@@ -408,7 +448,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-09-04"
+      "released_at": "2026-09-04",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.2-pro",
@@ -420,7 +470,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-12-11"
+      "released_at": "2025-12-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.3-codex-spark",
@@ -432,7 +492,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-05"
+      "released_at": "2026-02-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.4",
@@ -444,7 +514,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-03-05"
+      "released_at": "2026-03-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-4-turbo",
@@ -456,7 +536,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2023-11-06"
+      "released_at": "2023-11-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.1",
@@ -468,7 +558,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-11-13"
+      "released_at": "2025-11-13",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "o1",
@@ -480,7 +580,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-12-05"
+      "released_at": "2024-12-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.6-luna",
@@ -492,7 +602,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-07-09"
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.3-codex",
@@ -504,7 +624,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-05"
+      "released_at": "2026-02-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "o1-pro",
@@ -516,7 +646,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-03-19"
+      "released_at": "2025-03-19",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "text-embedding-ada-002",
@@ -540,7 +680,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-03-17"
+      "released_at": "2026-03-17",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.5-pro",
@@ -552,7 +702,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-23"
+      "released_at": "2026-04-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.4-mini",
@@ -564,7 +724,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-03-17"
+      "released_at": "2026-03-17",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-3.5-turbo",
@@ -576,7 +746,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2023-03-01"
+      "released_at": "2023-03-01",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.6",
@@ -588,7 +768,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-07-09"
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "text-embedding-3-small",
@@ -612,7 +802,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-03-05"
+      "released_at": "2026-03-05",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "text-embedding-3-large",
@@ -636,7 +836,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-07-09"
+      "released_at": "2026-07-09",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-4",
@@ -648,7 +858,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2023-11-06"
+      "released_at": "2023-11-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.2-chat-latest",
@@ -660,7 +880,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-12-11"
+      "released_at": "2025-12-11",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-realtime-2.1",
@@ -672,7 +902,17 @@
       "supports_image": true,
       "supports_audio": true,
       "supports_video": false,
-      "released_at": "2026-07-06"
+      "released_at": "2026-07-06",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "o3-mini",
@@ -684,7 +924,17 @@
       "supports_image": false,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-12-20"
+      "released_at": "2024-12-20",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "o3-pro",
@@ -696,7 +946,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-06-10"
+      "released_at": "2025-06-10",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.3-chat-latest",
@@ -708,7 +968,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-03-03"
+      "released_at": "2026-03-03",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-5.5",
@@ -720,7 +990,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-23"
+      "released_at": "2026-04-23",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     },
     {
       "id": "gpt-4o-2024-11-20",
@@ -732,7 +1012,17 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2024-11-20"
+      "released_at": "2024-11-20",
+      "billing": "paid",
+      "is_free": false,
+      "billing_source": "catalog",
+      "capability_provenance": {
+        "billing": {
+          "source": "documentation",
+          "reference": "https://developers.openai.com/api/docs/pricing",
+          "updated_at": "2026-09-20"
+        }
+      }
     }
   ]
 }
