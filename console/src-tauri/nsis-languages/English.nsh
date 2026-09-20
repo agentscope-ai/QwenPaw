@@ -24,7 +24,7 @@ LangString webview2DownloadSuccess ${LANG_ENGLISH} "WebView2 bootstrapper downlo
 LangString webview2Downloading ${LANG_ENGLISH} "Downloading WebView2 bootstrapper..."
 LangString webview2InstallError ${LANG_ENGLISH} "Error: Installing WebView2 failed with exit code $1"
 LangString webview2InstallSuccess ${LANG_ENGLISH} "WebView2 installed successfully"
-LangString deleteAppData ${LANG_ENGLISH} "Delete local app cache"
+LangString deleteAppData ${LANG_ENGLISH} "Clear app data (e.g. settings, drafts, cache; keeps agents/chats)"
 LangString qwenpawCliPathPageTitle ${LANG_ENGLISH} "Command line"
 LangString qwenpawCliPathPageSubtitle ${LANG_ENGLISH} "Choose whether qwenpaw is available in terminals."
 LangString qwenpawCliPathPageDescription ${LANG_ENGLISH} "This adds the bundled qwenpaw command to your user PATH. You can change it later by reinstalling or uninstalling QwenPaw Desktop."

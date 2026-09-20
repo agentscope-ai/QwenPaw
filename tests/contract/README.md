@@ -40,13 +40,11 @@ tests/contract/
 ├── __init__.py                    # Framework core
 │
 ├── channels/                      # Channel contract tests
-│   ├── __init__.py
-│   ├── test_base_contract.py      # ChannelContractTest definition
-│   ├── test_console_contract.py   # ConsoleChannel example
-│   └── test_dingtalk_contract.py  # DingTalkChannel
+│   ├── __init__.py                # ChannelContractTest definition
+│   └── test_*_contract.py         # One file per built-in channel
 │
-└── providers/                     # Future: Provider contracts
-    └── __init__.py
+└── providers/                     # Provider contracts
+    └── test_provider_contract.py
 ```
 
 ## Usage
@@ -59,7 +57,7 @@ from tests.contract.channels import ChannelContractTest
 
 class TestSlackChannelContract(ChannelContractTest):
     def create_instance(self):
-        from src.copaw.app.channels.slack.channel import SlackChannel
+        from qwenpaw.app.channels.slack.channel import SlackChannel
         return SlackChannel(process=mock_process, ...)
 
     # Optional: Slack-specific contracts
@@ -79,10 +77,12 @@ pytest tests/contract/ -v
 ### CI Integration
 
 ```yaml
-# .github/workflows/ci.yml
-- name: Contract Tests
-  run: pytest tests/contract/ -v
-  # Base class changes must pass all subclass contract validations
+# .github/workflows/tests.yml
+- name: Check channel contract coverage
+  run: python scripts/check_channel_contracts.py
+
+- name: Run contract tests
+  run: pytest tests/contract -v
 ```
 
 ## Comparison
@@ -101,22 +101,42 @@ pytest tests/contract/ -v
 |-----------|--------|
 | Framework Core (`BaseContractTest`) | ✅ Done |
 | Channel Contracts (`ChannelContractTest`) | ✅ Done |
-| ConsoleChannel Example | ✅ Done |
-| DingTalkChannel Contract | ✅ Done |
-| Other Channels (Feishu/Discord/QQ...) | ⏳ TODO |
+| Built-in Channel Coverage | ✅ 18/18 |
+| Static Coverage Gate | ✅ Required CI check |
 
-## TODO: Add Channel Contracts
+## Coverage Gate
 
-Copy `test_dingtalk_contract.py` template for:
+`scripts/check_channel_contracts.py` reads the built-in registry and inspects
+source and tests with Python's AST module. It does not import optional channel
+dependencies. The check fails when a registered channel implementation is
+missing, does not inherit `BaseChannel`, or has no unambiguous
+`ChannelContractTest.create_instance()` factory.
 
-- [ ] FeishuChannel
-- [ ] DiscordChannel
-- [ ] TelegramChannel
-- [ ] QQChannel
-- [ ] MQTTChannel
-- [ ] MattermostChannel
-- [ ] MatrixChannel
-- [ ] iMessageChannel
+Each built-in channel must have exactly one concrete contract factory. Its
+`create_instance()` method must directly return the channel constructor (or
+its `from_config()`/`from_env()` factory) using straight-line code with one
+`return` statement. Shared contract helpers must mark their factory with
+`@abstractmethod` so the static check can distinguish them from runnable
+tests.
+
+The factory must live at
+`tests/contract/channels/test_<registry-key>_contract.py`, and its concrete
+`Test*` class must remain collectable in every supported test environment.
+Do not guard required contract coverage with module/class `skip`, `xfail`,
+`pytest.importorskip()`, or a skip call in `create_instance()`; mock optional
+services and side effects instead. Module/class `pytestmark`, class
+decorators, custom metaclasses, and class-level `__test__` overrides are
+rejected because their collection behavior is ambiguous to the static
+checker. Method-level markers remain available for supplemental tests.
+
+Run it whenever a built-in channel or its contract test changes:
+
+```bash
+python scripts/check_channel_contracts.py
+```
+
+Plugin-provided channels are outside the built-in registry and should define
+their contract coverage within the plugin's own test scope.
 
 ## Design Decisions
 

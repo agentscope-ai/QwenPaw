@@ -197,7 +197,10 @@ def test_bgm_plays_as_low_bed_and_ducks_under_speech(
     # BGM ducks itself inside the dialogue window ...
     assert "volume=0.4:enable='between(t,2.000,5.000)'" in graph
     # ... but never ducks the footage audio.
-    assert "[0:a]aformat=channel_layouts=stereo[base]" in graph
+    assert "[native]aformat=channel_layouts=stereo[base]" in graph
+    assert "[0:a]asplit=2[native][duck]" in graph
+    assert "sidechaincompress=" in graph
+    assert "volume=0:enable='between(t,2.000,5.000)'" in graph
 
 
 def test_sfx_neither_ducks_nor_is_ducked(monkeypatch, tmp_path) -> None:
@@ -251,7 +254,8 @@ def test_bgm_segments_crossfade_via_overlapping_explicit_fades(
     assert "afade=t=out:st=6.000:d=2.000" in graph
     assert "afade=t=out:st=4.500:d=2.000" in graph
     assert "adelay=6000:all=1" in graph
-    assert "amix=inputs=3" in graph
+    assert "[mix0][mix1]amix=inputs=2" in graph
+    assert "[base][bgm]amix=inputs=2" in graph
 
 
 def test_audio_fades_are_clamped_to_the_span(monkeypatch, tmp_path) -> None:
@@ -436,9 +440,17 @@ def test_delivery_loudness_failures_keep_the_unnormalized_film(
     assert spec.output_path.read_bytes() == b"video"
 
 
+@pytest.mark.parametrize(
+    "trailing_log",
+    [
+        "",
+        "[out#0/null @ 0x600] video:98KiB audio:6008KiB\nframe=240 speed=25x\n",
+    ],
+)
 def test_measure_loudness_parses_the_loudnorm_json_tail(
     monkeypatch,
     tmp_path,
+    trailing_log,
 ) -> None:
     from services.media_files import local_execution as local_execution_mod
 
@@ -452,7 +464,7 @@ def test_measure_loudness_parses_the_loudnorm_json_tail(
         '    "input_thresh" : "-33.50",\n'
         '    "output_i" : "-16.00",\n'
         '    "target_offset" : "0.30"\n'
-        "}\n"
+        "}\n" + trailing_log
     )
 
     class _Measured:

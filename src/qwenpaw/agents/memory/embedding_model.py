@@ -21,7 +21,6 @@ from qwenpaw.config.config import EmbeddingModelConfig
 
 from .reme_config import _embedding_credential, _is_embedding_enabled
 
-
 _CREDENTIAL_TYPES = {
     "openai": OpenAICredential,
     "dashscope": DashScopeCredential,
@@ -31,6 +30,11 @@ _CREDENTIAL_TYPES = {
 }
 
 _TEST_TEXT = "QwenPaw embedding connection test"
+
+
+def _effective_use_dimensions(config: EmbeddingModelConfig) -> bool:
+    """Return whether dimensions are sent to the selected provider."""
+    return config.backend == "openai" and config.use_dimensions
 
 
 @dataclass(frozen=True)
@@ -82,9 +86,10 @@ def create_embedding_model(
 async def test_embedding_model(
     config: EmbeddingModelConfig,
     *,
-    timeout: float = 15.0,
+    timeout: float | None = None,
 ) -> tuple[EmbeddingModelBase[Any] | None, EmbeddingTestResult]:
     """Create and call a model, including strict dimension checks."""
+    timeout = config.health_check_timeout if timeout is None else timeout
     started = time.monotonic()
     actual_dimensions: int | None = None
     try:
@@ -138,7 +143,7 @@ def embedding_config_fingerprint(
         config.base_url.strip().rstrip("/"),
         config.model_name.strip(),
         config.dimensions,
-        config.use_dimensions,
+        _effective_use_dimensions(config),
     )
 
 
@@ -151,5 +156,5 @@ def embedding_vector_space_fingerprint(
         config.base_url.strip().rstrip("/"),
         config.model_name.strip(),
         config.dimensions,
-        config.use_dimensions,
+        _effective_use_dimensions(config),
     )

@@ -22,7 +22,10 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from qwenpaw.exceptions import AppBaseException
+from qwenpaw.agents.memory.action_provider import MemoryActionProvider
+from qwenpaw.agents.memory.reme_embedding import (
+    EmbeddingReindexUnavailableError,
+)
 from qwenpaw.app.agent_startup import AgentStartupStatus
 from qwenpaw.app.routers.agents import (
     CopyAgentRequest,
@@ -38,6 +41,7 @@ from qwenpaw.app.routers.agents import (
     update_backend_settings,
     BackendSettingsRequest,
 )
+from qwenpaw.exceptions import AppBaseException
 from qwenpaw.config.config import (
     AgentProfileConfig,
     AgentProfileRef,
@@ -587,8 +591,8 @@ def test_rebuild_memory_index_runs_reme_job(
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
     reindex_response = MagicMock(success=True, answer="done")
-    memory_manager = MagicMock()
-    memory_manager.rebuild_index = AsyncMock(return_value=reindex_response)
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(return_value=reindex_response)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )
@@ -603,11 +607,19 @@ def test_rebuild_memory_index_runs_reme_job(
             return_value=agent_config,
         ),
     ):
-        response = client.post("/api/agents/bot/memory/reindex")
+        response = client.post(
+            "/api/agents/bot/memory/reindex?scope=embedding",
+        )
 
     assert response.status_code == 200
-    assert response.json() == {"status": "completed"}
-    memory_manager.rebuild_index.assert_awaited_once_with()
+    assert response.json() == {
+        "status": "completed",
+        "scope": "embedding",
+    }
+    memory_manager.run_action.assert_awaited_once_with(
+        "reindex",
+        scope="embedding",
+    )
 
 
 def test_rebuild_memory_index_rejects_concurrent_run(
@@ -616,8 +628,8 @@ def test_rebuild_memory_index_rejects_concurrent_run(
     manager_mock,
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
-    memory_manager = MagicMock()
-    memory_manager.rebuild_index = AsyncMock(
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(
         side_effect=RuntimeError("Memory index rebuild is already running"),
     )
     manager_mock.get_agent = AsyncMock(
@@ -639,6 +651,136 @@ def test_rebuild_memory_index_rejects_concurrent_run(
     assert response.status_code == 409
 
 
+def test_rebuild_memory_index_rejects_disabled_embedding(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(
+        side_effect=EmbeddingReindexUnavailableError(
+            "Embedding index rebuild requires an enabled embedding "
+            "configuration",
+        ),
+    )
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.post(
+            "/api/agents/bot/memory/reindex?scope=embedding",
+        )
+
+    assert response.status_code == 409
+    assert "requires an enabled" in response.json()["detail"]
+
+
+def test_rebuild_all_rejects_disabled_embedding(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(
+        side_effect=EmbeddingReindexUnavailableError(
+            "An all-scope index rebuild requires an enabled embedding "
+            "configuration",
+        ),
+    )
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.post("/api/agents/bot/memory/reindex")
+
+    assert response.status_code == 409
+    assert "all-scope" in response.json()["detail"]
+
+
+def test_undo_pending_embedding_reindex_restores_indexed_config(
+    client,
+    fake_config,
+    manager_mock,
+):
+    profile = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = profile.running.reme_light_memory_config
+    indexed = memory_config.embedding_model_config.model_copy(deep=True)
+    indexed.model_name = "indexed-model"
+    memory_config.embedding_model_config.model_name = "pending-model"
+    memory_config.pending_reindex_embedding_config = indexed
+    memory_config.needs_reindex = True
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(
+        return_value=MagicMock(success=True, answer=indexed),
+    )
+    manager_mock.get_agent = AsyncMock(
+        return_value=MagicMock(memory_manager=memory_manager),
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=profile,
+        ),
+        patch("qwenpaw.app.routers.agents.schedule_agent_reload"),
+    ):
+        response = client.post("/api/agents/bot/memory/reindex/undo")
+
+    assert response.status_code == 200
+    assert response.json()["model_name"] == "indexed-model"
+    memory_manager.run_action.assert_awaited_once_with("undo_reindex")
+
+
+def test_undo_pending_embedding_reindex_rejects_unknown_agent(
+    client,
+    fake_config,
+    manager_mock,
+):
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+        ) as load_agent_config_mock,
+    ):
+        response = client.post(
+            "/api/agents/integ-unknown-xyz/memory/reindex/undo",
+        )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == ("Agent 'integ-unknown-xyz' not found")
+    load_agent_config_mock.assert_not_called()
+    manager_mock.get_agent.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # GET /agents/{id}/memory/status
 # ---------------------------------------------------------------------------
@@ -650,6 +792,11 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
     manager_mock,
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_config = agent_config.running.reme_light_memory_config
+    memory_config.needs_reindex = True
+    memory_config.pending_reindex_embedding_config = (
+        memory_config.embedding_model_config.model_copy(deep=True)
+    )
     runtime_status = {
         "worker": {
             "status": "busy",
@@ -665,10 +812,12 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
             "last_error": None,
         },
         "reindexing": True,
+        "embedding_reindex_required": True,
+        "embedding_reindex_undo_available": True,
     }
     memory_manager = MagicMock()
-    memory_manager.get_runtime_status.return_value = runtime_status
-    memory_manager.reme_status = AsyncMock()
+    memory_manager.get_runtime_status = MagicMock(return_value=runtime_status)
+    memory_manager.run_action = AsyncMock()
     manager_mock.get_loaded_agent.return_value = MagicMock(
         memory_manager=memory_manager,
     )
@@ -687,7 +836,7 @@ def test_get_memory_runtime_status_does_not_run_a_reme_job(
 
     assert response.status_code == 200
     assert response.json() == runtime_status
-    memory_manager.reme_status.assert_not_awaited()
+    memory_manager.run_action.assert_not_awaited()
 
 
 def test_get_memory_status_returns_structured_reme_metrics(
@@ -712,8 +861,8 @@ def test_get_memory_status_returns_structured_reme_metrics(
             },
         },
     )
-    memory_manager = MagicMock()
-    memory_manager.reme_status = AsyncMock(return_value=status_response)
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(return_value=status_response)
     runtime_status = {
         "worker": {
             "status": "busy",
@@ -729,8 +878,10 @@ def test_get_memory_status_returns_structured_reme_metrics(
             "last_error": None,
         },
         "reindexing": False,
+        "embedding_reindex_required": False,
+        "embedding_reindex_undo_available": False,
     }
-    memory_manager.get_runtime_status.return_value = runtime_status
+    memory_manager.get_runtime_status = MagicMock(return_value=runtime_status)
     manager_mock.get_loaded_agent.return_value = MagicMock(
         memory_manager=memory_manager,
     )
@@ -752,7 +903,7 @@ def test_get_memory_status_returns_structured_reme_metrics(
         **status_response.metadata["status"]["memory"],
         "runtime": runtime_status,
     }
-    memory_manager.reme_status.assert_awaited_once_with()
+    memory_manager.run_action.assert_awaited_once_with("status")
     memory_manager.get_runtime_status.assert_called_once_with(
         auto_memory_interval=5,
     )
@@ -764,8 +915,8 @@ def test_get_memory_status_rejects_invalid_payload(
     manager_mock,
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
-    memory_manager = MagicMock()
-    memory_manager.reme_status = AsyncMock(
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(
         return_value=MagicMock(success=True, metadata={}),
     )
     manager_mock.get_loaded_agent.return_value = MagicMock(
@@ -817,6 +968,68 @@ def test_get_memory_status_does_not_start_an_unloaded_agent(
     manager_mock.get_agent.assert_not_awaited()
 
 
+def test_get_memory_status_returns_503_while_reme_dependency_is_starting(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(
+        side_effect=RuntimeError(
+            "Dependency keyword_index:default accessed before start()",
+        ),
+    )
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+    ):
+        response = client.get("/api/agents/bot/memory/status")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == (
+        "ReMe is not started or status reporting is unavailable"
+    )
+
+
+def test_get_memory_status_does_not_mask_unexpected_runtime_error(
+    client,
+    fake_config,
+    manager_mock,
+):
+    agent_config = AgentProfileConfig(id="bot", name="Bot")
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(
+        side_effect=RuntimeError("unexpected failure"),
+    )
+    manager_mock.get_loaded_agent.return_value = MagicMock(
+        memory_manager=memory_manager,
+    )
+
+    with (
+        patch(
+            "qwenpaw.app.routers.agents.load_config",
+            return_value=fake_config,
+        ),
+        patch(
+            "qwenpaw.app.routers.agents.load_agent_config",
+            return_value=agent_config,
+        ),
+        pytest.raises(RuntimeError, match="unexpected failure"),
+    ):
+        client.get("/api/agents/bot/memory/status")
+
+
 # ---------------------------------------------------------------------------
 # GET /agents/{id}/memory/graph
 # ---------------------------------------------------------------------------
@@ -851,8 +1064,8 @@ def test_get_memory_graph_returns_reme_snapshot(
             ],
         },
     )
-    memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(return_value=graph_response)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )
@@ -889,7 +1102,7 @@ def test_get_memory_graph_returns_reme_snapshot(
             },
         ],
     }
-    memory_manager.graph_snapshot.assert_awaited_once_with()
+    memory_manager.run_action.assert_awaited_once_with("graph_snapshot")
 
 
 @pytest.mark.asyncio
@@ -908,8 +1121,8 @@ async def test_get_memory_graph_config_io_does_not_block_loop(
         success=True,
         answer={"version": 1, "nodes": [], "edges": []},
     )
-    memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(return_value=graph_response)
     manager = MagicMock()
     manager.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
@@ -971,8 +1184,8 @@ def test_get_memory_graph_maps_nested_memory_roots(
             "edges": [],
         },
     )
-    memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=graph_response)
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(return_value=graph_response)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )
@@ -1003,8 +1216,8 @@ def test_get_memory_graph_reports_unavailable_reme(
     manager_mock,
 ):
     agent_config = AgentProfileConfig(id="bot", name="Bot")
-    memory_manager = MagicMock()
-    memory_manager.graph_snapshot = AsyncMock(return_value=None)
+    memory_manager = MagicMock(spec=MemoryActionProvider)
+    memory_manager.run_action = AsyncMock(return_value=None)
     manager_mock.get_agent = AsyncMock(
         return_value=MagicMock(memory_manager=memory_manager),
     )

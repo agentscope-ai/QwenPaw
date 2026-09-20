@@ -1,9 +1,12 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import SessionItem from ".";
 
 vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    t: (key: string) =>
+      key === "appCenter.moreActions" ? "More actions" : key,
+  }),
 }));
 
 describe("SessionItem status indicator", () => {
@@ -24,15 +27,82 @@ describe("SessionItem status indicator", () => {
       label: "chat.statusIdle",
     },
   ])("renders $name", ({ props, label }) => {
-    render(
-      <SessionItem
-        variant="drawer"
-        sessionId="chat-1"
-        name="Chat"
-        {...props}
-      />,
-    );
+    render(<SessionItem sessionId="chat-1" name="Chat" {...props} />);
 
     expect(screen.getByRole("img", { name: label })).toBeInTheDocument();
+  });
+});
+
+describe("SessionItem keyboard selection", () => {
+  it.each(["Enter", " "])("selects the focused session with %s", (key) => {
+    const onClick = vi.fn();
+    render(
+      <SessionItem
+        sessionId="chat-keyboard"
+        name="Keyboard chat"
+        onClick={onClick}
+      />,
+    );
+    const row = screen.getByText("Keyboard chat").closest('[role="button"]')!;
+    fireEvent.keyDown(row, { key });
+    fireEvent.keyDown(row, { key, repeat: true });
+    expect(onClick).toHaveBeenCalledExactlyOnceWith("chat-keyboard");
+  });
+
+  it("does not select a session while submitting its rename input", () => {
+    const onClick = vi.fn();
+    const onEditSubmit = vi.fn();
+    render(
+      <SessionItem
+        sessionId="chat-editing"
+        name="Original"
+        editing
+        editValue="Renamed"
+        onClick={onClick}
+        onEditSubmit={onEditSubmit}
+      />,
+    );
+    const input = screen.getByRole("textbox");
+    expect(input).toBeEnabled();
+    expect(input.closest('[aria-disabled="true"]')).toBeNull();
+    fireEvent.change(input, { target: { value: "Renamed" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onEditSubmit).toHaveBeenCalledOnce();
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("keeps disabled sessions out of keyboard navigation", () => {
+    const onClick = vi.fn();
+    render(
+      <SessionItem
+        sessionId="chat-disabled"
+        name="Disabled chat"
+        disabled
+        onClick={onClick}
+      />,
+    );
+    const row = screen.getByText("Disabled chat").closest('[role="button"]')!;
+    expect(row).toHaveAttribute("tabindex", "-1");
+    expect(row).toHaveAttribute("aria-disabled", "true");
+    fireEvent.keyDown(row, { key: "Enter" });
+    expect(onClick).not.toHaveBeenCalled();
+  });
+});
+
+describe("SessionItem actions", () => {
+  it("hides the drag hint while keeping the more actions menu", async () => {
+    render(<SessionItem sessionId="chat-1" name="Chat" />);
+
+    expect(document.querySelector("svg.lucide-grip-vertical")).toBeNull();
+
+    const moreButton = screen.getByRole("button", { name: "More actions" });
+    expect(moreButton).toBeInTheDocument();
+    fireEvent.click(moreButton);
+
+    expect(
+      await screen.findByRole("menuitem", {
+        name: "chat.contextMenu.rename",
+      }),
+    ).toBeInTheDocument();
   });
 });

@@ -48,9 +48,9 @@ export const useTurnUsageStore = create<TurnUsageStore>((set, get) => ({
     };
     set((state) => ({
       activeTurn: turn,
-      snapshot: state.snapshot
-        ? { usage: null, context_usage: state.snapshot.context_usage }
-        : null,
+      // Keep the previous session projection visible while the next response
+      // streams. The completed turn replaces it through setSnapshotForTurn.
+      snapshot: state.snapshot,
     }));
     return turn;
   },

@@ -1,0 +1,614 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  color: var(--app-text);
+  background: var(--app-bg);
+}
+
+.rootDark {
+  /* Vendor overrides only: antd/qwenpaw internals do not consume
+   * `--app-*` tokens, so these dark-only tweaks stay here (the
+   * exception allowed by tokens.css). Every token-driven rule lives
+   * in the base styles and switches with `html.dark-mode` on its own. */
+
+  .segmentedControl,
+  .messageDisplayControl {
+    border: 1px solid var(--app-border-subtle);
+    background: var(--app-fill-faint);
+
+    :global(.ant-segmented-item),
+    :global(.qwenpaw-segmented-item) {
+      color: var(--app-text-secondary);
+    }
+
+    :global(.ant-segmented-item-selected),
+    :global(.qwenpaw-segmented-item-selected),
+    :global(.ant-segmented-thumb),
+    :global(.qwenpaw-segmented-thumb) {
+      color: var(--app-text);
+      background: var(--app-fill) !important;
+      box-shadow: none !important;
+    }
+  }
+
+  .settingRow {
+    :global(.ant-btn-default),
+    :global(.qwenpaw-btn-default) {
+      background: var(--app-surface-raised) !important;
+    }
+  }
+
+  .sectionActions {
+    :global(.ant-btn-text),
+    :global(.qwenpaw-btn-text) {
+      color: var(--app-text-secondary);
+
+      &:not(:disabled):hover {
+        color: var(--app-accent-text);
+        background: var(--app-accent-faint);
+      }
+
+      &:disabled {
+        color: var(--app-text-quaternary);
+      }
+    }
+  }
+
+  .fixedEntryList {
+    :global(.ant-checkbox-wrapper-disabled),
+    :global(.qwenpaw-checkbox-wrapper-disabled) {
+      color: var(--app-text-tertiary);
+    }
+  }
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 16px;
+  border-right: 1px solid var(--app-border-subtle);
+  background: var(--app-shell-bg);
+}
+
+.backButton {
+  align-self: flex-start;
+  height: 36px;
+  margin: 0 2px 16px;
+  padding-inline: 8px 12px;
+  color: var(--app-text-secondary);
+  font-weight: 500;
+}
+
+.searchInput {
+  height: 38px;
+  border-radius: 11px;
+}
+
+.navigation {
+  overflow-y: auto;
+  margin-top: 16px;
+  padding-right: 2px;
+}
+
+.navGroup {
+  margin-bottom: 18px;
+
+  h2 {
+    margin: 0 10px 6px;
+    color: var(--app-text-tertiary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+}
+
+.settingsAgentSelector {
+  margin: 0 4px 8px;
+}
+
+.settingsAgentSelect {
+  width: 100%;
+  min-width: 0;
+
+  :global(.ant-select-selector) {
+    height: 36px !important;
+    padding: 0 10px !important;
+    border: 1px solid var(--app-border) !important;
+    border-radius: 8px !important;
+    background: var(--app-surface) !important;
+    box-shadow: none !important;
+  }
+
+  :global(.ant-select-selection-item) {
+    line-height: 34px !important;
+  }
+}
+
+.settingsAgentOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.settingsAgentOptionIdentity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+
+  > span:last-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.settingsAgentOptionBackend {
+  flex: none;
+  color: var(--app-text-tertiary);
+  font-size: 10px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--app-text);
+  text-align: left;
+  background: transparent;
+  cursor: pointer;
+
+  > svg {
+    flex: none;
+  }
+
+  .navItemLabel {
+    overflow: hidden;
+    min-width: 0;
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &:hover {
+    background: var(--app-fill);
+  }
+}
+
+.navItemActive {
+  color: var(--app-nav-selected-text);
+  background: var(--app-nav-selected-bg);
+
+  &:hover {
+    background: var(--app-nav-selected-bg-hover);
+  }
+}
+
+.noResults {
+  padding: 24px 10px;
+  color: var(--app-text-tertiary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 36px clamp(28px, 5vw, 72px) 56px;
+}
+
+.loading {
+  display: grid;
+  height: 45vh;
+  place-items: center;
+}
+
+.preferencePage {
+  width: min(980px, 100%);
+  margin: 0 auto;
+}
+
+.pageTitle {
+  margin-bottom: 34px;
+
+  h2 {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 650;
+    line-height: 36px;
+  }
+}
+
+.pageTitleRow,
+.sectionTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settingsSection {
+  margin-bottom: 30px;
+}
+
+.sectionTitleRow {
+  min-height: 32px;
+  margin: 0 2px 10px;
+}
+
+.sectionTitle {
+  margin: 0 2px 10px;
+  color: var(--app-text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.sectionTitleRow .sectionTitle {
+  margin: 0;
+}
+
+.settingsCard {
+  overflow: hidden;
+  border: 1px solid var(--app-border);
+  border-radius: 14px;
+  background: var(--app-surface);
+}
+
+.settingRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 82px;
+  padding: 16px 18px;
+
+  & + & {
+    border-top: 1px solid var(--app-border-subtle);
+  }
+}
+
+.themeEditor {
+  padding: 20px 18px 22px;
+  border-top: 1px solid var(--app-border-subtle);
+}
+
+.themeEditorHeader {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.themeActions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.themeFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px 20px;
+  margin: 18px 0 0 48px;
+}
+
+.themeField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: var(--app-text-secondary);
+  font-size: 12px;
+
+  > span {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    min-height: 18px;
+  }
+
+  output {
+    color: var(--app-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  :global(.ant-select),
+  :global(.qwenpaw-select),
+  :global(.ant-input),
+  :global(.qwenpaw-input) {
+    width: 100%;
+  }
+
+  :global(.ant-input),
+  :global(.qwenpaw-input) {
+    height: 36px;
+    padding-inline: 12px;
+    border-radius: 8px;
+    background: var(--app-surface-subtle);
+    border-color: var(--app-border);
+    box-shadow: none;
+    transition:
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      background 160ms ease;
+
+    &:hover {
+      border-color: var(--app-border-hover);
+    }
+
+    &:focus,
+    &:focus-within {
+      border-color: var(--app-accent);
+      background: var(--app-surface);
+      box-shadow: 0 0 0 2px var(--app-accent-ring);
+    }
+  }
+
+  :global(.ant-select),
+  :global(.qwenpaw-select) {
+    height: 36px;
+  }
+
+  :global(.ant-select-selector),
+  :global(.qwenpaw-select-selector) {
+    height: 36px !important;
+    padding: 0 12px !important;
+    border-radius: 8px !important;
+    background: var(--app-surface-subtle) !important;
+    border-color: var(--app-border) !important;
+    box-shadow: none !important;
+  }
+
+  :global(.ant-select-selection-item),
+  :global(.qwenpaw-select-selection-item) {
+    line-height: 34px !important;
+  }
+
+  :global(.ant-color-picker-trigger),
+  :global(.qwenpaw-color-picker-trigger) {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    height: 36px;
+    min-height: 36px;
+    padding: 4px 10px;
+    border: 1px solid var(--app-border);
+    border-radius: 8px;
+    background: var(--app-surface-subtle);
+    box-shadow: none;
+    transition:
+      border-color 160ms ease,
+      box-shadow 160ms ease,
+      background 160ms ease;
+
+    &:hover {
+      border-color: var(--app-border-hover);
+    }
+
+    &:focus,
+    &:focus-visible {
+      border-color: var(--app-accent);
+      background: var(--app-surface);
+      box-shadow: 0 0 0 2px var(--app-accent-ring);
+      outline: none;
+    }
+  }
+
+  :global(.ant-color-picker-color-block),
+  :global(.qwenpaw-color-picker-color-block) {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+  }
+
+  :global(.ant-slider),
+  :global(.qwenpaw-slider) {
+    margin: 7px 0 5px;
+  }
+}
+
+.themePresetField {
+  grid-column: 1 / -1;
+}
+
+.themePresetOption {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.themePresetSwatch {
+  display: inline-grid;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--app-border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+  place-items: center;
+}
+
+.settingIcon {
+  display: grid;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  color: var(--app-accent-text);
+  background: var(--app-accent-soft);
+  place-items: center;
+}
+
+.settingCopy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 180px;
+
+  strong {
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  small {
+    margin-top: 2px;
+    color: var(--app-text-secondary);
+    font-size: 12px;
+  }
+}
+
+.settingControl {
+  min-width: 190px;
+}
+
+.segmentedControl,
+.messageDisplayControl {
+  width: max-content;
+  max-width: 100%;
+}
+
+.fixedItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  min-height: 64px;
+}
+
+.fixedEntryList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 28px;
+}
+
+.itemGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 14px;
+}
+
+.sectionActions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.itemOption {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--app-border);
+  border-radius: 9px;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+  }
+}
+
+.itemIcon {
+  display: inline-flex;
+  color: var(--app-text-secondary);
+}
+
+@media (min-width: 769px) and (max-width: 900px) {
+  .settingRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .settingCopy {
+    min-width: calc(100% - 52px);
+  }
+
+  .settingControl,
+  .segmentedControl,
+  .messageDisplayControl {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+}
+
+@media (max-width: 768px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    max-height: 48vh;
+    border-right: 0;
+    border-bottom: 1px solid var(--app-border-subtle);
+  }
+
+  .content {
+    padding: 18px 20px;
+  }
+
+  .settingRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .settingCopy {
+    min-width: calc(100% - 52px);
+  }
+
+  .settingControl,
+  .segmentedControl,
+  .messageDisplayControl {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+
+  .itemGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .themeEditorHeader {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .themeActions {
+    width: calc(100% - 48px);
+    margin-left: 48px;
+  }
+
+  .themeFields {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    margin: 18px 0 0;
+  }
+}

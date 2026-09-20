@@ -25,12 +25,11 @@ import {
 } from "@ant-design/icons";
 import { PackageOpen, Bell, BellRing } from "lucide-react";
 import { MailAccessControlDrawer } from "./components/MailAccessControlDrawer";
+import { MailProcessingPauses } from "./components/MailProcessingPauses";
 import { useMailPendingCount } from "./hooks/useMailPendingCount";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
 import { PageHeader } from "@/components/PageHeader";
-import { externalLinkMarkdownComponents } from "@/components/Markdown/externalLinkComponents";
+import { TraceMarkdown } from "./components/TraceMarkdown";
 import { ApprovalCard as GlobalApprovalCard } from "../../components/ApprovalCard/ApprovalCard";
 import { useApprovalContext } from "../../contexts/ApprovalContext";
 import { useInboxWobble } from "../../hooks/useInboxWobble";
@@ -38,6 +37,7 @@ import { commandsApi } from "../../api/modules/commands";
 import { chatApi } from "../../api/modules/chat";
 import sessionApi from "../Chat/sessionApi";
 import { PushMessageCard } from "./components";
+import { ViewCronSessionButton } from "./components/ViewCronSessionButton";
 import { useInboxData } from "./hooks/useInboxData";
 import { useTraceViewer } from "./hooks/useTraceViewer";
 import type { PushMessage } from "./types";
@@ -76,14 +76,7 @@ const resolveInitialTab = (): TabKey => {
 };
 
 const renderMarkdownText = (text: string, className: string) => (
-  <div className={className}>
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={externalLinkMarkdownComponents}
-    >
-      {text}
-    </ReactMarkdown>
-  </div>
+  <TraceMarkdown text={text} className={className} />
 );
 
 interface MailTraceEntry {
@@ -398,7 +391,10 @@ export default function InboxPage() {
           <Bell size={16} />
           {t("inbox.tabPushMessages")}
           {summary.pushMessages.unread > 0 && (
-            <Badge count={summary.pushMessages.unread} color="#ff7f16" />
+            <Badge
+              count={summary.pushMessages.unread}
+              color="var(--app-accent)"
+            />
           )}
         </span>
       ),
@@ -517,7 +513,9 @@ export default function InboxPage() {
         <span className={styles.tabLabel}>
           <PackageOpen size={16} />
           {t("inbox.tabApprovals")}
-          {approvalCount > 0 && <Badge count={approvalCount} color="#ff7f16" />}
+          {approvalCount > 0 && (
+            <Badge count={approvalCount} color="var(--app-accent)" />
+          )}
         </span>
       ),
       children: (
@@ -612,6 +610,7 @@ export default function InboxPage() {
       />
 
       <div className={styles.pageContent}>
+        <MailProcessingPauses />
         <Tabs
           activeKey={activeTab}
           onChange={(key) => setActiveTab(key as TabKey)}
@@ -638,10 +637,23 @@ export default function InboxPage() {
       </div>
       <Modal
         open={detailOpen}
+        className={styles.messageDetailModal}
+        styles={{ content: { padding: "20px 24px" } }}
         onCancel={closeDetail}
         footer={null}
         width={820}
-        title={getDetailModalTitle(selectedMessage, t)}
+        title={
+          <div className={styles.messageDetailTitle}>
+            <span>{getDetailModalTitle(selectedMessage, t)}</span>
+            {selectedMessage && (
+              <ViewCronSessionButton
+                key={selectedMessage.id}
+                item={selectedMessage}
+                onNavigate={closeDetail}
+              />
+            )}
+          </div>
+        }
       >
         {selectedMessage ? (
           <div className={styles.messageDetail}>

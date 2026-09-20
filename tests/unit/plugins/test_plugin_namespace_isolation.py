@@ -835,6 +835,64 @@ class TestFallthroughIsolation:
         assert "only_a_owns_this" not in sys.modules
 
     @pytest.mark.asyncio
+    async def test_load_end_sweep_skips_unchanged_module_locations(
+        self,
+        loader,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Load-end cleanup must not normalize every preloaded module."""
+        from qwenpaw.plugins import module_isolation
+
+        plugin_dir = tmp_path / "incremental-sweep"
+        _write_manifest(plugin_dir)
+        (plugin_dir / "plugin.py").write_text(
+            _REGISTER_OK,
+            encoding="utf-8",
+        )
+
+        stable_name = "_qwenpaw_unchanged_module_probe"
+        stable_module = types.ModuleType(stable_name)
+        stable_path = str(tmp_path.parent / "stable_module.py")
+        stable_module.__file__ = stable_path
+        sys.modules[stable_name] = stable_module
+
+        normalized = []
+        real_norm = module_isolation._norm
+
+        def _record_norm(path):
+            normalized.append(str(path))
+            return real_norm(path)
+
+        monkeypatch.setattr(module_isolation, "_norm", _record_norm)
+        try:
+            await _load(loader, plugin_dir)
+        finally:
+            sys.modules.pop(stable_name, None)
+
+        assert stable_path not in normalized
+
+    def test_incremental_sweep_restores_replaced_binding(self, tmp_path):
+        """A plugin-local replacement must not erase an older binding."""
+        from qwenpaw.plugins.module_isolation import sweep_bare_tree_modules
+
+        plugin_dir = tmp_path / "restore-binding"
+        plugin_dir.mkdir()
+        module_name = "_qwenpaw_replaced_module_probe"
+        previous = types.ModuleType(module_name)
+        replacement = types.ModuleType(module_name)
+        replacement.__file__ = str(plugin_dir / "replacement.py")
+        sys.modules[module_name] = previous
+        modules_before = dict(sys.modules)
+        sys.modules[module_name] = replacement
+
+        try:
+            sweep_bare_tree_modules(plugin_dir, modules_before)
+            assert sys.modules[module_name] is previous
+        finally:
+            sys.modules.pop(module_name, None)
+
+    @pytest.mark.asyncio
     async def test_bare_namespace_residue_swept_at_load_end(
         self,
         loader,

@@ -6,7 +6,7 @@
 
 <p class="creator-lead">QwenPaw Creator 是一个 <strong>Agentic 视频创作平台</strong>：你负责提出目标、提供素材和把握方向，Agent 团队负责策划、生成、剪辑与合成，并在关键节点把决定权交还给你。</p>
 
-- **Agent 贯穿全程**：编剧、导演、视觉开发、动效、剪辑等 Specialist 按项目状态协作，不是一次性生成后就结束；
+- **Agent 贯穿全程**：主 Agent 负责编剧、导演与视觉开发（按需加载专业 skill），与素材理解、AI 剪辑等 Specialist 按项目状态协作，不是一次性生成后就结束；
 - **你始终掌舵**：随时用一句话改变方向，也可以直接在时间线上手动精修；
 - **两类素材都能开始**：从一句想法生成短剧，或从一批现有视频剪出成片。
 
@@ -51,11 +51,13 @@ Creator 通过 QwenPaw 的 **Apps（应用中心）** 安装和打开。启动 Q
   - DashScope / 百炼：`wan3.0-video`、`wan3.0-video-prime` 为 All-in-One 模型，同一模型 ID 支持 t2v / i2v / r2v；`wan2.7`、`happyhorse-1.1` 会按元素类型自动选择 t2v / i2v / r2v；百炼同时托管 `kling/kling-v3-*` 与 `vidu/viduq3-*_reference2video` 系列；
   - 火山引擎：`doubao-seedance-2-5-260628`（最长 30 秒，全模态参考最多 30 图 + 10 视频）与文档中明确列出的 `doubao-seedance-2-0-*` ID；
   - Google Gemini：`veo-3.1`（时长 4/6/8 秒，带参考图或 1080p/4k 时固定 8 秒，参考图最多 3 张）；
-  - MiniMax 海螺：`MiniMax-Hailuo-2.3` 等（768P 支持 6/10 秒，1080P 仅 6 秒），主体参考仅 `S2V-01`；
+  - MiniMax 海螺：`MiniMax-Hailuo-2.3` 等（768P 支持 6/10 秒，1080P 仅 6 秒），主体参考仅 `S2V-01`；`MiniMax-H3` / `MiniMax-H3-Max` 走 v2 content API（480P/768P/2K，4-15 秒，全模态参考最多 9 图 + 3 视频 + 3 音频）；
+  - MiniMax H3 自部署（SGLang）：开源权重 `MiniMaxAI/MiniMax-H3` 经 `sglang serve --model-variant fl2va|ref2va` 部署；一个实例只装载一个 variant，因此以配置的模型名记录——`MiniMax-H3-FL2VA`（t2v/i2v）或 `MiniMax-H3-Ref2VA`（全模态参考 r2v）；仅输出 768P，API Key 可选；
   - 可灵官方：`kling-3.0-omni`（参考生视频，参考图最多 7 张）、`kling-2.6`（仅 t2v/i2v，5 或 10 秒）；
   - Vidu 官方：能力按精确模型区分——`viduq3-turbo` 支持 t2v/i2v/r2v，`viduq3-mix`、`viduq3` 仅 r2v，`viduq2-pro` 支持 i2v/r2v，`viduq2` 支持 t2v/r2v；
   - 可灵与 Vidu 同时提供百炼托管和官方直连两条渠道，**由模型配置中选择的协议决定走哪条**；
   - 每个“协议 + 精确模型 ID”都有独立官方契约：不支持的模式及非法时长、分辨率、画幅、参考素材会在上传/建单前被拒绝，同一能力表同时驱动设置页与 Agent 提示词；
+  - R2V 图片引用顺序保持存量合同：`storyboard → lineup → character → scene → prop`；升级不会把已有 `video_prompt` 中的场景与道具编号静默互换；
 - **ASR**：DashScope Fun-ASR、DashScope Qwen3-ASR 或 OpenAI Whisper；
 - **TTS / 数字人**：DashScope Qwen-TTS、CosyVoice，以及 `wan2.2-s2v`（并提供 `wan2.2-s2v-detect` 免费人脸检测）；
 - **Embedding**：DashScope `qwen3-vl-embedding`，用于资产检索与长素材记忆。

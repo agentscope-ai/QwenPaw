@@ -118,7 +118,7 @@ def _uses_max_completion_tokens(model_id: str) -> bool:
     )
 
 
-def _token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
+def token_limit_kwargs(model_id: str, limit: int) -> dict[str, int]:
     """Build the model-specific output token limit argument."""
     if _uses_max_completion_tokens(model_id):
         return {"max_completion_tokens": limit}
@@ -152,6 +152,10 @@ class OpenAIProvider(Provider):
             "conversation history. 0 disables capping."
         ),
     )
+
+    def request_headers(self) -> dict:
+        """Return provider headers for an externally owned HTTP transport."""
+        return self._build_default_headers()
 
     def _build_default_headers(self) -> dict:
         return dict(self.custom_headers) if self.custom_headers else {}
@@ -197,7 +201,7 @@ class OpenAIProvider(Provider):
                     break
             output_limit = getattr(row, "max_output_tokens", None)
             if isinstance(output_limit, (int, float)) and output_limit > 0:
-                metadata["max_tokens"] = int(output_limit)
+                metadata["max_output_length"] = int(output_limit)
             models.append(
                 ModelInfo(id=model_id, name=model_name, **metadata),
             )
@@ -241,9 +245,9 @@ class OpenAIProvider(Provider):
             payload = await client.models.list(timeout=timeout)
             models = self._normalize_models_payload(payload)
             return models
-        except APIError:
-            return []
         except Exception:
+            if self.is_custom:
+                raise
             return []
         finally:
             await self._close_client(client)
@@ -273,7 +277,7 @@ class OpenAIProvider(Provider):
                 "model": model_id,
                 "timeout": timeout,
                 "stream": True,
-                **_token_limit_kwargs(model_id, 20),
+                **token_limit_kwargs(model_id, 20),
             }
             res = await client.chat.completions.create(
                 messages=[
@@ -653,7 +657,7 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=timeout,
-                **_token_limit_kwargs(model_id, 200),
+                **token_limit_kwargs(model_id, 200),
             )
             answer = (res.choices[0].message.content or "").lower().strip()
             reasoning = ""
@@ -774,7 +778,7 @@ class OpenAIProvider(Provider):
                     },
                 ],
                 timeout=req_timeout,
-                **_token_limit_kwargs(model_id, 200),
+                **token_limit_kwargs(model_id, 200),
             )
             return self._evaluate_video_response(
                 res,
@@ -973,7 +977,7 @@ class GitHubModelsProvider(OpenAIProvider):
                 ],
                 timeout=timeout,
                 stream=True,
-                **_token_limit_kwargs(model_id, 5),
+                **token_limit_kwargs(model_id, 5),
             )
             try:
                 async for _ in res:

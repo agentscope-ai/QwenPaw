@@ -2,6 +2,10 @@ name: E2E Smoke Tests
 
 on:
   pull_request:
+    # Default types plus ready_for_review: converting a draft PR to
+    # ready must re-trigger this workflow so the smoke run really
+    # happens right after the author leaves draft state.
+    types: [opened, synchronize, reopened, ready_for_review]
     branches: [main, master, dev, develop]
     paths:
       - 'console/**'
@@ -17,6 +21,12 @@ on:
 jobs:
   e2e-smoke:
     name: Playwright UI Smoke
+    # Draft PRs skip the smoke run entirely: this check is not part of
+    # the required-check set, so no placeholder context is needed. The
+    # ready_for_review trigger above re-runs it once the PR is ready.
+    if: |
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     timeout-minutes: 15
 

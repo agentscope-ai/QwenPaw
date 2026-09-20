@@ -38,10 +38,14 @@ class SyncReviewAdvisory(RunReviewModel):
     round: int = Field(ge=1)
     scores: list[RubricScore] = Field(default_factory=list)
     summary: str = ""
-    # Script-to-shots reasoning check (tier-1, shots commits only):
+    # Script-to-generation-unit reasoning check (tier-1, narrative edits):
     # coverage_missing / hallucinated / unshootable evidence lists —
     # reasoning content, never a score (Creator review doctrine).
     script_check: dict[str, Any] | None = None
+    # Deterministic pre-generation contract check for R2V prompts. Unlike
+    # taste scores, these findings name machine-verifiable omissions such as
+    # an empty prompt, wrong storyboard ratio or provider reference token.
+    prompt_check: dict[str, Any] | None = None
     created_at: datetime | None = None
 
     def weak_scores(self) -> list[RubricScore]:

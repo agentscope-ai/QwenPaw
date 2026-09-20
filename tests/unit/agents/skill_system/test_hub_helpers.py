@@ -883,7 +883,19 @@ class TestGithubCacheHelpers:
 
     def test_cache_get_expired_returns_none(self, monkeypatch):
         hub._github_cache["stale"] = (0.0, "old")
-        # monotonic clock is far past the fake timestamp → entry expired.
+
+        # Fake the clock instead of relying on real uptime. The product
+        # compares time.monotonic() - timestamp > ttl (hub.py), so with the
+        # fake timestamp 0.0 the entry is only "expired" once the runner has
+        # been up for more than the 300 s default TTL. That made this test
+        # pass or fail based on machine uptime, not product logic (it went
+        # red on a fast CI job that reached pytest within 300 s of boot).
+        class _FakeTime:
+            @staticmethod
+            def monotonic() -> float:
+                return 1e12
+
+        monkeypatch.setattr(hub, "time", _FakeTime)
         assert hub._github_cache_get("stale") is None
         assert "stale" not in hub._github_cache
 

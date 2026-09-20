@@ -11,10 +11,10 @@
   flex-shrink: 0;
   min-height: 30px;
   padding: 4px 12px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-radius: 16px;
-  background: var(--color-bg-container, #ffffff);
-  color: var(--color-text-secondary, rgba(20, 20, 19, 0.58));
+  background: var(--app-surface);
+  color: var(--app-text-secondary);
   font: inherit;
   font-size: 13px;
   line-height: 20px;
@@ -25,20 +25,20 @@
     background-color 0.16s ease;
 
   &:hover {
-    border-color: var(--color-border, #d8d4cf);
-    color: var(--color-text, rgba(20, 20, 19, 0.88));
+    border-color: var(--app-border-hover);
+    color: var(--app-text);
   }
 
   &:focus-visible {
-    outline: 2px solid var(--color-primary, #ff7a00);
+    outline: 2px solid var(--app-accent);
     outline-offset: 1px;
   }
 }
 
 .filterTagActive {
-  border-color: var(--color-fill-secondary, #e8e6e3);
-  background: var(--color-fill-secondary, #e8e6e3);
-  color: var(--color-text, rgba(20, 20, 19, 0.88));
+  border-color: var(--app-accent-border);
+  background: var(--app-accent-soft);
+  color: var(--app-accent-text);
   font-weight: 500;
 }
 
@@ -72,29 +72,9 @@
 
 .searchHint {
   margin: -8px 0 12px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   font-size: 13px;
 }
-
-:global(.dark-mode) {
-  .filterTag {
-    border-color: rgba(255, 255, 255, 0.16);
-    background: #1f1f1f;
-    color: rgba(255, 255, 255, 0.65);
-
-    &:hover:not(.filterTagActive) {
-      border-color: rgba(255, 255, 255, 0.3);
-      color: rgba(255, 255, 255, 0.88);
-    }
-  }
-
-  .filterTagActive {
-    border-color: rgba(255, 127, 22, 0.5);
-    background: rgba(255, 127, 22, 0.18);
-    color: #ffad66;
-  }
-}
-
 @media (max-width: 767px) {
   .controlRow {
     align-items: stretch;

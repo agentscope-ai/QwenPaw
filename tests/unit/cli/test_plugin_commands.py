@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Unit tests for cli/plugin_commands.py.
 
-All network (urllib), subprocess (pip/uv), filesystem (plugins dir) and
+All network (HTTPX/urllib), subprocess (pip/uv), filesystem (plugins dir) and
 config-system collaborators are monkeypatched at their source modules, so
 every code path runs in-process against temporary directories. The Click
 commands are driven through ``CliRunner`` against the ``plugin`` group.
@@ -12,10 +12,11 @@ from __future__ import annotations
 import io
 import json
 import subprocess
-import urllib.error
 import zipfile
 from pathlib import Path
+from functools import partial
 
+import httpx
 import pytest
 from click.testing import CliRunner
 
@@ -28,34 +29,20 @@ import qwenpaw.config.utils as config_utils
 # ---------------------------------------------------------------------------
 
 
-class _FakeResp(io.BytesIO):
-    """urlopen() result supporting context-manager + read()."""
-
-    def __init__(self, payload: dict):
-        super().__init__(json.dumps(payload).encode())
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
-        return False
+def _response(payload: dict) -> httpx.Response:
+    return httpx.Response(200, json=payload)
 
 
-def _http_error(payload: bytes | None = None) -> urllib.error.HTTPError:
-    body = (
-        payload
-        if payload is not None
-        else json.dumps(
-            {"detail": "boom"},
-        ).encode()
-    )
-    return urllib.error.HTTPError(
-        "http://x/api",
-        500,
-        "server error",
-        {},  # type: ignore[arg-type]
-        io.BytesIO(body),
+def _http_error(payload: bytes | None = None) -> httpx.Response:
+    body = payload if payload is not None else b'{"detail":"boom"}'
+    return httpx.Response(500, content=body)
+
+
+def _patch_transport(monkeypatch, handler):
+    monkeypatch.setattr(
+        httpx,
+        "Client",
+        partial(httpx.Client, transport=httpx.MockTransport(handler)),
     )
 
 
@@ -128,15 +115,14 @@ class TestApiInstallPlugin:
         _patch_base(monkeypatch)
         captured = {}
 
-        def fake_urlopen(req, timeout=None):
-            captured["url"] = req.full_url
-            captured["body"] = req.data
-            return _FakeResp({"name": "demo"})
+        def respond(req, timeout=None):
+            captured["url"] = str(req.url)
+            captured["body"] = req.content
+            return _response({"name": "demo"})
 
-        monkeypatch.setattr(
-            pc.urllib.request,
-            "urlopen",
-            fake_urlopen,
+        _patch_transport(
+            monkeypatch,
+            respond,
         )
         assert pc._api_install_plugin("https://x/p.zip", force=True) is True
         assert captured["url"].endswith("/plugins/install")
@@ -147,24 +133,18 @@ class TestApiInstallPlugin:
 
     def test_http_error_with_json_detail(self, monkeypatch, capsys):
         _patch_base(monkeypatch)
-        monkeypatch.setattr(
-            pc.urllib.request,
-            "urlopen",
-            lambda req, timeout=None: (_ for _ in ()).throw(
-                _http_error(),
-            ),
+        _patch_transport(
+            monkeypatch,
+            lambda req, timeout=None: _http_error(),
         )
         assert pc._api_install_plugin("src") is False
         assert "boom" in capsys.readouterr().err
 
     def test_http_error_with_non_json_body(self, monkeypatch, capsys):
         _patch_base(monkeypatch)
-        monkeypatch.setattr(
-            pc.urllib.request,
-            "urlopen",
-            lambda req, timeout=None: (_ for _ in ()).throw(
-                _http_error(b"not json"),
-            ),
+        _patch_transport(
+            monkeypatch,
+            lambda req, timeout=None: _http_error(b"not json"),
         )
         assert pc._api_install_plugin("src") is False
         assert "API install failed" in capsys.readouterr().err
@@ -175,7 +155,7 @@ class TestApiInstallPlugin:
         def boom(req, timeout=None):
             raise OSError("net down")
 
-        monkeypatch.setattr(pc.urllib.request, "urlopen", boom)
+        _patch_transport(monkeypatch, boom)
         assert pc._api_install_plugin("src") is False
         assert "net down" in capsys.readouterr().err
 
@@ -193,13 +173,13 @@ class TestApiUploadPlugin:
         z.write_bytes(b"ZIPBYTES")
         captured = {}
 
-        def fake_urlopen(req, timeout=None):
-            captured["url"] = req.full_url
-            captured["body"] = req.data
-            captured["ctype"] = req.get_header("Content-type")
-            return _FakeResp({"name": "p"})
+        def respond(req, timeout=None):
+            captured["url"] = str(req.url)
+            captured["body"] = req.content
+            captured["ctype"] = req.headers["Content-Type"]
+            return _response({"name": "p"})
 
-        monkeypatch.setattr(pc.urllib.request, "urlopen", fake_urlopen)
+        _patch_transport(monkeypatch, respond)
         assert pc._api_upload_plugin(z, force=True) is True
         assert "force=true" in captured["url"]
         assert b"ZIPBYTES" in captured["body"]
@@ -212,10 +192,9 @@ class TestApiUploadPlugin:
         _patch_base(monkeypatch)
         z = tmp_path / "p.zip"
         z.write_bytes(b"x")
-        monkeypatch.setattr(
-            pc.urllib.request,
-            "urlopen",
-            lambda req, timeout=None: (_ for _ in ()).throw(_http_error()),
+        _patch_transport(
+            monkeypatch,
+            lambda req, timeout=None: _http_error(),
         )
         assert pc._api_upload_plugin(z) is False
         assert "boom" in capsys.readouterr().err
@@ -228,7 +207,7 @@ class TestApiUploadPlugin:
         def boom(req, timeout=None):
             raise ConnectionError("down")
 
-        monkeypatch.setattr(pc.urllib.request, "urlopen", boom)
+        _patch_transport(monkeypatch, boom)
         assert pc._api_upload_plugin(z) is False
         assert "down" in capsys.readouterr().err
 
@@ -241,12 +220,9 @@ class TestApiUploadPlugin:
         _patch_base(monkeypatch)
         z = tmp_path / "p.zip"
         z.write_bytes(b"x")
-        monkeypatch.setattr(
-            pc.urllib.request,
-            "urlopen",
-            lambda req, timeout=None: (_ for _ in ()).throw(
-                _http_error(b"garbage"),
-            ),
+        _patch_transport(
+            monkeypatch,
+            lambda req, timeout=None: _http_error(b"garbage"),
         )
         assert pc._api_upload_plugin(z) is False
         assert "API upload failed" in capsys.readouterr().err
@@ -261,20 +237,19 @@ class TestApiUninstallPlugin:
         _patch_base(monkeypatch)
         captured = {}
 
-        def fake_urlopen(req, timeout=None):
-            captured["method"] = req.get_method()
-            return _FakeResp({"message": "bye"})
+        def respond(req, timeout=None):
+            captured["method"] = req.method
+            return _response({"message": "bye"})
 
-        monkeypatch.setattr(pc.urllib.request, "urlopen", fake_urlopen)
+        _patch_transport(monkeypatch, respond)
         assert pc._api_uninstall_plugin("pid") is True
         assert captured["method"] == "DELETE"
 
     def test_http_error(self, monkeypatch, capsys):
         _patch_base(monkeypatch)
-        monkeypatch.setattr(
-            pc.urllib.request,
-            "urlopen",
-            lambda req, timeout=None: (_ for _ in ()).throw(_http_error()),
+        _patch_transport(
+            monkeypatch,
+            lambda req, timeout=None: _http_error(),
         )
         assert pc._api_uninstall_plugin("pid") is False
         assert "API uninstall failed" in capsys.readouterr().err
@@ -285,18 +260,15 @@ class TestApiUninstallPlugin:
         def boom(req, timeout=None):
             raise RuntimeError("x")
 
-        monkeypatch.setattr(pc.urllib.request, "urlopen", boom)
+        _patch_transport(monkeypatch, boom)
         assert pc._api_uninstall_plugin("pid") is False
         assert "API request failed" in capsys.readouterr().err
 
     def test_http_error_with_non_json_body(self, monkeypatch, capsys):
         _patch_base(monkeypatch)
-        monkeypatch.setattr(
-            pc.urllib.request,
-            "urlopen",
-            lambda req, timeout=None: (_ for _ in ()).throw(
-                _http_error(b"garbage"),
-            ),
+        _patch_transport(
+            monkeypatch,
+            lambda req, timeout=None: _http_error(b"garbage"),
         )
         assert pc._api_uninstall_plugin("pid") is False
         assert "API uninstall failed" in capsys.readouterr().err

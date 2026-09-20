@@ -2057,13 +2057,17 @@ class SourceMediaAnalysisService:
                 if task_owned:
                     self._complete_task_sync(job, published)
                 return published
-            if (
-                current.generation != job.input_generation
-                or current.etag != job.input_etag
-                or not self._same_frozen_source(current.project, job)
-            ):
+            # Sibling commits (parallel per-asset understanding, unrelated
+            # edits) may advance the project head while the provider ran.
+            # The publication below is rebuilt from the fresh ``current``
+            # read under the lifecycle lock, so only the delegated source's
+            # own frozen identity gates the commit — whole-project
+            # generation/ETag equality made parallel specialists quarantine
+            # each other's paid results (CR 2026-09-11).
+            if not self._same_frozen_source(current.project, job):
                 raise StaleSourceAnalysis(
-                    "Project generation/ETag or selected SourceAssetVersion changed",
+                    "selected SourceAssetVersion changed since the analysis "
+                    "was dispatched",
                 )
             payload = canonical_json_bytes(
                 index.model_dump(mode="json", by_alias=True),

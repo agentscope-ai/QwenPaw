@@ -30,6 +30,7 @@ import asyncio
 import json
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from typing import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -2806,6 +2807,69 @@ class TestDingTalkFileDownload:
 # =============================================================================
 
 
+class TestDingTalkStreamRequestTimeout:
+    """Tests for bounded synchronous requests in the stream SDK."""
+
+    def test_stream_and_chatbot_requests_use_default_timeout(
+        self,
+        dingtalk_channel,
+        monkeypatch,
+    ):
+        """Connection and chatbot ACK requests should share timeouts."""
+        from qwenpaw.app.channels.dingtalk.channel import (
+            _DINGTALK_REQUESTS_WITH_TIMEOUT,
+            dingtalk_chatbot_module,
+            dingtalk_stream_module,
+        )
+
+        mock_post = MagicMock(return_value=MagicMock())
+        monkeypatch.setattr(
+            "qwenpaw.app.channels.dingtalk.channel.requests.post",
+            mock_post,
+        )
+        monkeypatch.setattr(
+            dingtalk_stream_module,
+            "requests",
+            MagicMock(),
+        )
+        monkeypatch.setattr(
+            dingtalk_chatbot_module,
+            "requests",
+            MagicMock(),
+        )
+
+        dingtalk_channel._apply_stream_request_timeout()
+
+        assert (
+            dingtalk_stream_module.requests is _DINGTALK_REQUESTS_WITH_TIMEOUT
+        )
+        assert (
+            dingtalk_chatbot_module.requests is _DINGTALK_REQUESTS_WITH_TIMEOUT
+        )
+
+        incoming_message = MagicMock()
+        incoming_message.session_webhook = (
+            "https://api.dingtalk.com/session-webhook"
+        )
+        incoming_message.sender_staff_id = "user_123"
+        handler = dingtalk_chatbot_module.ChatbotHandler()
+
+        handler.reply_text(" ", incoming_message)
+
+        mock_post.assert_called_once_with(
+            "https://api.dingtalk.com/session-webhook",
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "*/*",
+            },
+            data=(
+                '{"msgtype": "text", "text": {"content": " "}, '
+                '"at": {"atUserIds": ["user_123"]}}'
+            ),
+            timeout=(10, 30),
+        )
+
+
 @pytest.mark.asyncio
 class TestDingTalkStreamMode:
     """Tests for Stream/WebSocket mode."""
@@ -2862,6 +2926,165 @@ class TestDingTalkStreamMode:
         dingtalk_channel.robot_code = "robot_123"
 
         assert dingtalk_channel._ai_card_enabled() is False
+
+
+@pytest.mark.asyncio
+class TestDingTalkHealthCheck:
+    """Tests for DingTalk connection health reporting."""
+
+    @staticmethod
+    def _set_runtime_state(
+        channel,
+        *,
+        thread_alive: bool = True,
+        websocket_state: str = "OPEN",
+        stream_loop_running: bool = True,
+    ):
+        loop = asyncio.get_running_loop()
+        websocket = MagicMock()
+        websocket.state.name = websocket_state
+        websocket.ping = AsyncMock()
+        pong_waiter = loop.create_future()
+        pong_waiter.set_result(0.01)
+        websocket.ping.return_value = pong_waiter
+        client = MagicMock()
+        client.websocket = websocket
+        channel._client = client
+        channel._stream_thread = MagicMock()
+        channel._stream_thread.is_alive.return_value = thread_alive
+        if stream_loop_running:
+            channel._stream_event_loop = loop
+        else:
+            channel._stream_event_loop = MagicMock()
+            channel._stream_event_loop.is_running.return_value = False
+        channel._http = MagicMock()
+        channel._http.closed = False
+        return websocket
+
+    async def test_reports_healthy_for_live_stream(
+        self,
+        dingtalk_channel,
+    ):
+        """A connected and responsive stream should be healthy."""
+        websocket = self._set_runtime_state(dingtalk_channel)
+
+        result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "healthy"
+        websocket.ping.assert_awaited_once_with()
+
+    @pytest.mark.parametrize(
+        (
+            "thread_alive",
+            "websocket_state",
+            "stream_loop_running",
+            "expected_detail",
+        ),
+        [
+            (False, "OPEN", True, "Stream thread is not running"),
+            (True, "CLOSED", True, "WebSocket connection is not open"),
+            (True, "OPEN", False, "Stream event loop is not running"),
+        ],
+    )
+    async def test_reports_unhealthy_for_broken_stream_state(
+        self,
+        dingtalk_channel,
+        thread_alive,
+        websocket_state,
+        stream_loop_running,
+        expected_detail,
+    ):
+        """Broken stream states should not be reported as healthy."""
+        self._set_runtime_state(
+            dingtalk_channel,
+            thread_alive=thread_alive,
+            websocket_state=websocket_state,
+            stream_loop_running=stream_loop_running,
+        )
+
+        result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert expected_detail in result["detail"]
+
+    async def test_reports_unhealthy_when_pong_times_out(
+        self,
+        dingtalk_channel,
+    ):
+        """An open socket without a Pong response should be unhealthy."""
+        websocket = self._set_runtime_state(dingtalk_channel)
+        websocket.ping.return_value = (
+            asyncio.get_running_loop().create_future()
+        )
+
+        with patch(
+            "qwenpaw.app.channels.dingtalk.channel."
+            "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
+            0.01,
+        ):
+            result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping timed out" in result["detail"]
+
+    async def test_reports_unhealthy_when_ping_fails(
+        self,
+        dingtalk_channel,
+    ):
+        """A Ping transport error should be reported as unhealthy."""
+        websocket = self._set_runtime_state(dingtalk_channel)
+        websocket.ping.side_effect = ConnectionError("socket closed")
+
+        result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping failed: ConnectionError" in result["detail"]
+
+    async def test_reports_unhealthy_when_ping_is_cancelled(
+        self,
+        dingtalk_channel,
+    ):
+        """A Ping cancelled by Stream reconnect should be unhealthy."""
+        self._set_runtime_state(dingtalk_channel)
+
+        def cancel_probe(coro, _loop):
+            coro.close()
+            future = Future()
+            future.cancel()
+            return future
+
+        with patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=cancel_probe,
+        ):
+            result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping was cancelled" in result["detail"]
+
+    async def test_reports_unhealthy_when_stream_loop_is_blocked(
+        self,
+        dingtalk_channel,
+    ):
+        """Health should time out if the Stream loop cannot run Ping."""
+        self._set_runtime_state(dingtalk_channel)
+
+        def leave_probe_pending(coro, _loop):
+            coro.close()
+            return Future()
+
+        with patch(
+            "asyncio.run_coroutine_threadsafe",
+            side_effect=leave_probe_pending,
+        ), patch(
+            "qwenpaw.app.channels.dingtalk.channel."
+            "_STREAM_HEALTH_PING_TIMEOUT_SECONDS",
+            0.01,
+        ):
+            result = await dingtalk_channel.health_check()
+
+        assert result["status"] == "unhealthy"
+        assert "WebSocket Ping timed out" in result["detail"]
 
 
 # =============================================================================

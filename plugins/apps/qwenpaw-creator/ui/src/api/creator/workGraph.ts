@@ -13,7 +13,12 @@ export function getWorkGraph(projectId: string): Promise<WorkGraphView> {
 export function dispatchWorkGraphNode(
   projectId: string,
   nodeId: string,
-): Promise<{ ok: boolean; nodeId: string; dispatched: boolean }> {
+): Promise<{
+  ok: boolean;
+  nodeId: string;
+  dispatched: boolean;
+  status?: "running" | "done" | "dispatched";
+}> {
   return creatorRequest(
     `${project(projectId)}/work-graph/nodes/${encodeURIComponent(
       nodeId,

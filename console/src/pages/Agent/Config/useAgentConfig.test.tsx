@@ -29,6 +29,7 @@ const hoisted = vi.hoisted(() => {
   // A stable translation function so useCallback dependencies don't change on
   // every render and trigger an infinite fetchConfig loop via useEffect.
   const stableT = (k: string) => k;
+  const agentState = { selectedAgent: "agent-1" };
   return {
     mockSetFieldsValue,
     mockValidateFields,
@@ -38,6 +39,7 @@ const hoisted = vi.hoisted(() => {
     apiMocks,
     modalConfirmMock,
     stableT,
+    agentState,
   };
 });
 
@@ -63,9 +65,13 @@ vi.mock("../../../api", () => ({
   default: hoisted.apiMocks,
 }));
 
-vi.mock("../../../stores/agentStore", () => ({
-  useAgentStore: () => ({ selectedAgent: "agent-1" }),
-}));
+vi.mock("../../../stores/agentStore", () => {
+  const useAgentStore = Object.assign(
+    () => ({ selectedAgent: hoisted.agentState.selectedAgent }),
+    { getState: () => hoisted.agentState },
+  );
+  return { useAgentStore };
+});
 
 vi.mock("../../../hooks/useAppMessage", () => ({
   useAppMessage: () => ({ message: hoisted.messageMock }),
@@ -84,6 +90,7 @@ const {
   apiMocks,
   messageMock,
   modalConfirmMock,
+  agentState,
 } = hoisted;
 
 type Config = AgentsRunningConfig;
@@ -116,7 +123,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       max_input_length: 1000,
     } as unknown as Config["light_context_config"],
     memory_manager_backend: "remelight",
-    adbpg_memory_config: null,
+    memory_backend_configs: {},
     reme_light_memory_config:
       {} as unknown as Config["reme_light_memory_config"],
     approval_level: "AUTO",
@@ -144,6 +151,7 @@ describe("useAgentConfig", () => {
     messageMock.success.mockReset();
     messageMock.error.mockReset();
     modalConfirmMock.mockReset();
+    agentState.selectedAgent = "agent-1";
 
     apiMocks.getAgentRunningConfig.mockResolvedValue(makeConfig());
     apiMocks.getAgentLanguage.mockResolvedValue({ language: "en" });
@@ -209,6 +217,49 @@ describe("useAgentConfig", () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it("ignores a stale config response after switching away and back", async () => {
+    let resolveDisabledAgent!: (config: Config) => void;
+    const disabledAgentConfig = new Promise<Config>((resolve) => {
+      resolveDisabledAgent = resolve;
+    });
+    const currentAgentConfig = makeConfig({ history_max_length: 300 });
+
+    const view = renderConfigHook();
+    await waitFor(() => expect(view.result.current.loading).toBe(false));
+    mockSetFieldsValue.mockClear();
+
+    apiMocks.getAgentRunningConfig
+      .mockImplementationOnce(() => disabledAgentConfig)
+      .mockResolvedValueOnce(currentAgentConfig);
+
+    agentState.selectedAgent = "agent-2";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(2),
+    );
+
+    agentState.selectedAgent = "agent-1";
+    view.rerender();
+    await waitFor(() =>
+      expect(apiMocks.getAgentRunningConfig).toHaveBeenCalledTimes(3),
+    );
+    await waitFor(() =>
+      expect(mockSetFieldsValue).toHaveBeenCalledWith(
+        expect.objectContaining({ history_max_length: 300 }),
+      ),
+    );
+
+    await act(async () => {
+      resolveDisabledAgent(makeConfig({ history_max_length: 200 }));
+      await disabledAgentConfig;
+    });
+
+    expect(mockSetFieldsValue).not.toHaveBeenCalledWith(
+      expect.objectContaining({ history_max_length: 200 }),
+    );
+    expect(view.result.current.loading).toBe(false);
+  });
+
   it("falls back context_manager_backend to 'light' when not in MAPPINGS", async () => {
     apiMocks.getAgentRunningConfig.mockResolvedValue(
       makeConfig({ context_manager_backend: "unknown-backend" }),
@@ -223,7 +274,7 @@ describe("useAgentConfig", () => {
     expect(callArg.context_manager_backend).toBe("light");
   });
 
-  it("falls back memory_manager_backend to 'remelight' when not in MAPPINGS", async () => {
+  it("preserves an unavailable plugin backend for diagnostics", async () => {
     apiMocks.getAgentRunningConfig.mockResolvedValue(
       makeConfig({ memory_manager_backend: "nope" }),
     );
@@ -234,7 +285,7 @@ describe("useAgentConfig", () => {
     const callArg = mockSetFieldsValue.mock.calls[0][0] as {
       memory_manager_backend: string;
     };
-    expect(callArg.memory_manager_backend).toBe("remelight");
+    expect(callArg.memory_manager_backend).toBe("nope");
   });
 
   it("handleSave calls updateAgentRunningConfig and message.success on success", async () => {
@@ -462,11 +513,13 @@ describe("useAgentConfig", () => {
           history_retention_days: 14,
         },
       } as unknown as Config["light_context_config"],
-      adbpg_memory_config: {
-        auto_search_enabled: true,
-        auto_save_enabled: true,
-        search_top_k: 10,
-      } as unknown as Config["adbpg_memory_config"],
+      memory_backend_configs: {
+        adbpg: {
+          auto_search_enabled: true,
+          auto_save_enabled: true,
+          search_top_k: 10,
+        },
+      },
     });
 
     apiMocks.getAgentRunningConfig.mockResolvedValue(originalConfig);
@@ -485,7 +538,7 @@ describe("useAgentConfig", () => {
         // inside a collapsed sub-panel.
         needs_reindex: true,
       },
-      // adbpg_memory_config is entirely inside a collapsed panel — not in form values at all.
+      // The plugin config is entirely inside a collapsed panel.
     });
 
     const { result } = renderConfigHook();
@@ -521,9 +574,9 @@ describe("useAgentConfig", () => {
     );
     expect((saved.reme_light_memory_config as any).search_top_k).toBe(5);
 
-    // adbpg_memory_config: entirely collapsed — original values fully preserved
-    expect((saved.adbpg_memory_config as any).auto_search_enabled).toBe(true);
-    expect((saved.adbpg_memory_config as any).auto_save_enabled).toBe(true);
-    expect((saved.adbpg_memory_config as any).search_top_k).toBe(10);
+    // Plugin config: entirely collapsed — original values fully preserved.
+    expect(saved.memory_backend_configs?.adbpg.auto_search_enabled).toBe(true);
+    expect(saved.memory_backend_configs?.adbpg.auto_save_enabled).toBe(true);
+    expect(saved.memory_backend_configs?.adbpg.search_top_k).toBe(10);
   });
 });

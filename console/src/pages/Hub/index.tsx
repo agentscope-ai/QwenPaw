@@ -4,11 +4,13 @@ import {
   App,
   Button,
   Form,
+  Grid,
   Input,
   InputNumber,
   Modal,
   Pagination,
   Progress,
+  Radio,
   Select,
   Skeleton,
   Switch,
@@ -17,21 +19,14 @@ import {
 } from "antd";
 import type { FormInstance } from "antd";
 import {
-  Activity,
-  BellRing,
   Box,
+  BrainCircuit,
   Boxes,
-  ChartNoAxesCombined,
   CircleStop,
   Gauge,
   HardDrive,
-  House,
   KeyRound,
   ListFilter,
-  LockKeyhole,
-  LogOut,
-  MemoryStick,
-  Moon,
   Play,
   Plus,
   RefreshCw,
@@ -41,13 +36,12 @@ import {
   Settings2,
   ShieldAlert,
   ShieldBan,
-  Sun,
   Trash2,
-  UserPlus,
   Users,
 } from "lucide-react";
 import { clearAuthToken } from "../../api/config";
-import LanguageSwitcher from "../../components/LanguageSwitcher";
+import HubShell from "./components/HubShell";
+import OverviewPanel from "./components/OverviewPanel";
 import { useTheme } from "../../contexts/ThemeContext";
 import {
   hubApi,
@@ -62,8 +56,12 @@ import {
   type HubUser,
 } from "../../api/modules/hub";
 import styles from "./index.module.less";
+import UserManagement from "./governance/UserManagement";
+import OrganizationBudget from "./governance/OrganizationBudget";
+import OrganizationModels from "./governance/OrganizationModels";
 import {
   dockerReferenceParts,
+  dockerReferenceKey,
   emptyPage,
   formatDate,
   formatImageSize,
@@ -78,10 +76,27 @@ export default function HubPage() {
   const { message, modal } = App.useApp();
   const { t, i18n } = useTranslation();
   const { isDark, toggleTheme } = useTheme();
+  const [refreshing, setRefreshing] = useState(false);
   const [me, setMe] = useState<HubUser | null>(null);
   const [health, setHealth] = useState<HubHealth | null>(null);
   const [overview, setOverview] = useState<HubOverview | null>(null);
   const [section, setSection] = useState<Section>("overview");
+  const [sectionTarget, setSectionTarget] = useState<string>();
+  const navigate = (next: Section, target?: string) => {
+    setSectionTarget(target);
+    if (next === "runtimes") {
+      setRuntimeState(target);
+      setRuntimeQuery("");
+      setRuntimeOwner("");
+      setRuntimeExecution(undefined);
+    }
+    if (next === "users") setUserQuery(target ?? "");
+    if (next === "audit") {
+      setAuditQuery(target ?? "");
+      setAuditAction(undefined);
+    }
+    setSection(next);
+  };
   const [runtimes, setRuntimes] = useState<PageData<HubRuntime>>(emptyPage);
   const [users, setUsers] = useState<PageData<HubUser>>(emptyPage);
   const [credentials, setCredentials] =
@@ -175,7 +190,9 @@ export default function HubPage() {
         if (
           configuredSource === "custom" &&
           imageResult.local_images.some(
-            (image) => image.reference === configuredImage,
+            (image) =>
+              dockerReferenceKey(image.reference) ===
+              dockerReferenceKey(configuredImage || ""),
           )
         ) {
           settingsForm.setFieldValue("dockerSource", "local");
@@ -199,7 +216,8 @@ export default function HubPage() {
     setSettings(result);
     settingsForm.setFieldsValue({
       publicBaseUrl: result.config.control_plane.public_base_url || undefined,
-      registrationEnabled: result.config.control_plane.registration.enabled,
+      registrationMode:
+        result.config.control_plane.registration.mode ?? "closed",
       runtimeProvisioner: result.config.runtime.provisioner,
       dockerSource: result.config.runtime.docker.source,
       dockerImage: result.config.runtime.docker.image,
@@ -318,6 +336,7 @@ export default function HubPage() {
     credentialScope,
     auditAction,
     loadAudit,
+    loadOverview,
     loadCredentials,
     loadRuntimes,
     loadSettings,
@@ -344,12 +363,19 @@ export default function HubPage() {
   );
 
   const refreshSection = async () => {
-    if (section === "overview") await loadOverview();
-    if (section === "runtimes") await loadRuntimes(runtimes.page);
-    if (section === "users") await loadUsers(users.page);
-    if (section === "credentials") await loadCredentials(credentials.page);
-    if (section === "audit") await loadAudit(audit.page);
-    if (section === "settings") await loadSettings();
+    setRefreshing(true);
+    try {
+      if (section === "overview") await loadOverview();
+      if (section === "runtimes") await loadRuntimes(runtimes.page);
+      if (section === "users") await loadUsers(users.page);
+      if (section === "credentials") await loadCredentials(credentials.page);
+      if (section === "audit") await loadAudit(audit.page);
+      if (section === "settings") await loadSettings();
+    } catch (error) {
+      message.error((error as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const saveSettings = async (values: SettingsFormValues) => {
@@ -362,7 +388,7 @@ export default function HubPage() {
           ...settings.config.control_plane,
           public_base_url: values.publicBaseUrl?.trim() || null,
           registration: {
-            enabled: values.registrationEnabled,
+            mode: values.registrationMode,
             default_role: "user",
           },
           security: {
@@ -539,6 +565,16 @@ export default function HubPage() {
             label: t("hub.navigation.overview"),
             icon: Gauge,
           },
+          {
+            id: "users" as const,
+            label: t("hub.navigation.users"),
+            icon: Users,
+          },
+          {
+            id: "models" as const,
+            label: t("hub.governance.models.title"),
+            icon: BrainCircuit,
+          },
         ]
       : []),
     {
@@ -546,15 +582,6 @@ export default function HubPage() {
       label: t("hub.navigation.runtimes"),
       icon: Boxes,
     },
-    ...(me?.role === "admin"
-      ? [
-          {
-            id: "users" as const,
-            label: t("hub.navigation.users"),
-            icon: Users,
-          },
-        ]
-      : []),
     {
       id: "credentials" as const,
       label: t("hub.navigation.credentials"),
@@ -563,14 +590,14 @@ export default function HubPage() {
     ...(me?.role === "admin"
       ? [
           {
-            id: "audit" as const,
-            label: t("hub.navigation.audit"),
-            icon: ScrollText,
-          },
-          {
             id: "settings" as const,
             label: t("hub.navigation.settings"),
             icon: Settings2,
+          },
+          {
+            id: "audit" as const,
+            label: t("hub.navigation.audit"),
+            icon: ScrollText,
           },
         ]
       : []),
@@ -589,709 +616,540 @@ export default function HubPage() {
   };
 
   return (
-    <div className={styles.shell}>
-      <aside className={styles.sidebar}>
-        <div className={styles.brand}>
-          <div className={styles.brandMark}>
-            <ChartNoAxesCombined size={20} />
-          </div>
-          <div>
-            <strong>QwenPaw Hub</strong>
-            <span>{t("hub.brand.controlPlane")}</span>
-          </div>
-        </div>
-        <span className={styles.navLabel}>{t("hub.navigation.workspace")}</span>
-        <nav className={styles.navigation}>
-          {navigation.map((item) => {
-            const Icon = item.icon;
-            return (
-              <button
-                key={item.id}
-                className={section === item.id ? styles.activeNav : styles.nav}
-                onClick={() => setSection(item.id)}
-                type="button"
-              >
-                <Icon size={17} />
-                <span>{item.label}</span>
-                {item.id === "runtimes" && overview && (
-                  <small>{overview.total_runtimes}</small>
-                )}
-              </button>
-            );
-          })}
-        </nav>
-        <div className={styles.sidebarFooter}>
-          <div className={styles.healthCompact}>
-            <span className={runtimeAvailable ? styles.dot : styles.dotError} />
-            <div>
-              <strong>
-                {runtimeAvailable
-                  ? t("hub.overview.systemHealthy")
-                  : t("hub.overview.systemDegraded")}
-              </strong>
-              <span>{t("hub.overview.localIsolation")}</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => window.location.assign("/")}
-            className={styles.backButton}
-          >
-            <House size={16} />
-            <span>{t("hub.actions.backToQwenPaw")}</span>
-          </button>
-          <div className={styles.account}>
-            <div className={styles.avatar}>
-              {(me?.username || "Q").slice(0, 2).toUpperCase()}
-            </div>
-            <div>
-              <strong>{me?.username || t("common.loading")}</strong>
-              <span>{me?.role ? t(`hub.roles.${me.role}`) : ""}</span>
-            </div>
-            <LanguageSwitcher persistRemotely={false} />
-            <button type="button" onClick={toggleTheme}>
-              {isDark ? <Sun size={15} /> : <Moon size={15} />}
-            </button>
-            <button type="button" onClick={logout}>
-              <LogOut size={15} />
-            </button>
-          </div>
-        </div>
-      </aside>
-
-      <main className={styles.main}>
-        <header className={styles.topbar}>
-          <span>
-            Hub / <strong>{t(`hub.navigation.${section}`)}</strong>
-          </span>
-          <div>
-            <Tag color={runtimeAvailable ? "success" : "error"}>
-              {runtimeAvailable
-                ? t("hub.overview.systemHealthy")
-                : t("hub.overview.systemDegraded")}
-            </Tag>
-            <button type="button" onClick={() => refreshSection()}>
-              <RefreshCw size={15} />
-            </button>
-          </div>
-        </header>
-        <div className={styles.content}>
-          {loading ? (
-            <Skeleton active />
-          ) : (
-            <>
-              {health && !runtimeAvailable && (
-                <div className={styles.runtimeUnavailable} role="alert">
-                  <ShieldAlert size={20} />
-                  <div>
-                    <strong>{t("hub.runtimes.unavailableTitle")}</strong>
-                    <span>
-                      {me?.role === "admin"
-                        ? t("hub.runtimes.unavailableDescription", {
-                            provisioner: defaultProvisioner,
-                            reason: runtimeUnavailableReason,
-                          })
-                        : t("hub.runtimes.unavailableUserDescription")}
-                    </span>
-                  </div>
+    <>
+      <HubShell
+        navigation={navigation}
+        section={section}
+        onNavigate={navigate}
+        username={me?.username}
+        role={me?.role}
+        runtimeCount={overview?.total_runtimes}
+        healthy={runtimeAvailable}
+        isDark={isDark}
+        onToggleTheme={toggleTheme}
+        onLogout={logout}
+        onRefresh={refreshSection}
+        refreshing={refreshing}
+        loading={loading}
+      >
+        {loading ? (
+          <Skeleton active />
+        ) : (
+          <>
+            {health && !runtimeAvailable && (
+              <div className={styles.runtimeUnavailable} role="alert">
+                <ShieldAlert size={20} />
+                <div>
+                  <strong>{t("hub.runtimes.unavailableTitle")}</strong>
+                  <span>
+                    {me?.role === "admin"
+                      ? t("hub.runtimes.unavailableDescription", {
+                          provisioner: defaultProvisioner,
+                          reason: runtimeUnavailableReason,
+                        })
+                      : t("hub.runtimes.unavailableUserDescription")}
+                  </span>
                 </div>
-              )}
-              {section === "overview" && overview && (
-                <OverviewPanel overview={overview} t={t} />
-              )}
-              {section === "runtimes" && (
-                <section>
-                  <PageHeader
-                    eyebrow={t("hub.runtimes.eyebrow")}
-                    title={t("hub.runtimes.title")}
-                    description={t("hub.runtimes.description")}
-                    action={
-                      <Button
-                        type="primary"
-                        icon={<Plus size={15} />}
-                        disabled={!runtimeAvailable}
-                        onClick={() => setRuntimeModalOpen(true)}
-                      >
-                        {t("hub.runtimes.newRuntime")}
-                      </Button>
-                    }
-                  />
-                  <DataPanel
-                    search={runtimeQuery}
-                    onSearch={setRuntimeQuery}
-                    searchPlaceholder={t("hub.table.searchRuntimes")}
-                    filter={
-                      <>
-                        {me?.role === "admin" && (
-                          <Input
-                            allowClear
-                            value={runtimeOwner}
-                            placeholder={t("hub.table.allOwners")}
-                            className={styles.filterInput}
-                            onChange={(event) =>
-                              setRuntimeOwner(event.target.value)
-                            }
-                          />
-                        )}
-                        <Select
+              </div>
+            )}
+            {section === "overview" && overview && (
+              <OverviewPanel overview={overview} onNavigate={navigate} />
+            )}
+            {section === "runtimes" && (
+              <section>
+                <PageHeader
+                  title={t("hub.runtimes.title")}
+                  description={t("hub.runtimes.description")}
+                  action={
+                    <Button
+                      type="primary"
+                      icon={<Plus size={15} />}
+                      disabled={!runtimeAvailable}
+                      onClick={() => setRuntimeModalOpen(true)}
+                    >
+                      {t("hub.runtimes.newRuntime")}
+                    </Button>
+                  }
+                />
+                <DataPanel
+                  search={runtimeQuery}
+                  onSearch={setRuntimeQuery}
+                  searchPlaceholder={t("hub.table.searchRuntimes")}
+                  filter={
+                    <>
+                      {me?.role === "admin" && (
+                        <Input
                           allowClear
-                          value={runtimeState}
-                          placeholder={t("hub.table.allStates")}
-                          className={styles.filterSelect}
-                          onChange={setRuntimeState}
-                          options={Object.keys(STATE_COLORS).map((state) => ({
+                          value={runtimeOwner}
+                          placeholder={t("hub.table.allOwners")}
+                          className={styles.filterInput}
+                          onChange={(event) =>
+                            setRuntimeOwner(event.target.value)
+                          }
+                        />
+                      )}
+                      <Select
+                        allowClear
+                        value={runtimeState ?? ""}
+                        placeholder={t("hub.table.allStates")}
+                        className={styles.filterSelect}
+                        onChange={(value) =>
+                          setRuntimeState(value || undefined)
+                        }
+                        options={[
+                          { value: "", label: t("hub.table.allStates") },
+                          ...Object.keys(STATE_COLORS).map((state) => ({
                             value: state,
                             label: t(`hub.runtimeStates.${state}`),
-                          }))}
-                        />
-                        <Select
-                          allowClear
-                          value={runtimeExecution}
-                          placeholder={t("hub.table.allExecutions")}
-                          className={styles.filterSelect}
-                          onChange={setRuntimeExecution}
-                          options={Object.keys(
+                          })),
+                        ]}
+                      />
+                      <Select
+                        allowClear
+                        value={runtimeExecution ?? ""}
+                        placeholder={t("hub.table.allExecutions")}
+                        className={styles.filterSelect}
+                        onChange={(value) =>
+                          setRuntimeExecution(value || undefined)
+                        }
+                        options={[
+                          { value: "", label: t("hub.table.allExecutions") },
+                          ...Object.keys(
                             health?.provisioner_statuses || {},
                           ).map((name) => ({
                             value: name,
                             label: t(`hub.runtimes.${name}Execution`),
-                          }))}
-                        />
-                      </>
-                    }
-                  >
-                    <div className={styles.tableWrap}>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t("hub.table.runtime")}</th>
-                            <th>{t("hub.table.status")}</th>
-                            <th>{t("hub.table.owner")}</th>
-                            <th>{t("hub.table.endpoint")}</th>
-                            <th>{t("hub.table.execution")}</th>
-                            <th>{t("hub.table.updated")}</th>
-                            <th />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {runtimes.items.map((runtime) => (
-                            <tr key={runtime.runtime_id}>
-                              <td>
-                                <EntityCell
-                                  icon={<Box size={16} />}
-                                  title={runtime.runtime_id}
-                                  detail={runtime.tenant_id}
-                                />
-                              </td>
-                              <td>
-                                <div className={styles.runtimeStateStack}>
-                                  <Tag color={STATE_COLORS[runtime.state]}>
-                                    {t(`hub.runtimeStates.${runtime.state}`)}
+                          })),
+                        ]}
+                      />
+                    </>
+                  }
+                >
+                  <div className={styles.tableWrap}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>{t("hub.table.runtime")}</th>
+                          <th>{t("hub.table.status")}</th>
+                          <th>{t("hub.table.owner")}</th>
+                          <th>{t("hub.table.endpoint")}</th>
+                          <th>{t("hub.table.execution")}</th>
+                          <th>{t("hub.table.updated")}</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {runtimes.items.map((runtime) => (
+                          <tr key={runtime.runtime_id}>
+                            <td>
+                              <EntityCell
+                                icon={<Box size={16} />}
+                                title={runtime.runtime_id}
+                                detail={runtime.tenant_id}
+                              />
+                            </td>
+                            <td>
+                              <div className={styles.runtimeStateStack}>
+                                <Tag color={STATE_COLORS[runtime.state]}>
+                                  {t(`hub.runtimeStates.${runtime.state}`)}
+                                </Tag>
+                                {runtime.desired_state === "stopped" && (
+                                  <Tag
+                                    color={
+                                      runtime.start_policy === "admin_only"
+                                        ? "error"
+                                        : "warning"
+                                    }
+                                  >
+                                    {t(
+                                      `hub.runtimePolicies.${runtime.start_policy}`,
+                                    )}
                                   </Tag>
-                                  {runtime.desired_state === "stopped" && (
-                                    <Tag
-                                      color={
-                                        runtime.start_policy === "admin_only"
-                                          ? "error"
-                                          : "warning"
+                                )}
+                              </div>
+                            </td>
+                            <td>
+                              <EntityCell
+                                icon={<Users size={16} />}
+                                title={
+                                  <>
+                                    {runtime.owner_username ||
+                                      runtime.owner_user_id}
+                                    {runtime.owner_role === "admin" && (
+                                      <>
+                                        {" "}
+                                        <Tag>{t("hub.roles.admin")}</Tag>
+                                      </>
+                                    )}
+                                  </>
+                                }
+                                detail={runtime.owner_user_id}
+                              />
+                            </td>
+                            <td className={styles.mono}>
+                              {runtime.endpoint || "—"}
+                            </td>
+                            <td>
+                              <strong>
+                                {t(
+                                  `hub.runtimes.${runtime.provisioner}Execution`,
+                                )}
+                              </strong>
+                              <small>
+                                {runtime.metadata?.docker?.image ||
+                                  runtime.security_level}
+                              </small>
+                            </td>
+                            <td>
+                              {formatDate(runtime.updated_at, i18n.language)}
+                            </td>
+                            <td>
+                              <div className={styles.rowActions}>
+                                {me?.role === "admin" &&
+                                  (runtime.state === "running" ? (
+                                    <Button
+                                      size="small"
+                                      icon={<CircleStop size={14} />}
+                                      loading={busyId === runtime.runtime_id}
+                                      onClick={() =>
+                                        runRuntimeAction(
+                                          runtime.runtime_id,
+                                          "stop",
+                                        )
+                                      }
+                                    >
+                                      {t("hub.actions.stop")}
+                                    </Button>
+                                  ) : (
+                                    <Button
+                                      size="small"
+                                      icon={<Play size={14} />}
+                                      disabled={!runtimeAvailable}
+                                      loading={busyId === runtime.runtime_id}
+                                      onClick={() =>
+                                        runRuntimeAction(
+                                          runtime.runtime_id,
+                                          "start",
+                                        )
                                       }
                                     >
                                       {t(
-                                        `hub.runtimePolicies.${runtime.start_policy}`,
+                                        runtime.start_policy === "admin_only"
+                                          ? "hub.actions.enableAndStart"
+                                          : "hub.actions.start",
                                       )}
-                                    </Tag>
-                                  )}
-                                </div>
-                              </td>
-                              <td>
-                                <EntityCell
-                                  icon={<Users size={16} />}
-                                  title={
-                                    runtime.owner_username ||
-                                    runtime.owner_user_id
-                                  }
-                                  detail={runtime.owner_user_id}
-                                />
-                              </td>
-                              <td className={styles.mono}>
-                                {runtime.endpoint}
-                              </td>
-                              <td>
-                                <strong>
-                                  {t(
-                                    `hub.runtimes.${runtime.provisioner}Execution`,
-                                  )}
-                                </strong>
-                                <small>
-                                  {runtime.metadata?.docker?.image ||
-                                    runtime.security_level}
-                                </small>
-                              </td>
-                              <td>
-                                {formatDate(runtime.updated_at, i18n.language)}
-                              </td>
-                              <td>
-                                <div className={styles.rowActions}>
-                                  {me?.role === "admin" &&
-                                    (runtime.state === "running" ? (
-                                      <Button
-                                        size="small"
-                                        icon={<CircleStop size={14} />}
-                                        loading={busyId === runtime.runtime_id}
-                                        onClick={() =>
-                                          runRuntimeAction(
-                                            runtime.runtime_id,
-                                            "stop",
-                                          )
-                                        }
-                                      >
-                                        {t("hub.actions.stop")}
-                                      </Button>
-                                    ) : (
-                                      <Button
-                                        size="small"
-                                        icon={<Play size={14} />}
-                                        disabled={!runtimeAvailable}
-                                        loading={busyId === runtime.runtime_id}
-                                        onClick={() =>
-                                          runRuntimeAction(
-                                            runtime.runtime_id,
-                                            "start",
-                                          )
-                                        }
-                                      >
-                                        {t(
-                                          runtime.start_policy === "admin_only"
-                                            ? "hub.actions.enableAndStart"
-                                            : "hub.actions.start",
-                                        )}
-                                      </Button>
-                                    ))}
-                                  {me?.role === "admin" &&
-                                    runtime.start_policy !== "admin_only" && (
-                                      <Button
-                                        size="small"
-                                        danger
-                                        icon={<ShieldBan size={14} />}
-                                        loading={busyId === runtime.runtime_id}
-                                        onClick={() =>
-                                          modal.confirm({
-                                            title: t(
-                                              "hub.runtimes.disableTitle",
-                                              { id: runtime.runtime_id },
-                                            ),
-                                            content: t(
-                                              "hub.runtimes.disableDescription",
-                                            ),
-                                            okButtonProps: { danger: true },
-                                            okText: t("hub.actions.disable"),
-                                            onOk: () =>
-                                              runRuntimeAction(
-                                                runtime.runtime_id,
-                                                "disable",
-                                              ),
-                                          })
-                                        }
-                                      >
-                                        {t("hub.actions.disable")}
-                                      </Button>
-                                    )}
-                                  {me?.role === "admin" &&
-                                    runtime.provisioner === "docker" && (
-                                      <Button
-                                        size="small"
-                                        icon={<RefreshCw size={14} />}
-                                        loading={busyId === runtime.runtime_id}
-                                        onClick={() =>
-                                          modal.confirm({
-                                            title: t(
-                                              "hub.runtimes.rebuildTitle",
-                                              { id: runtime.runtime_id },
-                                            ),
-                                            content: t(
-                                              "hub.runtimes.rebuildDescription",
-                                            ),
-                                            onOk: () =>
-                                              runRuntimeAction(
-                                                runtime.runtime_id,
-                                                "rebuild",
-                                              ),
-                                          })
-                                        }
-                                      >
-                                        {t("hub.actions.rebuild")}
-                                      </Button>
-                                    )}
-                                  {me?.role === "admin" && (
+                                    </Button>
+                                  ))}
+                                {me?.role === "admin" &&
+                                  runtime.start_policy !== "admin_only" && (
                                     <Button
                                       size="small"
                                       danger
-                                      disabled={runtime.state === "running"}
-                                      icon={<Trash2 size={14} />}
+                                      icon={<ShieldBan size={14} />}
+                                      loading={busyId === runtime.runtime_id}
                                       onClick={() =>
                                         modal.confirm({
-                                          title: t("hub.runtimes.removeTitle", {
-                                            id: runtime.runtime_id,
-                                          }),
+                                          title: t(
+                                            "hub.runtimes.disableTitle",
+                                            { id: runtime.runtime_id },
+                                          ),
                                           content: t(
-                                            "hub.runtimes.removeDescription",
+                                            "hub.runtimes.disableDescription",
                                           ),
                                           okButtonProps: { danger: true },
+                                          okText: t("hub.actions.disable"),
                                           onOk: () =>
                                             runRuntimeAction(
                                               runtime.runtime_id,
-                                              "delete",
+                                              "disable",
                                             ),
                                         })
                                       }
-                                    />
+                                    >
+                                      {t("hub.actions.disable")}
+                                    </Button>
                                   )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                          {runtimes.items.length === 0 && (
-                            <EmptyRow
-                              colSpan={7}
-                              message={t("hub.runtimes.emptyTitle")}
-                            />
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    <PageFooter
-                      page={runtimes}
-                      onChange={(page) => loadRuntimes(page)}
-                    />
-                  </DataPanel>
-                </section>
-              )}
-              {section === "users" && me?.role === "admin" && (
-                <section>
-                  <PageHeader
-                    eyebrow={t("hub.users.eyebrow")}
-                    title={t("hub.users.title")}
-                    description={t("hub.users.description")}
-                    action={
-                      <Button
-                        type="primary"
-                        icon={<UserPlus size={15} />}
-                        onClick={() => setUserModalOpen(true)}
-                      >
-                        {t("hub.users.addAccount")}
-                      </Button>
-                    }
-                  />
-                  <DataPanel
-                    search={userQuery}
-                    onSearch={setUserQuery}
-                    searchPlaceholder={t("hub.table.searchUsers")}
-                    filter={
-                      <>
-                        <Select
-                          allowClear
-                          value={userRole}
-                          placeholder={t("hub.table.allRoles")}
-                          className={styles.filterSelect}
-                          onChange={setUserRole}
-                          options={[
-                            { value: "admin", label: t("hub.roles.admin") },
-                            { value: "user", label: t("hub.roles.user") },
-                          ]}
-                        />
-                        <Select
-                          allowClear
-                          value={userDisabled}
-                          placeholder={t("hub.table.allUserStates")}
-                          className={styles.filterSelect}
-                          onChange={setUserDisabled}
-                          options={[
-                            {
-                              value: "active",
-                              label: t("hub.userStates.active"),
-                            },
-                            {
-                              value: "disabled",
-                              label: t("hub.userStates.disabled"),
-                            },
-                          ]}
-                        />
-                      </>
-                    }
-                  >
-                    <div className={styles.tableWrap}>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t("hub.table.user")}</th>
-                            <th>{t("hub.table.role")}</th>
-                            <th>{t("hub.table.status")}</th>
-                            <th>{t("hub.table.created")}</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {users.items.map((user) => {
-                            const currentAccount = user.user_id === me.user_id;
-                            return (
-                              <tr key={user.user_id}>
-                                <td>
-                                  <EntityCell
-                                    icon={<Users size={16} />}
-                                    title={user.username}
-                                    detail={user.user_id}
-                                  />
-                                </td>
-                                <td>
-                                  <div className={styles.protectedControl}>
-                                    <Select
+                                {me?.role === "admin" &&
+                                  runtime.provisioner === "docker" && (
+                                    <Button
                                       size="small"
-                                      value={user.role}
-                                      disabled={
-                                        currentAccount ||
-                                        busyId === user.user_id
+                                      icon={<RefreshCw size={14} />}
+                                      loading={busyId === runtime.runtime_id}
+                                      onClick={() =>
+                                        modal.confirm({
+                                          title: t(
+                                            "hub.runtimes.rebuildTitle",
+                                            { id: runtime.runtime_id },
+                                          ),
+                                          content: t(
+                                            "hub.runtimes.rebuildDescription",
+                                          ),
+                                          onOk: () =>
+                                            runRuntimeAction(
+                                              runtime.runtime_id,
+                                              "rebuild",
+                                            ),
+                                        })
                                       }
-                                      className={styles.roleSelect}
-                                      options={[
-                                        {
-                                          value: "admin",
-                                          label: t("hub.roles.admin"),
-                                        },
-                                        {
-                                          value: "user",
-                                          label: t("hub.roles.user"),
-                                        },
-                                      ]}
-                                      onChange={(role) =>
-                                        updateUser(user, { role })
-                                      }
-                                    />
-                                    {currentAccount && (
-                                      <span>
-                                        <LockKeyhole size={11} />
-                                        {t("hub.users.currentAccountProtected")}
-                                      </span>
-                                    )}
-                                  </div>
-                                </td>
-                                <td>
-                                  <div className={styles.switchCell}>
-                                    <Switch
-                                      size="small"
-                                      checked={!user.disabled}
-                                      disabled={currentAccount}
-                                      loading={busyId === user.user_id}
-                                      onChange={(active) =>
-                                        updateUser(user, { disabled: !active })
-                                      }
-                                    />
-                                    <span>
-                                      {t(
-                                        `hub.userStates.${
-                                          user.disabled ? "disabled" : "active"
-                                        }`,
-                                      )}
-                                    </span>
-                                  </div>
-                                </td>
-                                <td>
-                                  {formatDate(user.created_at, i18n.language)}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                          {users.items.length === 0 && (
-                            <EmptyRow
-                              colSpan={4}
-                              message={t("hub.users.empty")}
-                            />
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    <PageFooter page={users} onChange={loadUsers} />
-                  </DataPanel>
-                </section>
-              )}
-              {section === "credentials" && (
-                <section>
-                  <PageHeader
-                    eyebrow={t("hub.credentials.eyebrow")}
-                    title={t("hub.credentials.title")}
-                    description={t("hub.credentials.description")}
-                    action={
-                      <Button
-                        type="primary"
-                        icon={<Plus size={15} />}
-                        onClick={() => setCredentialModalOpen(true)}
-                      >
-                        {t("hub.credentials.storeCredential")}
-                      </Button>
-                    }
-                  />
-                  <DataPanel
-                    search={credentialQuery}
-                    onSearch={setCredentialQuery}
-                    searchPlaceholder={t("hub.table.searchCredentials")}
-                    filter={
-                      <Select
-                        allowClear
-                        value={credentialScope}
-                        placeholder={t("hub.table.allScopes")}
-                        className={styles.filterSelect}
-                        onChange={setCredentialScope}
-                        options={[
-                          {
-                            value: "tenant",
-                            label: t("hub.credentialForm.allRuntimes"),
-                          },
-                          ...runtimeOptions,
-                        ]}
-                      />
-                    }
-                  >
-                    <div className={styles.tableWrap}>
-                      <table>
-                        <thead>
-                          <tr>
-                            <th>{t("hub.table.credential")}</th>
-                            <th>{t("hub.table.scope")}</th>
-                            <th>{t("hub.table.updated")}</th>
-                            <th />
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {credentials.items.map((credential) => (
-                            <tr key={`${credential.scope}:${credential.name}`}>
-                              <td>
-                                <EntityCell
-                                  icon={<KeyRound size={16} />}
-                                  title={credential.name}
-                                  detail={t("hub.credentials.encrypted")}
-                                />
-                              </td>
-                              <td className={styles.mono}>
-                                {credential.scope}
-                              </td>
-                              <td>
-                                {formatDate(
-                                  credential.updated_at,
-                                  i18n.language,
-                                )}
-                              </td>
-                              <td>
-                                <div className={styles.rowActions}>
+                                    >
+                                      {t("hub.actions.rebuild")}
+                                    </Button>
+                                  )}
+                                {me?.role === "admin" && (
                                   <Button
                                     size="small"
                                     danger
+                                    disabled={runtime.state === "running"}
+                                    aria-label={t("hub.runtimes.removeTitle", {
+                                      id: runtime.runtime_id,
+                                    })}
                                     icon={<Trash2 size={14} />}
                                     onClick={() =>
                                       modal.confirm({
-                                        title: t(
-                                          "hub.credentials.deleteTitle",
-                                          {
-                                            name: credential.name,
-                                          },
-                                        ),
+                                        title: t("hub.runtimes.removeTitle", {
+                                          id: runtime.runtime_id,
+                                        }),
                                         content: t(
-                                          "hub.credentials.deleteDescription",
+                                          "hub.runtimes.removeDescription",
                                         ),
                                         okButtonProps: { danger: true },
-                                        onOk: async () => {
-                                          await hubApi.deleteCredential(
-                                            credential.scope,
-                                            credential.name,
-                                          );
-                                          await loadCredentials(
-                                            credentials.page,
-                                          );
-                                        },
+                                        onOk: () =>
+                                          runRuntimeAction(
+                                            runtime.runtime_id,
+                                            "delete",
+                                          ),
                                       })
                                     }
                                   />
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                          {credentials.items.length === 0 && (
-                            <EmptyRow
-                              colSpan={4}
-                              message={t("hub.credentials.emptyTitle")}
-                            />
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
-                    <PageFooter page={credentials} onChange={loadCredentials} />
-                  </DataPanel>
-                </section>
-              )}
-              {section === "audit" && me?.role === "admin" && (
-                <section>
-                  <PageHeader
-                    eyebrow={t("hub.audit.eyebrow")}
-                    title={t("hub.audit.title")}
-                    description={t("hub.audit.description")}
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {runtimes.items.length === 0 && (
+                          <EmptyRow
+                            colSpan={7}
+                            message={t("hub.runtimes.emptyTitle")}
+                          />
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <PageFooter
+                    page={runtimes}
+                    onChange={(page) => loadRuntimes(page)}
                   />
-                  <DataPanel
-                    search={auditQuery}
-                    onSearch={setAuditQuery}
-                    searchPlaceholder={t("hub.table.searchAudit")}
-                    filter={
-                      <Select
-                        allowClear
-                        value={auditAction}
-                        placeholder={t("hub.table.allActions")}
-                        className={styles.filterSelect}
-                        onChange={setAuditAction}
-                        options={[
-                          "runtime.create",
-                          "runtime.start",
-                          "runtime.stop",
-                          "runtime.delete",
-                          "user.create",
-                          "user.update",
-                          "credential.store",
-                          "credential.delete",
-                          "auth.register",
-                        ].map((action) => ({
-                          value: action,
-                          label: t(`hub.auditActions.${action}`),
-                        }))}
-                      />
-                    }
-                  >
-                    <AuditTable
-                      events={audit.items}
-                      language={i18n.language}
-                      t={t}
+                </DataPanel>
+              </section>
+            )}
+            {section === "models" && me?.role === "admin" && (
+              <OrganizationModels initialModel={sectionTarget} />
+            )}
+            {section === "users" && me?.role === "admin" && (
+              <UserManagement
+                initialUser={sectionTarget}
+                users={users.items}
+                me={me}
+                total={users.total}
+                page={users.page}
+                pageSize={users.pageSize}
+                query={userQuery}
+                onQuery={setUserQuery}
+                role={userRole}
+                onRole={setUserRole}
+                state={userDisabled}
+                onState={setUserDisabled}
+                onPage={loadUsers}
+                onCreate={() => setUserModalOpen(true)}
+                onUpdate={updateUser}
+              />
+            )}
+            {section === "credentials" && (
+              <section>
+                <PageHeader
+                  title={t("hub.credentials.title")}
+                  description={t("hub.credentials.description")}
+                  action={
+                    <Button
+                      type="primary"
+                      icon={<Plus size={15} />}
+                      onClick={() => setCredentialModalOpen(true)}
+                    >
+                      {t("hub.credentials.storeCredential")}
+                    </Button>
+                  }
+                />
+                <DataPanel
+                  search={credentialQuery}
+                  onSearch={setCredentialQuery}
+                  searchPlaceholder={t("hub.table.searchCredentials")}
+                  filter={
+                    <Select
+                      allowClear
+                      value={credentialScope}
+                      placeholder={t("hub.table.allScopes")}
+                      className={styles.filterSelect}
+                      onChange={setCredentialScope}
+                      options={[
+                        {
+                          value: "tenant",
+                          label: t("hub.credentialForm.allRuntimes"),
+                        },
+                        ...runtimeOptions,
+                      ]}
                     />
-                    <PageFooter page={audit} onChange={loadAudit} />
-                  </DataPanel>
-                </section>
-              )}
-              {section === "settings" &&
-                me?.role === "admin" &&
-                (settings ? (
-                  <SettingsPanel
-                    form={settingsForm}
-                    settings={settings}
-                    dockerImages={dockerImages}
-                    dockerImagesLoading={dockerImagesLoading}
-                    dockerPulls={dockerPulls}
-                    dockerPulling={dockerPulling}
-                    saving={settingsSaving}
-                    onLoadDockerData={loadDockerData}
-                    onPullImage={pullDockerImage}
-                    onSave={saveSettings}
+                  }
+                >
+                  <div className={styles.tableWrap}>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>{t("hub.table.credential")}</th>
+                          <th>{t("hub.table.scope")}</th>
+                          <th>{t("hub.table.updated")}</th>
+                          <th />
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {credentials.items.map((credential) => (
+                          <tr key={`${credential.scope}:${credential.name}`}>
+                            <td>
+                              <EntityCell
+                                icon={<KeyRound size={16} />}
+                                title={credential.name}
+                                detail={t("hub.credentials.encrypted")}
+                              />
+                            </td>
+                            <td className={styles.mono}>{credential.scope}</td>
+                            <td>
+                              {formatDate(credential.updated_at, i18n.language)}
+                            </td>
+                            <td>
+                              <div className={styles.rowActions}>
+                                <Button
+                                  size="small"
+                                  danger
+                                  aria-label={t("hub.credentials.deleteTitle", {
+                                    name: credential.name,
+                                  })}
+                                  icon={<Trash2 size={14} />}
+                                  onClick={() =>
+                                    modal.confirm({
+                                      title: t("hub.credentials.deleteTitle", {
+                                        name: credential.name,
+                                      }),
+                                      content: t(
+                                        "hub.credentials.deleteDescription",
+                                      ),
+                                      okButtonProps: { danger: true },
+                                      onOk: async () => {
+                                        await hubApi.deleteCredential(
+                                          credential.scope,
+                                          credential.name,
+                                        );
+                                        await loadCredentials(credentials.page);
+                                      },
+                                    })
+                                  }
+                                />
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                        {credentials.items.length === 0 && (
+                          <EmptyRow
+                            colSpan={4}
+                            message={t("hub.credentials.emptyTitle")}
+                          />
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <PageFooter page={credentials} onChange={loadCredentials} />
+                </DataPanel>
+              </section>
+            )}
+            {section === "audit" && me?.role === "admin" && (
+              <section>
+                <PageHeader
+                  title={t("hub.audit.title")}
+                  description={t("hub.audit.description")}
+                />
+                <DataPanel
+                  search={auditQuery}
+                  onSearch={setAuditQuery}
+                  searchPlaceholder={t("hub.table.searchAudit")}
+                  filter={
+                    <Select
+                      allowClear
+                      value={auditAction}
+                      placeholder={t("hub.table.allActions")}
+                      className={styles.filterSelect}
+                      onChange={setAuditAction}
+                      options={[
+                        "runtime.create",
+                        "runtime.start",
+                        "runtime.stop",
+                        "runtime.disable",
+                        "runtime.rebuild",
+                        "runtime.delete",
+                        "image.pull",
+                        "user.create",
+                        "user.update",
+                        "credential.store",
+                        "credential.delete",
+                        "settings.update",
+                        "auth.register",
+                        "model.policy_update",
+                        "model.connection_create",
+                        "model.connection_update",
+                        "model.publish",
+                        "model.create",
+                        "model.update",
+                        "model.test",
+                        "invitation.create",
+                        "invitation.revoke",
+                        "budget.update",
+                        "user.password_reset",
+                      ].map((action) => ({
+                        value: action,
+                        label: t(`hub.auditActions.${action}`),
+                      }))}
+                    />
+                  }
+                >
+                  <AuditTable
+                    events={audit.items}
+                    language={i18n.language}
                     t={t}
                   />
-                ) : (
-                  <SettingsLoadingPanel t={t} />
-                ))}
-            </>
-          )}
-        </div>
-      </main>
+                  <PageFooter page={audit} onChange={loadAudit} />
+                </DataPanel>
+              </section>
+            )}
+            {section === "settings" &&
+              me?.role === "admin" &&
+              (settings ? (
+                <SettingsPanel
+                  initialTab={sectionTarget}
+                  form={settingsForm}
+                  settings={settings}
+                  dockerImages={dockerImages}
+                  dockerImagesLoading={dockerImagesLoading}
+                  dockerPulls={dockerPulls}
+                  dockerPulling={dockerPulling}
+                  saving={settingsSaving}
+                  onLoadDockerData={loadDockerData}
+                  onPullImage={pullDockerImage}
+                  onSave={saveSettings}
+                  t={t}
+                />
+              ) : (
+                <SettingsLoadingPanel t={t} />
+              ))}
+          </>
+        )}
+      </HubShell>
 
       <Modal
         title={t("hub.runtimeForm.title")}
@@ -1306,7 +1164,6 @@ export default function HubPage() {
           initialValues={{ autoStart: true }}
           onFinish={createRuntime}
         >
-          <p className={styles.formHint}>{t("hub.runtimeForm.hint")}</p>
           <Form.Item
             label={t("hub.runtimeForm.runtimeId")}
             name="runtimeId"
@@ -1346,7 +1203,6 @@ export default function HubPage() {
           initialValues={{ role: "user" }}
           onFinish={createUser}
         >
-          <p className={styles.formHint}>{t("hub.userForm.hint")}</p>
           <Form.Item
             label={t("hub.userForm.username")}
             name="username"
@@ -1391,7 +1247,6 @@ export default function HubPage() {
           initialValues={{ scope: "tenant" }}
           onFinish={saveCredential}
         >
-          <p className={styles.formHint}>{t("hub.credentialForm.hint")}</p>
           <Form.Item label={t("hub.credentialForm.scope")} name="scope">
             <Select
               options={[
@@ -1428,7 +1283,7 @@ export default function HubPage() {
           </Button>
         </Form>
       </Modal>
-    </div>
+    </>
   );
 }
 
@@ -1440,7 +1295,6 @@ function SettingsLoadingPanel({
   return (
     <section>
       <PageHeader
-        eyebrow={t("hub.settings.eyebrow")}
         title={t("hub.settings.title")}
         description={t("hub.settings.description")}
       />
@@ -1452,6 +1306,7 @@ function SettingsLoadingPanel({
 }
 
 function SettingsPanel({
+  initialTab,
   form,
   settings,
   dockerImages,
@@ -1464,6 +1319,7 @@ function SettingsPanel({
   onSave,
   t,
 }: {
+  initialTab?: string;
   form: FormInstance<SettingsFormValues>;
   settings: HubSettings;
   dockerImages: HubDockerImageCatalog | null;
@@ -1476,15 +1332,25 @@ function SettingsPanel({
   onSave: (values: SettingsFormValues) => Promise<void>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
+  const screens = Grid.useBreakpoint();
+  const [activeTab, setActiveTab] = useState(initialTab ?? "access");
   const runtimeProvisioner = Form.useWatch("runtimeProvisioner", form);
   const dockerSource = Form.useWatch("dockerSource", form);
   const dockerImage = Form.useWatch("dockerImage", form);
+  const findLocalImage = (reference: string) => {
+    const key = dockerReferenceKey(reference);
+    return dockerImages?.local_images.find((image) =>
+      [image.reference, ...image.digests].some(
+        (name) => dockerReferenceKey(name) === key,
+      ),
+    );
+  };
   const officialOptions = (dockerImages?.official_images || [])
     .filter((image) => image.source === dockerSource)
     .map((image) => ({
       value: image.reference,
       label: `${image.tag} · ${t(
-        image.downloaded
+        findLocalImage(image.reference)
           ? "hub.settings.docker.downloaded"
           : "hub.settings.docker.notDownloaded",
       )}`,
@@ -1497,9 +1363,7 @@ function SettingsPanel({
         image.size,
       )}`,
     }));
-  const selectedLocalImage = dockerImages?.local_images.find(
-    (image) => image.reference === dockerImage,
-  );
+  const selectedLocalImage = findLocalImage(dockerImage || "");
   const imageParts = dockerReferenceParts(dockerImage || "");
   const imageOrigin =
     dockerSource === "docker_hub"
@@ -1517,18 +1381,19 @@ function SettingsPanel({
   return (
     <section>
       <PageHeader
-        eyebrow={t("hub.settings.eyebrow")}
         title={t("hub.settings.title")}
         description={t("hub.settings.description")}
         action={
-          <Button
-            type="primary"
-            icon={<Save size={15} />}
-            loading={saving}
-            onClick={() => form.submit()}
-          >
-            {t("hub.settings.save")}
-          </Button>
+          activeTab !== "budget" && (
+            <Button
+              type="primary"
+              icon={<Save size={15} />}
+              loading={saving}
+              onClick={() => form.submit()}
+            >
+              {t("hub.settings.save")}
+            </Button>
+          )
         }
       />
       <Form
@@ -1538,58 +1403,61 @@ function SettingsPanel({
         onFinish={() => onSave(form.getFieldsValue(true))}
       >
         <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
           className={styles.settingsTabs}
+          tabPosition={screens.lg ? "left" : "top"}
           items={[
             {
               key: "access",
-              label: t("hub.settings.tabs.access"),
+              label: t("hub.settings.access.title"),
               forceRender: true,
               children: (
-                <div className={styles.settingsGrid}>
+                <div className={styles.accessSettings}>
                   <article className={styles.settingsCard}>
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.access.title")}</strong>
-                        <span>{t("hub.settings.access.description")}</span>
                       </div>
                       <Settings2 size={18} />
                     </div>
                     <Form.Item
                       name="publicBaseUrl"
                       label={t("hub.settings.access.publicBaseUrl")}
-                      extra={t("hub.settings.access.publicBaseUrlHint")}
                       rules={[{ type: "url" }]}
                     >
                       <Input placeholder="https://hub.example.com" />
                     </Form.Item>
-                    <div className={styles.settingRow}>
-                      <div>
-                        <strong>{t("hub.settings.access.registration")}</strong>
-                        <span>{t("hub.settings.access.registrationHint")}</span>
-                      </div>
-                      <Form.Item
-                        name="registrationEnabled"
-                        valuePropName="checked"
-                        noStyle
-                      >
-                        <Switch />
-                      </Form.Item>
-                    </div>
                     <Form.Item
-                      label={t("hub.settings.access.defaultRole")}
-                      extra={t("hub.settings.access.defaultRoleHint")}
+                      name="registrationMode"
+                      label={t("hub.governance.settings.registration")}
                     >
-                      <Input value={t("hub.roles.user")} disabled />
+                      <Radio.Group className={styles.registrationChoices}>
+                        {(["open", "invite", "closed"] as const).map((mode) => (
+                          <Radio key={mode} value={mode}>
+                            <strong>
+                              {t(`hub.governance.settings.${mode}`)}
+                            </strong>
+                          </Radio>
+                        ))}
+                      </Radio.Group>
                     </Form.Item>
                   </article>
-
+                </div>
+              ),
+            },
+            {
+              key: "security",
+              label: t("hub.governance.settings.security"),
+              forceRender: true,
+              children: (
+                <div className={styles.settingsGrid}>
                   <article
                     className={`${styles.settingsCard} ${styles.wideSettingsCard}`}
                   >
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.security.title")}</strong>
-                        <span>{t("hub.settings.security.description")}</span>
                       </div>
                       <ShieldBan size={18} />
                     </div>
@@ -1597,14 +1465,12 @@ function SettingsPanel({
                       <Form.Item
                         name="ipBlacklist"
                         label={t("hub.settings.security.ipBlacklist")}
-                        extra={t("hub.settings.security.ipBlacklistHint")}
                       >
                         <Select mode="tags" tokenSeparators={[","]} />
                       </Form.Item>
                       <Form.Item
                         name="trustedProxyIps"
                         label={t("hub.settings.security.trustedProxyIps")}
-                        extra={t("hub.settings.security.trustedProxyIpsHint")}
                       >
                         <Select mode="tags" tokenSeparators={[","]} />
                       </Form.Item>
@@ -1613,18 +1479,12 @@ function SettingsPanel({
                       <RateLimitFields
                         prefix="login"
                         title={t("hub.settings.security.loginRateLimit")}
-                        description={t(
-                          "hub.settings.security.loginRateLimitHint",
-                        )}
                         form={form}
                         t={t}
                       />
                       <RateLimitFields
                         prefix="registration"
                         title={t("hub.settings.security.registrationRateLimit")}
-                        description={t(
-                          "hub.settings.security.registrationRateLimitHint",
-                        )}
                         form={form}
                         t={t}
                       />
@@ -1632,6 +1492,11 @@ function SettingsPanel({
                   </article>
                 </div>
               ),
+            },
+            {
+              key: "budget",
+              label: t("hub.governance.settings.budget"),
+              children: <OrganizationBudget />,
             },
             {
               key: "runtime",
@@ -1643,7 +1508,6 @@ function SettingsPanel({
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.runtime.title")}</strong>
-                        <span>{t("hub.settings.runtime.description")}</span>
                       </div>
                       <Boxes size={18} />
                     </div>
@@ -1667,23 +1531,12 @@ function SettingsPanel({
                         t={t}
                       />
                     </Form.Item>
-                    <div className={styles.backendNotice}>
-                      <ShieldBan size={15} />
-                      <span>
-                        {t(
-                          runtimeProvisioner === "docker"
-                            ? "hub.settings.runtime.dockerIsolationHint"
-                            : "hub.settings.runtime.localIsolationHint",
-                        )}
-                      </span>
-                    </div>
                   </article>
 
                   <article className={styles.settingsCard}>
                     <div className={styles.settingsCardHeader}>
                       <div>
                         <strong>{t("hub.settings.quotas.title")}</strong>
-                        <span>{t("hub.settings.quotas.description")}</span>
                       </div>
                       <Gauge size={18} />
                     </div>
@@ -1705,7 +1558,6 @@ function SettingsPanel({
                       <div className={styles.settingsCardHeader}>
                         <div>
                           <strong>{t("hub.settings.docker.title")}</strong>
-                          <span>{t("hub.settings.docker.description")}</span>
                         </div>
                         <Box size={18} />
                       </div>
@@ -1910,12 +1762,6 @@ function SettingsPanel({
           ]}
         />
       </Form>
-      <p className={styles.settingsMeta}>
-        {t("hub.settings.meta", {
-          revision: settings.revision,
-          date: formatDate(settings.updated_at),
-        })}
-      </p>
     </section>
   );
 }
@@ -1923,13 +1769,12 @@ function SettingsPanel({
 function RateLimitFields({
   prefix,
   title,
-  description,
   form,
   t,
 }: {
   prefix: "login" | "registration";
   title: string;
-  description: string;
+  initialTab?: string;
   form: FormInstance<SettingsFormValues>;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
@@ -1940,7 +1785,6 @@ function RateLimitFields({
       <div className={styles.rateLimitHeader}>
         <div>
           <strong>{title}</strong>
-          <span>{description}</span>
         </div>
         <Form.Item name={enabledName} valuePropName="checked" noStyle>
           <Switch />
@@ -1991,13 +1835,11 @@ function BackendSelector({
       value: "local" as const,
       icon: HardDrive,
       title: t("hub.settings.runtime.localBackend"),
-      description: t("hub.settings.runtime.localBackendHint"),
     },
     {
       value: "docker" as const,
       icon: Box,
       title: t("hub.settings.runtime.dockerBackend"),
-      description: t("hub.settings.runtime.dockerBackendHint"),
     },
   ];
   return (
@@ -2024,11 +1866,9 @@ function BackendSelector({
             <Icon size={18} />
             <span>
               <strong>{option.title}</strong>
-              <small>
-                {disabled
-                  ? t("hub.settings.runtime.backendUnavailable")
-                  : option.description}
-              </small>
+              {disabled && (
+                <small>{t("hub.settings.runtime.backendUnavailable")}</small>
+              )}
             </span>
           </button>
         );
@@ -2067,13 +1907,11 @@ function ImageSourceSelector({
       value: "local" as const,
       icon: HardDrive,
       title: t("hub.settings.docker.localHost"),
-      description: t("hub.settings.docker.localHostHint"),
     },
     {
       value: "custom" as const,
       icon: Settings2,
       title: t("hub.settings.docker.custom"),
-      description: t("hub.settings.docker.customHint"),
     },
   ];
   return (
@@ -2113,183 +1951,20 @@ function ImageSourceSelector({
   );
 }
 
-function OverviewPanel({
-  overview,
-  t,
-}: {
-  overview: HubOverview;
-  t: (key: string, options?: Record<string, unknown>) => string;
-}) {
-  const running = overview.runtime_counts.running || 0;
-  const failed = overview.runtime_counts.failed || 0;
-  const availability = overview.total_runtimes
-    ? Math.round((running / overview.total_runtimes) * 1000) / 10
-    : 100;
-  return (
-    <section>
-      <PageHeader
-        eyebrow={t("hub.overview.eyebrow")}
-        title={t("hub.overview.title")}
-        description={t("hub.overview.description")}
-      />
-      <div className={styles.cockpit}>
-        <article className={styles.heroMetric}>
-          <span>{t("hub.overview.availability")}</span>
-          <strong>{availability}%</strong>
-          <p>
-            {t("hub.overview.availabilityDetail", {
-              running,
-              total: overview.total_runtimes,
-            })}
-          </p>
-          <Activity size={120} />
-        </article>
-        <MetricCard
-          icon={<Boxes size={18} />}
-          label={t("hub.overview.totalRuntimes")}
-          value={overview.total_runtimes}
-          detail={t("hub.overview.failedCount", { count: failed })}
-          warning={failed > 0}
-        />
-        <MetricCard
-          icon={<Users size={18} />}
-          label={t("hub.overview.totalUsers")}
-          value={overview.total_users}
-          detail={t("hub.overview.managedLocally")}
-        />
-      </div>
-      <div className={styles.overviewGrid}>
-        <article className={styles.surfacePanel}>
-          <div className={styles.surfaceHeader}>
-            <div>
-              <strong>{t("hub.overview.hostResources")}</strong>
-              <span>{t("hub.overview.liveSnapshot")}</span>
-            </div>
-            <Gauge size={18} />
-          </div>
-          <ResourceMeter
-            icon={<ChartNoAxesCombined size={15} />}
-            label="CPU"
-            value={overview.host.cpu_percent}
-          />
-          <ResourceMeter
-            icon={<MemoryStick size={15} />}
-            label={t("hub.overview.memory")}
-            value={overview.host.memory_percent}
-          />
-          <ResourceMeter
-            icon={<HardDrive size={15} />}
-            label={t("hub.overview.dataDisk")}
-            value={overview.host.disk_percent}
-          />
-        </article>
-        <article className={styles.surfacePanel}>
-          <div className={styles.surfaceHeader}>
-            <div>
-              <strong>{t("hub.overview.recentActivity")}</strong>
-              <span>{t("hub.overview.auditBacked")}</span>
-            </div>
-            <BellRing size={18} />
-          </div>
-          <div className={styles.activityList}>
-            {overview.recent_events.map((event) => (
-              <div className={styles.activityItem} key={event.event_id}>
-                <span>
-                  {event.action.includes("user") ||
-                  event.action.includes("auth") ? (
-                    <UserPlus size={15} />
-                  ) : event.action.includes("credential") ? (
-                    <KeyRound size={15} />
-                  ) : (
-                    <Box size={15} />
-                  )}
-                </span>
-                <div>
-                  <strong>{t(`hub.auditActions.${event.action}`)}</strong>
-                  <small>{event.resource_id}</small>
-                </div>
-                <time>{formatDate(event.created_at)}</time>
-              </div>
-            ))}
-            {overview.recent_events.length === 0 && (
-              <div className={styles.emptyCompact}>{t("hub.audit.empty")}</div>
-            )}
-          </div>
-        </article>
-      </div>
-    </section>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  detail,
-  warning = false,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-  detail: string;
-  warning?: boolean;
-}) {
-  return (
-    <article className={styles.metricCard}>
-      <div>{icon}</div>
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <small className={warning ? styles.warningText : undefined}>
-        {detail}
-      </small>
-    </article>
-  );
-}
-
-function ResourceMeter({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className={styles.resourceMeter}>
-      <div>
-        <span>{icon}</span>
-        <strong>{label}</strong>
-        <small>{value.toFixed(1)}%</small>
-      </div>
-      <Progress
-        percent={value}
-        showInfo={false}
-        strokeColor="#ff7a1a"
-        trailColor="rgba(120, 90, 68, 0.1)"
-        size="small"
-      />
-    </div>
-  );
-}
-
 function PageHeader({
-  eyebrow,
   title,
   description,
   action,
 }: {
-  eyebrow: string;
   title: string;
-  description: string;
+  description?: string;
   action?: React.ReactNode;
 }) {
   return (
     <header className={styles.pageHeader}>
       <div>
-        <span>{eyebrow}</span>
         <h1>{title}</h1>
-        <p>{description}</p>
+        {description && <p>{description}</p>}
       </div>
       {action}
     </header>
@@ -2317,6 +1992,7 @@ function DataPanel({
           <Input
             variant="borderless"
             value={search}
+            aria-label={searchPlaceholder}
             placeholder={searchPlaceholder}
             onChange={(event) => onSearch(event.target.value)}
             allowClear
@@ -2340,7 +2016,7 @@ function EntityCell({
   detail,
 }: {
   icon: React.ReactNode;
-  title: string;
+  title: React.ReactNode;
   detail: string;
 }) {
   return (

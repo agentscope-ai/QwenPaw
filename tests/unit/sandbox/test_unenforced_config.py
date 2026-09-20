@@ -15,6 +15,7 @@ import asyncio
 import logging
 import os
 import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -352,6 +353,25 @@ class TestNoneSandboxReporting:
         result = asyncio.run(sandbox.execute("echo $0"))
         assert result.exit_code == 0
         assert "/bin/sh" in result.stdout
+
+    def test_execute_redirects_stdin_to_devnull(self, tmp_path):
+        """NoneSandbox must not inherit the parent console stdin."""
+        sandbox = NoneSandbox(_config(workspace_dir=str(tmp_path)))
+        proc = MagicMock()
+        proc.returncode = 0
+        proc.communicate = AsyncMock(return_value=(b"ok", b""))
+
+        with patch(
+            "qwenpaw.sandbox.local_sandbox.asyncio.create_subprocess_exec",
+            new=AsyncMock(return_value=proc),
+        ) as create_process:
+            result = asyncio.run(sandbox.execute("echo ok"))
+
+        assert result.exit_code == 0
+        assert (
+            create_process.call_args.kwargs["stdin"]
+            is asyncio.subprocess.DEVNULL
+        )
 
 
 class TestBubblewrapReporting:

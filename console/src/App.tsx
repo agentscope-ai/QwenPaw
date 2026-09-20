@@ -4,8 +4,13 @@ import {
   bailianDarkTheme,
   bailianTheme,
 } from "@agentscope-ai/design";
-import { App as AntdApp, theme as antdTheme } from "antd";
-import type { ThemeConfig } from "antd";
+import {
+  App as AntdApp,
+  ConfigProvider as AntdConfigProvider,
+  theme as antdTheme,
+} from "antd";
+import designI18n from "@agentscope-ai/design/lib/i18n";
+import type { ThemeConfig as AntThemeConfig } from "antd";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -57,6 +62,9 @@ import { hubApi, type HubHealth } from "./api/modules/hub";
 import { isTauri } from "@tauri-apps/api/core";
 import { isDesktopTauriRuntime } from "./utils/openExternalLink";
 import { interceptBlankLinkClicks } from "./utils/interceptBlankLinkClicks";
+import { isSafeCssColor } from "./utils/chatThemeColor";
+import type { ThemeConfig } from "./api/modules/theme";
+import "./styles/tokens.css";
 import "./styles/layout.css";
 import "./styles/form-override.css";
 
@@ -67,6 +75,21 @@ const antdLocaleMap: Record<string, Locale> = {
   ru: ruRU,
   id: idID,
 };
+
+export function getAppThemeToken(
+  userTheme: ThemeConfig,
+  isDark: boolean,
+): NonNullable<AntThemeConfig["token"]> {
+  return {
+    colorPrimary:
+      userTheme.dark?.accent && isDark
+        ? userTheme.dark.accent
+        : userTheme.accent ?? "#FF7F16",
+    ...(userTheme.radius
+      ? { borderRadius: Number.parseFloat(userTheme.radius) }
+      : {}),
+  };
+}
 
 const dayjsLocaleMap: Record<string, string> = {
   zh: "zh-cn",
@@ -144,7 +167,7 @@ function AuthGuard({
   return <>{children}</>;
 }
 
-function RuntimeAvailabilityGuard({
+export function RuntimeAvailabilityGuard({
   children,
   enabled,
 }: {
@@ -180,8 +203,24 @@ function RuntimeAvailabilityGuard({
     };
   }, [enabled, retryKey]);
 
+  useEffect(() => {
+    if (
+      !enabled ||
+      !health?.runtime_available ||
+      !["created", "starting", "stopped"].includes(health.runtime_state || "")
+    ) {
+      return;
+    }
+    const timeoutId = window.setTimeout(
+      () => setRetryKey((current) => current + 1),
+      1000,
+    );
+    return () => window.clearTimeout(timeoutId);
+  }, [enabled, health]);
+
   const restartRuntime = async () => {
     setRestarting(true);
+    setHealth(null);
     setErrorMessage("");
     try {
       await hubApi.restartOwnRuntime();
@@ -203,7 +242,17 @@ function RuntimeAvailabilityGuard({
   }, [enabled, health]);
 
   if (!enabled) return <>{children}</>;
-  if (!health && !errorMessage) return null;
+  if (!health && !errorMessage) {
+    return (
+      <BackendLoadingPage
+        status="checking"
+        elapsed={0}
+        totalSec={1}
+        statusText={t("startup.starting")}
+        showRetry={false}
+      />
+    );
+  }
   if (health?.runtime_desired_state === "stopped") {
     const ownerCanStart = health.runtime_start_policy === "owner_allowed";
     return (
@@ -233,7 +282,38 @@ function RuntimeAvailabilityGuard({
       />
     );
   }
-  if (health?.runtime_available) return <>{children}</>;
+  if (health?.runtime_available && health.runtime_state === "failed") {
+    return (
+      <BackendLoadingPage
+        status="error"
+        elapsed={0}
+        totalSec={1}
+        errorMessage={health.runtime_last_error || errorMessage}
+        onRetry={restartRuntime}
+        retryLabel={
+          restarting
+            ? t("account.runtimeRestarting")
+            : t("account.runtimeRestart")
+        }
+        retryDisabled={restarting}
+      />
+    );
+  }
+  if (health?.runtime_available && health.runtime_state === "running") {
+    return <>{children}</>;
+  }
+
+  if (health?.runtime_available) {
+    return (
+      <BackendLoadingPage
+        status="checking"
+        elapsed={0}
+        totalSec={1}
+        statusText={t("startup.starting")}
+        showRetry={false}
+      />
+    );
+  }
 
   if (health) return null;
 
@@ -252,12 +332,15 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
   const hubMode = backendInfo.mode === "hub";
   const basename = getRouterBasename(window.location.pathname);
   const { i18n } = useTranslation();
-  const { isDark } = useTheme();
+  const { isDark, previewTheme: userTheme } = useTheme();
   const selectedTheme = isDark ? bailianDarkTheme : bailianTheme;
   const lang = i18n.resolvedLanguage || i18n.language || "en";
   const [antdLocale, setAntdLocale] = useState<Locale>(
     antdLocaleMap[lang] ?? enUS,
   );
+  useEffect(() => {
+    designI18n.updateLocale(antdLocale.locale);
+  }, [antdLocale]);
 
   useEffect(() => {
     if (!localStorage.getItem("language")) {
@@ -275,6 +358,32 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
     }
     useUploadLimitStore.getState().fetch();
   }, []);
+
+  useEffect(() => {
+    const darkTheme = isDark ? userTheme.dark : undefined;
+    const accent = darkTheme?.accent ?? userTheme.accent;
+    const accentHover = userTheme.accent_hover;
+    const accentBg = darkTheme?.accent_bg ?? userTheme.accent_bg;
+    const root = document.documentElement;
+    const setOrRemove = (
+      name: string,
+      value: string | undefined,
+      validateColor = false,
+    ) => {
+      if (value === undefined) {
+        root.style.removeProperty(name);
+      } else if (!validateColor || isSafeCssColor(value)) {
+        root.style.setProperty(name, value);
+      }
+    };
+
+    setOrRemove("--app-accent", accent);
+    setOrRemove("--app-accent-hover", accentHover);
+    setOrRemove("--app-accent-soft", accentBg, true);
+    setOrRemove("--app-surface", darkTheme?.surface, true);
+    setOrRemove("--app-radius", userTheme.radius);
+    setOrRemove("--border-radius", userTheme.radius);
+  }, [isDark, userTheme]);
 
   useEffect(() => {
     const handleLanguageChanged = (lng: string) => {
@@ -369,25 +478,27 @@ function AppInner({ backendInfo }: { backendInfo: BackendInfo }) {
         {...selectedTheme}
         prefix="qwenpaw"
         prefixCls="qwenpaw"
-        locale={antdLocale}
+        // Spark keys its App by locale. Keep that boundary stable and update
+        // Ant Design's context below it so unsent attachments survive.
+        locale={enUS}
         theme={{
-          ...(selectedTheme as { theme?: ThemeConfig }).theme,
+          ...(selectedTheme as { theme?: AntThemeConfig }).theme,
           algorithm: isDark
             ? antdTheme.darkAlgorithm
             : antdTheme.defaultAlgorithm,
-          token: {
-            colorPrimary: "#FF7F16",
-          },
+          token: getAppThemeToken(userTheme, isDark),
         }}
       >
-        <AntdApp>
-          <CloseWindowPrompt />
-          <DesktopUpdateProvider>
-            <UpdateTakeoverGate>
-              <ApprovalProvider>{routedContent}</ApprovalProvider>
-            </UpdateTakeoverGate>
-          </DesktopUpdateProvider>
-        </AntdApp>
+        <AntdConfigProvider locale={antdLocale}>
+          <AntdApp>
+            <CloseWindowPrompt />
+            <DesktopUpdateProvider>
+              <UpdateTakeoverGate>
+                <ApprovalProvider>{routedContent}</ApprovalProvider>
+              </UpdateTakeoverGate>
+            </DesktopUpdateProvider>
+          </AntdApp>
+        </AntdConfigProvider>
       </ConfigProvider>
     </>
   );

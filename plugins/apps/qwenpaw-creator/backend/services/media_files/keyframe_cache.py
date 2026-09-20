@@ -18,6 +18,7 @@ from domain.errors import StorageIntegrityError, ValidationError
 from services.project_files.assets import AssetFileStore
 from services.project_files.models import IndexedFile
 from services.runtime_files.atomic_store import fsync_directory
+from services.runtime_files.atomic_store import atomic_replace_path
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,7 +238,7 @@ def materialize_keyframe(
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-        os.replace(temporary, target)
+        atomic_replace_path(temporary, target)
         fsync_directory(cache_root)
         cached = _cached_entry(
             target,

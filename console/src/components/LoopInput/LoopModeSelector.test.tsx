@@ -10,6 +10,14 @@ import {
 } from "../../stores/loopStore";
 import { LoopModeSelector } from "./LoopModeSelector";
 
+const { mockUseIsMobile } = vi.hoisted(() => ({
+  mockUseIsMobile: vi.fn(() => false),
+}));
+
+vi.mock("../../hooks/useIsMobile", () => ({
+  useIsMobile: mockUseIsMobile,
+}));
+
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -52,6 +60,7 @@ const ompUltraqa: LoopModeInfo = {
 
 describe("LoopModeSelector", () => {
   beforeEach(() => {
+    mockUseIsMobile.mockReturnValue(false);
     useLoopStore.setState({
       selectedModeId: "default",
       availableModes: [DEFAULT_LOOP_MODE, goal, custom, ompUltraqa],
@@ -100,6 +109,36 @@ describe("LoopModeSelector", () => {
     expect(useLoopStore.getState().selectedModeId).toBe("custom:quality");
   });
 
+  it("uses a bottom drawer for mode selection on mobile", async () => {
+    mockUseIsMobile.mockReturnValue(true);
+    const user = userEvent.setup();
+    renderWithProviders(<LoopModeSelector compact />);
+
+    const trigger = screen.getByRole("button", { name: "loop.selectorAria" });
+    await user.click(trigger);
+
+    expect(
+      await screen.findByRole("dialog", { name: "loop.selectorTitle" }),
+    ).toBeInTheDocument();
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelector(".ant-popover")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("loop.modes.goal.name"));
+
+    expect(useLoopStore.getState().selectedModeId).toBe("goal");
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("renders only the mode icon in compact mode", () => {
+    renderWithProviders(<LoopModeSelector compact />);
+
+    const trigger = screen.getByRole("button", {
+      name: "loop.selectorAria",
+    });
+    expect(trigger.textContent).toBe("");
+    expect(trigger.querySelectorAll("svg")).toHaveLength(1);
+  });
+
   it("shows starting before the first response event", () => {
     useLoopStore.getState().setStartingMode(custom);
 
@@ -110,6 +149,21 @@ describe("LoopModeSelector", () => {
     expect(
       screen.queryByRole("button", { name: "loop.selectorAria" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("keeps an active mode icon-only in compact mode", () => {
+    useLoopStore.getState().setSessionMode(custom, "running");
+
+    const { container } = renderWithProviders(<LoopModeSelector compact />);
+
+    const activeMode = container.querySelector('[data-state="running"]');
+    expect(activeMode).not.toBeNull();
+    expect(activeMode?.textContent).toBe("");
+    expect(activeMode?.querySelectorAll("svg")).toHaveLength(1);
+    expect(activeMode).toHaveAttribute(
+      "aria-label",
+      "Quality Review loop.running",
+    );
   });
 
   it("shows running after the first response event", () => {

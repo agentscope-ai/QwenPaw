@@ -169,12 +169,9 @@ def program_defect_hints(
     index = objective_facts.get("video_index") or {}
     if isinstance(index, Mapping):
         cut_count = index.get("cut_count")
-        planned = index.get("planned_shot_count")
         if cut_count is not None:
             actual_shots = int(cut_count) + 1
             hint = f"程序检测到 {cut_count} 个切点（约 {actual_shots} 个镜头）"
-            if planned:
-                hint += f"，计划 {planned} 个镜头"
             lines.append(f"- uq_shot_count 证据：{hint}。")
         freezes = index.get("freeze_segments") or []
         if freezes:
@@ -183,9 +180,15 @@ def program_defect_hints(
                 for seg in freezes[:4]
                 if isinstance(seg, Mapping)
             )
-            lines.append(
-                f"- uq_render_3 证据：程序检测到疑似静止段 {spans}" "（可能是合法定格，请看对应帧确认）。",
-            )
+            if index.get("freeze_detection") == "identical_sampled_frames":
+                lines.append(
+                    f"- uq_render_3 采样观察：{spans} 连续采样帧重复。"
+                    "这也可能是合法定格，须结合实际播放及剧情判断。",
+                )
+            else:
+                lines.append(
+                    f"- {spans} 是旧版全帧低差异候选，" "不能据此认定画面冻结或驱动重做。",
+                )
     consistency = objective_facts.get("cross_shot_consistency") or {}
     if isinstance(consistency, Mapping):
         for pair in (consistency.get("suspect_pairs") or [])[:2]:

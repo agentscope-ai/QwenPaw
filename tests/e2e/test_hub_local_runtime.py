@@ -14,8 +14,8 @@ from typing import Any
 import httpx
 import pytest
 
-
 _HUB_READY_TIMEOUT_SECONDS = 120.0
+_RUNTIME_READY_TIMEOUT_SECONDS = 180.0
 
 
 def _allocate_port() -> int:
@@ -70,7 +70,9 @@ def _runtime_logs(hub_root: Path) -> str:
 
 def _hub_environment(hub_root: Path) -> dict[str, str]:
     environment = dict(os.environ)
-    environment.pop("PYTHONPATH", None)
+    environment["PYTHONPATH"] = str(
+        Path(__file__).resolve().parents[2] / "src",
+    )
     environment["QWENPAW_HUB_DIR"] = str(hub_root)
     return environment
 
@@ -80,7 +82,7 @@ def _wait_for_runtime(
     process: subprocess.Popen[Any],
     headers: dict[str, str],
 ) -> None:
-    deadline = time.monotonic() + 90
+    deadline = time.monotonic() + _RUNTIME_READY_TIMEOUT_SECONDS
     last_error = "Runtime did not become ready"
     while time.monotonic() < deadline:
         if process.poll() is not None:
@@ -105,14 +107,6 @@ def _wait_for_runtime(
 @pytest.mark.skipif(
     os.environ.get("QWENPAW_LOCAL_RUNTIME_E2E") != "1",
     reason="requires an OS runner with the native isolation dependency",
-)
-@pytest.mark.xfail(
-    sys.platform == "win32",
-    reason=(
-        "Windows runner port binding is flaky (WinError 10061); "
-        "see PR #7260 CI"
-    ),
-    strict=False,
 )
 def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
     """Start a real Hub and verify its managed QwenPaw HTTP endpoint."""
@@ -147,7 +141,7 @@ def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
         try:
             with httpx.Client(
                 base_url=f"http://127.0.0.1:{port}",
-                timeout=90,
+                timeout=_RUNTIME_READY_TIMEOUT_SECONDS,
             ) as client:
                 _wait_for_hub(client, process)
                 registration = client.post(
@@ -175,12 +169,12 @@ def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
                 assert len(items) == 1
                 assert items[0]["state"] == "running"
                 assert items[0]["provisioner"] == "local"
-                stopped = client.post(
-                    f"/api/hub/runtimes/{items[0]['runtime_id']}/stop",
-                    headers=headers,
+                _verify_persisted_environment(
+                    client,
+                    headers,
+                    items[0]["runtime_id"],
                 )
-                assert stopped.status_code == 200, stopped.text
-                assert stopped.json()["state"] == "stopped"
+                assert not list(hub_root.rglob(".venv"))
         except Exception as exc:  # pylint: disable=broad-exception-caught
             failure = exc
         finally:
@@ -207,3 +201,35 @@ def test_hub_starts_and_proxies_local_runtime(tmp_path: Path) -> None:
             f"Hub log:\n{log_path.read_text(encoding='utf-8')}\n"
             f"Runtime logs:\n{_runtime_logs(hub_root)}",
         )
+
+
+def _verify_persisted_environment(client, headers, runtime_id):
+    saved = client.patch(
+        "/api/envs",
+        headers=headers,
+        json={"PERSISTED_LOCAL_VALUE": "user-owned"},
+    )
+    assert saved.status_code == 200, saved.text
+    blocked = client.patch(
+        "/api/envs",
+        headers=headers,
+        json={"PIP_TARGET": "/host"},
+    )
+    assert blocked.status_code == 400
+    stopped = client.post(
+        f"/api/hub/runtimes/{runtime_id}/stop",
+        headers=headers,
+    )
+    assert stopped.status_code == 200, stopped.text
+    assert stopped.json()["state"] == "stopped"
+    restarted = client.post(
+        f"/api/hub/runtimes/{runtime_id}/start",
+        headers=headers,
+    )
+    assert restarted.status_code == 200, restarted.text
+    values = client.get("/api/envs", headers=headers)
+    assert values.status_code == 200, values.text
+    assert {
+        "key": "PERSISTED_LOCAL_VALUE",
+        "value": "user-owned",
+    } in values.json()

@@ -95,6 +95,24 @@ memory_page = pytest.fixture(scope="function", name="memory_page")(
 inbox_page = pytest.fixture(scope="function", name="inbox_page")(
     _make_page_fixture("pages.inbox_page", "InboxPage")
 )
+security_page = pytest.fixture(scope="function", name="security_page")(
+    _make_page_fixture("pages.security_page", "SecurityPage")
+)
+skills_page = pytest.fixture(scope="function", name="skills_page")(
+    _make_page_fixture("pages.skills_page", "SkillsPage")
+)
+skill_pool_page = pytest.fixture(scope="function", name="skill_pool_page")(
+    _make_page_fixture("pages.skill_pool_page", "SkillPoolPage")
+)
+token_usage_page = pytest.fixture(scope="function", name="token_usage_page")(
+    _make_page_fixture("pages.token_usage_page", "TokenUsagePage")
+)
+models_page = pytest.fixture(scope="function", name="models_page")(
+    _make_page_fixture("pages.models_page", "ModelsPage")
+)
+files_page = pytest.fixture(scope="function", name="files_page")(
+    _make_page_fixture("pages.files_page", "FilesPage")
+)
 
 
 # ========== Business / Data Fixtures ==========

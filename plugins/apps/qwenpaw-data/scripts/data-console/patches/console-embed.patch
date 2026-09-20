@@ -1,0 +1,1002 @@
+diff --git a/packages/datapaw-host-core/frontend/src/App.tsx b/packages/datapaw-host-core/frontend/src/App.tsx
+index 7a150a4..aceb2c3 100644
+--- a/packages/datapaw-host-core/frontend/src/App.tsx
++++ b/packages/datapaw-host-core/frontend/src/App.tsx
+@@ -3,19 +3,18 @@ import { useDataPawColorMode } from '@datapaw/ui-tokens';
+ import enUS from 'antd/locale/en_US';
+ import zhCN from 'antd/locale/zh_CN';
+ import { lazy, Suspense, useLayoutEffect, useMemo, type ReactNode } from 'react';
+-import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
++import { HashRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+ import { AppI18nProvider, useAppI18n } from './i18n';
+ import ConsoleLayout from './layouts/ConsoleLayout';
+ import { createHostThemeProviderProps } from './theme';
+ import styles from './App.module.less';
+ 
+ const AgentSettingsPage = lazy(() => import('./pages/AgentSettings'));
+-const ChannelSettingsPage = lazy(() => import('./pages/ChannelSettings'));
+-const McpSettingsPage = lazy(() => import('./pages/McpSettings'));
+ const ConsolePage = lazy(() => import('./pages/Console'));
+ const CronJobsPage = lazy(() => import('./pages/CronJobs'));
+ const SessionsPage = lazy(() => import('./pages/Sessions'));
+-const SkillsHubPage = lazy(() => import('./pages/SkillsHub'));
++const SkillsHubPage = lazy(() => import('./pages/SkillsContribution'));
++const DataBridgeSettingsPage = lazy(() => import('./pages/DataBridgeSettings'));
+ 
+ function RedirectToConsole() {
+   const location = useLocation();
+@@ -81,7 +80,7 @@ function LocalizedApp() {
+       {...themeProviderProps}
+       locale={language === 'zh' ? zhCN : enUS}
+     >
+-      <BrowserRouter>
++      <HashRouter>
+         <Suspense fallback={<AppLoadingFallback label={t('common.loading')} />}>
+           <Routes>
+             <Route path="/console" element={<ConsoleLayout />}>
+@@ -106,18 +105,14 @@ function LocalizedApp() {
+                 element={<InitialLoadingCleanup><AgentSettingsPage /></InitialLoadingCleanup>}
+               />
+               <Route
+-                path="settings/channels"
+-                element={<InitialLoadingCleanup><ChannelSettingsPage /></InitialLoadingCleanup>}
+-              />
+-              <Route
+-                path="settings/mcp"
+-                element={<InitialLoadingCleanup><McpSettingsPage /></InitialLoadingCleanup>}
++                path="settings/databridge"
++                element={<InitialLoadingCleanup><DataBridgeSettingsPage /></InitialLoadingCleanup>}
+               />
+             </Route>
+             <Route path="*" element={<RedirectToConsole />} />
+           </Routes>
+         </Suspense>
+-      </BrowserRouter>
++      </HashRouter>
+     </ConfigProvider>
+   );
+ }
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
+index ea5b698..d2d8d69 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/ConsoleSettingsMenu/index.tsx
+@@ -1,14 +1,11 @@
+ import {
+-  ApiOutlined,
+-  CloudServerOutlined,
+   SettingOutlined,
++  DatabaseOutlined,
+ } from '@ant-design/icons';
+ import { Button, Dropdown } from '@agentscope-ai/design';
+ import { useNavigate } from 'react-router-dom';
+ import {
+   buildAgentConfigurationPath,
+-  buildChannelConfigurationPath,
+-  buildMcpConfigurationPath,
+ } from '@/shared/navigation/sessionNavigation';
+ import { useAppI18n } from '@/i18n';
+ import sharedStyles from '../../index.module.less';
+@@ -48,20 +45,15 @@ export default function ConsoleSettingsMenu({
+         menu={{
+           items: [
+             { key: 'agent-configuration', icon: <SettingOutlined />, label: t('settings.agentConfiguration') },
+-            { key: 'channel-configuration', icon: <ApiOutlined />, label: t('settings.channelConfiguration') },
+-            { key: 'mcp-configuration', icon: <CloudServerOutlined />, label: t('settings.mcpConfiguration') },
++            { key: 'app-configuration', icon: <DatabaseOutlined />, label: t('settings.appConfiguration') },
+           ],
+           onClick: ({ key }: { key: string }) => {
+             if (key === 'agent-configuration') {
+               navigate(buildAgentConfigurationPath());
+               onAction?.();
+             }
+-            if (key === 'channel-configuration') {
+-              navigate(buildChannelConfigurationPath());
+-              onAction?.();
+-            }
+-            if (key === 'mcp-configuration') {
+-              navigate(buildMcpConfigurationPath());
++            if (key === 'app-configuration') {
++              navigate('/console/settings/databridge');
+               onAction?.();
+             }
+           },
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
+index e868968..8d760a7 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/GlobalProductNav/index.tsx
+@@ -314,7 +314,7 @@ export default function GlobalProductNav({
+           workspaceIcon={<HomeOutlined />}
+           usernameAriaLabel={`${t('nav.currentUser')}: ${username}`}
+           workspaceAriaLabel={`${t('nav.currentWorkspace')}: ${activeWorkspaceName}`}
+-          renderUsernameTrigger={(trigger) => (
++          renderUsernameTrigger={currentUser ? (trigger) => (
+             <Dropdown
+               getPopupContainer={getAccountCardPopupContainer}
+               overlayClassName="datapaw-sider-account-dropdown"
+@@ -326,7 +326,7 @@ export default function GlobalProductNav({
+             >
+               {trigger}
+             </Dropdown>
+-          )}
++          ) : undefined}
+           renderWorkspaceTrigger={workspaces.length ? (trigger) => (
+             <Dropdown
+               getPopupContainer={getAccountCardPopupContainer}
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
+index 6b0fa9a..21b1ee2 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeConversation/index.tsx
+@@ -13,6 +13,7 @@ import type {
+   IAgentScopeRuntimeMessage,
+ } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
+ import {
++  AgentScopeRuntimeContentType,
+   AgentScopeRuntimeMessageType,
+ } from '@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types';
+ import {
+@@ -455,6 +456,17 @@ type RuntimeResponseSection = ChatTimelineSection | {
+   items: null;
+ };
+ 
++function withoutNamelessFileContent(
++  message: IAgentScopeRuntimeMessage,
++): IAgentScopeRuntimeMessage | null {
++  const content = message.content.filter((item) => (
++    item.type !== AgentScopeRuntimeContentType.FILE
++    || Boolean(item.file_name || item.fileName || item.file_id)
++  ));
++  if (!content.length) return null;
++  return content.length === message.content.length ? message : { ...message, content };
++}
++
+ function mergeRuntimeDisplayEntries(
+   entries: RuntimeDisplayEntry[],
+ ): RuntimeDisplayEntry[] {
+@@ -506,6 +518,7 @@ function RuntimeProcessTimeline({
+   timeline,
+   terminal,
+   chatId,
++  sessionId,
+   initialHistoricalSegmentKeys,
+   onArtifactOpen,
+   onArtifactDownload,
+@@ -515,6 +528,7 @@ function RuntimeProcessTimeline({
+   timeline?: ChatTimelineItem[] | null;
+   terminal: boolean;
+   chatId?: string | null;
++  sessionId?: string;
+   initialHistoricalSegmentKeys: ReadonlySet<string>;
+   onArtifactOpen?: (artifact: Artifact) => void;
+   onArtifactDownload?: (artifact: Artifact) => void;
+@@ -560,6 +574,7 @@ function RuntimeProcessTimeline({
+           return (
+             <RuntimeSegmentCard
+               data={projection.segment}
++              sessionId={sessionId}
+               defaultOpen={
+                 !chatId
+                 || !initialHistoricalSegmentKeys.has(
+@@ -587,7 +602,10 @@ function RuntimeProcessTimeline({
+           return <RuntimeError data={runtimeMessage} key={runtimeMessage.id} />;
+         }
+         if (runtimeMessage.type === AgentScopeRuntimeMessageType.MESSAGE) {
+-          return <RuntimeMessage data={runtimeMessage} key={runtimeMessage.id} />;
++          const renderableMessage = withoutNamelessFileContent(runtimeMessage);
++          return renderableMessage
++            ? <RuntimeMessage data={renderableMessage} key={runtimeMessage.id} />
++            : null;
+         }
+         return null;
+       })}
+@@ -922,6 +940,7 @@ function RuntimeResponseMessage({
+   timeline,
+   terminal,
+   chatId,
++  sessionId,
+   initialHistoricalSegmentKeys,
+   running,
+   waitingForInput,
+@@ -936,6 +955,7 @@ function RuntimeResponseMessage({
+   timeline?: ChatTimelineItem[] | null;
+   terminal: boolean;
+   chatId?: string | null;
++  sessionId?: string;
+   initialHistoricalSegmentKeys: ReadonlySet<string>;
+   running: boolean;
+   waitingForInput?: boolean;
+@@ -960,6 +980,7 @@ function RuntimeResponseMessage({
+               timeline={timeline}
+               terminal={terminal}
+               chatId={chatId}
++              sessionId={sessionId}
+               initialHistoricalSegmentKeys={initialHistoricalSegmentKeys}
+               onArtifactOpen={onArtifactOpen}
+               onArtifactDownload={onArtifactDownload}
+@@ -1784,6 +1805,7 @@ const RuntimeConversation = forwardRef<
+                 <RuntimeResponseMessage
+                   key={section.id}
+                   chatId={chatId}
++                  sessionId={controller.session?.id}
+                   messages={data.output}
+                   timeline={section.items}
+                   terminal={projection ? projection.chat.status !== 'running' : !running}
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
+index 781c181..d528bbc 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.module.less
+@@ -472,6 +472,65 @@
+   }
+ }
+ 
++.inlineReport {
++  display: flex;
++  padding: 6px 12px;
++  margin-top: 8px;
++  flex-direction: column;
++  gap: 6px;
++  background: var(--runtime-surface-important);
++  border: 0;
++}
++
++.inlineReportHeader {
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 8px;
++}
++
++.inlineReportToggle {
++  display: inline-flex !important;
++  height: 22px !important;
++  padding: 0 4px !important;
++  align-items: center;
++  gap: 4px;
++  font-size: var(--text-micro) !important;
++}
++
++.inlineReportChevron {
++  font-size: 10px;
++  transition: transform 180ms ease;
++}
++
++.inlineReportChevronOpen {
++  transform: rotate(180deg);
++}
++
++.inlineReportFrame {
++  position: relative;
++  width: 100%;
++  height: var(--inline-report-height, 320px);
++  overflow: hidden;
++  background: var(--console-surface);
++  border-radius: 6px;
++  transition: height 200ms ease;
++
++  > iframe {
++    display: block;
++    width: 100%;
++    height: 100%;
++    min-height: 0;
++    border: 0;
++  }
++
++  > div {
++    height: 100%;
++    min-height: 0;
++    overflow: auto;
++  }
++}
++
+ .artifactGroupTitle {
+   color: var(--console-primary-active);
+   font-size: var(--text-micro);
+@@ -540,6 +599,7 @@
+ }
+ 
+ :global(:root[data-datapaw-theme='dark']) .segmentSummaryGrid > div,
++:global(:root[data-datapaw-theme='dark']) .inlineReport,
+ :global(:root[data-datapaw-theme='dark']) .inlineArtifact {
+   background: var(--datapaw-color-fill-tertiary);
+ }
+diff --git a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
+index f2e8d85..eb42642 100644
+--- a/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
++++ b/packages/datapaw-host-core/frontend/src/features/console/components/RuntimeSegmentCard/index.tsx
+@@ -5,12 +5,14 @@ import { Badge } from 'antd';
+ import VirtualList from 'rc-virtual-list';
+ import type { ListRef } from 'rc-virtual-list';
+ import { forwardRef, memo, useLayoutEffect, useMemo, useRef, useState } from 'react';
++import type { CSSProperties } from 'react';
+ import type { Segment, SegmentArtifact } from '../../api/types';
+ import { formatSegmentDuration } from '../../model/runtime/runtimeProjection';
+ import { formatSegmentMarkdown } from '../../model/artifacts/segmentMarkdown';
+ import type { Artifact } from '../../types';
+ import { useAppI18n } from '@/i18n';
+ import ArtifactCard from '../ArtifactCard';
++import ArtifactPreview from '../ArtifactPreview';
+ import sharedStyles from '../../index.module.less';
+ import { mergeStyleModules } from '../../styleModules';
+ import ownerStyles from './index.module.less';
+@@ -23,11 +25,14 @@ const ARTIFACT_CARD_GAP = 6;
+ const ARTIFACT_ITEM_HEIGHT = ARTIFACT_CARD_HEIGHT + ARTIFACT_CARD_GAP;
+ const ARTIFACT_LIST_HEIGHT = ARTIFACT_ITEM_HEIGHT * ARTIFACT_BATCH_SIZE;
+ const ARTIFACT_VIRTUAL_THRESHOLD = 50;
++const INLINE_REPORT_PEEK_HEIGHT = 320;
++const INLINE_REPORT_EXPANDED_HEIGHT = 'min(680px, 72vh)';
+ const EMPTY_SEGMENT_ARTIFACTS: SegmentArtifact[] = [];
+ 
+ interface RuntimeSegmentCardProps {
+   data: Segment;
+   index: number;
++  sessionId?: string;
+   defaultOpen?: boolean;
+   onArtifactOpen?: (artifact: Artifact) => void;
+   onArtifactDownload?: (artifact: Artifact) => void;
+@@ -84,6 +89,7 @@ const ArtifactListItem = memo(forwardRef<HTMLDivElement, ArtifactListItemProps>(
+ export default function RuntimeSegmentCard({
+   data,
+   index,
++  sessionId,
+   defaultOpen = true,
+   onArtifactOpen,
+   onArtifactDownload,
+@@ -94,15 +100,25 @@ export default function RuntimeSegmentCard({
+   const artifactScrollAnimationRef = useRef<number | null>(null);
+   const pendingArtifactScrollRef = useRef(false);
+   const [open, setOpen] = useState(defaultOpen);
++  const [reportExpanded, setReportExpanded] = useState(false);
+   const [visibleArtifactLimit, setVisibleArtifactLimit] = useState(ARTIFACT_BATCH_SIZE);
+   const duration = formatSegmentDuration(data.started_at, data.ended_at);
+   const sourceArtifacts = data.artifact ?? EMPTY_SEGMENT_ARTIFACTS;
++  const inlineReport = useMemo(() => {
++    const htmlArtifacts = sourceArtifacts.filter((artifact) => /\.html?$/i.test(artifact.name));
++    const report = htmlArtifacts.find((artifact) => artifact.name.toLowerCase() === 'report.html')
++      ?? htmlArtifacts[htmlArtifacts.length - 1];
++    return report ? toDisplayArtifact(data.segment_id, report) : null;
++  }, [data.segment_id, sourceArtifacts]);
+   const visibleArtifacts = useMemo(() => (
+     sourceArtifacts
+       .slice(0, visibleArtifactLimit)
+       .map((artifact) => toDisplayArtifact(data.segment_id, artifact))
+   ), [data.segment_id, sourceArtifacts, visibleArtifactLimit]);
+   const hasMoreArtifacts = visibleArtifacts.length < sourceArtifacts.length;
++  const reportToggleLabel = t(
++    reportExpanded ? 'runtime.inlineReportCollapse' : 'runtime.inlineReportExpand',
++  );
+   const shouldVirtualizeArtifacts = visibleArtifacts.length > ARTIFACT_VIRTUAL_THRESHOLD;
+   const artifactListHeight = Math.min(
+     ARTIFACT_LIST_HEIGHT,
+@@ -215,6 +231,39 @@ export default function RuntimeSegmentCard({
+                     baseLineHeight={1.6}
+                   />
+                 </div>
++                {inlineReport && sessionId && data.ended_at !== null ? (
++                  <div className={styles.inlineReport}>
++                    <div className={styles.inlineReportHeader}>
++                      <span className={styles.artifactGroupTitle}>
++                        {t('runtime.inlineReport')}
++                      </span>
++                      <Button
++                        className={styles.inlineReportToggle}
++                        type="link"
++                        size="small"
++                        aria-expanded={reportExpanded}
++                        title={reportToggleLabel}
++                        onClick={() => setReportExpanded((current) => !current)}
++                      >
++                        {reportToggleLabel}
++                        <DownOutlined
++                          aria-hidden="true"
++                          className={`${styles.inlineReportChevron} ${reportExpanded ? styles.inlineReportChevronOpen : ''}`}
++                        />
++                      </Button>
++                    </div>
++                    <div
++                      className={styles.inlineReportFrame}
++                      style={{
++                        '--inline-report-height': reportExpanded
++                          ? INLINE_REPORT_EXPANDED_HEIGHT
++                          : `${INLINE_REPORT_PEEK_HEIGHT}px`,
++                      } as CSSProperties}
++                    >
++                      <ArtifactPreview artifact={inlineReport} sessionId={sessionId} />
++                    </div>
++                  </div>
++                ) : null}
+                 {sourceArtifacts.length ? (
+                   <div className={styles.inlineArtifact}>
+                     <span className={styles.artifactGroupTitle}>{t('runtime.keyArtifacts')}</span>
+diff --git a/packages/datapaw-host-core/frontend/src/i18n/locales.ts b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
+index 21f77a0..84d0832 100644
+--- a/packages/datapaw-host-core/frontend/src/i18n/locales.ts
++++ b/packages/datapaw-host-core/frontend/src/i18n/locales.ts
+@@ -53,6 +53,7 @@ export const zhMessages = {
+   'settings.dataBridge': '数据语义配置中心',
+   'settings.agentConfiguration': '智能体配置',
+   'settings.channelConfiguration': '接入渠道配置',
++  'settings.appConfiguration': '数据底座配置',
+   'settings.mcpConfiguration': '工具配置',
+ 
+   'workspace.tasks': '任务',
+@@ -183,6 +184,9 @@ export const zhMessages = {
+   'runtime.output': '输出',
+   'runtime.execution': '执行',
+   'runtime.conclusion': '结论',
++  'runtime.inlineReport': '报告预览',
++  'runtime.inlineReportExpand': '展开',
++  'runtime.inlineReportCollapse': '收起',
+   'runtime.keyArtifacts': '关键产物',
+   'runtime.loadMoreArtifacts': '加载更多',
+   'runtime.noInput': '无输入',
+@@ -781,6 +785,7 @@ export const enMessages: Record<MessageKey, string> = {
+   'settings.dataBridge': 'Data Bridge',
+   'settings.agentConfiguration': 'Agent Configuration',
+   'settings.channelConfiguration': 'Channel Configuration',
++  'settings.appConfiguration': 'DataBridge Configuration',
+   'settings.mcpConfiguration': 'Tool Configuration',
+ 
+   'workspace.tasks': 'Tasks',
+@@ -911,6 +916,9 @@ export const enMessages: Record<MessageKey, string> = {
+   'runtime.output': 'Output',
+   'runtime.execution': 'Execution',
+   'runtime.conclusion': 'Conclusion',
++  'runtime.inlineReport': 'Report preview',
++  'runtime.inlineReportExpand': 'Expand',
++  'runtime.inlineReportCollapse': 'Collapse',
+   'runtime.keyArtifacts': 'Key artifacts',
+   'runtime.loadMoreArtifacts': 'Load more',
+   'runtime.noInput': 'No input',
+diff --git a/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx b/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx
+new file mode 100644
+index 0000000..aaffa44
+--- /dev/null
++++ b/packages/datapaw-host-core/frontend/src/pages/DataBridgeSettings/index.tsx
+@@ -0,0 +1,447 @@
++import { useCallback, useEffect, useState, type CSSProperties } from 'react';
++import { Alert, Button, Checkbox, Input, InputNumber, Select, Spin, message } from 'antd';
++import ConsoleRouteHeader from '@/features/console/components/ConsoleRouteHeader';
++import SecretInput from '@/features/console/components/SecretInput';
++import { useAppI18n } from '@/i18n';
++
++/**
++ * DataBridge (Context service) infrastructure settings, served by the
++ * hosting app's backend rather than the engine API. The analysis agent's
++ * model lives in Agent Configuration; this page covers the semantic
++ * service's own model, the embedding model, and the Neo4j graph store.
++ */
++
++const CONFIG_BASE = '/api/qwenpaw-data';
++
++interface LlmConfig {
++  provider: string;
++  base_url: string;
++  model: string;
++  api_key: string;
++  reuse_host: boolean;
++  host_provider_name: string;
++}
++
++interface EmbeddingConfig {
++  base_url: string;
++  model: string;
++  dim: number;
++  api_key: string;
++  reuse_host: boolean;
++  host_provider_name: string;
++}
++
++interface Neo4jConfig {
++  uri: string;
++  user: string;
++  password: string;
++  database: string;
++}
++
++interface DataBridgeConfig {
++  version: number;
++  llm: LlmConfig;
++  embedding: EmbeddingConfig;
++  neo4j: Neo4jConfig;
++  datasources: { active_id: string };
++}
++
++interface TestResult {
++  ok: boolean;
++  error?: string;
++  detected_dim?: number | null;
++}
++
++const LLM_PRESETS: Array<{ value: string; label: string; baseUrl: string }> = [
++  { value: 'dashscope', label: 'DashScope (Aliyun)', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
++  { value: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1' },
++  { value: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com' },
++  { value: 'moonshot', label: 'Moonshot', baseUrl: 'https://api.moonshot.cn/v1' },
++  { value: 'siliconflow', label: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1' },
++  { value: 'custom', label: 'Custom (OpenAI-compatible)', baseUrl: '' },
++];
++
++const STRINGS = {
++  zh: {
++    title: '数据底座配置',
++    description: 'DataBridge 语义服务的模型与存储；分析智能体的模型请在「智能体配置」中设置。',
++    llmTitle: '语义服务模型',
++    llmDescription: '用于语义织网、文档摄取等 DataBridge 内部任务（OpenAI 兼容协议）。分析对话使用的模型在「智能体配置」中单独设置。',
++    embeddingTitle: 'Embedding 模型',
++    embeddingDescription: '用于语义索引与检索的向量模型。',
++    neo4jTitle: 'Neo4j 图存储',
++    neo4jDescription: '保存语义知识图谱的图数据库。',
++    reuseHostLlm: '复用 QwenPaw 已配置的模型',
++    reuseHostEmbedding: '复用 QwenPaw 的 API 凭证',
++    provider: '服务商预设',
++    baseUrl: 'Base URL',
++    model: '模型',
++    apiKey: 'API key',
++    dimensions: 'Embedding 维度',
++    uri: 'URI',
++    user: '用户名',
++    password: '密码',
++    database: '数据库（可选）',
++    test: '测试连接',
++    testOk: '连接成功',
++    save: '保存',
++    saveAndRestart: '保存并重启 Context 服务',
++    saveSuccess: '配置已保存',
++    restartSuccess: 'Context 服务重启中',
++    loadFailed: '配置加载失败',
++    retry: '重试',
++  },
++  en: {
++    title: 'DataBridge Configuration',
++    description: 'Model and storage for the DataBridge semantic service; the analysis agent model lives in Agent Configuration.',
++    llmTitle: 'Semantic service model',
++    llmDescription: 'Used by DataBridge for semantic weaving and document ingestion (OpenAI-compatible protocol). The analysis chat model is configured separately in Agent Configuration.',
++    embeddingTitle: 'Embedding model',
++    embeddingDescription: 'Vector model used to index and search semantic context.',
++    neo4jTitle: 'Neo4j graph store',
++    neo4jDescription: 'Graph database that stores the semantic knowledge graph.',
++    reuseHostLlm: 'Reuse the model configured in QwenPaw',
++    reuseHostEmbedding: 'Reuse QwenPaw API credentials',
++    provider: 'Provider preset',
++    baseUrl: 'Base URL',
++    model: 'Model',
++    apiKey: 'API key',
++    dimensions: 'Embedding dimensions',
++    uri: 'URI',
++    user: 'User',
++    password: 'Password',
++    database: 'Database (optional)',
++    test: 'Test connection',
++    testOk: 'Connection OK',
++    save: 'Save',
++    saveAndRestart: 'Save & restart Context service',
++    saveSuccess: 'Configuration saved',
++    restartSuccess: 'Context service is restarting',
++    loadFailed: 'Failed to load configuration',
++    retry: 'Retry',
++  },
++};
++
++async function backendRequest<T>(path: string, init?: RequestInit): Promise<T> {
++  const response = await fetch(`${CONFIG_BASE}${path}`, {
++    ...init,
++    headers: {
++      'Content-Type': 'application/json',
++      ...(init?.headers ?? {}),
++    },
++  });
++  const body: unknown = await response.json().catch(() => null);
++  const envelope = body as { ok?: boolean; data?: T; error?: { message?: string } } | null;
++  if (!response.ok || envelope?.ok === false) {
++    throw new Error(envelope?.error?.message || `${response.status} ${response.statusText}`);
++  }
++  if (envelope && typeof envelope === 'object' && 'ok' in envelope && 'data' in envelope) {
++    return envelope.data as T;
++  }
++  return body as T;
++}
++
++function presetForBaseUrl(baseUrl: string): string {
++  const match = LLM_PRESETS.find((preset) => preset.baseUrl && preset.baseUrl === baseUrl);
++  return match?.value ?? 'custom';
++}
++
++const fieldStyle: CSSProperties = { display: 'grid', gap: 6 };
++const labelStyle: CSSProperties = { fontSize: 13, fontWeight: 600 };
++const cardStyle: CSSProperties = {
++  display: 'grid',
++  gap: 14,
++  alignContent: 'start',
++  padding: 20,
++  borderRadius: 12,
++};
++const cardHeadStyle: CSSProperties = { display: 'grid', gap: 4 };
++
++export default function DataBridgeSettingsPage() {
++  const { language } = useAppI18n();
++  const s = STRINGS[language === 'zh' ? 'zh' : 'en'];
++
++  const [config, setConfig] = useState<DataBridgeConfig | null>(null);
++  const [loadError, setLoadError] = useState('');
++  const [loading, setLoading] = useState(true);
++  const [saving, setSaving] = useState(false);
++  const [testing, setTesting] = useState<string | null>(null);
++
++  const load = useCallback(async () => {
++    setLoading(true);
++    setLoadError('');
++    try {
++      setConfig(await backendRequest<DataBridgeConfig>('/config'));
++    } catch (error) {
++      setLoadError(error instanceof Error ? error.message : String(error));
++    } finally {
++      setLoading(false);
++    }
++  }, []);
++
++  useEffect(() => {
++    void load();
++  }, [load]);
++
++  const patch = <K extends 'llm' | 'embedding' | 'neo4j'>(
++    section: K,
++    values: Partial<DataBridgeConfig[K]>,
++  ) => {
++    setConfig((prev) => (prev ? { ...prev, [section]: { ...prev[section], ...values } } : prev));
++  };
++
++  const toggleReuse = async (target: 'llm' | 'embedding', reuse: boolean) => {
++    try {
++      setConfig(
++        await backendRequest<DataBridgeConfig>('/config/reuse-host-model', {
++          method: 'POST',
++          body: JSON.stringify({ target, reuse }),
++        }),
++      );
++    } catch (error) {
++      message.error(error instanceof Error ? error.message : String(error));
++    }
++  };
++
++  const runTest = async (target: 'llm' | 'embedding' | 'neo4j') => {
++    if (!config) return;
++    setTesting(target);
++    try {
++      const result = await backendRequest<TestResult>(`/config/test/${target}`, {
++        method: 'POST',
++        body: JSON.stringify(config),
++      });
++      if (result.ok) {
++        message.success(
++          result.detected_dim ? `${s.testOk} · dim ${result.detected_dim}` : s.testOk,
++        );
++      } else {
++        message.error(result.error || 'failed');
++      }
++    } catch (error) {
++      message.error(error instanceof Error ? error.message : String(error));
++    } finally {
++      setTesting(null);
++    }
++  };
++
++  const save = async (restart: boolean) => {
++    if (!config) return;
++    setSaving(true);
++    try {
++      setConfig(
++        await backendRequest<DataBridgeConfig>('/config', {
++          method: 'POST',
++          body: JSON.stringify(config),
++        }),
++      );
++      message.success(s.saveSuccess);
++      if (restart) {
++        await backendRequest('/config/restart-context', { method: 'POST' });
++        message.success(s.restartSuccess);
++      }
++    } catch (error) {
++      message.error(error instanceof Error ? error.message : String(error));
++    } finally {
++      setSaving(false);
++    }
++  };
++
++  return (
++    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, height: '100%' }}>
++      <ConsoleRouteHeader title={s.title} description={s.description} />
++      <main style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
++        {loading ? <Spin /> : null}
++        {!loading && loadError ? (
++          <Alert
++            showIcon
++            type="error"
++            message={s.loadFailed}
++            description={loadError}
++            action={<Button size="small" onClick={() => void load()}>{s.retry}</Button>}
++          />
++        ) : null}
++        {!loading && !loadError && config ? (
++          <div style={{ display: 'grid', gap: 18, maxWidth: 1240 }}>
++            <div
++              style={{
++                display: 'grid',
++                gap: 18,
++                gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))',
++              }}
++            >
++              <section className="datapaw-card-primary" style={cardStyle}>
++                <div style={cardHeadStyle}>
++                  <h2 style={{ margin: 0, fontSize: 16 }}>{s.llmTitle}</h2>
++                  <span style={{ color: 'var(--datapaw-color-text-tertiary, #86909c)', fontSize: 13 }}>
++                    {s.llmDescription}
++                  </span>
++                </div>
++                <Checkbox
++                  checked={config.llm.reuse_host}
++                  onChange={(event) => void toggleReuse('llm', event.target.checked)}
++                >
++                  {s.reuseHostLlm}
++                  {config.llm.reuse_host && config.llm.host_provider_name
++                    ? ` · ${config.llm.host_provider_name}`
++                    : ''}
++                </Checkbox>
++                {!config.llm.reuse_host ? (
++                  <>
++                    <div style={fieldStyle}>
++                      <span style={labelStyle}>{s.provider}</span>
++                      <Select
++                        value={presetForBaseUrl(config.llm.base_url)}
++                        options={LLM_PRESETS.map(({ value, label }) => ({ value, label }))}
++                        onChange={(value) => {
++                          const preset = LLM_PRESETS.find((item) => item.value === value);
++                          if (preset?.baseUrl) patch('llm', { base_url: preset.baseUrl });
++                        }}
++                      />
++                    </div>
++                    <div style={fieldStyle}>
++                      <span style={labelStyle}>{s.baseUrl}</span>
++                      <Input
++                        value={config.llm.base_url}
++                        onChange={(event) => patch('llm', { base_url: event.target.value })}
++                      />
++                    </div>
++                    <div style={fieldStyle}>
++                      <span style={labelStyle}>{s.model}</span>
++                      <Input
++                        value={config.llm.model}
++                        onChange={(event) => patch('llm', { model: event.target.value })}
++                      />
++                    </div>
++                    <div style={fieldStyle}>
++                      <span style={labelStyle}>{s.apiKey}</span>
++                      <SecretInput
++                        value={config.llm.api_key}
++                        onChange={(event) => patch('llm', { api_key: event.target.value })}
++                      />
++                    </div>
++                  </>
++                ) : null}
++                <div>
++                  <Button loading={testing === 'llm'} onClick={() => void runTest('llm')}>
++                    {s.test}
++                  </Button>
++                </div>
++              </section>
++
++              <section className="datapaw-card-primary" style={cardStyle}>
++                <div style={cardHeadStyle}>
++                  <h2 style={{ margin: 0, fontSize: 16 }}>{s.embeddingTitle}</h2>
++                  <span style={{ color: 'var(--datapaw-color-text-tertiary, #86909c)', fontSize: 13 }}>
++                    {s.embeddingDescription}
++                  </span>
++                </div>
++                <Checkbox
++                  checked={config.embedding.reuse_host}
++                  onChange={(event) => void toggleReuse('embedding', event.target.checked)}
++                >
++                  {s.reuseHostEmbedding}
++                  {config.embedding.reuse_host && config.embedding.host_provider_name
++                    ? ` · ${config.embedding.host_provider_name}`
++                    : ''}
++                </Checkbox>
++                {!config.embedding.reuse_host ? (
++                  <>
++                    <div style={fieldStyle}>
++                      <span style={labelStyle}>{s.baseUrl}</span>
++                      <Input
++                        value={config.embedding.base_url}
++                        onChange={(event) => patch('embedding', { base_url: event.target.value })}
++                      />
++                    </div>
++                    <div style={fieldStyle}>
++                      <span style={labelStyle}>{s.apiKey}</span>
++                      <SecretInput
++                        value={config.embedding.api_key}
++                        onChange={(event) => patch('embedding', { api_key: event.target.value })}
++                      />
++                    </div>
++                  </>
++                ) : null}
++                <div style={fieldStyle}>
++                  <span style={labelStyle}>{s.model}</span>
++                  <Input
++                    value={config.embedding.model}
++                    onChange={(event) => patch('embedding', { model: event.target.value })}
++                  />
++                </div>
++                <div style={fieldStyle}>
++                  <span style={labelStyle}>{s.dimensions}</span>
++                  <InputNumber
++                    min={1}
++                    style={{ width: '100%' }}
++                    value={config.embedding.dim}
++                    onChange={(value) => patch('embedding', { dim: Number(value) || 0 })}
++                  />
++                </div>
++                <div>
++                  <Button
++                    loading={testing === 'embedding'}
++                    onClick={() => void runTest('embedding')}
++                  >
++                    {s.test}
++                  </Button>
++                </div>
++              </section>
++
++              <section className="datapaw-card-primary" style={cardStyle}>
++                <div style={cardHeadStyle}>
++                  <h2 style={{ margin: 0, fontSize: 16 }}>{s.neo4jTitle}</h2>
++                  <span style={{ color: 'var(--datapaw-color-text-tertiary, #86909c)', fontSize: 13 }}>
++                    {s.neo4jDescription}
++                  </span>
++                </div>
++                <div style={fieldStyle}>
++                  <span style={labelStyle}>{s.uri}</span>
++                  <Input
++                    value={config.neo4j.uri}
++                    onChange={(event) => patch('neo4j', { uri: event.target.value })}
++                  />
++                </div>
++                <div style={fieldStyle}>
++                  <span style={labelStyle}>{s.user}</span>
++                  <Input
++                    value={config.neo4j.user}
++                    onChange={(event) => patch('neo4j', { user: event.target.value })}
++                  />
++                </div>
++                <div style={fieldStyle}>
++                  <span style={labelStyle}>{s.password}</span>
++                  <SecretInput
++                    value={config.neo4j.password}
++                    onChange={(event) => patch('neo4j', { password: event.target.value })}
++                  />
++                </div>
++                <div style={fieldStyle}>
++                  <span style={labelStyle}>{s.database}</span>
++                  <Input
++                    value={config.neo4j.database}
++                    onChange={(event) => patch('neo4j', { database: event.target.value })}
++                  />
++                </div>
++                <div>
++                  <Button loading={testing === 'neo4j'} onClick={() => void runTest('neo4j')}>
++                    {s.test}
++                  </Button>
++                </div>
++              </section>
++            </div>
++            <div style={{ display: 'flex', gap: 10 }}>
++              <Button type="primary" loading={saving} onClick={() => void save(false)}>
++                {s.save}
++              </Button>
++              <Button loading={saving} onClick={() => void save(true)}>
++                {s.saveAndRestart}
++              </Button>
++            </div>
++          </div>
++        ) : null}
++      </main>
++    </div>
++  );
++}
+diff --git a/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx b/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx
+new file mode 100644
+index 0000000..a655dba
+--- /dev/null
++++ b/packages/datapaw-host-core/frontend/src/pages/SkillsContribution.tsx
+@@ -0,0 +1,40 @@
++import { GithubOutlined } from '@ant-design/icons';
++import { Button, Result, Typography } from 'antd';
++import { useAppI18n } from '@/i18n';
++
++const SKILLS_REPO_URL =
++  'https://github.com/agentscope-ai/QwenPaw-Data/tree/main/skills';
++const SKILLS_PACKAGE_URL =
++  'https://github.com/agentscope-ai/QwenPaw-Data/tree/main/packages/qwenpaw-data-skills';
++
++export default function SkillsContribution() {
++  const { language } = useAppI18n();
++  const zh = language === 'zh';
++
++  return (
++    <Result
++      icon={<GithubOutlined />}
++      title={zh ? '技能中心' : 'Skills Hub'}
++      subTitle={
++        zh
++          ? '技能通过开源仓库共建：提交 PR 即可新增或改进分析方法论，安装后即刻生效。'
++          : 'Skills are built in the open-source repository: open a PR to add or improve an analysis methodology, and it ships with the next install.'
++      }
++      extra={
++        <>
++          <Button type="primary" href={SKILLS_REPO_URL} target="_blank" rel="noopener noreferrer">
++            {zh ? '浏览技能目录' : 'Browse the skills catalog'}
++          </Button>
++          <Button href={SKILLS_PACKAGE_URL} target="_blank" rel="noopener noreferrer">
++            {zh ? '贡献指南' : 'Contribution guide'}
++          </Button>
++          <Typography.Paragraph type="secondary" style={{ marginTop: 16 }}>
++            {zh
++              ? '本地技能位于 workspace/skills 目录，可直接编辑调试。'
++              : 'Local skills live under workspace/skills and can be edited in place for debugging.'}
++          </Typography.Paragraph>
++        </>
++      }
++    />
++  );
++}
+diff --git a/packages/datapaw-host-core/frontend/src/services/auth.ts b/packages/datapaw-host-core/frontend/src/services/auth.ts
+index 1e81bc4..6f0e81c 100644
+--- a/packages/datapaw-host-core/frontend/src/services/auth.ts
++++ b/packages/datapaw-host-core/frontend/src/services/auth.ts
+@@ -1,4 +1,4 @@
+-import { getApiUrl, getAuthApiUrl, getAuthLoginUrl } from "./config.js";
++import { getApiUrl, getAuthApiUrl } from "./config.js";
+ 
+ interface AuthStatusResponse {
+   enabled: boolean;
+@@ -24,7 +24,6 @@ export interface HostCurrentUser {
+ }
+ 
+ let refreshInFlight: Promise<boolean> | null = null;
+-let ssoLoginPath: string | null = null;
+ let currentUser: HostCurrentUser | null = null;
+ 
+ export function getHostCurrentUser(): HostCurrentUser | null {
+@@ -54,12 +53,9 @@ export function refreshAuthSession(): Promise<boolean> {
+ 
+ export function redirectToLogin(): void {
+   if (typeof window === "undefined") return;
+-  if (ssoLoginPath) {
+-    const redirect = encodeURIComponent(window.location.href);
+-    window.location.assign(`${ssoLoginPath}?back_url=${redirect}`);
+-    return;
+-  }
+-  window.location.assign(getAuthLoginUrl(window.location.href));
++  // Embedded build: the host shell owns authentication; there is no login
++  // page to bounce to. Surface the failure instead of navigating away.
++  console.warn("Authentication is unavailable; staying on the current page.");
+ }
+ 
+ export async function fetchWithAuthRetry(
+@@ -96,7 +92,6 @@ export async function bootstrapHostAuth(): Promise<boolean> {
+   }
+ 
+   const status = await statusResponse.json() as AuthStatusResponse;
+-  ssoLoginPath = status.sso_enabled ? status.sso_login_path : null;
+   if (!status.enabled) return true;
+ 
+   const meResponse = await fetchWithAuthRetry(getAuthApiUrl("/me"));
+diff --git a/packages/datapaw-host-core/frontend/src/services/config.ts b/packages/datapaw-host-core/frontend/src/services/config.ts
+index d3ce27e..6a1bd30 100644
+--- a/packages/datapaw-host-core/frontend/src/services/config.ts
++++ b/packages/datapaw-host-core/frontend/src/services/config.ts
+@@ -28,7 +28,7 @@ export function getApiUrl(path: string): string {
+   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+   const prefixedPath = normalizedPath.startsWith("/api/")
+     ? normalizedPath
+-    : `/api${normalizedPath}`;
++    : `/api/v1${normalizedPath}`;
+   return `${base}${prefixedPath}`;
+ }
+ 

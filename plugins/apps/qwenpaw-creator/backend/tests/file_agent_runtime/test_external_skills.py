@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ import pytest
 from models import config
 import services.external_skills as external_skills
 from services.external_skills import load_skills
+from services.file_agent_runtime.prompts import live_operation_guidance
 from services.file_agent_runtime import (
     AgentModelTurn,
     AgentRunStatus,
@@ -95,6 +98,37 @@ def test_broken_entries_stay_isolated(tmp_path, monkeypatch) -> None:
     assert "off" not in loaded  # disabled entries are skipped entirely
     invalid = next(s for s in loaded.values() if "invalid" in (s.reason or ""))
     assert not invalid.available
+
+
+@pytest.mark.parametrize(
+    ("skill_name", "body_fields"),
+    [
+        ("professional-media-prompts", ("[Image 1]",)),
+        (
+            "visual-asset-design",
+            ("canonical_variant_id", "derived_from_variant_id"),
+        ),
+    ],
+)
+def test_media_skills_are_builtin_and_viewable(
+    tmp_path,
+    monkeypatch,
+    skill_name,
+    body_fields,
+):
+    _configure(tmp_path, monkeypatch, [])
+    builtin_root = Path(__file__).resolve().parents[2] / "skills"
+    monkeypatch.setattr(external_skills, "_BUILTIN_SKILLS_ROOT", builtin_root)
+    external_skills._clear_load_cache()
+    loaded = {skill.entry.name: skill for skill in load_skills()}
+    skill = loaded[skill_name]
+    assert skill.available
+    parsed = external_skills.parse_skill_md(skill.skill_md)
+    assert parsed["description"] and parsed["body"]
+    assert all(field in parsed["body"] for field in body_fields)
+    viewed = external_skills.view_skill(skill_name=skill_name)
+    assert viewed["ok"] is True
+    assert viewed["content"] == skill.skill_md
 
 
 # ── Driver loop: progressive disclosure end to end ───────────────────────────
@@ -272,3 +306,26 @@ def test_skill_loading_runs_off_the_event_loop(tmp_path, monkeypatch) -> None:
 
     assert load_threads, "the model loop must have loaded external skills"
     assert all(thread != loop_thread for thread in load_threads)
+
+
+def test_computer_use_manual_follows_the_loaded_plugin(tmp_path, monkeypatch):
+    bundle = tmp_path / "computer-use"
+    package = bundle / "computer_use"
+    skill = bundle / "skills" / "computer_use" / "SKILL.md"
+    package.mkdir(parents=True)
+    skill.parent.mkdir(parents=True)
+    module_file = package / "__init__.py"
+    module_file.write_text("", encoding="utf-8")
+    skill.write_text(
+        "---\nname: computer_use\n---\nNative manual",
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "computer_use",
+        SimpleNamespace(__file__=str(module_file)),
+    )
+    monkeypatch.setattr(live_operation_guidance, "_skill_root", lambda: None)
+
+    manual = live_operation_guidance.load_host_computer_use_manual()
+    assert manual == "Native manual"

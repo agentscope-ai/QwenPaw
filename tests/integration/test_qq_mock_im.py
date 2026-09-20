@@ -258,14 +258,40 @@ def test_qq_outbound_send_carries_msg_id_reply_context(
         msg_seq for c2c passive replies.
 
     Test flow:
-      1. Push a C2C message with a distinctive msg_id.
-      2. Wait for the outbound send; inspect the recorded body.
+      1. Register the mock model and wait for the QQ channel to reconnect
+         when first-time model activation schedules an agent reload.
+      2. Push a C2C message with a distinctive msg_id.
+      3. Wait for the outbound send; inspect the recorded body.
     """
     srv, mock_url = mock_llm
     srv.force_tool_call = False
     unregister_mock_provider(app_server, MOCK_LLM_PROVIDER_ID)
+
+    # Global model activation copies the model into an agent that does not
+    # have one yet, then schedules a zero-downtime reload asynchronously.
+    # Waiting for the replacement QQ connection prevents this message from
+    # being consumed by the old workspace just before it is stopped.  When
+    # the full module runs, an earlier test may already have initialized the
+    # model, in which case activation does not reload and no wait is needed.
+    agent = app_server.api_request(
+        "GET",
+        "/api/agents/default",
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert agent.status_code == 200, app_server.logs_tail()
+    active_model = agent.json().get("active_model") or {}
+    reload_expected = not active_model.get("provider_id")
+    if reload_expected:
+        qq_channel_up.reset_identified()
+
     provider_id = register_mock_provider(app_server, mock_url)
     try:
+        if reload_expected:
+            assert qq_channel_up.wait_identified(timeout=60.0), (
+                "QQ channel did not reconnect after initial model "
+                "activation: " + app_server.logs_tail()[-3000:]
+            )
+
         marker_msg_id = "integ-qq-msgid-ctx"
         before = len(qq_channel_up.api_calls)
         qq_channel_up.push_c2c_message(

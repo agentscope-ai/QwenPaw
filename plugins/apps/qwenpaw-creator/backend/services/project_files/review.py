@@ -40,15 +40,34 @@ from .json_pointer import (
     MISSING,
     JsonChange,
     apply_changes,
+    diff_json,
     hash_json_value,
     value_at,
 )
 from .store import ProjectSnapshot, ProjectStore
 from .models import Project
 from .serialization import project_etag
-
+from .review_bookkeeping import is_human_review_change
 
 ReviewDecisionValue = Literal["ACCEPT", "REJECT"]
+
+
+def _collection_order(order, items, fallback) -> list[str]:
+    ordered = list(dict.fromkeys(key for key in order if key in items))
+    missing = [key for key in fallback if key in items and key not in ordered]
+    for key in missing:
+        successors = fallback[fallback.index(key) + 1 :]
+        following = next(
+            (item for item in successors if item in ordered),
+            None,
+        )
+        if following is None:
+            ordered.append(key)
+        else:
+            ordered.insert(ordered.index(following), key)
+    ordered.extend(key for key in items if key not in ordered)
+    return ordered
+
 
 _FIELD_LABELS = {
     "name": "名称",
@@ -182,6 +201,7 @@ class ReviewDecisionJournalState(StrEnum):
     PREPARED = "PREPARED"
     PROJECT_APPLIED = "PROJECT_APPLIED"
     FINALIZED = "FINALIZED"
+    ABORTED = "ABORTED"
 
 
 class ReviewDecisionRecoveryAction(StrEnum):
@@ -189,6 +209,7 @@ class ReviewDecisionRecoveryAction(StrEnum):
 
     FINALIZED = "finalized"
     ALREADY_FINALIZED = "already_finalized"
+    ABORTED = "aborted"
     INTEGRITY_ERROR = "integrity_error"
 
 
@@ -306,7 +327,10 @@ class ReviewDecisionJournal(BaseModel):
             raise ValueError(
                 "an accept-only decision cannot have compensation IDs",
             )
-        if self.state is not ReviewDecisionJournalState.PREPARED and (
+        if self.state in {
+            ReviewDecisionJournalState.PROJECT_APPLIED,
+            ReviewDecisionJournalState.FINALIZED,
+        } and (
             self.resulting_generation is None
             or self.resulting_etag is None
             or self.final_review is None
@@ -346,6 +370,8 @@ def _render_rejection_feedback(
             )
             if value
         ]
+        if not identifiers:
+            identifiers = target.json_pointers
         suffix = f"（{' · '.join(identifiers)}）" if identifiers else ""
         target_lines.append(f"- {target.label}{suffix}")
     if not target_lines:
@@ -354,7 +380,9 @@ def _render_rejection_feedback(
     if feedback.action is ReviewRejectionAction.UNDO_AND_REGENERATE:
         lines = [
             "【系统自动消息 · 用户审阅反馈】",
-            "用户已撤销以下产出，并明确要求重新生成。请只重做列出的逻辑目标，" + "不要恢复被撤销的版本，也不要重复生成其他已接受目标。",
+            "用户已撤销以下产出，并明确要求重新生成。请先回应用户反馈，再据此调整后续计划。"
+            "优先重做以下目标，不要恢复被撤销的版本；用户明确要求的关联调整也应落实，"
+            "其余已接受的目标不要重复生成。",
             "目标：",
             *target_lines,
         ]
@@ -370,7 +398,9 @@ def _render_rejection_feedback(
     if feedback.problem_note:
         lines.extend(("用户指出的问题：", feedback.problem_note))
     if feedback.regeneration_instruction:
-        lines.extend(("用户给出的重做要求：", feedback.regeneration_instruction))
+        lines.extend(
+            ("用户给出的重做要求：", feedback.regeneration_instruction),
+        )
     return "\n".join(lines)
 
 
@@ -379,11 +409,37 @@ class ProjectReviewService:
         self.store = store
         self.commits = ProjectCommitBoundary(store)
 
-    def active(self, project_id: str) -> ReviewRecord | None:
-        all_pending = self.all_pending(project_id)
+    def active(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> ReviewRecord | None:
+        all_pending = self.all_pending(
+            project_id,
+            _lifecycle_lock_held=_lifecycle_lock_held,
+        )
         return all_pending[0] if all_pending else None
 
-    def all_pending(self, project_id: str) -> list[ReviewRecord]:
+    def all_pending(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> list[ReviewRecord]:
+        """Read pending creative decisions without acquiring write locks."""
+        del _lifecycle_lock_held  # Retained for existing read callers.
+        return [
+            review
+            for review in self._pending_records(project_id)
+            if any(
+                operation.decision is ReviewOperationDecision.PENDING
+                and is_human_review_change(operation)
+                for operation in review.operations
+            )
+        ]
+
+    def _pending_records(self, project_id: str) -> list[ReviewRecord]:
         runtime_root = self.store.project_root(project_id) / "runtime"
         reviews_root = runtime_root / "reviews"
         if not reviews_root.is_dir():
@@ -399,6 +455,105 @@ class ProjectReviewService:
             if review is not None and review.status is ReviewStatus.PENDING:
                 candidates.append(review)
         return sorted(candidates, key=lambda item: item.created_at)
+
+    def retire_internal_operations(
+        self,
+        project_id: str,
+        *,
+        _lifecycle_lock_held: bool = False,
+    ) -> None:
+        """Explicit recovery mutation; ordinary review reads stay lock-free."""
+        for review in self._pending_records(project_id):
+            self._settle_internal_operations(
+                project_id,
+                review,
+                _lifecycle_lock_held=_lifecycle_lock_held,
+            )
+
+    def _settle_internal_operations(
+        self,
+        project_id: str,
+        review: ReviewRecord,
+        *,
+        _lifecycle_lock_held: bool,
+    ) -> ReviewRecord:
+        """Retire internal and obsolete decisions without changing Project.
+
+        Reuse the durable decision journal, token rotation and recovery path.
+        The system decision identity makes this distinct from a user's Keep;
+        no facade follow-up or media continuation is invoked. Mixed Reviews
+        retain every real content/artifact decision and their accepted baseline.
+        """
+        if not any(
+            operation.decision is ReviewOperationDecision.PENDING
+            and not is_human_review_change(operation)
+            for operation in review.operations
+        ):
+            return review
+        runtime_root = self.store.project_root(project_id) / "runtime"
+        lifecycle = (
+            nullcontext()
+            if _lifecycle_lock_held
+            else self.store.lifecycle_lock(project_id)
+        )
+        with lifecycle:
+            self.store.read(project_id)
+            with (
+                CrossProcessFileLock(
+                    runtime_root / "locks" / "project-commit-order.lock",
+                    timeout_seconds=10.0,
+                ),
+                CrossProcessFileLock(
+                    runtime_root
+                    / "locks"
+                    / f"{review.review_id}.decision.lock",
+                    timeout_seconds=10.0,
+                ),
+            ):
+                current = self.get(project_id, review.review_id)
+                if current.status is not ReviewStatus.PENDING:
+                    return current
+                # Later history entries may have changed the list again.
+                # ACCEPT only retires this recorded operation; it never
+                # restores its old value or approves a later content edit.
+                decisions = [
+                    ReviewDecisionItem(
+                        operation_id=operation.operation_id,
+                        decision="ACCEPT",
+                    )
+                    for operation in current.operations
+                    if operation.decision is ReviewOperationDecision.PENDING
+                    and not is_human_review_change(operation)
+                ]
+                if not decisions:
+                    return current
+                decisions.sort(key=lambda item: item.operation_id)
+                decision_id = hashed_runtime_segment(
+                    "system-version-bookkeeping",
+                    current.review_id,
+                    current.decision_token,
+                    *(item.operation_id for item in decisions),
+                )
+                # An unfinished user decision owns this Review until normal
+                # recovery completes it. Never overtake that durable intent.
+                try:
+                    self._assert_no_other_active_decision(
+                        project_id=project_id,
+                        runtime_root=runtime_root,
+                        review_id=current.review_id,
+                        decision_id=decision_id,
+                    )
+                except ReviewDecisionConflict:
+                    return current
+                return self._decide_locked(
+                    project_id=project_id,
+                    runtime_root=runtime_root,
+                    review_id=current.review_id,
+                    decision_token=current.decision_token,
+                    decisions=decisions,
+                    rejection_feedback=None,
+                    decision_id=decision_id,
+                )
 
     def get(self, project_id: str, review_id: str) -> ReviewRecord:
         review = self._review_store(project_id, review_id).read_or_none()
@@ -506,6 +661,23 @@ class ProjectReviewService:
                 ),
             ):
                 state_before = journal.state
+                if self._retire_aborted_decision(
+                    runtime_root=self.store.project_root(project_id)
+                    / "runtime",
+                    journal_store=journal_store,
+                    journal=journal,
+                ):
+                    outcomes.append(
+                        ReviewDecisionRecoveryOutcome(
+                            project_id=project_id,
+                            review_id=journal.review_id,
+                            decision_id=journal.decision_id,
+                            action=ReviewDecisionRecoveryAction.ABORTED,
+                            state_before=state_before,
+                            state_after=ReviewDecisionJournalState.ABORTED,
+                        ),
+                    )
+                    continue
                 if state_before is ReviewDecisionJournalState.FINALIZED:
                     outcomes.append(
                         ReviewDecisionRecoveryOutcome(
@@ -555,19 +727,25 @@ class ProjectReviewService:
                             decision_id=journal.decision_id,
                             action=ReviewDecisionRecoveryAction.INTEGRITY_ERROR,
                             state_before=state_before,
-                            state_after=current.state
-                            if current is not None
-                            else None,
+                            state_after=(
+                                current.state if current is not None else None
+                            ),
                             detail=f"{type(exc).__name__}: {exc}",
                         ),
                     )
+            self.retire_internal_operations(
+                project_id,
+                _lifecycle_lock_held=True,
+            )
         return ProjectReviewRecoveryReport(
             project_id=project_id,
             outcomes=tuple(outcomes),
         )
 
     def recover_all(self) -> CreatorReviewRecoveryReport:
-        """Recover all discoverable Projects without one failure halting boot."""
+        """
+        Recover all discoverable Projects without one failure halting boot.
+        """
 
         reports: list[ProjectReviewRecoveryReport] = []
         for project_id in self.store.discover_project_ids():
@@ -845,6 +1023,14 @@ class ProjectReviewService:
                 decisions=decisions,
                 rejection_feedback=rejection_feedback,
             )
+            if self._retire_aborted_decision(
+                runtime_root=runtime_root,
+                journal_store=journal_store,
+                journal=journal,
+            ):
+                raise ReviewDecisionConflict(
+                    "Review decision was aborted before applying changes; submit a new decision",
+                )
             if journal.state is ReviewDecisionJournalState.FINALIZED:
                 if (
                     journal.final_review is None
@@ -905,6 +1091,16 @@ class ProjectReviewService:
                 snapshot=current,
             )
             compensation_required = bool(rejection_changes)
+            if compensation_required:
+                # Reject invalid partial rollbacks before publishing a durable
+                # decision. A failed schema check must not lock this Review.
+                Project.model_validate(
+                    apply_changes(
+                        current.project.model_dump(mode="json"),
+                        rejection_changes,
+                    ),
+                    context={"reject_retired_authoring_fields": True},
+                )
             timestamp = datetime.now(UTC)
             rejection_targets = self._rejection_targets(
                 review=review,
@@ -962,8 +1158,8 @@ class ProjectReviewService:
             journal=journal,
         )
 
-    @staticmethod
     def _assert_no_other_active_decision(
+        self,
         *,
         project_id: str,
         runtime_root: Path,
@@ -996,10 +1192,11 @@ class ProjectReviewService:
                     "Review decision transaction entry is not a real directory",
                 )
             try:
-                journal = AtomicJsonRecordStore(
+                other_store = AtomicJsonRecordStore(
                     decision_root / "journal.json",
                     ReviewDecisionJournal,
-                ).read()
+                )
+                journal = other_store.read()
             except Exception as exc:
                 raise ReviewDecisionConflict(
                     "Review decision journal set is inconsistent",
@@ -1019,11 +1216,59 @@ class ProjectReviewService:
                 raise ReviewDecisionConflict(
                     "Review decision journal path does not match its identity",
                 )
+            if self._retire_aborted_decision(
+                runtime_root=runtime_root,
+                journal_store=other_store,
+                journal=journal,
+            ):
+                continue
             if journal.state is not ReviewDecisionJournalState.FINALIZED:
                 raise ReviewDecisionConflict(
                     "Review already has an active decision journal: "
                     f"{journal.decision_id}",
                 )
+
+    @staticmethod
+    def _retire_aborted_decision(
+        *,
+        runtime_root,
+        journal_store,
+        journal,
+    ) -> bool:
+        """Only a proven aborted compensation releases a failed decision."""
+        if journal.state is ReviewDecisionJournalState.ABORTED:
+            return True
+        if (
+            journal.state is not ReviewDecisionJournalState.PREPARED
+            or not journal.compensation_required
+        ):
+            return False
+        commit = AtomicJsonRecordStore(
+            runtime_root
+            / "transactions"
+            / journal.compensation_transaction_id
+            / "journal.json",
+            ProjectCommitJournal,
+        ).read_or_none()
+        if commit is None or commit.state is not CommitJournalState.ABORTED:
+            return False
+        if (
+            commit.project_id != journal.project_id
+            or commit.transaction_id != journal.compensation_transaction_id
+            or commit.round_id != journal.compensation_round_id
+        ):
+            raise ReviewDecisionConflict(
+                "aborted compensation identity is inconsistent",
+            )
+        journal_store.write(
+            journal.model_copy(
+                update={
+                    "state": ReviewDecisionJournalState.ABORTED,
+                    "updated_at": datetime.now(UTC),
+                },
+            ),
+        )
+        return True
 
     def _resume_decision(
         self,
@@ -1366,9 +1611,24 @@ class ProjectReviewService:
                 continue
             value = value_at(current_data, operation.json_pointer)
             if hash_json_value(value) != operation.after_hash:
-                raise ReviewDecisionConflict(
-                    f"Review candidate changed at {operation.json_pointer}",
+                collection = value_at(
+                    current_data,
+                    operation.json_pointer.rsplit("/", 1)[0],
                 )
+                if not (
+                    operation.kind.value == "reorder"
+                    and isinstance(collection, dict)
+                    and isinstance(collection.get("items"), dict)
+                    and _collection_order(
+                        operation.after,
+                        collection["items"],
+                        value,
+                    )
+                    == value
+                ):
+                    raise ReviewDecisionConflict(
+                        f"Review candidate changed at {operation.json_pointer}",
+                    )
             if operation.kind.value == "create":
                 restored = MISSING
                 kind = "delete"
@@ -1390,7 +1650,26 @@ class ProjectReviewService:
                     after=restored,
                 ),
             )
-        return changes
+        candidate = apply_changes(current_data, changes)
+        # Collection membership and its order are one structural invariant.
+        # A per-item rejection keeps the order of all surviving siblings;
+        # restoring a deleted item uses its previous neighbour when possible.
+        for operation in review.operations:
+            pointer = operation.json_pointer or ""
+            if not pointer.endswith("/order"):
+                continue
+            collection = value_at(candidate, pointer.rsplit("/", 1)[0])
+            if not isinstance(collection, dict) or not isinstance(
+                collection.get("items"),
+                dict,
+            ):
+                continue
+            collection["order"] = _collection_order(
+                collection["order"],
+                collection["items"],
+                operation.before,
+            )
+        return list(diff_json(current_data, candidate))
 
     def _completed_compensation_snapshot(
         self,
@@ -1560,9 +1839,9 @@ class ProjectReviewService:
                 "candidate_generation": head.generation,
                 "candidate_etag": head.etag,
                 "decision_token": secrets.token_urlsafe(24),
-                "status": ReviewStatus.PENDING
-                if pending
-                else ReviewStatus.RESOLVED,
+                "status": (
+                    ReviewStatus.PENDING if pending else ReviewStatus.RESOLVED
+                ),
                 "operations": updated_operations,
                 "updated_at": datetime.now(UTC),
             },
@@ -1714,8 +1993,10 @@ class ProjectReviewService:
         )
         state = state_store.read()
         # Multiple reviews may be pending at once (media/runtime tasks plus
-        # AgentDock interventions).  Resolving one must neither drop the pointer
-        # to another still-pending review nor advance the accepted baseline past
+        # AgentDock interventions).  Resolving one must neither drop the
+        # pointer
+        # to another still-pending review nor advance the accepted baseline
+        # past
         # changes the user has not yet reviewed.
         other_pending = self._other_pending_round_id(
             project_id,
@@ -1739,9 +2020,11 @@ class ProjectReviewService:
                         if advance_baseline
                         else state.accepted_generation
                     ),
-                    "accepted_etag": snapshot.etag
-                    if advance_baseline
-                    else state.accepted_etag,
+                    "accepted_etag": (
+                        snapshot.etag
+                        if advance_baseline
+                        else state.accepted_etag
+                    ),
                     "updated_at": datetime.now(UTC),
                 },
             ),

@@ -24,6 +24,7 @@ export function runtime(overrides: Partial<HubRuntime> = {}): HubRuntime {
     tenant_id: "personal-user-a",
     owner_user_id: "user-a",
     owner_username: "owner",
+    owner_role: "user",
     provisioner: "local",
     host: "127.0.0.1",
     port: 32001,
@@ -59,6 +60,7 @@ export function hubHealth(overrides: Partial<HubHealth> = {}): HubHealth {
     runtime_state: "running",
     runtime_desired_state: "running",
     runtime_start_policy: "owner_allowed",
+    runtime_last_error: null,
     provisioner_statuses: {
       local: { available: true, security_level: "isolated-local" },
     },
@@ -78,7 +80,18 @@ export function hubOverview(overrides: Partial<HubOverview> = {}): HubOverview {
     total_runtimes: 2,
     total_users: 1,
     runtime_available: true,
-    host: { cpu_percent: 12, memory_percent: 34, disk_percent: 56 },
+    host: {
+      cpu_percent: 12,
+      memory_percent: 34,
+      disk_percent: 56,
+      memory_used: 3 * 1024 ** 3,
+      memory_total: 8 * 1024 ** 3,
+      memory_available: 5 * 1024 ** 3,
+      disk_used: 56 * 1024 ** 3,
+      disk_total: 100 * 1024 ** 3,
+      disk_free: 44 * 1024 ** 3,
+      disk_path: "/data/qwenpaw",
+    },
     recent_events: [],
     ...overrides,
   };
@@ -90,7 +103,7 @@ export function hubSettings(overrides: Partial<HubSettings> = {}): HubSettings {
       version: 1,
       control_plane: {
         public_base_url: "https://hub.example.com",
-        registration: { enabled: false, default_role: "user" },
+        registration: { mode: "closed" as const, default_role: "user" },
         security: {
           ip_blacklist: [],
           trusted_proxy_ips: [],

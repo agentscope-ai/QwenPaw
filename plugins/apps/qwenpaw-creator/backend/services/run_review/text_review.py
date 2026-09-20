@@ -5,8 +5,9 @@ Runs inline inside the ``jq_project`` tool worker (a ``to_thread`` context):
 when the sync switch is on and the commit touched reviewable creative text,
 the changed values are scored against the vendored Appeal rubric and the
 advisory is attached to the tool result, so the model sees it on its very
-next turn of the same run. Strictly advisory and fail-open: any review
-problem only logs — the commit result is never disturbed.
+next turn of the same run. LLM taste review remains advisory and fail-open.
+Machine-verifiable R2V prompt-contract findings persist a scheduling blocker
+until repaired, while the Project commit itself is never disturbed.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import asyncio
 import hashlib
 import json
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -26,32 +28,35 @@ from services.run_review.rubric_prompts import (
     STAGE_RUBRIC_ROWS,
     build_appeal_system_prompt,
 )
+from services.run_review.prompt_contract import (
+    check_changed_r2v_prompt_contracts,
+)
 from utils.logger import setup_logger
 
 logger = setup_logger("creator.run_review.text")
 
 _TRACE_COMPONENT = "run_review"
-# Real-model observation (2026-08-20): the DogFooding proxy can take
-# >60s per text completion when the agent's own turn runs concurrently;
-# 60s produced spurious ReadTimeouts on the very first live commit.
-_TEXT_MODEL_TIMEOUT_SECONDS = 120.0
+# Inline advice must not occupy the main agent for repeated 120s waits.
+# All calls start together within this budget; unavailable reviews enter
+# durable backoff and are reported explicitly, never recorded as passes.
+_SYNC_REVIEW_BUDGET_SECONDS = 30.0
+_TEXT_MODEL_TIMEOUT_SECONDS = _SYNC_REVIEW_BUDGET_SECONDS
 _VALUE_CHAR_LIMIT = 2000
 _PAYLOAD_CHAR_LIMIT = 12000
 _PERSISTENT_MEDIA_GATE_GROUPS = frozenset(
-    {"shots", "overlay_text", "motion"},
+    {"generation_content", "overlay_text", "motion"},
 )
 
 # Pointer classification: (group, stage, substring patterns). The first
 # matching group in this order wins when one commit spans several groups.
-# Generation-driving shot/prompt text must win over the broader strategy
+# Generation-driving narrative/prompt text must win over the broader strategy
 # fields: it is the content the pre-generation fence is specifically meant
 # to validate before storyboard/R2V spend begins.
 _POINTER_GROUPS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (
-        "shots",
+        "generation_content",
         "text",
         (
-            "/creation/shots",
             "/creation/intent",
             "/creation/narrative",
             "/creation/continuity",
@@ -123,6 +128,15 @@ def reviewable_changed_pointers(
     expanded: list[str] = []
 
     def walk(value: Any, pointer: str) -> None:
+        parts = pointer.split("/")
+        if (
+            len(parts) >= 4
+            and parts[1:3] == ["timelines", "items"]
+            and parts[3].startswith("snapshot:")
+        ):
+            # These copies are frozen by the write boundary and never enter
+            # production. Auto-saving history must not review old prompts.
+            return
         if classify_pointers([pointer]) is not None:
             if _has_reviewable_content(value):
                 expanded.append(pointer)
@@ -287,22 +301,35 @@ async def _review_and_script(
     stage: str,
     payload_text: str,
     strategy_payload: str,
-    shots_payload: str,
-) -> tuple[str, dict[str, Any] | None]:
-    """Appeal review plus (for shots commits) the script-to-shots check.
+    content_payload: str,
+) -> tuple[Any, Any]:
+    """Appeal review plus script alignment for changed generation content.
 
-    The two calls run concurrently on the worker's private loop; the
-    script check is fail-open internally and never raises.
+    Preserve completed results when the sibling check fails or times out.
     """
-    if not strategy_payload or not shots_payload:
-        return await _review_async(stage, payload_text), None
+
+    async def bounded(awaitable):
+        try:
+            return await asyncio.wait_for(
+                awaitable,
+                _SYNC_REVIEW_BUDGET_SECONDS,
+            )
+        except (
+            Exception
+        ) as exc:  # advisory only; cancellation still propagates
+            return exc
+
+    if not strategy_payload or not content_payload:
+        return await bounded(_review_async(stage, payload_text)), None
     from services.run_review.script_review import run_script_check
 
     response, script_check = await asyncio.gather(
-        _review_async(stage, payload_text),
-        run_script_check(
-            strategy_payload=strategy_payload,
-            shots_payload=shots_payload,
+        bounded(_review_async(stage, payload_text)),
+        bounded(
+            run_script_check(
+                strategy_payload=strategy_payload,
+                content_payload=content_payload,
+            ),
         ),
     )
     return response, script_check
@@ -367,6 +394,10 @@ def _admit_sync_review_jobs(
                 "payload_text": payload_text,
                 "content_hash": content_hash,
                 "round_number": round_number,
+                "retry_after": admission.sync_review_retry_after(
+                    reports_root,
+                    group,
+                ),
             },
         )
     return jobs
@@ -383,6 +414,7 @@ def _settle_sync_review_job(
     multi: bool,
     failed_groups: set[str],
 ) -> dict[str, Any] | None:
+    # pylint: disable=too-many-branches,too-many-statements
     """Settle one group's round; return its advisory when not clean.
 
     Fail-open per group: a failed call or an unparsable verdict releases
@@ -392,93 +424,129 @@ def _settle_sync_review_job(
     from services.run_review.script_review import script_check_has_findings
 
     group = str(job["group"])
-    stage = str(job["stage"])
-    matched = list(job["matched"])
-    content_hash = str(job["content_hash"])
     round_number = int(job["round_number"])
-    if isinstance(response, BaseException):
-        admission.clear_sync_blocker(reports_root, pointer_group=group)
-        failed_groups.discard(group)
-        logger.error(
-            "sync review group failed for project %s txn %s group %s: %s",
-            project_id,
-            transaction_id,
-            group,
-            response,
-        )
-        return None
-    try:
+    retry_after = float(job.get("retry_after") or 0)
+    cooling_down = retry_after > time.time()
+    failures: list[str] = []
+    script_check = None
+    if cooling_down:
+        failures.append("REVIEW_COOLDOWN")
+        response_text = None
+    elif isinstance(response, BaseException):
+        failures.append(type(response).__name__)
+        response_text = None
+    else:
         response_text, script_check = response
-        advisory = parse_sync_advisory(
-            response_text,
-            stage=stage,
-            transaction_id=transaction_id,
-            pointer_group=group,
-            reviewed_pointers=matched,
-            round_number=round_number,
-        )
-        if script_check is not None:
-            advisory = advisory.model_copy(
-                update={"script_check": script_check},
+        if isinstance(response_text, BaseException):
+            failures.append(type(response_text).__name__)
+            response_text = None
+        if isinstance(script_check, BaseException):
+            script_check = {
+                "status": "unavailable",
+                "reason": type(script_check).__name__,
+            }
+        if script_check and script_check.get("status") == "unavailable":
+            failures.append("SCRIPT_CHECK_UNAVAILABLE")
+
+    advisory = SyncReviewAdvisory(
+        transaction_id=transaction_id,
+        pointer_group=group,
+        reviewed_pointers=list(job["matched"]),
+        round=round_number,
+        scores=[],
+        summary="",
+        created_at=datetime.now(UTC),
+    )
+    if response_text is not None:
+        try:
+            advisory = parse_sync_advisory(
+                response_text,
+                stage=str(job["stage"]),
+                transaction_id=transaction_id,
+                pointer_group=group,
+                reviewed_pointers=list(job["matched"]),
+                round_number=round_number,
             )
-        clean = not advisory.weak_scores() and not script_check_has_findings(
-            script_check,
-        )
+        except (ValueError, TypeError) as exc:
+            failures.append("INVALID_REVIEW_RESPONSE")
+            logger.warning("invalid sync review for %s: %s", project_id, exc)
+    if script_check is not None:
+        advisory = advisory.model_copy(update={"script_check": script_check})
+    clean = not advisory.weak_scores() and not script_check_has_findings(
+        script_check,
+    )
+    complete = not failures
+    # Incomplete checks are not clean passes and do not poison content dedup.
+    # Valid findings from a completed sibling still consume the repair budget.
+    if complete or not clean:
         admission.settle_sync_review(
             reports_root,
             pointer_group=group,
-            content_hash=content_hash,
+            content_hash=str(job["content_hash"]),
             clean=clean,
         )
-        # A weak inline review must remain effective during the next
-        # agent turn. A clean follow-up or the hard cap releases it.
-        if (
-            clean
-            or round_number >= admission.MAX_SYNC_REVIEW_ROUNDS
-            or group not in _PERSISTENT_MEDIA_GATE_GROUPS
-        ):
-            admission.clear_sync_blocker(reports_root, pointer_group=group)
-        elif gate_token is not None:
-            admission.hold_sync_blocker(
-                reports_root,
-                project_id=project_id,
-                pointer_group=group,
-                reviewed_pointers=matched,
-                round_number=round_number,
-            )
-        report_name = admission.safe_ref(transaction_id)
-        if multi:
-            report_name += f"-{admission.safe_ref(group)}"
-        admission.write_json(
-            reports_root / "sync" / f"{report_name}.json",
-            advisory.model_dump(mode="json"),
-        )
-        trace_event(
-            "run_review.sync_advisory",
-            component=_TRACE_COMPONENT,
-            attributes={
-                "pointerGroup": group,
-                "stage": stage,
-                "round": round_number,
-                "clean": clean,
-                "scriptFindings": script_check_has_findings(script_check),
-                "transactionId": transaction_id,
-            },
-            projectId=project_id,
-        )
-        failed_groups.discard(group)
-        return None if clean else advisory.model_dump(mode="json")
-    except Exception:  # noqa: BLE001 - per-group advisory fail-open
-        admission.clear_sync_blocker(reports_root, pointer_group=group)
-        failed_groups.discard(group)
-        logger.exception(
-            "sync review group parse/settle failed for project %s "
-            "txn %s group %s",
-            project_id,
-            transaction_id,
+    if not cooling_down:
+        retry_after = admission.settle_sync_review_availability(
+            reports_root,
             group,
+            available=complete,
         )
-        return None
+    if (
+        clean
+        or round_number >= admission.MAX_SYNC_REVIEW_ROUNDS
+        or group not in _PERSISTENT_MEDIA_GATE_GROUPS
+    ):
+        admission.clear_sync_blocker(reports_root, pointer_group=group)
+    elif gate_token is not None:
+        admission.hold_sync_blocker(
+            reports_root,
+            project_id=project_id,
+            pointer_group=group,
+            reviewed_pointers=list(job["matched"]),
+            round_number=round_number,
+        )
+    payload = advisory.model_dump(mode="json")
+    if failures:
+        payload.update(
+            status=(
+                "partial"
+                if advisory.scores or script_check_has_findings(script_check)
+                else "unavailable"
+            ),
+            review_errors=failures,
+            retry_after=datetime.fromtimestamp(retry_after, UTC).isoformat(),
+            summary=(advisory.summary + "；" if advisory.summary else "")
+            + "自动文本审阅未全部完成，已进入退避；本次项目写入已保存，不代表审阅通过。",
+            agent_action=(
+                "请根据已完成的检查与当前项目自行核对并继续计划；"
+                "不要重复提交相同内容来触发审阅，也不要要求用户为模型超时修改需求。"
+                "确定性提示词检查仍然生效。"
+            ),
+        )
+    report_name = admission.safe_ref(transaction_id)
+    if multi:
+        report_name += f"-{admission.safe_ref(group)}"
+    admission.write_json(
+        reports_root / "sync" / f"{report_name}.json",
+        payload,
+    )
+    trace_event(
+        "run_review.sync_advisory",
+        component=_TRACE_COMPONENT,
+        attributes={
+            "pointerGroup": group,
+            "stage": str(job["stage"]),
+            "round": round_number,
+            "clean": clean and complete,
+            "status": payload.get("status", "completed"),
+            "reviewErrors": failures,
+            "scriptFindings": script_check_has_findings(script_check),
+            "transactionId": transaction_id,
+        },
+        projectId=project_id,
+    )
+    failed_groups.discard(group)
+    return None if clean and complete else payload
 
 
 def _merge_sync_advisories(
@@ -509,6 +577,77 @@ def _merge_sync_advisories(
     }
 
 
+def _prompt_contract_advisory(
+    prompt_check: Mapping[str, Any],
+    *,
+    project_id: str,
+    reports_root: Path,
+    transaction_id: str,
+    content_job_admitted: bool,
+) -> dict[str, Any] | None:
+    """Persist and gate deterministic R2V prompt findings.
+
+    Missing/invalid prompt fields are not subjective Appeal scores and do not
+    consume the two-round taste-review budget. They remain gated until a
+    later changed R2V commit passes this checker.
+    """
+
+    if not prompt_check.get("applicable"):
+        return None
+    findings = prompt_check.get("findings") or []
+    reviewed_pointers = list(prompt_check.get("reviewed_pointers") or [])
+    if not findings:
+        # When an LLM content job exists, its settlement owns the blocker. If
+        # admission skipped/capped that job, a clean deterministic repair
+        # must still release a blocker created by an earlier empty prompt.
+        if not content_job_admitted:
+            admission.clear_sync_blocker(
+                reports_root,
+                pointer_group="generation_content",
+            )
+        return None
+
+    admission.hold_sync_blocker(
+        reports_root,
+        project_id=project_id,
+        pointer_group="generation_content",
+        reviewed_pointers=reviewed_pointers,
+        round_number=1,
+    )
+    advisory = SyncReviewAdvisory(
+        transaction_id=transaction_id,
+        pointer_group="generation_content",
+        reviewed_pointers=reviewed_pointers,
+        round=1,
+        scores=[],
+        summary=(
+            f"R2V Prompt 合同发现 {len(findings)} 个可确定修复项；"
+            "付费分镜/视频调度保持阻塞，主 Agent 必须直接修复。"
+        ),
+        prompt_check=dict(prompt_check),
+        created_at=datetime.now(UTC),
+    )
+    payload = advisory.model_dump(mode="json")
+    report_name = admission.safe_ref(transaction_id) + "-prompt-contract"
+    admission.write_json(
+        reports_root / "sync" / f"{report_name}.json",
+        payload,
+    )
+    trace_event(
+        "run_review.prompt_contract_advisory",
+        component=_TRACE_COMPONENT,
+        attributes={
+            "findingCount": len(findings),
+            "checkedElementCount": len(
+                prompt_check.get("checked_elements") or [],
+            ),
+            "transactionId": transaction_id,
+        },
+        projectId=project_id,
+    )
+    return payload
+
+
 def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
     *,
     project_id: str,
@@ -521,8 +660,8 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
     """Sync review entry for the jq_project worker thread. Fail-open.
 
     Returns the advisory as a JSON-ready dict to attach to the tool result,
-    or ``None`` when review is off, not applicable, deduped, capped or
-    failed.
+    or ``None`` when review is off, not applicable, deduped, capped or clean.
+    Unavailable reviews return explicit agent-facing status.
     """
     reports_root = project_root / "runtime" / "run-review"
     failed_groups: set[str] = set()
@@ -531,12 +670,16 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
 
         if not is_sync_review_enabled():
             return None
+        prompt_check = check_changed_r2v_prompt_contracts(
+            project_json,
+            changed_pointers,
+        )
         expanded_pointers = reviewable_changed_pointers(
             project_json,
             changed_pointers,
         )
         classified = classify_pointer_groups(expanded_pointers)
-        if not classified:
+        if not classified and not prompt_check.get("applicable"):
             return None
         try:
             asyncio.get_running_loop()
@@ -546,7 +689,13 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             # Inline review needs its own loop; inside a running loop this
             # worker cannot block on one, so the advisory is skipped.
             logger.warning("sync review skipped: called on a running loop")
-            return None
+            return _prompt_contract_advisory(
+                prompt_check,
+                project_id=project_id,
+                reports_root=reports_root,
+                transaction_id=transaction_id,
+                content_job_admitted=False,
+            )
 
         jobs = _admit_sync_review_jobs(
             project_json,
@@ -554,20 +703,61 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             reports_root=reports_root,
             failed_groups=failed_groups,
         )
+        content_job_admitted = any(
+            job["group"] == "generation_content" for job in jobs
+        )
         if not jobs:
-            return None
+            return _prompt_contract_advisory(
+                prompt_check,
+                project_id=project_id,
+                reports_root=reports_root,
+                transaction_id=transaction_id,
+                content_job_admitted=False,
+            )
 
-        shots_pointers = [
+        content_pointers = [
             pointer
-            for pointer in changed_pointers
-            if "/creation/shots" in pointer
+            for pointer in expanded_pointers
+            if any(
+                field in pointer
+                for field in (
+                    "/creation/narrative",
+                    "/creation/storyboard_prompt",
+                    "/creation/video_prompt",
+                )
+            )
         ]
-        shots_payload = _payload_text(project_json, shots_pointers)
+        content_pointers = list(
+            dict.fromkeys(
+                pointer.split("/creation/")[0] + "/creation/" + field
+                for pointer in content_pointers
+                for field in ("narrative", "storyboard_prompt", "video_prompt")
+            ),
+        )
+        content_payload = _payload_text(project_json, content_pointers)
         script_strategy = (
             _strategy_payload(project_json)
-            if shots_payload and _script_check_enabled()
+            if content_payload and _script_check_enabled()
             else ""
         )
+
+        async def review_job(job: Mapping[str, Any]) -> Any:
+            if float(job.get("retry_after") or 0) > time.time():
+                return None, None
+            return await _review_and_script(
+                str(job["stage"]),
+                str(job["payload_text"]),
+                (
+                    script_strategy
+                    if job["group"] == "generation_content"
+                    else ""
+                ),
+                (
+                    content_payload
+                    if job["group"] == "generation_content"
+                    else ""
+                ),
+            )
 
         async def review_all() -> list[Any]:
             # A mixed repair often updates strategy and generation prompts in
@@ -576,15 +766,7 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             # blocker orphaned until its five-minute crash TTL.
             return list(
                 await asyncio.gather(
-                    *(
-                        _review_and_script(
-                            str(job["stage"]),
-                            str(job["payload_text"]),
-                            script_strategy if job["group"] == "shots" else "",
-                            shots_payload if job["group"] == "shots" else "",
-                        )
-                        for job in jobs
-                    ),
+                    *(review_job(job) for job in jobs),
                     return_exceptions=True,
                 ),
             )
@@ -607,8 +789,18 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             if advisory_payload is not None:
                 delivered.append(advisory_payload)
 
+        prompt_payload = _prompt_contract_advisory(
+            prompt_check,
+            project_id=project_id,
+            reports_root=reports_root,
+            transaction_id=transaction_id,
+            content_job_admitted=content_job_admitted,
+        )
+        if prompt_payload is not None:
+            delivered.append(prompt_payload)
+
         return _merge_sync_advisories(delivered, transaction_id)
-    except Exception:
+    except Exception as exc:
         # Advisory only: a review failure must never disturb the commit.
         for failed_group in failed_groups:
             admission.clear_sync_blocker(
@@ -620,7 +812,17 @@ def maybe_sync_review(  # pylint: disable=too-many-locals,too-many-statements
             project_id,
             transaction_id,
         )
-        return None
+        return {
+            "transaction_id": transaction_id,
+            "pointer_group": "internal",
+            "reviewed_pointers": list(changed_pointers),
+            "round": 0,
+            "scores": [],
+            "status": "unavailable",
+            "review_errors": [type(exc).__name__],
+            "summary": "项目写入已保存，自动文本审阅未完成；这不代表审阅通过。",
+            "agent_action": "请核对当前项目并继续计划，不要要求用户为审阅服务故障修改需求。",
+        }
 
 
 __all__ = [

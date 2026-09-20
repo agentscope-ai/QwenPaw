@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Authoritative [Image N] reference-order preview for r2v Elements."""
+
 from __future__ import annotations
 
 import pytest
@@ -20,7 +21,6 @@ from services.project_files.models import (
     VisualEntity,
     VisualVariant,
 )
-
 
 pytestmark = pytest.mark.unit
 
@@ -59,6 +59,31 @@ def _project() -> Project:
         },
     )
     project.visual.entities.order.append("char:a")
+    for entity_id, kind, variant_id, version_id, name in (
+        ("prop:bird", "prop", "var:bird", "art:bird-main", "纸鹤道具图"),
+        ("scene:rain", "scene", "var:rain", "art:rain-main", "雨夜场景图"),
+    ):
+        project.visual.entities.items[entity_id] = VisualEntity(
+            entity_id=entity_id,
+            kind=kind,
+            name=name,
+            required_variant_ids=[variant_id],
+            variants={
+                "items": {
+                    variant_id: VisualVariant(
+                        variant_id=variant_id,
+                        selected_artifact_version_id=version_id,
+                    ),
+                },
+                "order": [variant_id],
+            },
+        )
+        project.visual.entities.order.append(entity_id)
+        project.assets.artifact_versions_by_id[version_id] = _artifact(
+            version_id,
+            slot_id=f"slot:{entity_id}",
+            name=name,
+        )
     project.assets.artifact_versions_by_id["art:a-main"] = _artifact(
         "art:a-main",
         slot_id="slot:char-a",
@@ -101,7 +126,13 @@ def _project() -> Project:
         location=ElementLocation(),
         creation=R2VCreation(
             character_refs=["char:a"],
-            visual_variant_refs={"char:a": "var:x"},
+            prop_refs=["prop:bird"],
+            scene_ref="scene:rain",
+            visual_variant_refs={
+                "char:a": "var:x",
+                "prop:bird": "var:bird",
+                "scene:rain": "var:rain",
+            },
             video_reference_version_ids=["src:upload-1", "art:extra"],
         ),
         outputs={
@@ -113,7 +144,9 @@ def _project() -> Project:
     return project
 
 
-def test_preview_mirrors_submit_order_and_shifts_without_storyboard() -> None:
+def test_preview_mirrors_submit_order_and_reserves_missing_storyboard() -> (
+    None
+):
     project = _project()
 
     preview = preview_r2v_reference_order(project, "elem:1")
@@ -133,21 +166,40 @@ def test_preview_mirrors_submit_order_and_shifts_without_storyboard() -> None:
     assert preview["references"][0]["name"] == "第一镜 分镜图"
     assert preview["references"][1]["name"] == "用户上传参考"
 
-    # Without a selected storyboard the chain starts at [Image 1] with the
-    # first explicit reference.
+    # Before the storyboard exists its semantic slot stays [Image 1]; input
+    # identities must not change when the real storyboard becomes selected.
     slot = project.assets.artifact_slots_by_id["element:elem:1:storyboard"]
     slot.selected_version_id = None
     shifted = preview_r2v_reference_order(project, "elem:1")
     assert shifted["storyboardSelected"] is False
+    assert shifted["ready"] is False
+    assert shifted["references"][0] == {
+        "index": 1,
+        "versionId": "",
+        "kind": "storyboard",
+        "available": False,
+        "name": "分镜图（待生成）",
+    }
     assert [
         (item["index"], item["versionId"]) for item in shifted["references"]
     ] == [
-        (1, "src:upload-1"),
-        (2, "art:extra"),
+        (1, ""),
+        (2, "src:upload-1"),
+        (3, "art:extra"),
     ]
+    slot.selected_version_id = "art:sb-1"
+    selected = preview_r2v_reference_order(project, "elem:1")
+    assert selected["ready"] is True
+    assert selected["references"][1:] == shifted["references"][1:]
+    assert (
+        selected["references"][0]["index"] == shifted["references"][0]["index"]
+    )
+    assert selected["references"][0]["versionId"] == "art:sb-1"
+    slot.selected_version_id = None
 
     # An element with no explicit references falls back to the automatic
-    # chain (resolved variant anchors).
+    # chain, which resolves every bound anchor in character → scene → prop
+    # order.
     element = None
     for timeline in project.timelines.items.values():
         element = timeline.elements_by_id.get("elem:1") or element
@@ -156,7 +208,10 @@ def test_preview_mirrors_submit_order_and_shifts_without_storyboard() -> None:
     assert [
         (item["index"], item["versionId"]) for item in auto["references"]
     ] == [
-        (1, "art:a-main"),
+        (1, ""),
+        (2, "art:a-main"),
+        (3, "art:rain-main"),
+        (4, "art:bird-main"),
     ]
 
 

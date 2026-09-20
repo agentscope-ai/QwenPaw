@@ -1,9 +1,11 @@
 import { useTranslation } from "react-i18next";
 import wordmarkUrl from "@/assets/design/wordmark-qwenpaw.svg";
+import wordmarkDarkUrl from "@/assets/design/wordmark-qwenpaw-dark.svg";
 import cursorDirector from "@/assets/design/cursor-director.svg";
 import cursorWriter from "@/assets/design/cursor-writer.svg";
 import cursorMotion from "@/assets/design/cursor-motion.svg";
 import cursorEditor from "@/assets/design/cursor-editor.svg";
+import { useTheme } from "@/app/theme";
 
 /**
  * Hero title transcribed 1:1 from the design draft (1440x900 artboard).
@@ -63,6 +65,7 @@ const ROLE_CURSORS: (Omit<RoleCursor, "label"> & { labelKey: string })[] = [
 
 export default function HeroTitle() {
   const { t } = useTranslation();
+  const { resolvedTheme } = useTheme();
   return (
     <div
       className="relative"
@@ -73,7 +76,7 @@ export default function HeroTitle() {
         style={{ gap: 10.94, height: TITLE_ROW_HEIGHT, margin: 0 }}
       >
         <img
-          src={wordmarkUrl}
+          src={resolvedTheme === "dark" ? wordmarkDarkUrl : wordmarkUrl}
           alt="QwenPaw"
           width={279.95}
           height={47.99}

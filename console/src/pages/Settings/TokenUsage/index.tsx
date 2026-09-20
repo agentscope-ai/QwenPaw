@@ -166,6 +166,8 @@ function TokenUsagePage() {
       model: key,
       prompt_tokens: stats.prompt_tokens,
       completion_tokens: stats.completion_tokens,
+      cache_read_tokens: stats.cache_read_tokens,
+      cache_eligible_input_tokens: stats.cache_eligible_input_tokens,
       call_count: stats.call_count,
     }));
   }, [aggregatedData?.by_model]);
@@ -192,6 +194,8 @@ function TokenUsagePage() {
           agent,
           prompt_tokens: stats.prompt_tokens,
           completion_tokens: stats.completion_tokens,
+          cache_read_tokens: stats.cache_read_tokens,
+          cache_eligible_input_tokens: stats.cache_eligible_input_tokens,
           call_count: stats.call_count,
         };
       })
@@ -250,9 +254,9 @@ function TokenUsagePage() {
                 totalCalls={aggregatedData.total_calls}
                 totalPromptTokens={aggregatedData.total_prompt_tokens}
                 totalCompletionTokens={aggregatedData.total_completion_tokens}
-                totalTokens={
-                  aggregatedData.total_prompt_tokens +
-                  aggregatedData.total_completion_tokens
+                totalCacheReadTokens={aggregatedData.total_cache_read_tokens}
+                totalCacheEligibleInputTokens={
+                  aggregatedData.total_cache_eligible_input_tokens
                 }
               />
             )}

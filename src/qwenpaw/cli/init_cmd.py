@@ -14,6 +14,8 @@ from .env_cmd import configure_env_interactive
 from .providers_cmd import configure_providers_interactive
 from .skills_cmd import configure_skills_interactive
 from .utils import prompt_confirm, prompt_choice
+from ..agents.skill_system import ensure_skill_pool_initialized
+from ..agents.utils import copy_md_files
 from ..config import (
     get_config_path,
     get_heartbeat_query_path,
@@ -69,6 +71,10 @@ We collect only:
 
 No personal data collected! No files, no credentials, no identifiable information.
 This helps us understand QwenPaw's usage environment and prioritize improvements.
+When an Agent executes (including scheduled tasks), daily telemetry sends
+these system fields, a persistent random Runtime UUID and the UTC date.
+Each Runtime counts once per active day. This uses the same telemetry choice;
+QWENPAW_TELEMETRY_DISABLED disables both installation and daily telemetry.
 """
 
 
@@ -147,6 +153,45 @@ def _sync_default_workspace_skills(
         if result.get("success"):
             enabled += 1
     return enabled
+
+
+def ensure_local_runtime_initialized() -> None:
+    """Initialize a Local Hub runtime once without resetting existing data."""
+    working_dir = get_config_path().parent
+    marker = working_dir / ".hub-initialized"
+    if marker.is_file():
+        return
+    if not get_config_path().is_file():
+        with click.Context(init_cmd) as context:
+            context.invoke(
+                init_cmd,
+                force=False,
+                use_defaults=True,
+                accept_security=True,
+            )
+    else:
+        config = load_config()
+        profile = config.agents.profiles.get("default")
+        workspace = (
+            Path(profile.workspace_dir).expanduser()
+            if profile is not None
+            else working_dir / "workspaces" / "default"
+        )
+        workspace.mkdir(parents=True, exist_ok=True)
+        ensure_skill_pool_initialized()
+        _sync_default_workspace_skills(workspace)
+        language = config.agents.language or "zh"
+        copy_md_files(language, skip_existing=True, workspace_dir=workspace)
+        heartbeat_path = get_heartbeat_query_path()
+        if not heartbeat_path.exists():
+            heartbeat_path.write_text(
+                DEFAULT_HEARTBEAT_MDS.get(
+                    language,
+                    DEFAULT_HEARTBEAT_MDS["zh"],
+                ).strip(),
+                encoding="utf-8",
+            )
+    marker.touch()
 
 
 @click.command("init")
@@ -236,8 +281,6 @@ def init_cmd(
     click.echo("✓ Builtin QA agent workspace ensured")
 
     # --- Ensure local skill hub exists ---
-    from ..agents.skill_system import ensure_skill_pool_initialized
-
     if ensure_skill_pool_initialized():
         click.echo("✓ Skill pool initialized")
 
@@ -440,8 +483,6 @@ def init_cmd(
             click.echo("Skipped environment variable configuration.")
 
     # --- md files (check language change) ---
-    from ..agents.utils import copy_md_files
-
     config = load_config(config_path) if config_path.is_file() else Config()
     current_language = (
         config.agents.language or "zh"

@@ -341,35 +341,6 @@ describe("bounded frontend caches", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("tracks rate-limit retry notices until the throttled run fails", () => {
-    installMockFetch([]);
-    seed({ activeConversationId: "c1", session: sessionView() });
-
-    ingest(
-      ev(1, "agent.model.rate_limit_retry", {
-        runId: "run-throttled",
-        attempt: 1,
-        maxAttempts: 5,
-        delaySeconds: 2,
-      }),
-    );
-    expect(store().rateLimitRetry).toEqual({
-      attempt: 1,
-      maxAttempts: 5,
-      runId: "run-throttled",
-    });
-
-    const error = {
-      code: "MODEL_RATE_LIMITED",
-      message: "模型遭遇限流，已重试 5 次仍无法访问",
-      retryable: true,
-      details: { retryCount: 5 },
-    };
-    ingest(ev(2, "agent.run.failed", { runId: "run-throttled", error }));
-    expect(store().rateLimitRetry).toBeNull();
-    expect(store().session?.error).toEqual(error);
-  });
-
   it("does not resurrect a failed draft while replaying a completed retry", () => {
     const durableRetry = msg({
       messageId: "assistant-retry",

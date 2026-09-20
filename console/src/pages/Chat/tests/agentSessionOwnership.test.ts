@@ -16,6 +16,7 @@ import type { ChatSpec, ChatHistory } from "../../../api";
 import api from "../../../api";
 import sessionApi from "../sessionApi";
 import { useAgentStore } from "../../../stores/agentStore";
+import { useSessionListStore } from "../../../stores/sessionListStore";
 import { useTurnUsageStore } from "../turnUsageStore";
 import type { TurnUsageSnapshot } from "../turnUsage";
 
@@ -34,7 +35,12 @@ async function flush(): Promise<void> {
   await new Promise((res) => setTimeout(res, 0));
 }
 
-function makeChatSpec(id: string, sessionId: string, name = "chat"): ChatSpec {
+function makeChatSpec(
+  id: string,
+  sessionId: string,
+  name = "chat",
+  status: "idle" | "running" = "idle",
+): ChatSpec {
   return {
     id,
     name,
@@ -44,7 +50,7 @@ function makeChatSpec(id: string, sessionId: string, name = "chat"): ChatSpec {
     created_at: "2026-07-27T10:00:00.000000+00:00",
     updated_at: "2026-07-27T10:00:00.000000+00:00",
     meta: {},
-    status: "idle",
+    status,
     pinned: false,
     archived: false,
     archived_at: null,
@@ -58,17 +64,100 @@ function makeHistory(): ChatHistory {
 const A_CHAT = "11111111-aaaa-4aaa-8aaa-111111111111";
 const B_CHAT = "22222222-bbbb-4bbb-8bbb-222222222222";
 
+// Legacy cached drafts still need ID-resolution coverage. New SDK creation
+// obtains the UUID before sending; do not make createChat fake the old contract.
+function seedLegacyDraft(id = "1788430000000-legacy1") {
+  const legacy = sessionApi as unknown as {
+    createEmptySession: (id: string, owner: unknown) => any;
+    getActiveOwner: () => unknown;
+    sessionList: any[];
+  };
+  const draft = legacy.createEmptySession(id, legacy.getActiveOwner());
+  legacy.sessionList.unshift(draft);
+  return { session: draft };
+}
+
 beforeEach(() => {
   sessionApi.resetForTests();
   useAgentStore.setState({ lastChatIdByAgent: {} });
+  useSessionListStore.setState({ _setLibrarySessions: null });
 });
 
 afterEach(() => {
   vi.restoreAllMocks();
   sessionApi.resetForTests();
+  useSessionListStore.setState({ _setLibrarySessions: null });
 });
 
 describe("agent session ownership epochs", () => {
+  it("resolves a backend UUID before exposing a newly created session", async () => {
+    const pending = deferred<ChatSpec>();
+    const create = vi.spyOn(api, "createChat").mockReturnValue(pending.promise);
+    sessionApi.setActiveAgent("agent-a");
+    const selected = vi.fn();
+    sessionApi.onSessionCreated = selected;
+    const result = sessionApi.createSession({ name: "new chat" });
+    expect(selected).not.toHaveBeenCalled();
+    pending.resolve(makeChatSpec(A_CHAT, "runtime-a"));
+    expect((await result).session).toMatchObject({
+      id: A_CHAT,
+      sessionId: "runtime-a",
+    });
+    expect(selected).not.toHaveBeenCalled();
+    sessionApi.activateCreatedSession(A_CHAT);
+    expect(selected).toHaveBeenCalledWith(A_CHAT);
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a creation result from an old Agent epoch", async () => {
+    const pending = deferred<ChatSpec>();
+    vi.spyOn(api, "createChat").mockReturnValue(pending.promise);
+    sessionApi.setActiveAgent("agent-a");
+    const created = vi.fn();
+    sessionApi.onSessionCreated = created;
+    const result = sessionApi.createSession({});
+    sessionApi.setActiveAgent("agent-b");
+    pending.resolve(makeChatSpec(A_CHAT, "runtime-a"));
+    await expect(result).rejects.toMatchObject({ name: "AbortError" });
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it("rejects SDK calls made by an unmounted Agent before starting any request", async () => {
+    const listSpy = vi.spyOn(api, "listChats").mockResolvedValue([]);
+    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    const deleteSpy = vi
+      .spyOn(api, "deleteChat")
+      .mockResolvedValue({ success: true, chat_id: A_CHAT });
+    sessionApi.setActiveAgent("agent-a");
+    const oldSdkApi = sessionApi.bindToOwner();
+
+    // A passive effect may run after the store already selected B. Capturing
+    // the owner inside getSession would incorrectly claim this old A call for B.
+    sessionApi.setActiveAgent("agent-b");
+    expect(await oldSdkApi.getSession(A_CHAT)).toBeUndefined();
+    expect(await oldSdkApi.getSessionList()).toEqual([]);
+    expect(await oldSdkApi.updateSession({ id: A_CHAT })).toEqual([]);
+    expect(await oldSdkApi.removeSession({ id: A_CHAT })).toEqual([]);
+    await expect(oldSdkApi.createSession({})).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(listSpy).not.toHaveBeenCalled();
+    expect(getSpy).not.toHaveBeenCalled();
+    expect(deleteSpy).not.toHaveBeenCalled();
+
+    // Returning to A must not reactivate callbacks from its first mount.
+    sessionApi.setActiveAgent("agent-a");
+    expect(await oldSdkApi.getSession(A_CHAT)).toBeUndefined();
+    expect(getSpy).not.toHaveBeenCalled();
+    const currentSdkApi = sessionApi.bindToOwner();
+    listSpy.mockResolvedValue([makeChatSpec(A_CHAT, "console:a")]);
+    await currentSdkApi.getSessionList();
+    expect(await currentSdkApi.getSession(A_CHAT)).toMatchObject({
+      id: A_CHAT,
+    });
+    expect(getSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("requests only host-owned sessions and history in main Chat", async () => {
     const listSpy = vi
       .spyOn(api, "listChats")
@@ -134,9 +223,8 @@ describe("agent session ownership epochs", () => {
 
     // Agent A creates a blank local session (temp timestamp id).
     sessionApi.setActiveAgent("agent-a");
-    const spec: { id?: string } = {};
-    await sessionApi.createSession(spec);
-    const tempId = spec.id!;
+    const created = seedLegacyDraft();
+    const tempId = created.session.id;
     expect(tempId).toMatch(/^\d+-[a-z0-9]+$/);
 
     // First message sent: resolution starts but the list stays pending.
@@ -202,9 +290,8 @@ describe("agent session ownership epochs", () => {
 
     // Temp-id resolution completes normally within the same epoch. The
     // backend reports the new chat with session_id equal to the temp id.
-    const spec: { id?: string } = {};
-    await sessionApi.createSession(spec);
-    const tempId = spec.id!;
+    const created = seedLegacyDraft();
+    const tempId = created.session.id;
     listSpy.mockResolvedValueOnce([
       makeChatSpec(B_CHAT, tempId),
       makeChatSpec(A_CHAT, "console:a"),
@@ -214,7 +301,76 @@ describe("agent session ownership epochs", () => {
     expect(onSessionIdResolved).toHaveBeenCalledWith(tempId, B_CHAT);
   });
 
-  it("a stale getSession cannot rewrite window identity, turn usage, or fire selection", async () => {
+  it("keeps the created UUID stable when sidebar polling observes the new Chat", async () => {
+    const chat = makeChatSpec(A_CHAT, "runtime-created");
+    vi.spyOn(api, "createChat").mockResolvedValue(chat);
+    vi.spyOn(api, "listChats").mockResolvedValue([chat]);
+    const onResolved = vi.fn();
+    sessionApi.onSessionIdResolved = onResolved;
+    sessionApi.setActiveAgent("agent-a");
+    const created = await sessionApi.createSession({});
+    await sessionApi.getSessionList();
+    sessionApi.triggerResolve(created.session.id);
+    await flush();
+    expect(created.session.id).toBe(A_CHAT);
+    expect(sessionApi.getBackendSessionId(A_CHAT)).toBe("runtime-created");
+    expect(onResolved).not.toHaveBeenCalled();
+  });
+
+  it("does not transfer a resolved local ID to another user sharing the runtime", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    sessionApi.setActiveAgent("agent-a");
+    const created = seedLegacyDraft();
+    const localId = created.session.id;
+    const chatA = makeChatSpec(A_CHAT, localId);
+    listSpy.mockResolvedValue([chatA]);
+    sessionApi.triggerResolve(localId);
+    await flush();
+    listSpy.mockResolvedValue([
+      chatA,
+      { ...makeChatSpec(B_CHAT, localId), user_id: "another-user" },
+    ]);
+    const sessions = await sessionApi.getSessionList();
+    expect(sessions.find((item) => item.id === B_CHAT)).toBeDefined();
+    expect(sessionApi.getRealIdForSession(localId)).toBe(A_CHAT);
+  });
+
+  it("keeps both legacy generating sessions selectable after resolving their ids", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    const setLibrarySessions = vi.fn();
+    useSessionListStore.setState({ _setLibrarySessions: setLibrarySessions });
+
+    sessionApi.setActiveAgent("agent-a");
+    const firstTempId = seedLegacyDraft("1788430000000-legacy1").session.id;
+
+    listSpy.mockResolvedValueOnce([
+      makeChatSpec(A_CHAT, firstTempId, "chat-1", "running"),
+    ]);
+    sessionApi.triggerResolve(firstTempId);
+    await flush();
+
+    const secondTempId = seedLegacyDraft("1788430000001-legacy2").session.id;
+
+    listSpy.mockResolvedValueOnce([
+      makeChatSpec(B_CHAT, secondTempId, "chat-2", "running"),
+      makeChatSpec(A_CHAT, firstTempId, "chat-1", "running"),
+    ]);
+    sessionApi.triggerResolve(secondTempId);
+    await flush();
+
+    const latestSessions =
+      setLibrarySessions.mock.calls[
+        setLibrarySessions.mock.calls.length - 1
+      ][0];
+    expect(latestSessions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: firstTempId, realId: A_CHAT }),
+        expect.objectContaining({ id: secondTempId, realId: B_CHAT }),
+      ]),
+    );
+  });
+
+  it("a stale getSession cannot rewrite turn usage or fire selection", async () => {
     vi.spyOn(api, "listChats").mockResolvedValue([
       makeChatSpec(A_CHAT, "console:a"),
     ]);
@@ -227,10 +383,8 @@ describe("agent session ownership epochs", () => {
     await sessionApi.getSessionList();
     const pending = sessionApi.getSession(A_CHAT);
 
-    // Switch to B and mark B's current view state with sentinels.
+    // Switch to B and mark B's current view state with a sentinel.
     sessionApi.setActiveAgent("agent-b");
-    (window as { currentSessionId?: string }).currentSessionId =
-      "sentinel-session";
     const sentinelSnapshot = {
       usage: null,
       context_usage: null,
@@ -241,9 +395,6 @@ describe("agent session ownership epochs", () => {
     dChat.resolve(makeHistory());
     await pending;
 
-    expect((window as { currentSessionId?: string }).currentSessionId).toBe(
-      "sentinel-session",
-    );
     expect(useTurnUsageStore.getState().snapshot).toBe(sentinelSnapshot);
     expect(onSessionSelected).not.toHaveBeenCalled();
   });
@@ -312,15 +463,30 @@ describe("agent session ownership epochs", () => {
     expect(sessionApi.isSessionSwitching).toBe(false);
   });
 
+  it("keeps a prepared blank session ahead of agent history", async () => {
+    const listSpy = vi.spyOn(api, "listChats");
+    const getSpy = vi.spyOn(api, "getChat").mockResolvedValue(makeHistory());
+    sessionApi.setActiveAgent("agent-b");
+    // SDK 1.2 leaves New Chat blank until send; existing legacy drafts still
+    // need to stay ahead of fetched history.
+    const blank = seedLegacyDraft().session;
+    listSpy.mockResolvedValueOnce([makeChatSpec(B_CHAT, "console:b")]);
+    const sessions = await sessionApi.getSessionList();
+    await sessionApi.getSession(blank.id!);
+
+    expect(sessions[0].id).toBe(blank.id);
+    expect(blank.id).toMatch(/^\d+-[a-z0-9]+$/);
+    expect(getSpy).not.toHaveBeenCalled();
+  });
+
   it("the previous agent's list entries cannot leak ids into the new agent's list", async () => {
     const listSpy = vi.spyOn(api, "listChats");
 
     // Agent A resolves a blank local session to its backend UUID, leaving a
     // list entry with a local id and realId mapping.
     sessionApi.setActiveAgent("agent-a");
-    const spec: { id?: string } = {};
-    await sessionApi.createSession(spec);
-    const tempId = spec.id!;
+    const created = seedLegacyDraft();
+    const tempId = created.session.id;
     listSpy.mockResolvedValueOnce([makeChatSpec(A_CHAT, tempId)]);
     sessionApi.triggerResolve(tempId);
     await flush();

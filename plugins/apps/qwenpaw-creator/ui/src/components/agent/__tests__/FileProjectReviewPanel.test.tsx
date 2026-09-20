@@ -1,8 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import FileProjectReviewPanel from "@/components/agent/FileProjectReviewPanel";
+import FileProjectReviewPanel, {
+  reviewPendingUnits,
+} from "@/components/agent/FileProjectReviewPanel";
 import { useFileProjectReviewStore } from "@/store/fileProjectReviewStore";
 import { makeReviewOperation, makeReviewRecord } from "@/test/agentFixtures";
+import { useProjectSnapshotStore } from "@/store/projectSnapshotStore";
 
 const navigateToLocator = vi.fn();
 
@@ -54,13 +57,17 @@ const mediaReview = () =>
   });
 
 /** Seeds the review store and renders the panel; returns the decide spy. */
-function setup(value = review(), decide = vi.fn(async () => value)) {
+function setup(
+  value = review(),
+  decide = vi.fn(async () => value),
+  syncError: string | null = null,
+) {
   useFileProjectReviewStore.setState({
     projectId: "p1",
     reviews: [value],
     etag: '"token-1"',
     syncStatus: "healthy",
-    syncError: null,
+    syncError,
     decisionInFlight: false,
     decide,
   });
@@ -71,17 +78,21 @@ function setup(value = review(), decide = vi.fn(async () => value)) {
 afterEach(() => {
   useFileProjectReviewStore.getState().reset();
   navigateToLocator.mockClear();
+  useProjectSnapshotStore.getState().reset();
 });
 
 describe("FileProjectReviewPanel", () => {
   it("renders a text summary and navigates to the ui_locator on inspect", () => {
     setup();
-    expect(screen.getByText("文件项目修改")).toBeInTheDocument();
+    expect(screen.getByText("创作修改")).toBeInTheDocument();
     // Text changes render only a summary; the full diff shows via "查看".
-    expect(screen.getByTitle("/description")).toBeInTheDocument();
+    expect(screen.getByTitle("当前项目 · 描述")).toBeInTheDocument();
+    expect(screen.queryByTitle("/description")).not.toBeInTheDocument();
     expect(document.querySelector("[data-review-diff]")).toBeNull();
     expect(screen.queryByText("New title")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "查看 /description" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "查看 当前项目 · 描述" }),
+    );
     expect(navigateToLocator).toHaveBeenCalledWith(
       "p1",
       expect.objectContaining({ field: "/description" }),
@@ -92,7 +103,9 @@ describe("FileProjectReviewPanel", () => {
   it("submits an individual Keep decision by operation_id", async () => {
     const decide = setup();
 
-    fireEvent.click(screen.getByRole("button", { name: "保留 /description" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "保留 当前项目 · 描述" }),
+    );
     await waitFor(() =>
       expect(decide).toHaveBeenCalledWith("p1", "review-1", [
         { operation_id: "operation-1", decision: "ACCEPT" },
@@ -123,7 +136,9 @@ describe("FileProjectReviewPanel", () => {
   it("submits structured feedback when undo and regenerate is selected", async () => {
     const decide = setup();
 
-    fireEvent.click(screen.getByRole("button", { name: "撤销 /description" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "撤销 当前项目 · 描述" }),
+    );
     const feedback = screen.getByRole("textbox", { name: "反馈与调整要求" });
     expect(screen.getAllByRole("textbox")).toHaveLength(1);
     expect(screen.queryByRole("textbox", { name: "哪里不对" })).toBeNull();
@@ -162,5 +177,34 @@ describe("FileProjectReviewPanel", () => {
       }),
       expect.objectContaining({ review: true }),
     );
+  });
+
+  it("keeps authoring changes visible when their old storyboard becomes stale", () => {
+    const value = review();
+    value.operations.push(
+      makeReviewOperation({
+        operation_id: "stale-storyboard",
+        json_pointer: "/assets/artifact_versions_by_id/ver-old/stale",
+        before: false,
+        after: true,
+        ui_locator: {
+          page: "element",
+          elementId: "el-1",
+          mediaType: "image",
+          artifactKind: "r2v_storyboard_image",
+          artifactVersionId: "ver-old",
+        },
+      }),
+    );
+    setup(value);
+    expect(reviewPendingUnits(value)).toBe(2);
+    expect(screen.getByText("创作修改")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "查看 当前项目 · 描述" }),
+    ).toBeVisible();
+    expect(screen.queryByText("分镜图审阅")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "查看生成详情" }),
+    ).not.toBeInTheDocument();
   });
 });

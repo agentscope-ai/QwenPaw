@@ -174,8 +174,12 @@ export function createProject(
   });
 }
 
-export function deleteProject(projectId: string): Promise<void> {
-  return creatorRequest(`/projects/${encodeURIComponent(projectId)}`, {
+export function deleteProject(
+  projectId: string,
+  cascade = true,
+): Promise<void> {
+  const params = cascade ? "" : "?cascade=false";
+  return creatorRequest(`/projects/${encodeURIComponent(projectId)}${params}`, {
     method: "DELETE",
     headers: { "Idempotency-Key": newClientId("delete-project") },
   });
@@ -283,10 +287,11 @@ export function patchProject(
 export function getR2VReferenceOrder(
   projectId: string,
   elementId: string,
+  stage: "video" | "storyboard" = "video",
 ): Promise<R2VReferenceOrderResponse> {
   return creatorRequest(
     `/projects/${encodeURIComponent(projectId)}/elements/${encodeURIComponent(
       elementId,
-    )}/r2v-references`,
+    )}/r2v-references${stage === "storyboard" ? "?stage=storyboard" : ""}`,
   );
 }

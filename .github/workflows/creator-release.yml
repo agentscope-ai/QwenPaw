@@ -159,7 +159,8 @@ jobs:
         env:
           VERSION: ${{ needs.check-version.outputs.version }}
         run: |
-          # Fail closed before OSS upload: entry files must be present and
+          # Fail closed before OSS upload: entries and required runtime
+          # resources (including builtin skills) must be present, and
           # pack_exclude'd dev-only trees must not leak into the zip.
           zip_path="dist/plugins/apps/${PLUGIN_ID}/${PLUGIN_ID}-${VERSION}.zip"
           if [[ ! -f "$zip_path" ]]; then
@@ -167,16 +168,15 @@ jobs:
             exit 1
           fi
           names=$(unzip -Z1 "$zip_path")
-          for required in \
-            "${PLUGIN_ID}/plugin.json" \
-            "${PLUGIN_ID}/requirements.txt" \
-            "${PLUGIN_ID}/backend/main.py" \
-            "${PLUGIN_ID}/ui/dist/index.js"; do
-            if ! grep -qxF "$required" <<< "$names"; then
+          required_files=$(jq -r \
+            '["plugin.json", "requirements.txt", .entry[], .pack_requires[]?][]' \
+            "${PLUGIN_DIR}/plugin.json")
+          while IFS= read -r required; do
+            if ! grep -qxF "${PLUGIN_ID}/${required}" <<< "$names"; then
               echo "ERROR: required file missing from zip: $required" >&2
               exit 1
             fi
-          done
+          done <<< "$required_files"
           if forbidden=$(grep -E \
             "^${PLUGIN_ID}/(backend/(tests|scripts)/|e2e/|scripts/|ui/(src|node_modules)/)" \
             <<< "$names"); then

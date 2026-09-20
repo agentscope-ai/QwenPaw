@@ -1,6 +1,6 @@
 import { Suspense, useMemo } from "react";
 import { Layout, Spin } from "antd";
-import { Routes, Route, useLocation, matchPath } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import Sidebar from "../Sidebar";
 import Header from "../Header";
@@ -11,25 +11,11 @@ import { useSyncCodingMode } from "../../stores/useSyncCodingMode";
 import styles from "../index.module.less";
 import { useRoutes } from "../../plugins/registry/hooks";
 import { Slot } from "../../plugins/registry/Slot";
+import { pickSelectedKey } from "./routeSelection";
+
+import { HubModeContext } from "../../contexts/HubModeContext";
 
 const { Content } = Layout;
-
-/**
- * Find the registered route whose path pattern matches the current URL.
- * Falls back to "core.chat" so the sidebar always has a sensible
- * highlight, mirroring the old `pathToKey` default.
- */
-function pickSelectedKey(
-  currentPath: string,
-  routes: ReturnType<typeof useRoutes>,
-): string {
-  for (const r of routes) {
-    if (matchPath({ path: r.path, end: r.path === "/" }, currentPath)) {
-      return r.id;
-    }
-  }
-  return "core.chat";
-}
 
 export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   const { t } = useTranslation();
@@ -45,6 +31,7 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
     () => pickSelectedKey(currentPath, routes),
     [currentPath, routes],
   );
+  const settingsCenterActive = selectedKey === "core.settings-center";
 
   // PawApp inline routes (`/apps/<id>`) are rendered *inside* the App Center
   // page (with its "← App Center" bar), never as standalone full-page routes.
@@ -57,38 +44,46 @@ export default function MainLayout({ hubMode = false }: { hubMode?: boolean }) {
   );
 
   return (
-    <Layout className={styles.mainLayout}>
-      <Header />
-      <Layout>
-        <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
-        <Content className="page-container">
-          <ConsolePollService />
-          <AgentStatusPollingController />
-          <Slot name="content.statusBar" kind="fill" />
-          <div className="page-content">
-            <ChunkErrorBoundary
-              resetKey={currentPath}
-              canRestartRuntime={hubMode}
-            >
-              <Suspense
-                fallback={
-                  <Spin
-                    tip={t("common.loading")}
-                    style={{ display: "block", margin: "20vh auto" }}
-                  />
-                }
+    <HubModeContext.Provider value={hubMode}>
+      <Layout className={styles.mainLayout}>
+        {!settingsCenterActive && (
+          <Sidebar selectedKey={selectedKey} hubMode={hubMode} />
+        )}
+        <Layout className={styles.mainContentLayout}>
+          <Header showBrand={settingsCenterActive} />
+          <Content className="page-container">
+            <ConsolePollService />
+            <AgentStatusPollingController />
+            <Slot name="content.statusBar" kind="fill" />
+            <div className="page-content">
+              <ChunkErrorBoundary
+                resetKey={currentPath}
+                canRestartRuntime={hubMode}
               >
-                <Routes>
-                  {renderableRoutes.map((r) => (
-                    <Route key={r.id} path={r.path} element={<r.Component />} />
-                  ))}
-                </Routes>
-              </Suspense>
-            </ChunkErrorBoundary>
-          </div>
-        </Content>
+                <Suspense
+                  fallback={
+                    <Spin
+                      tip={t("common.loading")}
+                      style={{ display: "block", margin: "20vh auto" }}
+                    />
+                  }
+                >
+                  <Routes>
+                    {renderableRoutes.map((r) => (
+                      <Route
+                        key={r.id}
+                        path={r.path}
+                        element={<r.Component />}
+                      />
+                    ))}
+                  </Routes>
+                </Suspense>
+              </ChunkErrorBoundary>
+            </div>
+          </Content>
+        </Layout>
+        <Slot name="overlay.global" kind="fill" />
       </Layout>
-      <Slot name="overlay.global" kind="fill" />
-    </Layout>
+    </HubModeContext.Provider>
   );
 }

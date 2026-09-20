@@ -5,7 +5,11 @@ import { PlusOutlined } from "@ant-design/icons";
 import { useTranslation } from "react-i18next";
 import { agentsApi } from "../../../api/modules/agents";
 import { invalidateSkillCache, skillApi } from "../../../api/modules/skill";
-import type { AgentSummary, CopyAgentRequest } from "../../../api/types/agents";
+import type {
+  AgentProfileConfig,
+  AgentSummary,
+  CopyAgentRequest,
+} from "../../../api/types/agents";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useAgents } from "./useAgents";
 import { AgentTable, AgentModal, CopyAgentModal } from "./components";
@@ -13,6 +17,17 @@ import { MAIL_DOMAIN_WHITELIST } from "./components/mailDomains";
 import { PageHeader } from "@/components/PageHeader";
 import { reorderAgents } from "./reorder";
 import styles from "./index.module.less";
+
+type ModelSettingsDraft = Pick<
+  AgentProfileConfig,
+  "fallback_models" | "fallback_policy" | "subagent_model"
+>;
+
+const EMPTY_MODEL_SETTINGS: ModelSettingsDraft = {
+  fallback_models: [],
+  fallback_policy: { enabled: true, target_scope: "configured" },
+  subagent_model: null,
+};
 
 export default function AgentsPage() {
   const { t, i18n } = useTranslation();
@@ -34,11 +49,16 @@ export default function AgentsPage() {
   const [reordering, setReordering] = useState(false);
   const [form] = Form.useForm();
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [modelSettings, setModelSettings] =
+    useState<ModelSettingsDraft>(EMPTY_MODEL_SETTINGS);
+  const [modelSettingsResetToken, setModelSettingsResetToken] = useState(0);
   const installedSkillsRef = useRef<string[]>([]);
   const { message } = useAppMessage();
 
   const handleCreate = () => {
     setEditingAgent(null);
+    setModelSettings(EMPTY_MODEL_SETTINGS);
+    setModelSettingsResetToken((token) => token + 1);
     form.resetFields();
     form.setFieldsValue({
       workspace_dir: "",
@@ -61,6 +81,13 @@ export default function AgentsPage() {
       invalidateSkillCache({ agentId: agent.id });
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
+      setModelSettings({
+        fallback_models: config.fallback_models ?? [],
+        fallback_policy:
+          config.fallback_policy ?? EMPTY_MODEL_SETTINGS.fallback_policy,
+        subagent_model: config.subagent_model ?? null,
+      });
+      setModelSettingsResetToken((token) => token + 1);
       const { mail, ...configRest } = config;
       form.setFieldsValue({
         ...configRest,
@@ -265,7 +292,13 @@ export default function AgentsPage() {
               ...(push ? { push } : {}),
             }
           : null;
-      const payload = { ...rest, workspace_dir, active_model, mail };
+      const payload = {
+        ...rest,
+        workspace_dir,
+        active_model,
+        mail,
+        ...(values.backend === "qwenpaw" ? modelSettings : {}),
+      };
 
       if (editingAgent) {
         const previousInstalledSkills = installedSkillsRef.current;
@@ -374,6 +407,9 @@ export default function AgentsPage() {
         selectedSkills={selectedSkills}
         onSelectedSkillsChange={setSelectedSkills}
         onInstalledSkillsLoaded={handleInstalledSkillsLoaded}
+        modelSettings={modelSettings}
+        modelSettingsResetToken={modelSettingsResetToken}
+        onModelSettingsChange={(settings) => setModelSettings(settings)}
         onSave={handleSubmit}
         onCancel={() => setModalVisible(false)}
       />

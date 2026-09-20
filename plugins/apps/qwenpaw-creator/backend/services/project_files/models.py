@@ -13,7 +13,6 @@ Project's ``runtime/`` directory and must not be added here.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from enum import StrEnum
 import hashlib
 import math
 from pathlib import PurePosixPath
@@ -27,10 +26,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
-
 
 CURRENT_PROJECT_SCHEMA_VERSION = 9
 DEFAULT_TIMELINE_ID = "timeline:main"
@@ -197,6 +196,11 @@ class SourceAssetVersion(StrictModel):
     logical_asset_id: EntityId
     name: str
     file_id: EntityId | None = None
+    # For file-backed versions this is the content sha256.  For remote-URL
+    # versions (file_id is None) it is the sha256 of the public URL — an
+    # identity fingerprint, never comparable against bytes; content
+    # integrity for cached bytes flows through RemoteCacheEntry.sha256.
+    # The validator below enforces the URL-fingerprint invariant.
     checksum: Sha256
     media_kind: Literal["image", "video", "audio", "document", "text", "other"]
     media_type: str = Field(min_length=1)
@@ -272,6 +276,8 @@ ARTIFACT_SLOT_KINDS = frozenset(
         "element_video",
         "final_video",
         "r2v_storyboard_image",
+        "research_report",
+        "timeline_script",
         "visual_asset_image",
     },
 )
@@ -466,6 +472,12 @@ class VisualVariant(StrictModel):
     reference_asset_version_ids: list[EntityId] = Field(default_factory=list)
     reference_artifact_version_ids: list[EntityId] = Field(
         default_factory=list,
+        description=(
+            "参考图（ArtifactVersion id）。同一空间群/风格群的关联场景，"
+            "还接受跨实体风格锚点 visual:<entityId>:<variantId>：派发时"
+            "解析为该基准变体当前选中的图片；基准图未生成前本节点在工作图"
+            "中等待，因此可以在规划期就写好，无需等基准出图。"
+        ),
     )
     generated_artifact_version_ids: list[EntityId] = Field(
         default_factory=list,
@@ -477,6 +489,28 @@ class VisualVariant(StrictModel):
     # entity's continuity.
     derived_from_variant_id: EntityId | None = None
     consistency_tags: list[str] = Field(default_factory=list)
+
+
+VISUAL_ANCHOR_REF_PREFIX = "visual:"
+
+
+def visual_style_anchor(
+    entities: Any,
+    ref: str,
+) -> tuple[str, VisualVariant] | None:
+    """Resolve a style-anchor ref ``visual:<entityId>:<variantId>``.
+
+    Entity and variant ids may themselves contain colons, so the ref is
+    matched against constructed ids instead of being split apart. Returns
+    the owning entity id together with the variant.
+    """
+    if not ref.startswith(VISUAL_ANCHOR_REF_PREFIX):
+        return None
+    for entity_id, entity in entities.items.items():
+        for variant_id, variant in entity.variants.items.items():
+            if ref == f"{VISUAL_ANCHOR_REF_PREFIX}{entity_id}:{variant_id}":
+                return entity_id, variant
+    return None
 
 
 class CharacterVoice(StrictModel):
@@ -491,6 +525,9 @@ class CharacterVoice(StrictModel):
     target_model: str = Field(min_length=1)
     preferred_name: str = ""
     sample_source_version_id: EntityId | None = None
+    # Design-path timbre description; kept so the voice can be tweaked and
+    # regenerated from the asset library without re-deriving the prompt.
+    voice_prompt: str = ""
     enrollment_key: str = ""
     created_at: UtcDateTime
 
@@ -603,37 +640,6 @@ class VisualDevelopment(StrictModel):
     cast_lineups: EntityCollection[VisualCastLineup] = Field(
         default_factory=EntityCollection,
     )
-
-
-class ShotCamera(StrEnum):
-    STATIC = "⊙ 静止"
-    PUSH_IN = "↑ 推近"
-    PULL_OUT = "↓ 拉远"
-    PAN_RIGHT = "→ 横摇右"
-    PAN_LEFT = "← 横摇左"
-    CRANE = "↕ 升降"
-    ORBIT = "◎ 环绕"
-    HANDHELD = "～ 手持晃动"
-
-
-class ShotFraming(StrEnum):
-    WIDE = "全景"
-    MEDIUM = "中景"
-    CLOSE = "近景"
-    CLOSE_UP = "特写"
-
-
-class Shot(StrictModel):
-    shot_id: EntityId
-    description: str = ""
-    camera: ShotCamera | None = None
-    framing: ShotFraming | None = None
-    camera_description: str = ""
-    dialogue: str = ""
-    duration_seconds: float = Field(ge=0)
-    character_refs: list[EntityId] = Field(default_factory=list)
-    scene_ref: EntityId | None = None
-    prop_refs: list[EntityId] = Field(default_factory=list)
 
 
 class GenerationRecipe(StrictModel):
@@ -772,6 +778,17 @@ RenderSource = Annotated[
 ]
 
 
+class R2VPromptSync(StrictModel):
+    """Creative input provenance, not task or provider runtime state."""
+
+    contract_version: Literal[2] = 2
+    plan_fingerprint: Sha256
+    storyboard_prompt_fingerprint: Sha256
+    video_prompt_fingerprint: Sha256
+    storyboard_input_fingerprint: Sha256 | None = None
+    video_input_fingerprint: Sha256 | None = None
+
+
 class R2VCreation(StrictModel):
     """Declarative R2V creative facts, independent of the executing Agent."""
 
@@ -789,33 +806,43 @@ class R2VCreation(StrictModel):
     # storyboard/video reference chain when several characters share the
     # frame.
     cast_lineup_refs: list[EntityId] = Field(default_factory=list)
-    shots: EntityCollection[Shot] = Field(default_factory=EntityCollection)
     recipe: GenerationRecipe | None = None
     storyboard_prompt: str = ""
     storyboard_reference_version_ids: list[EntityId] = Field(
         default_factory=list,
     )
     video_prompt: str = ""
+    prompt_sync: R2VPromptSync | None = None
     video_reference_version_ids: list[EntityId] = Field(default_factory=list)
-    # Minimum fraction of shots that must carry dialogue when the element
-    # has character appearances. Default 0.3 (≈1 line per 2–3 shots);
-    # the model sets this during planning and the review UI may override
-    # it per element. The work-graph gate enforces it deterministically.
-    min_dialogue_ratio: float = Field(default=0.3, ge=0.0, le=1.0)
 
-    @model_validator(mode="after")
-    def _validate_shots(self) -> R2VCreation:
-        _require_collection_identity(
-            self.shots,
-            "shot_id",
-            "R2V creation shots",
-        )
-        for shot in self.shots.items.values():
-            if shot.camera is None or shot.framing is None:
-                raise ValueError(
-                    "R2V creation shot requires camera and framing",
-                )
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def _ignore_retired_authoring_fields(
+        cls,
+        value: Any,
+        info: ValidationInfo,
+    ) -> Any:
+        """Old authoring rows are inert, including malformed legacy values.
+
+        Do not derive narrative, references, timing or voice intent from them.
+        Old sync hashes included those rows and cannot describe this contract.
+        """
+        if not isinstance(value, dict):
+            return value
+        if (info.context or {}).get("reject_retired_authoring_fields") and (
+            "shots" in value or "min_dialogue_ratio" in value
+        ):
+            raise ValueError(
+                "不再支持写入 shots 或 min_dialogue_ratio；"
+                "请将片段内容写入 creation.narrative，并更新相关提示词。",
+            )
+        value = dict(value)
+        value.pop("shots", None)
+        value.pop("min_dialogue_ratio", None)
+        stamp = value.get("prompt_sync")
+        if isinstance(stamp, dict) and "contract_version" not in stamp:
+            value["prompt_sync"] = None
+        return value
 
 
 class T2VCreation(StrictModel):
@@ -872,7 +899,7 @@ class S2VCreation(StrictModel):
 
 
 class EditCreation(StrictModel):
-    """Creative facts for one selected source range.
+    """Creative facts for one selected uploaded or generated media range.
 
     The exact source and range live in the Element's ``render_source``.  A
     multi-selection edit is represented by multiple Elements, never by a
@@ -1104,7 +1131,9 @@ ElementCreation = Annotated[
 
 
 class TimelineElement(StrictModel):
-    """The only persisted time/layer entity; no Track or Content indirection."""
+    """
+    The only persisted time/layer entity; no Track or Content indirection.
+    """
 
     element_id: EntityId
     label: str = ""
@@ -1215,6 +1244,15 @@ class Timeline(StrictModel):
     """One time coordinate system containing freely overlapping Elements."""
 
     timeline_id: EntityId
+    # Narrative-node display fields consumed by the project blueprint: a
+    # Timeline doubles as one narrative node (episode / ending / the single
+    # video). All optional so pre-v9 projects stay valid untouched.
+    title: str = ""
+    synopsis: str = ""
+    planned_duration_seconds: float | None = Field(default=None, gt=0)
+    # Multi-timeline naming (A/B compare snapshots).
+    name: str = ""
+    description: str = ""
     ticks_per_second: int = Field(
         default=DEFAULT_TIMELINE_TICKS_PER_SECOND,
         gt=0,
@@ -1224,7 +1262,11 @@ class Timeline(StrictModel):
     # (warm_bright / clean_cool / cinematic) — free-form colour
     # descriptions are rejected at commit time so a typo can never
     # silently skip the grade pass.
-    color_grade: str = ""
+    color_grade: str = Field(
+        default="",
+        description="Named colour-grade preset; empty string disables grading.",
+        json_schema_extra={"enum": ["", *COLOR_GRADE_PRESETS]},
+    )
     edit_plan: EditPlan | None = None
     elements_by_id: dict[EntityId, TimelineElement] = Field(
         default_factory=dict,
@@ -1297,6 +1339,32 @@ class Timeline(StrictModel):
             ),
             key=lambda element: (element.span.start_tick, element.element_id),
         )
+
+
+SNAPSHOT_TIMELINE_PREFIX = "snapshot:"
+
+
+def is_snapshot_timeline_id(timeline_id: str) -> bool:
+    """History snapshots are frozen copies, never live narrative nodes."""
+
+    return timeline_id.startswith(SNAPSHOT_TIMELINE_PREFIX)
+
+
+def narrative_timeline_ids(project: "Project") -> tuple[str, ...]:
+    """The live narrative timelines, in order.
+
+    Every "how many episodes / which timelines produce content" decision
+    must go through this filter: ``snapshot:*`` entries in
+    ``timelines.order`` are frozen version history, not episodes — they
+    must never receive script/storyboard/video/compose nodes, never count
+    toward multi-timeline checkpoints, and never enter narrative prompts.
+    """
+
+    return tuple(
+        timeline_id
+        for timeline_id in project.timelines.order
+        if not is_snapshot_timeline_id(timeline_id)
+    )
 
 
 class Project(StrictModel):
@@ -1455,6 +1523,7 @@ class Project(StrictModel):
             "scene": set(),
             "prop": set(),
         }
+        anchor_edges: dict[str, list[str]] = {}
         for entity in self.visual.entities.items.values():
             visual_ids[entity.kind].add(entity.entity_id)
             _require_collection_identity(
@@ -1468,11 +1537,23 @@ class Project(StrictModel):
                     variant.reference_asset_version_ids,
                     "visual source",
                 )
-                _require_all(
-                    artifact_versions,
-                    variant.reference_artifact_version_ids,
-                    "visual artifact reference",
-                )
+                for ref in variant.reference_artifact_version_ids:
+                    anchor = visual_style_anchor(self.visual.entities, ref)
+                    if anchor is None:
+                        _require_key(
+                            artifact_versions,
+                            ref,
+                            "visual artifact reference",
+                        )
+                    elif anchor[1] is variant:
+                        raise ValueError(
+                            f"visual style anchor {ref} references itself",
+                        )
+                    else:
+                        anchor_edges.setdefault(
+                            f"visual:{entity.entity_id}:{variant.variant_id}",
+                            [],
+                        ).append(ref)
                 _require_all(
                     artifact_versions,
                     variant.generated_artifact_version_ids,
@@ -1529,6 +1610,7 @@ class Project(StrictModel):
                     entity.voice.sample_source_version_id,
                     "character voice sample version",
                 )
+        _reject_anchor_cycles(anchor_edges)
 
         _require_collection_identity(
             self.visual.cast_lineups,
@@ -1597,6 +1679,13 @@ class Project(StrictModel):
                 element_timelines[element_id] = timeline
 
         for element_id, element in elements.items():
+            if element_timelines[element_id].timeline_id.startswith(
+                "snapshot:",
+            ):
+                # 历史快照是冻结副本：元素 id 带快照前缀，outputs/引用指向
+                # 拍摄当时的资产（slot 不随副本复制）。资产引用校验只对活
+                # 时间线成立；恢复快照时前缀被剥除，引用重新指回真实资产。
+                continue
             creation = element.creation
             if isinstance(creation, R2VCreation):
                 _require_version_refs(
@@ -1623,18 +1712,14 @@ class Project(StrictModel):
                     self.visual.entities.items,
                     element_id=element_id,
                 )
-                for shot in creation.shots.items.values():
-                    _validate_visual_refs(shot, visual_ids)
             elif isinstance(creation, EditCreation):
                 if not isinstance(
                     element.render_source,
                     SourceVersionRenderSource,
-                ) or isinstance(
-                    element.render_source,
-                    ArtifactVersionRenderSource,
                 ):
                     raise ValueError(
-                        "Edit Element render_source must select one source asset range",
+                        "Edit Element render_source must select one source "
+                        "or artifact version range",
                     )
                 if element.render_source.source_out_tick is None:
                     raise ValueError(
@@ -1899,6 +1984,40 @@ def _require_key(mapping: dict[str, T], key: str, label: str) -> T:
         raise ValueError(f"{label} references missing id {key}") from exc
 
 
+def _reject_anchor_cycles(edges: dict[str, list[str]]) -> None:
+    """A style-anchor cycle gates every member forever: with no image on
+    either side, nothing dispatches and no repair queue names the deadlock,
+    so the commit itself must refuse it."""
+
+    state: dict[str, int] = {}  # 1 = on the current path, 2 = settled
+    for start in edges:
+        if state.get(start):
+            continue
+        stack: list[tuple[str, int]] = [(start, 0)]
+        path: list[str] = []
+        while stack:
+            node, index = stack.pop()
+            if index == 0:
+                state[node] = 1
+                path.append(node)
+            targets = edges.get(node, [])
+            if index < len(targets):
+                stack.append((node, index + 1))
+                nxt = targets[index]
+                mark = state.get(nxt)
+                if mark == 1:
+                    cycle = [*path[path.index(nxt) :], nxt]
+                    raise ValueError(
+                        "visual style anchors form a cycle: "
+                        + " -> ".join(cycle),
+                    )
+                if not mark:
+                    stack.append((nxt, 0))
+            else:
+                state[node] = 2
+                path.pop()
+
+
 def _require_all(mapping: dict[str, Any], keys: list[str], label: str) -> None:
     for key in keys:
         _require_key(mapping, key, label)
@@ -1907,17 +2026,10 @@ def _require_all(mapping: dict[str, Any], keys: list[str], label: str) -> None:
 def _validate_narration_voiced_overlap(
     timelines: EntityCollection[Timeline],
 ) -> None:
-    """A narration track must not overlap a natively voiced interval.
+    """Reject overlap with S2V's explicit driving voice.
 
-    Generated video speaks its shot dialogue itself and s2v clips are driven
-    by their own voice track; layering narration on the same interval would
-    produce two competing voices. Voiced intervals are shot-granular: only
-    the dialogue-bearing shots of an R2V Element count, so narration may
-    cover the silent shots of the same Element. Shots are placed by
-    scaling their declared durations onto the Element span (the provider
-    renders the shot list into exactly the span, so relative durations
-    are the trustworthy signal); the whole span is the fallback when any
-    duration is unusable.
+    R2V narrative is not a timed speech annotation. Its actual audio must be
+    assessed from the produced media, never inferred from retired plan rows.
     """
 
     for timeline in timelines.items.values():
@@ -1929,41 +2041,6 @@ def _validate_narration_voiced_overlap(
             if isinstance(creation, S2VCreation):
                 voiced_spans.append((element_id, element.span))
                 continue
-            if not isinstance(creation, R2VCreation):
-                continue
-            shots = [
-                creation.shots.items[shot_id]
-                for shot_id in creation.shots.order
-            ]
-            if not any(shot.dialogue.strip() for shot in shots):
-                continue
-            total_seconds = sum(shot.duration_seconds for shot in shots)
-            if (
-                any(shot.duration_seconds <= 0 for shot in shots)
-                or total_seconds <= 0
-            ):
-                voiced_spans.append((element_id, element.span))
-                continue
-            ticks_per_shot_second = element.span.duration_tick / total_seconds
-            cursor = float(element.span.start_tick)
-            for shot in shots:
-                shot_start = cursor
-                cursor = min(
-                    cursor + shot.duration_seconds * ticks_per_shot_second,
-                    float(element.span.end_tick),
-                )
-                start_tick = round(shot_start)
-                end_tick = round(cursor)
-                if shot.dialogue.strip() and end_tick > start_tick:
-                    voiced_spans.append(
-                        (
-                            element_id,
-                            TimelineSpan(
-                                start_tick=start_tick,
-                                duration_tick=end_tick - start_tick,
-                            ),
-                        ),
-                    )
         if not voiced_spans:
             continue
         for element_id, element in timeline.elements_by_id.items():
@@ -1981,8 +2058,8 @@ def _validate_narration_voiced_overlap(
                         f"interval [{voiced_span.start_tick}, "
                         f"{voiced_span.end_tick}) of element {voiced_id}: "
                         "the generated video natively voices that interval "
-                        "(shot dialogue or s2v speech); move the narration "
-                        "span or clear the dialogue of those shots",
+                        "(s2v driving voice); move the narration "
+                        "span or adjust the driving voice clip",
                     )
 
 
@@ -2048,7 +2125,7 @@ def _validate_render_source_cycles(
 
 
 def _validate_visual_refs(
-    value: Shot | R2VCreation,
+    value: R2VCreation,
     known: dict[str, set[str]],
 ) -> None:
     _require_all_ids(known["character"], value.character_refs, "character")
@@ -2112,7 +2189,6 @@ __all__ = [
     "R2VCreation",
     "RenderSource",
     "MotionGraphic",
-    "Shot",
     "SourceAssetVersion",
     "SourceCatalog",
     "SourceIntelligenceVersion",

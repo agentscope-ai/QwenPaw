@@ -12,8 +12,10 @@ import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 from typing import IO, Any, Mapping, Protocol, Sequence
 
+from .user_profile import runtime_workspace
 from .models import RuntimeRecord
 
 
@@ -149,6 +151,9 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
                 "Local isolation requires bubblewrap (bwrap) on Linux.",
             )
         runtime_root = _runtime_root(record)
+        workspace = runtime_workspace(record)
+        filesystem_root = runtime_root / "filesystem"
+        filesystem_root.mkdir(exist_ok=True)
         args = [
             self._executable,
             "--die-with-parent",
@@ -159,7 +164,8 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             "--unshare-uts",
             "--cap-drop",
             "ALL",
-            "--tmpfs",
+            "--bind",
+            str(filesystem_root),
             "/",
         ]
         for path in (
@@ -172,26 +178,48 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             if Path(path).exists():
                 args.extend(["--ro-bind", path, path])
         for path in _read_roots():
+            mount_path = Path(workspace)
+            if mount_path.is_relative_to(path) or path.is_relative_to(
+                mount_path,
+            ):
+                raise ProcessIsolationError(
+                    "User workspace overlaps the shared runtime installation.",
+                )
             args.extend(["--ro-bind", str(path), str(path)])
+        args.extend(["--tmpfs", "/tmp"])
+        for source, target in (
+            (record.working_dir, workspace),
+            (record.secret_dir, "/secrets"),
+            (record.backup_dir, "/backups"),
+        ):
+            args.extend(["--bind", str(source.resolve()), target])
         args.extend(
             [
-                "--tmpfs",
-                "/tmp",
-                "--bind",
-                str(runtime_root),
-                str(runtime_root),
                 "--dev",
                 "/dev",
                 "--proc",
                 "/proc",
                 "--chdir",
-                str(record.working_dir.resolve()),
+                workspace,
                 "--",
                 *command,
             ],
         )
-        self._probe(args, runtime_root, environment)
-        return IsolatedLaunch(args, dict(environment))
+        sandbox_environment = dict(environment)
+        sandbox_environment.update(
+            {
+                "HOME": workspace,
+                "PWD": workspace,
+                "TMP": f"{workspace}/tmp",
+                "TEMP": f"{workspace}/tmp",
+                "TMPDIR": f"{workspace}/tmp",
+                "QWENPAW_WORKING_DIR": workspace,
+                "QWENPAW_SECRET_DIR": "/secrets",
+                "QWENPAW_BACKUP_DIR": "/backups",
+            },
+        )
+        self._probe(args, runtime_root, sandbox_environment)
+        return IsolatedLaunch(args, sandbox_environment)
 
     def _probe(
         self,
@@ -199,7 +227,7 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
         runtime_root: Path,
         environment: Mapping[str, str],
     ) -> None:
-        probe_file = runtime_root / ".isolation-probe"
+        probe_file = runtime_root / "working" / ".isolation-probe"
         probe_file.write_text("probe", encoding="utf-8")
         marker = runtime_root.parent / (f"qwenpaw-hub-forbidden-{os.getpid()}")
         marker.write_text("forbidden", encoding="utf-8")
@@ -208,7 +236,10 @@ class LinuxBubblewrapIsolator(ProcessIsolator):
             *runtime_args[: separator + 1],
             "/bin/sh",
             "-c",
-            f'test -r "{probe_file}" && test ! -e "{marker}"',
+            'test -r "$HOME/.isolation-probe" && test "$PWD" = "$HOME" '
+            '&& test ! -e "$1"',
+            "probe",
+            str(marker),
         ]
         try:
             result = subprocess.run(
@@ -252,6 +283,15 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             )
         profile_path = record.secret_dir / "runtime.sb"
         profile = self._profile(record)
+        endpoint = urlsplit(environment.get("QWENPAW_HUB_MODEL_URL", ""))
+        if endpoint.hostname in {"127.0.0.1", "localhost", "::1"}:
+            model_port = endpoint.port or (
+                443 if endpoint.scheme == "https" else 80
+            )
+            profile += (
+                f"\n(allow network-outbound "
+                f'(remote ip "localhost:{model_port}"))'
+            )
         profile_path.write_text(profile, encoding="utf-8")
         try:
             os.chmod(profile_path, 0o600)
@@ -290,6 +330,10 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             "(allow ipc-posix-shm)",
             "(allow network-outbound)",
             '(deny network-outbound (remote ip "localhost:*"))',
+            (
+                "(allow network-outbound "
+                f'(remote ip "localhost:{record.port}"))'
+            ),
             ("(allow network-bind " f'(local ip "localhost:{record.port}"))'),
             (
                 "(allow network-inbound "
@@ -365,11 +409,55 @@ class MacOSSeatbeltIsolator(ProcessIsolator):
             raise ProcessIsolationError(
                 "Seatbelt isolation probe read a host file.",
             )
+        self._probe_loopback_allowed(
+            profile_path,
+            record,
+            environment,
+        )
         self._probe_loopback_denied(
             profile_path,
             record,
             environment,
         )
+
+    def _probe_loopback_allowed(
+        self,
+        profile_path: Path,
+        record: RuntimeRecord,
+        environment: Mapping[str, str],
+    ) -> None:
+        """Verify a listener and its client can share the runtime sandbox."""
+        probe = (
+            "import socket;"
+            "listener=socket.socket();"
+            f"listener.bind(('127.0.0.1',{record.port}));"
+            "listener.listen(1);"
+            "client=socket.socket();"
+            "client.settimeout(2);"
+            f"client.connect(('127.0.0.1',{record.port}))"
+        )
+        result = subprocess.run(
+            [
+                self._executable,
+                "-f",
+                str(profile_path),
+                sys.executable,
+                "-B",
+                "-c",
+                probe,
+            ],
+            env=dict(environment),
+            cwd=record.working_dir,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise ProcessIsolationError(
+                "Seatbelt isolation cannot connect to its runtime port: "
+                f"{result.stderr.strip()}",
+            )
 
     def _probe_loopback_denied(
         self,

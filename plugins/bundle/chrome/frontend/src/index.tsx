@@ -31,6 +31,9 @@ interface ExtensionStatus {
   install_mode: InstallMode | string | null;
   extension_id?: string;
   extension_dir?: string;
+  extension_version?: string | null;
+  extension_asset_version?: string | null;
+  extension_update_required?: boolean;
   native_manifest_path?: string;
   native_host_path?: string;
   config_path?: string;
@@ -926,7 +929,12 @@ function ChromeSetupPage() {
 
   const prepareLocalFiles = React.useCallback(
     async (options?: { silent?: boolean; refresh?: boolean }) => {
-      if (status?.extension_dir && status.installed && !options?.refresh) {
+      if (
+        status?.extension_dir &&
+        status.installed &&
+        !status.extension_update_required &&
+        !options?.refresh
+      ) {
         return status;
       }
       setSetupLoading(true);
@@ -1022,12 +1030,22 @@ function ChromeSetupPage() {
     };
 
   React.useEffect(() => {
-    if (loading || silentPrepareStarted || status?.extension_dir) {
+    if (
+      loading ||
+      silentPrepareStarted ||
+      (status?.extension_dir && !status.extension_update_required)
+    ) {
       return;
     }
     setSilentPrepareStarted(true);
     void prepareLocalFiles({ silent: true });
-  }, [loading, prepareLocalFiles, silentPrepareStarted, status?.extension_dir]);
+  }, [
+    loading,
+    prepareLocalFiles,
+    silentPrepareStarted,
+    status?.extension_dir,
+    status?.extension_update_required,
+  ]);
 
   const isConnected = Boolean(status?.installed && coreStatus?.connected);
   const needsRepair = Boolean(

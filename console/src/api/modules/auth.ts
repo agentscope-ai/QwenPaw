@@ -1,4 +1,4 @@
-import { getApiUrl } from "../config";
+import { getApiToken, getApiUrl } from "../config";
 import { responseErrorMessage } from "../error";
 
 export interface LoginResponse {
@@ -13,6 +13,12 @@ export interface AuthStatusResponse {
   mode?: "hub";
   bootstrap_required?: boolean;
   registration_enabled?: boolean;
+  registration_mode?: "open" | "invite" | "closed";
+}
+
+export interface AuthUserResponse {
+  valid: boolean;
+  username: string;
 }
 
 export const authApi = {
@@ -31,11 +37,16 @@ export const authApi = {
   register: async (
     username: string,
     password: string,
+    invite_code?: string,
   ): Promise<LoginResponse> => {
     const res = await fetch(getApiUrl("/auth/register"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+        ...(invite_code ? { invite_code } : {}),
+      }),
     });
     if (!res.ok) {
       throw new Error(await responseErrorMessage(res, "Registration failed"));
@@ -46,6 +57,18 @@ export const authApi = {
   getStatus: async (): Promise<AuthStatusResponse> => {
     const res = await fetch(getApiUrl("/auth/status"));
     if (!res.ok) throw new Error("Failed to check auth status");
+    return res.json();
+  },
+
+  getCurrentUser: async (): Promise<AuthUserResponse> => {
+    const res = await fetch(getApiUrl("/auth/verify"), {
+      headers: { Authorization: `Bearer ${getApiToken()}` },
+    });
+    if (!res.ok) {
+      throw new Error(
+        await responseErrorMessage(res, "Failed to load current user"),
+      );
+    }
     return res.json();
   },
 

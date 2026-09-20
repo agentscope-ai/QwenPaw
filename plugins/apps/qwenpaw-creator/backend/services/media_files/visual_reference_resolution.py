@@ -4,12 +4,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from domain.errors import ValidationError
 from services.project_files.models import (
     Project,
     R2VCreation,
+    TimelineElement,
     VisualEntity,
 )
 
@@ -24,6 +26,14 @@ def _owner_entity_id(owner_ref: str | None) -> str | None:
 
 
 def _entity_ids(creation: R2VCreation) -> list[str]:
+    """Return the stable semantic order used by prompt reference mappings.
+
+    Preserve the long-lived provider-facing order: characters establish
+    identity first, the scene anchors the world, and props follow. This order
+    is part of the authored ``[Image N]`` contract; changing it for aesthetic
+    preference would silently swap responsibilities in stored video prompts.
+    """
+
     return list(
         dict.fromkeys(
             [
@@ -199,13 +209,72 @@ def resolve_r2v_visual_reference_version_ids(
     return tuple(dict.fromkeys([*lineup_anchors, *selected]))
 
 
+def video_reference_plan(
+    project: Project,
+    element: TimelineElement,
+) -> tuple[str, ...]:
+    """Reserve Image 1 for this element's current storyboard selection.
+
+    Older projects may also list that storyboard explicitly among video
+    references. A new selection replaces this semantic slot; it must not
+    leave an older version in Image 2 and shift every identity reference.
+    Only this output slot is excluded. Storyboards from other elements and
+    unknown references retain their authored positions and validation.
+    """
+    from services.media_files.element_adapter import (
+        element_output_slot_id,
+        selected_element_output,
+    )
+
+    creation = element.creation
+    if not isinstance(creation, R2VCreation):
+        raise ValidationError("视频参考序列仅适用于 R2V Element")
+    output = element.outputs.get("storyboard")
+    slot_id = (
+        output.slot_id
+        if output is not None
+        else element_output_slot_id(element.element_id, "storyboard")
+    )
+    slot = project.assets.artifact_slots_by_id.get(slot_id)
+    own_versions = set(slot.version_ids if slot is not None else ())
+    artifact_versions = project.assets.artifact_versions_by_id
+    own_versions.update(
+        version_id
+        for version_id, artifact in artifact_versions.items()
+        if artifact.slot_id == slot_id
+    )
+    selected = selected_element_output(project, element, "storyboard")
+    storyboard_id = selected[1] if selected is not None else None
+    if storyboard_id:
+        own_versions.add(storyboard_id)
+    # Resolve before filtering: an explicitly storyboard-only plan must not
+    # accidentally become an empty list that activates automatic references.
+    additional = resolve_r2v_visual_reference_version_ids(
+        project,
+        creation,
+        creation.video_reference_version_ids,
+    )
+    return (
+        *([storyboard_id] if storyboard_id else []),
+        *(
+            version_id
+            for version_id in additional
+            if version_id not in own_versions
+        ),
+    )
+
+
 def preview_r2v_reference_order(
     project: Project,
     element_id: str,
+    *,
+    stage: str = "video",
+    image_model_name: str = "",
+    project_root: Path | None = None,
 ) -> dict[str, Any]:
     """Authoritative ``[Image N]`` order preview for one r2v Element.
 
-    Mirrors the submit path exactly (storyboard first, then the resolved
+    Video mirrors the submit path (storyboard first, then the resolved
     visual reference chain, deduplicated in order) so the frontend can label
     each reference with the index the video prompt will cite.  Entity
     binding and deduplication reorder references, which makes the order
@@ -223,6 +292,8 @@ def preview_r2v_reference_order(
         raise ValidationError(
             f"Element creation.type={creation.type} 不使用 [Image N] 参考序列",
         )
+    if stage not in {"storyboard", "video"}:
+        raise ValidationError("参考图阶段必须为 storyboard 或 video")
     selected_storyboard = selected_element_output(
         project,
         element,
@@ -231,49 +302,151 @@ def preview_r2v_reference_order(
     storyboard_id = (
         selected_storyboard[1] if selected_storyboard is not None else None
     )
-    version_ids = list(
-        dict.fromkeys(
-            [
-                *([storyboard_id] if storyboard_id else []),
-                *resolve_r2v_visual_reference_version_ids(
-                    project,
-                    creation,
-                    creation.video_reference_version_ids,
-                ),
-            ],
-        ),
-    )
+    dropped: tuple[str, ...] = ()
+    if stage == "storyboard":
+        version_ids, dropped = storyboard_reference_plan(
+            project,
+            creation,
+            image_model_name=image_model_name,
+        )
+    else:
+        version_ids = video_reference_plan(project, element)
     references: list[dict[str, Any]] = []
-    for index, version_id in enumerate(version_ids, start=1):
+    if stage == "video" and storyboard_id is None:
+        # Video execution requires this element's selected storyboard. Keep
+        # its semantic position while authoring, without inventing a version
+        # ID or allowing an identity reference to impersonate [Image 1].
+        references.append(
+            {
+                "index": 1,
+                "versionId": "",
+                "kind": "storyboard",
+                "available": False,
+                "name": "分镜图（待生成）",
+            },
+        )
+    for index, version_id in enumerate(version_ids, start=len(references) + 1):
         source = project.assets.source_versions_by_id.get(version_id)
         artifact = project.assets.artifact_versions_by_id.get(version_id)
         version = source if source is not None else artifact
-        if version_id == storyboard_id:
+        if stage == "video" and version_id == storyboard_id:
             kind = "storyboard"
         elif source is not None:
             kind = "source"
         else:
             kind = "artifact"
+        available = version is not None
+        if stage == "storyboard" and available and project_root is not None:
+            # Use the actual submit resolver, one position at a time. A
+            # missing middle image remains an unavailable slot, never a
+            # filtered list that silently changes later [Image N] values.
+            from services.media_files.image_execution import (
+                _resolve_version_references,
+            )
+            from domain.errors import CreatorError
+
+            try:
+                _resolve_version_references(
+                    project=project,
+                    project_root=project_root,
+                    version_ids=(version_id,),
+                )
+            except (CreatorError, KeyError):
+                available = False
         references.append(
             {
                 "index": index,
                 "versionId": version_id,
                 "kind": kind,
+                "available": available,
                 "name": (
                     version.name
                     if version is not None and version.name
-                    else version_id
+                    else "参考图片"
                 ),
             },
         )
+    from models.image.base import image_reference_limit
+    from models.reference_markers import canonical_marker_indices
+
+    limit = (
+        image_reference_limit(image_model_name)
+        if stage == "storyboard"
+        else None
+    )
+    indices = (
+        canonical_marker_indices(creation.storyboard_prompt)
+        if stage == "storyboard"
+        else ()
+    )
+    invalid_indices = sorted(
+        {index for index in indices if not 1 <= index <= len(references)},
+    )
     return {
         "elementId": element_id,
+        "stage": stage,
         "storyboardSelected": storyboard_id is not None,
         "references": references,
+        "referenceLimit": limit,
+        "budgetDroppedVersionIds": list(dropped),
+        "invalidMarkerIndices": invalid_indices,
+        "ready": (
+            all(item["available"] for item in references)
+            and not invalid_indices
+            and (
+                stage != "storyboard"
+                or not references
+                or (limit is not None and len(references) <= limit)
+            )
+        ),
     }
+
+
+def storyboard_reference_plan(
+    project: Project,
+    creation: R2VCreation,
+    *,
+    additional_version_ids: Iterable[str] = (),
+    image_model_name: str = "",
+    max_reference_images: int | None = None,
+    prompt: str | None = None,
+    has_explicit_urls: bool = False,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The same ordered image inputs for editor preview and new submission.
+
+    Authored version lists and canonical markers pin reference identity. Only
+    the legacy, unnumbered automatic chain retains its recorded budget trim.
+    An oversized authored plan stays intact so admission can reject it.
+    """
+    from models.image.base import image_reference_limit
+    from models.reference_markers import canonical_marker_indices
+
+    explicit = (
+        *creation.storyboard_reference_version_ids,
+        *additional_version_ids,
+    )
+    ids = resolve_r2v_visual_reference_version_ids(project, creation, explicit)
+    limit = (
+        image_reference_limit(image_model_name)
+        if max_reference_images is None
+        else max_reference_images
+    )
+    if (
+        limit is not None
+        and 0 <= limit < len(ids)
+        and not explicit
+        and not has_explicit_urls
+        and not canonical_marker_indices(
+            creation.storyboard_prompt if prompt is None else prompt,
+        )
+    ):
+        return ids[:limit], ids[limit:]
+    return ids, ()
 
 
 __all__ = [
     "preview_r2v_reference_order",
     "resolve_r2v_visual_reference_version_ids",
+    "storyboard_reference_plan",
+    "video_reference_plan",
 ]

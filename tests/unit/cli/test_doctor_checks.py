@@ -367,17 +367,6 @@ class TestEnvironmentSummaryLines:
             "QWENPAW_WORKING_DIR (env): /custom/wd" in line for line in lines
         )
 
-    def test_env_var_legacy(self, fake_working_dir, monkeypatch):
-        monkeypatch.delenv("QWENPAW_WORKING_DIR", raising=False)
-        monkeypatch.setenv("COPAW_WORKING_DIR", "/legacy/wd")
-        monkeypatch.setattr(
-            dc.shutil,
-            "disk_usage",
-            lambda p: SimpleNamespace(free=10 * 1024**3),
-        )
-        lines = dc.environment_summary_lines()
-        assert any("COPAW_WORKING_DIR (env, legacy)" in line for line in lines)
-
     def test_old_sqlite_note(self, fake_working_dir, monkeypatch):
         monkeypatch.setattr(dc.sqlite3, "sqlite_version", "3.30.0")
         monkeypatch.setattr(

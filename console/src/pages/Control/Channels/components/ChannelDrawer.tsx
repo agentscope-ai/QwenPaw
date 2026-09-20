@@ -178,6 +178,7 @@ export function ChannelDrawer({
   const feishuDomain = (Form.useWatch("domain", form) as string) || "feishu";
   const showToolCalls = Form.useWatch("show_tool_calls", form) ?? true;
   const showToolResults = Form.useWatch("show_tool_results", form) ?? true;
+  const streamingEnabled = Form.useWatch("streaming_enabled", form) ?? false;
   const onebotMediaBase64 = Form.useWatch("media_base64", form) ?? false;
   const onebotWsHost = (Form.useWatch("ws_host", form) as string) ?? "";
   // The backend falls back to loopback when ws_host is blank, and rejects
@@ -490,15 +491,23 @@ export function ChannelDrawer({
                       <Input placeholder="content" />
                     </Form.Item>
                     <Form.Item
-                      name="robot_code"
-                      label="Robot Code"
-                      tooltip="Recommended to configure explicitly for group chats"
+                      name="card_auto_layout"
+                      label={t("channels.cardAutoLayout")}
+                      tooltip={t("channels.cardAutoLayoutTooltip")}
+                      valuePropName="checked"
                     >
-                      <Input placeholder="robot code (default client_id)" />
+                      <Switch />
                     </Form.Item>
                   </>
                 );
               }}
+            </Form.Item>
+            <Form.Item
+              name="robot_code"
+              label="Robot Code"
+              tooltip="Recommended to configure explicitly for group chats"
+            >
+              <Input placeholder="robot code (default client_id)" />
             </Form.Item>
             <Form.Item
               name="endpoint"
@@ -1633,7 +1642,7 @@ export function ChannelDrawer({
               openExternalLink(finalUrl);
             }}
             className={styles.dingtalkDocBtn}
-            style={{ color: "#FF7F16" }}
+            style={{ color: "var(--app-accent)" }}
           >
             {label} Doc
           </Button>
@@ -1654,7 +1663,7 @@ export function ChannelDrawer({
             icon={<LinkOutlined />}
             onClick={() => openExternalLink(url)}
             className={styles.dingtalkDocBtn}
-            style={{ color: "#FF7F16" }}
+            style={{ color: "var(--app-accent)" }}
           >
             {label} Doc
           </Button>
@@ -1667,7 +1676,7 @@ export function ChannelDrawer({
           icon={<LinkOutlined />}
           onClick={() => openExternalLink(TWILIO_CONSOLE_URL)}
           className={styles.dingtalkDocBtn}
-          style={{ color: "#FF7F16" }}
+          style={{ color: "var(--app-accent)" }}
         >
           {t("channels.voiceSetupLink")}
         </Button>
@@ -1783,20 +1792,32 @@ export function ChannelDrawer({
             activeKey === "discord" ||
             activeKey === "slack" ||
             activeKey === "matrix") && (
-            <Form.Item
-              name="streaming_enabled"
-              label={t("channels.streamingEnabled")}
-              valuePropName="checked"
-              tooltip={
-                activeKey === "dingtalk"
-                  ? t("channels.streamingEnabledDingtalkHint")
-                  : activeKey === "feishu"
-                  ? t("channels.streamingEnabledFeishuHint")
-                  : undefined
-              }
-            >
-              <Switch />
-            </Form.Item>
+            <>
+              <Form.Item
+                name="streaming_enabled"
+                label={t("channels.streamingEnabled")}
+                valuePropName="checked"
+                tooltip={
+                  activeKey === "dingtalk"
+                    ? t("channels.streamingEnabledDingtalkHint")
+                    : activeKey === "feishu"
+                    ? t("channels.streamingEnabledFeishuHint")
+                    : undefined
+                }
+              >
+                <Switch />
+              </Form.Item>
+              {activeKey === "feishu" && streamingEnabled && (
+                <Form.Item
+                  name="auto_collapse_thinking"
+                  label={t("channels.autoCollapseThinking")}
+                  valuePropName="checked"
+                  tooltip={t("channels.autoCollapseThinkingTooltip")}
+                >
+                  <Switch />
+                </Form.Item>
+              )}
+            </>
           )}
 
           {isBuiltin

@@ -100,7 +100,7 @@ def test_batch_await_tolerates_per_task_failure() -> None:
         *,
         project_id,
         parent_run_id,
-        epoch,
+        fence,
         task_id,
     ):
         if task_id == "task-bad":
@@ -122,7 +122,7 @@ def test_batch_await_tolerates_per_task_failure() -> None:
             fake_driver,
             project_id=PROJECT_ID,
             parent_run_id="run-1",
-            epoch=1,
+            fence=SimpleNamespace(assert_alive=lambda: None),
             task_ids=("task-good", "task-bad"),
         ),
     )

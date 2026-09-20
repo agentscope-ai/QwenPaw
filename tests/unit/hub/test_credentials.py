@@ -3,12 +3,14 @@
 
 import os
 import sys
+import sysconfig
 from pathlib import Path
 
 import pytest
 
 from qwenpaw.hub.credentials import TenantCredentialVault
 from qwenpaw.hub.local_provisioner import LocalProcessRuntimeProvisioner
+from qwenpaw.utils.runtime_environment import system_environment
 from tests.unit.hub.factories import runtime_record as _record
 
 
@@ -84,6 +86,7 @@ def test_windows_runtime_redirects_user_profile(
 ) -> None:
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setenv("SYSTEMDRIVE", "C:")
+    monkeypatch.setenv("SYSTEMROOT", "C:/Windows")
     monkeypatch.setenv("USERPROFILE", "C:\\Users\\control-plane")
     monkeypatch.setenv("APPDATA", "C:\\Users\\control-plane\\AppData")
     record = _record(tmp_path)
@@ -197,6 +200,7 @@ def test_local_runtime_filters_untrusted_control_environment(
         {
             "PYTHONPATH": "/",
             "QWENPAW_WORKING_DIR": "/other-tenant",
+            "QWENPAW_RUNTIME_API_URL": "http://other-tenant:9002",
             "QWENPAW_RUNTIME_INTERNAL_TOKEN": "boundary-token",
             "OPENAI_API_KEY": "tenant-key",
         },
@@ -205,9 +209,17 @@ def test_local_runtime_filters_untrusted_control_environment(
     assert environment.get("PYTHONPATH") != "/"
     assert environment["QWENPAW_WORKING_DIR"] == str(record.working_dir)
     assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "boundary-token"
+    assert environment["QWENPAW_RUNTIME_API_URL"] == (
+        f"http://{record.host}:{record.port}"
+    )
     assert environment["OPENAI_API_KEY"] == "tenant-key"
     assert "LANGFUSE_SECRET_KEY" not in environment
-    assert environment.get("PATH") == os.environ.get("PATH")
+    expected = dict.fromkeys(
+        [str(Path(sys.executable).parent), sysconfig.get_path("scripts")],
+    )
+    assert environment["PATH"] == os.pathsep.join(
+        [*expected, system_environment()["PATH"]],
+    )
 
 
 def test_credential_metadata_pages_are_tenant_scoped_and_filterable(
@@ -238,3 +250,34 @@ def test_credential_metadata_pages_are_tenant_scoped_and_filterable(
     assert len(items) == 2
     assert {item["name"] for item in items} == {"API_KEY_3", "API_KEY_4"}
     assert "secret" not in str(items)
+
+
+def test_user_runtime_does_not_inherit_host_environment(tmp_path, monkeypatch):
+    for key in (
+        "XXX",
+        "PYTHONPATH",
+        "PIP_TARGET",
+        "UV_PYTHON",
+        "CONDA_PREFIX",
+        "BASH_ENV",
+        "LD_PRELOAD",
+        "ZDOTDIR",
+    ):
+        monkeypatch.setenv(key, "host-value")
+    monkeypatch.setenv("PATH", "/host/python/bin")
+    record = _record(tmp_path)
+    result = LocalProcessRuntimeProvisioner.runtime_environment(
+        record,
+        {"MY_USER_KEY": "user-value", "PIP_TARGET": "/host"},
+    )
+    assert result["MY_USER_KEY"] == "user-value"
+    assert "host-value" not in result.values()
+    assert "XXX" not in result
+    assert "PIP_TARGET" not in result
+    assert "/host/python/bin" not in result["PATH"]
+    assert result["HOME"] == str(record.working_dir)
+    assert result["QWENPAW_DISABLE_KEYRING"] == "1"
+
+    assert "VIRTUAL_ENV" not in result
+    assert result["QWENPAW_RUNTIME_PROVISIONER"] == "local"
+    assert not (record.working_dir / ".venv").exists()

@@ -62,6 +62,7 @@ class FallbackChatModel(ChatModelBase):
             context_size=getattr(primary, "context_size", 32_768),
         )
         self._models = models
+        self._thinking_omit_ids: set[str] = set()
         self._activate_model(primary)
 
     @property
@@ -134,6 +135,34 @@ class FallbackChatModel(ChatModelBase):
     def _activate_model(self, model: ChatModelBase) -> None:
         """Expose routing metadata from the model handling the request."""
         self._active_model = model
+        self._apply_thinking_omit_ids(model)
+
+    @staticmethod
+    def _set_model_thinking_omit_ids(
+        model: ChatModelBase,
+        block_ids: set[str],
+    ) -> bool:
+        """Apply omission state to one candidate's concrete formatter."""
+        formatter = getattr(model, "formatter", None)
+        if formatter is None:
+            return False
+        setter = getattr(formatter, "set_thinking_omit_ids", None)
+        if callable(setter):
+            return bool(setter(set(block_ids)))
+        setattr(formatter, "_qwenpaw_omit_thinking_ids", set(block_ids))
+        return True
+
+    def _apply_thinking_omit_ids(self, model: ChatModelBase) -> bool:
+        """Apply the current request-time omission state to one candidate."""
+        return self._set_model_thinking_omit_ids(
+            model,
+            self._thinking_omit_ids,
+        )
+
+    def set_thinking_omit_ids(self, block_ids: set[str]) -> bool:
+        """Persist omissions and apply them to the currently visible model."""
+        self._thinking_omit_ids = {str(item) for item in block_ids}
+        return self._apply_thinking_omit_ids(self._active_model)
 
     def _begin_request(self) -> Token:
         """Activate the primary model and snapshot the pre-request state.
@@ -146,7 +175,9 @@ class FallbackChatModel(ChatModelBase):
         ``model_key`` -- both must see the primary model, because the
         next request always tries the primary first.
         """
-        return self._active_model_var.set(self._models[0])
+        token = self._active_model_var.set(self._models[0])
+        self._apply_thinking_omit_ids(self._models[0])
+        return token
 
     def _end_request(self, token: Token) -> None:
         """Restore the pre-request active model.

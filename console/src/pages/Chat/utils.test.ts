@@ -27,7 +27,11 @@ describe("extractCopyableText", () => {
     const response: CopyableResponse = {
       output: [
         { role: "user", content: "你好" },
-        { role: "assistant", content: "你好，有什么可以帮你？" },
+        {
+          role: "assistant",
+          type: "message",
+          content: "你好，有什么可以帮你？",
+        },
       ],
     };
     expect(extractCopyableText(response)).toBe("你好，有什么可以帮你？");
@@ -38,6 +42,7 @@ describe("extractCopyableText", () => {
       output: [
         {
           role: "assistant",
+          type: "message",
           content: [
             { type: "text", text: "第一段" },
             { type: "text", text: "第二段" },
@@ -53,6 +58,7 @@ describe("extractCopyableText", () => {
       output: [
         {
           role: "assistant",
+          type: "message",
           content: [{ type: "refusal", refusal: "无法回答此问题" }],
         },
       ],
@@ -60,16 +66,16 @@ describe("extractCopyableText", () => {
     expect(extractCopyableText(response)).toBe("无法回答此问题");
   });
 
-  it("falls back to JSON.stringify when no assistant message is present", () => {
+  it("returns empty text when no assistant message is present", () => {
     const response: CopyableResponse = {
       output: [{ role: "user", content: "仅用户消息" }],
     };
-    expect(extractCopyableText(response)).toBe(JSON.stringify(response));
+    expect(extractCopyableText(response)).toBe("");
   });
 
-  it("returns JSON serialization when output is empty", () => {
+  it("returns empty text when output is empty", () => {
     const response: CopyableResponse = { output: [] };
-    expect(extractCopyableText(response)).toBe(JSON.stringify(response));
+    expect(extractCopyableText(response)).toBe("");
   });
 
   it("does not throw when output is undefined", () => {
@@ -79,11 +85,62 @@ describe("extractCopyableText", () => {
   it("merges multiple assistant messages with double newlines", () => {
     const response: CopyableResponse = {
       output: [
-        { role: "assistant", content: "第一句" },
-        { role: "assistant", content: "第二句" },
+        { role: "assistant", type: "message", content: "第一句" },
+        { role: "assistant", type: "message", content: "第二句" },
       ],
     };
     expect(extractCopyableText(response)).toBe("第一句\n\n第二句");
+  });
+
+  it("copies only ordinary assistant messages, excluding reasoning and tools", () => {
+    const response: CopyableResponse = {
+      output: [
+        {
+          role: "assistant",
+          type: "reasoning",
+          content: [{ type: "text", text: "内部推理" }],
+        },
+        {
+          role: "assistant",
+          type: "tool_call_output",
+          content: [{ type: "text", text: "工具结果" }],
+        },
+        {
+          role: "assistant",
+          type: "message",
+          content: [{ type: "text", text: "最终回答" }],
+        },
+        {
+          role: "assistant",
+          type: "thinking",
+          content: "另一种 thinking 格式",
+        },
+      ],
+    };
+
+    expect(extractCopyableText(response)).toBe("最终回答");
+  });
+
+  it("does not serialize a reasoning-only response as a fallback", () => {
+    const response: CopyableResponse = {
+      output: [
+        {
+          role: "assistant",
+          type: "reasoning",
+          content: [{ type: "text", text: "不应复制" }],
+        },
+      ],
+    };
+
+    expect(extractCopyableText(response)).toBe("");
+  });
+
+  it("does not copy an untyped assistant item", () => {
+    const response: CopyableResponse = {
+      output: [{ role: "assistant", content: "无法确认其消息类型" }],
+    };
+
+    expect(extractCopyableText(response)).toBe("");
   });
 });
 

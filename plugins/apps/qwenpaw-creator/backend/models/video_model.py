@@ -15,6 +15,7 @@ from typing import Optional
 from models.concurrency import model_slot
 from models import config as model_config
 from models.provider_tasks import note_provider_task
+from models.reference_audio import wan_voice_excerpt
 from models.media_transport import (
     SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
     read_reference_media,
@@ -42,6 +43,8 @@ from models.video_capabilities import (
     WAN_30_RESOLUTIONS,
     VIDU_MODEL_SPECS,
     VIDU_SIZE_MAP,
+    REFERENCE_VOICE_PER_MEDIA,
+    REFERENCE_VOICE_STANDALONE,
     effective_video_model_name,
     is_wan3_video_model,
     seedance_video_generation,
@@ -49,9 +52,11 @@ from models.video_capabilities import (
     video_backend_key,
     video_reference_capability,
     video_reference_violation,
+    video_reference_voice_support,
 )
 from models.video_backends import kling as kling_backend
 from models.video_backends import minimax as minimax_backend
+from models.video_backends import minimax_sglang as minimax_sglang_backend
 from models.video_backends import veo as veo_backend
 from models.video_backends import vidu as vidu_backend
 from utils.paths import media_path_from_url
@@ -68,17 +73,24 @@ SEEDANCE_RESOLUTIONS = {"480p", "720p", "1080p"}
 # documented "adaptive" value for backwards compatibility.
 SEEDANCE_RATIOS = {"16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"}
 VIDEO_REFERENCE_SUFFIXES = {".mp4", ".mov", ".m4v", ".webm", ".avi", ".mkv"}
+# wan3.0 documents wav/mp3 for reference_audio; m4a/aac tolerated so an
+# enrolled voice sample in either container still classifies as audio.
+AUDIO_REFERENCE_SUFFIXES = {".mp3", ".wav", ".m4a", ".aac"}
 
 # Transport protocols whose reference media is inlined as a Base64 data
 # URL instead of the Bailian temporary upload channel.
 _INLINE_MEDIA_BACKENDS = frozenset(
-    {"seedance2", "veo", "minimax", "kling", "vidu"},
+    {"seedance2", "veo", "minimax", "minimax_sglang", "kling", "vidu"},
 )
 
 
 def _reference_media_kind(filename: str) -> str:
     suffix = Path(filename or "").suffix.lower()
-    return "video" if suffix in VIDEO_REFERENCE_SUFFIXES else "image"
+    if suffix in VIDEO_REFERENCE_SUFFIXES:
+        return "video"
+    if suffix in AUDIO_REFERENCE_SUFFIXES:
+        return "audio"
+    return "image"
 
 
 def _reference_media_kind_from_url(url: str) -> str:
@@ -170,7 +182,9 @@ async def _resolve_reference_media_url(
             max_bytes=SEEDANCE_REFERENCE_IMAGE_MAX_BYTES,
         )
         kind = _reference_media_kind(filename)
-        if kind == "video":
+        # Self-hosted SGLang H3 accepts data URIs for every media kind;
+        # the cloud task APIs only take public URLs for reference videos.
+        if kind == "video" and backend != "minimax_sglang":
             raise ModelError(
                 f"{backend} reference videos must be public HTTP(S) URLs: "
                 "the provider task API does not accept Base64-encoded video "
@@ -190,6 +204,28 @@ async def _resolve_reference_media_url(
             f"Reference media transport failed for {filename}: {exc}",
             model_name=model_name,
         ) from exc
+
+
+async def _resolve_reference_media_urls(
+    urls: list[str],
+    backend: str,
+) -> list[tuple[str, str]]:
+    """Upload independent references concurrently without changing numbering."""
+    slots = asyncio.Semaphore(3)
+
+    async def resolve(url):
+        async with slots:
+            return await _resolve_reference_media_url(url, backend)
+
+    tasks = [asyncio.create_task(resolve(url)) for url in urls]
+    try:
+        return await asyncio.gather(*tasks)
+    except BaseException:
+        # No upload should outlive a cancelled/failed generation admission.
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
 
 
 def _seedance_spec(model_name: str) -> tuple[frozenset[str], int, int, bool]:
@@ -495,7 +531,7 @@ def _build_vidu_body(
     on the viduq3 ad/mix/plain/turbo models only.
     """
 
-    normalized_model = model_name.strip()
+    normalized_model = model_name.strip().casefold()
     spec = VIDU_MODEL_SPECS.get(normalized_model)
     if spec is None:
         raise ModelError(
@@ -578,6 +614,7 @@ async def submit_video_task(
     mode: str = "r2v",
     first_frame_url: Optional[str] = None,
     video_url: Optional[str] = None,
+    reference_voice_urls: Optional[list[str]] = None,
 ) -> str:
     """Submit a video generation task and return its task_id.
 
@@ -585,16 +622,24 @@ async def submit_video_task(
     ``r2v`` (default, unchanged), ``t2v`` (text only), ``i2v``
     (``first_frame_url`` required) and ``video_edit`` (``video_url``
     required, HappyHorse only; inputs 3-60s, >15s keeps the first 15s).
+
+    ``reference_voice_urls`` pairs one enrolled-voice sample audio with
+    each entry of ``reference_image_url_list`` (empty string = none). It
+    is honoured only for models whose official contract documents an
+    audio reference input (wan2.7 ``media[].reference_voice``, wan3.0
+    ``reference_audio`` entries, Seedance 2.x ``audio_url`` content) and
+    silently ignored elsewhere.
     """
     api_key = model_config.get_video_api_key()
     model_name = model_config.get_video_model_name()
-    if not api_key:
+    protocol_backend = model_config.get_video_backend()
+    # SGLang serves without authentication unless started with --api-key.
+    if not api_key and protocol_backend != "minimax_sglang":
         raise ModelError(
             "creator_video_model.api_key or VIDEO_API_KEY is required",
             model_name=model_name,
         )
 
-    protocol_backend = model_config.get_video_backend()
     uses_seedance = protocol_backend == "seedance2"
     backend_key = video_backend_key(model_name, protocol_backend)
     try:
@@ -612,6 +657,19 @@ async def submit_video_task(
         all_images.append(reference_image_url)
     if reference_image_url_list:
         all_images.extend(reference_image_url_list)
+    # Pair voices with references before deduplication: the first sighting
+    # of a URL keeps its voice, matching how dict.fromkeys keeps order.
+    voice_by_reference: dict[str, str] = {}
+    if reference_voice_urls and reference_image_url_list:
+        for index, item in enumerate(reference_image_url_list):
+            key = (item or "").strip()
+            if not key or key in voice_by_reference:
+                continue
+            voice = ""
+            if index < len(reference_voice_urls):
+                voice = (reference_voice_urls[index] or "").strip()
+            if voice:
+                voice_by_reference[key] = voice
     upload_backend = (
         protocol_backend
         if protocol_backend in _INLINE_MEDIA_BACKENDS
@@ -757,11 +815,14 @@ async def submit_video_task(
                 model_name=effective_model,
             )
         media.append({"type": "video", "url": resolved_video})
-        for img_url in unique_references:
-            resolved_url, media_kind = await _resolve_reference_media_url(
-                img_url,
-                upload_backend,
-            )
+        resolved_references = await _resolve_reference_media_urls(
+            unique_references,
+            upload_backend,
+        )
+        for img_url, (resolved_url, media_kind) in zip(
+            unique_references,
+            resolved_references,
+        ):
             if media_kind != "image":
                 raise ModelError(
                     "video_edit reference media must be images: "
@@ -770,11 +831,33 @@ async def submit_video_task(
                 )
             media.append({"type": "reference_image", "url": resolved_url})
     elif normalized_mode == "r2v":
-        for img_url in unique_references:
-            resolved_url, media_kind = await _resolve_reference_media_url(
-                img_url,
-                upload_backend,
+        voice_support = video_reference_voice_support(
+            effective_model,
+            protocol_backend,
+        )
+        if voice_by_reference and voice_support is None:
+            logger.info(
+                "Reference voices skipped: model %s documents no audio "
+                "reference input",
+                effective_model,
             )
+        voice_shape, voice_budget = voice_support or ("", 0)
+        standalone_voices: list[str] = []
+        resolved_references = await _resolve_reference_media_urls(
+            unique_references,
+            upload_backend,
+        )
+        for img_url, (resolved_url, media_kind) in zip(
+            unique_references,
+            resolved_references,
+        ):
+            if media_kind == "audio":
+                raise ModelError(
+                    "audio files cannot be sent as image/video references; "
+                    "enrolled character voices travel through the "
+                    f"reference-voice channel ({img_url[:120]})",
+                    model_name=effective_model,
+                )
             if uses_happyhorse and media_kind == "video":
                 raise ModelError(
                     "HappyHorse r2v only accepts image references; replace the "
@@ -782,16 +865,97 @@ async def submit_video_task(
                     "the video model to a Wan r2v model",
                     model_name=effective_model,
                 )
-            media.append(
-                {
-                    "type": (
-                        "reference_video"
-                        if media_kind == "video"
-                        else "reference_image"
-                    ),
-                    "url": resolved_url,
-                },
-            )
+            entry = {
+                "type": (
+                    "reference_video"
+                    if media_kind == "video"
+                    else "reference_image"
+                ),
+                "url": resolved_url,
+            }
+            voice_url = voice_by_reference.get(img_url)
+            if voice_url and voice_shape:
+                if voice_shape == REFERENCE_VOICE_PER_MEDIA:
+                    (
+                        resolved_voice,
+                        voice_kind,
+                    ) = await _resolve_reference_media_url(
+                        voice_url,
+                        upload_backend,
+                    )
+                    if voice_kind != "audio":
+                        raise ModelError(
+                            "reference voice must be an audio file: "
+                            f"{voice_url[:120]}",
+                            model_name=effective_model,
+                        )
+                    # wan2.7 documented shape: the voice rides on its
+                    # subject's media entry.
+                    entry["reference_voice"] = resolved_voice
+                elif voice_url not in standalone_voices:
+                    standalone_voices.append(voice_url)
+            media.append(entry)
+        if voice_shape == REFERENCE_VOICE_STANDALONE and standalone_voices:
+            if len(standalone_voices) > voice_budget:
+                raise ModelError(
+                    f"{effective_model} accepts at most {voice_budget} "
+                    "reference voices; split the dialogue into fewer speakers",
+                    model_name=effective_model,
+                    retryable=False,
+                )
+            for voice_url in standalone_voices:
+                if is_wan3_video_model(effective_model):
+                    async with wan_voice_excerpt(
+                        voice_url,
+                        voice_count=len(standalone_voices),
+                    ) as excerpt:
+                        (
+                            resolved_voice,
+                            voice_kind,
+                        ) = await _resolve_reference_media_url(
+                            excerpt,
+                            upload_backend,
+                        )
+                else:
+                    (
+                        resolved_voice,
+                        voice_kind,
+                    ) = await _resolve_reference_media_url(
+                        voice_url,
+                        upload_backend,
+                    )
+                if voice_kind != "audio":
+                    raise ModelError(
+                        "reference voice must be an audio file: "
+                        f"{voice_url[:120]}",
+                        model_name=effective_model,
+                    )
+                # wan3.0 media entry; the seedance branch below rewrites
+                # it into an audio_url content item.
+                media.append(
+                    {"type": "reference_audio", "url": resolved_voice},
+                )
+            if is_wan3_video_model(effective_model):
+                # Standalone audio loses the per-image attachment used by
+                # Wan2.7. Restore its meaning using the actual wire order.
+                mappings = []
+                ordinals = {"reference_image": 0, "reference_video": 0}
+                for reference_url, item in zip(unique_references, media):
+                    kind = item["type"]
+                    ordinals[kind] += 1
+                    label = "图" if kind == "reference_image" else "视频"
+                    voice_url = voice_by_reference.get(reference_url)
+                    if voice_url in standalone_voices:
+                        audio_index = standalone_voices.index(voice_url) + 1
+                        mappings.append(
+                            f"{label}{ordinals[kind]}中的角色使用音频{audio_index}的音色",
+                        )
+                prompt += (
+                    "\n\n角色参考音色对应关系（按本次实际发送顺序）："
+                    + "；".join(mappings)
+                    + "。音频只提供对应角色的声音身份；台词与演唱内容遵循本段"
+                    "剧本，不复述试听样本，不让其他角色使用该声音。"
+                )
 
     url = ""
     submit_headers: dict = {}
@@ -813,6 +977,23 @@ async def submit_video_task(
             prompt=prompt,
             mode=normalized_mode,
             media=media,
+            ratio=ratio,
+            duration=duration,
+            resolution=resolution,
+            model_name=effective_model,
+            api_key=api_key,
+            base_url=model_config.get_video_base_url(),
+        )
+    elif backend_key == "minimax_sglang":
+        (
+            url,
+            submit_headers,
+            body,
+        ) = minimax_sglang_backend.build_submit_request(
+            prompt=prompt,
+            mode=normalized_mode,
+            media=media,
+            ratio=ratio,
             duration=duration,
             resolution=resolution,
             model_name=effective_model,
@@ -873,6 +1054,14 @@ async def submit_video_task(
                         "type": "video_url",
                         "role": "reference_video",
                         "video_url": {"url": item["url"]},
+                    },
+                )
+            elif item["type"] == "reference_audio":
+                content.append(
+                    {
+                        "type": "audio_url",
+                        "role": "reference_audio",
+                        "audio_url": {"url": item["url"]},
                     },
                 )
             else:
@@ -1058,6 +1247,8 @@ async def submit_video_task(
             # MiniMax wraps rejections in base_resp on an HTTP 200.
             minimax_backend.raise_on_base_resp(data, effective_model)
             task_id = minimax_backend.extract_task_id(data)
+        elif backend_key == "minimax_sglang":
+            task_id = minimax_sglang_backend.extract_task_id(data)
         elif protocol_backend == "kling":
             # Kling wraps rejections in code/message on an HTTP 200.
             kling_backend.raise_on_error_code(data, effective_model)
@@ -1183,15 +1374,17 @@ async def check_task_status(task_id: str) -> dict:
     """Check the status of a submitted video generation task."""
     api_key = model_config.get_video_api_key()
     model_name = model_config.get_video_model_name()
-    if not api_key:
+    backend = model_config.get_video_backend()
+    # SGLang serves without authentication unless started with --api-key.
+    if not api_key and backend != "minimax_sglang":
         raise ModelError(
             "creator_video_model.api_key or VIDEO_API_KEY is required",
             model_name=model_name,
         )
-    backend = model_config.get_video_backend()
     _STATUS_MODULES = {
         "veo": veo_backend,
         "minimax": minimax_backend,
+        "minimax_sglang": minimax_sglang_backend,
         "kling": kling_backend,
         "vidu": vidu_backend,
     }

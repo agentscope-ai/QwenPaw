@@ -3,21 +3,59 @@
 """Tests for DoomLoopGate reset behaviour."""
 from __future__ import annotations
 
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
 
+from qwenpaw.config.config import DoomLoopStageConfig
+from qwenpaw.loop.catalog import get_gate_catalog
 from qwenpaw.loop.gates.base import StopAction
 from qwenpaw.loop.gates.doom_loop import DoomLoopGate
 
 
 def _stage(after, action="stop", prompt="stop"):
-    return SimpleNamespace(
+    return DoomLoopStageConfig(
         after=after,
         action=action,
         prompt=prompt,
     )
+
+
+def test_catalog_create_passes_validated_stage_objects():
+    """Catalog factory must hand DoomLoopStageConfig objects to the gate,
+    preserving the gate's object-based contract (no dict representation)."""
+    gate = get_gate_catalog().create("doom_loop", {})
+    assert isinstance(gate, DoomLoopGate)
+    assert len(gate._stages) == 2
+    for stage in gate._stages:
+        assert isinstance(stage, DoomLoopStageConfig)
+    # Sorted by .after ascending (catalog default: 3 then 4).
+    assert [s.after for s in gate._stages] == [3, 4]
+
+
+@pytest.mark.asyncio
+async def test_catalog_stop_stage_uses_stage_prompt():
+    """Catalog-constructed gate drives stop with stage prompt."""
+    gate = get_gate_catalog().create("doom_loop", {})
+    gate.activate(None)
+    gate._ensure_state()
+
+    stop_stage = next(s for s in gate._stages if s.action == "stop")
+
+    # First window of repeated calls triggers the warning stage
+    # (consecutive_hits is seeded with window_size on first detection).
+    for _ in range(gate._window_size):
+        gate.record("tool_a", "hash1")
+    warning = await gate.check({"iteration": 0})
+    assert warning.action == StopAction.INTERRUPT_AND_CONTINUE
+
+    # Second window escalates to the stop stage (consecutive_hits += 1).
+    for _ in range(gate._window_size):
+        gate.record("tool_a", "hash1")
+    terminal = await gate.check({"iteration": 1})
+
+    assert terminal.action == StopAction.TERMINATE
+    assert terminal.reason == stop_stage.prompt
 
 
 @pytest.fixture(autouse=True)

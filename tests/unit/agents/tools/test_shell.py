@@ -31,6 +31,7 @@ import pytest
 from qwenpaw.agents.tools.shell import (
     _cancel_stderr_message,
     _collapse_embedded_newlines,
+    _ensure_user_bins_on_path,
     _execute_in_sandbox,
     _execute_posix_host,
     _execute_subprocess_sync,
@@ -175,6 +176,24 @@ class TestCollapseEmbeddedNewlines:
         command = 'echo "hello\nworld"'
         assert _collapse_embedded_newlines(command, "/bin/bash") == command
 
+    @patch("qwenpaw.agents.tools.shell.sys")
+    def test_unix_removes_posix_line_continuation(self, mock_sys):
+        mock_sys.platform = "linux"
+        command = "cat /tmp/.qwenpaw\\\n.secret/token.json"
+        assert (
+            _collapse_embedded_newlines(command, "/bin/sh")
+            == "cat /tmp/.qwenpaw.secret/token.json"
+        )
+
+    @patch("qwenpaw.agents.tools.shell.sys")
+    def test_unix_preserves_line_continuation_inside_single_quotes(
+        self,
+        mock_sys,
+    ):
+        mock_sys.platform = "linux"
+        command = "printf '%s' 'a\\\nb'"
+        assert _collapse_embedded_newlines(command, "/bin/sh") == command
+
     @pytest.mark.parametrize(
         "command",
         [
@@ -212,6 +231,121 @@ class TestSanitizeWinCmd:
         # Mix of escaped and unescaped — don't strip
         cmd = 'echo \\"hello" world'
         assert _sanitize_win_cmd(cmd) == cmd
+
+
+# ---------------------------------------------------------------------------
+# _ensure_user_bins_on_path
+# ---------------------------------------------------------------------------
+
+
+class TestEnsureUserBinsOnPath:
+    """Tests for _ensure_user_bins_on_path."""
+
+    def test_adds_existing_local_bin_when_missing(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        home = str(tmp_path)
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        env = {"PATH": "/usr/bin"}
+        result = _ensure_user_bins_on_path(env, user_home=home)
+        path = result["PATH"]
+        assert path.startswith(str(local_bin) + os.pathsep)
+        assert "/usr/bin" in path
+
+    def test_skips_nonexistent_local_bin(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        env = {"PATH": "/usr/bin"}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        assert result["PATH"] == "/usr/bin"
+
+    def test_does_not_duplicate_existing_entry(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        existing = os.pathsep.join([str(local_bin), "/usr/bin"])
+        env = {"PATH": existing}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        entries = result["PATH"].split(os.pathsep)
+        assert entries.count(str(local_bin)) == 1
+
+    def test_dedup_normalizes_candidate_before_compare(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        """Regression: dedup must compare the normalized candidate.
+
+        The candidate dir (``os.path.join``) is not normalized, while the
+        existing PATH may hold the same dir in normalized form. Without
+        normalizing both sides before the membership test, the dir is
+        appended a second time and PATH ends up with duplicates.
+        """
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        # Store the dir in normalized form (trailing slash) so the raw
+        # candidate string differs from the existing entry.
+        normalized = os.path.normpath(str(local_bin))
+        existing = os.pathsep.join([normalized + os.sep, "/usr/bin"])
+        env = {"PATH": existing}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        entries = result["PATH"].split(os.pathsep)
+        assert len(entries) == len(set(entries)), "PATH contains duplicates"
+        assert entries.count(normalized) <= 1
+
+    def test_preserves_existing_path_order_after_prepending(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        existing = os.pathsep.join(["/a", "/b", "/c"])
+        env = {"PATH": existing}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        assert result["PATH"] == str(local_bin) + os.pathsep + existing
+
+    def test_uses_home_when_no_existing_path(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        local_bin = tmp_path / ".local" / "bin"
+        local_bin.mkdir(parents=True)
+        env = {}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        assert result["PATH"] == str(local_bin)
+
+    def test_windows_adds_version_dirs_and_scripts(
+        self,
+        monkeypatch,
+        tmp_path,
+    ):
+        monkeypatch.setattr(sys, "platform", "win32")
+        base = tmp_path / "Programs" / "Python"
+        ver311 = base / "Python311"
+        scripts311 = ver311 / "Scripts"
+        ver312 = base / "Python312"
+        scripts312 = ver312 / "Scripts"
+        for d in (scripts311, scripts312):
+            d.mkdir(parents=True)
+        env = {"PATH": "/usr/bin", "LOCALAPPDATA": str(tmp_path)}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        entries = result["PATH"].split(os.pathsep)
+        assert entries == [
+            str(ver311),
+            str(scripts311),
+            str(ver312),
+            str(scripts312),
+            "/usr/bin",
+        ]
+
+    def test_unix_adds_nvm_dir_when_present(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sys, "platform", "linux")
+        nvm_dir = tmp_path / ".nvm"
+        nvm_dir.mkdir(parents=True)
+        env = {"PATH": "/usr/bin"}
+        result = _ensure_user_bins_on_path(env, user_home=str(tmp_path))
+        entries = result["PATH"].split(os.pathsep)
+        assert entries == [str(nvm_dir), "/usr/bin"]
 
 
 # ---------------------------------------------------------------------------
@@ -685,6 +819,7 @@ async def test_execute_posix_host_captures_regular_file_output(tmp_path):
     proc.wait.assert_awaited_once()
     assert create_process.call_args.args == ("/bin/sh", "-c", "echo hello")
     kwargs = create_process.call_args.kwargs
+    assert kwargs["stdin"] is asyncio.subprocess.DEVNULL
     assert kwargs["stdout"] != asyncio.subprocess.PIPE
     assert kwargs["stderr"] != asyncio.subprocess.PIPE
     assert kwargs["cwd"] == str(tmp_path)
@@ -2079,7 +2214,7 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
         patch(
             "qwenpaw.agents.tools.shell.subprocess.Popen",
             return_value=proc,
-        ),
+        ) as popen_mock,
         patch(
             "qwenpaw.agents.tools.shell._create_job_object_win32",
             return_value=None,
@@ -2100,6 +2235,7 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
         )
 
     assert code == -1
+    assert popen_mock.call_args.kwargs["stdin"] is subprocess.DEVNULL
     kill_tree.assert_called_once_with(4321)
     proc.kill.assert_called_once_with()
     # The final reap is bounded so a child stuck in kernel I/O costs a

@@ -274,7 +274,8 @@ def test_dingtalk_health_reports_channel(
     assert resp is not None, "health request timed out"
     assert resp.status_code == 200, app_server.logs_tail()
     body = resp.json()
-    assert body.get("channel") == "dingtalk" or "status" in body, body
+    assert body.get("channel") == "dingtalk", body
+    assert body.get("status") == "healthy", body
 
 
 @pytest.mark.integration

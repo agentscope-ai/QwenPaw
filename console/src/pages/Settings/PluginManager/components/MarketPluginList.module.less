@@ -13,9 +13,9 @@
   gap: 8px;
   overflow: hidden;
   padding: 14px;
-  border: 1px solid var(--color-border-secondary, #eae8e7);
+  border: 1px solid var(--app-border);
   border-radius: 8px;
-  background: var(--color-bg-container, #ffffff);
+  background: var(--app-surface);
   box-shadow: none;
   transition:
     border-color 0.18s ease,
@@ -24,8 +24,8 @@
 
   &:hover,
   &:focus-within {
-    border-color: var(--color-border, #d8d4cf);
-    box-shadow: 0 2px 8px rgba(20, 20, 19, 0.06);
+    border-color: var(--app-border-hover);
+    box-shadow: var(--app-shadow-sm);
     transform: translateY(-2px);
   }
 
@@ -50,8 +50,8 @@
   height: 36px;
   flex-shrink: 0;
   border-radius: 7px;
-  background: var(--ant-color-fill-quaternary);
-  color: var(--ant-color-text-secondary);
+  background: var(--app-fill-faint);
+  color: var(--app-text-secondary);
   font-size: 13px;
   font-weight: 600;
 
@@ -88,7 +88,7 @@
   display: -webkit-box;
   min-height: 40px;
   overflow: hidden;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   font-size: 12px;
   line-height: 20px;
   overflow-wrap: anywhere;
@@ -102,7 +102,7 @@
   gap: 8px;
   min-height: 24px;
   margin-top: auto;
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   font-size: 11px;
   transition: opacity 0.16s ease;
 }
@@ -151,7 +151,7 @@
   min-height: 48px;
   margin-top: 12px;
   padding: 8px;
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   font-size: 12px;
 }
 
@@ -192,15 +192,5 @@
   .cardActions,
   .cardFooter {
     transition: none;
-  }
-}
-
-:global(.dark-mode) .pluginCard {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #1f1f1f;
-
-  &:hover,
-  &:focus-within {
-    border-color: rgba(255, 255, 255, 0.22);
   }
 }

@@ -144,4 +144,41 @@ describe("v1Adapter tool status", () => {
     expect(screen.getByTestId("interrupted")).toHaveTextContent("true");
     expect(screen.getByTestId("result")).toHaveTextContent("partial output");
   });
+
+  it("preserves raw input and output for raw tool display", () => {
+    let captured: ToolCallContent | undefined;
+    const CaptureCard = ({ content }: { content: ToolCallContent }) => {
+      captured = content;
+      return null;
+    };
+    const WrappedCard = adaptCardForV1(CaptureCard);
+
+    render(
+      <WrappedCard
+        data={{
+          id: "message-1",
+          status: "completed",
+          content: [
+            {
+              data: {
+                name: "read_file",
+                call_id: "call-1",
+                arguments: '{"path":"notes.txt"}',
+              },
+            },
+            { data: { output: { text: "contents" } } },
+          ],
+        }}
+      />,
+    );
+
+    expect(captured).toMatchObject({
+      id: "call-1",
+      name: "read_file",
+      rawInput: '{"path":"notes.txt"}',
+      params: { path: "notes.txt" },
+      result: { text: "contents" },
+      status: "done",
+    });
+  });
 });

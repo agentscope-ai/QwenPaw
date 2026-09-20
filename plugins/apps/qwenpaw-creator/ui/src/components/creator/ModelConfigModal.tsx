@@ -73,6 +73,7 @@ export const LLM_PROTOCOLS = [
   "百度千帆",
   "Volcano Engine（火山引擎）",
   "小米 MiMo",
+  "OpenCode",
   "自定义",
 ];
 export const VLM_PROTOCOLS = [
@@ -92,6 +93,7 @@ export const VLM_PROTOCOLS = [
   "百度千帆",
   "Volcano Engine（火山引擎）",
   "小米 MiMo",
+  "OpenCode",
   "自定义",
 ];
 export const ASR_PROTOCOLS = [
@@ -119,10 +121,17 @@ export const VIDEO_PROTOCOLS = [
   "Volcano Engine（火山引擎）",
   "Google Gemini（Veo）",
   "MiniMax（海螺）",
+  "MiniMax H3（SGLang 自部署）",
   "Kling（可灵官方）",
   "Vidu（官方）",
   "Aliyun Token Plan",
 ];
+
+// Self-hosted SGLang serves without authentication unless started with
+// --api-key, so the API key is optional for these video protocols.
+export const KEY_OPTIONAL_VIDEO_PROTOCOLS = new Set([
+  "MiniMax H3（SGLang 自部署）",
+]);
 
 // Display-only labels for the protocol dropdowns: the stored protocol
 // strings double as backend match keys (substring checks in the host),
@@ -148,9 +157,11 @@ export const PROTOCOL_LABEL_KEYS: Record<string, string> = {
   Ideogram: "modelConfig.protocols.ideogram",
   "Google Gemini（Veo）": "modelConfig.protocols.googleGeminiVeo",
   "MiniMax（海螺）": "modelConfig.protocols.minimaxHailuo",
+  "MiniMax H3（SGLang 自部署）": "modelConfig.protocols.minimaxH3Sglang",
   "Kling（可灵官方）": "modelConfig.protocols.klingOfficial",
   "Vidu（官方）": "modelConfig.protocols.viduOfficial",
   "小米 MiMo": "modelConfig.protocols.xiaomiMimo",
+  OpenCode: "modelConfig.protocols.opencode",
   自定义: "modelConfig.protocols.custom",
   "DashScope Fun-ASR": "modelConfig.protocols.dashscopeFunAsr",
   "DashScope Qwen3-ASR": "modelConfig.protocols.dashscopeQwen3Asr",
@@ -176,6 +187,7 @@ const LLM_PROTOCOL_FALLBACK_BASE_URLS: Record<string, string> = {
   "ModelScope（魔搭）": "https://api-inference.modelscope.cn/v1",
   "Volcano Engine（火山引擎）": "https://ark.cn-beijing.volces.com/api/v3",
   "小米 MiMo": "https://token-plan-cn.xiaomimimo.com/v1",
+  OpenCode: "https://opencode.ai/zen/v1",
 };
 
 // Presets seed a default endpoint when the user picks a protocol/model;
@@ -203,7 +215,48 @@ const PROTOCOL_TO_PROVIDER_ID: Record<string, string> = {
   百度千帆: "qianfan",
   "Volcano Engine（火山引擎）": "volcengine-cn",
   "小米 MiMo": "mimo-tokenplan",
+  OpenCode: "opencode",
 };
+
+// Mirrors the host opencode provider: Zen and Go are two endpoints of one
+// provider, and the catalog is the Zen-only free routes plus the Zen ∩ Go
+// intersection so every listed model works on both endpoints. `vision`
+// follows the host model catalog for the same model families.
+export const OPENCODE_BASE_URL_OPTIONS = [
+  { label: "OpenCode", value: "https://opencode.ai/zen/v1" },
+  { label: "OpenCode Go", value: "https://opencode.ai/zen/go/v1" },
+];
+
+export interface OpenCodeModelPreset {
+  id: string;
+  free?: boolean;
+  vision?: boolean;
+}
+
+export const OPENCODE_MODELS: OpenCodeModelPreset[] = [
+  { id: "mimo-v2.5-free", free: true, vision: true },
+  { id: "nemotron-3-ultra-free", free: true },
+  { id: "grok-4.6" },
+  { id: "grok-4.5" },
+  { id: "kimi-k3", vision: true },
+  { id: "kimi-k2.7-code", vision: true },
+  { id: "kimi-k2.6", vision: true },
+  { id: "kimi-k2.5", vision: true },
+  { id: "glm-5.3" },
+  { id: "glm-5.3-flash" },
+  { id: "glm-5.2" },
+  { id: "glm-5.1" },
+  { id: "glm-5" },
+  { id: "deepseek-v4-pro" },
+  { id: "deepseek-v4-flash" },
+  { id: "deepseek-v4-flash-vision-exp", vision: true },
+  { id: "qwen3.6-plus", vision: true },
+  { id: "qwen3.5-plus", vision: true },
+  { id: "minimax-m3", vision: true },
+  { id: "minimax-m2.7" },
+  { id: "minimax-m2.5" },
+  { id: "gpt-5.6-luna", vision: true },
+];
 
 const ASR_PRESETS: Record<string, ProtocolPreset> = {
   "DashScope Fun-ASR": {
@@ -362,15 +415,31 @@ const VIDEO_PRESETS: Record<string, ProtocolPreset> = {
   },
   "MiniMax（海螺）": {
     base_url: "https://api.minimax.io",
-    // Hailuo: 768P at 6/10s, 1080P at 6s (Hailuo-02 also has 512P);
-    // S2V-01 is the only subject
+    // MiniMax-H3/H3-Max speak the v2 content API (480P/768P/2K, 4-15s,
+    // omni references). Hailuo: 768P at 6/10s, 1080P at 6s (Hailuo-02
+    // also has 512P); S2V-01 is the only subject
     // reference model (1 character image). China endpoint:
     // https://api.minimaxi.com
     models: [
+      "MiniMax-H3",
+      "MiniMax-H3-Max",
       "MiniMax-Hailuo-2.3",
       "MiniMax-Hailuo-2.3-Fast",
       "MiniMax-Hailuo-02",
       "S2V-01",
+    ],
+  },
+  "MiniMax H3（SGLang 自部署）": {
+    base_url: "http://localhost:30010",
+    // One SGLang instance loads one checkpoint variant (`sglang serve
+    // --model-variant fl2va|ref2va`), so the model name records which
+    // variant the endpoint serves: FL2VA = t2v/i2v (port 30010 in the
+    // official examples), Ref2VA = omni-reference r2v (port 30011).
+    // Self-hosted H3-Base renders 768P only.
+    models: ["MiniMax-H3-FL2VA", "MiniMax-H3-Ref2VA"],
+    base_url_options: [
+      { label: "FL2VA (30010)", value: "http://localhost:30010" },
+      { label: "Ref2VA (30011)", value: "http://localhost:30011" },
     ],
   },
   "Kling（可灵官方）": {
@@ -730,6 +799,31 @@ function hasFreeModels(
   return provider.models.some((m) => m.is_free === true);
 }
 
+export function modelSupportsImage(
+  providerId: string | undefined,
+  modelId: string,
+  hostProviders: HostProviderInfo[],
+): boolean | undefined {
+  // Host metadata wins: it may carry probed values fresher than the
+  // plugin's documentation-based catalog.
+  const provider = providerId
+    ? hostProviders.find((p) => p.id === providerId)
+    : undefined;
+  const hostModel = provider
+    ? [...provider.models, ...provider.extra_models].find(
+        (m) => m.id === modelId,
+      )
+    : undefined;
+  if (typeof hostModel?.supports_image === "boolean") {
+    return hostModel.supports_image;
+  }
+  if (providerId === "opencode") {
+    const preset = OPENCODE_MODELS.find((m) => m.id === modelId);
+    if (preset) return preset.vision === true;
+  }
+  return undefined;
+}
+
 function groundingValidationModel(config: ModelConfigData): ModelConfigItem {
   if (config.grounding.validation_source === "llm") return config.llm;
   if (config.grounding.validation_source === "vlm") {
@@ -748,6 +842,21 @@ function groundingSearchModel(config: ModelConfigData): ModelConfigItem {
     protocol: config.grounding.search_protocol,
     custom_protocol: "",
   };
+}
+
+function groundingConfigInputs(config: ModelConfigData): string {
+  const connection = (item: ModelConfigItem) => ({
+    model_name: item.model_name,
+    api_key: item.api_key,
+    base_url: item.base_url,
+    protocol: item.protocol,
+    custom_protocol: item.custom_protocol,
+  });
+  return JSON.stringify([
+    config.grounding,
+    connection(groundingValidationModel(config)),
+    connection(groundingSearchModel(config)),
+  ]);
 }
 
 /**
@@ -1400,7 +1509,10 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       setConfig((previous) => ({
         ...previous,
         executionAuthorization: { mode: target.execution },
-        creationCheckpoints: { mode: target.checkpoints },
+        creationCheckpoints: {
+          ...previous.creationCheckpoints,
+          mode: target.checkpoints,
+        },
         mediaReview: { mode: target.mediaReview },
       }));
       if (state.inflight) {
@@ -1493,6 +1605,23 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         return;
       }
 
+      // Known text-only models fail the image probe anyway; refuse the
+      // reuse up front instead of spending a probe round trip.
+      if (
+        modelSupportsImage(
+          mergedProviderMap[llmItem.protocol],
+          llmItem.model_name,
+          hostProviders,
+        ) === false
+      ) {
+        message.warning(
+          t("modelConfig.reuseLlmNotMultimodal", {
+            model: llmItem.model_name,
+          }),
+        );
+        return;
+      }
+
       setTestingLlmMultimodal(true);
       try {
         // Resolve the real API key (the frontend only stores the mask).
@@ -1528,7 +1657,7 @@ export default function ModelConfigModal({ open, onClose }: Props) {
         setTestingLlmMultimodal(false);
       }
     },
-    [config],
+    [config, hostProviders, mergedProviderMap],
   );
 
   const handleTest = useCallback(
@@ -1537,7 +1666,9 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       if (type === "vlm" && config.vlm.use_llm) {
         item = config.llm;
       }
-      const isFree = isFreeTierProtocol(item.protocol, hostProviders);
+      const isFree =
+        isFreeTierProtocol(item.protocol, hostProviders) ||
+        (type === "video" && KEY_OPTIONAL_VIDEO_PROTOCOLS.has(item.protocol));
       const hasKey = isFree
         ? true
         : (type === "asr" && config.asr.reuse_llm_key) ||
@@ -1702,7 +1833,12 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       const prev = snapshotRef.current;
       if (!prev) throw new Error(t("modelConfig.snapshotLost"));
 
-      if (config.grounding.enabled) {
+      // An unchanged legacy search setup must not block a video/image
+      // model update. Keep validation for search and its model dependencies.
+      if (
+        config.grounding.enabled &&
+        groundingConfigInputs(config) !== groundingConfigInputs(prev)
+      ) {
         const groundingModel = groundingValidationModel(config);
         const groundingFree = isFreeTierProtocol(
           groundingModel.protocol,
@@ -1825,17 +1961,32 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       const providerId = mergedProviderMap[protocol];
       if (!providerId) return null;
       const provider = hostProviders.find((p) => p.id === providerId);
+      const opencodeIds =
+        providerId === "opencode" ? OPENCODE_MODELS.map((m) => m.id) : [];
       if (!provider) {
+        if (providerId === "opencode") {
+          return {
+            base_url: OPENCODE_BASE_URL_OPTIONS[0].value,
+            models: opencodeIds,
+            base_url_options: OPENCODE_BASE_URL_OPTIONS,
+          };
+        }
         const fallback = LLM_PROTOCOL_FALLBACK_BASE_URLS[protocol];
         return fallback ? { base_url: fallback, models: [] } : null;
       }
+      const hostIds = [
+        ...provider.models.map((m) => m.id),
+        ...provider.extra_models.map((m) => m.id),
+      ];
       return {
         base_url: provider.base_url,
         models: [
-          ...provider.models.map((m) => m.id),
-          ...provider.extra_models.map((m) => m.id),
+          ...hostIds,
+          ...opencodeIds.filter((id) => !hostIds.includes(id)),
         ],
-        base_url_options: provider.meta?.base_url_options,
+        base_url_options:
+          provider.meta?.base_url_options ??
+          (providerId === "opencode" ? OPENCODE_BASE_URL_OPTIONS : undefined),
       };
     }
     if (type === "asr") return ASR_PRESETS[protocol] || null;
@@ -1863,14 +2014,33 @@ export default function ModelConfigModal({ open, onClose }: Props) {
       const providerId = mergedProviderMap[protocol];
       if (!providerId) return [];
       const provider = hostProviders.find((p) => p.id === providerId);
-      if (!provider) return [];
-      return [
-        ...provider.models.map((m) => ({
-          value: m.id,
-          label: m.is_free ? `${m.id} (免费)` : m.id,
-        })),
-        ...provider.extra_models.map((m) => ({ value: m.id, label: m.id })),
-      ];
+      const options = provider
+        ? [
+            ...provider.models.map((m) => ({
+              value: m.id,
+              label: m.is_free ? `${m.id} (免费)` : m.id,
+            })),
+            ...provider.extra_models.map((m) => ({ value: m.id, label: m.id })),
+          ]
+        : [];
+      if (providerId === "opencode") {
+        const seen = new Set(options.map((o) => o.value));
+        for (const m of OPENCODE_MODELS) {
+          if (seen.has(m.id)) continue;
+          options.push({
+            value: m.id,
+            label: m.free ? `${m.id} (免费)` : m.id,
+          });
+        }
+      }
+      if (type === "vlm") {
+        return options.filter(
+          (option) =>
+            modelSupportsImage(providerId, option.value, hostProviders) ===
+            true,
+        );
+      }
+      return options;
     }
     if (type === "tts") {
       // Label each speech model with what it can do, so the choice between

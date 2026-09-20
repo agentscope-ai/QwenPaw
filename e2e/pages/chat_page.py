@@ -40,7 +40,23 @@ class ChatPage(BasePage):
 
     # Navigation and new chat (compatible with both spark-icon and anticon icon sets)
     NEW_CHAT_BTN = 'button:has(.spark-icon-spark-newChat-fill), button:has(.anticon-plus), button:has([class*="newChat"])'
-    SESSION_LIST_BTN = 'button:has(.spark-icon-spark-history-line), button:has(.anticon-history), button:has([class*="history"])'
+    # Conversation-history disclosure button in the sidebar.
+    #
+    # The previous value ended with a very broad ``button:has([class*="history"])``
+    # which, after #7502, matches *two different* buttons: the
+    # ``sidebarSessionList-module__historyHeader`` disclosure toggle (onClick =
+    # ``setHistoryCollapsed(c => !c)``) and, when the sidebar is collapsed, the
+    # ``collapsedNavItem`` history button in ``Sidebar.tsx`` whose onClick opens a
+    # Popover instead of expanding the inline list. Playwright resolves a
+    # comma-separated selector as a union and ``.first`` picks the *first match in
+    # DOM order* — not the first alternative written — so listing a precise
+    # anchor before a broad one does **not** create a preference order. Anchor on
+    # the module-scoped ``historyHeader`` class instead: it exists in the same
+    # ``sidebarSessionList.module.less`` both before and after #7502, and the
+    # element is a ``<button>`` in both, so one selector covers both generations.
+    # ``button`` also excludes the sibling ``historyHeaderRow`` container (a
+    # ``<div>``) whose scoped name contains ``historyHeader`` as a substring.
+    SESSION_LIST_BTN = 'button[class*="historyHeader"]'
 
     # Input area
     CHAT_INPUT = (
@@ -61,21 +77,52 @@ class ChatPage(BasePage):
     WELCOME_TEXT = CHAT_INPUT
     QUICK_ACTIONS = '.quick-action'
 
-    # Session management (right-side "All Chats" drawer).
-    # Post v2.0.0 redesign the SessionItem container is a hashed CSS-Module
-    # class (``styles.item``) carrying ``role="button"``; the legacy
-    # ``chatSessionItem`` class is gone. Anchor on the drawer list wrapper +
-    # role, keeping the old class as a fallback for older builds.
+    # Session management.
+    #
+    # Upstream #7502 ("redesign sidebar and settings experience") removed the
+    # right-side "All Chats" drawer entirely: ``ChatSessionDrawer`` is gone
+    # (upstream now asserts it is not even referenced — see
+    # ``console/src/pages/Chat/index.module.test.ts``) and the session list
+    # lives only in ``console/src/layouts/SidebarSessionList.tsx``. The list
+    # container changed from ``styles.listWrapper`` to ``styles.scroll``
+    # (``listWrapper`` survives only as the *ref variable name*
+    # ``listWrapperRef``), so the ancestor prefix ``[class*=listWrapper]`` used
+    # to scope these selectors no longer matches anything and every session
+    # lookup silently returned 0 items.
+    #
+    # The ``SessionItem`` component itself did *not* change shape: both before
+    # and after #7502 its root element is
+    # ``<div className={cls} role="button">`` where ``cls`` is built from
+    # ``styles.item`` of ``sessionItem.module.less``. With the build's
+    # ``generateScopedName: "[name]__[local]__[hash:base64:5]"`` that renders as
+    # ``sessionItem-module__item__<hash>``. So the module-scoped class name plus
+    # ``role="button"`` is a stable two-anchor handle across both generations,
+    # and — because ``SessionItem`` has exactly one render site in the whole
+    # console — it needs no ancestor prefix to stay unambiguous.
+    #
+    # ``[class*="chatSessionItem"]`` is kept as a fallback for builds older than
+    # the v2.0.0 redesign.
     SESSION_ITEM = (
-        '[class*=listWrapper] div[class*="sessionItem-module__item"], '
+        'div[role="button"][class*="sessionItem-module__item"], '
         '[class*=chatSessionItem]'
     )
+    # Active item: ``.active`` is nested (``&.active``) inside ``.item`` in the
+    # same module, so its scoped name carries the ``sessionItem-module__``
+    # prefix too. Matching the prefixed name rather than a bare
+    # ``[class*=active]`` keeps the selector from latching onto unrelated
+    # active-looking classes.
     SESSION_ACTIVE = (
-        '[class*=listWrapper] div[class*="sessionItem-module__item"][class*=active], '
+        'div[role="button"][class*="sessionItem-module__item"]'
+        '[class*="sessionItem-module__active"], '
         '[class*=chatSessionItem][class*=active]'
     )
+    # Session title element: ``<div className={styles.name}>``. Scoped to
+    # ``sessionItem-module__name`` on purpose — a bare ``[class*=name]`` also
+    # matches the sibling ``styles.renameInput`` element ("re**name**Input"),
+    # which would return the edit box instead of the title.
     SESSION_NAME = (
-        '[class*=listWrapper] div[class*="sessionItem-module__item"] [class*=name], '
+        'div[role="button"][class*="sessionItem-module__item"] '
+        '[class*="sessionItem-module__name"], '
         '[class*=chatSessionItem] [class*=name]'
     )
     # SessionItem actions now live behind a "more" button (SparkMoreLine)
@@ -100,29 +147,60 @@ class ChatPage(BasePage):
     )
     # Inline rename input rendered when a SessionItem enters edit mode.
     SESSION_RENAME_INPUT = 'input[class*=renameInput]'
-    # Conversation search box inside the drawer (filters sessions by title).
+    # Conversation search box (filters sessions by title).
+    # Since #7502 this input is only mounted on demand — see
+    # ``open_session_search()`` for the two clicks that reveal it, and for why
+    # this selector alone is not enough any more.
     SESSION_SEARCH_INPUT = '[class*=searchContainer] input'
+    # The overflow button next to the history header that opens the dropdown
+    # holding "Search conversations" / "New group". Its accessible name comes
+    # from ``sidebar.more``. Named ``..._MORE_ACTIONS_BTN`` to keep it distinct
+    # from ``SESSION_MORE_BTN`` below, which is the per-session-item action
+    # button (Pin / Rename / Archive / Delete) and an unrelated element.
+    SESSION_MORE_ACTIONS_BTN = (
+        'button[aria-label="More"], button[aria-label="更多"]'
+    )
+    # The search entry inside that dropdown. Label comes from
+    # ``chat.sessionPanel.searchConversations`` ("Search conversations…" /
+    # "搜索对话…"); matched on the prefix so the trailing ellipsis cannot
+    # break it.
+    SESSION_SEARCH_MENU_ITEM = (
+        '.qwenpaw-dropdown-menu-item:has-text("Search conversations"), '
+        '.ant-dropdown-menu-item:has-text("Search conversations"), '
+        '.qwenpaw-dropdown-menu-item:has-text("搜索对话"), '
+        '.ant-dropdown-menu-item:has-text("搜索对话")'
+    )
     # Legacy hover-button selectors (kept for older builds / fallbacks).
     SESSION_PIN_BTN = 'button:has(.spark-icon-spark-mark-line), button:has(.anticon-pushpin)'
     SESSION_EDIT_BTN = 'button:has(.spark-icon-spark-edit-line), button:has(.anticon-edit)'
     SESSION_DELETE_BTN = 'button:has(.spark-icon-spark-delete-line), button:has(.anticon-delete)'
 
     # --- Tool approval level toggle (composer / sender area) — upstream #5685 ---
-    # A single antd Tag whose text is one of the 4 levels; clicking it opens a
-    # dropdown of exactly 4 options. No CSS-module class or data-testid, so we
-    # anchor on the level texts (browser locale is en-US; ZH kept as fallback).
+    # Upstream #7334 rebuilt ApprovalLevelToggle from an antd Tag into a plain
+    # ``<button class="...trigger">`` (CSS-module hash class, not stable), so
+    # the old ``span.qwenpaw-tag`` anchor no longer exists. The button carries
+    # ``aria-label=<i18n toolExecutionLevelTitle>`` — the same handle upstream
+    # uses in its own unit test (ApprovalToggle.test.tsx) — so we anchor on it.
+    # Note: #7368 renamed that title from "Tool Execution Security" to
+    # "Tool Approval Mode" (zh: 工具审批模式). In non-compact desktop mode the
+    # button text also contains the current level label (e.g. "Strict Mode");
+    # in compact/mobile mode it is icon-only. Only one of ApprovalLevelToggle /
+    # HarnessApprovalToggle renders at a time (mutually exclusive in the
+    # composer), and the harness variant uses a different aria-label, so the
+    # locator below is unambiguous.
+    APPROVAL_TOGGLE = (
+        'button[aria-label="Tool Approval Mode"], '
+        'button[aria-label="工具审批模式"]'
+    )
     APPROVAL_LEVELS = {
         "STRICT": ("Strict Mode", "严格模式"),
         "SMART": ("Smart Mode", "智能模式"),
         "AUTO": ("Auto Mode", "自动模式"),
         "OFF": ("Off Mode", "关闭模式"),
     }
-    _APPROVAL_LABEL_RE = re.compile(
-        r"Strict Mode|Smart Mode|Auto Mode|Off Mode|"
-        r"严格模式|智能模式|自动模式|关闭模式"
-    )
     # Only items inside the currently-open dropdown (antd keeps closed menus in
-    # the DOM with a ``-hidden`` modifier).
+    # the DOM with a ``-hidden`` modifier). The #7334 rebuild kept the antd
+    # Dropdown for the menu itself, so this selector is unchanged.
     APPROVAL_MENU_ITEM = (
         '.qwenpaw-dropdown:not(.qwenpaw-dropdown-hidden) '
         '.qwenpaw-dropdown-menu-item'
@@ -526,7 +604,11 @@ class ChatPage(BasePage):
         messages = self.get_ai_messages()
         return messages[-1] if messages else None
 
-    def wait_for_ai_response(self, timeout: int = 30000) -> Optional[Locator]:
+    def wait_for_ai_response(
+        self,
+        timeout: int = 30000,
+        stability_cap_ms: int = 30000,
+    ) -> Optional[Locator]:
         """
         Wait for the AI reply to truly complete (strict version, eliminate false positives).
 
@@ -541,6 +623,11 @@ class ChatPage(BasePage):
 
         Args:
             timeout: overall timeout (ms), shared budget across gates
+            stability_cap_ms: ceiling of the gate-2/3 window. The default
+                (30000) preserves the historical behaviour for every
+                existing caller. Long multi-round cases (e.g. the 25-round
+                compression case) hit transient stalls that a 30 s window
+                cannot absorb; they pass a larger cap.
 
         Returns:
             Locator of the last AI message; returns None on any gate failure.
@@ -592,7 +679,15 @@ class ChatPage(BasePage):
         #     and "button recovered" as the fast-path accelerator; whichever signal is ready first releases.
         #   - Still filter out the "Thinking / Loading" placeholder + require >= 2 real characters -> eliminates false positives.
         #   - Stability window widened to 2500ms (more stable than the original 800ms; avoids misjudging long-token streaming gaps).
-        stability_timeout = min(timeout, 30000)
+        #   - Path C added 2026-09-18: the SDK can leave a stale EMPTY streaming
+        #     bubble after the reply already finished (streaming-end signal
+        #     lost). Paths A/B both require real text in the LAST bubble, so a
+        #     trailing empty bubble wedges them until the window expires even
+        #     though the answer is fully rendered one bubble earlier. Path C
+        #     releases on stability of the newest REAL-text bubble that belongs
+        #     to this round (index >= expectedCount); the index guard prevents
+        #     misreading the previous round's content as this round's reply.
+        stability_timeout = min(timeout, stability_cap_ms)
         passed_via = None
         try:
             self.page.wait_for_function(
@@ -648,6 +743,51 @@ class ChatPage(BasePage):
                     if (contentStable) {
                         window.__qwenpaw_wait_passed_via__ = 'content_stable';
                         return true;
+                    }
+                    // Path C (2026-09-18): tolerate the known SDK behaviour where
+                    // a stale EMPTY streaming bubble is left behind after the
+                    // reply already finished (streaming-end signal lost). In that
+                    // state `last` is empty forever, so Path A (needs real text)
+                    // and Path B (needs real text) can never release, and the
+                    // round fails after the whole stability window even though
+                    // the reply is fully rendered one bubble earlier. Evidence:
+                    // CI step_shot at the FAIL moment shows the round's answer
+                    // complete ("Completed 1 steps" + full text) with a trailing
+                    // empty spinner bubble. Path C releases when the NEWEST
+                    // bubble that carries real text AND belongs to this round
+                    // (index >= expectedCount) is stable for 1500ms. The
+                    // index guard is what keeps this from misreading the
+                    // PREVIOUS round's content as this round's reply.
+                    let newestReal = null;
+                    for (let i = aiMsgs.length - 1; i >= expectedCount; i--) {
+                        const t = (aiMsgs[i].innerText || '').trim();
+                        const s = t
+                            .replace(/Thinking/gi, '')
+                            .replace(/Loading/gi, '')
+                            .trim();
+                        if (s.length >= 2) {
+                            newestReal = { raw: t, idx: i };
+                            break;
+                        }
+                    }
+                    if (newestReal) {
+                        const keyC = '__qwenpaw_ai_stable_cache_c__';
+                        const nowC = Date.now();
+                        const cacheC = window[keyC] || {};
+                        if (
+                            cacheC.text !== newestReal.raw ||
+                            cacheC.idx !== newestReal.idx
+                        ) {
+                            window[keyC] = {
+                                text: newestReal.raw,
+                                idx: newestReal.idx,
+                                since: nowC,
+                            };
+                        } else if (nowC - cacheC.since >= 1500) {
+                            window.__qwenpaw_wait_passed_via__ =
+                                'content_stable_new_round';
+                            return true;
+                        }
                     }
                     return false;
                 }""",
@@ -1131,8 +1271,44 @@ class ChatPage(BasePage):
         self.wait(300)
         return result
 
+    def open_session_search(self) -> "ChatPage":
+        """Reveal the conversation search box in the sidebar session list.
+
+        Before #7502 the search input was always rendered inside the list
+        container. After #7502 it is mounted only on demand — see
+        ``console/src/layouts/SidebarSessionList.tsx``:
+
+            {!historyCollapsed && (searchOpen || creatingGroup) && (
+              <div className={styles.searchContainer}>
+                {searchOpen && <Input className={styles.searchInput} ... />}
+
+        so ``searchOpen`` has to be flipped first by opening the "More"
+        overflow dropdown (``aria-label`` from ``sidebar.more``) and picking the
+        "Search conversations" entry (``chat.sessionPanel.searchConversations``).
+        ``handleOpenSearch`` also focuses the input, so the box is ready to fill
+        by the time this returns.
+
+        Idempotent: if the box is already visible nothing is clicked, which
+        matters because the "More" dropdown toggles rather than opens.
+        """
+        existing = self.page.locator(self.SESSION_SEARCH_INPUT).first
+        if existing.count() > 0 and existing.is_visible():
+            return self
+
+        more_btn = self.page.locator(self.SESSION_MORE_ACTIONS_BTN).first
+        more_btn.wait_for(state="visible", timeout=5000)
+        more_btn.click()
+        self.wait(300)
+
+        search_item = self.page.locator(self.SESSION_SEARCH_MENU_ITEM).first
+        search_item.wait_for(state="visible", timeout=5000)
+        search_item.click()
+        self.wait(400)
+        return self
+
     def search_sessions(self, keyword: str) -> "ChatPage":
-        """Filter the drawer session list via the conversation search box."""
+        """Filter the session list via the conversation search box."""
+        self.open_session_search()
         box = self.page.locator(self.SESSION_SEARCH_INPUT).first
         box.wait_for(state="visible", timeout=5000)
         box.fill(keyword)
@@ -1150,12 +1326,13 @@ class ChatPage(BasePage):
     # ========== Tool approval level toggle ==========
 
     def get_approval_toggle(self) -> Locator:
-        """Locate the approval-level Tag in the composer (matches any level)."""
-        return (
-            self.page.locator("span.qwenpaw-tag")
-            .filter(has_text=self._APPROVAL_LABEL_RE)
-            .first
-        )
+        """Locate the approval-level trigger button in the composer.
+
+        Upstream #7334 replaced the antd Tag with a ``<button>`` carrying an
+        ``aria-label`` (localized approval-mode title); we anchor on that
+        attribute, exactly like upstream's own ApprovalToggle.test.tsx.
+        """
+        return self.page.locator(self.APPROVAL_TOGGLE).first
 
     def open_approval_menu(self) -> "ChatPage":
         """Click the approval Tag and wait for its dropdown to render."""

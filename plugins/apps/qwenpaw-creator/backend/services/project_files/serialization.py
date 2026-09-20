@@ -16,7 +16,7 @@ from typing import Any
 from pydantic import BaseModel, ValidationError
 
 from .migrations import ProjectMigrationError, migrate_project_document
-from .models import Project
+from .models import Project, R2VCreation
 
 
 class CanonicalJsonError(ValueError):
@@ -104,6 +104,50 @@ def project_etag(project: Project) -> str:
     return f"sha256:{digest}"
 
 
+# Frozen field order is part of the historical ETag, even for retired data.
+# These names only encode old journal bytes; they do not validate, expose or
+# restore authoring rows in the current Project model.
+_RETIRED_SHOT_FIELDS = (
+    "shot_id",
+    "description",
+    "camera",
+    "framing",
+    "camera_description",
+    "dialogue",
+    "duration_seconds",
+    "character_refs",
+    "scene_ref",
+    "prop_refs",
+)
+
+
+def _retired_shots_data(value: Any) -> Any:
+    if not isinstance(value, Mapping):
+        return _source_document_data(value, None)
+    ordered: dict[str, Any] = {}
+    for name in ("items", "order", *sorted(set(value) - {"order", "items"})):
+        if name not in value:
+            continue
+        item = value[name]
+        if name == "items" and isinstance(item, Mapping):
+            ordered[name] = {}
+            for key in sorted(item):
+                row = item[key]
+                if isinstance(row, Mapping):
+                    row = {
+                        field: _source_document_data(row[field], None)
+                        for field in (
+                            *_RETIRED_SHOT_FIELDS,
+                            *sorted(set(row) - set(_RETIRED_SHOT_FIELDS)),
+                        )
+                        if field in row
+                    }
+                ordered[name][key] = row
+        else:
+            ordered[name] = _source_document_data(item, None)
+    return ordered
+
+
 def _source_document_data(value: Any, model_value: Any) -> Any:
     """Order a historical document as its matching Project model did.
 
@@ -116,18 +160,24 @@ def _source_document_data(value: Any, model_value: Any) -> Any:
 
     if isinstance(value, Mapping):
         if isinstance(model_value, BaseModel):
-            fields = type(model_value).model_fields
+            fields = list(type(model_value).model_fields)
+            if isinstance(model_value, R2VCreation):
+                fields.insert(fields.index("recipe"), "shots")
+                fields.append("min_dialogue_ratio")
             ordered = {
-                name: _source_document_data(
-                    value[name],
-                    getattr(model_value, name),
+                name: (
+                    _retired_shots_data(value[name])
+                    if isinstance(model_value, R2VCreation) and name == "shots"
+                    else _source_document_data(
+                        value[name],
+                        getattr(model_value, name, None),
+                    )
                 )
                 for name in fields
                 if name in value
             }
-            # Current migrations do not remove Project fields.  Retaining any
-            # legacy-only key here still makes the hash deterministic if a
-            # future migration deliberately consumes one before validation.
+            # Retain other legacy-only keys in the persisted identity while
+            # the current typed view may deliberately ignore them.
             ordered.update(
                 (name, _source_document_data(value[name], None))
                 for name in sorted(set(value) - set(fields))

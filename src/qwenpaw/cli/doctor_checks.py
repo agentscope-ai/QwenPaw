@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from ..utils.io_utils import run_sync_io
 from ..__version__ import __version__
 from ..agents.skill_system import (
     get_workspace_skills_dir,
@@ -231,11 +232,8 @@ def environment_summary_lines(
         )
     lines.append(f"working_dir: {WORKING_DIR}")
     wd_qp = os.getenv("QWENPAW_WORKING_DIR")
-    wd_legacy = os.getenv("COPAW_WORKING_DIR")
     if wd_qp:
         lines.append(f"QWENPAW_WORKING_DIR (env): {wd_qp}")
-    elif wd_legacy:
-        lines.append(f"COPAW_WORKING_DIR (env, legacy): {wd_legacy}")
     lines.append(f"sqlite library: {sqlite3.sqlite_version}")
     try:
         ver_tuple = tuple(
@@ -1144,7 +1142,7 @@ async def check_enabled_agents_model_connections(
     from ..providers.provider_manager import ProviderManager
 
     mgr = ProviderManager.get_instance()
-    active_slot = mgr.get_active_model()
+    active_slot = await run_sync_io(mgr.get_active_model)
     lines: list[str] = []
     notes: list[str] = []
     all_ok = True
@@ -1174,7 +1172,7 @@ async def check_enabled_agents_model_connections(
             lines.append(f"{agent_id}: FAIL — invalid model slot ({source})")
             continue
 
-        provider = mgr.get_provider(pid)
+        provider = await run_sync_io(mgr.get_provider, pid)
         if provider is None:
             all_ok = False
             lines.append(f"{agent_id}: FAIL — provider not found: {pid!r}")

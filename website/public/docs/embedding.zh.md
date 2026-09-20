@@ -58,12 +58,12 @@ QwenPaw 通过 AgentScope 2.x 连接 `openai`、`dashscope`、`dashscope_multimo
 
 - **已开启**：当前表单已经填齐启用所需字段，不代表服务可访问；
 - **已验证**：当前表单参数完成过一次真实请求，返回维度与配置一致；
-- **已保存**：配置已经写入运行配置，并通过热更新或 Agent 重载生效；
+- **已保存**：配置已经写入运行配置；同一向量空间的变更可热更新，向量空间变化则会暂停向量搜索并等待重建；
 - **需要重建索引**：模型的语义坐标系发生变化，旧向量需要重新生成。
 
 ![Embedding 服务已验证并显示实际维度与耗时](https://img.alicdn.com/imgextra/i1/O1CN01LQlWGm6qD4I1gTsS_!!6000000003153-0-tps-830-134.jpg)
 
-测试会发送一条真实文本请求，并检查服务能否在 15 秒内返回非空、有限数值组成且维度正确的向量。它只能证明当前参数可以完成一次调用；首次启用或重建索引仍需处理全部现有记忆，也可能遇到配额、速率限制或超长输入。
+测试会发送一条真实文本请求，并检查服务能否在 `health_check_timeout` 内返回非空、有限数值组成且维度正确的向量；该超时默认是 15 秒。它只能证明当前参数可以完成一次调用；首次启用或重建索引仍需处理全部现有记忆，也可能遇到配额、速率限制或超长输入。
 
 ## 验证语义搜索
 
@@ -94,7 +94,19 @@ QwenPaw 通过 AgentScope 2.x 连接 `openai`、`dashscope`、`dashscope_multimo
 
 ### 更换模型后搜索异常
 
-保存新的后端、地址、模型、维度或 `use_dimensions` 后，按照控制台提示重建索引。只更换 API Key 不会改变向量空间，不需要重建。
+保存新的后端、地址、模型、维度或 `use_dimensions` 后，按照控制台提示重建索引。重建成功前，向量搜索保持不可用，但 BM25 关键词搜索仍可使用。只更换 API Key 不会改变向量空间，不需要重建。
+
+维护 API 可以通过 `scope=embedding` 只重建向量，或通过默认的 `scope=all` 依次重建 BM25 和向量：
+
+```http
+POST /api/agents/{agentId}/memory/reindex?scope=embedding
+```
+
+如果决定放弃尚未重建的向量空间变更，可以在控制台撤销，或调用以下接口恢复与现有向量匹配的上一份配置：
+
+```http
+POST /api/agents/{agentId}/memory/reindex/undo
+```
 
 <img class="embedding-dialog" src="https://img.alicdn.com/imgextra/i3/O1CN01BCTjXC0jfMG1GYA0_!!6000000005728-0-tps-624-276.jpg" alt="重建记忆索引前的确认提示" />
 
@@ -125,18 +137,19 @@ QwenPaw 通过 AgentScope 2.x 连接 `openai`、`dashscope`、`dashscope_multimo
 
 ### 字段
 
-| 字段               | 默认值     | 作用                                         |
-| ------------------ | ---------- | -------------------------------------------- |
-| `backend`          | `"openai"` | 调用服务所用的 SDK 类型                      |
-| `api_key`          | `""`       | 服务凭证；Ollama 不使用                      |
-| `base_url`         | `""`       | OpenAI API 地址或 Ollama Host                |
-| `model_name`       | `""`       | 模型名称；所有后端都必填                     |
-| `dimensions`       | `1024`     | 模型实际输出维度，用于严格校验和索引兼容判断 |
-| `use_dimensions`   | `false`    | 仅限 `openai`；是否在请求中发送维度参数      |
-| `enable_cache`     | `true`     | 是否缓存相同文本的向量结果                   |
-| `max_cache_size`   | `10000`    | 本地缓存最大条目数                           |
-| `max_input_length` | `8192`     | 单条输入的近似字符预算                       |
-| `max_batch_size`   | `10`       | ReMeLight 每批提交的最大条目数               |
+| 字段                   | 默认值     | 作用                                                    |
+| ---------------------- | ---------- | ------------------------------------------------------- |
+| `backend`              | `"openai"` | 调用服务所用的 SDK 类型                                 |
+| `api_key`              | `""`       | 服务凭证；Ollama 不使用                                 |
+| `base_url`             | `""`       | OpenAI API 地址或 Ollama Host                           |
+| `model_name`           | `""`       | 模型名称；所有后端都必填                                |
+| `dimensions`           | `1024`     | 模型实际输出维度，用于严格校验和索引兼容判断            |
+| `use_dimensions`       | `false`    | 仅限 `openai`；是否在请求中发送维度参数                 |
+| `enable_cache`         | `true`     | 是否缓存相同文本的向量结果                              |
+| `max_cache_size`       | `10000`    | 本地缓存最大条目数                                      |
+| `max_input_length`     | `8192`     | 单条输入的近似字符预算                                  |
+| `max_batch_size`       | `10`       | ReMeLight 每批提交的最大条目数                          |
+| `health_check_timeout` | `15.0`     | 连接测试和启动健康检查的单次超时秒数，范围为 `(0, 300]` |
 
 OpenAI 兼容服务示例：
 
@@ -154,14 +167,15 @@ OpenAI 兼容服务示例：
         "enable_cache": true,
         "max_cache_size": 10000,
         "max_input_length": 8192,
-        "max_batch_size": 10
+        "max_batch_size": 10,
+        "health_check_timeout": 15.0
       }
     }
   }
 }
 ```
 
-QwenPaw 正常运行时最多重试 3 次；测试时只重试 1 次，并有 15 秒超时。AgentScope 还会按厂商限制继续拆分批次，因此 `max_batch_size` 是上游限制，实际可用值仍取决于具体模型和服务。
+QwenPaw 正常运行时最多重试 3 次；测试时只重试 1 次，并使用 `health_check_timeout` 作为超时。AgentScope 还会按厂商限制继续拆分批次，因此 `max_batch_size` 是上游限制，实际可用值仍取决于具体模型和服务。
 
 ## 相关页面
 

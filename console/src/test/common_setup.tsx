@@ -12,7 +12,7 @@ const ApprovalContext = createContext<{
 });
 
 interface RenderWithProvidersOptions extends Omit<RenderOptions, "wrapper"> {
-  initialEntries?: string[];
+  initialEntries?: MemoryRouterProps["initialEntries"];
 }
 
 function AllProviders({

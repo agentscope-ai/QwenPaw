@@ -21,7 +21,11 @@ from ...constant import (
     DEFAULT_STREAM_TASK_TIMEOUT_SECONDS,
 )
 from ...runtime.tool_registry import tool_descriptor
-from ...utils.http import trust_env_for_url
+from ...utils.runtime_api import (
+    api_client,
+    async_api_client,
+    read_runtime_api,
+)
 from ...utils.timeout import (
     parse_positive_timeout_seconds as _parse_positive_timeout_seconds,
 )
@@ -30,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_AGENT_API_BASE_URL = "http://127.0.0.1:8088"
 DEFAULT_AGENT_API_TIMEOUT = 30.0
+AGENT_CHAT_STOP_TIMEOUT = 3.0
 MAX_SPAWN_BATCH_SIZE = 10
 MAX_SPAWN_BATCH_CONCURRENCY = 3
 
@@ -39,13 +44,14 @@ def resolve_agent_api_base_url(base_url: Optional[str] = None) -> str:
 
     Priority:
     1. Explicit ``base_url`` argument
-    2. Last recorded API host/port from config
-    3. Built-in localhost fallback
+    2. Hub-managed runtime endpoint
+    3. Last recorded API host/port from config
+    4. Built-in localhost fallback
     """
     if base_url:
         return base_url.rstrip("/")
 
-    last_api = read_last_api()
+    last_api = read_runtime_api() or read_last_api()
     if last_api:
         host, port = last_api
         return f"http://{host}:{port}"
@@ -85,10 +91,9 @@ def create_agent_api_client(
 ) -> httpx.Client:
     """Create an HTTP client targeting the local agent API."""
     normalized = _normalize_api_base_url(base_url)
-    return httpx.Client(
+    return api_client(
         base_url=normalized,
         timeout=default_timeout,
-        trust_env=trust_env_for_url(normalized),
     )
 
 
@@ -339,10 +344,9 @@ async def collect_final_agent_chat_response_async(
     """
     normalized = _normalize_api_base_url(base_url)
     response_data: Optional[Dict[str, Any]] = None
-    async with httpx.AsyncClient(
+    async with async_api_client(
         base_url=normalized,
         timeout=httpx.Timeout(timeout),
-        trust_env=trust_env_for_url(normalized),
     ) as client:
         async with client.stream(
             "POST",
@@ -357,6 +361,58 @@ async def collect_final_agent_chat_response_async(
                     if parsed and parsed.get("type") != "turn_usage":
                         response_data = parsed
     return response_data
+
+
+async def stop_agent_chat_async(
+    base_url: Optional[str],
+    session_id: str,
+    to_agent: str,
+    timeout: float = AGENT_CHAT_STOP_TIMEOUT,
+) -> bool:
+    """Stop an inter-agent chat running on the target agent.
+
+    The console chat stream continues after its HTTP subscriber disconnects.
+    Cancelling ``chat_with_agent`` must therefore call the target agent's
+    explicit Stop endpoint instead of only closing the collection stream.
+    """
+    normalized = _normalize_api_base_url(base_url)
+    async with async_api_client(
+        base_url=normalized,
+        timeout=httpx.Timeout(timeout),
+    ) as client:
+        response = await client.post(
+            "/console/chat/stop",
+            params={"chat_id": session_id},
+            headers=_request_headers(to_agent),
+        )
+        response.raise_for_status()
+        payload = response.json()
+    return bool(payload.get("stopped")) if isinstance(payload, dict) else False
+
+
+async def _stop_cancelled_agent_chat(
+    session_id: str,
+    to_agent: str,
+    tool_name: str = "chat_with_agent",
+) -> None:
+    """Best-effort stop of a target chat after caller cancellation."""
+    try:
+        stopped = await asyncio.shield(
+            stop_agent_chat_async(None, session_id, to_agent),
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(
+            "Failed to stop target agent chat after cancellation: %s",
+            exc,
+            exc_info=True,
+        )
+        return
+    if not stopped:
+        logger.warning(
+            "%s cancellation did not confirm target chat stop: %s",
+            tool_name,
+            session_id,
+        )
 
 
 def submit_agent_chat_task(
@@ -601,39 +657,13 @@ async def chat_with_agent(
         root_session_id=final_root_session,
     )
 
-    # Register LLM/tool timeout as kill_deadline so keep_foreground clearing
-    # the shorter hook offload window does not force-cancel early (#6245).
-    from ...tool_calls import (
-        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
-        cancellable_wait,
-        get_call_context,
+    response_data = await _collect_foreground_agent_chat(
+        request_payload,
+        normalized_to_agent,
+        final_session_id,
+        timeout,
+        tool_name="chat_with_agent",
     )
-
-    # Under ToolCallContext use a large but finite HTTP ceiling so extend
-    # works, while AsyncClient cancel still closes the stream (no zombie
-    # sync thread with timeout=None).
-    http_timeout = (
-        float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
-        if get_call_context() is not None
-        else float(timeout)
-    )
-
-    try:
-        response_data = await cancellable_wait(
-            collect_final_agent_chat_response_async(
-                None,
-                request_payload,
-                normalized_to_agent,
-                http_timeout,
-            ),
-            fallback_secs=float(timeout),
-            as_kill_deadline=True,
-        )
-    except asyncio.CancelledError:
-        return _tool_text_response(
-            "chat_with_agent was cancelled. "
-            "Do not retry unless the user explicitly asks.",
-        )
     if not response_data:
         return _tool_text_response("(No response received)")
 
@@ -994,6 +1024,49 @@ def _foreground_wait_seconds(parsed_timeout: Optional[int]) -> int:
     return parsed_timeout
 
 
+def _foreground_http_timeout(wait_seconds: int) -> float:
+    """Keep foreground HTTP alive while the Coordinator owns its deadline."""
+    from ...tool_calls import (
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+        get_call_context,
+    )
+
+    if get_call_context() is not None:
+        return float(COORDINATOR_OWNED_EXEC_TIMEOUT_SECS)
+    return float(wait_seconds)
+
+
+async def _collect_foreground_agent_chat(
+    request_payload: Dict[str, Any],
+    to_agent: str,
+    session_id: str,
+    wait_seconds: int,
+    *,
+    tool_name: str,
+) -> Dict[str, Any]:
+    """Collect a foreground agent chat with a shared cancel contract."""
+    from ...tool_calls import cancellable_wait
+
+    try:
+        return await cancellable_wait(
+            collect_final_agent_chat_response_async(
+                None,
+                request_payload,
+                to_agent,
+                _foreground_http_timeout(wait_seconds),
+            ),
+            fallback_secs=float(wait_seconds),
+            as_kill_deadline=True,
+        )
+    except asyncio.CancelledError:
+        await _stop_cancelled_agent_chat(
+            session_id,
+            to_agent,
+            tool_name=tool_name,
+        )
+        raise
+
+
 def _watchdog_timeout_from_submit_result(task_result: Any) -> int:
     """Prefer the ``/chat/task`` echo; never invent a third default.
 
@@ -1251,12 +1324,12 @@ async def spawn_subagent(  # pylint: disable=too-many-return-statements
             ),
         )
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
+    response_data = await _collect_foreground_agent_chat(
         request_payload,
         current_agent_id,
+        subagent_session_id,
         _foreground_wait_seconds(parsed_timeout),
+        tool_name="spawn_subagent",
     )
     if not response_data:
         return _tool_text_response(
@@ -1430,9 +1503,9 @@ async def _call_fork_api(
         "channel": channel,
     }
     try:
-        async with httpx.AsyncClient(
+        async with async_api_client(
+            base_url=url,
             timeout=30.0,
-            trust_env=trust_env_for_url(url),
         ) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
@@ -1486,6 +1559,7 @@ async def _spawn_forked_subagent(
         bind_fork_task,
         finalize_fork_worktree_or_fail,
         get_active_fork_scope,
+        mark_fork_failed,
         register_fork,
     )
     from ...config.context import get_current_workspace_dir
@@ -1587,13 +1661,33 @@ async def _spawn_forked_subagent(
             )
         return _tool_text_response(submission_text)
 
-    response_data = await asyncio.to_thread(
-        collect_final_agent_chat_response,
-        None,
-        request_payload,
-        current_agent_id,
-        _foreground_wait_seconds(timeout),
-    )
+    wait_seconds = _foreground_wait_seconds(timeout)
+
+    try:
+        response_data = await _collect_foreground_agent_chat(
+            request_payload,
+            current_agent_id,
+            fork_session_id,
+            wait_seconds,
+            tool_name="spawn_subagent",
+        )
+    except asyncio.CancelledError:
+        if worktree_path:
+            try:
+                await asyncio.to_thread(
+                    mark_fork_failed,
+                    worktree_path,
+                    worktree_branch,
+                    reason="Forked subagent cancelled",
+                    expected_scope=fork_scope_id or None,
+                )
+            except Exception:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to mark cancelled fork as failed: %s",
+                    worktree_path,
+                    exc_info=True,
+                )
+        raise
 
     # Only commit on a successful worker response (avoid half-baked commits).
     finalize_ok = False
@@ -1606,8 +1700,6 @@ async def _spawn_forked_subagent(
             expected_scope=fork_scope_id or None,
         )
     elif worktree_path:
-        from ..fork_project import mark_fork_failed
-
         await asyncio.to_thread(
             mark_fork_failed,
             worktree_path,

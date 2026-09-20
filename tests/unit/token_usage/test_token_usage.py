@@ -6,7 +6,7 @@ import asyncio
 import json
 from contextvars import ContextVar
 from datetime import date
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -25,8 +25,12 @@ from qwenpaw.token_usage.manager import (
     TokenUsageSummary,
     _usage_agent_id,
 )
-from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
+from qwenpaw.token_usage.model_wrapper import (
+    TokenRecordingModelWrapper,
+    _cache_usage_metrics,
+)
 from qwenpaw.token_usage.storage import load_data, save_data_sync
+from qwenpaw.token_usage.turn_usage import add_session_cache_usage
 
 _EMPTY_AGENT_KEY = "\x1f".join(("", "openai", "gpt-4"))
 _NAMED_AGENT_KEY = "\x1f".join(("bot-a", "openai", "gpt-4"))
@@ -98,6 +102,26 @@ class TestApplyEvent:
         entry = cache["2026-04-24"][_EMPTY_AGENT_KEY]
         assert entry["prompt_tokens"] == 300
         assert entry["call_count"] == 3
+
+    def test_apply_event_accumulates_cache_usage(self):
+        """Cache token counters should use the same aggregation bucket."""
+        cache = {}
+        _apply_event(
+            cache,
+            _ev(
+                cache_read_tokens=80,
+                cache_write_tokens=10,
+                cache_eligible_input_tokens=100,
+                cache_observed=True,
+            ),
+        )
+        _apply_event(cache, _ev())
+
+        entry = cache["2026-04-24"][_EMPTY_AGENT_KEY]
+        assert entry["cache_read_tokens"] == 80
+        assert entry["cache_write_tokens"] == 10
+        assert entry["cache_eligible_input_tokens"] == 100
+        assert entry["cache_observed_calls"] == 1
 
     def test_apply_event_does_not_merge_into_legacy_row(self):
         """Named/empty agent ids stay off the legacy provider:model row."""
@@ -584,6 +608,38 @@ class TestTokenUsageManagerCore:
         await manager.stop()
 
     @pytest.mark.asyncio
+    async def test_get_summary_uses_token_weighted_cache_rate(self):
+        """Summary should divide total cache reads by total eligible input."""
+        manager = TokenUsageManager()
+        # pylint: disable=protected-access
+        manager._buffer.get_merged_data = AsyncMock(
+            return_value={
+                "2026-04-24": {
+                    "deepseek:chat": _row(
+                        provider_id="deepseek",
+                        model_name="chat",
+                        prompt_tokens=1000,
+                        cache_read_tokens=540,
+                        cache_write_tokens=0,
+                        cache_eligible_input_tokens=1000,
+                        cache_observed_calls=2,
+                        call_count=2,
+                    ),
+                },
+            },
+        )
+
+        summary = await manager.get_summary(
+            start_date=date(2026, 4, 24),
+            end_date=date(2026, 4, 24),
+        )
+
+        assert summary.total_cache_read_tokens == 540
+        assert summary.total_cache_eligible_input_tokens == 1000
+        assert summary.cache_observed_calls == 2
+        assert summary.cache_hit_rate == 54
+
+    @pytest.mark.asyncio
     async def test_get_details_empty(self, tmp_path, monkeypatch):
         """Should return empty list when no data."""
         monkeypatch.setattr(
@@ -726,6 +782,10 @@ class TestTokenUsageManagerCore:
             {
                 "prompt_tokens": 10,
                 "completion_tokens": 5,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "cache_eligible_input_tokens": 0,
+                "cache_observed_calls": 0,
                 "call_count": 1,
                 "date": "2026-04-24",
                 "provider_id": "prov2",
@@ -735,6 +795,10 @@ class TestTokenUsageManagerCore:
             {
                 "prompt_tokens": 7,
                 "completion_tokens": 3,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "cache_eligible_input_tokens": 0,
+                "cache_observed_calls": 0,
                 "call_count": 2,
                 "date": "2026-04-24",
                 "provider_id": "ollama",
@@ -755,6 +819,10 @@ class TestTokenUsageManagerCore:
             {
                 "prompt_tokens": 10,
                 "completion_tokens": 5,
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 0,
+                "cache_eligible_input_tokens": 0,
+                "cache_observed_calls": 0,
                 "call_count": 1,
                 "date": "2026-04-24",
                 "provider_id": "prov2",
@@ -773,6 +841,67 @@ class TestTokenRecordingModelWrapper:
     """Test TokenRecordingModelWrapper."""
 
     # pylint: disable=protected-access
+
+    def test_cache_usage_metrics_for_deepseek(self):
+        """DeepSeek reports cache hits inside total prompt tokens."""
+        deepseek_model = type(
+            "DeepSeekModel",
+            (),
+            {"__module__": "agentscope.model._deepseek._model"},
+        )()
+
+        observed, eligible = _cache_usage_metrics(
+            deepseek_model,
+            100,
+            80,
+            0,
+        )
+
+        assert observed is True
+        assert eligible == 100
+
+    def test_cache_usage_metrics_for_anthropic(self):
+        """Anthropic reports uncached, read, and write tokens separately."""
+        anthropic_model = type(
+            "AnthropicModel",
+            (),
+            {"__module__": "agentscope.model._anthropic._model"},
+        )()
+
+        observed, eligible = _cache_usage_metrics(
+            anthropic_model,
+            10,
+            80,
+            10,
+        )
+
+        assert observed is True
+        assert eligible == 100
+
+    def test_cache_usage_metrics_for_unknown_model(self):
+        """Unknown adapters should not expose a misleading percentage."""
+        observed, eligible = _cache_usage_metrics(object(), 100, 80, 0)
+
+        assert observed is False
+        assert eligible == 0
+
+    def test_cache_usage_metrics_rejects_invalid_total_semantics(self):
+        """A cache count above total input should not produce a percentage."""
+        deepseek_model = type(
+            "DeepSeekModel",
+            (),
+            {"__module__": "agentscope.model._deepseek._model"},
+        )()
+
+        observed, eligible = _cache_usage_metrics(
+            deepseek_model,
+            100,
+            101,
+            0,
+        )
+
+        assert observed is False
+        assert eligible == 0
 
     def _stream_harness(self, _tmp_path, monkeypatch):
         captured: list = []
@@ -832,6 +961,8 @@ class TestTokenRecordingModelWrapper:
         mock_usage = MagicMock()
         mock_usage.input_tokens = 100
         mock_usage.output_tokens = 50
+        mock_usage.cache_input_tokens = 0
+        mock_usage.cache_creation_input_tokens = 0
 
         wrapper._record_usage(mock_usage)
 
@@ -851,6 +982,8 @@ class TestTokenRecordingModelWrapper:
         usage = MagicMock()
         usage.input_tokens = 100
         usage.output_tokens = 50
+        usage.cache_input_tokens = 0
+        usage.cache_creation_input_tokens = 0
         wrapper._record_usage(usage)
         assert captured[0].agent_id == "bot-a"
         fake_var.get.return_value = None
@@ -866,6 +999,192 @@ class TestTokenRecordingModelWrapper:
         )
         assert peek_current_agent_id() == ""
         assert _usage_agent_id() == ""
+
+    def test_record_usage_carries_cache_metrics(self, tmp_path, monkeypatch):
+        """Provider cache counters should reach both event and turn usage."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper._cache_usage_metrics",
+            lambda *_args: (True, 100),
+        )
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-cache",
+        )
+        wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 100
+        usage.output_tokens = 10
+        usage.cache_input_tokens = 80
+        usage.cache_creation_input_tokens = 5
+
+        wrapper._record_usage(usage)
+
+        assert captured[0].cache_read_tokens == 80
+        assert captured[0].cache_write_tokens == 5
+        assert captured[0].cache_eligible_input_tokens == 100
+        assert captured[0].cache_observed is True
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-cache",
+        )
+        assert stored is not None
+        assert stored["cache_hit_rate"] == 80
+
+    def test_record_usage_discards_unverified_cache_metrics(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """Unknown provider semantics should not pollute cache totals."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper._cache_usage_metrics",
+            lambda *_args: (False, 0),
+        )
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-unknown-cache",
+        )
+        wrapper, captured = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 100
+        usage.output_tokens = 10
+        usage.cache_input_tokens = 80
+        usage.cache_creation_input_tokens = 5
+
+        wrapper._record_usage(usage)
+
+        assert captured[0].cache_read_tokens == 0
+        assert captured[0].cache_write_tokens == 0
+        assert captured[0].cache_observed is False
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-unknown-cache",
+        )
+        assert stored is not None
+        assert stored["cache_read_tokens"] == 0
+        assert stored["cache_write_tokens"] == 0
+        assert stored["cache_hit_rate"] is None
+
+    def test_record_usage_accumulates_all_calls_in_turn(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        """A tool-heavy turn should include every successful model call."""
+        monkeypatch.setattr(
+            "qwenpaw.token_usage.model_wrapper._cache_usage_metrics",
+            lambda _model, prompt, _read, _write: (True, prompt),
+        )
+        monkeypatch.setattr(
+            "qwenpaw.app.agent_context.get_current_session_id",
+            lambda: "sess-multi-call",
+        )
+        wrapper, _captured = self._stream_harness(tmp_path, monkeypatch)
+        first = MagicMock(
+            input_tokens=100,
+            output_tokens=10,
+            cache_input_tokens=80,
+            cache_creation_input_tokens=0,
+        )
+        second = MagicMock(
+            input_tokens=120,
+            output_tokens=20,
+            cache_input_tokens=100,
+            cache_creation_input_tokens=0,
+        )
+
+        wrapper._record_usage(first)
+        wrapper._record_usage(second)
+
+        stored = TokenRecordingModelWrapper.pop_usage_for_session(
+            "sess-multi-call",
+        )
+        assert stored is not None
+        assert stored["prompt_tokens"] == 220
+        assert stored["completion_tokens"] == 30
+        assert stored["total_tokens"] == 250
+        assert stored["cache_read_tokens"] == 180
+        assert stored["cache_eligible_input_tokens"] == 220
+        assert stored["cache_hit_rate"] == pytest.approx(180 / 220 * 100)
+
+    def test_session_cache_usage_uses_latest_persisted_checkpoint(self):
+        """Session totals should extend the newest durable checkpoint."""
+
+        class UnreadableMessage:
+            """Fail if aggregation scans before the newest checkpoint."""
+
+            role = "assistant"
+
+            @property
+            def metadata(self):
+                raise AssertionError("scanned before latest checkpoint")
+
+        def message(role, usage=None):
+            metadata = (
+                {
+                    "qwenpaw_turn_usage": {
+                        "usage": usage,
+                        "context_usage": None,
+                    },
+                }
+                if usage is not None
+                else {}
+            )
+            return MagicMock(role=role, metadata=metadata)
+
+        messages = [
+            UnreadableMessage(),
+            message(
+                "assistant",
+                {
+                    "cache_observed": True,
+                    "cache_read_tokens": 80,
+                    "cache_eligible_input_tokens": 100,
+                    "session_cache_observed": True,
+                    "session_cache_read_tokens": 100,
+                    "session_cache_eligible_input_tokens": 200,
+                },
+            ),
+            message("user"),
+            message("assistant"),
+        ]
+        current_turn = {
+            "cache_observed": True,
+            "cache_read_tokens": 80,
+            "cache_eligible_input_tokens": 100,
+        }
+
+        result = add_session_cache_usage(current_turn, messages)
+
+        assert result is not None
+        assert result["session_cache_read_tokens"] == 180
+        assert result["session_cache_eligible_input_tokens"] == 300
+        assert result["session_cache_hit_rate"] == 60
+
+    def test_session_cache_usage_survives_unobserved_current_turn(self):
+        """An estimated current turn should retain the prior session rate."""
+        previous = MagicMock(
+            role="assistant",
+            metadata={
+                "qwenpaw_turn_usage": {
+                    "usage": {
+                        "session_cache_observed": True,
+                        "session_cache_read_tokens": 90,
+                        "session_cache_eligible_input_tokens": 100,
+                    },
+                    "context_usage": None,
+                },
+            },
+        )
+        current_user = MagicMock(role="user", metadata={})
+        current_assistant = MagicMock(role="assistant", metadata={})
+
+        result = add_session_cache_usage(
+            {"cache_observed": False},
+            [previous, current_user, current_assistant],
+        )
+
+        assert result is not None
+        assert result["session_cache_observed"] is True
+        assert result["session_cache_hit_rate"] == 90
 
     def test_record_usage_includes_context_and_threshold(
         self,
@@ -899,6 +1218,8 @@ class TestTokenRecordingModelWrapper:
         mock_usage = MagicMock()
         mock_usage.input_tokens = 123_000
         mock_usage.output_tokens = 50
+        mock_usage.cache_input_tokens = 0
+        mock_usage.cache_creation_input_tokens = 0
         wrapper._record_usage(mock_usage)
 
         stored = TokenRecordingModelWrapper.pop_usage_for_session("sess-1")

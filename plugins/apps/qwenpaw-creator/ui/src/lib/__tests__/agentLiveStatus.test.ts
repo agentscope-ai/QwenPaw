@@ -67,6 +67,7 @@ function subagentActivity(
     targetRefs: [],
     firstEventSeq: 1,
     completed: false,
+    status: "RUNNING_MODEL",
     messages: {},
     tools: {
       "tc-1": {
@@ -75,6 +76,7 @@ function subagentActivity(
         tool,
         firstEventSeq: 2,
         status: "started",
+        executing: true,
         arguments: args,
         outputEvents: [],
       },
@@ -86,6 +88,7 @@ const delegateCall: ToolCallPresentation = {
   actionId: "action-1",
   order: 1,
   status: "started",
+  executing: true,
   tool: "delegate_to_agent",
   arguments: { role: "visual_development_agent" },
 };
@@ -126,9 +129,9 @@ const withActivity = (
 
 describe("deriveAgentLiveStatus", () => {
   it.each([
-    ["IDLE", false, "idle", "待命中，可随时输入修改意图。"],
+    ["IDLE", false, "idle", "随时可以继续创作"],
     ["WAITING_USER_INPUT", false, "waiting", "等待补充信息，请继续输入。"],
-    ["IDLE", true, "working", "指令已发出，等待响应…"],
+    ["IDLE", true, "working", "已发送，等待助手响应…"],
   ] as const)(
     "maps session %s (queued=%s) to %s",
     (status, hasQueuedInput, state, label) => {
@@ -166,7 +169,7 @@ describe("deriveAgentLiveStatus", () => {
 
   it("does not show '正在安排' once the delegated subagent has completed (e.g. cancelled)", () => {
     // Incident regression: delegate still "started" but the specialist already
-    // terminated — fall back to the backend label.
+    // terminated — show a neutral current-session label, not a milestone.
     const result = withActivity(
       {
         ...subagentActivity("unknown_tool"),
@@ -180,7 +183,7 @@ describe("deriveAgentLiveStatus", () => {
       },
     );
     expect(result.label).not.toBe("正在安排「视觉开发」…");
-    expect(result.label).toBe("后端进度");
+    expect(result.label).toBe("处理中");
   });
 
   it("shows a mini progress bar only for quantified task progress", () => {
@@ -189,12 +192,12 @@ describe("deriveAgentLiveStatus", () => {
     expect(quantified.label).toBe("「主角小狐」素材入库中…");
     expect(quantified.progressPercent).toBe(42);
     expect(
-      live({ tasks: [task("r2v_generation", null, "element:e2")] })
+      live({ tasks: [task("r2v_generation", 0.42, "element:e2")] })
         .progressPercent,
     ).toBeNull();
     expect(
       live({ agentStatusBar: statusBar({ completed: 3, total: 10 }) })
         .progressPercent,
-    ).toBe(30);
+    ).toBeNull();
   });
 });

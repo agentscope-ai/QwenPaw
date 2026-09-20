@@ -191,7 +191,7 @@ export default function ModelSelector({
     [providers],
   );
 
-  // Free providers appear in both tabs; other providers use model-level tags.
+  // Models are split by is_free; mixed-tier providers can appear in both tabs.
   const { freeProviders, proProviders } = useMemo(() => {
     return splitProvidersByTier(eligibleProviders);
   }, [eligibleProviders]);
@@ -336,31 +336,6 @@ export default function ModelSelector({
   const activeModelIsFree = Boolean(activeModel?.is_free);
 
   const showActiveProviderIcon = Boolean(activeProviderId);
-
-  // Marquee the trigger name on very narrow screens when it overflows.
-  const triggerNameRef = useRef<HTMLSpanElement | null>(null);
-  const triggerNameMeasureRef = useRef<HTMLSpanElement | null>(null);
-  const [shouldMarquee, setShouldMarquee] = useState(false);
-
-  useEffect(() => {
-    const check = () => {
-      const w = typeof window !== "undefined" ? window.innerWidth : 0;
-      if (w > 480) {
-        setShouldMarquee(false);
-        return;
-      }
-      const containerWidth =
-        triggerNameRef.current?.getBoundingClientRect().width ?? 0;
-      const textWidth =
-        triggerNameMeasureRef.current?.getBoundingClientRect().width ?? 0;
-      // Small tolerance to avoid borderline jitter.
-      setShouldMarquee(textWidth > containerWidth + 2);
-    };
-
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, [activeModelName]);
 
   const handleOpenChange = useCallback(
     async (next: boolean) => {
@@ -1076,31 +1051,12 @@ export default function ModelSelector({
                 </span>
               </Tooltip>
             )}
-            <span className={styles.triggerName} ref={triggerNameRef}>
-              {shouldMarquee ? (
-                <span className={styles.marquee}>{activeModelName}</span>
-              ) : (
-                activeModelName
-              )}
+            <span className={styles.triggerName} title={activeModelName}>
+              {activeModelName}
             </span>
             {activeModelIsFree && (
               <span className={styles.freeTag}>{t("modelSelector.free")}</span>
             )}
-            {/* Hidden span used to measure intrinsic text width. Placed
-                outside .triggerName so it does not duplicate text for
-                screen readers or testing-library queries. */}
-            <span
-              ref={triggerNameMeasureRef}
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                visibility: "hidden",
-                whiteSpace: "nowrap",
-                pointerEvents: "none",
-              }}
-            >
-              {activeModelName}
-            </span>
           </button>
         </Tooltip>
       </Dropdown>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -55,6 +55,11 @@ const streamingInputContent: ToolCallContent = {
 };
 
 describe("ToolCardShell lazy body", () => {
+  beforeEach(() => {
+    localStorage.removeItem("qwenpaw_tool_calls_default_expanded");
+    localStorage.removeItem("qwenpaw_tool_display_mode");
+  });
+
   it("opens file-facing results by default when requested", () => {
     render(
       <ToolCardShell
@@ -80,6 +85,52 @@ describe("ToolCardShell lazy body", () => {
 
     expect(container.querySelector("details")).not.toHaveAttribute("open");
     expect(screen.queryByText("raw output")).not.toBeInTheDocument();
+  });
+
+  it("shows raw input and output after opening a raw-mode card", () => {
+    localStorage.setItem("qwenpaw_tool_display_mode", "raw-input-output");
+    const rawContent: ToolCallContent = {
+      ...content,
+      rawInput: '{"command":"pwd"}',
+      params: { command: "pwd" },
+      result: { stdout: "/workspace" },
+    };
+
+    const { container } = render(
+      <ToolCardShell content={rawContent} icon={<span />} title="Ordinary tool">
+        <div>processed output</div>
+      </ToolCardShell>,
+    );
+
+    const details = container.querySelector("details");
+    expect(details).not.toHaveAttribute("open");
+    expect(screen.queryByText("Input")).not.toBeInTheDocument();
+
+    details!.open = true;
+    fireEvent(details!, new Event("toggle"));
+
+    expect(screen.getByText("Input")).toBeInTheDocument();
+    expect(screen.getByText("Output")).toBeInTheDocument();
+    expect(screen.getByText(/command/)).toBeInTheDocument();
+    expect(screen.getByText(/workspace/)).toBeInTheDocument();
+    expect(screen.queryByText("processed output")).not.toBeInTheDocument();
+  });
+
+  it("does not auto-open media cards in raw mode", () => {
+    localStorage.setItem("qwenpaw_tool_display_mode", "raw-input-output");
+
+    const { container } = render(
+      <ToolCardShell
+        content={content}
+        icon={<span />}
+        title="Send file"
+        defaultExpanded
+      >
+        <div>hello.txt</div>
+      </ToolCardShell>,
+    );
+
+    expect(container.querySelector("details")).not.toHaveAttribute("open");
   });
 
   it("does not toggle the tool when its summary action is clicked", () => {

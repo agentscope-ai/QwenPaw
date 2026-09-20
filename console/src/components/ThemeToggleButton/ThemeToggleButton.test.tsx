@@ -38,9 +38,11 @@ describe("ThemeToggleButton", () => {
     ).toBeInTheDocument();
   });
 
-  it("shows sun-moon icon when system mode is active", () => {
+  it("shows computer icon when system mode is active", () => {
     renderWithTheme("system");
-    expect(document.querySelector(".lucide-sun-moon")).toBeInTheDocument();
+    expect(
+      document.querySelector('[data-icon="SparkComputerLine"]'),
+    ).toBeInTheDocument();
   });
 
   it("renders without crashing", () => {

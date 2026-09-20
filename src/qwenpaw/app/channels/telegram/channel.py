@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional, Union
 
-from telegram import BotCommand
+from telegram import BotCommand, InputFile
 from telegram.constants import ParseMode
 from telegram.error import (
     BadRequest,
@@ -35,7 +35,12 @@ from qwenpaw.schemas import (
 from ....config.config import TelegramConfig as TelegramChannelConfig
 from ....constant import WORKING_DIR
 from .format_html import markdown_to_telegram_html
-from ..utils import file_url_to_local_path
+from ..utils import (
+    MediaDataError,
+    data_url_filename,
+    file_url_to_local_path,
+    parse_data_url_async,
+)
 from ..renderer import ChannelDisplayConfig
 from ..base import (
     BaseChannel,
@@ -851,6 +856,7 @@ class TelegramChannel(BaseChannel):
                     method_name="send_document",
                     payload_name="document",
                     message_thread_id=message_thread_id,
+                    filename_hint=getattr(part, "filename", None),
                 )
         except _FileTooLargeError as exc:
             logger.warning("telegram send_media: file too large: %s", exc)
@@ -1215,9 +1221,34 @@ class TelegramChannel(BaseChannel):
         method_name: str,
         payload_name: str,
         message_thread_id: Optional[int],
+        filename_hint: Optional[str] = None,
     ) -> None:
         """Send media from URL or local file path."""
         if not value:
+            return
+        if isinstance(value, str) and value.startswith("data:"):
+            try:
+                media = await parse_data_url_async(value)
+            except MediaDataError as exc:
+                raise _MediaFileUnavailableError(
+                    "Could not decode media data URL.",
+                ) from exc
+            if media is None:
+                raise _MediaFileUnavailableError(
+                    "Could not decode media data URL.",
+                )
+            filename = data_url_filename(
+                filename_hint or payload_name,
+                media.suffix,
+            )
+            await self._send_media_payload(
+                bot=bot,
+                chat_id=chat_id,
+                payload=InputFile(media.data, filename=filename),
+                method_name=method_name,
+                payload_name=payload_name,
+                message_thread_id=message_thread_id,
+            )
             return
         if isinstance(value, str) and value.startswith("file://"):
             raw_path = file_url_to_local_path(value)

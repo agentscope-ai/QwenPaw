@@ -35,11 +35,13 @@ from services.runtime_files.models import (
 )
 from utils.logger import setup_logger
 
+from . import snapshot_restore_hold
 from .assets import AssetFileStore
+from .auto_snapshot import auto_snapshot_timelines, frozen_snapshot_edits
 from .candidate_normalization import normalize_project_candidate
 from .commit import PROTECTED_EXACT_POINTERS, ProjectCommitBoundary
 from .jq_transform import JqProjectTransformer
-from .models import EditPlan, Project, TimelineElement
+from .models import EditPlan, Project, R2VCreation, TimelineElement
 from .patch_ops import PatchOpError, apply_patch_ops
 from .schema_prompt import ProjectSchemaPrompt, build_project_schema_prompt
 from .store import ProjectSnapshot, ProjectStore
@@ -226,6 +228,11 @@ class _ToolModel(BaseModel):
 
 class ReadProjectToolInput(_ToolModel):
     project_id: str = Field(alias="projectId", min_length=1)
+    pointer: str | None = None
+    fields: list[str] | None = Field(default=None, min_length=1, max_length=32)
+    offset: int = Field(default=0, ge=0)
+    max_bytes: int = Field(default=16_384, alias="maxBytes", ge=4, le=32_768)
+    expected_etag: str | None = Field(default=None, alias="expectedEtag")
 
 
 class ReadProjectFileToolInput(_ToolModel):
@@ -458,7 +465,12 @@ class AgentElementsAtResult(_ToolModel):
 AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     READ_PROJECT_TOOL_NAME: {
         "description": (
-            "读取 project.json 的完整已验证快照，"
+            "读取当前 Project 的已验证模型视图（历史快照只列索引，大内容会标明省略）。"
+            "可传 pointer 读取任意 JSON Pointer（包括历史快照），按 UTF-8 字节 offset/maxBytes 分页；"
+            "需要续读时直接使用返回的 nextPage 参数（包含 offset 与 expectedEtag），避免混合不同版本。"
+            "核对同一对象的多个字段时优先读取父对象，maxBytes 可取 32768，减少往返回合。"
+            "可用 fields 一次只读取该对象的指定字段，省去不需要的大段提示词或历史内容。"
+            "部分视图不能用于整体替换集合，应按稳定 ID 修改；Runtime 始终保有完整提交基线。"
             "并返回 generation 与 ETag。修改前先调用此工具了解当前结构；"
             "jq_project 会自动基于你最近一次读到的快照提交，无需回传 ETag。"
         ),
@@ -466,6 +478,25 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "type": "object",
             "properties": {
                 "projectId": {"type": "string", "minLength": 1},
+                "pointer": {
+                    "type": "string",
+                    "description": "JSON Pointer；空字符串代表整个 Project。",
+                },
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "minItems": 1,
+                    "maxItems": 32,
+                    "description": "只读取 pointer 所指对象的这些字段；不传则读取完整对象。",
+                },
+                "offset": {"type": "integer", "minimum": 0, "default": 0},
+                "maxBytes": {
+                    "type": "integer",
+                    "minimum": 4,
+                    "maximum": 32768,
+                    "default": 16384,
+                },
+                "expectedEtag": {"type": "string"},
             },
             "required": ["projectId"],
             "additionalProperties": False,
@@ -552,11 +583,13 @@ AGENT_PROJECT_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "用一组小而扁平的操作列表修改 Project，适用于 90% 的日常写入"
             "（新建/更新实体、Element、改字段）；需要计算的复杂变换才用 "
             "jq_project。每个 op 独立且浅（value 嵌套勿超 2 层）："
+            "ops 必须直接传 JSON 数组，绝不能把数组序列化为字符串；长 Prompt "
+            "正文应拆成后续独立 add/replace op，避免换行或冒号触发二次解析。"
             'add/replace/remove 用 RFC 6901 path（如 "/timelines/items/'
             'timeline:main/elements_by_id/elem:x"，数组末尾用 "-"）；'
             "upsert_entity 用于 EntityCollection（如 visual.entities 或某实体的 "
-            "variants），Runtime 自动同步 items 与 order。创建带 shots 的 "
-            "Element 时先用一个 op 建骨架（shots 空集合），再逐个 op 补 shot。"
+            "variants），Runtime 自动同步 items 与 order。生成单元在 creation.narrative "
+            "中写完整叙述，并用 storyboard_prompt/video_prompt 表达生成要求。"
             "整个 ops 列表原子提交：全部成功或全部不生效，失败时报告出错的 "
             "op 序号与 path。禁止触碰 Runtime 保护字段与媒体写回区。"
         ),
@@ -765,11 +798,27 @@ _ELEMENT_LEVEL_FIELDS = frozenset(
 
 
 def _misnested_element_field_hint(item: Mapping[str, Any]) -> str:
-    """Name the bracket-misplacement when element fields sit in creation."""
+    """Name a known field placed on the wrong side of ``creation``."""
 
+    loc = item.get("loc") or ()
+    if (
+        item.get("type") == "extra_forbidden"
+        and len(loc) == 6
+        and loc[:2] == ("timelines", "items")
+        and loc[3] == "elements_by_id"
+        and loc[-1] in R2VCreation.model_fields
+    ):
+        pointer = "/" + "/".join(
+            str(part).replace("~", "~0").replace("/", "~1")
+            for part in (*loc[:-1], "creation", loc[-1])
+        )
+        return (
+            "该创作字段误写在 Element 顶层，应放入 creation 内。"
+            f"正确 patch 路径：{pointer}；"
+            "移除本次候选的顶层字段后重新提交，项目尚未修改"
+        )
     if item.get("type") != "missing":
         return ""
-    loc = item.get("loc") or ()
     if not loc or str(loc[-1]) not in _ELEMENT_LEVEL_FIELDS:
         return ""
     parent = item.get("input")
@@ -785,7 +834,11 @@ def _misnested_element_field_hint(item: Mapping[str, Any]) -> str:
     return ""
 
 
-def _translate_project_schema_error(error: ValidationError) -> str:
+def _translate_project_schema_error(
+    error: ValidationError,
+    *,
+    tool_name: str = JQ_PROJECT_TOOL_NAME,
+) -> str:
     """Render post-jq Project validation errors as located, fixable items."""
 
     items = error.errors()
@@ -818,11 +871,17 @@ def _translate_project_schema_error(error: ValidationError) -> str:
                     )
         lines.append(f"- {path}: {message}{hint}")
     if len(items) > _MAX_SCHEMA_ERROR_LINES:
-        lines.append(f"- ...另有 {len(items) - _MAX_SCHEMA_ERROR_LINES} 处错误")
+        lines.append(
+            f"- ...另有 {len(items) - _MAX_SCHEMA_ERROR_LINES} 处错误",
+        )
     return (
-        "jq 输出未通过 Project Schema 校验，项目未被修改：\n"
+        f"{tool_name} 输出未通过 Project Schema 校验，项目未被修改：\n"
         + "\n".join(lines)
-        + "\n请修正 program/jsonArgs 后重试。"
+        + (
+            "\n请修正 ops 后重试。"
+            if tool_name == PATCH_PROJECT_TOOL_NAME
+            else "\n请修正 program/jsonArgs 后重试。"
+        )
     )
 
 
@@ -889,6 +948,95 @@ class AgentProjectTools:
         snapshot = self.store.read(request.project_id)
         self._remember(snapshot)
         return self._snapshot_result(snapshot)
+
+    def read_project_page(
+        self,
+        request: ReadProjectToolInput,
+    ) -> dict[str, Any]:
+        from .json_pointer import MISSING, value_at
+        from .model_view import json_text
+
+        snapshot = self.store.read(request.project_id)
+        if request.offset and request.expected_etag is None:
+            raise AgentProjectToolError(
+                "Pass the first page etag as expectedEtag when reading later pages.",
+                code="PROJECT_READ_PAGE_ETAG_REQUIRED",
+            )
+        if (
+            request.expected_etag is not None
+            and request.expected_etag != snapshot.etag
+        ):
+            raise AgentProjectToolError(
+                "Project changed between pages; restart this pointer read at offset 0.",
+                code="PROJECT_READ_PAGE_CHANGED",
+            )
+        self._remember(snapshot)
+        value = value_at(
+            snapshot.project.model_dump(mode="json"),
+            request.pointer or "",
+        )
+        if value is MISSING:
+            raise AgentProjectToolError(
+                f"Project pointer does not exist: {request.pointer}. "
+                "If user review removed this target, recreate its intended "
+                "content instead of repeating the same read.",
+                code="PROJECT_POINTER_NOT_FOUND",
+            )
+        if request.fields is not None:
+            if not isinstance(value, dict):
+                raise AgentProjectToolError(
+                    "fields requires a JSON object pointer",
+                    code="PROJECT_FIELDS_REQUIRE_OBJECT",
+                )
+            missing = [key for key in request.fields if key not in value]
+            if missing:
+                raise AgentProjectToolError(
+                    f"Fields do not exist at {request.pointer or '/'}: {missing}",
+                    code="PROJECT_FIELD_NOT_FOUND",
+                )
+            value = {key: value[key] for key in request.fields}
+        raw = json_text(value).encode("utf-8")
+        if request.offset > len(raw):
+            raise AgentProjectToolError(
+                "Project page offset exceeds value length",
+            )
+        page = raw[request.offset : request.offset + request.max_bytes]
+        while True:
+            try:
+                content = page.decode("utf-8")
+                break
+            except UnicodeDecodeError as exc:
+                if exc.reason != "unexpected end of data":
+                    raise AgentProjectToolError(
+                        "Project page offset is not a UTF-8 boundary",
+                    ) from exc
+                page = page[: exc.start]
+        next_offset = request.offset + len(page)
+        next_page = (
+            {
+                "projectId": request.project_id,
+                "pointer": request.pointer or "",
+                "offset": next_offset,
+                "maxBytes": request.max_bytes,
+                "expectedEtag": snapshot.etag,
+                **({"fields": request.fields} if request.fields else {}),
+            }
+            if next_offset < len(raw)
+            else None
+        )
+        return {
+            "resultKind": "project_value_page",
+            "projectId": request.project_id,
+            "generation": snapshot.generation,
+            "etag": snapshot.etag,
+            "pointer": request.pointer,
+            "offset": request.offset,
+            "nextOffset": next_offset,
+            "nextPage": next_page,
+            "eof": next_offset >= len(raw),
+            "totalBytes": len(raw),
+            "content": content,
+        }
 
     def read_project_file(
         self,
@@ -991,9 +1139,17 @@ class AgentProjectTools:
             string_args=request.string_args,
             json_args=request.json_args,
         )
+        self._reject_frozen_snapshot_edits(base, candidate)
         candidate = self._apply_agent_edit_impacts(base, candidate)
-        normalized_pointers = normalize_project_candidate(candidate)
+        auto_snapshotted = auto_snapshot_timelines(
+            base.project.model_dump(mode="json"),
+            candidate,
+        )
         base_data = base.project.model_dump(mode="json")
+        normalized_pointers = normalize_project_candidate(
+            candidate,
+            base=base_data,
+        )
         changed_protected = [
             pointer
             for pointer in sorted(PROTECTED_EXACT_POINTERS)
@@ -1018,6 +1174,10 @@ class AgentProjectTools:
                 candidate=candidate,
                 **self.context.commit_metadata(),
             )
+            snapshot_restore_hold.settle_snapshot_restore(
+                request.project_id,
+                auto_snapshotted,
+            )
             self._remember(result.snapshot)
             snapshot = self._snapshot_result(result.snapshot)
             commit_result = AgentProjectCommitResult(
@@ -1029,9 +1189,11 @@ class AgentProjectTools:
                     if change.json_pointer is not None
                 ],
                 normalizedPointers=normalized_pointers,
-                reviewId=result.review.review_id
-                if result.review is not None
-                else None,
+                reviewId=(
+                    result.review.review_id
+                    if result.review is not None
+                    else None
+                ),
             )
             advisory = self._sync_review_advisory(
                 commit_result,
@@ -1057,6 +1219,29 @@ class AgentProjectTools:
                 update={"cut_advisory": cut_advisory},
             )
         return commit_result
+
+    def _reject_frozen_snapshot_edits(
+        self,
+        base: ProjectSnapshot,
+        candidate: dict[str, Any],
+    ) -> None:
+        """Snapshot timelines are frozen copies outside the work graph:
+        an element written into one is never scheduled, so accepting the
+        commit would silently strand the content. Fail closed and steer
+        the writer to the live timeline instead."""
+        violations = frozen_snapshot_edits(
+            base.project.model_dump(mode="json"),
+            candidate,
+        )
+        if violations:
+            raise AgentProjectToolError(
+                "历史快照是冻结副本，不能修改其中的元素："
+                + ", ".join(violations)
+                + "。快照不会进入生产图，写入的内容永远不会被排产；"
+                "请改为修改对应的 live 时间线（如 timeline:main）。",
+                code="SNAPSHOT_TIMELINE_FROZEN",
+                details={"snapshotTimelineIds": violations},
+            )
 
     def _apply_agent_edit_impacts(
         self,
@@ -1371,8 +1556,17 @@ class AgentProjectTools:
         base = self._base(request.project_id)
         candidate = base.project.model_dump(mode="json")
         apply_patch_ops(candidate, request.ops)
+        self._reject_frozen_snapshot_edits(base, candidate)
         candidate = self._apply_agent_edit_impacts(base, candidate)
-        normalized_pointers = normalize_project_candidate(candidate)
+        auto_snapshotted = auto_snapshot_timelines(
+            base.project.model_dump(mode="json"),
+            candidate,
+        )
+        base_data = base.project.model_dump(mode="json")
+        normalized_pointers = normalize_project_candidate(
+            candidate,
+            base=base_data,
+        )
         sync_fence = self._begin_sync_review_fence(
             base.project.model_dump(mode="json"),
             candidate,
@@ -1382,6 +1576,10 @@ class AgentProjectTools:
                 base=base,
                 candidate=candidate,
                 **self.context.commit_metadata(),
+            )
+            snapshot_restore_hold.settle_snapshot_restore(
+                request.project_id,
+                auto_snapshotted,
             )
             self._remember(result.snapshot)
             snapshot = self._snapshot_result(result.snapshot)
@@ -1394,9 +1592,11 @@ class AgentProjectTools:
                     if change.json_pointer is not None
                 ],
                 normalizedPointers=normalized_pointers,
-                reviewId=result.review.review_id
-                if result.review is not None
-                else None,
+                reviewId=(
+                    result.review.review_id
+                    if result.review is not None
+                    else None
+                ),
             )
             advisory = self._sync_review_advisory(
                 commit_result,
@@ -1451,6 +1651,8 @@ class AgentProjectTools:
             ),
         )
 
+    # Dispatch each supported tool explicitly through its own validation.
+    # pylint: disable-next=too-many-branches
     def invoke(
         self,
         tool_name: str,
@@ -1460,6 +1662,8 @@ class AgentProjectTools:
 
         if tool_name == READ_PROJECT_TOOL_NAME:
             request = ReadProjectToolInput.model_validate(dict(arguments))
+            if request.pointer is not None or request.fields is not None:
+                return self.read_project_page(request)
             result: BaseModel = self.read_project(request.project_id)
         elif tool_name == READ_PROJECT_FILE_TOOL_NAME:
             request = ReadProjectFileToolInput.model_validate(dict(arguments))
@@ -1536,7 +1740,10 @@ class AgentProjectTools:
                 ) from exc
             except ValidationError as exc:
                 raise AgentProjectToolError(
-                    _translate_project_schema_error(exc),
+                    _translate_project_schema_error(
+                        exc,
+                        tool_name=PATCH_PROJECT_TOOL_NAME,
+                    ),
                     code="PATCH_PROJECT_SCHEMA_INVALID",
                     details={
                         "validationErrors": exc.errors(

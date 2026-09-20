@@ -7,8 +7,6 @@ from pathlib import Path
 
 from ..constant import EnvVarLoader
 
-# Primary env key (``COPAW_CONSOLE_STATIC_DIR`` is accepted as a legacy
-# fallback via :class:`~qwenpaw.constant.EnvVarLoader`).
 CONSOLE_STATIC_ENV = "QWENPAW_CONSOLE_STATIC_DIR"
 
 

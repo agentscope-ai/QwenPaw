@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 
@@ -12,6 +11,8 @@ const hoisted = vi.hoisted(() => {
     warning: vi.fn(),
   };
   const apiMocks = {
+    listChannelTypes: vi.fn().mockResolvedValue([]),
+    listChannelSchemas: vi.fn().mockResolvedValue({}),
     listSkills: vi.fn(),
     refreshSkills: vi.fn(),
     createSkill: vi.fn(),

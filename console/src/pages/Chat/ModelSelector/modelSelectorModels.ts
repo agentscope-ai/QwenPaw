@@ -26,9 +26,7 @@ export function splitProvidersByTier(providers: EligibleProvider[]): {
   const proProviders: EligibleProvider[] = [];
   for (const provider of providers) {
     const freeModels = provider.models.filter((model) => model.is_free);
-    const proModels = provider.is_free_tier
-      ? provider.models
-      : provider.models.filter((model) => !model.is_free);
+    const proModels = provider.models.filter((model) => !model.is_free);
     if (freeModels.length > 0 || provider.is_free_tier) {
       freeProviders.push({ ...provider, models: freeModels });
     }
@@ -57,6 +55,7 @@ export function buildEligibleProviders(
       const hasModels =
         (provider.models?.length ?? 0) + (provider.extra_models?.length ?? 0) >
         0;
+      if (provider.id === "hub-managed") return hasModels;
       if (provider.is_free_tier) return true;
       if (!hasModels) return false;
       if (provider.require_api_key === false) return Boolean(provider.base_url);

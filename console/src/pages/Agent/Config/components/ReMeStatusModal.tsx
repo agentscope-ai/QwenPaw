@@ -127,7 +127,7 @@ export function ReMeStatusModal({
               ) : null}
               <div className={styles.memoryAutoMemoryHistory}>
                 <div className={styles.memoryAutoMemoryHistoryHeader}>
-                  <strong>{t("agentConfig.memoryRecentTasks")}</strong>
+                  <strong>{t("agentConfig.autoMemoryRecentTasks")}</strong>
                 </div>
                 {tasks?.length ? (
                   <div className={styles.memoryAutoMemoryHistoryList}>
@@ -143,6 +143,10 @@ export function ReMeStatusModal({
                             )}
                           </strong>
                           <small>
+                            {t(`agentConfig.autoMemoryTrigger.${run.trigger}`, {
+                              defaultValue: run.trigger,
+                            })}
+                            {" · "}
                             {t("agentConfig.memoryTaskMessages", {
                               count: run.message_count,
                             })}
@@ -158,7 +162,7 @@ export function ReMeStatusModal({
                   </div>
                 ) : (
                   <p className={styles.memoryAutoMemoryHistoryEmpty}>
-                    {t("agentConfig.memoryRecentTasksEmpty")}
+                    {t("agentConfig.autoMemoryRecentTasksEmpty")}
                   </p>
                 )}
               </div>

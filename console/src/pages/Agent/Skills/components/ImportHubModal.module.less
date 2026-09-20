@@ -5,6 +5,22 @@
 // Modal Container
 // ============================================
 .importHubModal {
+  :global(.ant-modal-content) {
+    background: var(--app-surface);
+  }
+
+  :global(.ant-modal-header) {
+    background: transparent;
+
+    :global(.ant-modal-title) {
+      color: var(--app-text);
+    }
+  }
+
+  :global(.ant-modal-footer) {
+    border-color: var(--app-border-subtle);
+  }
+
   width: 560px !important;
   max-height: 85vh;
 
@@ -22,7 +38,7 @@
   }
 
   :global(.ant-modal-footer) {
-    border-top: 1px solid #f0f0f0;
+    border-top: 1px solid var(--app-border-subtle);
     padding: 16px 24px;
   }
 }
@@ -33,7 +49,7 @@
 .hintText {
   margin: 0 0 12px;
   font-size: 13px;
-  color: #666;
+  color: var(--app-text-secondary);
 }
 
 // ============================================
@@ -47,40 +63,40 @@
   position: relative;
   display: flex;
   align-items: center;
-  border: 1px solid #d9d9d9;
+  border: 1px solid var(--app-border-strong);
   border-radius: 10px;
-  background: #fff;
+  background: var(--app-surface-raised);
   transition: all 0.2s ease;
   padding: 0 12px;
   height: 48px;
 
   &:hover {
-    border-color: #615ced;
+    border-color: var(--app-accent);
   }
 
   &:focus-within {
-    border-color: #615ced;
-    box-shadow: 0 0 0 3px rgba(97, 92, 237, 0.1);
+    border-color: var(--app-accent);
+    box-shadow: 0 0 0 3px var(--app-accent-ring);
   }
 
   // State variants
   &.valid {
-    border-color: #52c41a;
-    background: rgba(82, 196, 26, 0.02);
+    border-color: var(--app-success);
+    background: var(--app-success-faint);
   }
 
   &.invalid {
-    border-color: #ff4d4f;
-    background: rgba(255, 77, 79, 0.02);
+    border-color: var(--app-error);
+    background: var(--app-error-faint);
   }
 
   &.validating {
-    border-color: #615ced;
+    border-color: var(--app-accent);
   }
 }
 
 .urlInputIcon {
-  color: #999;
+  color: var(--app-text-tertiary);
   font-size: 16px;
   margin-right: 10px;
   flex-shrink: 0;
@@ -92,10 +108,10 @@
   background: transparent;
   outline: none;
   font-size: 14px;
-  color: #1a1a1a;
+  color: var(--app-text);
 
   &::placeholder {
-    color: #bfbfbf;
+    color: var(--app-text-quaternary);
   }
 }
 
@@ -105,7 +121,7 @@
   border-radius: 6px;
   border: none;
   background: transparent;
-  color: #999;
+  color: var(--app-text-tertiary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -115,8 +131,8 @@
   margin-left: 8px;
 
   &:hover {
-    background: rgba(97, 92, 237, 0.08);
-    color: #615ced;
+    background: var(--app-accent-soft);
+    color: var(--app-accent);
   }
 
   &:active {
@@ -135,15 +151,15 @@
   gap: 6px;
 
   &.valid {
-    color: #52c41a;
+    color: var(--app-success-text);
   }
 
   &.invalid {
-    color: #ff4d4f;
+    color: var(--app-error-text);
   }
 
   &.validating {
-    color: #615ced;
+    color: var(--app-accent-text);
   }
 }
 
@@ -156,12 +172,12 @@
 
 .sourcesHeader {
   font-size: 13px;
-  color: #999;
+  color: var(--app-text-tertiary);
   margin-bottom: 8px;
 }
 
 .sourcesList {
-  border: 1px solid #f0f0f0;
+  border: 1px solid var(--app-border-subtle);
   border-radius: 8px;
   overflow: hidden;
 }
@@ -176,14 +192,14 @@
   font-size: 13px;
 
   & + .sourceRow {
-    border-top: 1px solid #f0f0f0;
+    border-top: 1px solid var(--app-border-subtle);
   }
 
   &:hover:not(.disabled) {
-    background: rgba(97, 92, 237, 0.04);
+    background: var(--app-accent-faint);
 
     .sourceExample {
-      color: #615ced;
+      color: var(--app-accent-text);
     }
   }
 
@@ -197,11 +213,11 @@
   flex-shrink: 0;
   width: 120px;
   font-weight: 500;
-  color: #333;
+  color: var(--app-text);
   text-decoration: none;
 
   &:hover {
-    color: #615ced;
+    color: var(--app-accent);
     text-decoration: underline;
   }
 }
@@ -214,7 +230,7 @@
   text-align: right;
   font-family: "Monaco", "Menlo", "Ubuntu Mono", monospace;
   font-size: 12px;
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 // ============================================
@@ -226,7 +242,7 @@
   gap: 12px;
   margin-top: 24px;
   padding-top: 16px;
-  border-top: 1px solid #f0f0f0;
+  border-top: 1px solid var(--app-border-subtle);
 }
 
 .cancelButton {
@@ -235,126 +251,6 @@
 
 .importButton {
   min-width: 120px;
-}
-
-// ============================================
-// Dark Mode
-// ============================================
-:global(.dark-mode) {
-  .hintText {
-    color: rgba(255, 255, 255, 0.55);
-  }
-
-  .importHubModal {
-    :global(.ant-modal-content) {
-      background: #1f1f1f;
-    }
-
-    :global(.ant-modal-header) {
-      background: transparent;
-
-      :global(.ant-modal-title) {
-        color: rgba(255, 255, 255, 0.9);
-      }
-    }
-
-    :global(.ant-modal-footer) {
-      border-color: rgba(255, 255, 255, 0.1);
-    }
-  }
-
-  .inputWrapper {
-    background: #2a2a2a;
-    border-color: rgba(255, 255, 255, 0.15);
-
-    &:hover,
-    &:focus-within {
-      border-color: #615ced;
-    }
-
-    &.valid {
-      border-color: #4ade80;
-      background: rgba(82, 196, 26, 0.05);
-    }
-
-    &.invalid {
-      border-color: #ff6b6b;
-      background: rgba(255, 77, 79, 0.05);
-    }
-  }
-
-  .urlInputIcon {
-    color: rgba(255, 255, 255, 0.4);
-  }
-
-  .urlInput {
-    color: rgba(255, 255, 255, 0.9);
-
-    &::placeholder {
-      color: rgba(255, 255, 255, 0.3);
-    }
-  }
-
-  .iconButton {
-    color: rgba(255, 255, 255, 0.4);
-
-    &:hover {
-      background: rgba(97, 92, 237, 0.15);
-      color: #8b87f0;
-    }
-  }
-
-  .validationStatus {
-    &.valid {
-      color: #4ade80;
-    }
-
-    &.invalid {
-      color: #ff6b6b;
-    }
-
-    &.validating {
-      color: #8b87f0;
-    }
-  }
-
-  .sourcesHeader {
-    color: rgba(255, 255, 255, 0.5);
-  }
-
-  .sourcesList {
-    border-color: rgba(255, 255, 255, 0.1);
-  }
-
-  .sourceRow {
-    & + .sourceRow {
-      border-color: rgba(255, 255, 255, 0.1);
-    }
-
-    &:hover:not(.disabled) {
-      background: rgba(97, 92, 237, 0.12);
-
-      .sourceExample {
-        color: #8b87f0;
-      }
-    }
-  }
-
-  .sourceName {
-    color: rgba(255, 255, 255, 0.85);
-
-    &:hover {
-      color: #8b87f0;
-    }
-  }
-
-  .sourceExample {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .modalFooter {
-    border-color: rgba(255, 255, 255, 0.1);
-  }
 }
 
 // ============================================

@@ -24,7 +24,7 @@ LangString webview2DownloadSuccess ${LANG_JAPANESE} "WebView2 ブートストラ
 LangString webview2Downloading ${LANG_JAPANESE} "WebView2 ブートストラップ をダウンロード中です..."
 LangString webview2InstallError ${LANG_JAPANESE} "エラー: WebView2 のインストールは終了コード $1 で失敗しました。"
 LangString webview2InstallSuccess ${LANG_JAPANESE} "WebView2 が正常にインストールされました"
-LangString deleteAppData ${LANG_JAPANESE} "ローカルアプリキャッシュを削除する"
+LangString deleteAppData ${LANG_JAPANESE} "アプリデータ消去（設定、キャッシュ等；Agent/会話は保持）"
 LangString qwenpawCliPathPageTitle ${LANG_JAPANESE} "Command line"
 LangString qwenpawCliPathPageSubtitle ${LANG_JAPANESE} "Choose whether qwenpaw is available in terminals."
 LangString qwenpawCliPathPageDescription ${LANG_JAPANESE} "This adds the bundled qwenpaw command to your user PATH. You can change it later by reinstalling or uninstalling QwenPaw Desktop."

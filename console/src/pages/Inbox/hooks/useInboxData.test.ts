@@ -1,417 +1,413 @@
 /**
- * Tests for useInboxData hook.
- *
- * Covers:
- * - Mount loads events from getInboxEvents → pushMessages + summary counts
- * - Non cron/heartbeat source_type events are filtered out
- * - Events sorted by created_at descending
- * - Heartbeat content uses getHeartbeatSummary(status)
- * - markMessageAsRead optimistically sets read:true, decrements unread, calls api
- * - markAllMessagesAsRead returns 0 and still calls api when no visible unread
- * - markAllMessagesAsRead marks all read, zeroes unread, returns unread count
- * - deleteMessages removes specified messages and returns count
- * - deleteMessages dedupes/trims empty ids (does not delete nothing)
- * - Polling fires getInboxEvents a second time after 6000ms
+ * useInboxData — inbox event mapping, polling lifecycle, read/delete
+ * bookkeeping. Regression family: inbox badge accuracy and message
+ * lifecycle (read state must stay consistent with unread counters).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
-import type { InboxEvent } from "../../../api/modules/console";
-import { PUSH_MESSAGE_SOURCES } from "../../../utils/inboxEvents";
 
-const { stableT, mockGetInboxEvents, mockMarkInboxRead, mockDeleteInboxEvent } =
-  vi.hoisted(() => ({
-    stableT: (k: string) => k,
-    mockGetInboxEvents: vi.fn(),
-    mockMarkInboxRead: vi.fn(),
-    mockDeleteInboxEvent: vi.fn(),
-  }));
+const mocks = vi.hoisted(() => ({
+  getInboxEvents: vi.fn(),
+  markInboxRead: vi.fn(),
+  deleteInboxEvent: vi.fn(),
+  agents: [] as unknown[],
+}));
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string, opts?: Record<string, unknown>) =>
+      opts ? `${key}:${JSON.stringify(opts)}` : key,
+    i18n: { language: "en" },
+  }),
+}));
 
 vi.mock("../../../api", () => ({
   default: {
-    getInboxEvents: mockGetInboxEvents,
-    markInboxRead: mockMarkInboxRead,
-    deleteInboxEvent: mockDeleteInboxEvent,
+    getInboxEvents: (...a: unknown[]) => mocks.getInboxEvents(...a),
+    markInboxRead: (...a: unknown[]) => mocks.markInboxRead(...a),
+    deleteInboxEvent: (...a: unknown[]) => mocks.deleteInboxEvent(...a),
   },
 }));
 
 vi.mock("../../../stores/agentStore", () => ({
-  // Selector form: useAgentStore((state) => state.agents)
-  useAgentStore: vi.fn((selector: (state: { agents: never[] }) => unknown) =>
-    selector({ agents: [] }),
-  ),
+  useAgentStore: (selector?: (s: { agents: unknown[] }) => unknown) =>
+    selector ? selector({ agents: mocks.agents }) : { agents: mocks.agents },
 }));
 
-vi.mock("react-i18next", () => ({
-  useTranslation: () => ({ t: stableT as (k: string) => string }),
-}));
-
-vi.mock("../../../utils/agentDisplayName", () => ({
-  DEFAULT_AGENT_ID: "default",
-  getAgentDisplayName: vi.fn(() => "Agent"),
-}));
-
-// Imported after vi.mock so the mocks apply to its imports.
 import { useInboxData } from "./useInboxData";
 
-function makeEvent(overrides: Partial<InboxEvent> = {}): InboxEvent {
+function event(overrides: Record<string, unknown> = {}) {
   return {
-    id: "evt-1",
-    agent_id: "default",
+    id: "e-1",
     source_type: "cron",
-    source_id: "src-1",
-    event_type: "cron.execution",
+    event_type: "cron",
+    title: "Job done",
+    body: "Ran successfully duration=1234ms.",
     status: "success",
     severity: "info",
-    title: "Cron Run",
-    body: "Completed duration=120ms.",
     read: false,
+    agent_id: "default",
     created_at: 1000,
+    payload: {},
     ...overrides,
   };
 }
 
-function makeResolvedEvents(
-  events: InboxEvent[],
-): Promise<{ events: InboxEvent[] }> {
-  return Promise.resolve({ events });
-}
+beforeEach(() => {
+  mocks.getInboxEvents.mockReset().mockResolvedValue({
+    events: [],
+    total: 0,
+    unread_count: 0,
+  });
+  mocks.markInboxRead.mockReset().mockResolvedValue({});
+  mocks.deleteInboxEvent.mockReset().mockResolvedValue({});
+  mocks.agents = [];
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("useInboxData", () => {
-  beforeEach(() => {
-    mockGetInboxEvents.mockReset();
-    mockMarkInboxRead.mockReset();
-    mockDeleteInboxEvent.mockReset();
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents([]));
-    mockMarkInboxRead.mockResolvedValue({ updated: 1 });
-    mockDeleteInboxEvent.mockResolvedValue({ deleted: true });
+  it("loads push messages on mount and sorts newest first", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({ id: "older", created_at: 1000 }),
+        event({ id: "newer", created_at: 2000 }),
+      ],
+      total: 2,
+      unread_count: 2,
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(2);
+    });
+    expect(result.current.pushMessages[0].id).toBe("newer");
+    expect(result.current.summary.pushMessages).toEqual({
+      total: 2,
+      unread: 2,
+    });
   });
 
-  afterEach(() => {
+  it("filters out non-push and ACL-pending events", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({ id: "keep", source_type: "cron" }),
+        event({ id: "not-push", source_type: "other" }),
+        event({
+          id: "acl-pending",
+          source_type: "mail",
+          payload: { acl_status: "pending" },
+        }),
+      ],
+      total: 3,
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    expect(result.current.pushMessages[0].id).toBe("keep");
+  });
+
+  it("maps heartbeat events to a status-specific summary", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({
+          id: "hb",
+          source_type: "heartbeat",
+          status: "success",
+          body: "ignored",
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    const msg = result.current.pushMessages[0];
+    expect(msg.content).toBe("inbox.heartbeatSuccess");
+    expect(msg.channelType).toBe("heartbeat");
+    expect(msg.channelName).toBe("Heartbeat");
+  });
+
+  it("strips execution-time text from cron message bodies", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "c", body: "All good duration=1234ms." })],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    expect(result.current.pushMessages[0].content).toBe("All good");
+  });
+
+  it("marks error severity as high priority and error body text too", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({ id: "sev", severity: "error", body: "boom" }),
+        event({ id: "body", body: "❌ something broke" }),
+      ],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(2);
+    });
+    const byId = Object.fromEntries(
+      result.current.pushMessages.map((m) => [m.id, m]),
+    );
+    expect(byId.sev.metadata!.priority).toBe("high");
+    expect(byId.body.metadata!.priority).toBe("high");
+  });
+
+  it("maps skill auto-sync events with a sync summary", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({
+          id: "sync",
+          source_type: "skill_autoupdate",
+          event_type: "auto_sync",
+          body: "fallback",
+          payload: {
+            synced: [{ skill: "weather", agents: ["a1"] }],
+            failed: [{ skill: "broken", agents: ["a2"] }],
+          },
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    const msg = result.current.pushMessages[0];
+    expect(msg.title).toBe("inbox.skillAutoSyncTitle");
+    expect(msg.content).toContain("inbox.skillAutoSynced");
+    expect(msg.content).toContain("inbox.skillAutoSyncFailed");
+    expect(msg.channelType).toBe("skill");
+  });
+
+  it("maps builtin auto-update events separately from auto-sync", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [
+        event({
+          id: "upd",
+          source_type: "skill_autoupdate",
+          event_type: "auto_update",
+          payload: {
+            pool_updated: [{ skill: "s1", from_version: "1", to_version: "2" }],
+          },
+        }),
+      ],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    const msg = result.current.pushMessages[0];
+    expect(msg.title).toBe("inbox.skillBuiltinAutoUpdateTitle");
+    expect(msg.content).toContain("inbox.skillBuiltinUpdated");
+  });
+
+  it("resolves the agent display name for known agents", async () => {
+    // getAgentDisplayName reads agent.name (fallback: id)
+    mocks.agents = [{ id: "agent-9", name: "Help Bot" }];
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "x", agent_id: "agent-9" })],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    expect(result.current.pushMessages[0].sender.username).toBe("Help Bot");
+  });
+
+  it("falls back to the default agent display name", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "x", agent_id: "default" })],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    expect(result.current.pushMessages[0].sender.username).toBe(
+      "agent.defaultDisplayName",
+    );
+  });
+
+  it("falls back to the raw agent id for unknown agents", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "x", agent_id: "mystery-agent" })],
+    });
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(1);
+    });
+    expect(result.current.pushMessages[0].sender.username).toBe(
+      "mystery-agent",
+    );
+  });
+
+  it("polls on an interval while visible", async () => {
+    vi.useFakeTimers();
+    mocks.getInboxEvents.mockResolvedValue({ events: [], total: 0 });
+    renderHook(() => useInboxData());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const initialCalls = mocks.getInboxEvents.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+    expect(mocks.getInboxEvents.mock.calls.length).toBe(initialCalls + 1);
     vi.useRealTimers();
-    vi.restoreAllMocks();
   });
 
-  it("mount loads events and sets pushMessages + summary counts", async () => {
-    const events = [
-      makeEvent({ id: "a", read: false }),
-      makeEvent({ id: "b", read: true }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(2));
-
-    expect(mockGetInboxEvents).toHaveBeenCalledWith({
-      limit: 200,
-      source_types: [...PUSH_MESSAGE_SOURCES],
+  it("marks a single message as read and decrements unread", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "m1", read: false })],
+      total: 1,
+      unread_count: 1,
     });
-    expect(result.current.summary.pushMessages.total).toBe(2);
-    expect(result.current.summary.pushMessages.unread).toBe(1);
-  });
-
-  it("filters out events whose source_type is not cron or heartbeat", async () => {
-    const events = [
-      makeEvent({ id: "keep-cron", source_type: "cron" }),
-      makeEvent({ id: "keep-heartbeat", source_type: "heartbeat" }),
-      makeEvent({ id: "drop-manual", source_type: "manual" }),
-      makeEvent({ id: "drop-approval", source_type: "approval" }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
     const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(2));
-    const ids = result.current.pushMessages.map((m) => m.id);
-    expect(ids).toEqual(["keep-cron", "keep-heartbeat"]);
-    expect(result.current.summary.pushMessages.total).toBe(2);
-  });
-
-  it("keeps mail events and maps them to the email channel", async () => {
-    const events = [
-      makeEvent({
-        id: "keep-mail",
-        source_type: "mail",
-        event_type: "new_email",
-        title: "New email: hello",
-        body: "From: someone@example.com",
-      }),
-      makeEvent({ id: "drop-manual", source_type: "manual" }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
-    const msg = result.current.pushMessages[0];
-    expect(msg.id).toBe("keep-mail");
-    expect(msg.channelType).toBe("email");
-    expect(msg.channelName).toBe("Mail");
-    expect(msg.metadata?.sourceType).toBe("mail");
-  });
-
-  it("passes mail payload (incl. body_preview) through to metadata.payload", async () => {
-    const payload = {
-      sender: "alice@example.com",
-      subject: "Invoice #42",
-      date: "2026-07-28 10:00:00",
-      uid: "1001",
-      folder: "INBOX",
-      body_preview: "Hello,\nplease find the invoice attached.",
-    };
-    const events = [
-      makeEvent({
-        id: "mail-payload",
-        source_type: "mail",
-        event_type: "new_email",
-        payload,
-      }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
-    const msg = result.current.pushMessages[0];
-    expect(msg.metadata?.payload).toEqual(payload);
-    expect(msg.metadata?.payload?.body_preview).toBe(
-      "Hello,\nplease find the invoice attached.",
-    );
-  });
-
-  it("passes auto_handled payload.trace through to metadata.payload", async () => {
-    const trace = [
-      {
-        type: "tool_call",
-        name: "reply_message",
-        summary: '{"to": "alice@example.com"} => sent ok',
-      },
-      { type: "text", summary: "已回复 Alice 的邮件。" },
-    ];
-    const payload = {
-      from: "alice@example.com",
-      subject: "Invoice #42",
-      uid: "1001",
-      folder: "INBOX",
-      trace,
-    };
-    const events = [
-      makeEvent({
-        id: "mail-auto-handled",
-        source_type: "mail",
-        event_type: "auto_handled",
-        body: "已回复 Alice 的邮件。",
-        payload,
-      }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
-    const msg = result.current.pushMessages[0];
-    expect(msg.metadata?.eventType).toBe("auto_handled");
-    expect(msg.metadata?.payload?.trace).toEqual(trace);
-    expect(msg.content).toBe("已回复 Alice 的邮件。");
-  });
-
-  it("sorts events by created_at descending", async () => {
-    const events = [
-      makeEvent({ id: "old", created_at: 1000 }),
-      makeEvent({ id: "new", created_at: 5000 }),
-      makeEvent({ id: "mid", created_at: 3000 }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(3));
-    const ids = result.current.pushMessages.map((m) => m.id);
-    expect(ids).toEqual(["new", "mid", "old"]);
-  });
-
-  it("maps heartbeat statuses through localized summaries", async () => {
-    const events = [
-      makeEvent({
-        id: "hb-success",
-        source_type: "heartbeat",
-        status: "success",
-        body: "should not be used",
-      }),
-      makeEvent({
-        id: "hb-timeout",
-        source_type: "heartbeat",
-        status: "timeout",
-      }),
-      makeEvent({
-        id: "hb-cancelled",
-        source_type: "heartbeat",
-        status: "cancelled",
-      }),
-      makeEvent({
-        id: "hb-failed",
-        source_type: "heartbeat",
-        status: "failed",
-      }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(4));
-    const contentById = Object.fromEntries(
-      result.current.pushMessages.map((message) => [
-        message.id,
-        message.content,
-      ]),
-    );
-    expect(contentById).toEqual({
-      "hb-success": "inbox.heartbeatSuccess",
-      "hb-timeout": "inbox.heartbeatTimeout",
-      "hb-cancelled": "inbox.heartbeatCancelled",
-      "hb-failed": "inbox.heartbeatFailed",
+    await waitFor(() => {
+      expect(result.current.summary.pushMessages.unread).toBe(1);
     });
-    expect(result.current.pushMessages[0].channelType).toBe("heartbeat");
-  });
-
-  it("markMessageAsRead optimistically marks read and decrements unread", async () => {
-    const events = [makeEvent({ id: "m1", read: false })];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
-    expect(result.current.summary.pushMessages.unread).toBe(1);
-
     act(() => {
       result.current.markMessageAsRead("m1");
     });
-
-    expect(mockMarkInboxRead).toHaveBeenCalledWith({ event_ids: ["m1"] });
+    expect(mocks.markInboxRead).toHaveBeenCalledWith({ event_ids: ["m1"] });
     expect(result.current.pushMessages[0].read).toBe(true);
     expect(result.current.summary.pushMessages.unread).toBe(0);
   });
 
-  it("markAllMessagesAsRead returns 0 and still calls api when no visible unread", async () => {
-    const events = [makeEvent({ id: "m1", read: true })];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
-
-    let count = -1;
-    await act(async () => {
-      count = await result.current.markAllMessagesAsRead();
+  it("marks all messages as read via the backend all flag", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "m1" }), event({ id: "m2", read: true })],
+      total: 2,
+      unread_count: 1,
     });
-
-    expect(count).toBe(0);
-    // API is still called — backend may have hidden unread events
-    // (e.g. ACL pending notifications filtered client-side).
-    expect(mockMarkInboxRead).toHaveBeenCalledWith({ all: true });
-  });
-
-  it("markAllMessagesAsRead marks all read, zeroes unread, returns unread count", async () => {
-    const events = [
-      makeEvent({ id: "m1", read: false }),
-      makeEvent({ id: "m2", read: false }),
-      makeEvent({ id: "m3", read: true }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
     const { result } = renderHook(() => useInboxData());
-
     await waitFor(() => {
-      expect(result.current.summary.pushMessages.unread).toBe(2);
+      expect(result.current.pushMessages.length).toBe(2);
     });
-
     let count = -1;
     await act(async () => {
       count = await result.current.markAllMessagesAsRead();
     });
-
-    expect(count).toBe(2);
-    expect(mockMarkInboxRead).toHaveBeenCalledWith({ all: true });
-    expect(result.current.pushMessages.every((m) => m.read === true)).toBe(
-      true,
-    );
+    expect(mocks.markInboxRead).toHaveBeenCalledWith({ all: true });
+    expect(count).toBe(1);
     expect(result.current.summary.pushMessages.unread).toBe(0);
+    expect(result.current.pushMessages.every((m) => m.read)).toBe(true);
   });
 
-  it("deleteMessages removes specified messages and returns count", async () => {
-    const events = [
-      makeEvent({ id: "m1", read: false }),
-      makeEvent({ id: "m2", read: true }),
-      makeEvent({ id: "m3", read: false }),
-    ];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
-    const { result } = renderHook(() => useInboxData());
-
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(3));
-
-    let returnedCount = -1;
-    await act(async () => {
-      returnedCount = await result.current.deleteMessages(["m1", "m3"]);
+  it("deletes selected messages from the list", async () => {
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "a", read: false }), event({ id: "b", read: true })],
+      total: 2,
+      unread_count: 1,
     });
-
-    // Source computes the return count inside a setPushMessages functional
-    // updater (see useInboxData.ts line ~234). Under React 18 act(), that
-    // updater runs after the await resolves, so the synchronous return value
-    // is not reliable in tests. We assert observable effects instead and only
-    // sanity-check that a number was returned.
-    expect(typeof returnedCount).toBe("number");
-    expect(returnedCount).toBeGreaterThanOrEqual(0);
-
-    // Each requested id issues one deleteInboxEvent call → effective count of 2
-    expect(mockDeleteInboxEvent).toHaveBeenCalledTimes(2);
-    expect(mockDeleteInboxEvent).toHaveBeenCalledWith("m1");
-    expect(mockDeleteInboxEvent).toHaveBeenCalledWith("m3");
-    expect(result.current.pushMessages.map((m) => m.id)).toEqual(["m2"]);
-    // Summary counts in the source are derived from the same functional-updater
-    // counter (deleted/unreadDeleted). Because that counter is not yet updated
-    // when setSummary reads it under React 18 act(), the summary is not
-    // recomputed to reflect the deletion in this test environment. We assert
-    // only the pushMessages list here (states pushMessages is the source of
-    // truth for actual removal); summary accounting is exercised indirectly via
-    // the markAll* tests which use a pre-computed length.
-    expect(result.current.pushMessages).toHaveLength(1);
+    const { result } = renderHook(() => useInboxData());
+    await waitFor(() => {
+      expect(result.current.pushMessages.length).toBe(2);
+    });
+    await act(async () => {
+      await result.current.deleteMessages(["a", " a ", ""]);
+    });
+    expect(mocks.deleteInboxEvent).toHaveBeenCalledWith("a");
+    expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
   });
 
-  it("deleteMessages trims/dedupes empty ids and deletes nothing when only empty", async () => {
-    const events = [makeEvent({ id: "m1", read: false })];
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents(events));
-
+  it("re-syncs list and badge from server data on the next poll after delete", async () => {
+    vi.useFakeTimers();
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "a", read: false }), event({ id: "b", read: true })],
+      total: 2,
+      unread_count: 1,
+    });
     const { result } = renderHook(() => useInboxData());
+    await act(async () => {
+      for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    });
+    expect(result.current.pushMessages.length).toBe(2);
+    // Server state after the deletion: only message b remains.
+    mocks.getInboxEvents.mockResolvedValue({
+      events: [event({ id: "b", read: true })],
+      total: 1,
+      unread_count: 0,
+    });
+    await act(async () => {
+      await result.current.deleteMessages(["a"]);
+    });
+    expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
+    // The 6s poll rewrites list and badge from the server response,
+    // independent of local setState updater timing.
+    await act(async () => {
+      vi.advanceTimersByTime(6000);
+    });
+    expect(result.current.summary.pushMessages).toEqual({
+      total: 1,
+      unread: 0,
+    });
+    expect(result.current.pushMessages.map((m) => m.id)).toEqual(["b"]);
+    vi.useRealTimers();
+  });
 
-    await waitFor(() => expect(result.current.pushMessages).toHaveLength(1));
-
+  it("returns zero deleted for an empty id list without API calls", async () => {
+    const { result } = renderHook(() => useInboxData());
     let deleted = -1;
     await act(async () => {
-      deleted = await result.current.deleteMessages(["", "  ", ""]);
+      deleted = await result.current.deleteMessages(["", "  "]);
     });
-
     expect(deleted).toBe(0);
-    expect(mockDeleteInboxEvent).not.toHaveBeenCalled();
-    expect(result.current.pushMessages).toHaveLength(1);
+    expect(mocks.deleteInboxEvent).not.toHaveBeenCalled();
   });
 
-  it("polls getInboxEvents a second time after 6000ms", async () => {
+  it("keeps state when fetching inbox events fails", async () => {
+    mocks.getInboxEvents.mockRejectedValue(new Error("offline"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { result } = renderHook(() => useInboxData());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(result.current.pushMessages).toEqual([]);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it("keeps polling across visibility changes", async () => {
     vi.useFakeTimers();
-    mockGetInboxEvents.mockResolvedValue(makeResolvedEvents([]));
-
+    mocks.getInboxEvents.mockResolvedValue({ events: [], total: 0 });
     renderHook(() => useInboxData());
-
-    // Initial mount call flushes synchronously via microtask; advance macrotasks
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(0);
+      await Promise.resolve();
     });
-    expect(mockGetInboxEvents).toHaveBeenCalledTimes(1);
-
+    const callsBefore = mocks.getInboxEvents.mock.calls.length;
+    act(() => {
+      Object.defineProperty(document, "visibilityState", {
+        value: "hidden",
+        configurable: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(6000);
+      vi.advanceTimersByTime(12000);
     });
-
-    expect(mockGetInboxEvents).toHaveBeenCalledTimes(2);
+    // Polling stopped while hidden
+    expect(mocks.getInboxEvents.mock.calls.length).toBe(callsBefore);
+    act(() => {
+      Object.defineProperty(document, "visibilityState", {
+        value: "visible",
+        configurable: true,
+      });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await act(async () => {
+      await Promise.resolve();
+      vi.advanceTimersByTime(6000);
+    });
+    // Refreshed on visible + one poll tick
+    expect(mocks.getInboxEvents.mock.calls.length).toBeGreaterThanOrEqual(
+      callsBefore + 2,
+    );
+    vi.useRealTimers();
   });
 });

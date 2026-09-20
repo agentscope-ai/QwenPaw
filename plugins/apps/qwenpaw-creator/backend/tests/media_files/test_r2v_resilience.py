@@ -13,12 +13,17 @@ import pytest
 
 from domain.errors import ConflictError
 from services.media_files import r2v_execution
+from services.media_files.secure_video_stream import PeerAddressMismatchError
 from services.media_files.image_execution import FileImageExecutionService
 from services.media_files.r2v_execution import FileR2VExecutionService
 from services.project_files.facade import CreatorFileServices
 from services.runtime_files.execution_store import ProjectExecutionStore
+from services.runtime_files.errors import LockTimeoutError
 from services.runtime_files.models import ChangeOrigin, ReviewPolicy
 from utils.paths import unique_task_work_path
+from scripts.recover_completed_r2v_materialization import (
+    _reopen_materialization_state,
+)
 
 from .conftest import (
     accept_pending_reviews,
@@ -38,6 +43,61 @@ ELEMENT_ID = "r2v-1"
 class _ImageProvider:
     async def generate(self, **_kwargs):
         return {"content": _PNG_RETRY, "media_type": "image/png"}
+
+
+class _RecoveryState(SimpleNamespace):
+    def model_dump(self, *, mode: str) -> dict:
+        assert mode == "python"
+        return dict(vars(self))
+
+
+@pytest.mark.parametrize("phase", ["FAILED", "PROVIDER_SUCCEEDED"])
+def test_recovery_reopens_first_attempt_and_interrupted_rerun(phase) -> None:
+    result = {"status": "SUCCEEDED", "url": "https://cdn.example/video.mp4"}
+    state = _RecoveryState(
+        phase=phase,
+        provider_task_id="provider-1",
+        provider_result=result,
+        last_error="download failed",
+        materialize_owner="stale-owner",
+        materialize_claim_token="stale-claim",
+        materialize_claimed_at_epoch=1.0,
+        materialize_heartbeat_at_epoch=2.0,
+        materialize_claim_expires_at_epoch=3.0,
+    )
+
+    reopened = _reopen_materialization_state(
+        state,
+        provider_task_id="provider-1",
+        provider_result=result,
+    )
+
+    assert reopened["phase"] == "PROVIDER_SUCCEEDED"
+    assert reopened["last_error"] is None
+    claim_fields = (
+        "materialize_owner",
+        "materialize_claim_token",
+        "materialize_claimed_at_epoch",
+        "materialize_heartbeat_at_epoch",
+        "materialize_claim_expires_at_epoch",
+    )
+    assert all(reopened[field] is None for field in claim_fields)
+
+
+def test_recovery_fails_closed_when_provider_identity_changes() -> None:
+    result = {"status": "SUCCEEDED", "url": "https://cdn.example/video.mp4"}
+    state = _RecoveryState(
+        phase="PROVIDER_SUCCEEDED",
+        provider_task_id="provider-other",
+        provider_result=result,
+    )
+
+    with pytest.raises(RuntimeError, match="state changed"):
+        _reopen_materialization_state(
+            state,
+            provider_task_id="provider-1",
+            provider_result=result,
+        )
 
 
 def _services(tmp_path, monkeypatch) -> CreatorFileServices:
@@ -237,10 +297,12 @@ def test_transient_download_failures_are_retried(tmp_path, monkeypatch):
     assert len(calls) == 3
 
 
-def test_veo_download_auth_is_resolved_only_for_materialization(
+def test_provider_download_auth_is_resolved_only_for_materialization(
     tmp_path,
     monkeypatch,
 ) -> None:
+    """Veo x-goog-api-key and SGLang bearer resolve at request time only."""
+
     from models import config as model_config
 
     sentinel = object()
@@ -256,6 +318,11 @@ def test_veo_download_auth_is_resolved_only_for_materialization(
         model_config,
         "get_video_api_key",
         lambda: "new-secret",
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_backend",
+        lambda: "veo",
     )
 
     async def stub(output, **kwargs):
@@ -276,6 +343,71 @@ def test_veo_download_auth_is_resolved_only_for_materialization(
     assert captured["kwargs"]["request_headers"] == {
         "x-goog-api-key": "new-secret",
     }
+    # Cloud providers get no private-network exemption.
+    assert captured["kwargs"]["trusted_private_origins"] == frozenset()
+
+    # Bearer flavor: a protected SGLang /content download resolves
+    # Authorization from the current video key, kept out of durable state,
+    # and only the configured self-hosted origin may resolve privately.
+    bearer_durable = r2v_execution._durable_provider_result(
+        {
+            "status": "SUCCEEDED",
+            "result_url": "http://localhost:30010/v1/videos/vid-1/content",
+            "download_auth": "authorization-bearer",
+        },
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_api_key",
+        lambda: "sk-local",
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_backend",
+        lambda: "minimax_sglang",
+    )
+    monkeypatch.setattr(
+        model_config,
+        "get_video_base_url",
+        lambda: "http://localhost:30010",
+    )
+    captured.clear()
+    result = _run_materialize(
+        _mat_worker(tmp_path / "bearer", monkeypatch),
+        monkeypatch,
+        stub,
+        provider_result=bearer_durable,
+    )
+
+    assert result is sentinel
+    assert "sk-local" not in repr(captured["output"])
+    assert captured["kwargs"]["request_headers"] == {
+        "Authorization": "Bearer sk-local",
+    }
+    assert captured["kwargs"]["trusted_private_origins"] == frozenset(
+        {("http", "localhost", 30010)},
+    )
+
+
+def test_public_cdn_dns_peer_rotation_is_retried(tmp_path, monkeypatch):
+    sentinel = object()
+    calls = []
+
+    async def stub(*_args, **_kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            raise PeerAddressMismatchError(
+                "远程视频连接 peer 不属于当前跳 DNS 预解析集合",
+            )
+        return sentinel
+
+    result = _run_materialize(
+        _mat_worker(tmp_path, monkeypatch),
+        monkeypatch,
+        stub,
+    )
+    assert result is sentinel
+    assert len(calls) == 3
 
 
 _MP4 = b"\x00\x00\x00\x18ftypmp42" + b"stale-video" * 64
@@ -340,6 +472,140 @@ def _run_video(services: CreatorFileServices, provider):
     return asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    "phase",
+    [
+        "start",
+        "prepare",
+        "bind",
+        "heartbeat",
+        "submitted",
+        "polled",
+        "shutdown",
+        "bind_shutdown",
+    ],
+)
+def test_local_contention_preserves_the_same_provider_task(
+    tmp_path,
+    monkeypatch,
+    phase,
+) -> None:
+    services = _services(tmp_path, monkeypatch)
+    provider = _MutatingR2VProvider(services, lambda _candidate: None)
+    submitted = []
+    original_submit = provider.submit
+
+    async def submit(**kwargs):
+        submitted.append(1)
+        if phase == "heartbeat":
+            await asyncio.sleep(0.8)
+        return await original_submit(**kwargs)
+
+    monkeypatch.setattr(provider, "submit", submit)
+
+    async def scenario():
+        worker = FileR2VExecutionService(
+            services,
+            provider=provider,
+            poll_interval_seconds=0.01,
+            poll_lease_seconds=0.1,
+            submit_timeout_seconds=1,
+            submit_claim_seconds=2,
+        )
+        dispatched = await worker.dispatch(
+            project_id=PROJECT_ID,
+            target_ref=f"element:{ELEMENT_ID}",
+            arguments={},
+            idempotency_key="lock-recovery",
+            start=False,
+        )
+        get_task = worker.executions.get_task
+        update_state = worker._update_state_sync
+        blocked = False
+
+        def read(*args, **kwargs):
+            nonlocal blocked
+            should_block = (
+                phase in {"start", "shutdown"}
+                or (phase == "submitted" and submitted)
+                or (
+                    phase == "prepare"
+                    and worker._read_state_sync(
+                        PROJECT_ID,
+                        dispatched.task_id,
+                    ).phase
+                    == "SUBMIT_CLAIMED"
+                )
+            )
+            if should_block and (not blocked or phase == "shutdown"):
+                blocked = True
+                raise LockTimeoutError(tmp_path / "project.lock", 10.0)
+            return get_task(*args, **kwargs)
+
+        def update(project_id, task_id, change):
+            nonlocal blocked
+            target = {"polled": "success", "heartbeat": "heartbeat"}.get(
+                phase,
+                "bind",
+            )
+            if phase in {"polled", "bind", "bind_shutdown", "heartbeat"} and (
+                change.__name__ == target
+                and (not blocked or phase == "bind_shutdown")
+            ):
+                blocked = True
+                raise LockTimeoutError(tmp_path / "project.lock", 10.0)
+            return update_state(project_id, task_id, change)
+
+        monkeypatch.setattr(worker.executions, "get_task", read)
+        monkeypatch.setattr(worker, "_update_state_sync", update)
+        job = worker.start_task(PROJECT_ID, dispatched.task_id)
+        try:
+            if phase in {"shutdown", "bind_shutdown"}:
+                async with asyncio.timeout(2):
+                    while not blocked:
+                        await asyncio.sleep(0.01)
+                await worker.shutdown()
+                assert job.cancelled()
+            else:
+                await asyncio.wait_for(job, timeout=8)
+            return get_task(PROJECT_ID, dispatched.task_id), blocked
+        finally:
+            await worker.shutdown()
+
+    task, blocked = asyncio.run(scenario())
+    assert blocked
+    assert _r2v_task_count(services) == 1
+    if phase in {"shutdown", "bind_shutdown"}:
+        assert task.status.value == (
+            "RUNNING" if phase == "bind_shutdown" else "QUEUED"
+        )
+        assert len(submitted) == (1 if phase == "bind_shutdown" else 0)
+        assert task.error is None
+    else:
+        assert task.status.value == "SUCCEEDED"
+        assert len(submitted) == 1
+        assert task.result["providerTaskId"] == "provider-task-stale"
+
+
+def test_submit_timeout_keeps_a_nonempty_diagnostic(tmp_path, monkeypatch):
+    services = _services(tmp_path, monkeypatch)
+
+    class TimedOutProvider:
+        calls = 0
+
+        async def submit(self, **_kwargs):
+            self.calls += 1
+            raise TimeoutError()
+
+    provider = TimedOutProvider()
+    task = _run_video(services, provider)
+    assert task.status.value == "FAILED"
+    assert task.error["code"] == "R2V_PROVIDER_SUBMISSION_FAILED"
+    assert "exceeded 180 seconds" in task.error["message"]
+    assert task.error["errorId"]
+    assert provider.calls == 1
+
+
 def test_unrelated_commit_during_render_does_not_quarantine(
     tmp_path,
     monkeypatch,
@@ -386,3 +652,77 @@ def test_changed_render_inputs_during_render_still_quarantine(
 
     assert task.status.value == "QUARANTINED"
     assert (task.error or {}).get("code") == "PROJECT_INPUT_SNAPSHOT_STALE"
+
+
+@pytest.mark.parametrize(
+    "mode,inputs,frozen",
+    [
+        (
+            "t2v",
+            {"video_prompt": "A beautiful sunset"},
+            {"referenceVersionIds": []},
+        ),
+        (
+            "i2v",
+            {
+                "video_prompt": "A beautiful sunset",
+                "first_frame_version_id": "img:first-frame",
+            },
+            {
+                "referenceVersionIds": ["img:first-frame"],
+                "firstFrameVersionId": "img:first-frame",
+            },
+        ),
+        (
+            "s2v",
+            {
+                "portrait_version_id": "img:portrait",
+                "audio_version_id": "aud:voice",
+            },
+            {
+                "referenceVersionIds": ["img:portrait", "aud:voice"],
+                "s2vImageVersionId": "img:portrait",
+                "s2vAudioVersionId": "aud:voice",
+            },
+        ),
+    ],
+)
+def test_frozen_inputs_still_current_by_video_mode(
+    tmp_path,
+    monkeypatch,
+    mode,
+    inputs,
+    frozen,
+):
+    from services.project_files.models import TimelineElement
+
+    services = r2v_project_services(
+        tmp_path,
+        monkeypatch,
+        project_id="stale-project",
+        name="Video input snapshot",
+        elements=(
+            TimelineElement.model_validate(
+                {
+                    "element_id": "video-1",
+                    "label": "Video",
+                    "span": {"start_tick": 0, "duration_tick": 4000},
+                    "location": {},
+                    "creation": {"type": mode, **inputs},
+                },
+            ),
+        ),
+    )
+    project = services.projects.read("stale-project").project
+    task = SimpleNamespace(
+        task_id="task-1",
+        project_id="stale-project",
+        kind="r2v_generation",
+        status="RUNNING",
+        input_refs=["element:video-1"],
+        metadata={"requestSnapshot": {"elementId": "video-1", **frozen}},
+    )
+    assert r2v_execution.FileR2VExecutionService._frozen_inputs_still_current(
+        project,
+        task,
+    )

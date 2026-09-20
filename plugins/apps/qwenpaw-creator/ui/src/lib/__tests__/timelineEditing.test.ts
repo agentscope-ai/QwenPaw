@@ -185,6 +185,8 @@ const chain: Array<[string, number, string, string]> = [
 
 const tl = {
   timeline_id: "timeline:main",
+  name: "",
+  description: "",
   ticks_per_second: 1000,
   elements_by_id: {
     "edit-pond-drink": el("edit-pond-drink", "edit", 11000, 12000),

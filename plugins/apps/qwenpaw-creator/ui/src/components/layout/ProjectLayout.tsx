@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet } from "react-router-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "react-i18next";
@@ -20,8 +20,9 @@ import { useWorkGraphStore } from "@/store/workGraphStore";
 import { useExecutionAuthorizationStore } from "@/store/executionAuthorizationStore";
 import { startVisiblePolling } from "@/lib/visiblePolling";
 import TopNav from "./TopNav";
+import WorkspaceSidebar from "./WorkspaceSidebar";
 import ReturnBanner from "@/components/creator/ReturnBanner";
-import { AgentDock, SelectionToolbar } from "@/components/agent";
+import { SelectionToolbar } from "@/components/agent";
 import { ProjectTour, AssetsTour } from "@/components/onboarding";
 import PageSkeleton from "@/components/PageSkeleton";
 
@@ -147,8 +148,15 @@ export default function ProjectLayout() {
     (state) => state.refreshSession,
   );
   const disconnect = useCreatorSessionStore((state) => state.disconnect);
-  const sessionStatus = useCreatorSessionStore(
-    (state) => state.session?.status ?? null,
+  const sessionActive = useCreatorSessionStore(
+    (state) =>
+      state.projectId === id &&
+      [
+        "RUNNING",
+        "WAITING_RUNTIME",
+        "INTERRUPT_REQUESTED",
+        "RESUMING",
+      ].includes(state.session?.status ?? ""),
   );
   const events = useCreatorSessionStore(
     useShallow((state) =>
@@ -156,14 +164,27 @@ export default function ProjectLayout() {
     ),
   );
   const refreshTasks = useCreatorTaskViewStore((state) => state.refresh);
-  // Scheduler-owned production keeps mutating tasks and the work graph
-  // after the agent run ends, so "session is idle" must not mean "stop
-  // watching": running nodes are in flight and ready nodes may be
-  // admitted on the next tick.
+  const tasksActive = useCreatorTaskViewStore(
+    (state) =>
+      state.projectId === id &&
+      (state.tasks.some(
+        (task) =>
+          task.projectId === id && ["QUEUED", "RUNNING"].includes(task.status),
+      ) ||
+        state.runs.some((run) =>
+          [
+            "QUEUED",
+            "QUEUED_CAPACITY",
+            "RUNNING_MODEL",
+            "WAITING_RUNTIME",
+          ].includes(run.status),
+        )),
+  );
   const workGraphActive = useWorkGraphStore((state) => {
+    if (state.projectId !== id || state.graph?.projectId !== id) return false;
     const counts = state.graph?.counts;
     if (!counts) return false;
-    return (counts.running ?? 0) > 0 || (counts.ready ?? 0) > 0;
+    return (counts.running ?? 0) > 0;
   });
   const startProjectSnapshotPolling = useProjectSnapshotStore(
     (state) => state.startPolling,
@@ -188,6 +209,35 @@ export default function ProjectLayout() {
     ready: boolean;
   } | null>(null);
   const lastConsumedEvent = useRef(0);
+  const currentProjectId = useRef(id);
+  currentProjectId.current = id;
+  const productionRequest = useRef<{
+    projectId: string;
+    promise: Promise<void>;
+  } | null>(null);
+  const refreshProduction = useCallback((): Promise<void> => {
+    if (!id || currentProjectId.current !== id) return Promise.resolve();
+    if (productionRequest.current?.projectId === id)
+      return productionRequest.current.promise;
+    const tasks = useCreatorTaskViewStore.getState();
+    const graph = useWorkGraphStore.getState();
+    // Join this shell's current read and respect reads already started by a
+    // workbench. A slow request must not accumulate overlapping interval/SSE
+    // requests; each store also fences responses across project changes.
+    const requests: Promise<void>[] = [];
+    if (tasks.projectId !== id || !tasks.loading)
+      requests.push(refreshTasks(id));
+    if (graph.projectId !== id || !graph.loading)
+      requests.push(graph.refresh(id));
+    const promise = Promise.allSettled(requests)
+      .then(() => undefined)
+      .finally(() => {
+        if (productionRequest.current?.promise === promise)
+          productionRequest.current = null;
+      });
+    productionRequest.current = { projectId: id, promise };
+    return promise;
+  }, [id, refreshTasks]);
 
   useEffect(() => {
     setPendingReviewNavigation(null);
@@ -245,44 +295,26 @@ export default function ProjectLayout() {
     }
     void Promise.all([
       bootstrap(id),
-      refreshTasks(id),
       // Load the graph eagerly: the DAG panel only renders once nodes
       // exist, and its own mount-refresh cannot break that chicken-and-egg
       // after a page reload on a scheduler-driven project.
-      useWorkGraphStore.getState().refresh(id),
+      refreshProduction(),
     ]).catch(() => undefined);
     return () => disconnect();
-  }, [bootstrap, disconnect, id, refreshTasks]);
+  }, [bootstrap, disconnect, id, refreshProduction]);
 
   useEffect(() => {
-    if (
-      !id ||
-      !sessionStatus ||
-      sessionStatus === "IDLE" ||
-      sessionStatus === "CANCELLED"
-    )
-      return;
-    // Runtime Tasks are file-native and no longer emit the legacy bridge's
-    // in-process progress callbacks to the browser.  Poll their durable heads
-    // so AgentDock and Timeline surfaces expose QUEUED /
-    // RUNNING progress while the blocking command request is still active.
-    return startVisiblePolling(() => {
-      void refreshTasks(id).catch(() => undefined);
-    }, 2_000);
-  }, [id, refreshTasks, sessionStatus]);
-
-  useEffect(() => {
-    if (!id || !workGraphActive) return;
-    // Scheduler-driven production runs with no live agent session and no
-    // SSE stream: without this poll the dock and timeline freeze on the
-    // last mid-flight snapshot (perpetual "waiting for result" rows and
-    // generating stripes on finished elements). Polling stops by itself
-    // once every node is terminal.
-    return startVisiblePolling(() => {
-      void refreshTasks(id).catch(() => undefined);
-      void useWorkGraphStore.getState().refresh(id);
-    }, 3_000);
-  }, [id, refreshTasks, workGraphActive]);
+    if (!id) return;
+    // Manual generation and another tab can create Tasks without an active
+    // agent or a Project publication. Keep an idle discovery poll; once real
+    // activity appears, the same loop tracks it at the faster cadence.
+    return startVisiblePolling(
+      () => {
+        void refreshProduction();
+      },
+      sessionActive || tasksActive || workGraphActive ? 3_000 : 10_000,
+    );
+  }, [id, refreshProduction, sessionActive, tasksActive, workGraphActive]);
 
   useEffect(() => {
     let panel: CreatorPanel = "other";
@@ -293,7 +325,8 @@ export default function ProjectLayout() {
 
   useEffect(() => {
     const pendingEvents = events.filter(
-      (event) => event.seq > lastConsumedEvent.current,
+      (event) =>
+        event.projectId === id && event.seq > lastConsumedEvent.current,
     );
     if (!pendingEvents.length) return;
     lastConsumedEvent.current = pendingEvents.at(-1)!.seq;
@@ -329,9 +362,8 @@ export default function ProjectLayout() {
           isSubagentLifecycleEvent(event.type),
       )
     ) {
-      void refreshTasks(id);
       // Task/subagent lifecycle changes move work-graph node states too.
-      void useWorkGraphStore.getState().refresh(id);
+      void refreshProduction();
     }
     if (
       pendingEvents.some(
@@ -349,7 +381,7 @@ export default function ProjectLayout() {
     // useFileProjectReviewStore.  Runtime events can refresh Session/Task
     // projections, but must never be interpreted as legacy Transaction IDs or
     // trigger requests to the removed Transaction/Review API.
-  }, [events, id, refreshSession, refreshTasks]);
+  }, [events, id, refreshSession, refreshProduction]);
 
   useEffect(() => {
     if (!pendingReviewNavigation?.ready || fileReviewSyncStatus !== "healthy")
@@ -395,6 +427,9 @@ export default function ProjectLayout() {
     >
       <TopNav />
       <div className="flex min-h-0 overflow-hidden">
+        {/* Left workspace sidebar: 创作助手 / 剧集列表 tabs over the AgentDock
+            (design 83:13383); the composer stays pinned at its bottom. */}
+        <WorkspaceSidebar />
         <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
           <ReturnBanner />
           <main
@@ -405,21 +440,6 @@ export default function ProjectLayout() {
             <Outlet />
             <LaunchUploadProgressCard />
           </main>
-        </div>
-        {/* Right rail: the dock keeps the top; on narrow workspaces the pages
-            portal their detail panel into the slot below, so dock and detail
-            split the rail vertically instead of fighting for width. */}
-        <div className="flex min-h-0 shrink-0 flex-col">
-          <div className="flex min-h-0 flex-1">
-            <AgentDock sidebar />
-          </div>
-          {/* No left border here: the workspace background flows into the
-              rail so the detail card reads as part of the workspace, while a
-              strong top rule cleanly ends the dock above it. */}
-          <div
-            data-detail-rail
-            className="hidden min-h-0 shrink-0 basis-1/2 flex-col overflow-hidden border-t-2 border-[var(--color-border-strong)] bg-[var(--color-bg-layout)] [&:not(:empty)]:flex"
-          />
         </div>
       </div>
       <SelectionToolbar />

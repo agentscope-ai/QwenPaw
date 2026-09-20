@@ -24,7 +24,9 @@ DiscoveryErrorKind = Literal[
 
 DISCOVERY_MODEL_FIELDS = (
     "max_input_length_auto_detected",
-    "max_tokens",
+    "max_output_length",
+    "max_output_length_source",
+    "max_output_length_updated_at",
     "supports_multimodal",
     "supports_image",
     "supports_video",
@@ -61,19 +63,23 @@ def merge_discovered_model(
     )
     payload = base.model_dump() if base is not None else {}
     config_overrides = set(getattr(base, "config_overrides", []))
+    user_output_capability = (
+        base is not None and base.max_output_length_source == "user"
+    )
     for field in remote.model_fields_set:
-        if base is not None and (
-            field in config_overrides
-            or (
-                base.max_input_length_configured
-                and field
-                in {
-                    "max_input_length",
-                    "max_input_length_configured",
-                }
-            )
-        ):
-            continue
+        if base is not None:
+            if field in config_overrides:
+                continue
+            if (
+                field.startswith("max_output_length")
+                and user_output_capability
+            ):
+                continue
+            if base.max_input_length_configured and field in {
+                "max_input_length",
+                "max_input_length_configured",
+            }:
+                continue
         payload[field] = getattr(remote, field)
     payload.update(
         {
@@ -83,12 +89,16 @@ def merge_discovered_model(
             "discovered_at": discovered_at,
         },
     )
+    if remote.max_output_length is not None and not user_output_capability:
+        payload["max_output_length_source"] = "api"
+        payload["max_output_length_updated_at"] = discovered_at
     return ModelInfo.model_validate(payload)
 
 
 def apply_discovery_metadata(
     provider: Provider,
     fetched: List[ModelInfo],
+    discovered_at: str,
 ) -> None:
     """Apply API metadata to matching configured models."""
     fetched_by_id = {model.id: model for model in fetched}
@@ -97,9 +107,24 @@ def apply_discovery_metadata(
         if remote is None:
             continue
         overridden = set(configured.config_overrides)
+        user_output_capability = configured.max_output_length_source == "user"
         for field in DISCOVERY_MODEL_FIELDS:
-            if field in remote.model_fields_set and field not in overridden:
+            if (
+                field in remote.model_fields_set
+                and field not in overridden
+                and not (
+                    field.startswith("max_output_length")
+                    and user_output_capability
+                )
+            ):
                 setattr(configured, field, getattr(remote, field))
+        if (
+            remote.max_output_length is not None
+            and "max_output_length" not in overridden
+            and not user_output_capability
+        ):
+            configured.max_output_length_source = "api"
+            configured.max_output_length_updated_at = discovered_at
 
 
 def classify_discovery_error(

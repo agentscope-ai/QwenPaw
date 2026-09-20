@@ -24,7 +24,7 @@ LangString webview2DownloadSuccess ${LANG_RUSSIAN} "WebView2 успешно за
 LangString webview2Downloading ${LANG_RUSSIAN} "Загрузка WebView2..."
 LangString webview2InstallError ${LANG_RUSSIAN} "Ошибка: Не удалось установить WebView2, код выхода: $1"
 LangString webview2InstallSuccess ${LANG_RUSSIAN} "WebView2 успешно установлен"
-LangString deleteAppData ${LANG_RUSSIAN} "Удалить локальный кэш приложения"
+LangString deleteAppData ${LANG_RUSSIAN} "Удалить данные приложения (настр. и др.; не агенты/чаты)"
 LangString qwenpawCliPathPageTitle ${LANG_RUSSIAN} "Command line"
 LangString qwenpawCliPathPageSubtitle ${LANG_RUSSIAN} "Choose whether qwenpaw is available in terminals."
 LangString qwenpawCliPathPageDescription ${LANG_RUSSIAN} "This adds the bundled qwenpaw command to your user PATH. You can change it later by reinstalling or uninstalling QwenPaw Desktop."

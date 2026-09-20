@@ -277,9 +277,7 @@ QwenPaw 帮你写这些文件。
 确认文件确实写进了正确的工作区目录，并检查 skill 内容质量后再使用。
 
 在 `$QWENPAW_WORKING_DIR/workspaces/{agent_id}/skills/` 下新建目录，并放入 `SKILL.md`。
-`SKILL.md` 必须包含带 `name` 和 `description` 的 YAML front matter。若 Skill
-依赖外部二进制或环境变量，可在 `metadata.requires` 中声明；QwenPaw 会将其透出为
-`require_bins` 和 `require_envs` 元数据，但不会因此自动禁用 Skill。
+`SKILL.md` 必须包含带 `name` 和 `description` 的 YAML front matter。若 Skill 依赖命令行程序、环境变量或 MCP 服务，可在 `metadata.requires`（或 `metadata.qwenpaw.requires`）中声明。
 
 #### SKILL.md 示例
 
@@ -288,9 +286,11 @@ QwenPaw 帮你写这些文件。
 name: my_skill
 description: 我的自定义能力说明
 metadata:
+  version: "1.0"
   requires:
     bins: [ffmpeg]
     env: [MY_SKILL_API_KEY]
+    mcp: [my-mcp-server]
 ---
 
 # 使用说明
@@ -300,25 +300,63 @@ metadata:
 
 `name` 和 `description` 为**必填**字段，`metadata` 为可选。
 
+版本可选，会显示在工作区和技能池的卡片及列表中。QwenPaw 依次读取 `version`、`metadata.version`、`metadata.builtin_skill_version`，保留声明文本，不强制 SemVer，也不会自动修改版本。作者在 `SKILL.md` 中手动维护；未声明时不显示版本标签。
+
+`requires` 声明的是硬性前提。上面的 `my_skill` 需要 `ffmpeg` 可执行程序、`MY_SKILL_API_KEY` 环境变量，以及目标工作区中已启用、注册名为 `my-mcp-server` 的 MCP 服务。MCP 名称应填写注册名，而不是软件包名或可执行程序名。
+
+YAML 列表只声明名称，不填写实际值：`env: [MY_SKILL_API_KEY]` 合法，`env: MY_SKILL_API_KEY` 不符合依赖声明格式。要提供实际值，在控制台打开已安装 Skill 的配置，填写 JSON 对象：
+
+```json
+{
+  "MY_SKILL_API_KEY": "replace-with-your-api-key"
+}
+```
+
+依赖字段必须是非空名称组成的列表。未知依赖类型会被忽略，不解析技能间依赖或版本约束。
+
+加载时，若已启用 Skill 的受支持依赖字段格式错误，或依赖不满足，会记录 ERROR 日志并跳过该 Skill；其他 Skill 和 agent 继续运行。启用状态及其他有效元数据字段保持不变。修复声明或补齐依赖后，下次加载即可恢复，无需重新启用。没有声明依赖的 Skill 正常加载。
+
+环境变量检查会考虑该 Skill 的工作区 config，并遵循实际注入的优先级：已有进程环境变量（包括空字符串）不会被覆盖。命令行程序按有效 PATH 检查。MCP 只检查目标工作区的 MCP 配置有效且已启用，不检查连接或工具权限。被跳过的 Skill 也不会出现在 `/skills` 列表中，不能通过 preload 或显式 skill 命令加载。
+
+如果 Skill 安装在默认工作区，可执行：
+
+```bash
+qwenpaw skills test my_skill --agent-id default
+```
+
+检查其他工作区时，将 `default` 替换为目标 agent ID。缺少 API Key、找不到 `ffmpeg`，或 MCP 未配置/未启用时，命令返回非零退出码。例如，缺少密钥时会提示 `Environment variable not set: MY_SKILL_API_KEY`。本地目录和技能池的检查方式见 [CLI](./cli)。
+
 手动放置的 Skill 会在下次清单调和时被检测到，并以**禁用**状态写入 `skill.json`。
 在控制台或 CLI 中启用即可。
 
-### 通过 /make-skill 从当前会话创建 (Beta)
+### 通过 /make-skill 从当前会话创建
 
-刚在对话里跑完一个工作流（试过工具、撞过错、得出可行路径）, 用这个
-命令把它存成 skill：
+当一段对话已经形成了可复用的指引、模板或可行流程时，使用
+`/make-skill <focus>` 将其保存为 Skill。`focus` 应足够具体，能说明要从
+当前对话中保留什么：
 
 ```
-/make-skill 烹饪
+/make-skill 每周销售报告流程
 ```
 
-会看到一张计划卡，展示建议的 skill 名和步骤大纲。用自然语言确认、
-修改或取消。确认后，Agent 基于会话内容写出 skill 并保存到当前
-workspace，**默认启用**。
+Agent 会先提出一份计划，其中包含 Skill 的名称、用途、步骤、文件和几个创建选项。
+你可以用自然语言批准、修改或取消。`<focus>` 用于告诉 Agent 当前对话中哪些内容
+最重要；Agent 会建议合适的名称和内容。
 
-`<focus>` 会作为 skill 名，内部空格折叠为 `-`（例如
-`view image debug` → `view-image-debug`），其它字符（中文、大小写、
-数字）保留原样。
+对于工作流，计划还会显示是否启用 **Batch**。Batch 可以一次运行一组已经确定的
+工具操作，适合步骤固定、需要反复执行的工作。如果 Agent 需要根据每一步的结果
+灵活决定下一步，则应保持关闭。不确定时，保留 Agent 的建议即可。
+
+计划还提供三种测试方式。**不测试**速度最快，但仍会进行常规安全检查；
+**冒烟测试**会让新 Skill 完整尝试一次简单任务；**Eval** 会分别在不使用和使用
+新 Skill 的情况下完成同一个代表性任务，以更可靠地判断它是否真的有帮助，
+但需要更多时间。测试方式和 Batch 是两个独立选项。
+
+批准前检查一下建议的内容和选项即可。例如，可以回复“换个名称”、“关闭 Batch”、
+“使用 Eval”或“批准”。修改后，Agent 会给出新计划供你再次确认。
+
+批准后，Agent 会创建并检查 Skill，按计划完成测试，然后保存到当前 workspace，
+并**默认启用**。如果同名 Skill 已经存在，请选择其他名称。
 
 `/make-skill` 本身是一个内建 skill，调用前请先在 `/skills` 中确认
 它已启用。
@@ -377,6 +415,8 @@ workspace，**默认启用**。
 工作区里常见的后续操作还有：
 
 - **启用 / 禁用：** 不改文件内容，只切换这个 skill 是否生效。
+- **预加载 / 按需加载：** 默认按需加载；可在 **工作区 → 技能 → 编辑** 中，为可信的
+  核心或高频 Skill 开启预加载，其完整内容会作为结构化 Skill 区块加入系统提示词。
 - **删除：** 删除工作区 skill。如果 skill 当前处于启用状态，会自动先禁用再删除。
 - **同步到技能池：** 把当前工作区 skill 发布到共享池，供其他工作区复用。
 - **编辑频道范围 / config：** 调整这个 skill 在当前工作区中的生效频道与运行时
@@ -509,7 +549,7 @@ Skill 运行时，生效配置按以下优先级（高优先覆盖低优先）�
 3. **池配置：** 从池下载技能到工作区时，池的 `config` 会作为初始工作区配
    置复制过来，之后工作区的编辑优先。
 
-对于 `requires` 元数据，解析器按顺序检查：`metadata.openclaw.requires` → `metadata.qwenpaw.requires` → `metadata.requires`，取第一个找到的。
+对于 `requires` 元数据，解析器按顺序检查：`metadata.openclaw.requires` → `metadata.qwenpaw.requires` → `metadata.clawdbot.requires` → `metadata.requires` → `requires`，取第一个找到的。
 
 ---
 

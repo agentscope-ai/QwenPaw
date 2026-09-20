@@ -268,6 +268,10 @@ def test_env_file_drops_legacy_warehouse_lines(config_module) -> None:
     assert "DW_" not in env_text
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows does not expose complete POSIX permission bits",
+)
 def test_save_config_restricts_file_permissions(config_module) -> None:
     config_module.save_config(config_module.DataAppConfig())
     mode = config_module.CONFIG_JSON_PATH.stat().st_mode & 0o777

@@ -51,7 +51,6 @@ from services.runtime_files.errors import (
 from services.runtime_files.idempotency_store import IdempotencyRecordStore
 from services.runtime_files.locking import CrossProcessFileLock
 from services.runtime_files.models import IdempotencyStatus
-from services.file_agent_runtime import get_creator_agent_runtime
 from services.storage_root import require_creator_data_root
 
 # QwenPaw secret store for reading encrypted provider API keys
@@ -628,7 +627,12 @@ def save_model_config(data: ModelConfigData) -> None:
 def mutate_model_config(
     mutator: Callable[[ModelConfigData], ModelConfigData],
 ) -> ModelConfigData:
-    """Apply one read-modify-write transaction under the config lock."""
+    """Update global defaults without admitting or resuming Project work.
+
+    Cache invalidation makes subsequent operations observe the new settings.
+    Project wakes belong to explicit message/commit boundaries, never a
+    settings save or an idempotent replay of that save.
+    """
 
     config_path = _config_paths()
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -691,7 +695,35 @@ def _supports_dashscope_native_search(item: ModelConfigItem) -> bool:
     )
 
 
-def _ensure_grounding_model_configured(data: ModelConfigData) -> None:
+def _grounding_config_inputs(data: ModelConfigData) -> tuple[dict, ...]:
+    connection_fields = {
+        "model_name",
+        "api_key",
+        "base_url",
+        "protocol",
+        "custom_protocol",
+    }
+    return (
+        data.grounding.model_dump(),
+        _grounding_validation_model(data).model_dump(
+            include=connection_fields,
+        ),
+        _grounding_search_model(data).model_dump(include=connection_fields),
+    )
+
+
+def _ensure_grounding_model_configured(
+    data: ModelConfigData,
+    *,
+    previous: ModelConfigData | None = None,
+) -> None:
+    # Legacy search settings must not prevent unrelated media-model repairs.
+    # Compare resolved secrets and dependencies under the config write lock;
+    # first-time setup and actual grounding edits still require validation.
+    if previous is not None and (
+        _grounding_config_inputs(data) == _grounding_config_inputs(previous)
+    ):
+        return
     grounding = data.grounding
     if not grounding.enabled:
         return
@@ -899,14 +931,6 @@ async def bind_creator_tool_config(request: Request):
         model_config.reset_request_tool_configs(token)
 
 
-def _notify_agent_model_config_changed() -> None:
-    runtime = get_creator_agent_runtime()
-    if runtime is None:
-        return
-    for project in runtime.services.projects.list():
-        runtime.notify(project.project_id)
-
-
 async def _validate_section_connectivity(
     section: str,
     config: dict[str, Any],
@@ -971,7 +995,16 @@ async def _validate_section_connectivity(
             "llm",
             {},
         ).get("api_key", "")
-    if not item.get("base_url") or not api_key:
+    # Self-hosted SGLang video serves without authentication unless
+    # started with --api-key, so an empty key is a valid configuration.
+    key_optional = (
+        section == "video"
+        and model_config.video_backend_for_protocol(
+            str(item.get("protocol") or ""),
+        )
+        == "minimax_sglang"
+    )
+    if not item.get("base_url") or (not api_key and not key_optional):
         raise ValidationError(
             f"{section}: 缺少 Base URL 或 API Key，请检查配置",
         )
@@ -1155,6 +1188,15 @@ async def update_model_config(
     payload = data.model_dump(mode="json", by_alias=True)
     request_hash = records.request_hash(payload)
 
+    def mutate(current: ModelConfigData) -> ModelConfigData:
+        resolved = _resolve_secret_masks(data, current)
+        resolved.llm.enabled = True
+        _ensure_grounding_model_configured(
+            resolved,
+            previous=current if _config_paths().is_file() else None,
+        )
+        return resolved
+
     def transaction() -> bool:
         with records.operation_lock(
             owner_id="creator-model-config",
@@ -1168,16 +1210,12 @@ async def update_model_config(
                 request_hash=request_hash,
             )
             if reservation.record.status is IdempotencyStatus.COMPLETED:
-                _notify_agent_model_config_changed()
                 return True
             if reservation.record.status is IdempotencyStatus.FAILED:
                 raise StorageIntegrityError(
                     "上一次模型配置写入失败，请使用新的 Idempotency-Key 重试",
                 )
-            data.llm.enabled = True
-            _ensure_grounding_model_configured(data)
-            save_model_config(data)
-            _notify_agent_model_config_changed()
+            mutate_model_config(mutate)
             records.complete(
                 owner_id="creator-model-config",
                 scope="HTTP:model-config-update",
@@ -1225,11 +1263,7 @@ async def patch_creation_checkpoints(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1283,11 +1317,7 @@ async def patch_permission_mode(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1310,11 +1340,7 @@ async def patch_media_review(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1337,11 +1363,7 @@ async def patch_execution_authorization(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1421,11 +1443,7 @@ async def patch_self_review(
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
 
-    def transaction() -> None:
-        mutate_model_config(mutate)
-        _notify_agent_model_config_changed()
-
-    await asyncio.to_thread(transaction)
+    await asyncio.to_thread(mutate_model_config, mutate)
     return {"ok": True}
 
 
@@ -1468,7 +1486,10 @@ async def patch_model_config_section(
             field = ".".join(str(loc) for loc in first_error.get("loc", []))
             message = first_error.get("msg", str(exc))
             raise ValidationError(f"模型配置校验失败: {field} {message}") from exc
-        _ensure_grounding_model_configured(resolved)
+        _ensure_grounding_model_configured(
+            resolved,
+            previous=current if _config_paths().is_file() else None,
+        )
         return resolved
 
     def transaction() -> None:
@@ -1484,14 +1505,12 @@ async def patch_model_config_section(
                 request_hash=request_hash,
             )
             if reservation.record.status is IdempotencyStatus.COMPLETED:
-                _notify_agent_model_config_changed()
                 return
             if reservation.record.status is IdempotencyStatus.FAILED:
                 raise StorageIntegrityError(
                     "上一次模型配置写入失败，请使用新的 Idempotency-Key 重试",
                 )
             mutate_model_config(mutate)
-            _notify_agent_model_config_changed()
             records.complete(
                 owner_id="creator-model-config",
                 scope="HTTP:model-config-patch",
@@ -1793,6 +1812,10 @@ def _probe_payload(
                     "task_id": "creator-connection-probe",
                 },
             )
+        if video_backend == "minimax_sglang":
+            # Zero-cost self-hosted probe: the SGLang multimodal server
+            # exposes GET /health (2xx when healthy and warmed up).
+            return (f"{base}/health", headers, {"_get_probe": True})
         if video_backend == "kling":
             return (
                 f"{base}/tasks",

@@ -31,10 +31,14 @@ def _usage_agent_id() -> str:
 
 
 class TokenUsageStats(BaseModel):
-    """Prompt/completion tokens and call count."""
+    """Token, prompt-cache, and call-count statistics."""
 
     prompt_tokens: int = Field(0, ge=0)
     completion_tokens: int = Field(0, ge=0)
+    cache_read_tokens: int = Field(0, ge=0)
+    cache_write_tokens: int = Field(0, ge=0)
+    cache_eligible_input_tokens: int = Field(0, ge=0)
+    cache_observed_calls: int = Field(0, ge=0)
     call_count: int = Field(0, ge=0)
 
 
@@ -74,6 +78,11 @@ class TokenUsageSummary(BaseModel):
 
     total_prompt_tokens: int = Field(0, ge=0)
     total_completion_tokens: int = Field(0, ge=0)
+    total_cache_read_tokens: int = Field(0, ge=0)
+    total_cache_write_tokens: int = Field(0, ge=0)
+    total_cache_eligible_input_tokens: int = Field(0, ge=0)
+    cache_observed_calls: int = Field(0, ge=0)
+    cache_hit_rate: Optional[float] = Field(None, ge=0, le=100)
     total_calls: int = Field(0, ge=0)
     by_model: dict[str, TokenUsageByModel] = Field(
         default_factory=dict,
@@ -131,6 +140,11 @@ class TokenUsageManager:
         prompt_tokens: int,
         completion_tokens: int,
         at_date: Optional[date] = None,
+        *,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        cache_eligible_input_tokens: int = 0,
+        cache_observed: bool = False,
     ) -> None:
         """Record token usage for a given provider, model and date.
 
@@ -143,6 +157,10 @@ class TokenUsageManager:
             prompt_tokens: Number of input/prompt tokens.
             completion_tokens: Number of output/completion tokens.
             at_date: Date to record under. Defaults to today (local).
+            cache_read_tokens: Number of prompt tokens read from cache.
+            cache_write_tokens: Number of prompt tokens written to cache.
+            cache_eligible_input_tokens: Normalized cache-rate denominator.
+            cache_observed: Whether the adapter reports cache usage.
         """
         from datetime import datetime, timezone
 
@@ -158,6 +176,10 @@ class TokenUsageManager:
                 now_iso=datetime.now(tz=timezone.utc).isoformat(
                     timespec="seconds",
                 ),
+                cache_read_tokens=cache_read_tokens,
+                cache_write_tokens=cache_write_tokens,
+                cache_eligible_input_tokens=cache_eligible_input_tokens,
+                cache_observed=cache_observed,
                 agent_id=_usage_agent_id(),
             ),
         )
@@ -203,6 +225,22 @@ class TokenUsageManager:
                         model=rec_model,
                         prompt_tokens=entry.get("prompt_tokens", 0),
                         completion_tokens=entry.get("completion_tokens", 0),
+                        cache_read_tokens=entry.get(
+                            "cache_read_tokens",
+                            0,
+                        ),
+                        cache_write_tokens=entry.get(
+                            "cache_write_tokens",
+                            0,
+                        ),
+                        cache_eligible_input_tokens=entry.get(
+                            "cache_eligible_input_tokens",
+                            0,
+                        ),
+                        cache_observed_calls=entry.get(
+                            "cache_observed_calls",
+                            0,
+                        ),
                         call_count=entry.get("call_count", 0),
                         agent_id=rec_agent,
                     ),
@@ -246,6 +284,10 @@ class TokenUsageManager:
 
         total_prompt = 0
         total_completion = 0
+        total_cache_read = 0
+        total_cache_write = 0
+        total_cache_eligible = 0
+        cache_observed_calls = 0
         total_calls = 0
         by_model_raw: dict[str, dict] = {}
         by_date_raw: dict[str, dict] = {}
@@ -256,6 +298,10 @@ class TokenUsageManager:
             calls = r.call_count
             total_prompt += pt
             total_completion += ct
+            total_cache_read += r.cache_read_tokens
+            total_cache_write += r.cache_write_tokens
+            total_cache_eligible += r.cache_eligible_input_tokens
+            cache_observed_calls += r.cache_observed_calls
             total_calls += calls
 
             # Aggregate by model
@@ -269,11 +315,19 @@ class TokenUsageManager:
                     "model": r.model,
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "cache_eligible_input_tokens": 0,
+                    "cache_observed_calls": 0,
                     "call_count": 0,
                 },
             )
             bm["prompt_tokens"] += pt
             bm["completion_tokens"] += ct
+            bm["cache_read_tokens"] += r.cache_read_tokens
+            bm["cache_write_tokens"] += r.cache_write_tokens
+            bm["cache_eligible_input_tokens"] += r.cache_eligible_input_tokens
+            bm["cache_observed_calls"] += r.cache_observed_calls
             bm["call_count"] += calls
 
             # Aggregate by date
@@ -282,16 +336,33 @@ class TokenUsageManager:
                 {
                     "prompt_tokens": 0,
                     "completion_tokens": 0,
+                    "cache_read_tokens": 0,
+                    "cache_write_tokens": 0,
+                    "cache_eligible_input_tokens": 0,
+                    "cache_observed_calls": 0,
                     "call_count": 0,
                 },
             )
             bd["prompt_tokens"] += pt
             bd["completion_tokens"] += ct
+            bd["cache_read_tokens"] += r.cache_read_tokens
+            bd["cache_write_tokens"] += r.cache_write_tokens
+            bd["cache_eligible_input_tokens"] += r.cache_eligible_input_tokens
+            bd["cache_observed_calls"] += r.cache_observed_calls
             bd["call_count"] += calls
 
         return TokenUsageSummary(
             total_prompt_tokens=total_prompt,
             total_completion_tokens=total_completion,
+            total_cache_read_tokens=total_cache_read,
+            total_cache_write_tokens=total_cache_write,
+            total_cache_eligible_input_tokens=total_cache_eligible,
+            cache_observed_calls=cache_observed_calls,
+            cache_hit_rate=(
+                total_cache_read / total_cache_eligible * 100
+                if total_cache_eligible > 0
+                else None
+            ),
             total_calls=total_calls,
             by_model={
                 k: TokenUsageByModel.model_validate(v)

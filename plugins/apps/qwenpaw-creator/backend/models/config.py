@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+from services.runtime_files.errors import LockTimeoutError
 from services.runtime_files.locking import CrossProcessFileLock
 
 try:
@@ -236,35 +237,49 @@ def _user_config_fingerprint(
     return metadata.st_ino, metadata.st_mtime_ns, metadata.st_size
 
 
+def _cached_user_config(path: Path, fingerprint: object) -> dict | None:
+    """Return the cached config when it still describes ``path``."""
+
+    if _USER_CONFIG_CACHE is None or _USER_CONFIG_CACHE_PATH != path:
+        return None
+    if (
+        fingerprint is not None
+        and _USER_CONFIG_CACHE_FINGERPRINT != fingerprint
+    ):
+        return None
+    return _USER_CONFIG_CACHE
+
+
 def _get_user_config() -> dict:
     global _USER_CONFIG_CACHE, _USER_CONFIG_CACHE_FINGERPRINT, _USER_CONFIG_CACHE_PATH
     path = _get_model_config_path()
     fingerprint = _user_config_fingerprint(path)
-    if (
-        _USER_CONFIG_CACHE is not None
-        and _USER_CONFIG_CACHE_PATH == path
-        and _USER_CONFIG_CACHE_FINGERPRINT == fingerprint
-    ):
-        return _USER_CONFIG_CACHE
-    if fingerprint is None:
-        return {}
+    cached = _cached_user_config(path, fingerprint)
+    if cached is not None or fingerprint is None:
+        return cached if cached is not None else {}
     try:
         with CrossProcessFileLock(path.parent / ".model-config.lock"):
             fingerprint = _user_config_fingerprint(path)
             if fingerprint is None:
                 return {}
-            if (
-                _USER_CONFIG_CACHE is not None
-                and _USER_CONFIG_CACHE_PATH == path
-                and _USER_CONFIG_CACHE_FINGERPRINT == fingerprint
-            ):
-                return _USER_CONFIG_CACHE
+            cached = _cached_user_config(path, fingerprint)
+            if cached is not None:
+                return cached
             value = json.loads(path.read_text(encoding="utf-8"))
             _decrypt_config_secrets(value)
             _USER_CONFIG_CACHE = value
             _USER_CONFIG_CACHE_PATH = path
             _USER_CONFIG_CACHE_FINGERPRINT = fingerprint
             return _USER_CONFIG_CACHE
+    except LockTimeoutError:
+        # Contention must not masquerade as "no config": an empty dict makes
+        # generation calls fail with a misleading missing-API-key error.
+        # Serve the previous (possibly stale) config, or surface the busy
+        # condition to the caller.
+        stale = _cached_user_config(path, None)
+        if stale is not None:
+            return stale
+        raise
     except Exception:
         pass
     return {}
@@ -1730,6 +1745,12 @@ def video_backend_for_protocol(protocol: str) -> str | None:
         return "seedance2"
     if "gemini" in lowered or "veo" in lowered:
         return "veo"
+    # Checked before "minimax": the self-hosted label contains both words.
+    # The protocol label is the only selector for this backend — localhost
+    # endpoints carry no recognizable host and the H3 variant model names
+    # would otherwise route to the official channel.
+    if "sglang" in lowered:
+        return "minimax_sglang"
     if "minimax" in lowered or "海螺" in protocol:
         return "minimax"
     if "kling" in lowered or "可灵" in protocol:
@@ -1820,6 +1841,8 @@ def _validate_video_backend_url(backend: str, base: str) -> None:
             "VIDEO_MODEL_NAME selects MiniMax, but VIDEO_BASE_URL is not a "
             "MiniMax endpoint (api.minimax.io / api.minimaxi.com)",
         )
+    # minimax_sglang: self-hosted endpoints live on arbitrary hosts
+    # (typically localhost), so no host allowlist applies.
     if backend == "kling" and "klingai" not in base_lower:
         raise ValueError(
             "VIDEO_MODEL_NAME selects the official Kling channel, but "

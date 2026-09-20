@@ -12,6 +12,7 @@ API endpoints:
   - PUT /api/config/channels/matrix
   - GET /api/config/channels/matrix
 """
+
 from __future__ import annotations
 
 import threading
@@ -354,26 +355,6 @@ def test_matrix_bot_own_message_ignored(
         unregister_mock_provider(app_server, provider_id)
 
 
-def _wait_no_new_events_for_room(
-    sent_events: list,
-    room_id: str,
-    baseline: int,
-    deadline: float,
-) -> list:
-    """Poll until no new events for ``room_id`` appear after ``baseline``.
-
-    Returns the list of new events (empty if none).
-    """
-    while time.time() < deadline:
-        new_events = [
-            e for e in sent_events[baseline:] if e.get("room_id") == room_id
-        ]
-        if not new_events:
-            return []
-        time.sleep(1.0)
-    return [e for e in sent_events[baseline:] if e.get("room_id") == room_id]
-
-
 @pytest.mark.integration
 @pytest.mark.p2
 def test_matrix_dm_disabled_drops_message(
@@ -412,16 +393,19 @@ def test_matrix_dm_disabled_drops_message(
     target_room = "!integmockdmdisabled:mock.local"
     try:
         baseline = len(matrix_channel_up.sent_events)
-        matrix_channel_up.push_text_event(
+        event_id = matrix_channel_up.push_text_event(
             text="dm while disabled",
             room_id=target_room,
         )
-        new_events = _wait_no_new_events_for_room(
-            matrix_channel_up.sent_events,
-            target_room,
-            baseline,
-            time.time() + 30.0,
+        assert matrix_channel_up.wait_for_followup_sync_after(
+            event_id,
+            timeout=30.0,
         )
+        new_events = [
+            event
+            for event in matrix_channel_up.sent_events[baseline:]
+            if event.get("room_id") == target_room
+        ]
         assert not new_events, new_events
     finally:
         unregister_mock_provider(app_server, provider_id)

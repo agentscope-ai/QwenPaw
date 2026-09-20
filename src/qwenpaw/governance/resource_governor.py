@@ -241,9 +241,11 @@ class ResourceGovernor:
         # Sandbox not usable (platform unsupported OR the global
         # security.sandbox_enabled switch is off): a SANDBOX_FALLBACK cannot
         # run inside a sandbox. Reaching this point means the command already
-        # cleared Phase 1 deep scan (CRITICAL → DENY), Phase 1.5 shell-danger
+        # cleared Phase 1 deep scan (configured auto-deny rules and
+        # finding-driven approval thresholds), Phase 1.5 shell-danger
         # keywords, and every builtin/user DENY/ASK rule — i.e. nothing
-        # flagged it. Rather than nag the user, run it unsandboxed (ALLOW).
+        # blocked or escalated it. Rather than nag the user, run it
+        # unsandboxed (ALLOW).
         # Only the sandbox isolation layer is dropped; Phase 0-2 protections
         # stay fully in force. STRICT never reaches here (it returns ASK in
         # evaluate() before producing SANDBOX_FALLBACK).

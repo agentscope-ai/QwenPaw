@@ -10,6 +10,7 @@ export interface ProjectCreateRequest {
   aspectRatio: string;
   resolution: string;
   contentType?: string | null;
+  templateId?: string;
   /** Optional atomic bootstrap goal persisted in the file Runtime aggregate. */
   initialGoal?: string;
 }

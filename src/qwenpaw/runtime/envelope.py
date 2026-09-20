@@ -128,6 +128,7 @@ class Envelope:
         self._error_text: str | None = None
         self._error_code: str = "error"
         self._finalized = False
+        self._cancelled = False
 
     # ------------------------------------------------------------------
     # Sequence number helper
@@ -840,6 +841,7 @@ class Envelope:
             yield obj
 
     async def cancel_envelope(self) -> AsyncGenerator[Any, None]:
+        self._cancelled = True
         async for obj in self._finalize_response():
             yield obj
 
@@ -876,7 +878,11 @@ class Envelope:
                         )
 
             if self._completed_message.content:
-                self._completed_message.status = RunStatus.Completed
+                self._completed_message.status = (
+                    RunStatus.Cancelled
+                    if self._cancelled
+                    else RunStatus.Completed
+                )
                 self._response.output.append(self._completed_message)
                 yield self._tag_seq(self._completed_message)
 
@@ -886,6 +892,8 @@ class Envelope:
                 "code": self._error_code,
                 "message": self._error_text,
             }
+        elif self._cancelled:
+            self._response.status = RunStatus.Cancelled
         else:
             self._response.status = RunStatus.Completed
         self._response.completed_at = datetime.now(timezone.utc).isoformat(

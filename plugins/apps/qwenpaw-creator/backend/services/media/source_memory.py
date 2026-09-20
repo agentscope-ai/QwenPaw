@@ -56,6 +56,7 @@ from services.media.source_observation import (
     clip_segment_within_budget_sync,
     clip_size_budget_bytes,
 )
+from services.runtime_files.atomic_store import atomic_replace_path
 from services.runtime_files.errors import RecordNotFoundError
 from services.runtime_files.execution_models import (
     ExecutionAuthorizationStatus,
@@ -253,7 +254,7 @@ def _write_checkpoint(path: Path, source_checksum: str, data: Any) -> None:
         ),
         encoding="utf-8",
     )
-    os.replace(tmp, path)
+    atomic_replace_path(tmp, path)
 
 
 def has_build_checkpoint(
@@ -1537,7 +1538,7 @@ class SourceMemoryService:
         # np.savez appends .npz when missing; normalize the artifact name.
         appended = directory / f"{EMBEDDINGS_FILENAME}.npz"
         if appended.exists():
-            os.replace(appended, embeddings_path)
+            atomic_replace_path(appended, embeddings_path)
         built_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         projection_path = directory / PROJECTION_FILENAME
         tmp = projection_path.with_suffix(".tmp")
@@ -1549,7 +1550,7 @@ class SourceMemoryService:
             ),
             encoding="utf-8",
         )
-        os.replace(tmp, projection_path)
+        atomic_replace_path(tmp, projection_path)
         meta = {
             "indexId": job.index_id,
             "assetId": job.asset_id,
@@ -1568,7 +1569,7 @@ class SourceMemoryService:
             json.dumps(meta, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        os.replace(tmp, meta_path)
+        atomic_replace_path(tmp, meta_path)
         relative = directory.relative_to(project_root).as_posix()
         return {
             "analysisVersionId": job.index_id,

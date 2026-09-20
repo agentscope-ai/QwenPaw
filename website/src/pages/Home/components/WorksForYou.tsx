@@ -2,63 +2,76 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+import {
+  BackgroundWorkFeatureIcon,
+  CreatorFeatureIcon,
+  DataFeatureIcon,
+  ExtensionsFeatureIcon,
+  HubFeatureIcon,
+  MailFeatureIcon,
+  ModelRoutingFeatureIcon,
+  ReliabilityFeatureIcon,
+  type ReleaseFeatureIcon,
+} from "./ReleaseFeatureIcons";
 
 type CardKey =
-  | "osShell"
-  | "workspace"
+  | "hub"
+  | "mail"
+  | "data"
   | "creator"
-  | "thirdPartyAgents"
-  | "browserUse"
-  | "computerUse"
-  | "checkpoint"
-  | "scroll";
+  | "modelRouting"
+  | "backgroundWork"
+  | "extensions"
+  | "reliability";
 
 type CardConfig = {
   key: CardKey;
-  icon: string;
+  icon: ReleaseFeatureIcon;
   href: string;
+  external?: boolean;
 };
 
 const cards: CardConfig[] = [
   {
-    key: "osShell",
-    icon: "https://img.alicdn.com/imgextra/i1/O1CN014f1A4DOhc8C0tO9Q_!!6000000005275-2-tps-440-440.png",
-    href: "/blog/qwenpaw-os-shell",
+    key: "hub",
+    icon: HubFeatureIcon,
+    href: "/docs/hub",
   },
   {
-    key: "workspace",
-    icon: "https://img.alicdn.com/imgextra/i2/O1CN01RAPKrJTdLiE0tO9Q_!!6000000001309-2-tps-440-440.png",
-    href: "/blog/qwenpaw-files-workspace",
+    key: "mail",
+    icon: MailFeatureIcon,
+    href: "/blog/qwenpaw-mailbox",
+  },
+  {
+    key: "data",
+    icon: DataFeatureIcon,
+    href: "https://github.com/agentscope-ai/QwenPaw-Data",
+    external: true,
   },
   {
     key: "creator",
-    icon: "https://img.alicdn.com/imgextra/i3/O1CN01OYqOIpNkY4E0tO9Q_!!6000000000622-2-tps-440-440.png",
+    icon: CreatorFeatureIcon,
     href: "/docs/creator",
   },
   {
-    key: "thirdPartyAgents",
-    icon: "https://img.alicdn.com/imgextra/i2/O1CN01wLKOiNfUg7H0tO9Q_!!6000000006833-2-tps-440-440.png",
-    href: "/blog/cross-harness-agent-os",
+    key: "modelRouting",
+    icon: ModelRoutingFeatureIcon,
+    href: "/docs/models",
   },
   {
-    key: "browserUse",
-    icon: "https://img.alicdn.com/imgextra/i4/O1CN01VTtdxYTVHWH0yQKu_!!6000000001120-2-tps-480-440.png",
-    href: "/docs/browser",
+    key: "backgroundWork",
+    icon: BackgroundWorkFeatureIcon,
+    href: "/release-notes",
   },
   {
-    key: "computerUse",
-    icon: "https://img.alicdn.com/imgextra/i1/O1CN01B4Zh0VfrvgB0yQKu_!!6000000003266-2-tps-480-440.png",
-    href: "/docs/computer-use",
+    key: "extensions",
+    icon: ExtensionsFeatureIcon,
+    href: "/docs/plugins",
   },
   {
-    key: "checkpoint",
-    icon: "https://img.alicdn.com/imgextra/i4/O1CN01ufoiDfvVoEE0yQKu_!!6000000002198-2-tps-480-440.png",
-    href: "/blog/qwenpaw-checkpoint",
-  },
-  {
-    key: "scroll",
-    icon: "https://img.alicdn.com/imgextra/i3/O1CN01ViALPzudWCE1GYCe_!!6000000004102-2-tps-624-440.png",
-    href: "/blog/qwenpaw-scroll-executable-memory",
+    key: "reliability",
+    icon: ReliabilityFeatureIcon,
+    href: "/release-notes",
   },
 ];
 
@@ -330,6 +343,21 @@ function FeatureCard({
   learnMore: string;
   reduceMotion: boolean;
 }) {
+  const Icon = card.icon;
+  const linkClassName =
+    "font-inter group/link mt-auto inline-flex w-fit items-center gap-2 pt-5 text-sm text-(--color-text) no-underline transition-colors hover:text-(--color-primary)";
+  const linkContent = (
+    <>
+      {learnMore}
+      <span
+        className="transition-transform group-hover/link:translate-x-1"
+        aria-hidden
+      >
+        →
+      </span>
+    </>
+  );
+
   return (
     <motion.article
       className="group flex min-w-0 h-full flex-col border-b border-[#F1E5DC] py-6 last:border-b-0 sm:border-b-0 sm:py-0"
@@ -343,13 +371,9 @@ function FeatureCard({
       }}
     >
       <div className="flex h-20 items-center md:h-24">
-        <img
-          src={card.icon}
-          alt=""
+        <Icon
+          className="h-20 w-[100px] text-[#BBB6B2] opacity-80 transition-colors duration-300 group-hover:text-[#AAA39E] md:h-24 md:w-[120px]"
           aria-hidden
-          loading="eager"
-          decoding="async"
-          className="h-20 w-20 object-contain opacity-80 md:h-24 md:w-24"
         />
       </div>
       <h3 className="font-newsreader mt-4 text-[1.55rem] leading-[1.1] text-(--color-text) sm:text-[1.65rem] md:mt-5 md:text-[1.75rem]">
@@ -358,20 +382,25 @@ function FeatureCard({
       <p className="font-inter mt-3 text-[13px] leading-[1.65] text-(--color-text-secondary) md:text-sm">
         {description}
       </p>
-      <Link
-        to={card.href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="font-inter group/link mt-auto inline-flex w-fit items-center gap-2 pt-5 text-sm text-(--color-text) no-underline transition-colors hover:text-(--color-primary)"
-      >
-        {learnMore}
-        <span
-          className="transition-transform group-hover/link:translate-x-1"
-          aria-hidden
+      {card.external ? (
+        <a
+          href={card.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClassName}
         >
-          →
-        </span>
-      </Link>
+          {linkContent}
+        </a>
+      ) : (
+        <Link
+          to={card.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={linkClassName}
+        >
+          {linkContent}
+        </Link>
+      )}
     </motion.article>
   );
 }

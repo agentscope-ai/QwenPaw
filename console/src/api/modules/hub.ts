@@ -15,6 +15,7 @@ export interface HubRuntime {
   tenant_id: string;
   owner_user_id: string;
   owner_username: string | null;
+  owner_role: HubUser["role"] | null;
   provisioner: string;
   host: string;
   port: number;
@@ -96,6 +97,13 @@ export interface HubOverview {
     cpu_percent: number;
     memory_percent: number;
     disk_percent: number;
+    memory_used: number;
+    memory_total: number;
+    memory_available: number;
+    disk_used: number;
+    disk_total: number;
+    disk_free: number;
+    disk_path: string;
   };
   recent_events: HubAuditEvent[];
 }
@@ -114,6 +122,7 @@ export interface HubHealth {
   runtime_state: HubRuntime["state"] | null;
   runtime_desired_state: HubRuntime["desired_state"] | null;
   runtime_start_policy: HubRuntime["start_policy"] | null;
+  runtime_last_error: string | null;
   provisioner_statuses: Record<string, HubProvisionerStatus>;
 }
 
@@ -133,7 +142,7 @@ export interface HubConfig {
   control_plane: {
     public_base_url: string | null;
     registration: {
-      enabled: boolean;
+      mode: "open" | "invite" | "closed";
       default_role: "user";
     };
     security: {

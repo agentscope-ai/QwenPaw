@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -28,8 +28,9 @@ from .models import (
 )
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
 from ...services.project_directory import (
-    resolve_effective_project_dir,
-    session_project_dir,
+    agent_project_dirs_from_config,
+    resolve_effective_project_dirs,
+    session_project_dirs_raw_from_meta,
 )
 from ...checkpoints.runtime import RUNTIME as CHECKPOINT_RUNTIME
 
@@ -92,6 +93,12 @@ class ProjectDirectoryUpdate(BaseModel):
     """Controlled Session project directory update."""
 
     project_dir: str
+
+
+class ChatStatusResponse(BaseModel):
+    """Lightweight TaskTracker status for one chat."""
+
+    status: Literal["idle", "running"]
 
 
 class ProjectDirEntryPayload(BaseModel):
@@ -198,17 +205,21 @@ async def _project_directory_response(chat: ChatSpec, workspace) -> dict:
 
     def _build() -> dict:
         try:
-            agent_dir = load_agent_config(workspace.agent_id).project_dir
+            config = load_agent_config(workspace.agent_id)
+            agent_dir = config.project_dir
+            agent_dirs = agent_project_dirs_from_config(config)
         except Exception:
-            agent_dir = None
-        project_dir, source = resolve_effective_project_dir(
+            agent_dir, agent_dirs = None, []
+        resolved = resolve_effective_project_dirs(
             workspace.workspace_dir,
             agent_project_dir=agent_dir,
-            session_override=session_project_dir(chat.meta),
+            agent_project_dirs=agent_dirs,
+            session_project_dirs=session_project_dirs_raw_from_meta(chat.meta),
         )
+        project_dir = resolved.primary_path
         return {
             "project_dir": str(project_dir),
-            "source": source,
+            "source": resolved.source,
             "agent_project_dir": agent_dir,
             "exists": project_dir.is_dir(),
         }
@@ -221,20 +232,20 @@ async def _project_dirs_response(chat: ChatSpec, workspace) -> dict:
     from ...config.config import load_agent_config
     from ...services.project_directory import (
         nested_root_pairs,
-        resolve_effective_project_dirs,
-        session_project_dirs_raw_from_meta,
     )
 
     def _build() -> dict:
         try:
             agent_config = load_agent_config(workspace.agent_id)
             agent_dir = agent_config.project_dir
+            agent_dirs = agent_project_dirs_from_config(agent_config)
         except Exception:
-            agent_dir = None
+            agent_dir, agent_dirs = None, []
 
         resolved = resolve_effective_project_dirs(
             workspace.workspace_dir,
             agent_project_dir=agent_dir,
+            agent_project_dirs=agent_dirs,
             session_project_dirs=session_project_dirs_raw_from_meta(chat.meta),
         )
         # Nearest covering ancestor per entry, for the UI hint. Fed the
@@ -694,6 +705,16 @@ async def clear_chat_project_dirs(
 
 
 # ----- Existing CRUD endpoints -----
+
+
+@router.get("/{chat_id}/status", response_model=ChatStatusResponse)
+async def get_chat_status(
+    chat_id: str,
+    workspace=Depends(get_workspace),
+) -> ChatStatusResponse:
+    """Return agent-scoped run status without reading chat persistence."""
+    status = await workspace.task_tracker.get_status(chat_id)
+    return ChatStatusResponse(status=status)
 
 
 @router.get("/{chat_id}", response_model=ChatHistory)

@@ -70,16 +70,16 @@ following stages:
 ## Runtime shape
 
 ```text
-QwenPaw-Data UI
-  -> app-scoped PawApp SDK
-  -> /api/qwenpaw-data/*
-  -> QwenPaw-Data PawApp backend
-  -> dependency status and typed lifecycle control
-  -> managed QwenPaw-Data context service
+Embedded QwenPaw-Data Console
+  -> /api/qwenpaw-data/engine/* -> analysis engine
+  -> /api/qwenpaw-data/config  -> DataBridge model and Neo4j settings
+  -> linked Context console
+     -> /api/qwenpaw-data/context/* -> DataBridge context service
 ```
 
-The browser does not know the service port or bearer token. It does not call
-the legacy plugin globals, a fixed port, or a second request client.
+The PawApp backend proxies service requests and supplies service tokens.
+Managed services use dynamic loopback ports; external services use their
+configured endpoints.
 QwenPaw-Data explicitly enables the PawApp standard capabilities; existing PawApps
 that do not opt in receive no additional chat, storage, toast, or notify routes.
 
@@ -100,8 +100,8 @@ Or use the convenience script if you want to pin compatible versions:
 ```
 
 Then start QwenPaw and enable the QwenPaw-Data app. The PawApp lifecycle will
-auto-detect the PyPI packages and start a managed context service on a dynamic
-loopback port.
+auto-detect the PyPI packages and start managed Context and analysis engine
+services on dynamic loopback ports.
 
 ```bash
 qwenpaw app
@@ -147,6 +147,13 @@ cd ui && npm install && npm run build
 The UI is shipped as a browser-native ES module. Its Vite configuration
 replaces `process.env.NODE_ENV` at build time so bundled dependencies do not
 leak the Node-only `process` global into the QwenPaw Console.
+
+The full Data console is a reviewed vendor snapshot tracked under
+`ui/public/data-console/`; normal builds, CI, and users do not need access to
+QwenPaw-Data-Cloud. Authorized maintainers or coding agents refresh that snapshot
+with `scripts/update-data-console.sh`, then review and publish the resulting diff.
+The Context console is built separately from the public QwenPaw-Data source by
+`scripts/sync-context-ui.sh`.
 
 `setup-dev.sh` runs the QwenPaw-Data workspace sync and creates ignored development
 links under this app. Set `QWENPAW_DATA_SOURCE_DIR` to use another checkout. At
@@ -196,49 +203,93 @@ volumes):
 
 ## Configuration
 
-QwenPaw-Data keeps all runtime settings in one place: open the app and go to
-**Configure**. From there you can set the language model, embedding model,
-Neo4j graph store, and optional SQL warehouse. Each section has a **Test
-connection** button so you can verify values before saving.
+The 0.3 runtime integration opens the embedded **Data Console**. Its settings
+menu has two configuration pages; the separate **Data Bridge** shortcut opens
+the Context console's data-source page. These replace the old PawApp
+**Configure** instructions.
 
-When you save, the app writes:
+| What to configure | Where to configure it |
+| --- | --- |
+| Analysis agent providers, credentials, and active models | **Settings → Agent Configuration** in the Data Console |
+| DataBridge semantic-service LLM, embedding model, and Neo4j graph store | **Settings → DataBridge Configuration** in the Data Console |
+| SQL datasources such as PostgreSQL and MySQL | **Data Bridge → Data Sources** in the linked Context console |
 
-- `~/.qwenpaw/apps/qwenpaw-data/config.json` — the single source of truth that
-  the Configure UI edits.
-- `~/.qwenpaw/apps/qwenpaw-data/.env` — runtime variables injected into the
-  managed context service.
-- `~/.qwenpaw/apps/qwenpaw-data/models.json` — LLM/embedding model payload for
-  the context service.
+DataBridge Configuration includes **Test connection**, **Save**, and
+**Save & restart Context service**. Its LLM is used for semantic weaving and
+document ingestion. Configure the analysis chat model separately in
+Agent Configuration.
 
-On the next context service start the app loads `config.json` and regenerates
-those files, so restarting the app always picks up the latest configuration.
-`Save & restart Context service` applies changes immediately.
+Register SQL connection details in Data Sources, test the connection, and
+select the registered datasource when starting an analysis. DataBridge stores
+these credentials in its semantic-config registry (`semantic_config.db`),
+managed through `/api/semantic-config/datasource`. Saving Neo4j or model
+settings does not create a SQL datasource or write SQL credentials to `.env`.
 
-The separate model configuration page inside the embedded Context console
-(Manage → Model Configuration) is superseded by **Configure**. Use **Configure**
-for all QwenPaw-Data settings; the old page is kept for backward compatibility
-with standalone `qwenpaw-data-context` deployments only.
+### Saved configuration and runtime files
 
-### Configuration precedence
+Saving **DataBridge Configuration** persists the following files under the
+QwenPaw working directory (default: `~/.qwenpaw/apps/qwenpaw-data/`):
 
-1. Shell environment variables (highest, never overwritten).
-2. Values set with `qwenpaw env set` (`~/.qwenpaw/envs.json`).
-3. `~/.qwenpaw/.env`.
-4. The app-scoped `.env` generated from `config.json`.
-5. Repo root `.env` and context service defaults (lowest).
+- `config.json` — the PawApp's DataBridge model and Neo4j settings, host-model
+  reuse flags, and the Context service's selected datasource ID. SQL
+  credentials remain in DataBridge's registry.
+- `.env` — generated Neo4j and model variables (`NEO4J_*`, `OPENAI_*`,
+  `LLM_MODEL`, and `EMBED_*`) for the managed Context service.
+- `models.json` — the Context service's LLM and embedding settings.
 
-### Advanced: manual `.env` overrides
+These files do not contain all Data Console settings: Agent Configuration
+saves the analysis engine's own model preferences through its API.
+On each managed Context service start, the PawApp regenerates `.env` and
+`models.json` from `config.json`. Model changes are also sent to a running
+Context service; use **Save & restart Context service** to apply Neo4j changes
+in managed mode. External service restarts are handled by their operator.
 
-If you prefer to configure the context service directly, set the variables it
-reads in `~/.qwenpaw/.env` or via `qwenpaw env set`. The app still generates
-`config.json` defaults on first launch, but manually set environment variables
-take precedence.
+When **Reuse the model configured in QwenPaw** is enabled for DataBridge,
+saving or starting the managed Context service refreshes the snapshot from
+the host's usable active model. Embedding reuse shares the host provider's
+endpoint and credentials while keeping the selected embedding model and
+dimension. This is separate from selecting analysis models in
+Agent Configuration.
+
+### Environment defaults and overrides
+
+On first initialization, the PawApp seeds empty DataBridge fields from the
+environment and can obtain a compatible model default from QwenPaw. After
+configuration is saved, the generated app `.env` is authoritative for its
+managed keys: inherited shell or QwenPaw environment values do not override
+saved values, and clearing a managed field removes its previous environment
+override. Unrelated environment keys remain unchanged.
+
+Edit saved values through **DataBridge Configuration**; manual edits to the
+generated app `.env` are replaced on the next save or managed service start.
+For an external Context service, manage its startup environment in that
+deployment. SQL datasource credentials use the datasource registry in either
+mode.
+
+### Configuration verification (TC-DATA-04)
+
+Use the current configuration contract when validating the 0.3 integration:
+
+1. Save DataBridge model and Neo4j settings. Verify `config.json`, the populated
+   Neo4j/model variables in `.env`, and LLM/embedding settings in `models.json`.
+   SQL datasource variables are not expected in `.env`.
+2. Enable host-model reuse, switch to another compatible active host model,
+   and save or restart the managed Context service. Verify the model snapshot
+   refreshes and saved settings survive the restart.
+3. Register and test a SQL datasource through Data Sources. Verify the
+   registration persists after a Context service restart, then select it in
+   the Data Console and run a read-only query against a test database.
+4. Verify analysis model selection separately in Agent Configuration.
+
+The older expectation that saving Neo4j/LLM settings also generates SQL
+datasource variables in `.env` does not apply to this configuration contract.
 
 ## Runtime health and local services
 
 - Activate a language model in QwenPaw's **Settings → Models** so that
   QwenPaw-Data can bootstrap a first-run default. You can override the model
-  later in **Configure**.
+  later in **DataBridge Configuration**. Select the analysis agent's active
+  models in **Agent Configuration**.
 - QwenPaw-Data declares the Context API, Graph Store, and discovered data
   sources through the PawApp dependency contract. The Data sources page shows
   readiness, capability impact, remediation, and the actions that are actually
@@ -267,9 +318,10 @@ hardcoded. `qwenpaw-data-context` resolves them at startup (see
 
 | Dependency | Configuration | Local default |
 | --- | --- | --- |
-| Graph Store (Neo4j) | **Configure** page or `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` env vars | `bolt://localhost:7687` |
+| Graph Store (Neo4j) | **DataBridge Configuration**; an external deployment manages `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, `NEO4J_DATABASE` | `bolt://localhost:7687` |
 | Data sources (PostgreSQL / MySQL / ODPS / ...) | registered through the DataBridge semantic-config layer (`/api/semantic-config/datasource`), not read from `.env` | none |
-| LLM / Embedding | **Configure** page or `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_MODEL`, `EMBED_*` env vars | — |
+| DataBridge LLM / Embedding | **DataBridge Configuration**; environment defaults use `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `LLM_MODEL`, `EMBED_*` | — |
+| Analysis agent models | **Agent Configuration** in the Data Console | — |
 
 Local lifecycle, by owner:
 
@@ -304,11 +356,8 @@ private context service on a dynamic loopback port, so a `doctor` failure on
   local infrastructure commands. Data-source servers themselves remain
   external infrastructure.
 
-QwenPaw remains the only UI/backend process the user starts. In managed mode,
-the PawApp lifecycle starts and stops the context service automatically.
-
-The first migration slice uses QwenPaw's app-scoped chat with QwenPaw-Data context
-tools. It does not start a second agent from `qwenpaw-data-host-core`. The host-core
-task graph, artifacts, and tool-renderer adapter will be added after the
-PawApp runtime-hook contract is reviewed, which prevents two agent runtimes
-from owning the same chat turn.
+QwenPaw remains the only UI/backend process the user starts in managed mode.
+The PawApp lifecycle starts and stops both the Context service and the
+`qwenpaw-data-host-core` analysis engine. The embedded Data Console talks to
+that engine through the PawApp gateway; `/data` routes QwenPaw channel
+conversations to the same engine through the channel bridge.

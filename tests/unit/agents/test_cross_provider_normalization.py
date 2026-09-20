@@ -91,13 +91,7 @@ def _openai_session_history() -> list[Msg]:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_to_openai(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_gemini_history_to_openai() -> None:
     history = _gemini_session_history()
     original_dict = history[1].to_dict()
 
@@ -127,15 +121,9 @@ def test_gemini_history_to_openai(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_to_anthropic(monkeypatch) -> None:
+def test_gemini_history_to_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = _gemini_session_history()
 
@@ -158,15 +146,9 @@ def test_gemini_history_to_anthropic(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_history_stays_gemini(monkeypatch) -> None:
+def test_gemini_history_stays_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = _gemini_session_history()
 
@@ -191,15 +173,9 @@ def test_gemini_history_stays_gemini(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_openai_history_to_gemini(monkeypatch) -> None:
+def test_openai_history_to_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = _openai_session_history()
 
@@ -224,13 +200,7 @@ def test_openai_history_to_gemini(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_gemini_multi_toolcall_to_openai(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_gemini_multi_toolcall_to_openai() -> None:
     msgs = [
         Msg(
             name="assistant",
@@ -307,13 +277,7 @@ def _history_with_thinking() -> list[Msg]:
     ]
 
 
-def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_thinking_blocks_preserved_for_openai() -> None:
     (
         normalized,
         _is_anthropic,
@@ -333,15 +297,9 @@ def test_thinking_blocks_preserved_for_openai(monkeypatch) -> None:
     assert thinking_blocks[0].thinking == "Let me consider..."
 
 
-def test_unsigned_thinking_blocks_dropped_for_anthropic(monkeypatch) -> None:
+def test_unsigned_thinking_blocks_dropped_for_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     (
         normalized,
@@ -363,15 +321,9 @@ def test_unsigned_thinking_blocks_dropped_for_anthropic(monkeypatch) -> None:
     assert len(text_blocks) == 1
 
 
-def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
+def test_signed_thinking_blocks_preserved_for_anthropic() -> None:
     if AnthropicChatFormatter is None:
         pytest.skip("AnthropicChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     history = [
         Msg(
@@ -411,15 +363,9 @@ def test_signed_thinking_blocks_preserved_for_anthropic(monkeypatch) -> None:
     assert thinking_blocks[0].signature == "sig-from-claude"
 
 
-def test_thinking_blocks_preserved_for_gemini(monkeypatch) -> None:
+def test_thinking_blocks_preserved_for_gemini() -> None:
     if GeminiChatFormatter is None:
         pytest.skip("GeminiChatFormatter not available")
-
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
 
     (
         normalized,
@@ -467,15 +413,7 @@ def _history_with_raw_input_needing_repair() -> list[Msg]:
     ]
 
 
-def test_raw_input_repair_works_before_cross_provider_clean(
-    monkeypatch,
-) -> None:
-    monkeypatch.setattr(
-        model_factory,
-        "_supports_multimodal_for_current_model",
-        lambda: True,
-    )
-
+def test_raw_input_repair_works_before_cross_provider_clean() -> None:
     history = _history_with_raw_input_needing_repair()
 
     (

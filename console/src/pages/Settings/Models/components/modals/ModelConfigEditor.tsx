@@ -5,7 +5,21 @@ import type { ModelInfo, ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
+import { ContextLengthField, OutputTokenLimitField } from "./ModelTokenFields";
 import { JsonConfigEditor } from "./JsonConfigEditor";
+
+function requestMaxTokens(model: ModelInfo): number | null {
+  const value = model.generate_kwargs?.max_tokens;
+  return typeof value === "number" ? value : null;
+}
+
+function editableGenerateConfig(
+  generateKwargs: Record<string, unknown>,
+): Record<string, unknown> {
+  const config = { ...generateKwargs };
+  delete config.max_tokens;
+  return config;
+}
 
 export function ModelConfigEditor({
   providerId,
@@ -13,7 +27,6 @@ export function ModelConfigEditor({
   onSaved,
   onProviderUpdated,
   onClose,
-  isDark,
   thinkingParamStyle,
   reasoningEffortOptions,
   thinkingBudgetRange = [1, 81920],
@@ -24,7 +37,6 @@ export function ModelConfigEditor({
   onSaved: () => void | Promise<void>;
   onProviderUpdated?: (provider: ProviderInfo) => void;
   onClose: () => void;
-  isDark: boolean;
   thinkingParamStyle?: "budget" | "effort" | null;
   reasoningEffortOptions?: string[];
   thinkingBudgetRange?: [number, number];
@@ -33,9 +45,10 @@ export function ModelConfigEditor({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [saving, setSaving] = useState(false);
+  const configuredMaxTokens = requestMaxTokens(model);
 
   const [maxTokens, setMaxTokens] = useState<number | null>(
-    model.max_tokens ?? 8192,
+    configuredMaxTokens,
   );
   const [maxInputLength, setMaxInputLength] = useState<number | null>(
     model.max_input_length ?? 131072,
@@ -54,20 +67,19 @@ export function ModelConfigEditor({
     model.reasoning_effort ?? null,
   );
 
-  const initialText = useMemo(
-    () =>
-      model.generate_kwargs && Object.keys(model.generate_kwargs).length > 0
-        ? JSON.stringify(model.generate_kwargs, null, 2)
-        : "",
-    [model.generate_kwargs],
-  );
+  const initialText = useMemo(() => {
+    const config = editableGenerateConfig(model.generate_kwargs);
+    return Object.keys(config).length > 0
+      ? JSON.stringify(config, null, 2)
+      : "";
+  }, [model.generate_kwargs]);
 
   const [text, setText] = useState(initialText);
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
     setText(initialText);
-    setMaxTokens(model.max_tokens ?? 8192);
+    setMaxTokens(configuredMaxTokens);
     setMaxInputLength(model.max_input_length ?? 131072);
     setMaxInputLengthDirty(false);
     setRelayReasoning(model.relay_reasoning ?? true);
@@ -77,7 +89,7 @@ export function ModelConfigEditor({
     setDirty(false);
   }, [
     initialText,
-    model.max_tokens,
+    configuredMaxTokens,
     model.max_input_length,
     model.relay_reasoning,
     model.thinking_enabled,
@@ -85,7 +97,6 @@ export function ModelConfigEditor({
     model.reasoning_effort,
   ]);
 
-  const effectiveMaxTokens = maxTokens ?? 8192;
   const effectiveMaxInputLength = maxInputLength ?? 131072;
 
   const handleChange = useCallback((val: string) => {
@@ -115,16 +126,19 @@ export function ModelConfigEditor({
           return;
         }
         parsed = obj;
+        delete parsed.max_tokens;
       } catch {
         message.error(t("models.generateConfigInvalidJson"));
         return;
       }
     }
+    if (maxTokens !== null) {
+      parsed.max_tokens = maxTokens;
+    }
 
     setSaving(true);
     try {
       const updated = await api.configureModel(providerId, model.id, {
-        max_tokens: effectiveMaxTokens,
         ...(maxInputLengthDirty
           ? { max_input_length: effectiveMaxInputLength }
           : {}),
@@ -153,60 +167,29 @@ export function ModelConfigEditor({
 
   const labelStyle: React.CSSProperties = {
     fontSize: 13,
-    color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+    color: "var(--app-text)",
     marginBottom: 4,
   };
 
   return (
     <div style={{ padding: "8px 0 4px" }}>
-      <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxTokensLabel", "Max Tokens")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1}
-            step={1024}
-            value={maxTokens}
-            placeholder="8192"
-            onChange={handleMaxTokensChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t("models.maxTokensHint", "每次响应的最大输出 token 数")}
-          </div>
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={labelStyle}>
-            {t("models.maxInputLengthLabel", "Max Context Length")}
-          </div>
-          <InputNumber
-            style={{ width: "100%" }}
-            min={1000}
-            step={1024}
-            value={maxInputLength}
-            placeholder="131072"
-            onChange={handleMaxInputLengthChange}
-          />
-          <div
-            style={{
-              fontSize: 11,
-              color: isDark ? "rgba(255,255,255,0.35)" : "#999",
-              marginTop: 2,
-            }}
-          >
-            {t(
-              "models.maxInputLengthHint",
-              "模型上下文窗口大小，控制上下文压缩阈值（≥1000）",
-            )}
-          </div>
-        </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+          gap: 16,
+          marginBottom: 12,
+        }}
+      >
+        <OutputTokenLimitField
+          value={maxTokens}
+          onChange={handleMaxTokensChange}
+          model={model}
+        />
+        <ContextLengthField
+          value={maxInputLength}
+          onChange={handleMaxInputLengthChange}
+        />
       </div>
       {/* Enable Thinking (only for providers that support thinking config) */}
       {thinkingParamStyle && (
@@ -224,7 +207,7 @@ export function ModelConfigEditor({
               <span
                 style={{
                   fontSize: 13,
-                  color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+                  color: "var(--app-text)",
                 }}
               >
                 {t("models.thinkingModeLabel")}
@@ -232,7 +215,7 @@ export function ModelConfigEditor({
               <div
                 style={{
                   fontSize: 11,
-                  color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                  color: "var(--app-text-quaternary)",
                   marginTop: 2,
                 }}
               >
@@ -309,7 +292,7 @@ export function ModelConfigEditor({
                     <div
                       style={{
                         fontSize: 11,
-                        color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                        color: "var(--app-text-quaternary)",
                         marginTop: 2,
                       }}
                     >
@@ -370,7 +353,7 @@ export function ModelConfigEditor({
             <span
               style={{
                 fontSize: 13,
-                color: isDark ? "rgba(255,255,255,0.85)" : "#333",
+                color: "var(--app-text)",
               }}
             >
               {t("models.relayReasoningLabel")}
@@ -378,7 +361,7 @@ export function ModelConfigEditor({
             <div
               style={{
                 fontSize: 11,
-                color: isDark ? "rgba(255,255,255,0.35)" : "#999",
+                color: "var(--app-text-quaternary)",
                 marginTop: 2,
               }}
             >
@@ -398,7 +381,7 @@ export function ModelConfigEditor({
       <div
         style={{
           fontSize: 12,
-          color: isDark ? "rgba(255,255,255,0.45)" : "#888",
+          color: "var(--app-text-tertiary)",
           marginBottom: 4,
         }}
       >

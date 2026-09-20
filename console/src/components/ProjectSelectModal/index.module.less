@@ -6,7 +6,7 @@
 
 .desc {
   font-size: 13px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   margin: 0 0 12px;
 }
 
@@ -30,7 +30,7 @@
 
 .fieldLabel {
   font-size: 12px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   font-weight: 500;
 }
 
@@ -40,7 +40,7 @@
 
 .hint {
   font-size: 11.5px;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   margin: 0;
 }
 
@@ -60,16 +60,16 @@
 
 .currentLabel {
   font-size: 12px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
 }
 
 .currentPath {
   font-size: 12px;
-  background: var(--ant-color-fill-quaternary);
+  background: var(--app-fill-faint);
   padding: 3px 6px;
   border-radius: 4px;
   word-break: break-all;
-  color: var(--ant-color-primary);
+  color: var(--app-accent);
 }
 
 .actionBtn {
@@ -105,7 +105,7 @@
   justify-content: center;
   gap: 6px;
   padding: 36px 24px;
-  border: 1.5px dashed var(--ant-color-border);
+  border: 1.5px dashed var(--app-border-strong);
   border-radius: 10px;
   cursor: pointer;
   transition:
@@ -114,26 +114,26 @@
   user-select: none;
 
   &:hover {
-    border-color: var(--ant-color-primary);
-    background: var(--ant-color-primary-bg);
+    border-color: var(--app-accent);
+    background: var(--app-accent-soft);
 
     .dropIcon {
-      color: var(--ant-color-primary);
+      color: var(--app-accent);
     }
   }
 }
 
 .dropZoneActive {
-  border-color: var(--ant-color-primary) !important;
-  background: var(--ant-color-primary-bg) !important;
+  border-color: var(--app-accent) !important;
+  background: var(--app-accent-soft) !important;
 
   .dropIcon {
-    color: var(--ant-color-primary) !important;
+    color: var(--app-accent) !important;
   }
 }
 
 .dropIcon {
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   transition: color 0.2s ease;
   margin-bottom: 4px;
 }
@@ -141,12 +141,12 @@
 .dropPrimary {
   font-size: 14px;
   font-weight: 500;
-  color: var(--ant-color-text);
+  color: var(--app-text);
 }
 
 .dropSecondary {
   font-size: 12px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
 }
 
 // ---- Selected path card (EXACT same as PluginManager selectionCard) ------
@@ -156,10 +156,10 @@
   align-items: center;
   gap: 10px;
   padding: 12px 14px;
-  border: 1px solid var(--ant-color-border);
+  border: 1px solid var(--app-border-strong);
   border-radius: 8px;
-  background: var(--ant-color-fill-quaternary);
-  color: var(--ant-color-text);
+  background: var(--app-fill-faint);
+  color: var(--app-text);
 }
 
 .selectionName {
@@ -184,7 +184,7 @@
   flex-wrap: wrap;
   gap: 1px;
   padding: 6px 10px;
-  background: var(--ant-color-fill-quaternary);
+  background: var(--app-fill-faint);
   border-radius: 6px;
   font-size: 12px;
   font-family: "SFMono-Regular", Consolas, monospace;
@@ -197,7 +197,7 @@
 }
 
 .breadcrumbSep {
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   flex-shrink: 0;
 }
 
@@ -205,16 +205,16 @@
   cursor: pointer;
   padding: 1px 3px;
   border-radius: 3px;
-  color: var(--ant-color-primary);
+  color: var(--app-accent);
   transition: background 0.15s;
 
   &:hover {
-    background: var(--ant-color-primary-bg);
+    background: var(--app-accent-soft);
   }
 }
 
 .breadcrumbCurrent {
-  color: var(--ant-color-text);
+  color: var(--app-text);
   font-weight: 600;
   cursor: default;
 
@@ -226,7 +226,7 @@
 .browseList {
   max-height: 240px;
   overflow-y: auto;
-  border: 1px solid var(--ant-color-border);
+  border: 1px solid var(--app-border-strong);
   border-radius: 8px;
 }
 
@@ -237,15 +237,14 @@
   padding: 8px 12px;
   cursor: pointer;
   transition: background 0.12s;
-  border-bottom: 1px solid
-    var(--ant-color-border-secondary, rgba(0, 0, 0, 0.04));
+  border-bottom: 1px solid var(--app-border, rgba(0, 0, 0, 0.04));
 
   &:last-child {
     border-bottom: none;
   }
 
   &:hover {
-    background: var(--ant-color-primary-bg);
+    background: var(--app-accent-soft);
 
     .browseItemChevron {
       opacity: 1;
@@ -254,7 +253,7 @@
 }
 
 .browseItemIcon {
-  color: var(--ant-color-primary);
+  color: var(--app-accent);
   flex-shrink: 0;
 }
 
@@ -267,7 +266,7 @@
 }
 
 .browseItemChevron {
-  color: var(--ant-color-text-quaternary);
+  color: var(--app-text-quaternary);
   flex-shrink: 0;
   opacity: 0;
   transition: opacity 0.12s;
@@ -277,14 +276,14 @@
   padding: 24px;
   text-align: center;
   font-size: 13px;
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
 }
 
 // ---- Recent projects list -------------------------------------------------
 
 .recentWrap {
   margin-top: 16px;
-  border-top: 1px solid var(--ant-color-border);
+  border-top: 1px solid var(--app-border-strong);
   padding-top: 12px;
 }
 
@@ -293,7 +292,7 @@
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   margin-bottom: 6px;
 }
 
@@ -308,33 +307,33 @@
   border-bottom: none !important;
 
   &:hover {
-    background: var(--ant-color-fill-tertiary);
+    background: var(--app-fill-subtle);
   }
 }
 
 .recentItemActive {
-  background: var(--ant-color-primary-bg) !important;
+  background: var(--app-accent-soft) !important;
 
   .recentName {
-    color: var(--ant-color-primary);
+    color: var(--app-accent);
   }
 }
 
 .recentIcon {
-  color: var(--ant-color-text-secondary);
+  color: var(--app-text-secondary);
   flex-shrink: 0;
 }
 
 .recentName {
   font-size: 13px;
   font-weight: 500;
-  color: var(--ant-color-text);
+  color: var(--app-text);
   min-width: 80px;
 }
 
 .recentPath {
   font-size: 11px;
-  color: var(--ant-color-text-tertiary);
+  color: var(--app-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

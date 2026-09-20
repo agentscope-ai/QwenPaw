@@ -7,13 +7,13 @@ import {
   type MarketPluginEntry,
   type MarketPluginSortBy,
 } from "@/api/modules/pluginMarket";
-import { installPlugin } from "@/api/modules/plugin";
+import { installPlugin, type InstallPluginResult } from "@/api/modules/plugin";
 import { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 export { isMarketPluginCompatible } from "@/utils/pluginCompatibility";
 
 interface UseMarketPluginsOptions {
-  onInstalled: () => void;
+  onInstalled: (result: InstallPluginResult) => void | Promise<void>;
 }
 
 const MARKET_PAGE_SIZE = 20;
@@ -257,8 +257,7 @@ export function useMarketPlugins({ onInstalled }: UseMarketPluginsOptions) {
         message.success(
           `${tRef.current("pluginManager.installSuccess")}: ${result.name}`,
         );
-        onInstalled();
-        setTimeout(() => window.location.reload(), 800);
+        await onInstalled(result);
       } catch (err) {
         const msg =
           err instanceof Error

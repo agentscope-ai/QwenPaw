@@ -1,99 +1,130 @@
 # -*- coding: utf-8 -*-
-# pylint: disable=protected-access,too-many-branches,too-many-statements
-"""Short cross-process locks for filesystem Runtime stores.
+# pylint: disable=protected-access
+"""In-process per-path write locks for filesystem Runtime stores.
 
-Lock files are stable coordination inodes and are intentionally never unlinked
-after release.  Removing an advisory lock file can create two lock domains when
-one process still has the old inode open.
+QwenPaw Creator's supported topology is one backend process (matching
+``src/qwenpaw/utils/io_utils.py``): every supported writer runs in this
+process, so writer mutual exclusion only needs threading primitives keyed by
+the normalized lock path.  No lock file is ever created — the ``path`` is a
+pure identity key and reads throughout the Runtime stores are lock-free
+against atomically replaced files.  Revisit this decision only if
+multi-process writers are ever supported.
+
+The class keeps its historical name and constructor signature so the ~30
+call sites and the ``LockTimeoutError`` -> busy mapping in
+``api/dependencies.py`` stay unchanged.
 """
 
 from __future__ import annotations
 
-import errno
-import json
 import logging
 import os
 from pathlib import Path
 import socket
-import stat
 import sys
 import threading
 import time
 from types import TracebackType
+from typing import Any
 from uuid import uuid4
 
 from .errors import LockTimeoutError, RuntimeFileValidationError
 
 logger = logging.getLogger("qwenpaw.creator.runtime_files.locking")
-_HELD_LOCKS: dict[tuple[str, int], dict[str, object]] = {}
+
+# A Runtime lock protects only short, local filesystem transitions. Waiting
+# longer hides a leaked/nested lock instead of fixing it, so ten seconds stays
+# a deadlock fuse.  Readers never take locks, so contention is limited to the
+# rare write/write overlap within one Project domain.
+DEFAULT_LOCK_TIMEOUT_SECONDS = float(
+    os.environ.get("CREATOR_LOCK_TIMEOUT_SECONDS", "10.0"),
+)
+
+_SHARED_HOLDER_REPORT_LIMIT = 20
+
+
+class _PathLockState:
+    """Writer-priority read/write lock state for one normalized path.
+
+    Writer priority replaces the old flock admission gate: a waiting
+    exclusive holder blocks newly arriving shared holders, so repeated
+    shared lifecycle acquisitions can never starve a delete/commit.
+    """
+
+    __slots__ = (
+        "condition",
+        "active_shared",
+        "active_exclusive",
+        "waiting_exclusive",
+        "exclusive_owner",
+        "shared_owners",
+        "refs",
+    )
+
+    def __init__(self) -> None:
+        self.condition = threading.Condition()
+        self.active_shared = 0
+        self.active_exclusive = False
+        self.waiting_exclusive = 0
+        self.exclusive_owner: dict[str, Any] | None = None
+        self.shared_owners: dict[str, dict[str, Any]] = {}
+        self.refs = 0
+
+
+_PATH_LOCKS: dict[str, _PathLockState] = {}
+_PATH_LOCKS_GUARD = threading.Lock()
+_HELD_LOCKS: dict[tuple[str, int], dict[str, Any]] = {}
 _HELD_LOCKS_GUARD = threading.RLock()
 
 
 def _clear_inherited_lock_owners() -> None:
-    """A forked child does not own the parent's Python lock registry."""
+    """A forked child owns none of the parent's in-process locks."""
 
     with _HELD_LOCKS_GUARD:
         _HELD_LOCKS.clear()
+    with _PATH_LOCKS_GUARD:
+        _PATH_LOCKS.clear()
 
 
 if hasattr(os, "register_at_fork"):  # pragma: posix
     os.register_at_fork(after_in_child=_clear_inherited_lock_owners)
 
-# A Runtime lock protects only short, local filesystem transitions. Waiting
-# longer hides a leaked/nested lock instead of fixing it, so ten seconds stays
-# a deadlock fuse. Contention is reduced structurally by domain-sharded Runtime
-# locks and by the writer admission gate below.
-DEFAULT_LOCK_TIMEOUT_SECONDS = 10.0
 
-if os.name == "nt":  # pragma: posix no cover
-    import msvcrt
+def _lock_key(path: Path) -> str:
+    """One canonical process-local lock key per filesystem path."""
 
-    def _try_lock(descriptor: int, *, shared: bool) -> None:
-        """Windows byte-range lock; shared degrades to exclusive.
+    return os.path.normcase(str(path.resolve(strict=False)))
 
-        ``msvcrt.locking`` exposes only exclusive region locks, so reader
-        locks serialize on Windows.  Correctness (mutual exclusion with
-        writers) is preserved; only reader concurrency is reduced.
-        """
 
-        del shared
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+def _checkout(key: str) -> _PathLockState:
+    with _PATH_LOCKS_GUARD:
+        state = _PATH_LOCKS.get(key)
+        if state is None:
+            state = _PathLockState()
+            _PATH_LOCKS[key] = state
+        state.refs += 1
+        return state
 
-    def _unlock(descriptor: int) -> None:
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
 
-    _BLOCKED_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN, errno.EDEADLK})
-else:
-    import fcntl
-
-    def _try_lock(descriptor: int, *, shared: bool) -> None:
-        lock_op = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
-        fcntl.flock(descriptor, lock_op | fcntl.LOCK_NB)
-
-    def _unlock(descriptor: int) -> None:
-        fcntl.flock(descriptor, fcntl.LOCK_UN)
-
-    _BLOCKED_ERRNOS = frozenset({errno.EACCES, errno.EAGAIN})
+def _checkin(key: str, state: _PathLockState) -> None:
+    # Refcounted cleanup keeps the registry bounded even for unbounded key
+    # spaces such as per-identity idempotency operation locks.
+    with _PATH_LOCKS_GUARD:
+        state.refs -= 1
+        if state.refs <= 0 and _PATH_LOCKS.get(key) is state:
+            del _PATH_LOCKS[key]
 
 
 class CrossProcessFileLock:
-    """An exclusive, process-crash-safe cross-platform file lock.
+    """An in-process, per-path writer lock (historical name kept).
 
-    POSIX uses ``fcntl.flock``; Windows uses ``msvcrt.locking`` byte-range
-    locks.  The lock only protects writers that share this primitive.  Runtime
-    locks must therefore be acquired at a single documented boundary and kept
-    out of model/provider calls.  The operating system releases the lock when
-    the descriptor or process exits; the file itself contains no authoritative
-    state.
+    ``shared=True`` takes the shared side of a writer-priority read/write
+    lock.  Its only remaining consumer is the Project lifecycle lock: Runtime
+    domain writers hold the shared side so they exclude Project
+    delete/commit (exclusive side) without serializing against one another.
 
-    Pass ``shared=True`` for a ``LOCK_SH`` reader lock.  On POSIX reader locks
-    do not block each other, so concurrent read-only polling never serializes
-    against itself; they still exclude ``LOCK_EX`` writers (and vice versa).
-    POSIX ``flock`` merges multiple descriptors on the same inode within one
-    process, so reader locks are safe across threads of the same process.  On
-    Windows shared locks degrade to exclusive locks.
+    ``mode`` and ``poll_interval_seconds`` are retained for API
+    compatibility; no file is created and waiting uses condition variables.
     """
 
     def __init__(
@@ -104,6 +135,7 @@ class CrossProcessFileLock:
         poll_interval_seconds: float = 0.01,
         mode: int = 0o600,
         shared: bool = False,
+        cross_thread_hold: bool = False,
     ) -> None:
         self.path = Path(path)
         if timeout_seconds is not None and timeout_seconds < 0:
@@ -118,15 +150,24 @@ class CrossProcessFileLock:
         self.poll_interval_seconds = poll_interval_seconds
         self.mode = mode
         self.shared = shared
-        self._descriptor: int | None = None
-        self._identity = str(self.path.absolute())
-        self._owner: dict[str, object] | None = None
-        self._reader_metadata_path: Path | None = None
+        # A detached hold is acquired on one executor thread (often a bare
+        # ``asyncio.to_thread(lock.acquire)``) and released from another
+        # after async work in between. The worker thread returns to the
+        # pool while the lock stays held, so the per-thread nesting guard
+        # must neither register this hold nor blame later unrelated jobs
+        # that happen to reuse the same pool thread (field incident
+        # 2026-09-01: mainline delta persists crashed with a false
+        # "same-thread nested" error whenever they landed on the worker
+        # that had just performed a route's detached lifecycle acquire).
+        self.cross_thread_hold = cross_thread_hold
+        self._identity = _lock_key(self.path)
+        self._state: _PathLockState | None = None
+        self._owner: dict[str, Any] | None = None
         self._held_key: tuple[str, int] | None = None
         self._constructed_by = self._caller_metadata()
 
     @staticmethod
-    def _caller_metadata() -> dict[str, object]:
+    def _caller_metadata() -> dict[str, Any]:
         try:
             frame = sys._getframe(1)
             while (
@@ -142,7 +183,7 @@ class CrossProcessFileLock:
         except (ValueError, AttributeError):  # pragma: no cover - defensive
             return {}
 
-    def _waiter_metadata(self, *, phase: str) -> dict[str, object]:
+    def _waiter_metadata(self, *, phase: str) -> dict[str, Any]:
         return {
             "ownerId": f"lock-owner-{uuid4().hex}",
             "pid": os.getpid(),
@@ -156,99 +197,8 @@ class CrossProcessFileLock:
             "acquireCaller": self._caller_metadata(),
         }
 
-    @staticmethod
-    def _write_metadata(descriptor: int, value: dict[str, object]) -> None:
-        payload = json.dumps(
-            value,
-            ensure_ascii=True,
-            separators=(",", ":"),
-        ).encode("utf-8")[:8192]
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        os.ftruncate(descriptor, 0)
-        os.write(descriptor, payload)
-
-    @staticmethod
-    def _clear_metadata(descriptor: int) -> None:
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        os.ftruncate(descriptor, 0)
-
-    @staticmethod
-    def _read_metadata(path: Path) -> dict[str, object]:
-        try:
-            raw = path.read_bytes()[:8192]
-            value = json.loads(raw) if raw else {}
-        except (OSError, ValueError, TypeError):
-            return {}
-        return value if isinstance(value, dict) else {}
-
-    def _reader_metadata_root(self) -> Path:
-        return self.path.with_name(f"{self.path.name}.readers")
-
-    def _write_reader_metadata(self, owner: dict[str, object]) -> None:
-        root = self._reader_metadata_root()
-        root.mkdir(mode=0o700, parents=False, exist_ok=True)
-        root_stat = root.lstat()
-        if stat.S_ISLNK(root_stat.st_mode) or not stat.S_ISDIR(
-            root_stat.st_mode,
-        ):
-            raise OSError(
-                f"reader metadata root is not a real directory: {root}",
-            )
-        owner_id = str(owner["ownerId"])
-        target = root / f"{owner_id}.json"
-        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-        descriptor = os.open(target, flags, 0o600)
-        try:
-            os.write(
-                descriptor,
-                json.dumps(
-                    owner,
-                    ensure_ascii=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")[:8192],
-            )
-        finally:
-            os.close(descriptor)
-        self._reader_metadata_path = target
-
-    def _read_holder_metadata(self) -> dict[str, object]:
-        holder = self._read_metadata(self.path)
-        readers: list[dict[str, object]] = []
-        root = self._reader_metadata_root()
-        try:
-            candidates = list(root.glob("*.json")) if root.is_dir() else []
-        except OSError:
-            candidates = []
-        for candidate in candidates[:100]:
-            value = self._read_metadata(candidate)
-            if value:
-                readers.append(value)
-        if readers:
-            holder = {**holder, "observedReaders": readers}
-        return holder
-
-    def _clear_stale_reader_metadata(self) -> None:
-        root = self._reader_metadata_root()
-        try:
-            candidates = list(root.glob("*.json")) if root.is_dir() else []
-        except OSError:
-            return
-        for candidate in candidates:
-            try:
-                candidate.unlink(missing_ok=True)
-            except OSError:
-                logger.warning(
-                    "failed to clear stale reader lock metadata %s",
-                    candidate,
-                    exc_info=True,
-                )
-
     def acquired(self) -> bool:
-        return self._descriptor is not None
+        return self._state is not None
 
     def _log_acquired(self, elapsed: float) -> None:
         if elapsed > 0.5:
@@ -265,173 +215,183 @@ class CrossProcessFileLock:
                 self.shared,
             )
 
+    def _holder_metadata(self, state: _PathLockState) -> dict[str, Any]:
+        # Caller must hold ``state.condition``.
+        if state.exclusive_owner is not None:
+            return dict(state.exclusive_owner)
+        shared = list(state.shared_owners.values())
+        if shared:
+            return {
+                "observedReaders": shared[:_SHARED_HOLDER_REPORT_LIMIT],
+            }
+        return {}
+
+    def _timeout_error(
+        self,
+        state: _PathLockState,
+        waiter: dict[str, Any],
+    ) -> LockTimeoutError:
+        logger.warning(
+            "lock %s timed out after %.2fs",
+            self.path,
+            self.timeout_seconds or 0.0,
+        )
+        return LockTimeoutError(
+            self.path,
+            self.timeout_seconds,
+            phase="resource",
+            waiter=waiter,
+            holder=self._holder_metadata(state),
+        )
+
     def acquire(self) -> CrossProcessFileLock:
-        if self._descriptor is not None:
+        if self._state is not None:
             raise RuntimeFileValidationError(
                 f"lock is not re-entrant: {self.path}",
             )
         held_key = (self._identity, threading.get_ident())
         with _HELD_LOCKS_GUARD:
-            held = _HELD_LOCKS.get(held_key)
-            if held is not None:
-                message = (
-                    "same-thread nested Runtime lock acquisition "
-                    + "would deadlock: "
+            held = (
+                None
+                if self.cross_thread_hold
+                else _HELD_LOCKS.get(
+                    held_key,
                 )
-                raise RuntimeFileValidationError(
-                    f"{message}path={self.path} held={held!r}",
-                )
-
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        flags = os.O_CREAT | os.O_RDWR
-        if hasattr(os, "O_CLOEXEC"):
-            flags |= os.O_CLOEXEC
-        if hasattr(os, "O_NOFOLLOW"):
-            flags |= os.O_NOFOLLOW
-
-        def open_descriptor(path: Path) -> int:
-            opened = os.open(path, flags, self.mode)
-            if hasattr(os, "fchmod"):
-                os.fchmod(opened, self.mode)
-            return opened
-
-        descriptor = open_descriptor(self.path)
-        # A short exclusive admission gate gives waiting writers priority over
-        # newly arriving shared poll readers. Without it, repeated UI reads can
-        # continuously reacquire LOCK_SH and starve a commit/stop writer until
-        # its timeout. Readers release the gate immediately after acquiring the
-        # real shared lock, so they remain concurrent with one another.
-        try:
-            gate_descriptor = open_descriptor(
-                self.path.with_name(f"{self.path.name}.gate"),
             )
-        except BaseException:
-            os.close(descriptor)
-            raise
-        gate_acquired = False
-        started = time.monotonic()
-        waiter = self._waiter_metadata(phase="admission")
-        try:
-            while True:
-                try:
-                    _try_lock(gate_descriptor, shared=False)
-                    gate_acquired = True
-                    self._write_metadata(gate_descriptor, waiter)
-                    break
-                except OSError as exc:
-                    if exc.errno not in _BLOCKED_ERRNOS:
-                        raise
-                if self.timeout_seconds is not None:
-                    elapsed = time.monotonic() - started
-                    if elapsed >= self.timeout_seconds:
-                        logger.warning(
-                            "lock admission gate %s timed out after %.2fs",
-                            self.path,
-                            elapsed,
-                        )
-                        raise LockTimeoutError(
-                            self.path,
-                            self.timeout_seconds,
-                            phase="admission",
-                            waiter=waiter,
-                            holder=self._read_metadata(
-                                self.path.with_name(f"{self.path.name}.gate"),
-                            ),
-                        )
-                    remaining = self.timeout_seconds - elapsed
-                    time.sleep(min(self.poll_interval_seconds, remaining))
-                else:
-                    time.sleep(self.poll_interval_seconds)
-            while True:
-                try:
-                    _try_lock(descriptor, shared=self.shared)
-                    owner = {
-                        **waiter,
-                        "phase": "held",
-                        "acquiredAfterSeconds": round(
-                            time.monotonic() - started,
-                            6,
-                        ),
-                        "acquiredAtEpoch": time.time(),
-                    }
-                    if not self.shared:
-                        self._clear_stale_reader_metadata()
-                        self._write_metadata(descriptor, owner)
-                    else:
-                        try:
-                            self._write_reader_metadata(owner)
-                        except OSError:
-                            logger.warning(
-                                "failed to persist shared lock metadata "
-                                + "for %s",
-                                self.path,
-                                exc_info=True,
-                            )
-                    self._descriptor = descriptor
-                    self._owner = owner
-                    self._held_key = held_key
-                    with _HELD_LOCKS_GUARD:
-                        _HELD_LOCKS[held_key] = owner
-                    self._log_acquired(time.monotonic() - started)
-                    return self
-                except OSError as exc:
-                    if exc.errno not in _BLOCKED_ERRNOS:
-                        raise
-                if self.timeout_seconds is not None:
-                    elapsed = time.monotonic() - started
-                    if elapsed >= self.timeout_seconds:
-                        logger.warning(
-                            "lock %s timed out after %.2fs",
-                            self.path,
-                            elapsed,
-                        )
-                        raise LockTimeoutError(
-                            self.path,
-                            self.timeout_seconds,
-                            phase="resource",
-                            waiter={**waiter, "phase": "resource"},
-                            holder=self._read_holder_metadata(),
-                        )
-                    remaining = self.timeout_seconds - elapsed
-                    time.sleep(min(self.poll_interval_seconds, remaining))
-                else:
-                    time.sleep(self.poll_interval_seconds)
-        except BaseException:
-            os.close(descriptor)
-            raise
-        finally:
-            if gate_acquired:
-                try:
-                    self._clear_metadata(gate_descriptor)
-                finally:
-                    _unlock(gate_descriptor)
-            os.close(gate_descriptor)
+            if held is not None:
+                # The same pool thread already appears as a holder. This is
+                # usually NOT a nested call stack: holds that span an await
+                # return their thread to the executor pool, and the next
+                # request reused it. Waiting is safe — flock release happens
+                # on whichever thread resumes the holder — so fall through
+                # to the normal timeout-bounded wait instead of failing the
+                # innocent request. A genuine nested acquisition surfaces as
+                # a retryable LockTimeoutError after the deadline.
+                logger.warning(
+                    "same-thread lock reuse detected for %s "
+                    "(likely executor thread reuse); waiting with timeout. "
+                    "holder=%r",
+                    self.path,
+                    held,
+                )
 
-    def release(self) -> None:
-        descriptor = self._descriptor
-        if descriptor is None:
+        started = time.monotonic()
+        deadline = (
+            None
+            if self.timeout_seconds is None
+            else started + self.timeout_seconds
+        )
+        waiter = self._waiter_metadata(phase="resource")
+        state = _checkout(self._identity)
+        owner: dict[str, Any] | None = None
+        try:
+            with state.condition:
+                if self.shared:
+                    # Writer priority: a waiting exclusive holder closes
+                    # admission to newly arriving shared holders.
+                    while state.active_exclusive or state.waiting_exclusive:
+                        self._wait(state, deadline, waiter)
+                    state.active_shared += 1
+                    owner = self._held_owner(waiter, started)
+                    state.shared_owners[str(owner["ownerId"])] = owner
+                else:
+                    state.waiting_exclusive += 1
+                    try:
+                        while state.active_exclusive or state.active_shared:
+                            self._wait(state, deadline, waiter)
+                        state.active_exclusive = True
+                        owner = self._held_owner(waiter, started)
+                        state.exclusive_owner = owner
+                    finally:
+                        state.waiting_exclusive -= 1
+                        state.condition.notify_all()
+        except BaseException:
+            _checkin(self._identity, state)
+            raise
+        self._state = state
+        self._owner = owner
+        if self.cross_thread_hold:
+            self._held_key = None
+        else:
+            self._held_key = held_key
+            with _HELD_LOCKS_GUARD:
+                _HELD_LOCKS[held_key] = owner
+        self._log_acquired(time.monotonic() - started)
+        return self
+
+    def _held_owner(
+        self,
+        waiter: dict[str, Any],
+        started: float,
+    ) -> dict[str, Any]:
+        return {
+            **waiter,
+            "phase": "held",
+            "acquiredAfterSeconds": round(time.monotonic() - started, 6),
+            "acquiredAtEpoch": time.time(),
+        }
+
+    def _wait(
+        self,
+        state: _PathLockState,
+        deadline: float | None,
+        waiter: dict[str, Any],
+    ) -> None:
+        # Caller must hold ``state.condition`` and re-check its predicate.
+        if deadline is None:
+            state.condition.wait()
             return
-        self._descriptor = None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise self._timeout_error(state, waiter)
+        state.condition.wait(remaining)
+
+    def acquire_detached(self) -> CrossProcessFileLock:
+        """Acquire for a holder that outlives the acquiring thread.
+
+        ``await asyncio.to_thread(lock.acquire)`` acquires on a pooled
+        executor thread that returns to the pool immediately, while the
+        coroutine keeps holding the lock across ``await`` boundaries.
+        Keeping the thread-based holder registration would falsely flag
+        unrelated work later scheduled onto that reused thread (for example
+        a shared poll read of the same Project lock) as a same-thread nested
+        acquisition.  Dropping the thread association here, before the
+        worker thread can pick up other work, keeps the nesting guard for
+        true same-stack nesting; a cross-owner wait stays bounded by the
+        lock timeout fuse.  ``release`` keeps working from any thread.
+        """
+
+        self.acquire()
         held_key = self._held_key
         self._held_key = None
         if held_key is not None:
             with _HELD_LOCKS_GUARD:
                 _HELD_LOCKS.pop(held_key, None)
+        return self
+
+    def release(self) -> None:
+        state = self._state
+        if state is None:
+            return
+        self._state = None
+        held_key = self._held_key
+        self._held_key = None
+        if held_key is not None:
+            with _HELD_LOCKS_GUARD:
+                _HELD_LOCKS.pop(held_key, None)
+        owner = self._owner
         self._owner = None
-        try:
-            try:
-                if self.shared:
-                    reader_metadata_path = self._reader_metadata_path
-                    self._reader_metadata_path = None
-                    if reader_metadata_path is not None:
-                        reader_metadata_path.unlink(missing_ok=True)
-                else:
-                    self._clear_metadata(descriptor)
-            finally:
-                _unlock(descriptor)
-            logger.debug("released lock %s", self.path)
-        finally:
-            os.close(descriptor)
+        with state.condition:
+            if self.shared:
+                state.active_shared -= 1
+                if owner is not None:
+                    state.shared_owners.pop(str(owner.get("ownerId")), None)
+            else:
+                state.active_exclusive = False
+                state.exclusive_owner = None
+            state.condition.notify_all()
+        _checkin(self._identity, state)
+        logger.debug("released lock %s", self.path)
 
     def __enter__(self) -> CrossProcessFileLock:
         return self.acquire()
@@ -440,7 +400,7 @@ class CrossProcessFileLock:
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
-        traceback: TracebackType | None,
+        exc_traceback: TracebackType | None,
     ) -> None:
-        del exc_type, exc_value, traceback
+        del exc_type, exc_value, exc_traceback
         self.release()

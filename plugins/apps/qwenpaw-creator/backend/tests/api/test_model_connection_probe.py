@@ -25,34 +25,14 @@ def _request(**overrides) -> ModelConnectionTestRequest:
     return ModelConnectionTestRequest(**payload)
 
 
-@pytest.mark.parametrize(
-    ("type_", "model_name", "protocol", "provider"),
-    [
-        ("asr", "fun-asr", "DashScope Fun-ASR", "fun-asr"),
-    ],
-)
-def test_dashscope_probe_uses_upload_policy(
-    type_,
-    model_name,
-    protocol,
-    provider,
-) -> None:
-    url, headers, payload = _probe_payload(
-        _request(
-            type=type_,
-            model_name=model_name,
-            protocol=protocol,
-            provider=provider,
-        ),
-    )
-
+def test_dashscope_probe_uses_upload_policy() -> None:
+    url, headers, payload = _probe_payload(_request())
     assert url == "https://dashscope.aliyuncs.com/api/v1/uploads"
     assert payload == {
         "_get_probe": True,
         "action": "getPolicy",
-        "model": model_name,
+        "model": "fun-asr",
     }
-    # Never a billable async task submission.
     assert "X-DashScope-Async" not in headers
 
 
@@ -89,42 +69,24 @@ def test_bailian_video_probe_uses_configured_root_without_billing(
     assert "X-DashScope-Async" not in headers
 
 
-def test_token_plan_image_probe_uses_models_endpoint() -> None:
+@pytest.mark.parametrize(
+    ("type_", "model_name"),
+    [("image", "wan2.7-image-pro"), ("video", "happyhorse-1.1")],
+)
+def test_token_plan_probe_uses_models_endpoint(type_, model_name) -> None:
     url, headers, payload = _probe_payload(
         _request(
-            type="image",
-            base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
-            model_name="wan2.7-image-pro",
+            type=type_,
+            model_name=model_name,
             protocol="Aliyun Token Plan",
+            base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
             provider=None,
         ),
     )
-
-    expected = (
+    assert url == (
         "https://token-plan.cn-beijing.maas.aliyuncs.com"
         "/compatible-mode/v1/models"
     )
-    assert url == expected
-    assert payload == {"_get_probe": True}
-    assert headers["Authorization"] == "Bearer sk-test"
-
-
-def test_token_plan_video_probe_uses_models_endpoint() -> None:
-    url, headers, payload = _probe_payload(
-        _request(
-            type="video",
-            base_url="https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1",
-            model_name="happyhorse-1.1",
-            protocol="Aliyun Token Plan",
-            provider=None,
-        ),
-    )
-
-    expected = (
-        "https://token-plan.cn-beijing.maas.aliyuncs.com"
-        "/compatible-mode/v1/models"
-    )
-    assert url == expected
     assert payload == {"_get_probe": True}
     assert headers["Authorization"] == "Bearer sk-test"
 

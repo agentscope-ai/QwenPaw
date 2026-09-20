@@ -702,7 +702,7 @@ class GovernancePolicy:
         Three-phase evaluation (v2.0):
             Phase 0: Type check — unknown → DENY, internal → ALLOW
             Phase 1: Deep security scan (accumulates findings)
-                     CRITICAL findings → immediate DENY
+                     configured auto-deny findings → immediate DENY
             Phase 2: Policy rules first-match-wins
                      (builtin_rules + user_rules)
             Phase 3: Fallback + execution_level threshold
@@ -732,15 +732,34 @@ class GovernancePolicy:
         findings: list[Any] = []
         if not skip_deep_scan:
             findings = self._deep_security_scan(tc_spec, tool_type)
-            # CRITICAL findings → immediate DENY
-            if any(getattr(f, "severity", "") == "CRITICAL" for f in findings):
-                top = _top_finding(findings)
+            # Severity controls the approval threshold; it does not by itself
+            # make a finding impossible to approve.  Only rule IDs explicitly
+            # configured for auto-deny are hard walls.  This keeps governance
+            # aligned with ToolGuardEngine and the Security-page auto-deny
+            # switch while allowing ordinary CRITICAL findings to reach the
+            # normal ASK path below.
+            from ..security.tool_guard.utils import resolve_auto_denied_rules
+
+            auto_denied_rule_ids = resolve_auto_denied_rules()
+            auto_denied_findings = [
+                finding
+                for finding in findings
+                if getattr(finding, "rule_id", "") in auto_denied_rule_ids
+            ]
+            if auto_denied_findings:
+                top = _top_finding(auto_denied_findings)
                 return GovernanceDecision(
                     action=GovernanceAction.DENY,
                     reason=getattr(top, "description", "") or top.title,
                     findings=findings,
-                    source=_findings_source(findings),
+                    source=_findings_source(auto_denied_findings),
                 )
+
+        sensitive_path_findings = [
+            finding
+            for finding in findings
+            if getattr(finding, "rule_id", "") == "SENSITIVE_FILE_BLOCK"
+        ]
 
         # ── Phase 1.5: Shell danger keyword detection ──
         # Regex-based check that catches command variants missed by
@@ -773,6 +792,14 @@ class GovernancePolicy:
                         findings=findings or None,
                         source="STRICT mode",
                     )
+                if (
+                    action == GovernanceAction.ALLOW
+                    and sensitive_path_findings
+                ):
+                    return self._apply_execution_level_fallback(
+                        tc_spec,
+                        sensitive_path_findings,
+                    )
                 return GovernanceDecision(
                     action=action,
                     reason=rule.reason,
@@ -792,6 +819,14 @@ class GovernancePolicy:
                         reason="STRICT mode: all tool calls require approval",
                         findings=findings or None,
                         source="STRICT mode",
+                    )
+                if (
+                    action == GovernanceAction.ALLOW
+                    and sensitive_path_findings
+                ):
+                    return self._apply_execution_level_fallback(
+                        tc_spec,
+                        sensitive_path_findings,
                     )
                 return GovernanceDecision(
                     action=action,
@@ -859,7 +894,7 @@ class GovernancePolicy:
                 tool_name=tc_spec.tool_name,
                 target=tc_spec.target,
                 tool_type=tool_type,
-                sensitive_paths=self.sensitive_paths,
+                sensitive_paths=self._resolve_sensitive_paths(),
                 detection_rules=detection_rules,
                 shell_evasion_checks=shell_evasion_checks,
                 raw_params=tc_spec.raw_params,
@@ -870,6 +905,30 @@ class GovernancePolicy:
                 exc,
             )
             return []
+
+    def _resolve_sensitive_paths(self) -> list[str]:
+        """Return the effective sensitive paths for the active file guard."""
+        from ..security.tool_guard.guardians.file_guardian import (
+            ensure_file_guard_paths,
+        )
+
+        policy_paths = list(self.sensitive_paths)
+        try:
+            from ..config import load_config
+
+            file_guard = load_config().security.file_guard
+        except Exception as exc:
+            logger.warning(
+                "file_guard config load failed: %s; using policy paths",
+                exc,
+            )
+            return ensure_file_guard_paths(policy_paths)
+
+        if not file_guard.enabled:
+            return []
+
+        configured_paths = list(file_guard.sensitive_files or [])
+        return ensure_file_guard_paths(policy_paths + configured_paths)
 
     def _merge_config_rules(
         self,

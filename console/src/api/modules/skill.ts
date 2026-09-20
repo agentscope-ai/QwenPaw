@@ -466,6 +466,15 @@ export const skillApi = {
       },
     ),
 
+  updateSkillPreload: (skillName: string, preload: boolean) =>
+    request<{ updated: boolean; preload: boolean }>(
+      `/skills/${encodeURIComponent(skillName)}/preload`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ preload }),
+      },
+    ),
+
   updateSkillTags: (skillName: string, tags: string[]) =>
     request<{ updated: boolean; tags: string[] }>(
       `/skills/${encodeURIComponent(skillName)}/tags`,

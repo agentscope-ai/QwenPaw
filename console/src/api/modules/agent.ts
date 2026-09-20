@@ -15,6 +15,14 @@ export interface EmbeddingTestResponse {
   message: string;
 }
 
+export interface MemoryBackendDescriptor {
+  id: string;
+  label: string;
+  source: string;
+  available: boolean;
+  metadata?: Record<string, unknown>;
+}
+
 export type TranscriptionErrorCode =
   | "TRANSCRIPTION_DISABLED"
   | "FILE_TOO_LARGE"
@@ -58,6 +66,9 @@ export const agentApi = {
   getAgentRunningConfig: () =>
     request<AgentsRunningConfig>("/workspace/running-config"),
 
+  listMemoryBackends: () =>
+    request<MemoryBackendDescriptor[]>("/agents/memory/backends"),
+
   updateAgentRunningConfig: (config: AgentsRunningConfig) =>
     request<AgentsRunningConfig>("/workspace/running-config", {
       method: "PUT",
@@ -69,7 +80,7 @@ export const agentApi = {
     request<EmbeddingTestResponse>("/workspace/embedding/test", {
       method: "POST",
       body: JSON.stringify(config),
-      timeout: 30 * 1000,
+      timeout: Math.max(30, (config.health_check_timeout ?? 15) * 2 + 5) * 1000,
     }),
 
   getAgentLanguage: () => request<{ language: string }>("/workspace/language"),

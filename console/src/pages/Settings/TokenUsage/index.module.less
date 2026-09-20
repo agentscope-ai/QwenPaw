@@ -12,7 +12,7 @@
 .loading {
   text-align: center;
   padding: 60px;
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 .summaryCards {
@@ -32,13 +32,13 @@
 .cardValue {
   font-size: 24px;
   font-weight: 600;
-  color: #1a1a1a;
+  color: var(--app-text);
   margin-bottom: 4px;
 }
 
 .cardLabel {
   font-size: 13px;
-  color: #999;
+  color: var(--app-text-tertiary);
 }
 
 .tableCard {
@@ -54,6 +54,7 @@
       font-size: 16px !important;
       font-weight: 500 !important;
       padding: 0 0 12px;
+      color: var(--app-text);
     }
   }
 }
@@ -71,6 +72,7 @@
       font-size: 16px !important;
       font-weight: 500 !important;
       padding: 0 0 12px;
+      color: var(--app-text);
     }
   }
 }
@@ -97,7 +99,7 @@
   align-items: center;
   gap: 8px;
   padding: 48px 24px;
-  color: #bbb;
+  color: var(--app-text-quaternary);
   font-size: 14px;
 }
 
@@ -108,67 +110,34 @@
 
 /* ─── Dark mode ─────────────────────────────────────────────────────────────── */
 :global(.dark-mode) {
-  .loading {
-    color: rgba(255, 255, 255, 0.35);
-  }
-
-  .cardValue {
-    color: rgba(255, 255, 255, 0.85);
-  }
-
-  .cardLabel {
-    color: rgba(255, 255, 255, 0.45);
-  }
-
-  .emptyState {
-    color: rgba(255, 255, 255, 0.2);
-  }
-
-  .tableCard {
-    :global {
-      .qwenpaw-card-body {
-        background: rgba(255, 255, 255, 0.02);
-      }
-
-      .qwenpaw-spark-title {
-        color: rgba(255, 255, 255, 0.85);
-      }
-    }
-  }
-
+  // Dark-only: inset card bodies, plus G2 chart internals that only expose
+  // SVG fills and cannot inherit our tokens through antd.
+  .tableCard,
   .chartCard {
     :global {
       .qwenpaw-card-body {
-        background: rgba(255, 255, 255, 0.02);
-      }
-
-      .qwenpaw-spark-title {
-        color: rgba(255, 255, 255, 0.85);
+        background: var(--app-fill-faint);
       }
     }
   }
 
-  // Chart legend text color in dark mode
   :global {
     .g2-legend-item-name {
-      fill: rgba(255, 255, 255, 0.85) !important;
+      fill: var(--app-text) !important;
     }
 
-    // Chart axis labels
     .g2-axis-label-text {
-      fill: rgba(255, 255, 255, 0.65) !important;
+      fill: var(--app-text-secondary) !important;
     }
 
-    // Pie chart labels
     .g2-label-text {
-      fill: rgba(255, 255, 255, 0.65) !important;
+      fill: var(--app-text-secondary) !important;
     }
 
-    // Tooltip text
     .g2-tooltip-title,
     .g2-tooltip-name,
     .g2-tooltip-value {
-      color: rgba(255, 255, 255, 0.85) !important;
+      color: var(--app-text) !important;
     }
   }
 }

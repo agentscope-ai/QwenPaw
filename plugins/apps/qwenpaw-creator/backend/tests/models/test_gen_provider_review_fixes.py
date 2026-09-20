@@ -188,33 +188,22 @@ def _s2v_env(monkeypatch):
 # ── edit must not degrade into text-to-image ─────────────────────────────────
 
 
-def test_edit_fails_but_generate_tolerates_a_corrupt_reference(
+@pytest.mark.parametrize("mode", ["edit", "generate"])
+def test_corrupt_reference_is_rejected_without_shifting_image_positions(
     tmp_path,
+    mode,
 ) -> None:
-    """A paid edit must not silently become an unrelated t2i render."""
-
     corrupt = tmp_path / "corrupt.png"
     corrupt.write_bytes(b"not-an-image")
-
-    with pytest.raises(ModelError, match="edit reference cannot be read"):
+    with pytest.raises(ModelError, match="Image reference cannot be read"):
         asyncio.run(
             _image_model()._build_body(
                 "把围巾改成蓝色",
                 "1:1",
                 [corrupt.as_uri()],
-                "edit",
+                mode,
             ),
         )
-    # Plain generation keeps its lenient behaviour (unchanged).
-    body = asyncio.run(
-        _image_model()._build_body(
-            "橘猫",
-            "1:1",
-            [corrupt.as_uri()],
-            "generate",
-        ),
-    )
-    assert body["input"]["messages"][0]["content"] == [{"text": "橘猫"}]
 
 
 # ── translate: transient polls must not lose the billed task ─────────────────

@@ -19,7 +19,9 @@ from typing import Any, Final
 from uuid import uuid4
 
 from pydantic import ValidationError
+from domain.errors import BadRequestError
 from services.runtime_files.atomic_store import (
+    atomic_replace_path,
     fsync_directory as runtime_fsync_directory,
 )
 from services.runtime_files.locking import CrossProcessFileLock
@@ -27,6 +29,7 @@ from services.storage_root import require_creator_data_root
 from utils.logger import setup_logger
 
 from .models import Project
+from .archive import write_project_archive
 from .serialization import (
     CanonicalJsonError,
     load_project_json_with_etag,
@@ -512,8 +515,15 @@ class ProjectStore:
         project_id: str,
         *,
         expected_etag: str | None = None,
+        cascade: bool = True,
     ) -> None:
-        """Atomically remove a Project from discovery, then delete its tree."""
+        """Atomically remove a Project from discovery, then delete its tree.
+
+        When *cascade* is ``False`` only ``project.json`` is removed so the
+        project vanishes from listings but assets, sessions and observability
+        data remain on disk.  When ``True`` (default) the entire directory
+        tree is deleted.
+        """
 
         safe_id = _safe_project_id(project_id)
         tombstone: Path | None = None
@@ -524,9 +534,22 @@ class ProjectStore:
                     f"Project ETag conflict: expected={expected_etag}, actual={current.etag}",
                 )
             project_root = self.project_root(safe_id)
+
+            if not cascade:
+                manifest = project_root / "project.json"
+                try:
+                    manifest.unlink()
+                except FileNotFoundError:
+                    pass
+                logger.info(
+                    "project manifest deleted (data retained): %s",
+                    safe_id,
+                )
+                return
+
             tombstone = self.root / f".deleted-{safe_id}-{uuid4().hex}"
             try:
-                os.replace(project_root, tombstone)
+                atomic_replace_path(project_root, tombstone)
                 _fsync_directory(self.root)
             except OSError as exc:
                 raise ProjectStoreError(
@@ -556,7 +579,7 @@ class ProjectStore:
         logger.info("project deleted: %s", safe_id)
 
     def export(self, project_id: str) -> tuple[int, Iterator[bytes]]:
-        """Compress the whole Project folder into a zip under ``CREATOR_DATA_ROOT``/exports/.
+        """Archive the Project and recoverable Runtime under ``CREATOR_DATA_ROOT``/exports/.
         Returns the archive byte size plus an iterator yielding the contents
         in 8192-byte chunks, so HTTP callers can advertise Content-Length for
         download progress without loading the whole file into memory.
@@ -577,15 +600,17 @@ class ProjectStore:
         # files are atomically replaced, and export is explicitly a best-effort
         # snapshot. Holding the global mutation boundary across ZIP I/O caused
         # common 10-second lock timeouts on large Projects.
-        self.read(safe_id)
+        snapshot = self.read(safe_id)
         try:
-            archive_path = shutil.make_archive(
-                str(export_root / zip_file_stem),
-                "zip",
-                root_dir=str(self.root),
-                base_dir=safe_id,
+            archive_path = str(export_root / f"{zip_file_stem}.zip")
+            write_project_archive(
+                self.project_root(safe_id),
+                snapshot.project,
+                Path(archive_path),
             )
             logger.info(f"export file path:{archive_path}")
+        except BadRequestError:
+            raise
         except Exception as e:
             logger.error(
                 f"failed to create export file for project {safe_id}",
@@ -623,6 +648,7 @@ class ProjectStore:
         project_id: str,
         *,
         shared: bool = False,
+        cross_thread_hold: bool = False,
     ) -> CrossProcessFileLock:
         """Guard a Project lifetime without serializing unrelated Runtime domains.
 
@@ -638,6 +664,7 @@ class ProjectStore:
             / f"project-{_safe_project_id(project_id)}.lock",
             timeout_seconds=10.0,
             shared=shared,
+            cross_thread_hold=cross_thread_hold,
         )
 
     def _checked_payload(self, project: Project) -> bytes:
@@ -664,7 +691,7 @@ class ProjectStore:
                 stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
-            os.replace(temp_path, target)
+            atomic_replace_path(temp_path, target)
             _fsync_directory(project_root)
             _fsync_directory(temp_dir)
         except Exception:

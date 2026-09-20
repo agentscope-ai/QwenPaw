@@ -7,7 +7,7 @@ from __future__ import annotations
 import asyncio
 import time
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import HTTPException
@@ -17,17 +17,101 @@ from qwenpaw.app.routers.mail_access_control import (
     MailACLActionBody,
     MailACLEntry,
     MailACLRemarkBody,
+    MailProcessingResumeBody,
     add_to_blacklist,
     add_to_whitelist,
     approve_pending,
     deny_pending,
     dismiss_pending,
+    get_processing_pauses,
     remove_from_blacklist,
     remove_from_whitelist,
+    resume_processing,
     update_remark,
 )
 
 AGENT = "agent-1"
+
+
+def _processing_request(monitors):
+    workspaces = {
+        agent_id: SimpleNamespace(mail_monitor=monitor)
+        for agent_id, monitor in monitors.items()
+    }
+    manager = SimpleNamespace(
+        list_loaded_agents=lambda: list(workspaces),
+        get_loaded_agent=workspaces.get,
+        # Listing/resuming must not lazy-start a disabled or unloaded agent.
+        get_agent=AsyncMock(side_effect=AssertionError("Unexpected start")),
+    )
+    return SimpleNamespace(
+        app=SimpleNamespace(
+            state=SimpleNamespace(multi_agent_manager=manager),
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_processing_pauses_include_acl_off_and_ignore_inbox_history():
+    pause = {"pause_id": "batch-1", "reason": "batch", "count": 1033}
+    monitor = SimpleNamespace(
+        get_processing_pause=AsyncMock(return_value=pause),
+    )
+    running = SimpleNamespace(
+        get_processing_pause=AsyncMock(return_value=None),
+    )
+    request = _processing_request(
+        {AGENT: monitor, "other": running, "off": None},
+    )
+    with patch(
+        "qwenpaw.app.routers.mail_access_control._iter_mail_agent_stores",
+        side_effect=AssertionError("Sender ACL must not gate safety controls"),
+    ):
+        assert await get_processing_pauses(request) == [
+            {**pause, "agent_id": AGENT},
+        ]
+    assert pause == {"pause_id": "batch-1", "reason": "batch", "count": 1033}
+
+
+@pytest.mark.asyncio
+async def test_processing_resume_passes_exact_pause_and_rejects_duplicate():
+    monitor = SimpleNamespace(
+        resume_processing=AsyncMock(side_effect=[True, False]),
+    )
+    request = _processing_request({AGENT: monitor})
+    body = MailProcessingResumeBody(pause_id="batch-1")
+    assert await resume_processing(AGENT, body, request) == {"status": "ok"}
+    with pytest.raises(HTTPException) as exc:
+        await resume_processing(AGENT, body, request)
+    assert exc.value.status_code == 409
+    assert monitor.resume_processing.await_args_list[0].args == ("batch-1",)
+
+
+@pytest.mark.asyncio
+async def test_processing_resume_does_not_start_unloaded_agent():
+    request = _processing_request({})
+    assert await get_processing_pauses(request) == []
+    with pytest.raises(HTTPException) as exc:
+        await resume_processing(
+            AGENT,
+            MailProcessingResumeBody(pause_id="old-pause"),
+            request,
+        )
+    assert exc.value.status_code == 409
+    request.app.state.multi_agent_manager.get_agent.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_processing_routes_without_manager_are_safe():
+    request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    assert await get_processing_pauses(request) == []
+    with pytest.raises(HTTPException) as exc:
+        await resume_processing(
+            AGENT,
+            MailProcessingResumeBody(pause_id="old-pause"),
+            request,
+        )
+    assert exc.value.status_code == 409
 
 
 @pytest.fixture

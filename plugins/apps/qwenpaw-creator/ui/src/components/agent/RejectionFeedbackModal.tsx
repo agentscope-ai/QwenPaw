@@ -139,7 +139,7 @@ export default function RejectionFeedbackModal({
             type="button"
             disabled={submitting}
             onClick={() => submit("UNDO_AND_REGENERATE")}
-            className="min-h-10 w-full rounded-lg bg-[var(--color-accent)] px-4 py-2 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+            className="min-h-10 w-full rounded-lg bg-[var(--color-text-primary)] px-4 py-2 text-sm font-medium text-[var(--color-bg-primary)] shadow-sm transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
           >
             {submitting && pendingAction === "UNDO_AND_REGENERATE"
               ? t("rejectionFeedback.submitting")

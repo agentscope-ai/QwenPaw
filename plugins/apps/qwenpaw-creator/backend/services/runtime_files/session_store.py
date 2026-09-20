@@ -40,8 +40,8 @@ from .errors import (
     RuntimeFileValidationError,
     SequenceConflictError,
 )
-from .jsonl_store import DurableJsonlStore
-from .locking import CrossProcessFileLock
+from .jsonl_store import DurableJsonlStore, JsonlReadCursor
+from .locking import DEFAULT_LOCK_TIMEOUT_SECONDS, CrossProcessFileLock
 from .models import (
     CreatorConversationRecord,
     CreatorGoalRecord,
@@ -160,7 +160,7 @@ class ProjectRuntimeSessionStore:
         self,
         data_root: str | os.PathLike[str],
         *,
-        lock_timeout_seconds: float | None = 10.0,
+        lock_timeout_seconds: float | None = DEFAULT_LOCK_TIMEOUT_SECONDS,
     ) -> None:
         raw_root = Path(data_root).expanduser()
         if not raw_root.is_absolute():
@@ -1243,12 +1243,19 @@ class ProjectRuntimeSessionStore:
 
                 boundary: ReviewBoundary | None = None
                 project_state: RuntimeProjectState | None = None
-                requires_review = self._requires_review(
-                    session,
-                    channel=resolved_channel,
-                    classification=resolved_classification,
-                    initial_creation=initial_creation,
-                    hard_stop=hard_stop,
+                # Approval is a continuation of existing work, not a new
+                # revision. Capturing an interrupt here cancels sibling media
+                # still generating when the first output is accepted. Keep
+                # its durable user-message envelope and legacy replay hash.
+                requires_review = (
+                    source != "review_approval_resume"
+                    and self._requires_review(
+                        session,
+                        channel=resolved_channel,
+                        classification=resolved_classification,
+                        initial_creation=initial_creation,
+                        hard_stop=hard_stop,
+                    )
                 )
                 if requires_review:
                     self._assert_review_active_goal_unlocked(
@@ -1437,6 +1444,20 @@ class ProjectRuntimeSessionStore:
             store = self._events_store(project_id, session_id)
             records = store.read_records_after(after_seq, limit=limit)
             return records
+
+    def event_reader(
+        self,
+        project_id: str,
+        session_id: str,
+        *,
+        after_seq: int = 0,
+    ) -> JsonlReadCursor[SessionEventRecord]:
+        """Keep one forward cursor for a live SSE connection's replay."""
+        project_id, session_id = self._safe_session_ids(project_id, session_id)
+        _validate_window(after_seq, None)
+        return self._events_store(project_id, session_id).forward_reader(
+            after_seq,
+        )
 
     def append_queued_message(
         self,
@@ -2298,28 +2319,18 @@ class ProjectRuntimeSessionStore:
 
     @contextmanager
     def _project_lock_read(self, project_id: str):
-        """Shared-lock variant of :meth:`_project_lock` for read-only paths.
+        """Lock-free guard for read-only paths.
 
-        Both the lifecycle and the runtime lock are taken as ``LOCK_SH`` so
-        concurrent readers (for example Plan polling) never block each other;
-        they only wait for a writer, which holds the lock for a single short
-        durable transition.  Callers must not mutate any file under this lock.
+        Reads never take locks: every record is published by atomic
+        replacement, so a reader always observes a complete old or new file.
+        A cross-file snapshot may transiently mix pre/post states of one
+        write transition; pollers self-heal on the next read and recovery
+        already tolerates the same shapes after a crash.  Callers must not
+        mutate any file under this guard.
         """
         project_id = _safe_segment(project_id, "project_id")
-        with CrossProcessFileLock(
-            self.data_root / ".locks" / f"project-{project_id}.lock",
-            timeout_seconds=self.lock_timeout_seconds,
-            shared=True,
-        ):
-            self._require_project(project_id)
-            with CrossProcessFileLock(
-                self._runtime_root(project_id)
-                / "locks"
-                / "session-runtime.lock",
-                timeout_seconds=self.lock_timeout_seconds,
-                shared=True,
-            ):
-                yield
+        self._require_project(project_id)
+        yield
 
     def _project_lifecycle_lock(self, project_id: str) -> CrossProcessFileLock:
         # Runtime transitions only need a shared lifecycle guard: Project
@@ -2353,9 +2364,12 @@ class ProjectRuntimeSessionStore:
         project_id: str,
         session_id: str,
     ) -> AtomicJsonRecordStore[CreatorSessionRecord]:
+        # Writers all hold the exclusive session-runtime domain lock, so the
+        # per-record lock would only add file opens and a second timeout.
         return AtomicJsonRecordStore(
             self._session_root(project_id, session_id) / "session.json",
             CreatorSessionRecord,
+            locked=False,
         )
 
     def _conversation_store(
@@ -2369,6 +2383,7 @@ class ProjectRuntimeSessionStore:
             / "conversations"
             / f"{conversation_id}.json",
             CreatorConversationRecord,
+            locked=False,
         )
 
     def _goal_store(
@@ -2379,6 +2394,7 @@ class ProjectRuntimeSessionStore:
         return AtomicJsonRecordStore(
             self._runtime_root(project_id) / "goals" / f"{goal_id}.json",
             CreatorGoalRecord,
+            locked=False,
         )
 
     def _runtime_state_store(

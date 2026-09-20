@@ -64,10 +64,24 @@ from .mail_access_control import (
     get_mail_access_control_store,
     validate_acl_address,
 )
+from .processing_guard import MailProcessingGuard
 
 logger = logging.getLogger(__name__)
 
 _MAIL_SOURCE_ID = "_mail_monitor"
+
+
+class _MailProcessingPaused(Exception):
+    """This UID has not started; leave its existing durable queue untouched."""
+
+
+def _replay_uid(message: Any) -> int:
+    """Normalize legacy UIDs; malformed entries cannot authorize work."""
+    try:
+        return max(0, int(message.get("uid", 0) or 0))
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
 
 # Authentication-Results is only trustworthy when its authserv-id belongs to
 # the mailbox provider that received the message.  The provider may omit the
@@ -1024,7 +1038,7 @@ async def wake_agent_for_mail(
                 ),
                 body=(
                     f"{exc!r}\nThe approved email remains queued and will "
-                    "retry automatically."
+                    "retry automatically unless mail processing is paused."
                     if retry_on_failure
                     else repr(exc)
                 ),
@@ -1105,6 +1119,12 @@ class MailMonitorService:
         )
         self.state_dir = Path(workspace.workspace_dir) / "mail_state"
         self.state_path = self.state_dir / "monitor.json"
+        self._processing_guard = MailProcessingGuard(
+            self.state_dir / "processing_guard.json",
+            self._mailbox_fingerprint,
+        )
+        self._processing_notice_lock = asyncio.Lock()
+        self._resume_event = threading.Event()
         self._last_uid: Optional[int] = None
         # UIDVALIDITY of INBOX: persisted value vs. value seen at connect
         # time. A mismatch means UIDs were renumbered server-side.
@@ -1194,10 +1214,11 @@ class MailMonitorService:
     async def stop(self) -> None:
         """Cancel submitted work and wait until the worker actually exits."""
         self._stop_event.set()
+        self._resume_event.set()
         self._interrupt_active_connection()
         task = self._task
         replay_task = self._approved_replay_task
-        if task is None and replay_task is None:
+        if task is None and replay_task is None and not self._submission_tasks:
             return
         loop = asyncio.get_running_loop()
         deadline = loop.time() + 15
@@ -1313,6 +1334,13 @@ class MailMonitorService:
         previous = self._last_uid
         self._last_uid = uid
         if self._save_state():
+            if previous is None and uid == 0:
+                logger.info(
+                    "mail monitor established empty INBOX baseline "
+                    "for agent %s (UIDVALIDITY %s)",
+                    self.agent_id,
+                    self._current_uidvalidity,
+                )
             return
         self._last_uid = previous
         raise OSError(f"could not persist mail monitor watermark {uid}")
@@ -1379,7 +1407,12 @@ class MailMonitorService:
     # -- worker thread ---------------------------------------------------
 
     def _sleep(self, seconds: float) -> None:
-        self._stop_event.wait(timeout=seconds)
+        deadline = time.monotonic() + seconds
+        while not self._resume_event.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or self._stop_event.wait(min(remaining, 0.2)):
+                return
+        self._resume_event.clear()
 
     def _worker(self) -> None:
         """IDLE loop with exponential backoff; degrades to polling."""
@@ -1654,7 +1687,9 @@ class MailMonitorService:
         got_exists = False
         try:
             while (
-                not self._stop_event.is_set() and time.monotonic() < deadline
+                not self._stop_event.is_set()
+                and not self._resume_event.is_set()
+                and time.monotonic() < deadline
             ):
                 ready, _, _ = select_mod.select(
                     [sock],
@@ -1779,14 +1814,17 @@ class MailMonitorService:
             )
             return ""
 
-    def _check_new_messages(self, conn: imaplib.IMAP4_SSL) -> None:
-        """Detect new UIDs above last_uid and run the pipeline on each."""
-        uids = self._search_uids(conn)
+    def _establish_uid_baseline(
+        self,
+        conn: imaplib.IMAP4_SSL,
+        uids: list[int],
+    ) -> bool:
+        """Return True when this scan only establishes/repairs the baseline."""
         if not uids:
             if self._delivery_failures:
                 self._retry_delivery_failures(conn, set())
                 if self._delivery_failures:
-                    return
+                    return True
             if self._last_uid not in (None, 0):
                 logger.warning(
                     "mail monitor watermark %s is ahead of an empty "
@@ -1799,12 +1837,12 @@ class MailMonitorService:
                 # Establish an empty-mailbox baseline so the first future
                 # message is processed instead of mistaken for history.
                 self._commit_last_uid(0)
-            return
+            return True
         if self._last_uid is None:
             # First run: baseline at the newest message and skip
             # historical mail instead of flooding the pipeline.
             self._commit_last_uid(max(uids))
-            return
+            return True
         newest_uid = max(uids)
         if self._last_uid > newest_uid:
             # This also repairs legacy state written before mailbox identity
@@ -1819,9 +1857,33 @@ class MailMonitorService:
                 self.agent_id,
             )
             self._reset_uid_baseline(newest_uid)
+            return True
+        return False
+
+    def _check_new_messages(self, conn: imaplib.IMAP4_SSL) -> None:
+        """Detect new UIDs above last_uid and run the pipeline on each."""
+        self._resume_event.clear()
+        uids = self._search_uids(conn)
+        if self._establish_uid_baseline(conn, uids):
             return
+        last_uid = self._last_uid
+        assert last_uid is not None
+        new_uids = sorted(uid for uid in uids if uid > last_uid)
+        if self.push.mode in ("agent_all", "rules_then_agent"):
+            pending_uids = sorted(
+                set(new_uids) | (set(self._delivery_failures) & set(uids)),
+            )
+            if not self._processing_guard.check_batch(
+                "scan",
+                pending_uids,
+                self._current_uidvalidity,
+            ):
+                self._submit(
+                    self._notify_processing_pause(),
+                    timeout=_EVENT_SUBMIT_TIMEOUT_SECONDS,
+                )
+                return
         self._retry_delivery_failures(conn, set(uids))
-        new_uids = sorted(uid for uid in uids if uid > self._last_uid)
         for uid in new_uids:
             if self._stop_event.is_set():
                 return
@@ -1829,6 +1891,8 @@ class MailMonitorService:
             try:
                 envelope = self._fetch_envelope(conn, uid)
                 self._process_new_email(conn, uid, envelope)
+            except _MailProcessingPaused:
+                return
             except (
                 imaplib.IMAP4.abort,
                 ConnectionError,
@@ -1872,6 +1936,8 @@ class MailMonitorService:
             try:
                 envelope = self._fetch_envelope(conn, uid)
                 self._process_new_email(conn, uid, envelope)
+            except _MailProcessingPaused:
+                return
             except (
                 imaplib.IMAP4.abort,
                 ConnectionError,
@@ -1961,6 +2027,11 @@ class MailMonitorService:
         envelope: dict[str, str],
     ) -> None:
         # pylint: disable=too-many-branches,too-many-statements
+        if self._processing_guard.get_pause():
+            raise _MailProcessingPaused
+        # Admit this one message BEFORE rules can move it out of INBOX. If
+        # replay pauses concurrently, finish this already-started message;
+        # otherwise retrying the UID could repeat rules or lose a moved mail.
         sender = envelope.get("sender", "")
         subject = envelope.get("subject", "")
         date = envelope.get("date", "")
@@ -2333,12 +2404,72 @@ class MailMonitorService:
                 subject=subject,
                 date=date,
                 param=param,
+                _admitted=True,
             ),
             timeout=_WAKE_TIMEOUT_SECONDS + 30,
         )
         if not submitted:
             return None
         return result is not False
+
+    async def get_processing_pause(self) -> Optional[dict[str, Any]]:
+        """Read the durable pause independently of inbox events."""
+        return await run_sync_io(self._processing_guard.get_pause)
+
+    async def resume_processing(self, pause_id: str) -> bool:
+        """Release the displayed incident without starting a worker."""
+        if (
+            self._loop is None
+            or self._loop.is_closed()
+            or self._stop_event.is_set()
+        ):
+            return False
+        # Register API-originated writes too: reload must await them before a
+        # replacement monitor can own this mailbox's guard file.
+        task = asyncio.create_task(
+            run_sync_io(self._processing_guard.resume, pause_id),
+        )
+        self._submission_tasks.add(task)
+        try:
+            resumed = await task
+        finally:
+            self._submission_tasks.discard(task)
+        if not resumed or self._stop_event.is_set():
+            return False
+        self._resume_event.set()
+        self.schedule_approved_replay()
+        return True
+
+    async def _notify_processing_pause(self) -> None:
+        """Emit one notification; failed notification writes never unpause."""
+        async with self._processing_notice_lock:
+            try:
+                pause = await self.get_processing_pause()
+                if not pause or pause["notified"]:
+                    return
+                await append_inbox_event(
+                    agent_id=self.agent_id,
+                    source_type="mail",
+                    source_id=_MAIL_SOURCE_ID,
+                    event_type="processing_paused",
+                    status="error",
+                    severity="warning",
+                    title="Mail processing paused — confirmation required",
+                    body=(
+                        f"{pause['count']} emails require batch confirmation. "
+                        if pause["reason"] == "batch"
+                        else "Mail processing was paused for safety. "
+                    )
+                    + "Open Inbox to review and resume. Pending mail is "
+                    "retained; an already-started message may finish.",
+                    payload=pause,
+                )
+                await run_sync_io(
+                    self._processing_guard.mark_notified,
+                    pause["pause_id"],
+                )
+            except Exception:  # pylint: disable=broad-except
+                logger.exception("could not report mail processing pause")
 
     def schedule_approved_replay(self) -> bool:
         """Schedule one idempotent drain of the durable approval outbox.
@@ -2365,15 +2496,10 @@ class MailMonitorService:
         entry: dict[str, Any],
         message: Any,
         attempts: dict[tuple[str, int], int],
-    ) -> bool:
+    ) -> Optional[bool]:
         """Handle one outbox message; return whether it still needs retry."""
-        if self._stop_event.is_set() or not isinstance(message, dict):
-            return False
-        try:
-            uid = int(message.get("uid", 0) or 0)
-        except (TypeError, ValueError):
-            return False
-        if not uid:
+        uid = _replay_uid(message)
+        if self._stop_event.is_set() or not uid:
             return False
 
         sender_address = str(entry.get("sender_address", ""))
@@ -2402,6 +2528,8 @@ class MailMonitorService:
             # event.  An unexpected exception may have happened before that,
             # so keep the next attempt eligible to report it.
             return True
+        if succeeded is None:
+            return None
         if not succeeded:
             attempts[identity] = attempts.get(identity, 0) + 1
             return True
@@ -2419,6 +2547,7 @@ class MailMonitorService:
         """Retry approved UIDs with backoff and ack only successes."""
         attempts: dict[tuple[str, int], int] = {}
         retry_delay = _BACKOFF_INITIAL_SECONDS
+        generation = self._approved_replay_generation
         try:
             while not self._stop_event.is_set():
                 generation = self._approved_replay_generation
@@ -2427,21 +2556,37 @@ class MailMonitorService:
                     self._mail_acl_store.get_approved_replay,
                     self.agent_id,
                 )
-                for entry in entries:
-                    raw_messages = entry.get("messages", [])
-                    messages = (
-                        raw_messages if isinstance(raw_messages, list) else []
+                messages = [
+                    (entry, message)
+                    for entry in entries
+                    if isinstance(entry.get("messages"), list)
+                    for message in entry["messages"]
+                ]
+                uids = [
+                    uid
+                    for _, message in messages
+                    if (uid := _replay_uid(message))
+                ]
+                if not await run_sync_io(
+                    self._processing_guard.check_batch,
+                    "replay",
+                    uids,
+                    self._current_uidvalidity or self._stored_uidvalidity,
+                ):
+                    await self._notify_processing_pause()
+                    return
+                for entry, message in messages:
+                    needs_retry = await self._replay_approved_message(
+                        entry,
+                        message,
+                        attempts,
                     )
-                    for message in messages:
-                        retry_pending = (
-                            await self._replay_approved_message(
-                                entry,
-                                message,
-                                attempts,
-                            )
-                            or retry_pending
-                        )
+                    if needs_retry is None:
+                        return
+                    retry_pending = needs_retry or retry_pending
                 if retry_pending:
+                    if await self.get_processing_pause():
+                        return
                     if generation != self._approved_replay_generation:
                         retry_delay = _BACKOFF_INITIAL_SECONDS
                         continue
@@ -2457,6 +2602,8 @@ class MailMonitorService:
         finally:
             if self._approved_replay_task is asyncio.current_task():
                 self._approved_replay_task = None
+                if generation != self._approved_replay_generation:
+                    self.schedule_approved_replay()
 
     async def _wake_agent(
         self,
@@ -2468,18 +2615,39 @@ class MailMonitorService:
         param: str,
         report_failure: bool = True,
         retry_on_failure: bool = False,
-    ) -> bool:
+        _admitted: bool = False,
+    ) -> Optional[bool]:
         """Run the agent on the new email (mirrors run_heartbeat_once)."""
         async with self._agent_wake_lock:
-            return await wake_agent_for_mail(
-                self.workspace,
-                self.agent_id,
-                uid=uid,
-                sender=sender,
-                subject=subject,
-                date=date,
-                param=param,
-                mode=self.push.mode,
-                report_failure=report_failure,
-                retry_on_failure=retry_on_failure,
-            )
+            if not _admitted and await self.get_processing_pause():
+                await self._notify_processing_pause()
+                return None
+            try:
+                succeeded = await wake_agent_for_mail(
+                    self.workspace,
+                    self.agent_id,
+                    uid=uid,
+                    sender=sender,
+                    subject=subject,
+                    date=date,
+                    param=param,
+                    mode=self.push.mode,
+                    report_failure=report_failure,
+                    retry_on_failure=retry_on_failure,
+                )
+            except Exception:  # pylint: disable=broad-except
+                # Notification/cleanup failures can escape the wake helper;
+                # they must not bypass the same shared circuit breaker.
+                logger.exception("mail wake completion failed")
+                succeeded = False
+            try:
+                await run_sync_io(
+                    self._processing_guard.record_result,
+                    succeeded,
+                )
+            except OSError:
+                # Never replay an already-run turn just because its safety
+                # write failed. The guard remains closed in memory.
+                logger.exception("could not persist mail wake safety state")
+            await self._notify_processing_pause()
+            return succeeded

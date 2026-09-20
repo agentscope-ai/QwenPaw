@@ -221,6 +221,45 @@ def test_collect_final_agent_chat_response_keeps_last_sse_payload(monkeypatch):
     assert agent_management.extract_agent_text_content(result) == "second"
 
 
+async def test_stop_agent_chat_async_calls_target_stop_endpoint(monkeypatch):
+    calls = []
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs))
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, path, **kwargs):
+            calls.append((path, kwargs))
+            return _FakeResponse(json_data={"stopped": True})
+
+    monkeypatch.setattr(
+        agent_management.httpx,
+        "AsyncClient",
+        FakeAsyncClient,
+    )
+
+    stopped = await agent_management.stop_agent_chat_async(
+        "http://127.0.0.1:8088",
+        "session-1",
+        "bot_b",
+    )
+
+    assert stopped is True
+    assert calls[1] == (
+        "/console/chat/stop",
+        {
+            "params": {"chat_id": "session-1"},
+            "headers": {"X-Agent-Id": "bot_b"},
+        },
+    )
+
+
 async def test_agent_management_tools_can_be_registered_in_toolkit():
     toolkit = Toolkit(
         tools=[
@@ -325,6 +364,87 @@ async def test_chat_with_agent_uses_async_collect_for_final_mode(monkeypatch):
 
     assert calls
     assert "reply from peer" in response.content[0].text
+
+
+@pytest.mark.parametrize("stopped", [True, False])
+async def test_chat_with_agent_stops_target_when_cancelled(
+    monkeypatch,
+    stopped,
+):
+    stop_calls = []
+
+    async def fake_collect_async(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    async def fake_stop_async(*args, **kwargs):
+        stop_calls.append((args, kwargs))
+        return stopped
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "resolve_calling_agent_id",
+        lambda _from_agent=None: "bot_a",
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent_management.chat_with_agent(
+            to_agent="bot_b",
+            text="Need help",
+            session_id="session-1",
+        )
+
+    assert stop_calls
+    assert stop_calls[0][0] == (None, "session-1", "bot_b")
+
+
+async def test_chat_with_agent_reports_target_stop_failure(monkeypatch):
+    async def fake_collect_async(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    async def fake_stop_async(*_args, **_kwargs):
+        raise httpx.ConnectError("target unavailable")
+
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop_async,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "resolve_calling_agent_id",
+        lambda _from_agent=None: "bot_a",
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "agent_exists",
+        lambda _to_agent, _base_url=None: True,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent_management.chat_with_agent(
+            to_agent="bot_b",
+            text="Need help",
+        )
 
 
 async def test_chat_with_agent_arms_kill_deadline_from_timeout(monkeypatch):
@@ -453,7 +573,7 @@ async def test_chat_with_agent_returns_clear_error_when_agent_missing(
 async def test_spawn_subagent_inherits_root_channel_context(monkeypatch):
     captured = {}
 
-    def fake_collect(_base_url, request_payload, to_agent, _timeout):
+    async def fake_collect(_base_url, request_payload, to_agent, _timeout):
         captured["payload"] = request_payload
         captured["agent_id"] = to_agent
         return {
@@ -469,7 +589,7 @@ async def test_spawn_subagent_inherits_root_channel_context(monkeypatch):
 
     monkeypatch.setattr(
         agent_management,
-        "collect_final_agent_chat_response",
+        "collect_final_agent_chat_response_async",
         fake_collect,
     )
     monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
@@ -504,7 +624,12 @@ async def test_spawn_subagent_inherits_root_channel_context(monkeypatch):
 async def test_spawn_subagent_inherits_approval_level(monkeypatch):
     captured = {}
 
-    def fake_collect(_base_url, request_payload, _to_agent, _timeout):
+    async def fake_collect(
+        _base_url,
+        request_payload,
+        _to_agent,
+        _timeout,
+    ):
         captured["payload"] = request_payload
         return {
             "output": [
@@ -519,7 +644,7 @@ async def test_spawn_subagent_inherits_approval_level(monkeypatch):
 
     monkeypatch.setattr(
         agent_management,
-        "collect_final_agent_chat_response",
+        "collect_final_agent_chat_response_async",
         fake_collect,
     )
     monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
@@ -967,7 +1092,7 @@ async def test_spawn_subagent_empty_batch_uses_single_task(
 ):
     collected = []
 
-    def fake_collect(_base, payload, _agent_id, _timeout):
+    async def fake_collect(_base, payload, _agent_id, _timeout):
         collected.append(payload)
         return {
             "output": [
@@ -982,7 +1107,7 @@ async def test_spawn_subagent_empty_batch_uses_single_task(
 
     monkeypatch.setattr(
         agent_management,
-        "collect_final_agent_chat_response",
+        "collect_final_agent_chat_response_async",
         fake_collect,
     )
     monkeypatch.setattr(agent_management.asyncio, "to_thread", fake_to_thread)
@@ -1356,7 +1481,7 @@ async def test_spawn_subagent_top_level_string_bools(monkeypatch):
     collected: list[dict] = []
     forked: list[str] = []
 
-    def fake_collect(_base, payload, _agent_id, _timeout):
+    async def fake_collect(_base, payload, _agent_id, _timeout):
         collected.append(payload)
         return {
             "output": [
@@ -1375,7 +1500,7 @@ async def test_spawn_subagent_top_level_string_bools(monkeypatch):
 
     monkeypatch.setattr(
         agent_management,
-        "collect_final_agent_chat_response",
+        "collect_final_agent_chat_response_async",
         fake_collect,
     )
     monkeypatch.setattr(
@@ -1632,7 +1757,7 @@ async def test_spawn_foreground_omitted_timeout_waits_600(monkeypatch):
 
     captured: dict = {}
 
-    def fake_collect(_base, _payload, _agent_id, timeout):
+    async def fake_collect(_base, _payload, _agent_id, timeout):
         captured["timeout"] = timeout
         return {
             "output": [
@@ -1643,12 +1768,94 @@ async def test_spawn_foreground_omitted_timeout_waits_600(monkeypatch):
     _patch_spawn_runtime(monkeypatch)
     monkeypatch.setattr(
         agent_management,
-        "collect_final_agent_chat_response",
+        "collect_final_agent_chat_response_async",
         fake_collect,
     )
     response = await agent_management.spawn_subagent(task="do work")
     assert captured["timeout"] == DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
     assert "ERROR" not in response.content[0].text
+
+
+async def test_spawn_foreground_uses_coordinator_owned_http_timeout(
+    monkeypatch,
+):
+    from qwenpaw.tool_calls import (
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+        reset_call_context,
+        set_call_context,
+    )
+    from qwenpaw.tool_calls._context import ToolCallContext
+
+    captured = {}
+
+    async def fake_collect(_base, _payload, _agent_id, timeout):
+        captured["timeout"] = timeout
+        return {
+            "output": [
+                {"content": [{"type": "text", "text": "done"}]},
+            ],
+        }
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect,
+    )
+    loop = asyncio.get_running_loop()
+    ctx = ToolCallContext(
+        tool_call_id="tc-spawn",
+        tool_name="spawn_subagent",
+        session_id="s",
+        agent_id="a",
+        root_session_id="r",
+        started_at=loop.time(),
+        offload_deadline=None,
+        cancel_event=asyncio.Event(),
+    )
+    token = set_call_context(ctx)
+    try:
+        response = await agent_management.spawn_subagent(task="do work")
+    finally:
+        reset_call_context(token)
+
+    assert captured["timeout"] == float(
+        COORDINATOR_OWNED_EXEC_TIMEOUT_SECS,
+    )
+    assert "ERROR" not in response.content[0].text
+
+
+async def test_spawn_foreground_stops_subagent_when_cancelled(monkeypatch):
+    stop_calls = []
+
+    async def fake_collect(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    async def fake_stop(*args, **kwargs):
+        stop_calls.append((args, kwargs))
+        return True
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(
+        agent_management,
+        "_generate_subagent_session_id",
+        lambda: "sub-cancel",
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent_management.spawn_subagent(task="do work")
+
+    assert stop_calls == [((None, "sub-cancel", "bot-a"), {})]
 
 
 async def test_spawn_batch_omitted_timeout_passes_none(monkeypatch):
@@ -1693,7 +1900,7 @@ async def test_spawn_fork_foreground_omitted_timeout_waits_600(monkeypatch):
             "worktree_branch": "",
         }
 
-    def fake_collect(_base, _payload, _agent_id, timeout):
+    async def fake_collect(_base, _payload, _agent_id, timeout):
         captured["timeout"] = timeout
         return {
             "output": [
@@ -1705,7 +1912,7 @@ async def test_spawn_fork_foreground_omitted_timeout_waits_600(monkeypatch):
     monkeypatch.setattr(agent_management, "_call_fork_api", fake_fork_api)
     monkeypatch.setattr(
         agent_management,
-        "collect_final_agent_chat_response",
+        "collect_final_agent_chat_response_async",
         fake_collect,
     )
     response = await agent_management.spawn_subagent(
@@ -1714,6 +1921,77 @@ async def test_spawn_fork_foreground_omitted_timeout_waits_600(monkeypatch):
     )
     assert captured["timeout"] == DEFAULT_SPAWN_FOREGROUND_TIMEOUT_SECONDS
     assert "ERROR" not in response.content[0].text
+
+
+@pytest.mark.parametrize("mark_fails", [False, True])
+async def test_spawn_fork_foreground_stops_subagent_when_cancelled(
+    monkeypatch,
+    mark_fails,
+):
+    from qwenpaw.agents import fork_project
+
+    stop_calls = []
+    failed_calls = []
+
+    async def fake_fork_api(**_kwargs):
+        return {
+            "fork_session_id": "fork-cancel",
+            "worktree_path": "/tmp/fork-cancel",
+            "worktree_branch": "fork/cancel",
+        }
+
+    async def fake_collect(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    async def fake_stop(*args, **kwargs):
+        stop_calls.append((args, kwargs))
+        return True
+
+    def fake_mark_failed(*args, **kwargs):
+        failed_calls.append((args, kwargs))
+        if mark_fails:
+            raise RuntimeError("cannot mark fork failed")
+
+    _patch_spawn_runtime(monkeypatch)
+    monkeypatch.setattr(agent_management, "_call_fork_api", fake_fork_api)
+    monkeypatch.setattr(fork_project, "register_fork", lambda *a, **k: True)
+    monkeypatch.setattr(
+        fork_project,
+        "get_active_fork_scope",
+        lambda *_a, **_k: "scope-cancel",
+    )
+    monkeypatch.setattr(
+        fork_project,
+        "mark_fork_failed",
+        fake_mark_failed,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "collect_final_agent_chat_response_async",
+        fake_collect,
+    )
+    monkeypatch.setattr(
+        agent_management,
+        "stop_agent_chat_async",
+        fake_stop,
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await agent_management.spawn_subagent(
+            task="do work",
+            fork=True,
+        )
+
+    assert stop_calls == [((None, "fork-cancel", "bot-a"), {})]
+    assert failed_calls == [
+        (
+            ("/tmp/fork-cancel", "fork/cancel"),
+            {
+                "reason": "Forked subagent cancelled",
+                "expected_scope": "scope-cancel",
+            },
+        ),
+    ]
 
 
 async def test_spawn_fork_background_uses_submit_echo_for_watchdog(

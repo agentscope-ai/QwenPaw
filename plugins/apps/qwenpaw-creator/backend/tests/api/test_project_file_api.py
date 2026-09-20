@@ -12,7 +12,7 @@ from api.project_file_routes import router
 from domain.errors import CreatorError
 from services.project_files.commit import ProjectCommitBoundary
 from services.project_files.facade import CreatorFileServices
-from services.project_files.json_pointer import hash_json_value
+from services.project_files.json_pointer import MISSING, hash_json_value
 from services.project_files.models import Project
 from services.runtime_files import IdempotencyRecordStore, IdempotencyStatus
 from services.runtime_files.models import ReviewBoundary
@@ -68,7 +68,7 @@ def _patch_payload(
     }
 
 
-def _pending_review(services, base):
+def _pending_review(services, base, *, interrupted_run_id="run-1"):
     candidate = base.project.model_dump(mode="json")
     candidate["name"] = "Review candidate"
     result = ProjectCommitBoundary(services.projects).commit(
@@ -79,7 +79,7 @@ def _pending_review(services, base):
         review_boundary=ReviewBoundary(
             request_message_seq=2,
             request_id="request-2",
-            interrupted_run_id="run-1",
+            interrupted_run_id=interrupted_run_id,
             accepted_generation=base.generation,
             accepted_etag=base.etag,
         ),
@@ -235,11 +235,14 @@ def test_invalid_external_project_keeps_last_good_and_reports_sync_error(
     assert result.json()["lastGoodGeneration"] == 0
 
 
-def test_active_review_poll_is_created_only_from_review_boundary(
+def test_active_review_poll_reads_atomic_heads_while_project_writer_is_busy(
     tmp_path,
     run_scenario,
+    api_request,
 ) -> None:
     app, services, base = _app(tmp_path)
+    url = "/projects/project-1/runtime/reviews/active"
+    assert api_request(app, "GET", url).status_code == 204
     _pending_review(services, base)
 
     async def scenario(client):
@@ -250,7 +253,8 @@ def test_active_review_poll_is_created_only_from_review_boundary(
         )
         return first, second
 
-    first, second = run_scenario(app, scenario)
+    with services.projects.lifecycle_lock("project-1"):
+        first, second = run_scenario(app, scenario)
     assert first.status_code == 200
     reviews = first.json()
     assert isinstance(reviews, list) and len(reviews) == 1
@@ -398,11 +402,12 @@ def test_review_decision_replays_success_and_rejects_payload_drift(
     assert drift.json()["code"] == "CONFLICT"
 
 
-def test_rejection_feedback_appends_exactly_one_action_specific_message(
+def test_review_decision_appends_exactly_one_action_specific_message(
     tmp_path,
     run_scenario,
 ) -> None:
     for action, expected_role, expected_channel, expected_text in (
+        ("ACCEPT", "user", "agentdock", "用户已保留本轮创作修改"),
         ("UNDO_ONLY", "system", "runtime", "没有要求重做"),
         ("UNDO_AND_REGENERATE", "user", "agentdock", "明确要求重新生成"),
     ):
@@ -412,15 +417,21 @@ def test_rejection_feedback_appends_exactly_one_action_specific_message(
             session_id="session-1",
             conversation_id="conversation-1",
         )
-        review = _pending_review(services, base)
+        review = _pending_review(services, base, interrupted_run_id=None)
         payload = _decision_payload(
             review,
             f"decision-{action.lower()}",
-            decision="REJECT",
-            rejectionFeedback={
-                "action": action,
-                "feedbackNote": "人物状态不对；保持身份一致",
-            },
+            decision="ACCEPT" if action == "ACCEPT" else "REJECT",
+            **(
+                {}
+                if action == "ACCEPT"
+                else {
+                    "rejectionFeedback": {
+                        "action": action,
+                        "feedbackNote": "人物状态不对；保持身份一致",
+                    },
+                }
+            ),
         )
 
         first, replay = _decide_twice(
@@ -437,10 +448,15 @@ def test_rejection_feedback_appends_exactly_one_action_specific_message(
         assert len(messages) == 1
         assert messages[0].role == expected_role
         assert messages[0].channel.value == expected_channel
-        assert messages[0].source == "review_rejection_feedback"
+        assert messages[0].source == (
+            "review_approval_resume"
+            if action == "ACCEPT"
+            else "review_rejection_feedback"
+        )
         assert messages[0].content_parts[0].text is not None
         assert expected_text in messages[0].content_parts[0].text
-        assert "人物状态不对" in messages[0].content_parts[0].text
+        if action != "ACCEPT":
+            assert "人物状态不对" in messages[0].content_parts[0].text
 
 
 def test_rejection_feedback_requires_a_reject_decision(
@@ -514,6 +530,7 @@ def test_missing_project_writes_do_not_create_a_phantom_directory(
     app.dependency_overrides[project_file_services] = lambda: services
 
     async def scenario(client):
+        poll = await client.get("/projects/missing/runtime/reviews/active")
         patch = await client.patch(
             "/projects/missing/project",
             headers={"Idempotency-Key": "missing-patch"},
@@ -552,10 +569,10 @@ def test_missing_project_writes_do_not_create_a_phantom_directory(
                 ],
             },
         )
-        return patch, acquire, review
+        return poll, patch, acquire, review
 
     results = run_scenario(app, scenario)
-    assert [result.status_code for result in results] == [404] * 3
+    assert [result.status_code for result in results] == [404] * 4
     assert not (tmp_path / "missing").exists()
 
 
@@ -605,3 +622,239 @@ def test_project_delete_between_patch_precheck_and_lifecycle_admission_is_404(
     result = run_scenario(app, scenario)
     assert result.status_code == 404
     assert not services.projects.project_root("project-1").exists()
+
+
+def _snapshot_app(tmp_path):
+    """A ``project-1`` with one timeline element and a Runtime Session."""
+
+    # pylint: disable=import-outside-toplevel
+    from services.project_files.models import (
+        ElementLocation,
+        R2VCreation,
+        TimelineElement,
+        TimelineSpan,
+    )
+
+    services = CreatorFileServices.create(tmp_path.resolve())
+    element = TimelineElement(
+        element_id="el-1",
+        label="原始",
+        span=TimelineSpan(start_tick=0, duration_tick=4000),
+        location=ElementLocation(),
+        creation=R2VCreation(
+            narrative="猫发现老鼠后追逐",
+            storyboard_prompt="动画分镜：猫发现并追逐老鼠",
+            video_prompt="动画，猫从左向右追逐老鼠",
+        ),
+    )
+    project = Project.new(project_id="project-1", name="Snapshot")
+    main = project.timelines.items["timeline:main"]
+    project.timelines.items["timeline:main"] = main.model_copy(
+        update={"elements_by_id": {element.element_id: element}},
+    )
+    services.projects.create(
+        project,
+        initialize_staged_project=lambda staged_root: (
+            services.sessions.initialize_staged_project(
+                staged_root,
+                "project-1",
+                session_id="session-1",
+                conversation_id="conversation-1",
+                initial_goal="做一条视频",
+                goal_id="goal-1",
+                initial_message_id="message-initial",
+                initial_client_message_id="client-initial",
+            )
+        ),
+    )
+    app = FastAPI()
+    app.add_exception_handler(CreatorError, creator_error_handler)
+    app.include_router(router)
+    app.dependency_overrides[project_file_services] = lambda: services
+    return app, services
+
+
+def _agent_edit(services, label: str):
+    """One agent commit that runs the auto-snapshot pass; returns candidate."""
+
+    # pylint: disable=import-outside-toplevel
+    from services.project_files.auto_snapshot import auto_snapshot_timelines
+
+    base = services.projects.read("project-1")
+    base_data = base.project.model_dump(mode="json")
+    candidate = base.project.model_dump(mode="json")
+    candidate["timelines"]["items"]["timeline:main"]["elements_by_id"]["el-1"][
+        "label"
+    ] = label
+    auto_snapshot_timelines(base_data, candidate)
+    return base, candidate
+
+
+def test_applying_a_snapshot_steers_the_agent_and_forces_a_fresh_baseline(
+    tmp_path,
+    monkeypatch,
+    run_scenario,
+) -> None:
+    """回滚落地后：agent 收到 inbox 通知，且下一次 agent 写入必须留底。
+
+    两处产品缺口的守护：快照切换对 agent 可感知（steer，不是 quiet），
+    且十分钟去重窗口不再压制回滚后的第一份基线。
+    """
+
+    # pylint: disable=import-outside-toplevel
+    from types import SimpleNamespace
+
+    from services.file_agent_runtime.notifications import (
+        RuntimeEventKind,
+        RuntimeNotificationBus,
+    )
+    from services.project_files import snapshot_restore_hold
+
+    snapshot_restore_hold.clear()
+    app, services = _snapshot_app(tmp_path)
+
+    wakes: list[str] = []
+    bus = RuntimeNotificationBus(services, wake_dispatcher=wakes.append)
+    monkeypatch.setattr(
+        project_file_routes,
+        "get_creator_agent_runtime",
+        lambda: SimpleNamespace(notifications=bus),
+    )
+
+    # Agent 改一次 → 铸出改前的自动快照，窗口随之打开。
+    base, candidate = _agent_edit(services, "agent 改过")
+    services.commits.commit(
+        base=base,
+        candidate=candidate,
+        origin="runtime_task",
+    )
+    snapshot_id = "snapshot:timeline:main:1"
+    after_agent = services.projects.read("project-1")
+    assert snapshot_id in after_agent.project.timelines.items
+
+    # 用户在前端应用该快照。真实 applySnapshot 在同一个 PATCH 里先建
+    # "应用前备份"快照，再回滚 live —— 备份不得被误判成回滚目标。
+    frozen = after_agent.project.timelines.items[snapshot_id]
+    restored_elements = {}
+    for snap_id, frozen_element in frozen.elements_by_id.items():
+        original = snap_id[len(f"{snapshot_id}:") :]
+        restored_elements[original] = frozen_element.model_copy(
+            update={"element_id": original},
+        ).model_dump(mode="json")
+    live_now = after_agent.project.timelines.items["timeline:main"]
+    backup_id = "snapshot:timeline:main:2"
+    backup = live_now.model_copy(
+        update={
+            "timeline_id": backup_id,
+            "name": "应用前备份 · 2026-09-05 04:00",
+            "elements_by_id": {
+                f"{backup_id}:{element_id}": item.model_copy(
+                    update={"element_id": f"{backup_id}:{element_id}"},
+                )
+                for element_id, item in live_now.elements_by_id.items()
+            },
+        },
+    ).model_dump(mode="json")
+    order_index = len(after_agent.project.timelines.order)
+
+    async def scenario(client):
+        return await client.patch(
+            PROJECT_URL,
+            headers={"Idempotency-Key": "apply-snapshot"},
+            json={
+                "clientCommandId": "apply-snapshot",
+                "editSessionId": "edit",
+                "baseGeneration": after_agent.generation,
+                "baseEtag": after_agent.etag,
+                "operations": [
+                    {
+                        "op": "add",
+                        "path": f"/timelines/items/{backup_id}",
+                        "value": backup,
+                        "expectedValueHash": hash_json_value(MISSING),
+                    },
+                    {
+                        "op": "add",
+                        "path": f"/timelines/order/{order_index}",
+                        "value": backup_id,
+                        "expectedValueHash": hash_json_value(MISSING),
+                    },
+                    {
+                        "op": "replace",
+                        "path": (
+                            "/timelines/items/timeline:main/elements_by_id"
+                        ),
+                        "value": restored_elements,
+                        "expectedValueHash": hash_json_value(
+                            live_now.model_dump(mode="json")["elements_by_id"],
+                        ),
+                    },
+                ],
+            },
+        )
+
+    response = run_scenario(app, scenario)
+    assert response.status_code == 200
+    rolled_back = response.json()["project"]["timelines"]["items"][
+        "timeline:main"
+    ]["elements_by_id"]["el-1"]
+    assert rolled_back["label"] == "原始"
+
+    # ① agent 感知：一条 user-role RUNTIME inbox 消息 + 唤醒。
+    steers = [
+        item
+        for item in _messages(services.sessions, "session-1")
+        if item.metadata.get("notificationKind")
+        == RuntimeEventKind.TIMELINE_SNAPSHOT_RESTORED.value
+    ]
+    assert len(steers) == 1
+    assert steers[0].role == "user"
+    text = steers[0].content_parts[0].text
+    assert snapshot_id in text
+    assert backup_id not in text, "备份快照不得被当成回滚目标"
+    assert wakes == ["project-1"]
+
+    # ② 回滚后 agent 的下一次写入留底，尽管仍在十分钟窗口内。
+    # 备份占了 :2，所以强制留下的基线是 :3。
+    _base2, candidate2 = _agent_edit(services, "agent 回滚后改写")
+    assert "snapshot:timeline:main:3" in candidate2["timelines"]["items"]
+    snapshot_restore_hold.clear()
+
+
+def test_only_a_wholesale_element_replace_pays_for_rollback_detection() -> (
+    None
+):
+    """短路守护：只有整体替换 live 元素表的 PATCH 才跑回滚检测。
+
+    检测要与项目内每个快照比对内容，且发生在 lifecycle 排他锁内（实测
+    在 15 快照项目上约 275ms/请求）。前端每次 blur 都发 PATCH，普通字段
+    编辑必须完全不进这条路径。
+    """
+
+    def op(path: str, kind: str = "replace"):
+        return project_file_routes.ProjectPatchOperation(
+            op=kind,
+            path=path,
+            value={},
+            expectedValueHash=hash_json_value({}),
+        )
+
+    replaces = project_file_routes._replaces_live_elements_wholesale
+    # 回滚形状：整体替换 live 元素表。
+    assert replaces([op("/timelines/items/timeline:main/elements_by_id")])
+    # 普通编辑：更深的 pointer。
+    assert not replaces(
+        [op("/timelines/items/timeline:main/elements_by_id/el-1/label")],
+    )
+    # 建快照 / 改时间线属性 / 改无关字段都不触发。
+    assert not replaces(
+        [
+            op("/timelines/items/snapshot:timeline:main:1", "add"),
+            op("/timelines/items/timeline:main/color_grade"),
+            op("/name"),
+        ],
+    )
+    # 冻结快照自己的元素表不算回滚（agent 侧另有 fail-closed 拦截）。
+    assert not replaces(
+        [op("/timelines/items/snapshot:timeline:main:1/elements_by_id")],
+    )
