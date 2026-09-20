@@ -39,6 +39,8 @@ class _DoomState:
     consecutive_hits: int = 0
     prompt: str = ""
     last_recorded_iter: int = -1
+    evidence_version: int = 0
+    last_evaluated_version: int = 0
 
 
 class DoomLoopGate(LoopGate):
@@ -94,12 +96,22 @@ class DoomLoopGate(LoopGate):
     ) -> None:
         """Record a completed tool call."""
         state = self._ensure_state()
+        self._append_record(state, tool_name, args_hash)
+
+    @staticmethod
+    def _append_record(
+        state: _DoomState,
+        tool_name: str,
+        args_hash: str,
+    ) -> None:
+        """Append one tool call and mark new repetition evidence."""
         state.history.append(
             _ToolCallRecord(
                 tool_name=tool_name,
                 args_hash=args_hash,
             ),
         )
+        state.evidence_version += 1
 
     def reset_turn(self) -> None:
         """Clear history and counters for current session."""
@@ -109,6 +121,7 @@ class DoomLoopGate(LoopGate):
             state.consecutive_hits = 0
             state.prompt = ""
             state.last_recorded_iter = -1
+            state.last_evaluated_version = state.evidence_version
 
     async def check(
         self,
@@ -124,6 +137,20 @@ class DoomLoopGate(LoopGate):
         )
         state = self._ensure_state()
         self._auto_record_from_ctx(ctx, state)
+
+        has_new_evidence = (
+            state.evidence_version != state.last_evaluated_version
+        )
+        state.last_evaluated_version = state.evidence_version
+
+        if isinstance(ctx, dict) and ctx.get("has_tool_calls") is False:
+            state.history.clear()
+            state.consecutive_hits = 0
+            state.prompt = ""
+            return _bypass
+
+        if not has_new_evidence:
+            return _bypass
 
         is_looping = self._detect_repetition(state)
 
@@ -217,12 +244,7 @@ class DoomLoopGate(LoopGate):
                     else getattr(block, "input", "")
                 )
                 args_hash = self._hash_args(raw_input)
-                state.history.append(
-                    _ToolCallRecord(
-                        tool_name=name,
-                        args_hash=args_hash,
-                    ),
-                )
+                self._append_record(state, name, args_hash)
                 return
 
     @staticmethod

@@ -3,6 +3,7 @@
 """Tests for DoomLoopGate reset behaviour."""
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -56,6 +57,77 @@ async def test_catalog_stop_stage_uses_stage_prompt():
 
     assert terminal.action == StopAction.TERMINATE
     assert terminal.reason == stop_stage.prompt
+
+
+@pytest.mark.asyncio
+async def test_text_only_round_does_not_escalate_stale_tool_evidence(gate):
+    """A text response cannot advance a retained tool-call repetition."""
+    agent = SimpleNamespace(
+        state=SimpleNamespace(
+            context=[
+                SimpleNamespace(
+                    content=[
+                        {
+                            "type": "tool_call",
+                            "name": "tool_a",
+                            "input": {"command": "same"},
+                        },
+                    ],
+                ),
+            ],
+        ),
+    )
+
+    for iteration in range(1, 3):
+        result = await gate.check(
+            {
+                "agent": agent,
+                "iteration": iteration,
+                "has_tool_calls": True,
+            },
+        )
+        assert result.action == StopAction.BYPASS
+
+    warning = await gate.check(
+        {
+            "agent": agent,
+            "iteration": 3,
+            "has_tool_calls": True,
+        },
+    )
+    assert warning.action == StopAction.INTERRUPT_AND_CONTINUE
+
+    agent.state.context = [
+        SimpleNamespace(
+            content=[{"type": "text", "text": "Done."}],
+        ),
+    ]
+    text_result = await gate.check(
+        {
+            "agent": agent,
+            "iteration": 4,
+            "has_tool_calls": False,
+            "final_msg": agent.state.context[-1],
+        },
+    )
+
+    assert text_result.action == StopAction.BYPASS
+    assert gate._ensure_state().consecutive_hits == 0
+    assert not gate._ensure_state().history
+
+
+@pytest.mark.asyncio
+async def test_rechecking_same_evidence_does_not_advance_stages(gate):
+    """Repeated checks of one window are idempotent."""
+    for _ in range(3):
+        gate.record("tool_a", "hash1")
+
+    warning = await gate.check({"iteration": 0})
+    repeated_check = await gate.check({"iteration": 0})
+
+    assert warning.action == StopAction.INTERRUPT_AND_CONTINUE
+    assert repeated_check.action == StopAction.BYPASS
+    assert gate._ensure_state().consecutive_hits == 3
 
 
 @pytest.fixture(autouse=True)
