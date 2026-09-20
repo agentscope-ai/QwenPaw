@@ -238,18 +238,15 @@ function Dock({
       setOpen(true);
     });
   };
-  const close = (id: string) =>
-    void run(async () => {
-      await api.close(id);
-      if (mounted.current)
-        setTabs((current) => current.filter((tab) => tab.id !== id));
-    });
   const closeTabs = (ids: string[]) =>
     void run(async () => {
+      let remaining = tabs;
       for (const id of ids) {
         await api.close(id);
-        if (mounted.current)
-          setTabs((current) => current.filter((tab) => tab.id !== id));
+        if (!mounted.current) return;
+        remaining = remaining.filter((tab) => tab.id !== id);
+        setTabs(remaining);
+        if (remaining.length === 0) setOpen(false);
       }
     });
   const restart = () =>
@@ -367,7 +364,7 @@ function Dock({
                   aria-label={`${t("terminal.close", "Close terminal")} ${
                     index + 1
                   }`}
-                  onClick={() => close(tab.id)}
+                  onClick={() => closeTabs([tab.id])}
                 >
                   <X size={12} />
                 </button>

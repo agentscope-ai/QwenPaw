@@ -165,6 +165,10 @@ describe("conversation terminal dock", () => {
       );
       expect(mocks.close.mock.calls.map(([id]) => id)).toEqual(ids);
       expect(mocks.create).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Terminal" })).toHaveAttribute(
+        "aria-expanded",
+        String(remaining > 0),
+      );
       if (label === "Close other terminals")
         expect(screen.getByTestId("terminal-view")).toHaveTextContent("second");
     },
@@ -279,5 +283,63 @@ describe("conversation terminal dock", () => {
     await waitFor(() => expect(mocks.close).toHaveBeenCalledWith("first"));
     await waitFor(() => expect(screen.getAllByRole("tab")).toHaveLength(1));
     expect(screen.getByTestId("terminal-view")).toHaveTextContent("second");
+  });
+
+  it.each(["button", "Close terminal", "Close all terminals"])(
+    "collapses after closing the last tab via %s and creates on reopening",
+    async (action) => {
+      mocks.list.mockResolvedValueOnce([tab("first")]);
+      render(
+        <TerminalDock scope={scope} isDark={false}>
+          <Chat />
+        </TerminalDock>,
+      );
+      const launcher = screen.getByRole("button", { name: "Terminal" });
+      fireEvent.click(launcher);
+      const first = await screen.findByRole("tab", { name: "zsh 1" });
+      mocks.collapse.mockClear();
+      if (action === "button") {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Close terminal 1" }),
+        );
+      } else {
+        fireEvent.contextMenu(first);
+        fireEvent.click(await screen.findByRole("menuitem", { name: action }));
+      }
+      await waitFor(() =>
+        expect(launcher).toHaveAttribute("aria-expanded", "false"),
+      );
+      expect(mocks.close).toHaveBeenCalledWith("first");
+      expect(mocks.collapse).toHaveBeenCalled();
+      expect(
+        screen.queryByRole("button", { name: "New terminal" }),
+      ).not.toBeInTheDocument();
+      expect(mocks.create).not.toHaveBeenCalled();
+      expect(mocks.unmount).not.toHaveBeenCalled();
+      fireEvent.click(launcher);
+      await screen.findByRole("tab", { name: "zsh 1" });
+      expect(mocks.create).toHaveBeenCalledTimes(1);
+      expect(launcher).toHaveAttribute("aria-expanded", "true");
+    },
+  );
+
+  it("keeps the last tab visible when closing fails", async () => {
+    mocks.list.mockResolvedValue([tab("first")]);
+    mocks.close.mockRejectedValueOnce(new Error("Close failed"));
+    render(
+      <TerminalDock scope={scope} isDark={false}>
+        <Chat />
+      </TerminalDock>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Close terminal 1" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Close failed");
+    expect(screen.getByRole("tab", { name: "zsh 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Terminal" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 });
