@@ -30,10 +30,7 @@ def patch_approval_service() -> None:
         return
 
     from qwenpaw.app.approvals.service import ApprovalService
-    from qwenpaw.security.tool_guard.approval import (
-        ApprovalDecision,
-        ApprovalScope,
-    )
+    from qwenpaw.security.tool_guard.approval import ApprovalDecision
 
     _ORIG_CREATE_PENDING = ApprovalService.create_pending
     _ORIG_RESOLVE_REQUEST = ApprovalService.resolve_request
@@ -65,17 +62,24 @@ def patch_approval_service() -> None:
             )
         return pending
 
+    # Forward every remaining argument instead of restating the native
+    # signature. ``resolve_request`` gained ``scope`` and then ``actor``
+    # after this plugin shipped; a hand-written parameter list missed
+    # each addition and broke approvals with a TypeError during argument
+    # binding, before the original method could run.
     async def resolve_request_wrapped(
         self,
         request_id: str,
         decision: Any,
-        scope: ApprovalScope | None = None,
+        *args: Any,
+        **kwargs: Any,
     ):
         resolved = await _ORIG_RESOLVE_REQUEST(
             self,
             request_id,
             decision,
-            scope=scope,
+            *args,
+            **kwargs,
         )
         if resolved is None:
             return None
@@ -123,8 +127,19 @@ def patch_approval_service() -> None:
             )
         return resolved
 
-    async def cancel_all_wrapped(self, root_session_id: str) -> int:
-        n = await _ORIG_CANCEL_ALL(self, root_session_id)
+    async def cancel_all_wrapped(
+        self,
+        root_session_id: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> int:
+        # Same transparent forwarding as ``resolve_request_wrapped``.
+        n = await _ORIG_CANCEL_ALL(
+            self,
+            root_session_id,
+            *args,
+            **kwargs,
+        )
         if n > 0:
             try:
                 schedule_emit_pet_event(
