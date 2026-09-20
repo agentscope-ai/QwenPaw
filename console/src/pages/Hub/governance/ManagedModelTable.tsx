@@ -168,11 +168,14 @@ export default function ManagedModelTable({
             title: t("models.maxTokensLabel"),
             dataIndex: "output_token_limit",
             width: 120,
-            render: (value: number) => (
-              <span title={value.toLocaleString(i18n.language)}>
-                {formatTokens(value, i18n.language)}
-              </span>
-            ),
+            render: (value: number | null) =>
+              value == null ? (
+                t("models.providerDefault")
+              ) : (
+                <span title={value.toLocaleString(i18n.language)}>
+                  {formatTokens(value, i18n.language)}
+                </span>
+              ),
           },
           {
             title: t("hub.governance.models.access"),

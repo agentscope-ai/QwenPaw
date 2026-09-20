@@ -349,6 +349,12 @@ export function useSkillPool() {
     setBroadcastInitialNames(skill ? [skill.name] : []);
   };
 
+  const openBatchBroadcast = () => {
+    if (selectedPoolSkills.size === 0) return;
+    setBroadcastInitialNames(Array.from(selectedPoolSkills));
+    setMode("broadcast");
+  };
+
   const openImportBuiltin = async () => {
     try {
       setImportBuiltinLoading(true);
@@ -1280,6 +1286,7 @@ export function useSkillPool() {
     closeModal,
     openCreate,
     openBroadcast,
+    openBatchBroadcast,
     openImportBuiltin,
     closeImportBuiltin,
     closeImportModal,

@@ -104,12 +104,9 @@ def upstream_payload(body, model, cap, connection):
             "hub_thinking_budget",
         }
     }
-    payload.update(
-        {
-            "model": model["upstream_model"],
-            model["output_limit_field"]: cap,
-        },
-    )
+    payload["model"] = model["upstream_model"]
+    if cap is not None:
+        payload[model["output_limit_field"]] = cap
     level = body.get("hub_thinking_level", "inherit")
     if level != "inherit":
         provider = model_provider(model, connection)
@@ -146,7 +143,7 @@ def upstream_payload(body, model, cap, connection):
             )
         if "thinking_enable" in controls:
             controls["enable_thinking"] = controls.pop("thinking_enable")
-        if "thinking_budget" in controls:
+        if "thinking_budget" in controls and cap is not None:
             controls["thinking_budget"] = min(controls["thinking_budget"], cap)
         payload.update(controls)
     if body.get("stream", False):

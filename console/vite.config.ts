@@ -162,12 +162,34 @@ export default defineConfig(({ command, mode }) => {
             ) {
               return "editor-vendor";
             }
+            // Keep the chat package's internally circular modules together,
+            // but leave its third-party dependencies in the lazy import graph.
+            const chatPackageRoot = "node_modules/@agentscope-ai/chat/";
+            const chatPackageIndex = id.indexOf(chatPackageRoot);
+            if (chatPackageIndex >= 0) {
+              const chatRelativePath = id.slice(
+                chatPackageIndex + chatPackageRoot.length,
+              );
+              if (!chatRelativePath.includes("node_modules/")) {
+                return "chat-vendor";
+              }
+            }
+            // XMarkdown is also lazy-only. Do not let the broad @ant-design
+            // rule below merge it into the initial UI vendor chunk.
+            if (id.includes("node_modules/@ant-design/x-markdown/")) {
+              return;
+            }
             // Ant Design + AgentScope design system (merged to avoid circular deps)
             if (
               id.includes("node_modules/antd/") ||
               id.includes("node_modules/antd-style/") ||
               id.includes("node_modules/@ant-design/") ||
-              id.includes("node_modules/@agentscope-ai/")
+              id.includes("node_modules/@babel/runtime/") ||
+              id.includes("node_modules/clsx/") ||
+              id.includes("node_modules/dompurify/") ||
+              id.includes("node_modules/lucide-react/") ||
+              (id.includes("node_modules/@agentscope-ai/") &&
+                !id.includes(chatPackageRoot))
             ) {
               return "ui-vendor";
             }

@@ -26,6 +26,43 @@ from utils.helpers import log_test_step, log_test_result
 
 logger = logging.getLogger(__name__)
 
+# The ACP page's own create button.
+#
+# The selector this replaces was
+#   button:has-text("Create"), ... button:has-text("New")
+# plus ``.first``. Upstream #7502 added a "New task" button to the sidebar
+# whose label is real text (``<span>New task</span>`` in ``layouts/Sidebar.tsx``,
+# not merely an aria-label), so ``has-text("New")`` matched it. The sidebar
+# comes before ``main`` in DOM order and ``.first`` picks DOM order, so the case
+# clicked "New task", got navigated to /chat, and then failed asserting that the
+# ACP drawer was visible — the drawer never had a chance to open. The failure
+# surface was misleading twice over: pytest's logging prefix pointed at
+# ``test_acp.py:243`` (a ``logger.error`` call inside the except block) and the
+# traceback line at the drawer assertion, neither of which is where the defect
+# is.
+#
+# Three things pin the new selector to the right button:
+# - ``headerActions`` is the PageHeader action row of this page
+#   (``pages/Agent/ACP/index.tsx`` -> ``stylesACP.headerActions``). No sidebar
+#   component uses that class, so scoping to it excludes the sidebar entirely.
+#   This matters because the ACP page renders no ``<main>`` element, so the
+#   usual "limit to main" scoping is not available here.
+# - ``btn-primary``: the button is ``<Button type="primary">``. Its sibling
+#   "Node Settings" has no type, so this also separates the two.
+# - The label comes from ``acp.create``, which is "Add Custom Agent" in en.json
+#   and "新增 Custom Agent" in zh.json — note it contains neither "Create" nor
+#   "New" in English, which is why the old text anchors could only ever match
+#   the sidebar.
+# ``btn-primary`` is not unique on its own: the account panel in
+# ``layouts/Sidebar.tsx`` also has a primary Save button, and five other pages
+# define their own ``headerActions`` class. The two anchors together are.
+ACP_CREATE_BUTTON = (
+    '[class*="headerActions"] button.qwenpaw-btn-primary:has-text("Add Custom Agent"), '
+    '[class*="headerActions"] button.qwenpaw-btn-primary:has-text("新增 Custom Agent"), '
+    '[class*="headerActions"] button.ant-btn-primary:has-text("Add Custom Agent"), '
+    '[class*="headerActions"] button.ant-btn-primary:has-text("新增 Custom Agent")'
+)
+
 
 # ============================================================================
 # ACP-001: ACP page load and card list display
@@ -85,11 +122,7 @@ class TestACPPageDisplay:
 
             # 4. Verify create button
             log_test_step("4. Verify create button")
-            create_btn = page.locator(
-                'button:has-text("Create"), button:has-text("创建"), '
-                'button:has-text("Add"), button:has-text("添加"), '
-                'button:has-text("新增"), button:has-text("New")'
-            ).first
+            create_btn = page.locator(ACP_CREATE_BUTTON).first
             assert create_btn.is_visible(timeout=5000), "Create button should be visible"
             logger.info("Create button visible")
 
@@ -152,11 +185,7 @@ class TestCreateACPDrawerForm:
 
             # 2. Click create button
             log_test_step("2. Click create button")
-            create_btn = page.locator(
-                'button:has-text("Create"), button:has-text("创建"), '
-                'button:has-text("Add"), button:has-text("添加"), '
-                'button:has-text("新增"), button:has-text("New")'
-            ).first
+            create_btn = page.locator(ACP_CREATE_BUTTON).first
 
             assert create_btn.is_visible(timeout=5000), "Create button not visible, cannot continue"
 
@@ -607,11 +636,7 @@ class TestCreateAndDeleteCustomACP:
 
             # 2. Click create button
             log_test_step("2. Open create drawer")
-            create_btn = page.locator(
-                'button:has-text("Create"), button:has-text("创建"), '
-                'button:has-text("Add"), button:has-text("添加"), '
-                'button:has-text("新增"), button:has-text("New")'
-            ).first
+            create_btn = page.locator(ACP_CREATE_BUTTON).first
 
             assert create_btn.is_visible(timeout=5000), "Create button not visible, cannot continue"
 

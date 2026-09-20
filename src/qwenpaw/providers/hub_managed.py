@@ -123,7 +123,11 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 max_input_length=m["input_token_limit"],
                 max_input_length_configured=True,
                 max_output_length=m["output_token_limit"],
-                max_output_length_source="adapter",
+                max_output_length_source=(
+                    "adapter"
+                    if m["output_token_limit"] is not None
+                    else "unknown"
+                ),
                 supports_agent_thinking=m["supports_agent_thinking"],
                 thinking_control=m.get(f"thinking_control"),
             )

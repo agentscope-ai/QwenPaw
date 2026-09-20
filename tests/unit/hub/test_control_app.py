@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 import httpx
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.requests import ClientDisconnect
 from starlette.websockets import WebSocketDisconnect
@@ -22,6 +23,7 @@ from websockets.sync.server import ServerConnection, serve
 
 from qwenpaw.__version__ import __version__
 from qwenpaw.hub.auth import HubAuthService, HubUser
+from qwenpaw.app.routers import files
 from qwenpaw.hub.config import (
     AccessSecurityConfig,
     ControlPlaneConfig,
@@ -533,8 +535,10 @@ def test_unavailable_provisioner_keeps_control_plane_in_safe_mode(
         assert client.app.state.runtime_service.registry.list() == []
 
 
+@pytest.mark.parametrize("start_fails", [False, True])
 def test_health_starts_runtime_once_without_blocking_control_plane(
     tmp_path: Path,
+    start_fails: bool,
 ) -> None:
     provisioner = _FakeProvisioner()
     entered = threading.Event()
@@ -547,6 +551,8 @@ def test_health_starts_runtime_once_without_blocking_control_plane(
         del credentials
         entered.set()
         assert release.wait(timeout=3)
+        if start_fails:
+            raise RuntimeError("Runtime image is incompatible")
         return replace(record, state=RuntimeState.RUNNING, pid=100)
 
     with (
@@ -578,7 +584,21 @@ def test_health_starts_runtime_once_without_blocking_control_plane(
             time.sleep(0.01)
 
         ready = client.get("/api/hub/healthz", headers=headers)
-        assert ready.json()["runtime_state"] == "running"
+        assert ready.json()["runtime_state"] == (
+            "failed" if start_fails else "running"
+        )
+        if start_fails:
+            for _ in range(2):
+                response = client.get("/api/agents", headers=headers)
+                assert response.status_code == 503
+                assert "image is incompatible" in response.json()["detail"]
+            assert start.call_count == 1
+            items = client.get(
+                "/api/hub/runtimes",
+                headers=headers,
+            ).json()["items"]
+            assert items[0]["state"] == "failed"
+            assert items[0]["endpoint"] == ""
 
         event_loop_threads: list[int] = []
         registry_read_threads: list[int] = []
@@ -677,6 +697,14 @@ def test_runtime_ownership_and_admin_user_management(tmp_path: Path) -> None:
             headers=_headers(admin_token),
         )
         assert demoted.status_code == 409
+        assert current.json()["profile"]["workspace_dir"] == "/workspace"
+        updated = client.patch(
+            f"/api/hub/admin/users/{user_id}",
+            json={"profile": {"workspace_dir": "/data/owner"}},
+            headers=_headers(admin_token),
+        )
+        assert updated.status_code == 200
+        assert updated.json()["profile"]["workspace_dir"] == "/data/owner"
 
 
 def test_settings_apply_immediately_and_reject_stale_revision(
@@ -1478,6 +1506,7 @@ def test_hub_lists_use_server_side_pagination_and_filters(
         assert filtered.json()["total"] == 1
         assert filtered.json()["items"][0]["runtime_id"] == "runtime-3"
         assert filtered.json()["items"][0]["owner_username"] == "member-3"
+        assert filtered.json()["items"][0]["owner_role"] == "user"
 
         username_search = client.get(
             "/api/hub/runtimes?q=owner",
@@ -1518,6 +1547,7 @@ def test_deleted_runtime_owner_returns_no_username(tmp_path: Path) -> None:
     assert created.json()["owner_username"] == "former-member"
     assert runtimes.status_code == 200
     assert runtimes.json()["items"][0]["owner_username"] is None
+    assert runtimes.json()["items"][0]["owner_role"] is None
 
 
 def test_operations_overview_and_audit_are_real_and_sanitized(
@@ -1559,6 +1589,13 @@ def test_operations_overview_and_audit_are_real_and_sanitized(
             "cpu_percent",
             "memory_percent",
             "disk_percent",
+            "memory_used",
+            "memory_total",
+            "memory_available",
+            "disk_used",
+            "disk_total",
+            "disk_free",
+            "disk_path",
         }
         assert audit.status_code == 200
         assert audit.json()["total"] == 3
@@ -1897,3 +1934,103 @@ def test_hub_native_provider_dispatch_and_settlement(admin_client, protocol):
     with client.app.state.model_catalog.store.connect() as db:
         row = db.execute(f"SELECT status FROM hub_model_requests").fetchone()
         assert row[f"status"] != f"dispatched"
+
+
+def test_pawapp_cleanup_cors_uses_explicit_origins(tmp_path):
+    origin = "http://localhost:5173"
+    with patch("qwenpaw.hub.control_app.CORS_ORIGINS", origin):
+        with _client(tmp_path) as client:
+            headers = {
+                "Origin": origin,
+                "Access-Control-Request-Method": "DELETE",
+            }
+            allowed = client.options(
+                "/api/hub/pawapps/sessions",
+                headers=headers,
+            )
+            assert allowed.status_code == 200
+            assert allowed.headers["access-control-allow-origin"] == origin
+            assert (
+                allowed.headers["access-control-allow-credentials"] == "true"
+            )
+            headers["Origin"] = "https://untrusted.example"
+            denied = client.options(
+                "/api/hub/pawapps/sessions",
+                headers=headers,
+            )
+            assert denied.status_code == 400
+            assert "access-control-allow-origin" not in denied.headers
+
+
+def test_preview_query_auth_reaches_real_file_route(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "preview 中文.html"
+    target.write_text("<html>preview-ok</html>", encoding="utf-8")
+    outside = tmp_path / "outside.txt"
+    outside.write_text("private", encoding="utf-8")
+    monkeypatch.setattr(files, "_ALLOWED_ROOT", workspace)
+    monkeypatch.setattr(
+        files,
+        "_is_preview_outside_workspace_allowed",
+        lambda: False,
+    )
+    runtime = FastAPI()
+    runtime.include_router(files.router, prefix="/api")
+    with _client(tmp_path, httpx.ASGITransport(app=runtime)) as client:
+        token = _register(client, "owner")
+        url = f"/api/files/preview/{target}"
+        assert client.get(url).status_code == 401
+        assert client.get(url, params={"token": "invalid"}).status_code == 401
+        response = client.get(url, params={"token": token})
+        assert response.status_code == 200
+        assert response.text == "<html>preview-ok</html>"
+        assert client.head(url, params={"token": token}).status_code == 200
+        assert (
+            client.get(
+                url,
+                params={"token": token},
+                headers={"Authorization": "Bearer invalid"},
+            ).status_code
+            == 401
+        )
+        assert (
+            client.get(
+                f"/api/files/preview/{outside}",
+                params={"token": token},
+            ).status_code
+            == 403
+        )
+        assert (
+            client.get(
+                "/api/agents",
+                params={"token": token},
+            ).status_code
+            == 401
+        )
+
+
+def test_legacy_pawapp_grant_is_static_only(tmp_path):
+    async def proxy_handler(request):
+        if request.url.path == "/api/pawapps/old_app":
+            return httpx.Response(200, json={"id": "old_app"})
+        assert request.url.path == "/api/pawapps/old_app/static/index.html"
+        return httpx.Response(200, stream=_ProxyStream())
+
+    with _client(tmp_path, httpx.MockTransport(proxy_handler)) as client:
+        token = _register(client, "owner")
+        granted = client.post(
+            "/api/hub/pawapps/old_app/session",
+            headers=_headers(token),
+        )
+        assert granted.status_code == 200
+        assert client.get(
+            "/api/pawapps/old_app/static/index.html",
+        ).json() == {"product": "QwenPaw"}
+        assert client.get("/api/agents").status_code == 401
+        assert (
+            client.get(
+                "/api/pawapps/other/static/index.html",
+            ).status_code
+            == 401
+        )

@@ -7,7 +7,7 @@ import asyncio
 import json
 from datetime import date
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from starlette.concurrency import run_in_threadpool
 
 from ..api_models import PasswordChangeBody
@@ -72,6 +72,17 @@ def governance_router(
         except Exception as exc:
             # Provider errors may contain credentials or response data.
             raise HTTPException(502, "hub_model_discovery_failed") from exc
+
+    @router.get("/admin/model-connections/{connection_id}/token-defaults")
+    def token_defaults(
+        connection_id: str,
+        model_id: str = Query(min_length=1, max_length=256),
+        _admin=Depends(require_admin),
+    ):
+        try:
+            return catalog.token_defaults(connection_id, model_id)
+        except KeyError as exc:
+            raise HTTPException(404, "Connection not found") from exc
 
     @router.get("/admin/model-connections")
     def connections(_admin=Depends(require_admin)):

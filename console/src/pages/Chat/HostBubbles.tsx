@@ -16,15 +16,7 @@
  * replaces individual Markdown/media/tool rendering rather than only framing
  * the default response bubble.
  */
-import React, {
-  useContext,
-  useDeferredValue,
-  useMemo,
-  useSyncExternalStore,
-} from "react";
-import { IconButton } from "@agentscope-ai/design";
-import { SparkReplaceLine } from "@agentscope-ai/icons";
-import { ChatRegenerateContext } from "./ChatRegenerateContext";
+import React, { useDeferredValue, useMemo, useSyncExternalStore } from "react";
 import VendorRequestCard from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Request/Card";
 import AgentScopeRuntimeResponseBuilder from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Builder";
 import ResponseActions from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/Response/Actions";
@@ -56,6 +48,7 @@ import type {
   ChatResponseData,
 } from "../../plugins/registry/types";
 import { DownloadableAudios } from "../../components/Chat/MediaDownload";
+import { ToolCallTurnBoundary } from "./turnEndedProvider";
 import ResponseArtifactList from "../../features/files-workspace/ResponseArtifactList";
 import { isToolLikeResponseMessageType } from "./responseMessageTypes";
 import {
@@ -220,7 +213,6 @@ function DefaultHostResponseCard({
   contentAppend?: React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const regenerate = useContext(ChatRegenerateContext);
   const avatar = useChatAnywhereOptions((options) => options.welcome?.avatar);
   const nick = useChatAnywhereOptions((options) => options.welcome?.nick);
   const nickNode =
@@ -321,17 +313,6 @@ function DefaultHostResponseCard({
         <ResponseArtifactList messages={messages} />
       ) : null}
       <ResponseActions data={data} messageId={messageId} isLast={isLast} />
-      {regenerate &&
-      isLast &&
-      AgentScopeRuntimeResponseBuilder.maybeDone(data) ? (
-        <IconButton
-          aria-label={t("chat.regenerate")}
-          title={t("chat.regenerate")}
-          bordered={false}
-          icon={<SparkReplaceLine />}
-          onClick={() => regenerate(messageId)}
-        />
-      ) : null}
     </>
   );
 }
@@ -489,5 +470,15 @@ export function HostResponseCard(props: {
   data: ChatResponseData;
   isLast?: boolean;
 }) {
-  return <MemoizedHostResponseCard {...props} />;
+  // Tool cards cannot tell a running call from one whose turn was interrupted
+  // because both lack a result message. Wrapping the whole card publishes the
+  // turn state without re-rendering its body: the memoized content bails out
+  // on unchanged props.
+  return (
+    <ToolCallTurnBoundary
+      data={props.data as unknown as IAgentScopeRuntimeResponse}
+    >
+      <MemoizedHostResponseCard {...props} />
+    </ToolCallTurnBoundary>
+  );
 }

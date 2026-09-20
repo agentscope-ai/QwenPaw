@@ -1,10 +1,10 @@
+import { PawAppAccessGate } from "../../../plugins/PawAppAccessGate";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card, Empty, Spin, Button, Tag, Typography, Space } from "antd";
 import { AppWindow, ExternalLink, RefreshCw } from "lucide-react";
 import { PageHeader } from "@/components/PageHeader";
 import { pawappApi, type PawAppInfo } from "../../../api/modules/pawapp";
-import { getApiUrl } from "../../../api/config";
 import styles from "./index.module.less";
 
 const { Text, Paragraph } = Typography;
@@ -37,7 +37,7 @@ export default function PawAppsPage() {
 
   const getIframeSrc = (app: PawAppInfo): string | null => {
     if (!app.home_page) return null;
-    return getApiUrl(`/pawapps/${app.id}/static/${app.home_page}`);
+    return pawappApi.getStaticUrl(app.id, app.home_page);
   };
 
   return (
@@ -127,7 +127,9 @@ export default function PawAppsPage() {
                         type="link"
                         icon={<ExternalLink size={14} />}
                         onClick={() => {
-                          const src = getIframeSrc(selectedApp);
+                          const src = `/apps/${encodeURIComponent(
+                            selectedApp.id,
+                          )}`;
                           if (src) window.open(src, "_blank");
                         }}
                       >
@@ -136,12 +138,14 @@ export default function PawAppsPage() {
                     )}
                   </div>
                   {selectedApp.home_page ? (
-                    <iframe
-                      className={styles.appIframe}
-                      src={getIframeSrc(selectedApp) || ""}
-                      title={selectedApp.name}
-                      sandbox="allow-scripts allow-forms allow-same-origin"
-                    />
+                    <PawAppAccessGate appId={selectedApp.id}>
+                      <iframe
+                        className={styles.appIframe}
+                        src={getIframeSrc(selectedApp) || ""}
+                        title={selectedApp.name}
+                        sandbox="allow-scripts allow-forms allow-same-origin"
+                      />
+                    </PawAppAccessGate>
                   ) : (
                     <Empty
                       description={t(

@@ -109,15 +109,48 @@ export function HubModelIdentityFields({
   const model = templateId
     ? preview
     : models.find((m) => m.id === modelId) ?? preview;
-  const catalogModel = preset?.models.find((m) => m.id === modelId);
+
+  const identity = `${connectionId ?? ""}:${modelId ?? ""}`;
+  const [defaults, setDefaults] = useState<{
+    identity: string;
+    input_token_limit: number;
+    output_token_limit: number | null;
+    input_limit_known: boolean;
+    output_limit_known: boolean;
+  }>();
+  useEffect(() => {
+    if (!connectionId || !modelId) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void governanceRequest<Omit<NonNullable<typeof defaults>, "identity">>(
+        `admin/model-connections/${connectionId}/token-defaults?model_id=${encodeURIComponent(
+          modelId,
+        )}`,
+      )
+        .then((value) => {
+          if (!cancelled) setDefaults({ ...value, identity });
+        })
+        .catch(() => {
+          if (!cancelled) setFailed(true);
+        });
+    }, 150);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [connectionId, modelId, identity]);
+  const resolved = defaults?.identity === identity ? defaults : undefined;
+  const inputDefault =
+    model?.max_input_length_auto_detected ?? resolved?.input_token_limit;
+  const outputDefault =
+    model?.max_output_length ?? resolved?.output_token_limit ?? null;
   const knownInput =
     model?.effective_max_input_length ??
     model?.max_input_length_auto_detected ??
-    (catalogModel || model?.max_input_length_configured
-      ? model?.max_input_length
-      : undefined);
-  const knownOutput = model?.max_output_length;
-  const identity = `${connectionId ?? ""}:${modelId ?? ""}`;
+    (resolved?.input_limit_known ? inputDefault : undefined);
+  const knownOutput =
+    model?.max_output_length ??
+    (resolved?.output_limit_known ? outputDefault ?? undefined : undefined);
   const automatic = useRef<{
     identity: string;
     input?: number;
@@ -143,11 +176,11 @@ export function HubModelIdentityFields({
     form.setFieldsValue({
       input_token_limit:
         input == null || (!changed && input === previous?.input)
-          ? knownInput
+          ? inputDefault
           : input,
       output_token_limit:
         output == null || (!changed && output === previous?.output)
-          ? knownOutput
+          ? outputDefault
           : output,
 
       name:
@@ -157,16 +190,16 @@ export function HubModelIdentityFields({
     });
     automatic.current = {
       identity,
-      input: knownInput,
-      output: knownOutput,
+      input: inputDefault,
+      output: outputDefault,
       name: model?.name || modelId,
     };
   }, [
     identity,
     connectionId,
     modelId,
-    knownInput,
-    knownOutput,
+    inputDefault,
+    outputDefault,
     model?.name,
     model?.supports_image,
     saved,
@@ -231,18 +264,23 @@ export function HubModelIdentityFields({
             <div>
               <dt>{t("models.maxInputLengthLabel")}</dt>
               <dd>
-                {knownInput?.toLocaleString(i18n.language) ??
+                {inputDefault?.toLocaleString(i18n.language) ??
                   t("models.unknown")}
               </dd>
             </div>
             <div>
               <dt>{t("models.maxTokensLabel")}</dt>
               <dd>
-                {knownOutput?.toLocaleString(i18n.language) ??
+                {outputDefault?.toLocaleString(i18n.language) ??
                   t("models.unknown")}
               </dd>
             </div>
           </dl>
+          {resolved && (!knownInput || !knownOutput) && (
+            <div role="note" className={styles.catalogStatus}>
+              {t("hub.governance.models.estimatedTokenLimits")}
+            </div>
+          )}
           {loading && !model ? (
             <Skeleton active paragraph={{ rows: 1 }} title={false} />
           ) : (
@@ -280,7 +318,7 @@ export function HubModelIdentityFields({
             required: true,
             type: "number",
             min: 1000,
-            max: 10000000,
+            max: knownInput ?? 10000000,
             message: t("hub.governance.models.completeCapabilities"),
           },
         ]}
@@ -329,7 +367,7 @@ export function HubModelIdentityFields({
           <summary>{t("hub.governance.models.responseLimit")}</summary>
           <OutputTokenLimitField
             showHint={false}
-            model={model}
+            model={{ ...model, max_output_length: knownOutput }}
             value={outputLimit === knownOutput ? null : outputLimit ?? null}
             onChange={(value) =>
               form.setFieldValue("output_token_limit", value ?? knownOutput)

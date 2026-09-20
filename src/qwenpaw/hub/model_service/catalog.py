@@ -11,7 +11,11 @@ import uuid
 from ...providers.openai_provider import token_limit_kwargs
 from ..database import utc_now
 from ..invitations import secret_digest
-from .provider_setup import model_provider, published_capabilities
+from .provider_setup import (
+    model_provider,
+    model_token_defaults,
+    published_capabilities,
+)
 
 _SYSTEM = "__qwenpaw_hub_system__"
 _SCOPE = "organization-models"
@@ -129,6 +133,20 @@ class ModelCatalog:
             for row in self.rows("hub_model_connections")
         ]
 
+    def token_defaults(self, connection_id: str, model_id: str) -> dict:
+        """Return defaults without reading credentials or personal settings."""
+        connection = next(
+            (
+                c
+                for c in self.rows("hub_model_connections")
+                if c["id"] == connection_id
+            ),
+            None,
+        )
+        if connection is None:
+            raise KeyError(connection_id)
+        return model_token_defaults(model_id, connection)
+
     def save_model(self, body, model_id=None) -> dict:
         """Atomically publish an alias and its member grants."""
         updating = model_id is not None
@@ -147,11 +165,32 @@ class ModelCatalog:
                     model_id,
                     body.revision,
                 )
-            if not db.execute(
-                "SELECT 1 FROM hub_model_connections WHERE id = ?",
-                (body.connection_id,),
-            ).fetchone():
+            connection = next(
+                (
+                    c
+                    for c in self.rows("hub_model_connections", db)
+                    if c["id"] == body.connection_id
+                ),
+                None,
+            )
+            if connection is None:
                 raise ValueError("Connection does not exist")
+            defaults = model_token_defaults(body.upstream_model, connection)
+            for field, known in (
+                ("input_token_limit", "input_limit_known"),
+                ("output_token_limit", "output_limit_known"),
+            ):
+                if field not in body.model_fields_set:
+                    value[field] = defaults[field]
+                elif (
+                    value[field] is not None
+                    and defaults[known]
+                    and value[field] > defaults[field]
+                ):
+                    raise ValueError(
+                        f"{field} must not exceed the known model limit "
+                        f"of {defaults[field]}",
+                    )
             for user_id in body.user_ids:
                 if not db.execute(
                     "SELECT 1 FROM hub_users WHERE user_id = ? "

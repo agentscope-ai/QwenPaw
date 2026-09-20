@@ -11,6 +11,10 @@ from ...providers.openai_response_provider import OpenAIResponseProvider
 from ...providers.provider_catalog import BUILTIN_PROVIDERS
 from ...providers.provider_discovery import merge_discovered_model
 from ...providers.provider import ModelInfo
+from ...providers.context_windows import (
+    DEFAULT_CONTEXT_WINDOW,
+    known_context_size,
+)
 
 
 def supported_presets():
@@ -126,9 +130,26 @@ def published_capabilities(model: dict, connection: dict) -> dict:
                 model[f"output_token_limit"],
                 card.max_output_length,
             )
-            if card.max_output_length
-            else model[f"output_token_limit"]
+            if card.max_output_length and model.get(f"output_token_limit")
+            else model.get(f"output_token_limit") or card.max_output_length
         ),
+    }
+
+
+def model_token_defaults(model_id: str, connection: dict) -> dict:
+    """Reuse provider capability resolution and label fallback estimates."""
+    provider = model_provider({"upstream_model": model_id}, connection)
+    info = provider.get_model_info(model_id)
+    return {
+        "input_token_limit": provider.get_context_size(model_id),
+        "input_limit_known": bool(
+            info.max_input_length_configured
+            or info.max_input_length_auto_detected
+            or info.max_input_length != DEFAULT_CONTEXT_WINDOW
+            or known_context_size(model_id),
+        ),
+        "output_token_limit": info.max_output_length,
+        "output_limit_known": info.max_output_length is not None,
     }
 
 
