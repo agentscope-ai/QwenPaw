@@ -7,6 +7,7 @@ import pytest
 
 from qwenpaw.providers.realtime_voice import (
     EffectiveRealtimeVoiceConfig,
+    RealtimeDelegationTool,
     RealtimeSessionConfig,
 )
 from qwenpaw.providers.realtime_voice.dashscope import (
@@ -61,6 +62,8 @@ async def eventually(predicate: Callable[[], bool]) -> None:
 
 async def connect_session(
     monkeypatch,
+    *,
+    native_delegation: bool = False,
 ) -> tuple[DashScopeRealtimeSession, FakeSocket]:
     socket = FakeSocket()
     socket.feed({"type": "session.created", "event_id": "created"})
@@ -75,7 +78,12 @@ async def connect_session(
     )
     session = DashScopeRealtimeSession(config(), "secret")
     await session.connect(
-        RealtimeSessionConfig(instructions="present authoritative state")
+        RealtimeSessionConfig(
+            instructions="present authoritative state",
+            delegation_tool=(
+                RealtimeDelegationTool() if native_delegation else None
+            ),
+        )
     )
     return session, socket
 
@@ -303,6 +311,109 @@ async def test_session_configures_speech_only_voice(monkeypatch):
     await session.send_audio(b"\x01\x02")
     assert socket.sent[-1]["type"] == "input_audio_buffer.append"
     assert base64.b64decode(socket.sent[-1]["audio"]) == b"\x01\x02"
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_native_delegation_registers_signal_only_tool(monkeypatch):
+    session, socket = await connect_session(
+        monkeypatch,
+        native_delegation=True,
+    )
+    await anext(session.events())
+
+    [tool] = socket.sent[0]["session"]["tools"]
+    assert tool["function"]["name"] == "delegate_to_agent"
+    assert tool["function"]["parameters"] == {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": False,
+    }
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_native_delegation_joins_call_to_source_and_accepts_output(
+    monkeypatch,
+):
+    session, socket = await connect_session(
+        monkeypatch,
+        native_delegation=True,
+    )
+    events = session.events()
+    await anext(events)
+
+    socket.feed(
+        {
+            "type": "input_audio_buffer.speech_started",
+            "event_id": "speech",
+            "item_id": "audio-input",
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.created",
+            "event_id": "auto-created",
+            "response": {"id": "response-auto"},
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.function_call_arguments.done",
+            "event_id": "tool-done",
+            "item_id": "tool-item",
+            "call_id": "call-1",
+            "name": "delegate_to_agent",
+            "arguments": '{"request":"must be ignored"}',
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.done",
+            "event_id": "response-done",
+            "response": {"id": "response-auto", "status": "completed"},
+        }
+    )
+    socket.feed(
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "event_id": "transcript",
+            "item_id": "audio-input",
+            "transcript": "最终识别文本",
+        }
+    )
+
+    received = [await anext(events) for _ in range(5)]
+    requested = next(
+        event for event in received if event.kind == "delegation.requested"
+    )
+    assert requested.correlation_id == "audio-input"
+    assert requested.data == {
+        "call_id": "call-1",
+        "name": "delegate_to_agent",
+        "item_id": "tool-item",
+    }
+
+    completion = asyncio.create_task(
+        session.complete_delegation(
+            "call-1",
+            {"accepted": True, "status": "preparing"},
+        )
+    )
+    await acknowledge_item(socket, 0)
+    await completion
+    [created] = [
+        payload["item"]
+        for payload in socket.sent
+        if payload["type"] == "conversation.item.create"
+    ]
+    assert created["type"] == "function_call_output"
+    assert created["call_id"] == "call-1"
+    assert json.loads(created["output"]) == {
+        "accepted": True,
+        "status": "preparing",
+    }
+    assert session._presentation_ready.is_set()
     await session.close()
 
 
@@ -746,6 +857,36 @@ async def test_older_turn_cleanup_cannot_unlock_a_newer_speech_turn(
     await session._cleanup_input_turn(2, set())
     assert session._presentation_ready.is_set()
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_native_turn_cannot_unlock_presentation_while_another_call_pending():
+    session = DashScopeRealtimeSession(config(), "unused")
+    session._session_config = RealtimeSessionConfig(
+        instructions="native",
+        delegation_tool=RealtimeDelegationTool(),
+    )
+    session._presentation_ready.clear()
+    session._input_turns = {
+        1: _InputTurnState(
+            transcript_final=True,
+            auto_response_terminal=True,
+            pending_call_ids={"call-1"},
+        ),
+        2: _InputTurnState(
+            transcript_final=True,
+            auto_response_terminal=True,
+        ),
+    }
+    try:
+        session._schedule_input_cleanup_if_ready(2)
+        assert not session._presentation_ready.is_set()
+
+        session._input_turns[1].pending_call_ids.clear()
+        session._schedule_input_cleanup_if_ready(1)
+        assert session._presentation_ready.is_set()
+    finally:
+        await session.close()
 
 
 @pytest.mark.asyncio

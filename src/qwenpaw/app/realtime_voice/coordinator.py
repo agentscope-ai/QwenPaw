@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator, Coroutine
 from contextlib import suppress
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import Any
 from uuid import uuid4
 
@@ -25,7 +25,10 @@ from .contracts import (
     VoiceTaskReceipt,
     VoiceTaskSnapshot,
 )
-from .task_bridge import VoiceAdmissionHandle, VoiceTaskBridge
+from .native_handoff import (
+    NativeDelegationCommitter,
+    NativeDelegationRejected,
+)
 from .presentation import OutputCredit, PresentationIntent, PresentationQueue
 from .prompts import (
     build_language_instruction,
@@ -33,6 +36,7 @@ from .prompts import (
     build_update_instruction,
     static_presentation_instruction,
 )
+from .task_bridge import VoiceAdmissionHandle, VoiceTaskBridge
 from .turn_commit import (
     CommittedSpokenTurn,
     PendingSpokenTurn,
@@ -52,6 +56,18 @@ _APPLICATION_RESPONSE_EVENTS = {
 _TERMINAL_TASK_STATUSES = {"responded", "failed", "cancelled"}
 
 
+@dataclass
+class _NativeExchange:
+    """Finalized native input and its direct realtime response."""
+
+    user_text: str = ""
+    assistant_text: str = ""
+    status: str = ""
+    response_done: bool = False
+    had_delegation: bool = False
+    persisted: bool = False
+
+
 class VoiceCoordinator:
     """Keep application control durable while speech remains interruptible."""
 
@@ -59,10 +75,11 @@ class VoiceCoordinator:
         self,
         provider: RealtimeProviderSession,
         bridge: VoiceTaskBridge,
-        committer: SpokenTurnCommitter,
+        committer: SpokenTurnCommitter | NativeDelegationCommitter,
         timeline: ChatTimelineJournal,
         *,
         language: str = "zh",
+        native_delegation: bool = False,
         admission_mode: VoiceAdmissionMode = "queue",
         presentation_capacity: int = 32,
         playback_timeout_seconds: float = 90,
@@ -71,7 +88,11 @@ class VoiceCoordinator:
     ) -> None:
         self._provider = provider
         self._language_instruction = build_language_instruction(language)
-        self._session_config = build_session_config(language)
+        self._native_delegation = native_delegation
+        self._session_config = build_session_config(
+            language,
+            native_delegation=native_delegation,
+        )
         self._bridge = bridge
         self._committer = committer
         committer.on_commit = lambda turn: bridge.observe_input(
@@ -87,6 +108,10 @@ class VoiceCoordinator:
         self._max_history_turns = max_history_turns
         self._context_max_chars = context_max_chars
         self._output_credit: OutputCredit | None = None
+        self._native_output_credits: dict[str, OutputCredit] = {}
+        self._native_response_sources: dict[str, str] = {}
+        self._native_exchanges: dict[str, _NativeExchange] = {}
+        self._native_delegated_sources: set[str] = set()
         self._seen_responses: set[str] = set()
         self._presentation_failed = False
         self._history_tasks: set[asyncio.Task[Any]] = set()
@@ -129,6 +154,11 @@ class VoiceCoordinator:
         """The relay has already checked the connection generation."""
         if self._output_credit is not None:
             self._output_credit.acknowledge(output_id, status)
+        credit = self._native_output_credits.get(output_id)
+        if credit is not None:
+            credit.acknowledge(output_id, status)
+            if credit.playback:
+                self._native_output_credits.pop(output_id, None)
 
     async def commit_pending(self) -> None:
         """Explicitly route retained speech without permitting WAIT."""
@@ -182,15 +212,33 @@ class VoiceCoordinator:
                     await self._committer.input_failed(event.correlation_id)
                     await self._emit_error(
                         "voice_transcription_failed",
-                        "一段语音识别失败，未自动提交。请检查已识别的内容后手动提交，" "或重新开始语音会话说明完整请求。",
+                        "一段语音识别失败，未自动提交。"
+                        "请检查已识别的内容后手动提交，"
+                        "或重新开始语音会话说明完整请求。",
                         source="coordinator",
                     )
                     continue
                 if event.kind == "input_transcript.final":
                     await self._handle_source_segment(event)
+                    if self._native_delegation:
+                        await self._events.put(event)
                     continue
                 if event.kind == "input_turn.boundary":
                     await self._committer.commit_pending("native")
+                    continue
+                if event.kind == "delegation.requested":
+                    if isinstance(self._committer, NativeDelegationCommitter):
+                        await self._committer.delegation_requested(
+                            str(event.correlation_id or ""),
+                            str(event.data.get("call_id") or ""),
+                        )
+                    continue
+                if (
+                    self._native_delegation
+                    and event.kind in _APPLICATION_RESPONSE_EVENTS
+                    and event.response_origin == "provider_auto"
+                ):
+                    await self._handle_native_response(event)
                     continue
                 if (
                     event.kind in _APPLICATION_RESPONSE_EVENTS
@@ -238,10 +286,143 @@ class VoiceCoordinator:
     async def _handle_source_segment(self, event: ProviderEvent) -> None:
         text = str(event.data.get("text") or "").strip()
         source_id = str(event.correlation_id or "").strip()
+        if self._native_delegation:
+            exchange = self._native_exchanges.setdefault(
+                source_id,
+                _NativeExchange(),
+            )
+            exchange.user_text = text
         await self._committer.add_segment(source_id, text)
+        if self._native_delegation:
+            await self._persist_native_exchange(source_id)
+
+    async def _handle_native_response(self, event: ProviderEvent) -> None:
+        response_id = str(event.correlation_id or "")
+        if event.kind == "response.started":
+            source_id = str(event.data.get("input_item_id") or "")
+            if response_id and source_id:
+                self._native_response_sources[response_id] = source_id
+                self._native_exchanges.setdefault(source_id, _NativeExchange())
+            return
+
+        credit = next(
+            (
+                item
+                for item in self._native_output_credits.values()
+                if item.provider_id == response_id
+            ),
+            None,
+        )
+        if event.kind == "output.started":
+            if not response_id:
+                return
+            credit = OutputCredit(provider_id=response_id)
+            self._native_output_credits[credit.output_id] = credit
+            await self._events.put(
+                ProviderEvent(
+                    "output.begin",
+                    uuid4().hex,
+                    {"output_id": credit.output_id},
+                )
+            )
+
+        if event.kind == "response.finished":
+            remembered_source = self._native_response_sources.pop(
+                response_id,
+                "",
+            )
+            source_id = (
+                str(event.data.get("input_item_id") or "")
+                or remembered_source
+            )
+            if source_id:
+                exchange = self._native_exchanges.setdefault(
+                    source_id,
+                    _NativeExchange(),
+                )
+                exchange.assistant_text = str(
+                    event.data.get("transcript") or ""
+                ).strip()
+                exchange.status = str(event.data.get("status") or "")
+                exchange.response_done = True
+                exchange.had_delegation = bool(
+                    event.data.get("had_delegation")
+                )
+                await self._persist_native_exchange(source_id)
+
+        if credit is None or credit.sealed:
+            return
+        event = replace(
+            event,
+            data={**event.data, "output_id": credit.output_id},
+        )
+        await self._events.put(event)
+        if event.kind == "response.finished":
+            credit.seal()
+            await self._events.put(
+                ProviderEvent(
+                    "output.sealed",
+                    uuid4().hex,
+                    {"output_id": credit.output_id},
+                )
+            )
+
+    async def _persist_native_exchange(self, source_id: str) -> None:
+        if source_id in self._native_delegated_sources:
+            self._native_exchanges.pop(source_id, None)
+            return
+        exchange = self._native_exchanges.get(source_id)
+        if (
+            exchange is None
+            or exchange.persisted
+            or not exchange.response_done
+            or not exchange.user_text
+        ):
+            return
+        if isinstance(
+            self._committer,
+            NativeDelegationCommitter,
+        ) and not self._committer.finish_source(source_id):
+            return
+        exchange.persisted = True
+        if exchange.had_delegation:
+            self._native_exchanges.pop(source_id, None)
+            return
+        order = await self._timeline.reserve_order()
+        turn_id = f"voice_{uuid4().hex}"
+        self._timeline.observe_voice_exchange(
+            turn_id,
+            exchange.user_text,
+            exchange.assistant_text,
+            timeline_order=order,
+            generation_status=exchange.status,
+        )
+        self._start(
+            self._save_exchange(
+                turn_id,
+                exchange.user_text,
+                exchange.assistant_text,
+                order,
+                generation_status=exchange.status,
+            )
+        )
+        self._native_exchanges.pop(source_id, None)
 
     async def _pump_committer(self) -> None:
         async for event in self._committer.events():
+            if isinstance(event, NativeDelegationRejected):
+                with suppress(Exception):
+                    await self._provider.complete_delegation(
+                        event.call_id,
+                        {"accepted": False, "error": event.error},
+                    )
+                await self._emit_error(
+                    event.error,
+                    "语音请求未能可靠转写，因此没有提交任务。请重新说明。",
+                    source="coordinator",
+                    correlation_id=event.source_id,
+                )
+                continue
             if isinstance(event, PendingSpokenTurn):
                 await self._events.put(
                     ProviderEvent(
@@ -259,11 +440,25 @@ class VoiceCoordinator:
                 continue
             if isinstance(event, CommittedSpokenTurn):
                 admission: VoiceAdmissionHandle | None = None
+                if event.delegation_ids:
+                    self._native_delegated_sources.update(event.source_ids)
+                    for source_id in event.source_ids:
+                        self._native_exchanges.pop(source_id, None)
                 if isinstance(
                     event.action,
                     HandoffVoiceAction,
                 ):
                     try:
+                        if event.delegation_ids:
+                            event = replace(
+                                event,
+                                conversation_context=(
+                                    await self._timeline.read_context(
+                                        max_turns=self._max_history_turns,
+                                        max_chars=4000,
+                                    )
+                                ),
+                            )
                         admission = await self._bridge.enqueue_action(
                             event.action,
                             event.text,
@@ -272,8 +467,34 @@ class VoiceCoordinator:
                             conversation_context=event.conversation_context,
                         )
                     except Exception as exc:  # noqa: BLE001
+                        for call_id in event.delegation_ids:
+                            with suppress(Exception):
+                                await self._provider.complete_delegation(
+                                    call_id,
+                                    {
+                                        "accepted": False,
+                                        "status": "failed",
+                                    },
+                                )
                         await self._reject_task_action(event, exc)
                         continue
+                    for call_id in event.delegation_ids:
+                        try:
+                            await self._provider.complete_delegation(
+                                call_id,
+                                {
+                                    "accepted": True,
+                                    "delegation_id": event.turn_id,
+                                    "status": "preparing",
+                                },
+                            )
+                        except Exception as exc:  # noqa: BLE001
+                            await self._emit_error(
+                                "voice_delegation_ack_failed",
+                                str(exc)[:500],
+                                source="provider",
+                                correlation_id=call_id,
+                            )
                 await self._events.put(
                     ProviderEvent(
                         "input_turn.committed",
@@ -361,7 +582,11 @@ class VoiceCoordinator:
                 "admission" if receipt.accepted else "rejected",
                 turn_id=turn.turn_id,
                 admission_turn_ids=(turn.turn_id,) if receipt.accepted else (),
-                user_text="请告知用户本轮请求接收结果。" if not receipt.accepted else "",
+                user_text=(
+                    "请告知用户本轮请求接收结果。"
+                    if not receipt.accepted
+                    else ""
+                ),
                 task_ref=receipt.task_ref,
             ),
             persist_exchange=not receipt.accepted,
@@ -439,13 +664,6 @@ class VoiceCoordinator:
             credit = OutputCredit()
             self._output_credit = credit
             try:
-                await self._events.put(
-                    ProviderEvent(
-                        "output.begin",
-                        uuid4().hex,
-                        {"output_id": credit.output_id},
-                    )
-                )
                 await self._present(queued)
                 # Do not couple generated text/history to the device clock.
                 await credit.wait(self._playback_timeout)
@@ -516,6 +734,15 @@ class VoiceCoordinator:
                         else request.user_text,
                     )
                 )
+                credit = self._output_credit
+                if credit is not None:
+                    await self._events.put(
+                        ProviderEvent(
+                            "output.begin",
+                            uuid4().hex,
+                            {"output_id": credit.output_id},
+                        )
+                    )
                 response = await self._provider.request_response()
                 owned_items.update(response.item_ids)
                 if request.completion is not None:

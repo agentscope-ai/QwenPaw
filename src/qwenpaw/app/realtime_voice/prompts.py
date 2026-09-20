@@ -14,7 +14,10 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
 
-from ...providers.realtime_voice import RealtimeSessionConfig
+from ...providers.realtime_voice import (
+    RealtimeDelegationTool,
+    RealtimeSessionConfig,
+)
 from .contracts import VoiceTaskSnapshot
 from .presentation import PresentationIntent
 
@@ -26,6 +29,17 @@ VOICE_SESSION_INSTRUCTIONS = (
     "更不等于已经完成；只确认本轮事实明确提供的状态。"
     "保留名称、检索范围和不确定性。检索未命中不证明请求不存在，"
     "也不等于没有输出；无法确认对象时保留澄清，不自行认定。"
+)
+
+NATIVE_DELEGATION_INSTRUCTIONS = (
+    "你是 QwenPaw 的实时语音助手，直接听取用户原始音频并维持自然对话。"
+    "只有明确、自包含且不需要外部信息或执行的轻量交流才直接回答。"
+    "凡是需要工具、文件、应用状态、历史检索、修改操作或耗时执行的请求，"
+    "必须调用 delegate_to_agent；调用只表达需要交接，不要改写、总结或"
+    "补造用户请求。讨论方案、澄清需求和规划本身留在语音对话中，直到用户"
+    "明确要求开始执行。后台任务运行期间继续听取用户；新的执行要求仍调用"
+    "该工具，更正和补充也立即交接。工具返回 running 只表示应用已接管，"
+    "不表示任务完成。不要朗读内部 ID、工具参数、JSON、日志或控制标记。"
 )
 
 _VOICE_SESSION = RealtimeSessionConfig(instructions=VOICE_SESSION_INSTRUCTIONS)
@@ -42,13 +56,24 @@ def build_language_instruction(language: str) -> str:
     )
 
 
-def build_session_config(language: str) -> RealtimeSessionConfig:
+def build_session_config(
+    language: str,
+    *,
+    native_delegation: bool = False,
+) -> RealtimeSessionConfig:
     """Return the session config with base and language instructions merged."""
     return replace(
         _VOICE_SESSION,
-        instructions=_VOICE_SESSION.instructions
+        instructions=(
+            NATIVE_DELEGATION_INSTRUCTIONS
+            if native_delegation
+            else _VOICE_SESSION.instructions
+        )
         + "\n"
         + build_language_instruction(language),
+        delegation_tool=(
+            RealtimeDelegationTool() if native_delegation else None
+        ),
     )
 
 
@@ -115,9 +140,12 @@ def build_update_instruction(
             for s in snapshots
             if f"task:{s.task_id}" in wanted
             or any(r.identity in wanted for r in s.replies)
-        ]
+    ]
     if not focused:
-        return "权威事实：当前没有匹配的可查询任务。请自然、简短地告诉用户，" "不要猜测任务状态。"
+        return (
+            "权威事实：当前没有匹配的可查询任务。"
+            "请自然、简短地告诉用户，不要猜测任务状态。"
+        )
     has_result = any(
         reply.phase == "final"
         and not reply.reply_error
@@ -134,7 +162,9 @@ def build_update_instruction(
     )
     if has_result:
         purpose = (
-            "本轮是结果反馈：请优先说出已返回的关键结果或答案，" "让用户听完就知道结果。不要仅说已完成、已回传或让用户去看页面。"
+            "本轮是结果反馈：请优先说出已返回的关键结果或答案，"
+            "让用户听完就知道结果。"
+            "不要仅说已完成、已回传或让用户去看页面。"
         )
     elif has_error:
         purpose = (
@@ -271,7 +301,8 @@ def snapshot_facts(
             )
         if replies:
             sections.append(
-                "对应请求的Agent原文按phase和error区分进度、答复与诊断，" "不代表同一任务其他要求的状态："
+                "对应请求的Agent原文按phase和error区分进度、"
+                "答复与诊断，不代表同一任务其他要求的状态："
             )
             for reply in replies:
                 sections.append(

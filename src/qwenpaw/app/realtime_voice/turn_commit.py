@@ -524,6 +524,7 @@ class CommittedSpokenTurn:
     origin: CommitOrigin
     action: VoiceAction
     conversation_context: str = ""
+    delegation_ids: tuple[str, ...] = ()
 
 
 SpokenTurnEvent = PendingSpokenTurn | CommittedSpokenTurn

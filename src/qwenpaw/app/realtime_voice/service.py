@@ -28,6 +28,7 @@ from .contracts import (
 )
 from .coordinator import VoiceCoordinator
 from .labels import VOICE_CHAT_PLACEHOLDER_NAME
+from .native_handoff import NativeDelegationCommitter
 from .task_bridge import VoiceTaskBridge
 from .turn_commit import (
     ProviderModelVoiceTurnRouter,
@@ -125,6 +126,17 @@ class RealtimeVoiceService:
         effective_router = self.resolve_router_model(workspace)
         try:
             resolved = self.resolve_config(workspace)
+            registration = (
+                self._provider_manager.get_realtime_voice_registration(
+                    resolved.provider_id,
+                )
+            )
+            if registration is not None and getattr(
+                registration,
+                "supports_native_delegation",
+                False,
+            ):
+                effective_router = None
             effective_model = resolved.model_dump()
             slot = (
                 getattr(workspace.config, "active_realtime_model", None)
@@ -338,7 +350,15 @@ class RealtimeVoiceService:
                 generation=generation,
                 config=effective,
                 media=registration.media,
-                router_model=self.resolve_router_model(workspace),
+                router_model=(
+                    None
+                    if getattr(
+                        registration,
+                        "supports_native_delegation",
+                        False,
+                    )
+                    else self.resolve_router_model(workspace)
+                ),
                 admission_mode=request.admission_mode,
                 api_key=api_key,
                 workspace=workspace,
@@ -426,9 +446,20 @@ class RealtimeVoiceService:
         if bridge is None:
             bridge = VoiceTaskBridge(live.workspace, live.chat)
             self._bridges[live.chat.id] = bridge
-        if live.router_model is None:
+        native_delegation = bool(
+            getattr(registration, "supports_native_delegation", False)
+        )
+        if native_delegation:
+            committer = NativeDelegationCommitter(
+                continuation_grace_ms=live.config.continuation_grace_ms,
+            )
+        elif live.router_model is None:
             router = UnavailableVoiceTurnRouter(
                 "No model is configured for semantic voice routing.",
+            )
+            committer = SpokenTurnCommitter(
+                router,
+                continuation_grace_ms=live.config.continuation_grace_ms,
             )
         else:
             router = ProviderModelVoiceTurnRouter(
@@ -437,16 +468,17 @@ class RealtimeVoiceService:
                 bridge.routing_snapshots,
                 conversation_context,
             )
-        committer = SpokenTurnCommitter(
-            router,
-            continuation_grace_ms=live.config.continuation_grace_ms,
-        )
+            committer = SpokenTurnCommitter(
+                router,
+                continuation_grace_ms=live.config.continuation_grace_ms,
+            )
         coordinator = VoiceCoordinator(
             provider_session,
             bridge,
             committer,
             timeline,
             language=live.config.language,
+            native_delegation=native_delegation,
             admission_mode=live.admission_mode,
             presentation_capacity=live.config.presentation_capacity,
             playback_timeout_seconds=live.config.playback_timeout_seconds,

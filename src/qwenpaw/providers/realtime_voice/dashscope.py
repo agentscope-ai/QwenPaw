@@ -86,10 +86,12 @@ def _endpoint(override: str | None, region: str, model: str) -> str:
 @dataclass
 class _InputTurnState:
     item_ids: set[str] = field(default_factory=set)
+    source_item_id: str = ""
     speech_started: bool = False
     transcript_final: bool = False
     auto_response_terminal: bool = False
     cleanup_scheduled: bool = False
+    pending_call_ids: set[str] = field(default_factory=set)
 
 
 class DashScopeRealtimeSession:
@@ -130,6 +132,9 @@ class DashScopeRealtimeSession:
         self._input_turns: dict[int, _InputTurnState] = {}
         self._input_item_turns: dict[str, int] = {}
         self._active_response_input_turn: int | None = None
+        self._active_response_input_item_id: str | None = None
+        self._active_response_had_delegation = False
+        self._delegation_turns: dict[str, int] = {}
         self._input_cleanup_tasks: set[asyncio.Task[None]] = set()
         self._input_cleanup_fallback_tasks: set[asyncio.Task[None]] = set()
         self._barge_cancel_task: asyncio.Task[None] | None = None
@@ -151,6 +156,19 @@ class DashScopeRealtimeSession:
     @property
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._api_key}"}
+
+    @property
+    def _native_delegation_enabled(self) -> bool:
+        return bool(
+            self._session_config
+            and self._session_config.delegation_tool is not None
+        )
+
+    def _should_emit_active_output(self) -> bool:
+        return (
+            self._active_response_origin == "application"
+            or self._native_delegation_enabled
+        )
 
     async def connect(self, session: RealtimeSessionConfig) -> None:
         if self._closed:
@@ -197,6 +215,23 @@ class DashScopeRealtimeSession:
                     ),
                 }
             )
+        delegation = session.delegation_tool
+        tools: list[dict[str, Any]] = []
+        if delegation is not None:
+            tools.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": delegation.name,
+                        "description": delegation.description,
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                }
+            )
         await self._send(
             {
                 "event_id": uuid4().hex,
@@ -209,7 +244,7 @@ class DashScopeRealtimeSession:
                     "turn_detection": turn_detection,
                     "max_history_turns": self._config.max_history_turns,
                     "instructions": session.instructions,
-                    "tools": [],
+                    "tools": tools,
                 },
             }
         )
@@ -259,6 +294,32 @@ class DashScopeRealtimeSession:
                         timeout=5,
                     )
                 raise
+
+    async def complete_delegation(
+        self,
+        call_id: str,
+        output: dict[str, Any],
+    ) -> str:
+        """Acknowledge application custody without waiting for task work."""
+        call_id = call_id.strip()
+        if not call_id:
+            raise ValueError("delegation call id is empty")
+        async with self._command_lock:
+            await self._idle.wait()
+            item_id = await self._create_item(
+                {
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": json.dumps(output, ensure_ascii=False),
+                }
+            )
+        turn_id = self._delegation_turns.pop(call_id, None)
+        turn = self._input_turns.get(turn_id or -1)
+        if turn is not None:
+            turn.item_ids.add(item_id)
+            turn.pending_call_ids.discard(call_id)
+            self._schedule_input_cleanup_if_ready(turn_id or -1)
+        return item_id
 
     async def delete_items(self, item_ids: Iterable[str]) -> None:
         """Delete exact Provider-private items after response terminal."""
@@ -514,21 +575,35 @@ class DashScopeRealtimeSession:
                 if origin == "provider_auto"
                 else None
             )
+            response_turn = self._input_turns.get(
+                self._active_response_input_turn or -1
+            )
+            self._active_response_input_item_id = (
+                response_turn.source_item_id if response_turn else None
+            )
+            self._active_response_had_delegation = False
             self._active_response_items.clear()
             self._output_started = False
             self._output_final_emitted = False
             self._active_output_text = ""
-            self._drop_audio = origin != "application"
+            self._drop_audio = (
+                origin != "application" and not self._native_delegation_enabled
+            )
             self._idle.clear()
             await self._events.put(
                 ProviderEvent(
                     "response.started",
                     event_id,
                     correlation_id=self._active_response_id,
+                    data={
+                        "input_item_id": (
+                            self._active_response_input_item_id or ""
+                        )
+                    },
                     response_origin=origin,
                 )
             )
-            if origin == "provider_auto":
+            if origin == "provider_auto" and not self._native_delegation_enabled:
                 await self.interrupt_output()
             return
         if kind in {"response.output_item.added", "response.output_item.done"}:
@@ -539,13 +614,75 @@ class DashScopeRealtimeSession:
             if item_id:
                 self._active_response_items.add(item_id)
             return
+        if kind == "response.function_call_arguments.done":
+            call_id = str(payload.get("call_id") or "").strip()
+            name = str(payload.get("name") or "").strip()
+            delegation = (
+                self._session_config.delegation_tool
+                if self._session_config is not None
+                else None
+            )
+            if delegation is None or name != delegation.name or not call_id:
+                await self._events.put(
+                    ProviderEvent(
+                        "error",
+                        event_id,
+                        {
+                            "code": "unsupported_realtime_tool_call",
+                            "message": (
+                                "The realtime provider requested an "
+                                "unsupported tool."
+                            ),
+                            "recoverable": True,
+                            "source": "provider",
+                        },
+                    )
+                )
+                return
+            turn_id = self._active_response_input_turn
+            turn = self._input_turns.get(turn_id or -1)
+            source_item_id = turn.source_item_id if turn else ""
+            if turn is None or not source_item_id:
+                await self._events.put(
+                    ProviderEvent(
+                        "error",
+                        event_id,
+                        {
+                            "code": "missing_delegation_input",
+                            "message": (
+                                "The delegation could not be matched to "
+                                "its input."
+                            ),
+                            "recoverable": True,
+                            "source": "provider",
+                        },
+                    )
+                )
+                return
+            self._active_response_had_delegation = True
+            turn.pending_call_ids.add(call_id)
+            self._delegation_turns[call_id] = turn_id or -1
+            await self._events.put(
+                ProviderEvent(
+                    "delegation.requested",
+                    event_id,
+                    {
+                        "call_id": call_id,
+                        "name": name,
+                        "item_id": str(payload.get("item_id") or ""),
+                    },
+                    correlation_id=source_item_id,
+                    response_origin="provider_auto",
+                )
+            )
+            return
         if kind in {
             "response.audio_transcript.delta",
             "response.text.delta",
             "response.output_text.delta",
         }:
             text = str(payload.get("delta") or "")
-            if text and self._active_response_origin == "application":
+            if text and self._should_emit_active_output():
                 self._active_output_text += text
                 await self._start_output(event_id)
                 await self._events.put(
@@ -569,7 +706,7 @@ class DashScopeRealtimeSession:
             if (
                 text
                 and not self._output_final_emitted
-                and self._active_response_origin == "application"
+                and self._should_emit_active_output()
             ):
                 self._active_output_text = text
                 self._output_final_emitted = True
@@ -586,7 +723,7 @@ class DashScopeRealtimeSession:
         if kind == "response.audio.delta":
             encoded = payload.get("delta")
             if (
-                self._active_response_origin == "application"
+                self._should_emit_active_output()
                 and not self._drop_audio
                 and isinstance(encoded, str)
             ):
@@ -629,11 +766,15 @@ class DashScopeRealtimeSession:
                             response_items.add(item_id)
             response_done = self._application_response_done
             response_input_turn = self._active_response_input_turn
+            response_input_item_id = self._active_response_input_item_id
+            response_had_delegation = self._active_response_had_delegation
             self._response_requested = False
             self._pending_response_origin = None
             self._active_response_id = None
             self._active_response_origin = None
             self._active_response_input_turn = None
+            self._active_response_input_item_id = None
+            self._active_response_had_delegation = False
             self._active_response_items.clear()
             self._output_started = False
             self._output_final_emitted = False
@@ -676,7 +817,12 @@ class DashScopeRealtimeSession:
                 ProviderEvent(
                     "response.finished",
                     event_id,
-                    {"status": status},
+                    {
+                        "status": status,
+                        "input_item_id": response_input_item_id or "",
+                        "had_delegation": response_had_delegation,
+                        "transcript": transcript,
+                    },
                     correlation_id=correlation_id,
                     response_origin=response_origin,
                 )
@@ -776,6 +922,7 @@ class DashScopeRealtimeSession:
         turn = _InputTurnState()
         self._input_turns[turn_id] = turn
         if item_id:
+            turn.source_item_id = item_id
             self._input_item_turns[item_id] = turn_id
             turn.item_ids.add(item_id)
         if self._active_input_turn not in self._input_turns:
@@ -789,10 +936,16 @@ class DashScopeRealtimeSession:
             turn is None
             or not turn.transcript_final
             or not turn.auto_response_terminal
+            or turn.pending_call_ids
             or turn.cleanup_scheduled
         ):
             return
         turn.cleanup_scheduled = True
+        if self._native_delegation_enabled:
+            self._input_turns.pop(turn_id, None)
+            if not self._input_turns:
+                self._presentation_ready.set()
+            return
         task = asyncio.create_task(
             self._cleanup_input_turn(turn_id, set(turn.item_ids))
         )
@@ -844,7 +997,7 @@ class DashScopeRealtimeSession:
     async def _start_output(self, event_id: str) -> None:
         if (
             self._output_started
-            or self._active_response_origin != "application"
+            or not self._should_emit_active_output()
         ):
             return
         self._output_started = True
@@ -907,6 +1060,7 @@ class DashScopeRealtimeSession:
         self._input_cleanup_fallback_tasks.clear()
         self._input_turns.clear()
         self._input_item_turns.clear()
+        self._delegation_turns.clear()
         self._barge_cancel_task = None
         socket = self._socket
         self._socket = None
@@ -931,6 +1085,7 @@ def create_dashscope_session(
 
 DASHSCOPE_REGISTRATION = RealtimeProviderRegistration(
     provider_id="dashscope",
+    supports_native_delegation=True,
     models=(
         RealtimeVoiceModelConfig(
             id="qwen-audio-realtime",

@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from qwenpaw.app.chats.replies import ChatReply, ChatReplyView
-
 from qwenpaw.app.realtime_voice.contracts import (
     ConverseVoiceAction,
     HandoffVoiceAction,
@@ -16,6 +15,9 @@ from qwenpaw.app.realtime_voice.contracts import (
     VoiceTaskSnapshot,
 )
 from qwenpaw.app.realtime_voice.coordinator import VoiceCoordinator
+from qwenpaw.app.realtime_voice.native_handoff import (
+    NativeDelegationCommitter,
+)
 from qwenpaw.app.realtime_voice.presentation import (
     PresentationIntent,
     PresentationQueue,
@@ -52,6 +54,7 @@ class Provider:
             )
         )
         self.delete_items = AsyncMock()
+        self.complete_delegation = AsyncMock(return_value="tool-output")
         self.created_messages: list[tuple[str, str, str]] = []
 
     async def create_message(self, role: str, text: str) -> str:
@@ -526,6 +529,181 @@ def build_coordinator(provider, bridge, route, **options):
         provider, bridge, committer, timeline, **options
     )
     return coordinator, router, timeline
+
+
+def build_native_coordinator(provider, bridge, **options):
+    continuation_grace_ms = options.pop("continuation_grace_ms", 0)
+    committer = NativeDelegationCommitter(
+        continuation_grace_ms=continuation_grace_ms,
+    )
+    timeline = SimpleNamespace(
+        reserve_order=AsyncMock(side_effect=range(1, 100)),
+        append_voice_exchange=AsyncMock(return_value=[]),
+        reconcile=AsyncMock(return_value=0),
+        read_context=AsyncMock(return_value="prior conversation"),
+        observe_voice_exchange=Mock(),
+    )
+    coordinator = VoiceCoordinator(
+        provider,
+        bridge,
+        committer,
+        timeline,
+        native_delegation=True,
+        **options,
+    )
+    return coordinator, committer, timeline
+
+
+@pytest.mark.asyncio
+async def test_native_delegation_waits_for_final_transcript_and_acks_custody():
+    provider, bridge = Provider(), Bridge()
+    bridge.enqueue_action.return_value = admission(receipt())
+    coordinator, _, timeline = build_native_coordinator(provider, bridge)
+    await coordinator.start()
+    try:
+        assert provider.connect.call_args.args[0].delegation_tool is not None
+        await provider.queue.put(
+            ProviderEvent(
+                "delegation.requested",
+                "tool",
+                {"call_id": "call-1", "arguments": "ignored"},
+                correlation_id="audio-1",
+                response_origin="provider_auto",
+            )
+        )
+        await asyncio.sleep(0)
+        bridge.enqueue_action.assert_not_awaited()
+
+        await provider.queue.put(input_segment("audio-1", "请检查当前项目"))
+        await eventually(lambda: bridge.enqueue_action.await_count == 1)
+        call = bridge.enqueue_action.await_args
+        assert call.args[1] == "请检查当前项目"
+        assert call.kwargs["conversation_context"] == "prior conversation"
+        await eventually(lambda: provider.complete_delegation.await_count == 1)
+        provider.complete_delegation.assert_awaited_once_with(
+            "call-1",
+            {
+                "accepted": True,
+                "delegation_id": call.kwargs["idempotency_key"],
+                "status": "preparing",
+            },
+        )
+        timeline.append_voice_exchange.assert_not_awaited()
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_native_delegation_joins_fragments_and_acks_every_call():
+    provider, bridge = Provider(), Bridge()
+    bridge.enqueue_action.return_value = admission(receipt())
+    coordinator, _, _ = build_native_coordinator(
+        provider,
+        bridge,
+        continuation_grace_ms=0,
+    )
+    await coordinator.start()
+    try:
+        for source_id, call_id, text in (
+            ("audio-1", "call-1", "长任务前半段"),
+            ("audio-2", "call-2", "长任务后半段"),
+        ):
+            await provider.queue.put(
+                ProviderEvent(
+                    "speech.started",
+                    f"speech-{source_id}",
+                    correlation_id=source_id,
+                    response_origin="provider_auto",
+                )
+            )
+            await provider.queue.put(
+                ProviderEvent(
+                    "delegation.requested",
+                    f"tool-{source_id}",
+                    {"call_id": call_id},
+                    correlation_id=source_id,
+                    response_origin="provider_auto",
+                )
+            )
+            await provider.queue.put(input_segment(source_id, text))
+
+        await eventually(lambda: bridge.enqueue_action.await_count == 1)
+        assert bridge.enqueue_action.await_args.args[1] == (
+            "长任务前半段\n长任务后半段"
+        )
+        await eventually(lambda: provider.complete_delegation.await_count == 2)
+        assert {
+            call.args[0]
+            for call in provider.complete_delegation.await_args_list
+        } == {"call-1", "call-2"}
+    finally:
+        await coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_native_direct_response_is_playable_and_persisted():
+    provider, bridge = Provider(), Bridge()
+    coordinator, committer, timeline = build_native_coordinator(
+        provider,
+        bridge,
+    )
+    await coordinator.start()
+    events = coordinator.events()
+    try:
+        await provider.queue.put(
+            ProviderEvent(
+                "response.started",
+                "started",
+                {"input_item_id": "audio-1"},
+                correlation_id="response-1",
+                response_origin="provider_auto",
+            )
+        )
+        await provider.queue.put(input_segment("audio-1", "你好"))
+        await provider.queue.put(
+            ProviderEvent(
+                "output.started",
+                "output",
+                correlation_id="response-1",
+                response_origin="provider_auto",
+            )
+        )
+        await provider.queue.put(
+            ProviderEvent(
+                "output_transcript.final",
+                "text",
+                {"text": "你好，有什么可以帮你？"},
+                correlation_id="response-1",
+                response_origin="provider_auto",
+            )
+        )
+        await provider.queue.put(
+            ProviderEvent(
+                "response.finished",
+                "done",
+                {
+                    "input_item_id": "audio-1",
+                    "status": "completed",
+                    "had_delegation": False,
+                    "transcript": "你好，有什么可以帮你？",
+                },
+                correlation_id="response-1",
+                response_origin="provider_auto",
+            )
+        )
+
+        begin = await next_kind(events, "output.begin")
+        started = await next_kind(events, "output.started")
+        assert started.data["output_id"] == begin.data["output_id"]
+        sealed = await next_kind(events, "output.sealed")
+        assert sealed.data["output_id"] == begin.data["output_id"]
+        await eventually(lambda: timeline.append_voice_exchange.await_count == 1)
+        saved = timeline.append_voice_exchange.await_args
+        assert saved.args[1:3] == ("你好", "你好，有什么可以帮你？")
+        bridge.enqueue_action.assert_not_awaited()
+        assert "audio-1" not in committer._turns
+    finally:
+        await coordinator.close()
 
 
 @pytest.mark.asyncio

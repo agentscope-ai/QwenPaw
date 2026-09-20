@@ -9,6 +9,7 @@ from qwenpaw.app.realtime_voice.contracts import (
     PROTOCOL_VERSION,
     RealtimeVoiceServiceError,
 )
+from qwenpaw.app.realtime_voice.native_handoff import NativeDelegationCommitter
 from qwenpaw.app.realtime_voice.service import RealtimeVoiceService
 from qwenpaw.config.config import ModelSlotConfig
 
@@ -133,6 +134,36 @@ async def test_release_during_provider_start_closes_only_late_coordinator(
     coordinator.close.assert_awaited_once()
     assert old.coordinator is None
     assert service._leases["owner"] is new
+
+
+@pytest.mark.asyncio
+async def test_native_provider_skips_text_router(monkeypatch):
+    coordinator = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
+    factory = Mock(return_value=coordinator)
+    monkeypatch.setattr(
+        "qwenpaw.app.realtime_voice.service.VoiceCoordinator",
+        factory,
+    )
+    manager = SimpleNamespace(
+        get_realtime_voice_registration=lambda _: SimpleNamespace(
+            factory=lambda *_: object(),
+            context_max_chars=1800,
+            supports_native_delegation=True,
+        )
+    )
+    service = RealtimeVoiceService(manager)
+    live = live_session()
+    service._sessions[live.session_id] = live
+    service._bridges["chat"] = object()
+
+    assert await service.connect(live) is coordinator
+    assert isinstance(factory.call_args.args[2], NativeDelegationCommitter)
+    assert (
+        factory.call_args.args[2]._continuation_grace_seconds
+        == live.config.continuation_grace_ms / 1000
+    )
+    assert factory.call_args.kwargs["native_delegation"] is True
+    coordinator.start.assert_awaited_once()
 
 
 def test_router_model_resolution_uses_confirmed_precedence():
