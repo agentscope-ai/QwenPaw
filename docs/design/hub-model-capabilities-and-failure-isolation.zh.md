@@ -58,3 +58,30 @@ Python override 用例在 upstream `eccd66eaa` 为 30 passed，本 PR 修复前�
 模型 ID、显示名称和上游模型 ID 分开处理：Runtime `ModelInfo.id` 使用 Hub 稳定 ID，`name` 为显示名称；网关内部的 `upstream_model` 才用于供应商调用。能力通过选中的 `ModelInfo` 传递，不从显示名称推断。
 
 本轮验证：Python Agent／Provider／Hub 回归 4002 passed、5 skipped；前端全量 3843 passed；仓库外安全与能力验证 7 passed；TypeScript、格式和 pre-commit 检查通过。现有归一化测试删除过期的全局能力 mock，能力剥离断言仍保留，未新增测试文件。
+
+## feat/fix_hub：默认值和邀请注册
+
+合并 upstream main `ee0c08e7e`，保留本分支的本地虚拟环境和 PawApp 会话隔离。
+
+模型上下文通过现有 `Provider.get_context_size()` 解析，最终兜底为
+`DEFAULT_CONTEXT_WINDOW = 131072`。输出能力沿用 `ModelInfo.max_output_length`：
+未知时为 `None`，不恢复已移除的 `ModelInfo.max_tokens = 8192`，也不沿用
+Hub 原先的 4096。界面明确区分未知能力和已知上限，输出限制允许留空。
+保存显式空值后，Hub 目录和 Runtime 保留该空值；若请求也未指定输出限制，
+网关不发送 `max_tokens`／`max_completion_tokens`，由现有供应商默认行为决定。
+
+预算模块仅预留明确的输出边界；有限总预算下，缺少输出边界的请求会被拒绝，
+请求本身可提供边界。不启用有限预算时允许输出限制为空，并按返回 usage 结算。
+无 usage 的失败请求仍按预留估算记账，不能将该估算解释为供应商确认的实际消耗。
+
+邀请模式保持“创建账号／注册”入口，在注册表单填写邀请码，不改变兑换事务。
+
+### 本轮 checklist
+
+- [x] checkout `feat/fix_hub` 并合并 upstream main。
+- [x] 复用 Provider 上下文解析和 ModelInfo 输出能力，未知输出可留空。
+- [x] 保存接口、目录、网关和模型表格支持空值，不发送伪造的默认输出限制。
+- [x] 注册入口保留原名称，邀请码仍在注册表单填写。
+- [x] 仓库外验证已知／未知默认值、空值保存、网关请求参数及预算边界：9 passed。
+- [x] Python 回归 870 passed、2 skipped；既有前端回归 247 passed，临时前端验证通过；TypeScript、pre-commit 检查通过。
+- [x] 临时测试移至仓库外，不提交新增测试文件。

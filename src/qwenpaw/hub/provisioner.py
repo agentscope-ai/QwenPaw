@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+import logging
 
 import httpx
 
@@ -57,7 +58,7 @@ class RuntimeProvisioner(ABC):
         record: RuntimeRecord,
         credentials: Mapping[str, str],
     ) -> None:
-        """Require an authenticated round trip from the launched runtime."""
+        """Check model access when the runtime supports the status endpoint."""
         if not credentials.get("QWENPAW_HUB_MODEL_TOKEN"):
             return
         try:
@@ -71,9 +72,25 @@ class RuntimeProvisioner(ABC):
                         ],
                     },
                 )
+                content_type = response.headers.get("content-type", "")
+                if response.status_code in {404, 405} or (
+                    response.is_success and "text/html" in content_type.lower()
+                ):
+                    logging.getLogger(__name__).info(
+                        f"Runtime {record.runtime_id} has no Hub model "
+                        "status endpoint; skipping the optional "
+                        "legacy-image probe.",
+                    )
+                    return
                 response.raise_for_status()
                 if response.json().get("connected") is not True:
                     raise ValueError("Model connection was not verified")
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(
+                "Runtime Hub model check returned HTTP "
+                f"{exc.response.status_code}. Check runtime credentials "
+                "and Hub model service configuration.",
+            ) from exc
         except (httpx.HTTPError, ValueError) as exc:
             raise RuntimeError(
                 "Runtime could not reach the Hub model service. "

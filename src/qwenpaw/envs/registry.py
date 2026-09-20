@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from dataclasses import dataclass
 from typing import Iterable, Literal
+
+
+from ..utils.runtime_environment import user_environment_key_allowed
 
 
 _ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -201,7 +205,7 @@ def validate_env_key(key: str) -> None:
         raise ValueError(
             f"QwenPaw environment variable must be uppercase: {key}",
         )
-    if is_internal_env_key(key):
+    if is_internal_env_key(key) or is_managed_control_key(key):
         raise ValueError(f"Environment variable is managed internally: {key}")
     spec = ENV_VAR_SPECS_BY_KEY.get(identity)
     if spec is not None and not spec.editable:
@@ -224,3 +228,14 @@ def validate_env_value(key: str, value: str) -> None:
             int(value)
     except ValueError as exc:
         raise ValueError(f"Invalid {spec.value_type} value for {key}") from exc
+
+
+def is_managed_control_key(key: str) -> bool:
+    """Protect the launch contract in managed runtimes only."""
+    if not os.environ.get("QWENPAW_RUNTIME_ID"):
+        return False
+    spec = ENV_VAR_SPECS_BY_KEY.get(key)
+    return not (
+        user_environment_key_allowed(key)
+        or (spec is not None and spec.editable)
+    )

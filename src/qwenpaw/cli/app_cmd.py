@@ -7,6 +7,7 @@ import os
 import click
 import uvicorn
 
+from .init_cmd import ensure_local_runtime_initialized
 from ..app.auth import is_auth_enabled
 from ..browser.control_link.chrome.protocol import NM_MAX_INBOUND_BYTES
 from ..config.utils import write_last_api
@@ -148,6 +149,11 @@ def app_cmd(
             err=True,
         )
         click.echo(err=True)
+
+    if os.environ.get(
+        "QWENPAW_RUNTIME_PROVISIONER",
+    ) == "local" and os.environ.get("QWENPAW_RUNTIME_ID"):
+        ensure_local_runtime_initialized()
 
     configure_server_process(
         host,

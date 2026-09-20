@@ -931,6 +931,13 @@ class PluginLoader:
         Raises:
             RuntimeError: If all install attempts fail or time out
         """
+        if os.environ.get("QWENPAW_RUNTIME_PROVISIONER") == "local":
+            raise RuntimeError(
+                f"Plugin '{plugin_id}' has missing dependencies. "
+                "Local runtimes share administrator-managed Python; "
+                "ask the administrator to install the requirements, "
+                "or use Docker for independently managed dependencies.",
+            )
         logger.info(
             f"Installing dependencies for plugin '{plugin_id}'...",
         )

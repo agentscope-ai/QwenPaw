@@ -59,7 +59,7 @@ export interface ManagedModel {
   all_members: boolean;
   user_ids: string[];
   input_token_limit: number;
-  output_token_limit: number;
+  output_token_limit: number | null;
   output_limit_field: string;
   budget_verified: boolean;
   supports_image: boolean | null;
@@ -114,7 +114,7 @@ export interface MemberModelCatalog {
     supports_image: boolean | null;
     supports_agent_thinking: boolean;
     input_token_limit: number;
-    output_token_limit: number;
+    output_token_limit: number | null;
   }[];
 }
 

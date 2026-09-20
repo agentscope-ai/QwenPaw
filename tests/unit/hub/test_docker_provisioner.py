@@ -5,16 +5,20 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from email.message import Message
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from qwenpaw.hub.docker_images import DockerImagePullStore
 from qwenpaw.hub import docker_provisioner as docker_module
 from qwenpaw.hub.docker_provisioner import DockerRuntimeProvisioner
+from qwenpaw.hub.models import RuntimeState
+from qwenpaw.hub.provisioner import RuntimeProvisioner
 from tests.unit.hub.factories import runtime_record
 
 _record = partial(runtime_record, provisioner="docker", port=0)
@@ -90,6 +94,13 @@ class _FakeClient:
         self.containers = _FakeContainers()
         self.images = _FakeImages()
         self.api = SimpleNamespace()
+        network = SimpleNamespace(
+            id="isolated-network",
+            attrs={
+                "Options": {"com.docker.network.bridge.enable_icc": "false"},
+            },
+        )
+        self.networks = SimpleNamespace(get=lambda name: network)
 
     def ping(self) -> bool:
         return True
@@ -129,7 +140,10 @@ def test_engine_model_access_uses_detected_bridge(
     gateway: str,
 ) -> None:
     network = SimpleNamespace(
-        attrs={"IPAM": {"Config": [{"Gateway": gateway}]}},
+        attrs={
+            "IPAM": {"Config": [{"Gateway": gateway}]},
+            "Options": {"com.docker.network.bridge.enable_icc": "false"},
+        },
     )
     client = SimpleNamespace(
         info=lambda: {"OperatingSystem": "Ubuntu"},
@@ -155,7 +169,10 @@ def test_engine_model_access_rejects_unusable_gateway(
     gateway: str,
 ) -> None:
     network = SimpleNamespace(
-        attrs={"IPAM": {"Config": [{"Gateway": gateway}]}},
+        attrs={
+            "IPAM": {"Config": [{"Gateway": gateway}]},
+            "Options": {"com.docker.network.bridge.enable_icc": "false"},
+        },
     )
     client = SimpleNamespace(
         info=lambda: {},
@@ -211,7 +228,10 @@ def test_container_launch_applies_persistence_security_and_limits(
     )
 
     running = provisioner.start(
-        _record(tmp_path),
+        _record(
+            tmp_path,
+            metadata={"user_profile": {"workspace_dir": "/data/member"}},
+        ),
         {
             "QWENPAW_RUNTIME_INTERNAL_TOKEN": "runtime-token",
             "PYTHONPATH": "/",
@@ -221,6 +241,8 @@ def test_container_launch_applies_persistence_security_and_limits(
 
     launch = client.containers.run_kwargs
     assert launch["image"] == "docker.io/agentscope/qwenpaw:latest"
+    assert launch["network"] == "isolated-network"
+    assert launch["working_dir"] == "/data/member"
     assert launch["nano_cpus"] == 2_500_000_000
     assert launch["mem_limit"] == "3072m"
     assert launch["pids_limit"] == 512
@@ -229,6 +251,8 @@ def test_container_launch_applies_persistence_security_and_limits(
     environment = launch["environment"]
     assert isinstance(environment, dict)
     assert "PYTHONPATH" not in environment
+    assert environment["HOME"] == "/data/member"
+    assert environment["QWENPAW_WORKING_DIR"] == "/data/member"
     assert environment["OPENAI_API_KEY"] == "tenant-key"
     assert environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] == "runtime-token"
     volumes = launch["volumes"]
@@ -238,6 +262,7 @@ def test_container_launch_applies_persistence_security_and_limits(
         str(running.secret_dir),
         str(running.backup_dir),
     }
+    assert volumes[str(running.working_dir)]["bind"] == "/data/member"
     assert running.metadata["docker"]["image_id"] == ("sha256:resolved-image")
     assert running.metadata["docker"]["boundary_mode"] == "token"
 
@@ -411,7 +436,7 @@ def test_published_port_rejects_non_loopback_binding() -> None:
         )
 
 
-def test_pull_store_deduplicates_concurrent_reference(
+def test_pull_store_deduplicates_image_from_another_source(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -421,21 +446,23 @@ def test_pull_store_deduplicates_concurrent_reference(
     release = threading.Event()
     calls = 0
 
-    def pull(reference: str, progress) -> dict[str, object]:
+    def pull(reference: str, **_kwargs):
         nonlocal calls
-        del reference
+        assert reference == image
         calls += 1
         started.set()
         release.wait(timeout=2)
-        progress(100, "done")
-        return {}
+        yield {"status": "done"}
 
-    monkeypatch.setattr(provisioner, "pull_image", pull)
+    image = f"{docker_module.ALIYUN_ACR_IMAGE}:latest"
+    client = _FakeClient()
+    client.api = SimpleNamespace(pull=pull)
+    monkeypatch.setattr(provisioner, "_get_client", lambda: client)
     store = DockerImagePullStore(provisioner)
     try:
-        first = store.submit("docker.io/agentscope/qwenpaw:latest")
+        first = store.submit(image)
         assert started.wait(timeout=1)
-        second = store.submit("docker.io/agentscope/qwenpaw:latest")
+        second = store.submit(image)
         assert second.pull_id == first.pull_id
         release.set()
         deadline = time.monotonic() + 2
@@ -446,3 +473,58 @@ def test_pull_store_deduplicates_concurrent_reference(
     finally:
         release.set()
         store.close()
+
+
+def test_status_preserves_startup_failure_after_container_stops(
+    tmp_path,
+    monkeypatch,
+):
+    client = _FakeClient()
+    client.containers.container.status = "exited"
+    monkeypatch.setattr(
+        client.containers,
+        "list",
+        lambda **kwargs: [client.containers.container],
+    )
+    provisioner = DockerRuntimeProvisioner(tmp_path, client=client)
+    record = replace(
+        _record(tmp_path),
+        state=RuntimeState.FAILED,
+        last_error="Runtime image is incompatible",
+    )
+    assert provisioner.status(record) == record
+
+
+@pytest.mark.parametrize("status", [404, 200, 401])
+def test_model_probe_allows_legacy_images_but_rejects_auth_errors(
+    tmp_path,
+    monkeypatch,
+    status,
+):
+    real_client = httpx.Client
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            status,
+            text="<html>Console</html>",
+            headers={"content-type": "text/html"},
+        ),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.hub.provisioner.httpx.Client",
+        lambda **kwargs: real_client(transport=transport, **kwargs),
+    )
+    credentials = {
+        "QWENPAW_HUB_MODEL_TOKEN": "model-token",
+        "QWENPAW_RUNTIME_INTERNAL_TOKEN": "boundary-token",
+    }
+    if status == 401:
+        with pytest.raises(RuntimeError, match="HTTP 401"):
+            RuntimeProvisioner.verify_model_connection(
+                _record(tmp_path),
+                credentials,
+            )
+    else:
+        RuntimeProvisioner.verify_model_connection(
+            _record(tmp_path),
+            credentials,
+        )

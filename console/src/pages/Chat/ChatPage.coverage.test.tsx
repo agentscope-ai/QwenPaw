@@ -373,7 +373,11 @@ vi.mock("@/plugins/registry/useChatExtensions", () => ({
 }));
 
 vi.mock("./components/ContextUsageIndicator", () => ({
-  default: () => <div data-testid="context-usage" />,
+  default: ({ onCompact }: { onCompact: () => void }) => (
+    <div data-testid="context-usage">
+      <button data-testid="context-usage-compact" onClick={onCompact} />
+    </div>
+  ),
 }));
 
 vi.mock("../../components/ApprovalCard/ApprovalCard", () => ({
@@ -1199,11 +1203,10 @@ describe("ChatPage coverage", () => {
     const actionsList = capturedOptions?.actions?.list;
     if (actionsList && actionsList.length > 1 && actionsList[1].render) {
       const element = actionsList[1].render({
-        data: {
-          data: { created_at: 1700000000000, completed_at: 1700000001000 },
-        },
+        data: { created_at: 1700000000000, completed_at: 1700000001000 },
       });
       expect(element).toBeTruthy();
+      expect(element.props.children).not.toBe("");
     }
   });
 
@@ -1246,6 +1249,27 @@ describe("ChatPage coverage", () => {
   });
 
   // ── handleBeforeSubmit: SDK query override ─────────────────────────────
+  it("compact command uses execution.execute with current session identity", async () => {
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    fireEvent.click(screen.getByTestId("context-usage-compact"));
+
+    expect(mockRuntimeSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: "/compact",
+        session_id: "test-session",
+        user_id: "test-user",
+        channel: "console",
+        agent_id: "default",
+      }),
+      { sessionId: "test-session", source: "direct" },
+    );
+  });
+
   it("returns the prepared query after the SDK captures input data", async () => {
     mockBeginLoopModeSubmission.mockImplementation(
       (text: string) => `/goal ${text}`,
@@ -2022,6 +2046,7 @@ describe("ChatPage coverage", () => {
 
     expect(capturedOptions?.actions?.replace).toBe(false);
     expect(capturedOptions?.actions?.right).toBe(false);
+    expect(capturedOptions?.actions?.list).toHaveLength(2);
   });
 
   // ── customToolRenderConfig ─────────────────────────────────────────────

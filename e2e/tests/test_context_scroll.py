@@ -36,6 +36,17 @@ logger = logging.getLogger(__name__)
 @pytest.mark.requires_llm
 @pytest.mark.p1
 @pytest.mark.context_scroll
+# 2026-09-18 (Tai-ge approved raising this case's per-case ceiling to 600 s):
+# the case is a 25-round real-LLM conversation and lives close to the global
+# 480 s per-case ceiling introduced by #7803 -- the green 09-16 nightly run
+# measured 424 s, i.e. 56 s of headroom, and the Path C stability wait added
+# the same day costs ~1.5 s per round (~+39 s over 26 waits), leaving only
+# ~17 s at 480 s. pytest-timeout's per-test marker overrides the command
+# line --timeout, so this case alone gets 600 s while every other case keeps
+# the 480 s hang-detection ceiling (raising the global value would loosen
+# hang detection for all ~200 other cases; the second-slowest of them is
+# 242 s, so 480 s is still only 2.0x there).
+@pytest.mark.timeout(600)
 class TestLongConversationCompression:
     """
     CS-001: Long conversation triggers context compression.
@@ -77,7 +88,17 @@ class TestLongConversationCompression:
         log_test_step("2. Send 25 short messages rapidly")
         for i in range(25):
             clean_chat_page.send_message(f"Message {i+1}: count to {i+1}")
-            ai_response = clean_chat_page.wait_for_ai_response(timeout=30000)
+            # 2026-09-18: widened per-round budget. After upstream #7382
+            # (chat SDK 1.1.73 -> 1.2.0) a round can stall while an earlier
+            # one is cancelled by the queue stabiliser; the gate-2/3 window
+            # used to be hard-capped at 30 s inside wait_for_ai_response
+            # (stability_timeout = min(timeout, 30000)), so raising only the
+            # outer timeout had no effect. The shared helper now takes
+            # stability_cap_ms (default unchanged = 30 s for all other
+            # callers); this 25-round case opts into a 60 s window.
+            ai_response = clean_chat_page.wait_for_ai_response(
+                timeout=60000, stability_cap_ms=60000
+            )
             assert ai_response is not None, f"AI response {i+1} timed out"
 
         log_test_step("3. Wait for compression to trigger")
@@ -99,7 +120,9 @@ class TestLongConversationCompression:
         clean_chat_page.send_message(
             "What was the first number I asked you to count to?"
         )
-        ai_response = clean_chat_page.wait_for_ai_response(timeout=30000)
+        ai_response = clean_chat_page.wait_for_ai_response(
+            timeout=60000, stability_cap_ms=60000
+        )
         assert ai_response is not None, "Follow-up AI response timed out"
 
         log_test_step("6. Verify AI understands context")
