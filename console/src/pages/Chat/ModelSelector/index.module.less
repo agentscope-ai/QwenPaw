@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/modelSurfaces.less";
+
 /* ---- Trigger button ---- */
 .trigger {
   display: inline-flex;
@@ -8,7 +10,9 @@
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
   user-select: none;
   max-width: 260px;
 
@@ -119,7 +123,7 @@
   gap: 6px;
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
   cursor: pointer;
   user-select: none;
 }
@@ -397,7 +401,7 @@
 .settingsSectionHeader {
   display: flex;
   align-items: baseline;
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .settingsSectionTitle,
@@ -802,12 +806,13 @@
 .oauthModalContent,
 .agentModelSettings,
 .agentSelectDropdown {
+  .model-surface-tokens();
   --ms-primary: var(--app-accent);
   --ms-accent: var(--app-accent);
   --ms-accent-strong: var(--app-accent-hover);
   --ms-accent-soft: var(--app-accent-soft);
   --ms-surface: var(--app-surface);
-  --ms-surface-muted: var(--app-fill-faint);
+  --ms-surface-muted: var(--model-inset);
   --ms-border: var(--app-border);
   --ms-border-strong: var(--app-border-strong);
   --ms-text: var(--app-text);
@@ -845,15 +850,15 @@
 .panel {
   width: 380px;
   max-height: min(620px, 72vh);
-  border-color: var(--ms-border);
-  border-radius: 16px;
+  border-color: var(--model-hairline);
+  border-radius: 24px;
   background: var(--ms-surface);
-  box-shadow: 0 20px 52px rgba(0, 0, 0, 0.14);
+  box-shadow: var(--model-overlay-shadow);
 }
 
 .searchWrapper {
-  min-height: 50px;
-  padding: 8px 13px;
+  min-height: 64px;
+  padding: 12px 16px;
   border-bottom-color: var(--ms-border);
   background: var(--ms-surface);
 }
@@ -871,8 +876,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -887,41 +892,32 @@
 }
 
 .tabBar {
-  gap: 0;
-  padding: 0;
-  border-bottom-color: var(--ms-border);
-  background: var(--ms-surface);
+  gap: 4px;
+  padding: 4px;
+  margin: 0 16px 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ms-surface-muted);
 }
 
 .tabButton {
-  min-height: 44px;
+  min-height: 36px;
   padding: 0 12px;
-  border-radius: 0;
+  border-radius: 9px;
   color: var(--ms-text-muted);
   font-size: 12px;
   letter-spacing: 0;
   touch-action: manipulation;
 
   &.tabButtonActive {
-    color: var(--ms-accent);
-    background: transparent;
-    box-shadow: none;
-
-    &::after {
-      position: absolute;
-      right: 22%;
-      bottom: -1px;
-      left: 22%;
-      height: 2px;
-      border-radius: 2px 2px 0 0;
-      background: var(--ms-accent);
-      content: "";
-    }
+    color: var(--ms-text);
+    background: var(--ms-surface);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
   }
 }
 
 .listContainer {
-  padding: 6px;
+  padding: 0 12px 12px;
   scrollbar-width: thin;
   scrollbar-color: var(--ms-border-strong) transparent;
 }
@@ -953,8 +949,8 @@
 
 .providerHeader {
   width: 100%;
-  min-height: 34px;
-  padding: 7px 9px;
+  min-height: 40px;
+  padding: 8px;
   border: 0;
   border-radius: 8px;
   color: var(--ms-text-muted);
@@ -969,7 +965,8 @@
 }
 
 .modelItem {
-  min-height: 42px;
+  min-height: 44px;
+  border-radius: 12px;
   margin: 2px 0;
   padding: 0 8px 0 4px;
   color: var(--ms-text);
@@ -997,7 +994,7 @@
   align-self: stretch;
   flex: 1;
   min-width: 0;
-  padding: 0 8px 0 28px;
+  padding: 0 8px 0 24px;
   border: 0;
   color: inherit;
   background: transparent;
@@ -1284,7 +1281,7 @@
   .panel {
     width: calc(100vw - 12px);
     max-height: min(640px, 78vh);
-    border-radius: 12px;
+    border-radius: 20px;
   }
 
   .trigger {
@@ -1370,8 +1367,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   border: 1px solid var(--app-border);
   border-radius: 8px;
   background: transparent;
@@ -1394,8 +1391,8 @@
 }
 .addModelControl,
 .removeModelControl {
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1426,10 +1423,11 @@
   }
 }
 .candidatePicker {
-  margin: 8px 12px 12px;
-  padding: 10px;
-  border: 1px solid var(--app-border);
-  border-radius: 10px;
+  margin: 8px 0 12px;
+  padding: 12px;
+  border: 1px solid var(--model-hairline);
+  border-radius: 16px;
+  background: var(--model-inset);
 }
 .candidateList {
   max-height: 220px;

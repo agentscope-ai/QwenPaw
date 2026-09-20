@@ -1,4 +1,23 @@
+@import (reference) "../../../../../styles/modelSurfaces.less";
+
 .modal {
+  .model-surface-tokens();
+  :global(.qwenpaw-modal-content) {
+    border-radius: 24px;
+    overflow: hidden;
+    background: var(--model-canvas);
+    box-shadow: var(--model-overlay-shadow);
+    padding: 24px;
+  }
+  :global(.qwenpaw-modal-header) {
+    background: transparent;
+    margin-bottom: 16px;
+  }
+  :global(.qwenpaw-modal-title) {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.3px;
+  }
   :global(.qwenpaw-modal-body) {
     padding-top: 8px;
     height: min(620px, calc(100dvh - 160px));
@@ -52,12 +71,21 @@
     background: transparent;
   }
   overflow-y: auto;
-  border: 1px solid var(--app-border-subtle);
-  border-radius: 12px;
+  border: 0;
+  border-radius: 16px;
   scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: 1px 4px 1px 1px;
+}
+.entry {
+  background: var(--model-card);
+  border: 1px solid var(--model-hairline);
+  border-radius: 16px;
+  overflow: hidden;
 }
 .entry + .entry {
-  border-top: 1px solid var(--app-border-subtle);
+  margin-top: 8px;
 }
 .row {
   display: flex;
@@ -97,6 +125,7 @@
   font-variant-numeric: tabular-nums;
   :global(.qwenpaw-tag) {
     margin: 0;
+    border-radius: 6px;
   }
 }
 .actions {
@@ -104,6 +133,12 @@
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  color: var(--app-text-secondary);
+  button svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.5;
+  }
   > button,
   > span > button {
     min-height: 40px;
@@ -112,6 +147,7 @@
 }
 .details {
   padding: 16px;
+  background: var(--model-inset);
   border-top: 1px solid var(--app-border-subtle);
 }
 .footer {
@@ -144,6 +180,10 @@
   .summary,
   .footer {
     flex-wrap: wrap;
+  }
+  .modal :global(.qwenpaw-modal-content) {
+    padding: 16px;
+    border-radius: 20px;
   }
   .modal :global(.qwenpaw-modal-body) {
     height: calc(100dvh - 130px);
@@ -200,7 +240,12 @@
   cursor: pointer;
 }
 .selectedEntry {
-  background: color-mix(in srgb, var(--app-accent-soft) 45%, transparent);
+  border-color: color-mix(
+    in srgb,
+    var(--app-accent) 24%,
+    var(--model-hairline)
+  );
+  background: color-mix(in srgb, var(--model-card) 96%, var(--app-accent));
 }
 .quickFilters {
   gap: 8px;
@@ -209,11 +254,12 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 9px;
-  border: 1px solid var(--app-border);
-  border-radius: 7px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--model-hairline);
+  border-radius: 10px;
   color: var(--app-text-secondary);
-  background: transparent;
+  background: var(--model-card);
   font-size: 12px;
   cursor: pointer;
   &[aria-pressed="true"] {
@@ -231,6 +277,7 @@
   gap: 5px;
   :global(.qwenpaw-tag) {
     margin: 0;
+    border-radius: 6px;
   }
 }
 .moreFilters {
@@ -258,5 +305,16 @@
   }
   :global(.qwenpaw-select) {
     width: 100%;
+  }
+}
+
+:global(.dark-mode) .modal {
+  :global(.qwenpaw-modal-content) {
+    background: var(--model-canvas);
+    box-shadow: var(--model-overlay-shadow);
+  }
+  :global(.qwenpaw-modal-header),
+  :global(.qwenpaw-modal-body) {
+    background: transparent;
   }
 }

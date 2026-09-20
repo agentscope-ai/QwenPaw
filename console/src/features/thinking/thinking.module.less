@@ -1,14 +1,30 @@
+@import (reference) "../../styles/modelSurfaces.less";
+
 .control {
+  .model-surface-tokens();
+  box-sizing: border-box;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--model-inset);
   width: 100%;
   min-width: 0;
+  :global(.qwenpaw-slider-track),
   :global(.ant-slider-track) {
     background: var(--thinking-color);
   }
+  :global(.qwenpaw-slider-handle::after),
   :global(.ant-slider-handle::after) {
     box-shadow: 0 0 0 2px var(--thinking-color);
   }
+  :global(.qwenpaw-input-number-affix-wrapper),
+  :global(.ant-input-number-affix-wrapper) {
+    width: 148px;
+    flex-shrink: 0;
+  }
+  :global(.qwenpaw-input-number),
   :global(.ant-input-number) {
-    width: 142px;
+    width: 100%;
+    min-width: 0;
     font-variant-numeric: tabular-nums;
   }
 }
@@ -43,13 +59,14 @@
   font-variant-numeric: tabular-nums;
 }
 .iconButton {
+  .model-focus();
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 40px;
+  height: 40px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 10px;
   background: transparent;
   color: var(--app-text-secondary);
   cursor: pointer;
@@ -66,15 +83,19 @@
   gap: 6px;
   margin-top: 14px;
   button {
+    .model-focus();
+    min-height: 36px;
     border: 1px solid var(--app-border);
-    border-radius: 6px;
+    border-radius: 10px;
     background: transparent;
     color: var(--app-text-secondary);
     padding: 4px 9px;
     cursor: pointer;
     &[aria-pressed="true"] {
       color: var(--app-accent);
-      border-color: var(--app-accent);
+      border-color: transparent;
+      background: var(--model-card);
+      box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
     }
   }
 }
@@ -85,6 +106,7 @@
   margin: 10px 0 0;
 }
 .trigger {
+  .model-focus();
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -104,4 +126,14 @@
 }
 .popover {
   width: min(288px, calc(100vw - 56px));
+}
+
+.overlay {
+  .model-surface-tokens();
+  :global(.qwenpaw-popover-inner),
+  :global(.ant-popover-inner) {
+    border-radius: 24px;
+    padding: 12px;
+    box-shadow: var(--model-overlay-shadow);
+  }
 }

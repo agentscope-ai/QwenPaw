@@ -186,7 +186,7 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
           </button>
         )}
         <button
-          className={styles.groupCardActBtn}
+          className={`${styles.groupCardActBtn} ${styles.groupCardPrimaryAction}`}
           onClick={() => onOpenModels(provider)}
         >
           {t("models.models")}

@@ -56,7 +56,7 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
       {/* Actions */}
       <div className={styles.groupCardActions}>
         <button
-          className={styles.groupCardActBtn}
+          className={`${styles.groupCardActBtn} ${styles.groupCardPrimaryAction}`}
           onClick={() => onOpenModels(provider)}
         >
           {t("models.models")}

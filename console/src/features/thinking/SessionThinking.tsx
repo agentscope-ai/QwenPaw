@@ -79,6 +79,7 @@ export function SessionThinking({
   const value = view?.value ?? { level: "inherit" as const };
   return (
     <Popover
+      overlayClassName={styles.overlay}
       trigger="click"
       placement="topLeft"
       open={open}

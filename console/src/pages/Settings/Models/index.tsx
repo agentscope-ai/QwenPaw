@@ -8,7 +8,7 @@ import {
 import { useSearchParams } from "react-router-dom";
 import { Button, Input, Modal } from "@agentscope-ai/design";
 import { Alert } from "antd";
-import { PlusOutlined, SearchOutlined, SyncOutlined } from "@ant-design/icons";
+import { Plus, Search, RefreshCw } from "lucide-react";
 import { useProviders } from "./useProviders";
 import {
   LoadingState,
@@ -374,7 +374,7 @@ function ModelsPage() {
                       onChange={(e) => setSearchQuery(e.target.value)}
                       onFocus={() => setSearchReadOnly(false)}
                       className={styles.searchInput}
-                      prefix={<SearchOutlined />}
+                      prefix={<Search size={16} strokeWidth={1.5} />}
                       allowClear
                       readOnly={searchReadOnly}
                       autoComplete="off"
@@ -382,7 +382,7 @@ function ModelsPage() {
                       data-form-type="other"
                     />
                     <Button
-                      icon={<SyncOutlined />}
+                      icon={<RefreshCw size={16} strokeWidth={1.5} />}
                       onClick={() => fetchAll()}
                       className={styles.searchBtn}
                       title={t("common.refresh")}
@@ -390,7 +390,7 @@ function ModelsPage() {
                   </div>
                   <Button
                     type="primary"
-                    icon={<PlusOutlined />}
+                    icon={<Plus size={16} strokeWidth={1.5} />}
                     onClick={() => setAddProviderOpen(true)}
                     className={styles.addProviderBtn}
                   >

@@ -1,3 +1,5 @@
+@import (reference) "../../../styles/modelSurfaces.less";
+
 .localAdvancedConfigFieldRow {
   flex-direction: row;
   align-items: flex-start;
@@ -6,9 +8,10 @@
 
 /* ---- Provider visual refresh -------------------------------------------- */
 .settingsPage {
-  --models-bg: transparent;
+  .model-surface-tokens();
+  --models-bg: var(--model-canvas);
   --models-surface: var(--app-surface);
-  --models-surface-muted: var(--app-fill-faint);
+  --models-surface-muted: var(--model-inset);
   --models-border: var(--app-border);
   --models-border-strong: var(--app-border-strong);
   --models-text: var(--app-text);
@@ -147,19 +150,19 @@
 
 .settingsPage .panelSection,
 .settingsPage .panelSectionDashed {
-  margin: 0 24px 18px;
-  padding: 18px;
-  border-radius: 10px;
+  margin: 0 24px 24px;
+  padding: 0;
+  border-radius: 0;
 }
 
 .settingsPage .panelSection {
-  background: var(--models-surface-muted);
-  border-color: var(--models-border);
+  background: transparent;
+  border: 0;
 }
 
 .settingsPage .panelSectionDashed {
-  background: var(--models-surface);
-  border: 1px dashed var(--models-border-strong);
+  background: transparent;
+  border: 0;
 }
 
 .settingsPage .panelTitle {
@@ -180,25 +183,25 @@
 }
 
 .settingsPage .providerCards {
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
   margin-bottom: 0;
 }
 
 .settingsPage .groupCardGlass,
 .settingsPage .providerCard {
-  border: 1px solid var(--models-border);
-  border-radius: 10px;
+  border: 1px solid var(--model-hairline);
+  border-radius: 24px;
   background: var(--models-surface);
-  box-shadow: var(--app-shadow-sm);
+  box-shadow: var(--model-shadow);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
 
 .settingsPage .groupCardGlass:hover,
 .settingsPage .providerCard:hover {
-  border-color: var(--models-border-strong);
-  box-shadow: var(--app-shadow-md);
+  border-color: var(--models-border);
+  box-shadow: var(--model-shadow);
 }
 
 .settingsPage .groupCardName,
@@ -271,9 +274,9 @@
 }
 
 .settingsPage .groupCardActBtn {
-  min-height: 34px;
-  padding: 7px 12px;
-  border-color: var(--models-border);
+  min-height: 40px;
+  padding: 8px 16px;
+  border-color: transparent;
   color: var(--models-text-muted);
   background: var(--models-surface);
 }
@@ -323,10 +326,10 @@
 }
 
 .settingsPage .availableItem {
-  min-height: 50px;
-  padding: 10px 12px;
-  border-color: var(--models-border);
-  border-radius: 8px;
+  min-height: 64px;
+  padding: 16px;
+  border-color: var(--model-hairline);
+  border-radius: 16px;
   background: var(--models-surface);
 }
 
@@ -623,7 +626,9 @@
   border-radius: 8px;
   background: var(--app-surface-subtle);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
 
   &:hover {
     background: var(--models-accent-soft);
@@ -640,11 +645,12 @@
 
 .providerCard {
   background: var(--app-surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+
   border-radius: 14px;
   border: 1px solid var(--app-border);
-  transition: all 0.2s;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
   cursor: pointer;
   position: relative;
   overflow: visible;
@@ -887,12 +893,14 @@
 
 .groupCardGlass {
   background: var(--app-surface);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+
   border-radius: 14px;
   border: 1px solid var(--app-border);
-  padding: 22px;
-  transition: all 0.2s;
+  padding: 24px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 150ms ease;
   cursor: default;
 
   &:hover {
@@ -908,7 +916,9 @@
 }
 
 .groupCardName {
-  font-size: 17px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
   font-weight: 600;
   flex: 1;
   color: var(--app-text);
@@ -928,18 +938,6 @@
   height: 6px;
   border-radius: 50%;
   background: var(--app-success);
-  animation: groupPulse 2s infinite;
-}
-
-@keyframes groupPulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.4;
-  }
 }
 
 /* Segmented Control */
@@ -962,7 +960,9 @@
   color: var(--app-text-tertiary);
   border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
   white-space: nowrap;
   display: flex;
   align-items: center;
@@ -998,8 +998,8 @@
 .groupCardContent {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .groupCardField {
@@ -1009,10 +1009,10 @@
 }
 
 .groupCardFieldLabel {
-  font-size: 10px;
-  color: var(--app-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  font-size: 12px;
+  color: var(--app-text-secondary);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .groupCardFieldValue {
@@ -1021,7 +1021,7 @@
 }
 
 .groupCardMono {
-  font-family: "SF Mono", "Fira Code", monospace;
+  font-family: inherit;
   font-size: 12px;
   color: var(--app-text-secondary);
   background: var(--app-fill-faint);
@@ -1061,19 +1061,24 @@
 .groupCardActions {
   display: flex;
   gap: 8px;
-  padding-top: 14px;
-  border-top: 1px solid var(--app-border-subtle);
+  padding-top: 16px;
+  margin-top: auto;
+  flex-wrap: wrap;
+  border-top: 1px solid var(--model-hairline);
 }
 
 .groupCardActBtn {
+  .model-focus();
   padding: 7px 14px;
   background: var(--app-fill-faint);
   border: 1px solid var(--app-border);
-  border-radius: 8px;
+  border-radius: 12px;
   color: var(--app-text-secondary);
   font-size: 12px;
   cursor: pointer;
-  transition: all 0.15s;
+  transition:
+    color 150ms ease,
+    background-color 150ms ease;
   font-family: inherit;
 
   &:hover {
@@ -2610,4 +2615,10 @@
       }
     }
   }
+}
+
+.settingsPage .groupCardPrimaryAction {
+  color: var(--models-accent-strong);
+  background: var(--models-accent-soft);
+  font-weight: 500;
 }

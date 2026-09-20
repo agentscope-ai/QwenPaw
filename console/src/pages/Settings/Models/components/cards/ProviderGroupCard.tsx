@@ -172,7 +172,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       {/* Actions */}
       <div className={styles.groupCardActions}>
         <button
-          className={styles.groupCardActBtn}
+          className={`${styles.groupCardActBtn} ${styles.groupCardPrimaryAction}`}
           onClick={() => onOpenModels(activeProvider)}
         >
           {t("models.models")}
