@@ -5,13 +5,19 @@ import { useTranslation } from "react-i18next";
 import { providerApi } from "../../../api/modules/provider";
 import type { ModelPoolPage } from "../../../api/types";
 import { useAppMessage } from "../../../hooks/useAppMessage";
+import {
+  BillingTag,
+  CapabilityTags,
+} from "../../Settings/Models/components/modals/ModelCapabilityTags";
 import styles from "./index.module.less";
 
 export default function ProviderCandidatePicker({
   providerId,
+  tier,
   onSaved,
 }: {
   providerId: string;
+  tier: "pro" | "free";
   onSaved: () => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -29,6 +35,7 @@ export default function ProviderCandidatePicker({
       providerApi
         .getModelPool(providerId, {
           tab: "candidates",
+          billing: tier,
           search,
           offset,
           limit: 10,
@@ -47,7 +54,7 @@ export default function ProviderCandidatePicker({
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [providerId, search, offset, revision]);
+  }, [providerId, tier, search, offset, revision]);
   return (
     <section
       className={styles.candidatePicker}
@@ -70,6 +77,10 @@ export default function ProviderCandidatePicker({
           {page?.models.map((model) => (
             <div key={model.id} className={styles.candidateRow}>
               <span title={model.id}>{model.name || model.id}</span>
+              <div className={styles.candidateTags}>
+                <BillingTag model={model} iconOnly />
+                <CapabilityTags model={model} iconOnly />
+              </div>
               <button
                 type="button"
                 className={styles.addModelControl}

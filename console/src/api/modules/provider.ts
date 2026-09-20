@@ -47,7 +47,7 @@ const activeModelPromises = new Map<string, Promise<ActiveModelsInfo>>();
 export const providerApi = {
   getModelPool: (
     providerId: string,
-    query: Record<string, string | number> = {},
+    query: Record<string, string | number | boolean> = {},
   ) =>
     request<ModelPoolPage>(
       `/models/${encodeURIComponent(providerId)}/pool?${new URLSearchParams(

@@ -1,3 +1,4 @@
+import { Tooltip } from "antd";
 import { Tag } from "@agentscope-ai/design";
 import {
   AudioLines,
@@ -61,20 +62,22 @@ function CapabilityTag({
   icon: Icon,
   children,
   tone = "info",
+  iconOnly = false,
 }: {
   icon: LucideIcon;
+  iconOnly?: boolean;
   children: React.ReactNode;
   tone?: "info" | "neutral" | "free";
 }) {
   const colors = tagColors();
-  return (
+  const tag = (
     <Tag
       style={{
         display: "inline-flex",
         alignItems: "center",
         gap: 4,
         minHeight: 24,
-        padding: "1px 6px",
+        padding: iconOnly ? "1px 4px" : "1px 6px",
         borderRadius: 4,
         fontSize: 12,
         fontWeight: 500,
@@ -90,12 +93,32 @@ function CapabilityTag({
       }}
     >
       <Icon size={14} strokeWidth={1.8} aria-hidden />
-      {children}
+      {!iconOnly && children}
     </Tag>
+  );
+  return iconOnly ? (
+    <Tooltip title={children}>
+      <span
+        tabIndex={0}
+        role="img"
+        aria-label={typeof children === "string" ? children : undefined}
+        style={{ display: "inline-flex" }}
+      >
+        {tag}
+      </span>
+    </Tooltip>
+  ) : (
+    tag
   );
 }
 
-export function CapabilityTags({ model }: { model: ModelInfo }) {
+export function CapabilityTags({
+  model,
+  iconOnly = false,
+}: {
+  model: ModelInfo;
+  iconOnly?: boolean;
+}) {
   const { t } = useTranslation();
   const modalities = [
     model.supports_image,
@@ -129,12 +152,13 @@ export function CapabilityTags({ model }: { model: ModelInfo }) {
     <>
       <CapabilityTag
         icon={icon}
+        iconOnly={iconOnly}
         tone={modalities.some(Boolean) ? "info" : "neutral"}
       >
         {t(label)}
       </CapabilityTag>
       {model.supports_tool_calling === true && (
-        <CapabilityTag icon={Wrench}>
+        <CapabilityTag icon={Wrench} iconOnly={iconOnly}>
           {t("models.pool.capabilityOptions.tool_calling")}
         </CapabilityTag>
       )}
@@ -142,11 +166,18 @@ export function CapabilityTags({ model }: { model: ModelInfo }) {
   );
 }
 
-export function BillingTag({ model }: { model: ModelInfo }) {
+export function BillingTag({
+  model,
+  iconOnly = false,
+}: {
+  model: ModelInfo;
+  iconOnly?: boolean;
+}) {
   const { t } = useTranslation();
   const billing = model.billing ?? (model.is_free ? "free" : "unknown");
   return (
     <CapabilityTag
+      iconOnly={iconOnly}
       icon={
         billing === "free" ? Gift : billing === "paid" ? CreditCard : CircleHelp
       }

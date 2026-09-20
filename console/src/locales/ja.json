@@ -2093,8 +2093,18 @@
       "all": "All models ({{count}})",
       "selectionFilter": "Selection status",
       "selectorToggle": "Enable in model selector",
-      "enabled": "Selected",
-      "disabled": "Not selected"
+      "enabled": "Enabled",
+      "disabled": "Not enabled",
+      "onlyEnabled": "Enabled only",
+      "enabledSummary": "Enabled {{selected}} / Total {{total}}",
+      "any": "Any",
+      "moreFilters": "More filters",
+      "filterLabels": {
+        "billing": "Price",
+        "capability": "Capabilities",
+        "availability": "Connection status",
+        "family": "Model family"
+      }
     },
     "billing": {
       "free": "無料"

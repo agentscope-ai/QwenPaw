@@ -18,10 +18,12 @@ class ModelPoolQuery(BaseModel):
 
     tab: Literal["all", "candidates", "selected"] = f"all"
     search: str = f""
-    billing: Literal["all", "free", "paid", "unknown"] = f"all"
+    billing: Literal["all", "free", "paid", "unknown", "pro"] = f"all"
     capability: Literal[
         "all", "image", "audio", "video", "tool_calling", "unknown"
     ] = f"all"
+    multimodal: bool = False
+    tools: bool = False
     availability: str = f"all"
     family: str = f"all"
     offset: int = Field(default=0, ge=0)
@@ -69,7 +71,22 @@ def model_pool_page(
             return False
         if search and search not in f"{card.name} {card.id}".casefold():
             return False
-        if query.billing != f"all" and card.billing != query.billing:
+        if query.billing == f"pro":
+            if card.billing == f"free":
+                return False
+        elif query.billing != f"all" and card.billing != query.billing:
+            return False
+        if query.multimodal and not any(
+            value is True
+            for value in (
+                card.supports_image,
+                card.supports_audio,
+                card.supports_video,
+                card.supports_multimodal,
+            )
+        ):
+            return False
+        if query.tools and card.supports_tool_calling is not True:
             return False
         if query.capability == f"unknown":
             if all(

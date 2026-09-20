@@ -2584,8 +2584,18 @@
       "all": "全部模型 ({{count}})",
       "selectionFilter": "选择状态",
       "selectorToggle": "在模型选择器中启用",
-      "enabled": "已选",
-      "disabled": "未选"
+      "enabled": "已启用",
+      "disabled": "未启用",
+      "onlyEnabled": "只看已启用",
+      "enabledSummary": "已启用 {{selected}} / 全部 {{total}}",
+      "any": "不限",
+      "moreFilters": "更多筛选",
+      "filterLabels": {
+        "billing": "价格",
+        "capability": "能力",
+        "availability": "连接状态",
+        "family": "模型系列"
+      }
     }
   },
   "files": {

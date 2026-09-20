@@ -291,3 +291,39 @@ async def test_unselected_catalog_model_can_be_tested_and_persisted(
     assert not reloaded.configured_models()
     card = reloaded.get_discovered_model_info(f"deepseek-v4-flash-vision-exp")
     assert card.availability_status == f"available"
+
+
+def test_quick_filters_combine_before_pagination():
+    provider = OpenRouterProvider(id=f"test", name=f"Test")
+    provider._resolved_pool = [
+        ModelInfo(
+            id=f"model-{index}",
+            name=f"Model {index}",
+            billing=f"free" if index < 4 else f"paid",
+            supports_image=index % 2 == 0,
+            supports_multimodal=index % 2 == 0,
+            supports_tool_calling=index != 0,
+        )
+        for index in range(6)
+    ]
+    page = model_pool_page(
+        provider,
+        ModelPoolQuery(
+            billing=f"free",
+            multimodal=True,
+            tools=True,
+            limit=1,
+        ),
+    )
+    assert page.total == 1
+    assert [card.id for card in page.models] == [f"model-2"]
+
+
+def test_pro_candidates_include_unknown_prices_but_exclude_free():
+    provider = OpenRouterProvider(id=f"test", name=f"Test")
+    provider._resolved_pool = [
+        ModelInfo(id=billing, name=billing, billing=billing)
+        for billing in (f"free", f"paid", f"unknown")
+    ]
+    page = model_pool_page(provider, ModelPoolQuery(billing=f"pro"))
+    assert [card.id for card in page.models] == [f"paid", f"unknown"]

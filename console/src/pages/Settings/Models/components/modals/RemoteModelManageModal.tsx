@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
-import { Pagination, Select, Spin, Switch } from "antd";
+import { Pagination, Spin, Switch } from "antd";
 import {
   ChevronDown,
   FlaskConical,
@@ -270,45 +270,31 @@ export function RemoteModelManageModal({
       className={styles.modal}
     >
       <div className={styles.toolbar}>
-        <Select
-          aria-label={t("models.pool.selectionFilter")}
-          value={managed ? "selected" : tab}
-          onChange={(value) => {
-            setTab(value);
-            setOffset(0);
-            setConfigId(null);
-          }}
-          options={[
-            ...(!managed
-              ? [
-                  {
-                    value: "all",
-                    label: t("models.pool.all", {
-                      count:
-                        (page?.candidate_count ?? 0) +
-                        (page?.selected_count ?? selectedIds.size),
-                    }),
-                  },
-                ]
-              : []),
-            {
-              value: "selected",
-              label: t("models.pool.selected", {
-                count: page?.selected_count ?? selectedIds.size,
-              }),
-            },
-            ...(!managed
-              ? [
-                  {
-                    value: "candidates",
-                    label: t("models.pool.candidates", {
-                      count: page?.candidate_count ?? 0,
-                    }),
-                  },
-                ]
-              : []),
-          ]}
-        />
+        <div className={styles.selectionSummary}>
+          <span>
+            {t("models.pool.enabledSummary", {
+              selected: page?.selected_count ?? selectedIds.size,
+              total:
+                (page?.candidate_count ?? 0) +
+                (page?.selected_count ?? selectedIds.size),
+            })}
+          </span>
+          {!managed && (
+            <label className={styles.selectedFilter}>
+              <Switch
+                size="small"
+                aria-label={t("models.pool.onlyEnabled")}
+                checked={tab === "selected"}
+                onChange={(checked) => {
+                  setTab(checked ? "selected" : "all");
+                  setOffset(0);
+                  setConfigId(null);
+                }}
+              />
+              {t("models.pool.onlyEnabled")}
+            </label>
+          )}
+        </div>
         {!managed && current.support_model_discovery && (
           <Button
             icon={<RefreshCw size={16} />}
@@ -368,7 +354,9 @@ export function RemoteModelManageModal({
             return (
               <div
                 key={model.id}
-                className={styles.entry}
+                className={`${styles.entry} ${
+                  isSelected ? styles.selectedEntry : ""
+                }`}
                 data-model-id={model.id}
                 onMouseEnter={() => startHover(model.id)}
                 onMouseLeave={() => endHover(model.id)}

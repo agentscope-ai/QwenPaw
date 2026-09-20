@@ -32,15 +32,6 @@
   display: grid;
   gap: 10px;
 }
-.filterRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  :global(.qwenpaw-select) {
-    min-width: 128px;
-    flex: 1;
-  }
-}
 .summary {
   margin: 16px 0 8px;
   color: var(--app-text-tertiary);
@@ -190,4 +181,82 @@
 }
 .toolbar > :global(.qwenpaw-select) {
   min-width: 168px;
+}
+
+.selectionSummary,
+.selectedFilter,
+.quickFilters,
+.activeFilters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.selectionSummary {
+  font-size: 13px;
+  color: var(--app-text-secondary);
+}
+.selectedFilter {
+  cursor: pointer;
+}
+.selectedEntry {
+  background: color-mix(in srgb, var(--app-accent-soft) 45%, transparent);
+}
+.quickFilters {
+  gap: 8px;
+}
+.filterChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border: 1px solid var(--app-border);
+  border-radius: 7px;
+  color: var(--app-text-secondary);
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  &[aria-pressed="true"] {
+    color: var(--app-accent-text);
+    border-color: var(--app-accent-border);
+    background: var(--app-accent-soft);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+}
+.activeFilters {
+  min-height: 24px;
+  gap: 5px;
+  :global(.qwenpaw-tag) {
+    margin: 0;
+  }
+}
+.moreFilters {
+  width: min(340px, calc(100vw - 64px));
+  max-height: min(400px, 60dvh);
+  overflow-y: auto;
+}
+.filterGroup {
+  padding: 0;
+  margin: 0 0 14px;
+  border: 0;
+  &:last-child {
+    margin-bottom: 0;
+  }
+  legend {
+    margin-bottom: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--app-text-secondary);
+  }
+  > div {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  :global(.qwenpaw-select) {
+    width: 100%;
+  }
 }

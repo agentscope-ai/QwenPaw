@@ -308,14 +308,54 @@ describe("model pool switches", () => {
       screen.queryByText("models.autoDiscoverModels"),
     ).not.toBeInTheDocument();
   });
-  it("offers common price and modality filters", async () => {
+  it("combines quick filters and keeps advanced filters out of the toolbar", async () => {
     await render({ id: "deepseek" });
+    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.billing.free" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.tagMultimodal" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "models.pool.capabilityOptions.tool_calling",
+      }),
+    );
+    await waitFor(() =>
+      expect(api.getModelPool).toHaveBeenLastCalledWith(
+        "deepseek",
+        expect.objectContaining({
+          billing: "free",
+          multimodal: true,
+          tools: true,
+          offset: 0,
+        }),
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.pool.moreFilters" }),
+    );
     expect(
-      screen.getByRole("combobox", { name: "models.pool.billing" }),
+      await screen.findByRole("group", { name: "models.pool.filterLabels.availability" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("combobox", { name: "models.pool.capability" }),
-    ).toBeInTheDocument();
+  });
+  it("filters only enabled models without changing their selection", async () => {
+    await render();
+    fireEvent.click(
+      screen.getByRole("switch", { name: "models.pool.onlyEnabled" }),
+    );
+    await waitFor(() =>
+      expect(api.getModelPool).toHaveBeenLastCalledWith(
+        "openrouter",
+        expect.objectContaining({ tab: "selected", offset: 0 }),
+      ),
+    );
+    expect(api.updateModelPool).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(screen.queryByText("New candidate")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Chosen model")).toBeInTheDocument();
   });
   it("offers manual addition for OpenRouter", async () => {
     await render();

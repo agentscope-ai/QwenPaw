@@ -638,6 +638,8 @@ export default function ModelSelector({
         {managingModels && addingProvider === provider.id && (
           <Suspense fallback={<Spin size="small" />}>
             <ProviderCandidatePicker
+              key={`${provider.id}:${activeTab}`}
+              tier={activeTab}
               providerId={provider.id}
               onSaved={async () => {
                 await fetchData();

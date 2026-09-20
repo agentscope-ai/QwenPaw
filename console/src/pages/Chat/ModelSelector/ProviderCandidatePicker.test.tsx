@@ -9,7 +9,15 @@ vi.mock("../../../api/modules/provider", () => ({
 }));
 it("fetches candidates for the chosen provider and adds inline", async () => {
   vi.mocked(providerApi.getModelPool).mockResolvedValue({
-    models: [{ id: "new-model", name: "New Model" } as ModelInfo],
+    models: [
+      {
+        id: "new-model",
+        name: "New Model",
+        billing: "free",
+        supports_image: true,
+        supports_tool_calling: true,
+      } as ModelInfo,
+    ],
     total: 1,
     offset: 0,
     limit: 10,
@@ -20,7 +28,11 @@ it("fetches candidates for the chosen provider and adds inline", async () => {
   vi.mocked(providerApi.updateModelPool).mockResolvedValue({} as ProviderInfo);
   const saved = vi.fn().mockResolvedValue(undefined);
   renderWithProviders(
-    <ProviderCandidatePicker providerId="openrouter" onSaved={saved} />,
+    <ProviderCandidatePicker
+      providerId="openrouter"
+      tier="free"
+      onSaved={saved}
+    />,
   );
   fireEvent.click(
     await screen.findByRole("button", {
@@ -37,7 +49,18 @@ it("fetches candidates for the chosen provider and adds inline", async () => {
   await waitFor(() => expect(saved).toHaveBeenCalled());
   expect(providerApi.getModelPool).toHaveBeenCalledWith(
     "openrouter",
-    expect.objectContaining({ tab: "candidates", limit: 10 }),
+    expect.objectContaining({ tab: "candidates", billing: "free", limit: 10 }),
   );
+  expect(
+    screen.getByRole("img", { name: "models.billing.free" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("img", { name: "models.tagVision" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("img", {
+      name: "models.pool.capabilityOptions.tool_calling",
+    }),
+  ).toBeInTheDocument();
   expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 });
