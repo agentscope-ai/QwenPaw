@@ -31,7 +31,10 @@ def terminal_unavailable_reason():
 def native_pty():
     """Load platform-specific code only when a terminal is requested."""
     if sys.platform == "win32":
-        return importlib.import_module("winpty").PtyProcess
+        return importlib.import_module(
+            ".terminal_windows",
+            __package__,
+        ).WindowsPty
     return importlib.import_module(".terminal_posix", __package__).PosixPty
 
 
