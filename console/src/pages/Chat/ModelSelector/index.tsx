@@ -347,6 +347,14 @@ export default function ModelSelector({
 
   const showActiveProviderIcon = Boolean(activeProviderId);
 
+  useEffect(() => {
+    if (!open) {
+      setManagingModels(false);
+      setAddingProvider(null);
+      setRemovingModel(null);
+    }
+  }, [open]);
+
   const handleOpenChange = useCallback(
     async (next: boolean) => {
       setOpen(next);
@@ -631,7 +639,7 @@ export default function ModelSelector({
                 )
               }
             >
-              <Plus size={17} />
+              <Plus size={15} strokeWidth={1.8} />
             </button>
           )}
         </div>
@@ -735,7 +743,7 @@ export default function ModelSelector({
                           }
                         }}
                       >
-                        <Minus size={17} />
+                        <Minus size={15} strokeWidth={1.8} />
                       </button>
                     </Tooltip>
                   )}

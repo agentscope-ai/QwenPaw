@@ -5180,5 +5180,28 @@
         "description": "运行结构化、可持续的多步骤任务。"
       }
     }
+  },
+  "thinkingControl": {
+    "title": "思考强度",
+    "reset": "恢复继承设置",
+    "inherit": "跟随默认",
+    "off": "关闭思考",
+    "minimal": "极低",
+    "low": "低",
+    "medium": "中",
+    "high": "高",
+    "xhigh": "极高",
+    "max": "最高",
+    "light": "轻量思考",
+    "balanced": "均衡思考",
+    "deep": "深入思考",
+    "intensive": "充分思考",
+    "budget": "思考预算",
+    "unsupported": "当前模型未声明可调节的思考能力",
+    "budgetHint": "连续调节思考 Token 上限，文字随比例变化，不代表固定档位。",
+    "effortHint": "仅显示当前模型支持的档位。",
+    "sessionHint": "仅当前会话生效，从下一次请求开始应用。",
+    "adapted": "当前模型无法原样应用已保存的偏好，已按模型能力调整。",
+    "saveFailed": "思考设置保存失败"
   }
 }

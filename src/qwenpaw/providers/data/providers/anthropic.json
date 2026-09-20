@@ -16,7 +16,23 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-17"
+      "released_at": "2026-02-17",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-opus-5",
@@ -28,7 +44,25 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-07-24"
+      "released_at": "2026-07-24",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-opus-4-5",
@@ -40,7 +74,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-11-24"
+      "released_at": "2025-11-24",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-fable-5-1",
@@ -52,7 +100,25 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-09-01"
+      "released_at": "2026-09-01",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-opus-4-6",
@@ -64,7 +130,24 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-02-04"
+      "released_at": "2026-02-04",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-sonnet-4-5-20250929",
@@ -77,13 +160,25 @@
           "source": "documentation",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/context-windows",
           "updated_at": "2026-09-18T00:00:00Z"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
         }
       },
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-29"
+      "released_at": "2025-09-29",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      }
     },
     {
       "id": "claude-opus-4-7",
@@ -95,7 +190,25 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-04-14"
+      "released_at": "2026-04-14",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-haiku-4-5-20251001",
@@ -107,7 +220,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-15"
+      "released_at": "2025-10-15",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-fable-5",
@@ -119,7 +246,25 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-06-07"
+      "released_at": "2026-06-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-haiku-4-5",
@@ -131,7 +276,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-10-15"
+      "released_at": "2025-10-15",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-sonnet-4-5",
@@ -144,13 +303,25 @@
           "source": "documentation",
           "reference": "https://platform.claude.com/docs/en/build-with-claude/context-windows",
           "updated_at": "2026-09-18T00:00:00Z"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
         }
       },
       "supports_tool_calling": true,
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-09-29"
+      "released_at": "2025-09-29",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      }
     },
     {
       "id": "claude-opus-4-8",
@@ -162,7 +333,25 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-05-28"
+      "released_at": "2026-05-28",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-sonnet-5",
@@ -174,7 +363,25 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2026-06-29"
+      "released_at": "2026-06-29",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "anthropic_adaptive"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     },
     {
       "id": "claude-opus-4-5-20251101",
@@ -186,7 +393,21 @@
       "supports_image": true,
       "supports_audio": false,
       "supports_video": false,
-      "released_at": "2025-11-24"
+      "released_at": "2025-11-24",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1024,
+        "budget_max": 62976,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "anthropic_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://platform.claude.com/docs/en/build-with-claude/extended-thinking"
+        }
+      }
     }
   ]
 }

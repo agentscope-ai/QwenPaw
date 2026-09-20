@@ -60,6 +60,9 @@ class WireProtocol:
             f"prompt_cache_key",
             f"prompt_cache_options",
             f"cache_control",
+            f"reasoning",
+            f"thinking",
+            f"output_config",
         }
         if extra:
             raise ValueError(f"Unsupported {self.protocol} controls: {extra}")
@@ -76,6 +79,10 @@ class WireProtocol:
         }
         cap = payload.get(f"max_completion_tokens", payload.get(f"max_tokens"))
         if self.protocol == f"responses":
+            if f"thinking" in payload or f"output_config" in payload:
+                raise ValueError(f"Anthropic controls on Responses route")
+            if f"reasoning" in payload:
+                result[f"reasoning"] = deepcopy(payload[f"reasoning"])
             result[f"max_output_tokens"] = cap
             result[f"input"] = self._responses_input(payload[f"messages"])
             if payload.get(f"stop"):
@@ -96,6 +103,11 @@ class WireProtocol:
                     else choice
                 )
             return result
+        if f"reasoning" in payload:
+            raise ValueError(f"Responses reasoning on Anthropic route")
+        for field in (f"thinking", f"output_config"):
+            if field in payload:
+                result[field] = deepcopy(payload[field])
         result[f"max_tokens"] = cap
         system, messages = self._anthropic_input(payload[f"messages"])
         if system:
@@ -140,7 +152,7 @@ class WireProtocol:
                         f"type": f"function_call_output",
                         f"call_id": message[f"tool_call_id"],
                         f"output": message.get(f"content", f""),
-                    }
+                    },
                 )
                 continue
             content = message.get(f"content")
@@ -157,7 +169,7 @@ class WireProtocol:
                                         if role == f"assistant"
                                         else f"input_text"
                                     ),
-                                }
+                                },
                             )
                         elif block[f"type"] == f"image_url":
                             blocks.append(
@@ -165,7 +177,7 @@ class WireProtocol:
                                     f"type": f"input_image",
                                     **block[f"image_url"],
                                     f"image_url": block[f"image_url"][f"url"],
-                                }
+                                },
                             )
                             blocks[-1].pop(f"url", None)
                         else:
@@ -178,7 +190,7 @@ class WireProtocol:
                         f"type": f"function_call",
                         f"call_id": call[f"id"],
                         **call[f"function"],
-                    }
+                    },
                 )
         return result
 
@@ -219,7 +231,7 @@ class WireProtocol:
                         f"type": f"tool_result",
                         f"tool_use_id": message[f"tool_call_id"],
                         f"content": content,
-                    }
+                    },
                 ]
             for call in message.get(f"tool_calls", []):
                 content.append(
@@ -228,7 +240,7 @@ class WireProtocol:
                         f"id": call[f"id"],
                         f"name": call[f"function"][f"name"],
                         f"input": json.loads(call[f"function"][f"arguments"]),
-                    }
+                    },
                 )
             if result and result[-1][f"role"] == role:
                 result[-1][f"content"].extend(content)
@@ -301,7 +313,7 @@ class WireProtocol:
                             f"arguments": block.get(f"arguments")
                             or json.dumps(block.get(f"input", {})),
                         },
-                    }
+                    },
                 )
         message = {f"role": f"assistant", f"content": f"".join(text)}
         if tools:
@@ -318,7 +330,7 @@ class WireProtocol:
             f"id": payload.get(f"id"),
             f"object": f"chat.completion",
             f"choices": [
-                {f"index": 0, f"message": message, f"finish_reason": reason}
+                {f"index": 0, f"message": message, f"finish_reason": reason},
             ],
             f"usage": self.usage(payload.get(f"usage") or {}),
         }
@@ -361,7 +373,7 @@ class WireProtocol:
                             f"name": block[f"name"],
                             f"arguments": f"",
                         },
-                    }
+                    },
                 ]
         elif kind == f"response.output_text.delta":
             delta[f"content"] = payload[f"delta"]
@@ -370,7 +382,7 @@ class WireProtocol:
                 {
                     f"index": self.tools[payload[f"output_index"]],
                     f"function": {f"arguments": payload[f"delta"]},
-                }
+                },
             ]
         elif kind == f"content_block_delta":
             block = payload[f"delta"]
@@ -381,14 +393,14 @@ class WireProtocol:
                     {
                         f"index": self.tools[payload[f"index"]],
                         f"function": {f"arguments": block[f"partial_json"]},
-                    }
+                    },
                 ]
         if not delta and usage is None and finish is None:
             return None
         result = {
             f"object": f"chat.completion.chunk",
             f"choices": [
-                {f"index": 0, f"delta": delta, f"finish_reason": finish}
+                {f"index": 0, f"delta": delta, f"finish_reason": finish},
             ],
         }
         if usage is not None:

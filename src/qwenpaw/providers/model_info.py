@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .context_windows import DEFAULT_CONTEXT_WINDOW
 from .model_ranking import RankingEvidence
+from .thinking import ThinkingControl
 
 
 def release_date(value: Any) -> str | None:
@@ -34,7 +35,8 @@ class ModelInfo(BaseModel):
     id: str = Field(..., description="Model identifier used in API calls")
     name: str = Field(..., description="Human-readable model name")
     released_at: str | None = Field(
-        default=None, description=f"Documented model release or creation date."
+        default=None,
+        description=f"Documented model release or creation date.",
     )
     supports_multimodal: bool | None = Field(
         default=None,
@@ -204,6 +206,8 @@ class ModelInfo(BaseModel):
             data["availability_checked_at"] = None
             data["availability_verification"] = "unverified"
         return data
+
+    thinking_control: ThinkingControl | None = None
 
     thinking_enabled: bool | None = Field(
         default=None,

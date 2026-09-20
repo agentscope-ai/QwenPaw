@@ -81,7 +81,11 @@ interface EligibleProvider {
 
 type ModelSettingsDraft = Pick<
   AgentProfileConfig,
-  "fallback_models" | "fallback_policy" | "subagent_model"
+  | "fallback_models"
+  | "fallback_policy"
+  | "subagent_model"
+  | "thinking_level"
+  | "thinking_budget"
 >;
 
 interface AgentModalProps {
@@ -392,7 +396,7 @@ export function AgentModal({
               providers={eligibleProviders}
               activeProviderId={selectedProviderId}
               activeModelId={selectedModelId}
-              showThinking={false}
+              showThinking
               initialConfig={modelSettings}
               draftResetToken={modelSettingsResetToken}
               onDraftChange={onModelSettingsChange}

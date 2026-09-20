@@ -106,9 +106,11 @@ def published_capabilities(model: dict, connection: dict) -> dict:
         f"supports_audio": False if native_bridge else card.supports_audio,
         f"supports_video": False if native_bridge else card.supports_video,
         f"supports_tool_calling": card.supports_tool_calling,
+        f"thinking_control": (
+            provider.thinking_control(model[f"upstream_model"]).model_dump()
+        ),
         f"supports_agent_thinking": (
-            provider.model_protocol(model[f"upstream_model"]) == f"chat"
-            and provider.supports_agent_thinking(model[f"upstream_model"])
+            provider.supports_agent_thinking(model[f"upstream_model"])
         ),
         f"input_token_limit": (
             min(
@@ -156,7 +158,7 @@ def preview_model(catalog, connection_id, model_id, template_id=None):
             id=model_id,
             name=model_id,
             template_id=template_id,
-        )
+        ),
     )
 
 

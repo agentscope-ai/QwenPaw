@@ -88,6 +88,8 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  Brain: () => "Brain",
+  RotateCcw: () => "RotateCcw",
   AlertTriangle: () => "AlertTriangle",
   Check: () => "Check",
   ChevronDown: () => "ChevronDown",
@@ -260,6 +262,36 @@ describe("ModelSelector", () => {
         name: "modelSelector.removeFromSelector GPT-4",
       }),
     ).not.toBeInTheDocument();
+  });
+
+  it("leaves edit mode whenever the selector closes", async () => {
+    renderWithProviders(<ModelSelector />);
+    await screen.findAllByText("GPT-4");
+    const trigger = screen.getByRole("button", {
+      name: "chat.modelSelectTooltip",
+    });
+    fireEvent.click(trigger);
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: "modelSelector.manageSelectorModels",
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "modelSelector.addToSelector OpenAI",
+      }),
+    );
+    expect(await screen.findByTestId("candidate-picker")).toBeInTheDocument();
+    fireEvent.click(trigger);
+    fireEvent.click(trigger);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: "modelSelector.removeFromSelector GPT-4",
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId("candidate-picker")).not.toBeInTheDocument();
   });
 
   it("removes a model without activating it or replacing the selector", async () => {
@@ -1327,6 +1359,15 @@ describe("ModelSelector", () => {
             ...mockProvider.models[0],
             thinking_enabled: true,
             supports_agent_thinking: true,
+            thinking_control: {
+              kind: "effort" as const,
+              efforts: ["low", "medium", "high"] as (
+                | "low"
+                | "medium"
+                | "high"
+              )[],
+              supports_off: true,
+            },
           },
           mockProvider.models[1],
         ],
@@ -1350,13 +1391,11 @@ describe("ModelSelector", () => {
       }),
     );
 
-    await user.click(
-      await screen.findByRole("combobox", {
-        name: "modelSelector.thinkingLevel",
-      }),
-    );
-    const thinkingOptions = screen.getAllByText("modelSelector.thinking.high");
-    await user.click(thinkingOptions[thinkingOptions.length - 1]);
+    const thinkingSlider = await screen.findByRole("slider", {
+      name: "thinkingControl.title",
+    });
+    fireEvent.keyDown(thinkingSlider, { key: "End", keyCode: 35 });
+    fireEvent.keyUp(thinkingSlider, { key: "End", keyCode: 35 });
     await user.click(
       screen.getByRole("combobox", {
         name: "modelSelector.subagentModel",
@@ -1646,13 +1685,9 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByRole("combobox", {
-        name: "modelSelector.thinkingLevel",
-      }),
-    ).toBeDisabled();
-    expect(
-      screen.getByText("modelSelector.thinkingUnsupported"),
+      await screen.findByText("thinkingControl.unsupported"),
     ).toBeInTheDocument();
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /common.save/ }));
     await waitFor(() =>
       expect(agentsApi.updateModelSettings).toHaveBeenCalledOnce(),
@@ -1763,6 +1798,11 @@ describe("ModelSelector", () => {
           id: "new-dashscope-model",
           name: "New DashScope Model",
           supports_agent_thinking: true,
+          thinking_control: {
+            kind: "effort" as const,
+            efforts: ["low", "medium", "high"] as ("low" | "medium" | "high")[],
+            supports_off: true,
+          },
         },
       ],
     };
@@ -1792,8 +1832,8 @@ describe("ModelSelector", () => {
     );
 
     expect(
-      await screen.findByRole("combobox", {
-        name: "modelSelector.thinkingLevel",
+      await screen.findByRole("slider", {
+        name: "thinkingControl.title",
       }),
     ).not.toBeDisabled();
     await user.click(screen.getByRole("button", { name: /common.save/ }));

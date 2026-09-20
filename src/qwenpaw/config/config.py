@@ -2369,13 +2369,25 @@ class AgentProfileConfig(BaseModel):
     thinking_level: Literal[
         "inherit",
         "off",
+        "minimal",
         "low",
         "medium",
         "high",
-    ] = Field(
-        default="inherit",
-        description="Provider-independent agent reasoning level",
-    )
+        "xhigh",
+        "max",
+        "budget",
+    ] = f"inherit"
+    thinking_budget: int | None = Field(default=None, ge=1)
+
+    @model_validator(mode=f"after")
+    def validate_thinking_budget(self):
+        """Keep effort and numeric budget settings mutually exclusive."""
+        if (self.thinking_level == f"budget") != (
+            self.thinking_budget is not None
+        ):
+            raise ValueError(f"Budget mode requires thinking_budget")
+        return self
+
     language: str = Field(
         default="zh",
         description="Language setting for this agent",

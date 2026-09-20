@@ -45,10 +45,31 @@ class ManagedProvider(OpenAIProvider):
 
     session_header_name: ClassVar[str] = f"x-qwenpaw-session"
 
+    def thinking_control(self, model_id: str):
+        """Hub cards describe the upstream, independent of our chat bridge."""
+        info = self.get_model_info(model_id)
+        if info and info.thinking_control:
+            return info.thinking_control.model_copy(deep=True)
+        return super().thinking_control(model_id)
+
     def supports_agent_thinking(self, model_id: str) -> bool:
         """Use the Hub's capability instead of guessing from opaque aliases."""
         info = self.get_model_info(model_id)
         return bool(info and info.supports_agent_thinking)
+
+    def get_agent_thinking_kwargs(
+        self,
+        model_id: str,
+        level: str,
+        budget: int | None = None,
+    ) -> dict:
+        """Forward neutral intent for translation by the trusted Hub."""
+        return {
+            f"extra_body": {
+                f"hub_thinking_level": level,
+                f"hub_thinking_budget": budget,
+            },
+        }
 
     def _map_agent_thinking_level(
         self,
@@ -104,6 +125,7 @@ def managed_provider(catalog=None) -> ManagedProvider:
                 max_output_length=m["output_token_limit"],
                 max_output_length_source="adapter",
                 supports_agent_thinking=m["supports_agent_thinking"],
+                thinking_control=m.get(f"thinking_control"),
             )
             for m in catalog["models"]
         ],

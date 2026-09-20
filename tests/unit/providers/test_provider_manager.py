@@ -1586,7 +1586,7 @@ async def test_add_custom_provider_avoids_plugin_id_collision(
     assert (manager.custom_path / "plugin-openai-new.json").exists()
 
 
-async def test_provider_info_exposes_derived_thinking_capability(
+async def test_provider_info_does_not_guess_unknown_thinking_capability(
     isolated_secret_dir,
 ) -> None:
     manager = ProviderManager()
@@ -1603,7 +1603,8 @@ async def test_provider_info_exposes_derived_thinking_capability(
     info = await provider.get_info()
     model = next(model for model in info.extra_models if model.id == model_id)
 
-    assert model.supports_agent_thinking is True
+    assert model.supports_agent_thinking is False
+    assert model.thinking_control.kind == f"unsupported"
 
 
 def test_update_provider_for_builtin_persists_to_builtin_path(

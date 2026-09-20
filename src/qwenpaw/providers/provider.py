@@ -9,7 +9,6 @@ from contextvars import ContextVar
 import re
 from uuid import uuid4
 from datetime import datetime, timezone
-from urllib.parse import urlsplit
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, List, Literal, Type
 
@@ -20,6 +19,7 @@ from qwenpaw.exceptions import ProviderError
 
 from ..utils.io_utils import run_sync_io
 from .context_windows import DEFAULT_CONTEXT_WINDOW
+from .thinking import ThinkingControl, ThinkingPreference, resolve_thinking
 from .model_info import ExtendedModelInfo as ExtendedModelInfo
 from .model_info import ModelInfo
 from .model_resolution import resolve_model_info
@@ -37,11 +37,11 @@ _AGENT_THINKING_LEVEL: ContextVar[str] = ContextVar(
     "qwenpaw_agent_thinking_level",
     default="inherit",
 )
-AGENT_THINKING_BUDGETS = {
-    "low": 2_048,
-    "medium": 8_192,
-    "high": 32_768,
-}
+_THINKING_BUDGET: ContextVar[int | None] = ContextVar(
+    f"qwenpaw_thinking_budget",
+    default=None,
+)
+
 _CUSTOM_PROVIDER_ID_PATTERN = re.compile(
     r"[A-Za-z0-9][A-Za-z0-9._-]*",
 )
@@ -82,13 +82,18 @@ def validate_custom_provider_id(provider_id: str) -> str:
 
 
 @contextmanager
-def agent_thinking_level(level: str) -> Iterator[None]:
+def agent_thinking_level(
+    level: str,
+    budget: int | None = None,
+) -> Iterator[None]:
     """Apply an agent-level thinking override while constructing a model."""
     token = _AGENT_THINKING_LEVEL.set(level)
+    budget_token = _THINKING_BUDGET.set(budget)
     try:
         yield
     finally:
         _AGENT_THINKING_LEVEL.reset(token)
+        _THINKING_BUDGET.reset(budget_token)
 
 
 class ModelConnectionResult(BaseModel):
@@ -322,6 +327,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     capture_cache_headers: ClassVar[bool] = False
     cache_modes: ClassVar[frozenset[str]] = frozenset()
     wire_protocol: ClassVar[str] = f"chat"
+    thinking_wire_protocol: ClassVar[str | None] = None
     cache_documentation: ClassVar[str | None] = None
     session_header_name: ClassVar[str | None] = None
     _resolved_pool: list[ModelInfo] | None = PrivateAttr(default=None)
@@ -434,7 +440,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             if model_id != model_info.id
         ]
         existing = next(
-            (m for m in self.models if m.id == model_info.id), None
+            (m for m in self.models if m.id == model_info.id),
+            None,
         )
         if existing is not None and not self.automatically_listed(existing):
             for field in model_info.model_fields_set:
@@ -578,7 +585,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 model.id: model
                 for model in self.models + self.extra_models
                 if model.id not in removed
-            }.values()
+            }.values(),
         )
 
     def configured_models(self) -> List[ModelInfo]:
@@ -620,7 +627,9 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 by_id[model.id] = model
         for configured in self.models:
             if configured.id in by_id and getattr(
-                configured, f"config_overrides", []
+                configured,
+                f"config_overrides",
+                [],
             ):
                 overrides = {
                     field: getattr(configured, field)
@@ -629,7 +638,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 }
                 overrides[f"config_overrides"] = configured.config_overrides
                 by_id[configured.id] = by_id[configured.id].model_copy(
-                    update=overrides
+                    update=overrides,
                 )
         hidden = set(getattr(self, "hidden_model_ids", []))
         removed = set(getattr(self, "removed_model_ids", []))
@@ -717,44 +726,120 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         self._apply_agent_thinking_level(result, model_id)
         return result
 
-    def supports_agent_thinking(self, model_id: str) -> bool:
-        """Return whether agent-level thinking maps to this model."""
-        if self.chat_model == "DashScopeChatModel":
-            return True
-        info = self.get_model_info(model_id)
-        if info is None:
-            return False
-        if (
-            getattr(info, "thinking_enabled", None) is not None
-            or getattr(info, "thinking_param_style", None) is not None
-        ):
-            return True
-        if self.chat_model == f"AnthropicChatModel":
-            return model_id.lower().startswith(f"claude-")
-        if self.chat_model == f"GeminiChatModel":
-            return True
-        normalized = model_id.strip().lower().rsplit("/", maxsplit=1)[-1]
-        return self.chat_model in {
-            "OpenAIChatModel",
-            "OpenAIResponseModel",
-        } and (
-            normalized.startswith("gpt-5")
-            or (
-                len(normalized) > 1
-                and normalized[0] == "o"
-                and normalized[1].isdigit()
+    def thinking_control(self, model_id: str) -> ThinkingControl:
+        """Read model-owned controls, never infer support from a protocol."""
+        info = self.resolve_model_info(model_id)
+        control = getattr(info, f"thinking_control", None)
+        if control is not None:
+            compatible = {
+                f"anthropic_adaptive": {f"anthropic"},
+                f"anthropic_budget": {f"anthropic"},
+                f"gemini_level": {f"gemini"},
+                f"gemini_budget": {f"gemini"},
+                f"compat_budget": {f"chat"},
+                f"compat_effort": {f"chat"},
+            }
+            allowed = compatible.get(control.wire)
+            protocol = self.thinking_wire_protocol or self.model_protocol(
+                model_id,
             )
-        )
+            if allowed and protocol not in allowed:
+                return ThinkingControl()
+            return control.model_copy(deep=True)
+        style = info.thinking_param_style
+        if style == f"effort" and info.reasoning_effort_options:
+            options = info.reasoning_effort_options
+            return ThinkingControl(
+                kind=f"effort",
+                efforts=[x for x in options if x != f"none"],
+                supports_off=f"none" in options,
+            )
+        if style == f"budget" and info.thinking_budget_range:
+            low, high = info.thinking_budget_range
+            return ThinkingControl(
+                kind=f"budget",
+                budget_min=max(1, low),
+                budget_max=high,
+                supports_off=low == 0,
+            )
+        return ThinkingControl()
 
-    def get_agent_thinking_kwargs(self, model_id: str, level: str) -> dict:
-        """Map an explicit level without merging unrelated model settings."""
+    def supports_agent_thinking(self, model_id: str) -> bool:
+        """Whether this model card declares a usable control surface."""
+        return self.thinking_control(model_id).kind != f"unsupported"
+
+    def get_agent_thinking_kwargs(
+        self,
+        model_id: str,
+        level: str,
+        budget: int | None = None,
+    ) -> dict:
+        """Map a preference using the actual serving model's card."""
+        control = self.thinking_control(model_id)
+        preference, _ = resolve_thinking(
+            ThinkingPreference(level=level, budget_tokens=budget),
+            control,
+        )
+        if preference.level == f"inherit":
+            return {}
         result: dict = {}
-        if level != "inherit" and self.supports_agent_thinking(model_id):
+        level = preference.level
+        if control.wire == f"anthropic_adaptive":
+            result[f"thinking"] = {
+                f"type": f"disabled" if level == f"off" else f"adaptive",
+            }
+            if level != f"off":
+                result[f"output_config"] = {f"effort": level}
+            result[f"thinking_enable"] = False
+        elif control.wire == f"anthropic_budget":
+            result[f"thinking_enable"] = level != f"off"
+            if level != f"off":
+                result[f"thinking_budget"] = preference.budget_tokens
+        elif control.wire == f"gemini_budget":
+            result[f"thinking_config"] = {
+                f"thinking_budget": (
+                    0 if level == f"off" else preference.budget_tokens
+                ),
+            }
+        elif control.wire == f"compat_effort":
+            result[f"extra_body"] = {
+                f"thinking": {
+                    f"type": f"disabled" if level == f"off" else f"enabled",
+                },
+            }
+            if level != f"off":
+                result[f"reasoning_effort"] = level
+        elif control.wire == f"compat_budget" and (
+            self.chat_model == f"OpenAIChatModel"
+        ):
+            result[f"extra_body"] = {
+                f"enable_thinking": level != f"off",
+            }
+            if level != f"off":
+                result[f"extra_body"][
+                    f"thinking_budget"
+                ] = preference.budget_tokens
+        elif control.wire == f"gemini_level":
+            result[f"thinking_config"] = {f"thinking_level": level}
+        elif (
+            level == f"off"
+            and self.chat_model
+            in (
+                f"OpenAIChatModel",
+                f"OpenAIResponseModel",
+            )
+            and not self._uses_compat_thinking_controls(model_id)
+        ):
+            if self.model_protocol(model_id) == f"responses":
+                result[f"reasoning"] = {f"effort": f"none"}
+            else:
+                result[f"reasoning_effort"] = f"none"
+        else:
             self._map_agent_thinking_level(
                 result,
                 model_id,
-                level,
-                AGENT_THINKING_BUDGETS.get(level, 0),
+                f"high" if level == f"budget" else level,
+                preference.budget_tokens or 0,
             )
         return result
 
@@ -767,17 +852,28 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         level = _AGENT_THINKING_LEVEL.get()
         if level == "inherit" or not self.supports_agent_thinking(model_id):
             return
+        override = self.get_agent_thinking_kwargs(
+            model_id,
+            level,
+            _THINKING_BUDGET.get(),
+        )
+        if not override:
+            return
         for key in (
             "thinking_enable",
             "thinking_budget",
             "reasoning_effort",
             "thinking_config",
+            "thinking",
+            "output_config",
             "reasoning",
             "disable_thinking",
         ):
             effective.pop(key, None)
         extra_body = effective.get("extra_body")
         if isinstance(extra_body, dict):
+            extra_body = dict(extra_body)
+            effective[f"extra_body"] = extra_body
             for key in (
                 "enable_thinking",
                 "thinking_budget",
@@ -785,12 +881,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "thinking",
             ):
                 extra_body.pop(key, None)
-        self._map_agent_thinking_level(
-            effective,
-            model_id,
-            level,
-            AGENT_THINKING_BUDGETS.get(level, 0),
-        )
+        effective.update(self._deep_merge(effective, override))
 
     def _uses_compat_thinking_controls(self, model_id: str) -> bool:
         """Whether the model declares OpenAI-compatible thinking flags.
@@ -835,7 +926,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         budget: int,
     ) -> None:
         """Map an agent level to the provider's wire parameters."""
-        if self.chat_model == "AnthropicChatModel":
+        if self.model_protocol(model_id) == f"anthropic":
             if level == "off":
                 effective["thinking_enable"] = False
             else:
@@ -847,7 +938,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 "thinking_budget": 0 if level == "off" else budget,
             }
             return
-        if self.chat_model == "OpenAIResponseModel":
+        if self.model_protocol(model_id) == f"responses":
             if level == "off":
                 # The Responses call layer translates this neutral flag:
                 # it strips ``reasoning`` and applies
@@ -913,7 +1004,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                         [
                             f"requires_paid_confirmation",
                             f"auto_enabled",
-                        ]
+                        ],
                     )
                 if (
                     "generate_kwargs" in config
@@ -1175,15 +1266,22 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         return ProbeResult()
 
     async def get_info(
-        self, mock_secret: bool = True, *, include_candidates: bool = True
+        self,
+        mock_secret: bool = True,
+        *,
+        include_candidates: bool = True,
     ) -> ProviderInfo:
         """Build metadata off the event loop, loading candidates on demand."""
         return await run_sync_io(
-            self._build_info, mock_secret, include_candidates
+            self._build_info,
+            mock_secret,
+            include_candidates,
         )
 
     def _build_info(
-        self, mock_secret: bool, include_candidates: bool
+        self,
+        mock_secret: bool,
+        include_candidates: bool,
     ) -> ProviderInfo:
         """Serialize a provider without retaining runtime clients."""
         if mock_secret and self.api_key:
@@ -1220,9 +1318,9 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
             )
             payload[f"is_recommended"] = recommendation.eligible
             payload[f"recommendation_reason"] = recommendation.reason
-            payload["supports_agent_thinking"] = self.supports_agent_thinking(
-                model.id,
-            )
+            control = self.thinking_control(model.id)
+            payload[f"thinking_control"] = control.model_dump()
+            payload["supports_agent_thinking"] = control.kind != f"unsupported"
             return payload
 
         # Serialize models/extra_models to plain dicts so that

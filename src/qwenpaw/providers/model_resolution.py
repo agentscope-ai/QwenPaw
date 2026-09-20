@@ -44,6 +44,7 @@ def resolve_model_info(
         f"supports_tool_calling",
         f"ranking_id",
         f"released_at",
+        f"thinking_control",
     ):
         for match in matches:
             value = getattr(match.model, field)
@@ -71,7 +72,9 @@ def resolve_model_info(
             automatic = automatic or DEFAULT_CONTEXT_WINDOW
     for candidate in (model, discovered):
         api_context = getattr(
-            candidate, f"max_input_length_auto_detected", None
+            candidate,
+            f"max_input_length_auto_detected",
+            None,
         )
         if api_context and context_source != f"user":
             automatic, context_source = api_context, f"api"
@@ -122,6 +125,7 @@ def resolve_model_info(
         f"supports_tool_calling",
         f"ranking_id",
         f"released_at",
+        f"thinking_control",
     ):
         if field in catalog_values and (
             getattr(result, field) is None
@@ -174,7 +178,9 @@ def resolve_model_info(
         result.supports_multimodal = (
             True
             if True in modalities
-            else False if all(value is False for value in modalities) else None
+            else False
+            if all(value is False for value in modalities)
+            else None
         )
     if result.input_token_limit is not None:
         result.automatic_max_input_length = min(

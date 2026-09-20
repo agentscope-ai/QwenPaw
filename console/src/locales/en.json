@@ -5162,5 +5162,28 @@
         "description": "Run a structured, persistent multi-step task."
       }
     }
+  },
+  "thinkingControl": {
+    "title": "Thinking intensity",
+    "reset": "Restore inherited setting",
+    "inherit": "Use default",
+    "off": "Off",
+    "minimal": "Minimal",
+    "low": "Low",
+    "medium": "Medium",
+    "high": "High",
+    "xhigh": "Very high",
+    "max": "Maximum",
+    "light": "Light",
+    "balanced": "Balanced",
+    "deep": "Deep",
+    "intensive": "Intensive",
+    "budget": "Thinking budget",
+    "unsupported": "This model does not declare adjustable thinking controls.",
+    "budgetHint": "Adjust the exact thinking token limit. Labels indicate intensity, not fixed presets.",
+    "effortHint": "Only levels supported by this model are shown.",
+    "sessionHint": "Applies to this conversation, starting with the next request.",
+    "adapted": "The saved preference was adjusted to this model’s capabilities.",
+    "saveFailed": "Could not save thinking settings"
   }
 }

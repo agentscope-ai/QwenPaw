@@ -2,6 +2,9 @@
 """Allowlisted OpenAI wire fields and normalized authoritative usage."""
 
 from fastapi import HTTPException
+from pydantic import ValidationError
+
+from ...providers.thinking import ThinkingPreference
 
 from .provider_setup import model_provider
 
@@ -24,6 +27,7 @@ _ALLOWED = {
     "max_completion_tokens",
     "n",
     "hub_thinking_level",
+    "hub_thinking_budget",
 }
 
 
@@ -62,14 +66,13 @@ def validate_request(body):
     """Reject connection overrides and unbounded output parameters."""
     if not isinstance(body, dict) or set(body) - _ALLOWED:
         raise HTTPException(422, "Unsupported model request fields")
-    if "hub_thinking_level" in body and body["hub_thinking_level"] not in (
-        "inherit",
-        "off",
-        "low",
-        "medium",
-        "high",
-    ):
-        raise HTTPException(422, "Invalid Hub thinking level")
+    try:
+        ThinkingPreference(
+            level=body.get(f"hub_thinking_level", f"inherit"),
+            budget_tokens=body.get(f"hub_thinking_budget"),
+        )
+    except ValidationError as exc:
+        raise HTTPException(422, f"Invalid Hub thinking setting") from exc
     if (
         not isinstance(body.get("model"), str)
         or not isinstance(body.get("messages"), list)
@@ -98,6 +101,7 @@ def upstream_payload(body, model, cap, connection):
             "max_completion_tokens",
             "stream_options",
             "hub_thinking_level",
+            "hub_thinking_budget",
         }
     }
     payload.update(
@@ -114,7 +118,26 @@ def upstream_payload(body, model, cap, connection):
         controls = provider.get_agent_thinking_kwargs(
             model["upstream_model"],
             level,
+            body.get(f"hub_thinking_budget"),
         )
+        protocol = provider.model_protocol(model[f"upstream_model"])
+        if protocol == f"anthropic":
+            enabled = controls.pop(f"thinking_enable", None)
+            budget = controls.pop(f"thinking_budget", None)
+            if f"thinking" not in controls and enabled is not None:
+                controls[f"thinking"] = (
+                    {f"type": f"enabled", f"budget_tokens": budget}
+                    if enabled
+                    else {f"type": f"disabled"}
+                )
+            thinking = controls.get(f"thinking", {})
+            if thinking.get(f"type") == f"enabled":
+                if cap <= 1024:
+                    raise HTTPException(422, f"Output cap is below budget")
+                thinking[f"budget_tokens"] = min(
+                    thinking[f"budget_tokens"],
+                    cap - 1,
+                )
         payload.update(controls.pop("extra_body", {}))
         if controls.pop("disable_thinking", False):
             payload.update(

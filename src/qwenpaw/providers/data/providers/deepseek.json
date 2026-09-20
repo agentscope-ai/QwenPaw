@@ -84,9 +84,23 @@
           "source": "documentation",
           "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
           "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
         }
       },
-      "released_at": "2026-09-10"
+      "released_at": "2026-09-10",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
     },
     {
       "id": "deepseek-v4-pro",
@@ -128,9 +142,23 @@
           "source": "documentation",
           "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
           "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
         }
       },
-      "released_at": "2026-08-12"
+      "released_at": "2026-08-12",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
     },
     {
       "id": "deepseek-v4-flash-vision-exp",
@@ -164,9 +192,23 @@
           "source": "documentation",
           "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
           "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
         }
       },
-      "released_at": "2026-09-10"
+      "released_at": "2026-09-10",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
     },
     {
       "id": "deepseek-flash",
@@ -200,9 +242,23 @@
           "source": "documentation",
           "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
           "updated_at": "2026-09-18"
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
         }
       },
-      "released_at": "2026-09-10"
+      "released_at": "2026-09-10",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true,
+        "wire": "compat_effort"
+      }
     }
   ]
 }

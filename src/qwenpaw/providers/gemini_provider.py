@@ -173,6 +173,8 @@ def _sanitize_schema_for_gemini(schema: Any) -> Any:
 class GeminiProvider(Provider):
     """Provider implementation for Google Gemini API."""
 
+    thinking_wire_protocol = f"gemini"
+
     max_inline_media_bytes: int = Field(
         default=MAX_INLINE_MEDIA_BYTES,
         ge=0,
@@ -323,7 +325,9 @@ class GeminiProvider(Provider):
                 error_kind=(
                     "permission_denied"
                     if status in (401, 403)
-                    else "model_not_found" if status == 404 else None
+                    else "model_not_found"
+                    if status == 404
+                    else None
                 ),
             )
         except Exception as exc:
@@ -655,14 +659,17 @@ class _GeminiChatModelCompat:
                     config["temperature"] = self.parameters.temperature
                 if self.parameters.top_p is not None:
                     config["top_p"] = self.parameters.top_p
-                config["thinking_config"] = {
-                    "include_thoughts": effective_thinking_enable,
-                    "thinking_budget": (
-                        self.parameters.thinking_budget or 1024
-                        if effective_thinking_enable
-                        else 0
-                    ),
-                }
+                config.setdefault(
+                    "thinking_config",
+                    {
+                        "include_thoughts": effective_thinking_enable,
+                        "thinking_budget": (
+                            self.parameters.thinking_budget or 1024
+                            if effective_thinking_enable
+                            else 0
+                        ),
+                    },
+                )
 
                 fmt_tools, fmt_tc = self._format_tools(tools, tool_choice)
                 if fmt_tools is not None:

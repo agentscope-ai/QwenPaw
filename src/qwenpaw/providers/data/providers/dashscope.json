@@ -34,7 +34,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-08-03"
+      "released_at": "2026-08-03",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 32768,
+        "budget_default": 4000,
+        "supports_off": true,
+        "wire": "compat_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        }
+      }
     },
     {
       "id": "qwen3.7-max",
@@ -58,7 +72,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-05-21"
+      "released_at": "2026-05-21",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 32768,
+        "budget_default": 4000,
+        "supports_off": true,
+        "wire": "compat_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        }
+      }
     },
     {
       "id": "qwen3.7-plus",
@@ -81,7 +109,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-02"
+      "released_at": "2026-06-02",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 32768,
+        "budget_default": 4000,
+        "supports_off": true,
+        "wire": "compat_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        }
+      }
     },
     {
       "id": "qwen3.6-plus",
@@ -104,7 +146,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-04-02"
+      "released_at": "2026-04-02",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 32768,
+        "budget_default": 4000,
+        "supports_off": true,
+        "wire": "compat_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        }
+      }
     },
     {
       "id": "deepseek-v4-pro",
@@ -132,7 +188,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-04-24"
+      "released_at": "2026-04-24",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        }
+      }
     },
     {
       "id": "glm-5.2",
@@ -160,7 +230,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2026-06-13"
+      "released_at": "2026-06-13",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+        }
+      }
     },
     {
       "id": "qwen2-5-72b-instruct",

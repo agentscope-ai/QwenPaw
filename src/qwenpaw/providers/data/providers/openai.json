@@ -39,7 +39,23 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-12-11"
+      "released_at": "2025-12-11",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "supports_off": true
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        }
+      }
     },
     {
       "id": "gpt-5",
@@ -61,7 +77,22 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-08-07"
+      "released_at": "2025-08-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        }
+      }
     },
     {
       "id": "gpt-5-mini",
@@ -83,7 +114,22 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-08-07"
+      "released_at": "2025-08-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        }
+      }
     },
     {
       "id": "gpt-5-nano",
@@ -105,7 +151,22 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-08-07"
+      "released_at": "2025-08-07",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        }
+      }
     },
     {
       "id": "gpt-4.1",
@@ -193,7 +254,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-04-16"
+      "released_at": "2025-04-16",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        }
+      }
     },
     {
       "id": "o4-mini",
@@ -215,7 +290,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": false,
-      "released_at": "2025-04-16"
+      "released_at": "2025-04-16",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ]
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+        }
+      }
     },
     {
       "id": "gpt-4o",

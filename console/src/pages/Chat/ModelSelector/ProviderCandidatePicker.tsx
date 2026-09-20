@@ -106,7 +106,7 @@ export default function ProviderCandidatePicker({
                   }
                 }}
               >
-                <Plus size={16} />
+                <Plus size={15} strokeWidth={1.8} />
               </button>
             </div>
           ))}

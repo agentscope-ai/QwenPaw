@@ -20,7 +20,11 @@ import styles from "./index.module.less";
 
 type ModelSettingsDraft = Pick<
   AgentProfileConfig,
-  "fallback_models" | "fallback_policy" | "subagent_model"
+  | "fallback_models"
+  | "fallback_policy"
+  | "subagent_model"
+  | "thinking_level"
+  | "thinking_budget"
 >;
 
 const EMPTY_MODEL_SETTINGS: ModelSettingsDraft = {
@@ -82,6 +86,8 @@ export default function AgentsPage() {
       const config = await agentsApi.getAgent(agent.id);
       setEditingAgent(agent);
       setModelSettings({
+        thinking_level: config.thinking_level ?? "inherit",
+        thinking_budget: config.thinking_budget ?? null,
         fallback_models: config.fallback_models ?? [],
         fallback_policy:
           config.fallback_policy ?? EMPTY_MODEL_SETTINGS.fallback_policy,

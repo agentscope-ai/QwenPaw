@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from ..agents.acp.meta import ACP_PROJECT_DIR_META_KEY
+from ..services.session_thinking import apply_session_thinking
 from ..utils.io_utils import run_sync_io
 from ..utils.logging import sanitize_log_value
 
@@ -346,6 +347,7 @@ class AgentBuilder:
             agent_config,
             request_context,
         )
+        agent_config = await apply_session_thinking(ctx, agent_config)
         ctx.agent_config = agent_config
 
         # Validate model availability.

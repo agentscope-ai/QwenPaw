@@ -2037,6 +2037,7 @@ class _AgentModelSettings:
     fallback_enabled: bool = False
     fallback_free_only: bool = False
     thinking_level: Any = "inherit"
+    thinking_budget: int | None = None
     compact_threshold: Optional[float] = None
 
 
@@ -2059,6 +2060,11 @@ def _load_agent_model_settings(
             agent_config,
             "thinking_level",
             "inherit",
+        )
+        settings.thinking_budget = getattr(
+            agent_config,
+            f"thinking_budget",
+            None,
         )
         settings.fallback_slots = list(
             getattr(agent_config, "fallback_models", []),
@@ -2099,6 +2105,7 @@ def _apply_model_fallbacks(
     fallback_enabled: bool,
     fallback_free_only: bool,
     thinking_level: str,
+    thinking_budget: int | None = None,
     compact_threshold: Optional[float],
     retry_config: RetryConfig | None,
     rate_limit_config: RateLimitConfig | None,
@@ -2134,7 +2141,7 @@ def _apply_model_fallbacks(
         # model class, ...) must never keep a healthy primary model
         # from being built: skip the slot instead of propagating.
         try:
-            with agent_thinking_level(thinking_level):
+            with agent_thinking_level(thinking_level, thinking_budget):
                 fallback_model = fallback_provider.get_chat_model_instance(
                     fallback_slot.model,
                 )
@@ -2189,7 +2196,10 @@ def _create_hub_model_and_formatter(settings, model_slot, *, explicit):
         raise ProviderError(message="No organization model available")
     provider = managed_provider(catalog)
 
-    with agent_thinking_level(settings.thinking_level):
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
         model = provider.get_chat_model_instance(selected.model)
     _ensure_model_context_size(model, provider, selected.model)
     formatter = _install_model_formatter(
@@ -2270,7 +2280,10 @@ def create_model_and_formatter(
                 message=f"Provider '{model_slot.provider_id}' not found.",
             )
 
-        with agent_thinking_level(settings.thinking_level):
+        with agent_thinking_level(
+            settings.thinking_level,
+            settings.thinking_budget,
+        ):
             model = provider.get_chat_model_instance(model_slot.model)
         provider_id = _resolved_provider_id(provider, model_slot.provider_id)
         selected_model_id = model_slot.model
@@ -2342,6 +2355,7 @@ def create_model_and_formatter(
         fallback_enabled=settings.fallback_enabled,
         fallback_free_only=settings.fallback_free_only,
         thinking_level=settings.thinking_level,
+        thinking_budget=settings.thinking_budget,
         compact_threshold=settings.compact_threshold,
         retry_config=settings.retry_config,
         rate_limit_config=settings.rate_limit_config,

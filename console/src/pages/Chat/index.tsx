@@ -1,4 +1,10 @@
 import {
+  migratePendingSessionSettings,
+  withPendingSessionSettings,
+} from "@/features/session-settings/pendingSessionSettings";
+import { setPendingThinking } from "@/features/thinking/sessionThinkingApi";
+import { SessionThinking } from "@/features/thinking/SessionThinking";
+import {
   AgentScopeRuntimeWebUI,
   IAgentScopeRuntimeWebUIOptions,
   type IAgentScopeRuntimeRequest,
@@ -152,9 +158,7 @@ import { chatProjectDirectoryApi } from "../../api/modules/chatProjectDirectory"
 import { projectDirectoryApi } from "../../api/modules/projectDirectory";
 import {
   getPendingProjectDirectory,
-  migratePendingProjectDirectory,
   setPendingProjectDirectory,
-  withPendingProjectDirectory,
 } from "../../features/project-directory/pendingProjectDirectory";
 import {
   useFilesSurfaceStore,
@@ -477,7 +481,7 @@ async function startBackgroundQueue(
           // Use the agent ID captured at enqueue time to prevent cross-agent
           // delivery when the user switches agents after queueing.
           authHeaders["X-Agent-Id"] = queueAgentId;
-          const pendingRequest = withPendingProjectDirectory(
+          const pendingRequest = withPendingSessionSettings(
             applyChatPayloadTransforms(
               {
                 ...item.bizParams,
@@ -541,6 +545,7 @@ async function startBackgroundQueue(
             );
             throw new Error(`HTTP ${res.status}`);
           }
+          setPendingThinking(queueAgentId, queueKey, null);
           if (pendingRequest.projectDir) {
             setPendingProjectDirectory(queueAgentId, queueKey, null);
           }
@@ -2936,7 +2941,7 @@ export default function ChatPage() {
       toId: string,
     ) => {
       if (fromId === toId) return;
-      migratePendingProjectDirectory(agentId, fromId, toId);
+      migratePendingSessionSettings(agentId, fromId, toId);
       migrateChatSessionPreferences(
         getQueueKey(agentId, fromId),
         toId,
@@ -3103,7 +3108,7 @@ export default function ChatPage() {
     sessionApi.onSessionCreated = (sessionId) => {
       if (!isChatActiveRef.current) return;
       const agentId = selectedAgentRef.current;
-      migratePendingProjectDirectory(agentId, "new", sessionId);
+      migratePendingSessionSettings(agentId, "new", sessionId);
       migrateChatSessionPreferences(
         getQueueKey(agentId),
         sessionId,
@@ -3414,7 +3419,7 @@ export default function ChatPage() {
       if (usesQwenPawBackend) {
         projectSessionId =
           fallbackLocalChatId ?? String(requestBody.session_id || "new");
-        const pendingRequest = withPendingProjectDirectory(
+        const pendingRequest = withPendingSessionSettings(
           requestBody,
           requestSnapshot.agentId,
           projectSessionId,
@@ -3486,6 +3491,9 @@ export default function ChatPage() {
         );
       }
       const localIdToResolve = fallbackLocalChatId;
+      if (response.ok && projectSessionId) {
+        setPendingThinking(requestSnapshot.agentId, projectSessionId, null);
+      }
       if (response.ok && localIdToResolve) {
         if (appliedProjectDir && projectSessionId) {
           setPendingProjectDirectory(
@@ -4106,6 +4114,13 @@ export default function ChatPage() {
               <LoopModeSelector
                 className={isMobile ? styles.mobileComposerControl : undefined}
                 compact={isMobile}
+              />
+            )}
+            {usesQwenPawBackend && (
+              <SessionThinking
+                agentId={selectedAgent}
+                sessionId={queueSessionId}
+                chatId={backendChatId}
               />
             )}
             {pluginSenderPrefix}

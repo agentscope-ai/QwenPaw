@@ -30,6 +30,8 @@ from qwenpaw.schemas import (
 )
 from qwenpaw.tool_calls import CancelReason
 from qwenpaw.utils.timeout import resolve_stream_task_timeout
+from ...providers.thinking import ThinkingPreference
+from ...services.session_thinking import session_preference, thinking_view
 from ...utils.logging import LOG_FILE_PATH, sanitize_log_value
 from ..agent_context import get_agent_for_request
 from ..approvals.display import approval_display_fields
@@ -156,6 +158,23 @@ async def _persist_pending_project_dirs(
     request_context = native_payload["meta"].get("request_context")
     if not isinstance(request_context, dict):
         return chat
+
+    pending_thinking = request_context.pop(f"session_thinking", None)
+    if pending_thinking is not None and session_preference(chat.meta) is None:
+        try:
+            preference = ThinkingPreference.model_validate(pending_thinking)
+        except ValueError as exc:
+            raise HTTPException(422, f"Invalid thinking preference") from exc
+        view = await thinking_view(workspace, preference)
+        if preference.level != f"inherit" and view[f"reason"] is not None:
+            raise HTTPException(422, f"Invalid session thinking setting")
+        updated = await workspace.chat_manager.set_session_thinking(
+            chat.id,
+            preference,
+        )
+        if updated is None:
+            raise HTTPException(409, f"Session disappeared before saving")
+        chat = updated
 
     raw_list = request_context.pop("session_project_dirs", None)
     raw_single = request_context.pop("session_project_dir", None)

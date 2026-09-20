@@ -1400,8 +1400,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border: 1px solid currentColor;
-  border-radius: 50%;
+  border: 0;
+  border-radius: 6px;
   background: transparent;
   cursor: pointer;
   &:disabled {
@@ -1415,11 +1415,15 @@
 }
 .addModelControl {
   color: var(--app-success-text);
-  background: var(--app-success-bg);
+  &:hover:not(:disabled) {
+    background: var(--app-success-bg);
+  }
 }
 .removeModelControl {
   color: var(--app-error-text);
-  background: var(--app-error-bg);
+  &:hover:not(:disabled) {
+    background: var(--app-error-bg);
+  }
 }
 .candidatePicker {
   margin: 8px 12px 12px;

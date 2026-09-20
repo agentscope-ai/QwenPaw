@@ -36,7 +36,22 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": true,
-      "released_at": "2026-02-19"
+      "released_at": "2026-02-19",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "gemini_level"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        }
+      }
     },
     {
       "id": "gemini-3-flash-preview",
@@ -58,7 +73,23 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": true,
-      "released_at": "2025-12-17"
+      "released_at": "2025-12-17",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "gemini_level"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        }
+      }
     },
     {
       "id": "gemini-3.1-flash-lite-preview",
@@ -80,7 +111,23 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": true,
-      "released_at": "2026-03-03"
+      "released_at": "2026-03-03",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "wire": "gemini_level"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        }
+      }
     },
     {
       "id": "gemini-2.5-pro",
@@ -102,7 +149,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": true,
-      "released_at": "2025-06-17"
+      "released_at": "2025-06-17",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 128,
+        "budget_max": 32768,
+        "budget_default": 8192,
+        "supports_off": false,
+        "wire": "gemini_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        }
+      }
     },
     {
       "id": "gemini-2.5-flash",
@@ -124,7 +185,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": true,
-      "released_at": "2025-06-17"
+      "released_at": "2025-06-17",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 24576,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "gemini_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        }
+      }
     },
     {
       "id": "gemini-2.5-flash-lite",
@@ -146,7 +221,21 @@
       "billing": "paid",
       "supports_tool_calling": true,
       "supports_audio": true,
-      "released_at": "2025-06-17"
+      "released_at": "2025-06-17",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 512,
+        "budget_max": 24576,
+        "budget_default": 8192,
+        "supports_off": true,
+        "wire": "gemini_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+        }
+      }
     },
     {
       "id": "gemini-2.0-flash",

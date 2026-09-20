@@ -1,0 +1,107 @@
+.control {
+  width: 100%;
+  min-width: 0;
+  :global(.ant-slider-track) {
+    background: var(--thinking-color);
+  }
+  :global(.ant-slider-handle::after) {
+    box-shadow: 0 0 0 2px var(--thinking-color);
+  }
+  :global(.ant-input-number) {
+    width: 142px;
+    font-variant-numeric: tabular-nums;
+  }
+}
+.header,
+.summary,
+.range {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.header {
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+}
+.summary {
+  min-height: 32px;
+  strong {
+    color: var(--thinking-color);
+    font-weight: 600;
+  }
+}
+.range {
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  &:hover {
+    background: var(--app-fill-hover);
+  }
+  &:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+}
+.modes {
+  display: flex;
+  gap: 6px;
+  margin-top: 14px;
+  button {
+    border: 1px solid var(--app-border);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--app-text-secondary);
+    padding: 4px 9px;
+    cursor: pointer;
+    &[aria-pressed="true"] {
+      color: var(--app-accent);
+      border-color: var(--app-accent);
+    }
+  }
+}
+.hint {
+  color: var(--app-text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 10px 0 0;
+}
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 9px;
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  &:hover,
+  &[aria-expanded="true"] {
+    color: var(--app-accent);
+    border-color: var(--app-accent);
+  }
+}
+.popover {
+  width: min(288px, calc(100vw - 56px));
+}

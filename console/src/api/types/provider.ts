@@ -1,3 +1,4 @@
+import type { ThinkingControlSpec } from "@/features/thinking/types";
 export type ModelAvailabilityStatus =
   | "available"
   | "permission_denied"
@@ -8,6 +9,7 @@ export type ModelAvailabilityStatus =
   | "unverified";
 
 export interface ModelInfo {
+  thinking_control?: ThinkingControlSpec | null;
   released_at?: string | null;
   config_overrides?: string[];
   supports_audio?: boolean | null;

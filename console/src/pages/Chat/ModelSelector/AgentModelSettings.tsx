@@ -1,3 +1,8 @@
+import { ThinkingControl } from "@/features/thinking/ThinkingControl";
+import type {
+  ThinkingPreference,
+  ThinkingControlSpec,
+} from "@/features/thinking/types";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
@@ -34,13 +39,21 @@ interface AgentModelSettingsProps {
   showThinking?: boolean;
   initialConfig?: Pick<
     AgentProfileConfig,
-    "fallback_models" | "fallback_policy" | "subagent_model"
+    | "fallback_models"
+    | "fallback_policy"
+    | "subagent_model"
+    | "thinking_level"
+    | "thinking_budget"
   >;
   draftResetToken?: number;
   onDraftChange?: (
     settings: Pick<
       AgentProfileConfig,
-      "fallback_models" | "fallback_policy" | "subagent_model"
+      | "fallback_models"
+      | "fallback_policy"
+      | "subagent_model"
+      | "thinking_level"
+      | "thinking_budget"
     >,
   ) => void;
 }
@@ -51,6 +64,7 @@ interface ModelOption {
   providerId: string;
   modelId: string;
   supportsThinking: boolean;
+  thinkingControl?: ThinkingControlSpec | null;
 }
 
 const EMPTY_KEY = "";
@@ -86,16 +100,15 @@ export function AgentModelSettings({
   >("configured");
   const [fallbackKeys, setFallbackKeys] = useState<string[]>([]);
   const [subagentKey, setSubagentKey] = useState(EMPTY_KEY);
-  const [thinkingLevel, setThinkingLevel] = useState<
-    "inherit" | "off" | "low" | "medium" | "high"
-  >("inherit");
+  const [thinking, setThinking] = useState<ThinkingPreference>({
+    level: "inherit",
+  });
   const loadRevision = useRef(0);
   const saveRevision = useRef(0);
   const configAgentId = useRef<string | null>(null);
   const agentIdRef = useRef(agentId);
   agentIdRef.current = agentId;
   const bodyId = useId();
-  const thinkingSelectId = `${bodyId}-thinking-level`;
   const subagentSelectId = `${bodyId}-subagent-model`;
   const fallbackScopeSelectId = `${bodyId}-fallback-scope`;
   const fallbackSelectId = `${bodyId}-fallback-model`;
@@ -110,6 +123,7 @@ export function AgentModelSettings({
           providerId: provider.id,
           modelId: model.id,
           supportsThinking: supportsThinking(provider, model),
+          thinkingControl: model.thinking_control,
         })),
       ),
     [providers],
@@ -191,7 +205,10 @@ export function AgentModelSettings({
         ? slotKey(next.subagent_model.provider_id, next.subagent_model.model)
         : EMPTY_KEY,
     );
-    setThinkingLevel(next.thinking_level ?? "inherit");
+    setThinking({
+      level: next.thinking_level ?? "inherit",
+      budget_tokens: next.thinking_budget,
+    });
   }
 
   useEffect(() => {
@@ -281,11 +298,13 @@ export function AgentModelSettings({
     fallbackKeys: nextFallbackKeys = fallbackKeys,
     fallbackScope: nextFallbackScope = fallbackScope,
     subagentKey: nextSubagentKey = subagentKey,
+    thinking: nextThinking = thinking,
   }: {
     fallbackEnabled?: boolean;
     fallbackKeys?: string[];
     fallbackScope?: typeof fallbackScope;
     subagentKey?: string;
+    thinking?: ThinkingPreference;
   } = {}): void {
     if (agentId || !onDraftChange || !config) return;
     const fallbackModels = nextFallbackKeys.flatMap((key) => {
@@ -299,6 +318,8 @@ export function AgentModelSettings({
         target_scope: nextFallbackScope,
       },
       subagent_model: slotByKey.get(nextSubagentKey) ?? null,
+      thinking_level: nextThinking.level,
+      thinking_budget: nextThinking.budget_tokens ?? null,
     });
   }
 
@@ -323,7 +344,10 @@ export function AgentModelSettings({
         },
         subagent_model: subagentSlot ?? null,
         ...(showThinking && thinkingSupported
-          ? { thinking_level: thinkingLevel }
+          ? {
+              thinking_level: thinking.level,
+              thinking_budget: thinking.budget_tokens ?? null,
+            }
           : {}),
       };
       const updated = await agentsApi.updateModelSettings(
@@ -389,38 +413,21 @@ export function AgentModelSettings({
           ) : (
             <>
               {showThinking && (
-                <>
-                  <label
-                    className={styles.settingsRow}
-                    htmlFor={thinkingSelectId}
-                  >
-                    <span>{t("modelSelector.thinkingLevel")}</span>
-                    <Select
-                      id={thinkingSelectId}
-                      aria-label={t("modelSelector.thinkingLevel")}
-                      className={styles.agentSelect}
-                      classNames={{
-                        popup: { root: styles.agentSelectDropdown },
-                      }}
-                      value={thinkingLevel}
-                      disabled={!thinkingSupported}
-                      options={(
-                        ["inherit", "off", "low", "medium", "high"] as const
-                      ).map((level) => ({
-                        label: t(`modelSelector.thinking.${level}`),
-                        value: level,
-                      }))}
-                      onChange={(value) =>
-                        setThinkingLevel(value as typeof thinkingLevel)
-                      }
-                    />
-                  </label>
-                  {!thinkingSupported && (
-                    <p className={styles.settingsHint}>
-                      {t("modelSelector.thinkingUnsupported")}
-                    </p>
-                  )}
-                </>
+                <ThinkingControl
+                  control={
+                    activeOption?.thinkingControl ?? {
+                      kind: "unsupported",
+                      efforts: [],
+                      supports_off: false,
+                    }
+                  }
+                  value={thinking}
+                  onChange={(next) => {
+                    setThinking(next);
+                    notifyDraft({ thinking: next });
+                  }}
+                  disabled={saving}
+                />
               )}
               <div className={styles.settingsSection}>
                 <div className={styles.settingsSectionHeader}>

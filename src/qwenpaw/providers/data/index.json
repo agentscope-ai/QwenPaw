@@ -78,7 +78,7 @@
     },
     "dashscope": {
       "path": "providers/dashscope.json",
-      "sha256": "47ee41e28d51c1f0eb357258dd46169906810c3bbaa93f2bd86301a90c5d113c",
+      "sha256": "9f1f50b1a7476aa9d886f246a7a620802c6a432cfb76bbff7b8f61cde669f762",
       "api_urls": [
         "https://dashscope.aliyuncs.com/compatible-mode/v1"
       ],
@@ -183,7 +183,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-08-03"
+            "released_at": "2026-08-03",
+            "thinking_control": {
+              "kind": "budget",
+              "budget_min": 1,
+              "budget_max": 32768,
+              "budget_default": 4000,
+              "supports_off": true,
+              "wire": "compat_budget"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              }
+            }
           },
           {
             "id": "qwen3.7-max",
@@ -207,7 +221,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-05-21"
+            "released_at": "2026-05-21",
+            "thinking_control": {
+              "kind": "budget",
+              "budget_min": 1,
+              "budget_max": 32768,
+              "budget_default": 4000,
+              "supports_off": true,
+              "wire": "compat_budget"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              }
+            }
           },
           {
             "id": "qwen3.7-plus",
@@ -230,7 +258,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-02"
+            "released_at": "2026-06-02",
+            "thinking_control": {
+              "kind": "budget",
+              "budget_min": 1,
+              "budget_max": 32768,
+              "budget_default": 4000,
+              "supports_off": true,
+              "wire": "compat_budget"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              }
+            }
           },
           {
             "id": "qwen3.6-plus",
@@ -253,7 +295,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-02"
+            "released_at": "2026-04-02",
+            "thinking_control": {
+              "kind": "budget",
+              "budget_min": 1,
+              "budget_max": 32768,
+              "budget_default": 4000,
+              "supports_off": true,
+              "wire": "compat_budget"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              }
+            }
           },
           {
             "id": "deepseek-v4-pro",
@@ -281,7 +337,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-04-24"
+            "released_at": "2026-04-24",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "high",
+                "max"
+              ],
+              "supports_off": true
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              }
+            }
           },
           {
             "id": "glm-5.2",
@@ -309,7 +379,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2026-06-13"
+            "released_at": "2026-06-13",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "high",
+                "max"
+              ],
+              "supports_off": true
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+              }
+            }
           }
         ],
         "template_families": [
@@ -1888,7 +1972,7 @@
     },
     "openai": {
       "path": "providers/openai.json",
-      "sha256": "fff59ac7a039d4e7a722bec42ef7ab75fc30ab935af4de53c7c66aecad7e74f3",
+      "sha256": "c99d413641ab4eac0ae065d3b52e56b2273e7fb20b3a01a94592fad5ca3f2307",
       "api_urls": [
         "https://api.openai.com/v1"
       ],
@@ -1978,7 +2062,23 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-12-11"
+            "released_at": "2025-12-11",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "medium",
+                "high",
+                "xhigh"
+              ],
+              "supports_off": true
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              }
+            }
           },
           {
             "id": "gpt-5",
@@ -2000,7 +2100,22 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-08-07"
+            "released_at": "2025-08-07",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              }
+            }
           },
           {
             "id": "gpt-5-mini",
@@ -2022,7 +2137,22 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-08-07"
+            "released_at": "2025-08-07",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              }
+            }
           },
           {
             "id": "gpt-5-nano",
@@ -2044,7 +2174,22 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-08-07"
+            "released_at": "2025-08-07",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              }
+            }
           },
           {
             "id": "gpt-4.1",
@@ -2132,7 +2277,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-16"
+            "released_at": "2025-04-16",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              }
+            }
           },
           {
             "id": "o4-mini",
@@ -2154,7 +2313,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": false,
-            "released_at": "2025-04-16"
+            "released_at": "2025-04-16",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://developers.openai.com/api/docs/guides/reasoning"
+              }
+            }
           },
           {
             "id": "gpt-4o",
@@ -2637,7 +2810,7 @@
     },
     "anthropic": {
       "path": "providers/anthropic.json",
-      "sha256": "dda1ab62962db70376465d5b95a9e5a89a2d318867e52b00b5e7718dd70d1138",
+      "sha256": "773020113572cca30726c6d767369a52c046d6c435e5c5cb83270717c2c3a851",
       "api_urls": [
         "https://api.anthropic.com"
       ],
@@ -2669,7 +2842,7 @@
     },
     "gemini": {
       "path": "providers/gemini.json",
-      "sha256": "d8a656ac890eccacb6ae120460e3dc9ceacf2056cfadfa40b7701a2790c4a24f",
+      "sha256": "d50cc5ba6ecdb4d37eb668319cba3bb9d54d39ccb3596ae2210b4f5464503849",
       "api_urls": [
         "https://generativelanguage.googleapis.com",
         "https://generativelanguage.googleapis.com/v1beta"
@@ -2754,7 +2927,22 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": true,
-            "released_at": "2026-02-19"
+            "released_at": "2026-02-19",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "medium",
+                "high"
+              ],
+              "wire": "gemini_level"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              }
+            }
           },
           {
             "id": "gemini-3-flash-preview",
@@ -2776,7 +2964,23 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": true,
-            "released_at": "2025-12-17"
+            "released_at": "2025-12-17",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ],
+              "wire": "gemini_level"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              }
+            }
           },
           {
             "id": "gemini-3.1-flash-lite-preview",
@@ -2798,7 +3002,23 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": true,
-            "released_at": "2026-03-03"
+            "released_at": "2026-03-03",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "minimal",
+                "low",
+                "medium",
+                "high"
+              ],
+              "wire": "gemini_level"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              }
+            }
           },
           {
             "id": "gemini-2.5-pro",
@@ -2820,7 +3040,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": true,
-            "released_at": "2025-06-17"
+            "released_at": "2025-06-17",
+            "thinking_control": {
+              "kind": "budget",
+              "budget_min": 128,
+              "budget_max": 32768,
+              "budget_default": 8192,
+              "supports_off": false,
+              "wire": "gemini_budget"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              }
+            }
           },
           {
             "id": "gemini-2.5-flash",
@@ -2842,7 +3076,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": true,
-            "released_at": "2025-06-17"
+            "released_at": "2025-06-17",
+            "thinking_control": {
+              "kind": "budget",
+              "budget_min": 1,
+              "budget_max": 24576,
+              "budget_default": 8192,
+              "supports_off": true,
+              "wire": "gemini_budget"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              }
+            }
           },
           {
             "id": "gemini-2.5-flash-lite",
@@ -2864,7 +3112,21 @@
             "billing": "paid",
             "supports_tool_calling": true,
             "supports_audio": true,
-            "released_at": "2025-06-17"
+            "released_at": "2025-06-17",
+            "thinking_control": {
+              "kind": "budget",
+              "budget_min": 512,
+              "budget_max": 24576,
+              "budget_default": 8192,
+              "supports_off": true,
+              "wire": "gemini_budget"
+            },
+            "capability_provenance": {
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://ai.google.dev/gemini-api/docs/generate-content/thinking"
+              }
+            }
           },
           {
             "id": "gemini-2.0-flash",
@@ -2888,7 +3150,7 @@
     },
     "deepseek": {
       "path": "providers/deepseek.json",
-      "sha256": "74f15adb090b5551fbd5839a5a41e1100e8aef7c6ab26f53ade53e00a509b953",
+      "sha256": "7630c690a2d652613536136e61ad203d733bdb2b648f7f41c4a3bd495f9e72b6",
       "api_urls": [
         "https://api.deepseek.com"
       ],
@@ -2951,9 +3213,23 @@
                 "source": "documentation",
                 "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
                 "updated_at": "2026-09-18"
+              },
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
               }
             },
-            "released_at": "2026-08-12"
+            "released_at": "2026-08-12",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": true,
+              "wire": "compat_effort"
+            }
           },
           {
             "id": "deepseek-flash",
@@ -2987,9 +3263,23 @@
                 "source": "documentation",
                 "reference": "https://api-docs.deepseek.com/quick_start/pricing/",
                 "updated_at": "2026-09-18"
+              },
+              "thinking_control": {
+                "source": "catalog",
+                "reference": "https://api-docs.deepseek.com/guides/thinking_mode/"
               }
             },
-            "released_at": "2026-09-10"
+            "released_at": "2026-09-10",
+            "thinking_control": {
+              "kind": "effort",
+              "efforts": [
+                "low",
+                "high",
+                "max"
+              ],
+              "supports_off": true,
+              "wire": "compat_effort"
+            }
           }
         ]
       }
