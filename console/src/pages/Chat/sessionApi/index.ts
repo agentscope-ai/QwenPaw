@@ -20,6 +20,7 @@ import { useTurnUsageStore } from "../turnUsageStore";
 import { extractClientMessageId } from "../../../utils/clientMessageId";
 import { useMessageQueueStore } from "../../../stores/messageQueueStore";
 import { syncSessionsGlobal } from "../../../stores/sessionListStore";
+import { runtimeContextEqual } from "./runtimeContextEqual";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1384,6 +1385,11 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
       ) {
         return false;
       }
+      if (
+        !runtimeContextEqual(a.meta?.runtime_context, b.meta?.runtime_context)
+      ) {
+        return false;
+      }
     }
     return true;
   }
@@ -1422,6 +1428,20 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
     this.sessionListRequest = entry;
 
     return entry.promise;
+  }
+
+  /** Fetch a fresh Chat list even when an older list request is in flight. */
+  async refreshSessionList() {
+    const inFlight = this.sessionListRequest;
+    if (inFlight) {
+      try {
+        await inFlight.promise;
+      } catch {
+        // A failed stale read must not prevent the explicit refresh.
+      }
+    }
+    this.sessionListRequest = null;
+    return this.getSessionList();
   }
 
   /**

@@ -29,11 +29,34 @@ class PluginProviderRegistry:
         return provider_class(**provider_info.model_dump())
 
     def list_provider_infos(self) -> list[ProviderInfo]:
-        """Return plugin provider snapshots without materializing clients."""
-        return [
-            registration["info"]
-            for registration in self._manager.plugin_providers.values()
-        ]
+        """Resolve display metadata using each plugin's runtime policy.
+
+        Called in a worker thread; no chat model or network probe is created.
+        """
+        result = []
+        for key, registration in list(self._manager.plugin_providers.items()):
+            info = registration["info"]
+            windows = {}
+            try:
+                provider = registration["class"](**info.model_dump())
+                windows = {
+                    model.id: provider.get_context_size(model.id)
+                    for model in provider.all_models()
+                }
+            except Exception:
+                logger.warning(
+                    "Could not resolve plugin context windows: %s",
+                    key,
+                    exc_info=True,
+                )
+            result.append(
+                info.model_copy(
+                    update={
+                        "effective_context_windows": windows,
+                    },
+                ),
+            )
+        return result
 
     def unregister(self, provider_id: str) -> bool:
         """Remove a plugin registration while retaining persisted config."""

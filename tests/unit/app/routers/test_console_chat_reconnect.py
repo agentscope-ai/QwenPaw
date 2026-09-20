@@ -8,6 +8,7 @@ client's stream reader completes normally and falls back to loading the
 persisted history. Returning ``None`` produced a JSON ``null`` body,
 which left the chat UI blank until a manual refresh.
 """
+
 # pylint: disable=protected-access,redefined-outer-name,unused-argument
 from __future__ import annotations
 
@@ -203,6 +204,7 @@ async def test_new_message_rejects_active_run(
         "_persist_pending_project_dirs",
         AsyncMock(side_effect=lambda _ws, chat, _payload: chat),
     )
+    console_workspace.chat_manager.set_model_slot_override = AsyncMock()
 
     request = Request(
         scope={
@@ -218,6 +220,11 @@ async def test_new_message_rejects_active_run(
         with pytest.raises(HTTPException) as exc_info:
             await console.post_console_chat(
                 request_data={
+                    "persist_model_slot_override": True,
+                    "model_slot_override": {
+                        "provider_id": "provider",
+                        "model": "rejected-model",
+                    },
                     "session_id": "console:default",
                     "user_id": "default",
                     "channel": "console",
@@ -241,3 +248,4 @@ async def test_new_message_rejects_active_run(
         "use a different session_id."
     )
     assert console_workspace.console_channel.stream_calls == []
+    console_workspace.chat_manager.set_model_slot_override.assert_not_awaited()

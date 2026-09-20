@@ -35,6 +35,32 @@ from qwenpaw.token_usage import TokenRecordingModelWrapper
 _REAL_INSTALL_MODEL_FORMATTER = model_factory._install_model_formatter
 
 
+@pytest.mark.parametrize("source", ["request", "session", "agent", "global"])
+def test_hub_factory_respects_resolved_session_slot(monkeypatch, source):
+    slot = ModelSlotConfig(
+        provider_id="hub-managed",
+        model="organization-model",
+    )
+    monkeypatch.setattr(model_factory, "hub_mode", lambda: True)
+    monkeypatch.setattr(
+        "qwenpaw.services.model_selection.get_current_model_slot",
+        lambda **_kwargs: (slot, source),
+    )
+    with patch.object(
+        model_factory,
+        "_create_hub_model_and_formatter",
+    ) as create:
+        create.return_value = ("model", "formatter")
+        assert model_factory.create_model_and_formatter("agent") == (
+            "model",
+            "formatter",
+        )
+    assert create.call_args.args[1] is slot
+    assert create.call_args.kwargs["explicit"] is (
+        source in {"request", "session"}
+    )
+
+
 class _FakeChatModel:
     """Minimal provider model used by the factory tests."""
 
@@ -602,7 +628,11 @@ def test_preloaded_agent_config_preserves_model_settings(monkeypatch):
     assert thinking_levels == ["high", "high"]
 
 
-def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
+@pytest.mark.parametrize("session_override", [False, True])
+def test_each_fallback_model_gets_its_own_formatter(
+    monkeypatch,
+    session_override,
+):
     """Install the protocol formatter before wrapping every model."""
     config = _patched_load_agent_config("agent-1")
     config.fallback_models = [
@@ -657,9 +687,26 @@ def test_each_fallback_model_gets_its_own_formatter(monkeypatch):
         lambda models: models,
     )
 
-    model, formatter = model_factory.create_model_and_formatter(
-        agent_id="agent-1",
+    from qwenpaw.services.model_selection import (
+        ModelSelectionContext,
+        clear_current_model_context,
+        set_current_model_context,
     )
+
+    if session_override:
+        set_current_model_context(
+            ModelSelectionContext(
+                slot=config.active_model,
+                source="session",
+                session_slot=config.active_model,
+            ),
+        )
+    try:
+        model, formatter = model_factory.create_model_and_formatter(
+            agent_id="agent-1",
+        )
+    finally:
+        clear_current_model_context()
 
     assert model == [
         "default-provider/default-model",
