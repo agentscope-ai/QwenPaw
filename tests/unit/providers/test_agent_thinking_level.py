@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 """Model-card capabilities determine legal provider wire settings."""
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from qwenpaw.hub.model_service.protocol import upstream_payload
@@ -193,3 +195,88 @@ def test_session_override_preserves_shared_provider_kwargs():
     assert result[f"thinking_budget"] == 1234
     assert provider.generate_kwargs[f"extra_body"][f"thinking_budget"] == 8000
     assert result[f"extra_body"][f"unrelated"] is True
+
+
+@pytest.mark.parametrize(
+    f"model,kind,maximum,efforts,off",
+    [
+        (f"qwen3.8-max-0902", f"budget", 262144, [], True),
+        (f"qwen3.8-flash", f"budget", 262144, [], True),
+        (f"deepseek-v4-flash", f"effort", None, [f"high", f"max"], True),
+        (
+            f"deepseek-v4.1-flash", f"effort", None,
+            [f"low", f"high", f"max"], True,
+        ),
+        (
+            f"deepseek-v4-pro-0813", f"effort", None,
+            [f"low", f"high", f"max"], True,
+        ),
+        (
+            f"glm-5.3", f"effort", None,
+            [f"low", f"high", f"max"], False,
+        ),
+    ],
+)
+def test_dashscope_documented_controls(model, kind, maximum, efforts, off):
+    provider = PROVIDER_DASHSCOPE.model_copy(deep=True)
+    control = provider.thinking_control(model)
+    assert control.kind == kind
+    assert control.budget_max == maximum
+    assert control.efforts == efforts
+    assert control.supports_off is off
+    if kind == f"effort":
+        assert provider.get_agent_thinking_kwargs(model, f"high") == {
+            f"thinking_enable": True,
+            f"reasoning_effort": f"high",
+        }
+    else:
+        provider.generate_kwargs = {f"reasoning_effort": f"xhigh"}
+        with agent_thinking_level(f"budget", 200000):
+            kwargs = provider.get_effective_generate_kwargs(model)
+        assert kwargs[f"thinking_budget"] == 200000
+        assert f"reasoning_effort" not in kwargs
+
+
+def test_dashscope_model_defaults_do_not_restore_conflicting_effort():
+    provider = PROVIDER_DASHSCOPE.model_copy(deep=True)
+    model = provider.get_model_info(f"qwen3.8-max")
+    model.reasoning_effort = f"high"
+    with agent_thinking_level(f"budget", 12000):
+        kwargs = provider.get_effective_generate_kwargs(model.id)
+        provider._apply_thinking_config(model.id, kwargs)
+    assert kwargs[f"thinking_budget"] == 12000
+    assert f"reasoning_effort" not in kwargs
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    f"model,level,budget,body,effort",
+    [
+        (
+            f"qwen3.8-max-0902", f"budget", 200000,
+            {f"enable_thinking": True, f"thinking_budget": 200000}, None,
+        ),
+        (
+            f"deepseek-v4.1-flash", f"low", None,
+            {f"enable_thinking": True}, f"low",
+        ),
+        (
+            f"deepseek-v4.1-flash", f"off", None,
+            {f"enable_thinking": False}, None,
+        ),
+    ],
+)
+async def test_dashscope_wire_request(
+    monkeypatch, model, level, budget, body, effort,
+):
+    provider = PROVIDER_DASHSCOPE.model_copy(deep=True)
+    provider.api_key = f"test-only"
+    with agent_thinking_level(level, budget):
+        client = provider.get_chat_model_instance(model)
+    send = AsyncMock(side_effect=RuntimeError(f"captured"))
+    monkeypatch.setattr(client.client.chat.completions, f"create", send)
+    with pytest.raises(RuntimeError, match=f"captured"):
+        await client._call_api(model, [])
+    request = send.call_args.kwargs
+    assert request[f"extra_body"] == body
+    assert request.get(f"reasoning_effort") == effort

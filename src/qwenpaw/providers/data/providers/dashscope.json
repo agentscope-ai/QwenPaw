@@ -38,15 +38,16 @@
       "thinking_control": {
         "kind": "budget",
         "budget_min": 1,
-        "budget_max": 32768,
-        "budget_default": 4000,
+        "budget_max": 262144,
+        "budget_default": 131072,
         "supports_off": true,
         "wire": "compat_budget"
       },
       "capability_provenance": {
         "thinking_control": {
           "source": "catalog",
-          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         },
         "billing": {
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
@@ -212,7 +213,8 @@
       "capability_provenance": {
         "thinking_control": {
           "source": "catalog",
-          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         },
         "billing": {
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
@@ -257,7 +259,8 @@
       "capability_provenance": {
         "thinking_control": {
           "source": "catalog",
-          "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         },
         "billing": {
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
@@ -758,8 +761,26 @@
           "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "high",
+        "max"
+      ]
     },
     {
       "id": "kimi-k2-thinking",
@@ -1094,8 +1115,28 @@
           "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "low",
+        "high",
+        "max"
+      ]
     },
     {
       "id": "qwen2-5-vl-72b-instruct",
@@ -1338,7 +1379,20 @@
           "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         }
+      },
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 262144,
+        "budget_default": 131072,
+        "supports_off": true,
+        "wire": "compat_budget"
       }
     },
     {
@@ -1442,8 +1496,26 @@
           "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "high",
+        "max"
+      ]
     },
     {
       "id": "kimi-k2.5",
@@ -1511,8 +1583,26 @@
           "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "high",
+        "max"
+      ]
     },
     {
       "id": "qwen3-235b-a22b",
@@ -1627,8 +1717,28 @@
           "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        },
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         }
-      }
+      },
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": false
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "low",
+        "high",
+        "max"
+      ]
     },
     {
       "id": "qwen-long",
@@ -1950,6 +2060,141 @@
           "reference": "https://help.aliyun.com/zh/model-studio/model-pricing",
           "updated_at": "2026-09-20",
           "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+        }
+      }
+    },
+    {
+      "id": "qwen3.8-max-0902",
+      "name": "qwen3.8-max-0902",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 262144,
+        "budget_default": 131072,
+        "supports_off": true,
+        "wire": "compat_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "qwen3.8-2.4t-a95b",
+      "name": "qwen3.8-2.4t-a95b",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 262144,
+        "budget_default": 131072,
+        "supports_off": true,
+        "wire": "compat_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "qwen3.8-27b",
+      "name": "qwen3.8-27b",
+      "thinking_control": {
+        "kind": "budget",
+        "budget_min": 1,
+        "budget_max": 262144,
+        "budget_default": 131072,
+        "supports_off": true,
+        "wire": "compat_budget"
+      },
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4-pro-0813",
+      "name": "deepseek-v4-pro-0813",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "low",
+        "high",
+        "max"
+      ],
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4-flash-0731",
+      "name": "deepseek-v4-flash-0731",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "low",
+        "high",
+        "max"
+      ],
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "name": "deepseek-v4.1-flash",
+      "thinking_control": {
+        "kind": "effort",
+        "efforts": [
+          "low",
+          "high",
+          "max"
+        ],
+        "supports_off": true
+      },
+      "thinking_param_style": "effort",
+      "reasoning_effort_options": [
+        "low",
+        "high",
+        "max"
+      ],
+      "capability_provenance": {
+        "thinking_control": {
+          "source": "catalog",
+          "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+          "updated_at": "2026-09-20"
         }
       }
     }

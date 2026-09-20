@@ -25,6 +25,7 @@ import pytest
 from qwenpaw.app.channels.renderer import ChannelDisplayConfig
 
 from qwenpaw.app.channels.console.channel import ConsoleChannel
+from qwenpaw.token_usage.model_wrapper import TokenRecordingModelWrapper
 
 
 class _FakeDumpEvent:
@@ -661,6 +662,45 @@ class TestConsoleStreaming:
             enabled=True,
             bot_prefix=">> ",
         )
+
+    async def test_stream_emits_usage_between_calls(self, stream_channel):
+        """Publish each call without consuming the final usage snapshot."""
+        async def process(request):
+            for count in (1, 2):
+                TokenRecordingModelWrapper._usage_by_session[
+                    request.session_id
+                ] = {
+                    f"total_tokens": count * 100,
+                    f"last_prompt_tokens": count * 40,
+                    f"context_size": 1000,
+                }
+                yield _FakeDumpEvent({
+                    f"object": f"message",
+                    f"status": f"in_progress",
+                    f"type": f"message.delta",
+                })
+
+        stream_channel._process = process
+        stream = stream_channel.stream_one({
+            f"sender_id": f"usage-user",
+            f"content_parts": [],
+            f"meta": {},
+        })
+        try:
+            for count in (1, 2):
+                event = json.loads((await anext(stream))[6:])
+                assert event[f"type"] == f"turn_usage"
+                assert event[f"usage"][f"total_tokens"] == count * 100
+                assert event[f"context_usage"][f"estimated_tokens"] == (
+                    count * 40
+                )
+                assert TokenRecordingModelWrapper.peek_usage_for_session(
+                    event[f"session_id"],
+                ) is not None
+                await anext(stream)
+        finally:
+            await stream.aclose()
+            TokenRecordingModelWrapper._usage_by_session.clear()
 
     async def test_stream_one_yields_events(self, stream_channel):
         """stream_one should yield SSE-formatted events."""

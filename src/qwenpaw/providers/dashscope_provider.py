@@ -108,26 +108,10 @@ class DashScopeProvider(OpenAIProvider):
         budget: int,
     ) -> None:
         """Map agent thinking levels to the model-specific DashScope API."""
-        model_info = self.get_model_info(model_id)
-        param_style = (
-            model_info.thinking_param_style
-            if model_info and model_info.thinking_param_style
-            else self.thinking_param_style
-        )
-        if param_style == "effort":
-            extra_body = effective.get("extra_body")
-            if not isinstance(extra_body, dict):
-                extra_body = {}
-            extra_body["thinking"] = {
-                "type": "disabled" if level == "off" else "enabled",
-            }
-            if level == "off":
-                extra_body.pop("reasoning_effort", None)
-            else:
-                extra_body["reasoning_effort"] = level
-            effective.pop("thinking_enable", None)
-            effective.pop("thinking_budget", None)
-            effective["extra_body"] = extra_body
+        if self.thinking_control(model_id).kind == f"effort":
+            effective[f"thinking_enable"] = level != f"off"
+            if level != f"off":
+                effective[f"reasoning_effort"] = level
             return
 
         if level == "off":
@@ -156,29 +140,14 @@ class DashScopeProvider(OpenAIProvider):
             return
         enabled, budget, effort = self._get_thinking_config(model_id)
 
-        # Resolve the effective thinking_param_style for this model:
-        # model-level override takes precedence over the provider default.
-        model_info = self.get_model_info(model_id)
-        param_style = (
-            model_info.thinking_param_style
-            if model_info and model_info.thinking_param_style
-            else self.thinking_param_style
-        )
-
-        if param_style == "effort":
-            # Effort-style models (e.g. GLM-5.2) pass both ``thinking`` and
-            # ``reasoning_effort`` inside ``extra_body`` (OpenAI-compat path).
-            # They do NOT support ``enable_thinking`` (Qwen-style parameter).
-            eb = effective.setdefault("extra_body", {})
-            if not isinstance(eb, dict):
-                eb = {}
-                effective["extra_body"] = eb
-            if enabled is True:
-                eb.setdefault("thinking", {"type": "enabled"})
-            elif enabled is False:
-                eb.setdefault("thinking", {"type": "disabled"})
-            if effort is not None:
-                eb.setdefault("reasoning_effort", effort)
+        if self.thinking_control(model_id).kind == f"effort":
+            if enabled is not None:
+                effective.setdefault(f"thinking_enable", enabled)
+            if (
+                effort is not None
+                and effective.get(f"thinking_enable") is not False
+            ):
+                effective.setdefault(f"reasoning_effort", effort)
             return
 
         # Budget-style (default for DashScope Qwen models).
@@ -196,10 +165,16 @@ class DashScopeProvider(OpenAIProvider):
             if (
                 "thinking_budget" not in effective
                 and "thinking_budget" not in eb
+                and "reasoning_effort" not in effective
+                and "reasoning_effort" not in eb
             ):
                 effective["thinking_budget"] = budget
-        if effort is not None:
-            effective.setdefault("reasoning_effort", effort)
+        if (
+            effort is not None
+            and f"thinking_budget" not in effective
+            and f"thinking_budget" not in eb
+        ):
+            effective.setdefault(f"reasoning_effort", effort)
 
     def get_chat_model_instance(self, model_id: str) -> ChatModelBase:
         from agentscope.credential import DashScopeCredential

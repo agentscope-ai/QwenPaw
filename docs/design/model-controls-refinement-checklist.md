@@ -23,3 +23,18 @@ pre-commit 的 AST、mypy、flake8 等检查通过；pylint 仍报告现有风�
 - [x] 保留既有会话和其他 Agent 的选择；验证首条请求不携带旧草稿覆盖。
 - [x] 扩展现有用例，相关 32 项测试通过。
 - [x] 生产构建及资源检查通过。
+
+模型能力与实时统计修复：
+
+- [x] 核对官方 DashScope Qwen3.8、DeepSeek V4/V4.1、GLM 与 Kimi K3 控制参数。
+- [x] 补齐明确型号，修正预算范围及 DashScope 强度参数格式。
+- [x] 每次 LLM 调用后发送累计 usage，前端即时接收，使用最近调用输入计算上下文。
+- [x] 保留临时会话转正式会话的统计归属，历史加载不覆盖流中数据。
+- [x] 前端 106 项、后端 181 项测试通过；追加的 3 项实际请求拦截测试通过；生产构建通过。
+
+能力核对依据：[阿里云 Chat Completions 参数](https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions)，2026-09-20。
+
+- Qwen3.8 Max / Max-0902 / Flash / 2.4t-a95b / 27b：数字预算上限 262144，默认 131072，与 reasoning_effort 互斥。
+- DeepSeek V4 Pro / Flash：high、max；Pro-0813 / Flash-0731 / V4.1-Flash：low、high、max，允许关闭。
+- GLM 5 / 5.1 / 5.2：high、max；GLM 5.3：low、high、max，不能关闭；Kimi K3：low、high、max，允许关闭。
+- 仅更新已核实的服务与确切型号，不将三方转发型号的能力按名称猜测继承。

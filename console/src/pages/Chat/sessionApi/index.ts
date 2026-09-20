@@ -844,6 +844,13 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   setVisibleSession(sessionId: string | null): void {
     if (this.visibleSessionId === sessionId) return;
     this.visibleSessionId = sessionId;
+    const turn = useTurnUsageStore.getState().activeTurn;
+    if (
+      sessionId &&
+      turn?.agentId === this.activeOwner.agentId &&
+      this.getBackendSessionId(sessionId) === turn.sessionId
+    )
+      return;
     useTurnUsageStore.getState().invalidateTurn();
     useTurnUsageStore.getState().setActiveMaxInputLength(null);
   }
@@ -863,6 +870,8 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
   ): void {
     if (!this.isActiveOwner(owner) || !this.isVisibleSession(session.id))
       return;
+    // A history response must not invalidate or overwrite a live stream.
+    if (useTurnUsageStore.getState().activeTurn) return;
     hydrateTurnUsageFromMessages(session.messages ?? []);
   }
 

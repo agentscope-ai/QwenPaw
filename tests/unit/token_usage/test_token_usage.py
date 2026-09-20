@@ -1029,6 +1029,29 @@ class TestTokenRecordingModelWrapper:
         assert stored is not None
         assert stored["cache_hit_rate"] == 80
 
+    def test_live_usage_preserves_last_prompt_and_final_totals(
+        self, tmp_path, monkeypatch,
+    ):
+        monkeypatch.setattr(
+            f"qwenpaw.app.agent_context.get_current_session_id",
+            lambda: f"live-usage",
+        )
+        wrapper, _ = self._stream_harness(tmp_path, monkeypatch)
+        usage = MagicMock()
+        usage.input_tokens = 100
+        usage.output_tokens = 10
+        usage.cache_input_tokens = 0
+        usage.cache_creation_input_tokens = 0
+        wrapper._record_usage(usage)
+        first = wrapper.peek_usage_for_session(f"live-usage")
+        usage.input_tokens = 200
+        wrapper._record_usage(usage)
+        second = wrapper.peek_usage_for_session(f"live-usage")
+        assert first is not second
+        assert second[f"prompt_tokens"] == 300
+        assert second[f"last_prompt_tokens"] == 200
+        assert wrapper.pop_usage_for_session(f"live-usage") == second
+
     def test_record_usage_discards_unverified_cache_metrics(
         self,
         tmp_path,

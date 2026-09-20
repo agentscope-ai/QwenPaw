@@ -90,7 +90,7 @@
     },
     "dashscope": {
       "path": "providers/dashscope.json",
-      "sha256": "ea5fa24fedd90a67a40c18a49006ecf2a03cb19db5ec2c030c83c695fc69b833",
+      "sha256": "5893ff154100eea51238e179fc18720ce2f1f11b6193b9de001c2052c9bdf0b0",
       "api_urls": [
         "https://dashscope.aliyuncs.com/compatible-mode/v1"
       ],
@@ -199,15 +199,16 @@
             "thinking_control": {
               "kind": "budget",
               "budget_min": 1,
-              "budget_max": 32768,
-              "budget_default": 4000,
+              "budget_max": 262144,
+              "budget_default": 131072,
               "supports_off": true,
               "wire": "compat_budget"
             },
             "capability_provenance": {
               "thinking_control": {
                 "source": "catalog",
-                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+                "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+                "updated_at": "2026-09-20"
               },
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
@@ -373,7 +374,8 @@
             "capability_provenance": {
               "thinking_control": {
                 "source": "catalog",
-                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+                "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+                "updated_at": "2026-09-20"
               },
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
@@ -418,7 +420,8 @@
             "capability_provenance": {
               "thinking_control": {
                 "source": "catalog",
-                "reference": "https://help.aliyun.com/zh/model-studio/deep-thinking"
+                "reference": "https://help.aliyun.com/zh/model-studio/qwen-api-via-openai-chat-completions",
+                "updated_at": "2026-09-20"
               },
               "billing": {
                 "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."

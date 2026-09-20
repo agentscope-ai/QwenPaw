@@ -49,6 +49,25 @@ describe("createSession owner-epoch singleflight", () => {
     sessionApi.resetForTests();
   });
 
+  it("keeps a live usage turn through first-send URL resolution and history loading", async () => {
+    const { useTurnUsageStore } = await import("../turnUsageStore");
+    sessionApi.setVisibleSession(null);
+    vi.spyOn(sessionApi, "getBackendSessionId").mockReturnValue("runtime-one");
+    const turn = useTurnUsageStore.getState().beginTurn("A", "runtime-one");
+    const live = { usage: { total_tokens: 125 }, context_usage: null };
+    useTurnUsageStore.getState().setSnapshotForTurn(live, turn);
+    sessionApi.setVisibleSession("one");
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [],
+      status: "idle",
+    } as ChatHistory);
+    await sessionApi.getSession("one");
+    expect(useTurnUsageStore.getState().activeTurn).toEqual(turn);
+    expect(useTurnUsageStore.getState().snapshot).toEqual(live);
+    sessionApi.setVisibleSession(null);
+    expect(useTurnUsageStore.getState().activeTurn).toBeNull();
+  });
+
   it("shares concurrent first sends and publishes the created Chat once", async () => {
     const pending = deferred<ChatSpec>();
     const create = vi.spyOn(api, "createChat").mockReturnValue(pending.promise);
