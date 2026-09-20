@@ -453,10 +453,26 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             await self._repo.upsert_chat(updated)
             return updated
 
+    async def set_session_model(self, chat_id: str, model: dict):
+        """Persist a model override without changing agent defaults."""
+        async with self._lock:
+            existing = await self._repo.get_chat(chat_id)
+            if existing is None:
+                return None
+            meta = dict(existing.meta or {})
+            runtime = dict(meta.get(f"runtime_context") or {})
+            runtime[f"model"] = model
+            meta[f"runtime_context"] = runtime
+            updated = existing.model_copy(update={f"meta": meta})
+            updated.updated_at = datetime.now(timezone.utc)
+            await self._repo.upsert_chat(updated)
+            return updated
+
     async def set_session_thinking(
         self,
         chat_id: str,
         preference: ThinkingPreference,
+        model_key: str = f"",
     ) -> Optional[ChatSpec]:
         """Atomically update thinking without overwriting sibling settings."""
         async with self._lock:
@@ -465,10 +481,12 @@ class ChatManager:  # pylint: disable=too-many-public-methods
                 return None
             meta = dict(existing.meta or {})
             runtime = dict(meta.get(f"runtime_context") or {})
+            settings = dict(runtime.get(f"thinking") or {})
             if preference.level == f"inherit":
-                runtime.pop(f"thinking", None)
+                settings.pop(model_key, None)
             else:
-                runtime[f"thinking"] = preference.model_dump()
+                settings[model_key] = preference.model_dump()
+            runtime[f"thinking"] = settings
             if runtime:
                 meta[f"runtime_context"] = runtime
             else:

@@ -224,13 +224,24 @@ const ContextUsageIndicator: React.FC<{
   const { t } = useTranslation();
   const snapshot = useTurnUsageStore((state) => state.snapshot);
 
-  if (!snapshot?.context_usage) return null;
+  const activeMax = useTurnUsageStore((state) => state.activeMaxInputLength);
+  const maxInputLength = activeMax ?? snapshot?.context_usage?.max_input_length;
+  if (!maxInputLength) return null;
+  const estimatedTokens = snapshot?.context_usage?.estimated_tokens ?? 0;
+  const context = {
+    estimated_tokens: estimatedTokens,
+    max_input_length: maxInputLength,
+    context_usage_ratio: Math.min(
+      100,
+      (estimatedTokens / maxInputLength) * 100,
+    ),
+  };
 
   const contextRate = Math.max(
     0,
-    Math.min(Number(snapshot.context_usage.context_usage_ratio) || 0, 100),
+    Math.min(Number(context.context_usage_ratio) || 0, 100),
   );
-  const cacheRate = cacheRateFromUsage(snapshot.usage);
+  const cacheRate = cacheRateFromUsage(snapshot?.usage ?? null);
 
   return (
     <Popover
@@ -238,8 +249,8 @@ const ContextUsageIndicator: React.FC<{
       mouseEnterDelay={0.15}
       content={
         <PopoverBody
-          usage={snapshot.usage}
-          context={snapshot.context_usage}
+          usage={snapshot?.usage ?? null}
+          context={context}
           onCompact={onCompact}
           onNew={onNew}
         />

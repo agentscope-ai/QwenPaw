@@ -69,3 +69,40 @@ describe("useModelSelectorData", () => {
     expect(onActiveModels).toHaveBeenCalledWith(refreshed);
   });
 });
+
+it("restores the selected session model and discards late previous results", async () => {
+  const old = deferred<any>();
+  vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
+    (_agent, _source, scope) =>
+      scope?.sessionId === "one"
+        ? old.promise
+        : Promise.resolve({
+            providers: [],
+            loadError: false,
+            activeModels: { active_llm: { provider_id: "p", model: "second" } },
+          }),
+  );
+  const onActiveModels = vi.fn();
+  const { result, rerender } = renderHook(
+    ({ sessionId }) =>
+      useModelSelectorData({
+        agentId: "a",
+        session: { sessionId, chatId: sessionId },
+        onActiveModels,
+      }),
+    { initialProps: { sessionId: "one" } },
+  );
+  rerender({ sessionId: "two" });
+  await waitFor(() =>
+    expect(result.current.activeModels?.active_llm?.model).toBe("second"),
+  );
+  await act(async () =>
+    old.resolve({
+      providers: [],
+      loadError: false,
+      activeModels: { active_llm: { provider_id: "p", model: "first" } },
+    }),
+  );
+  expect(result.current.activeModels?.active_llm?.model).toBe("second");
+  expect(onActiveModels).toHaveBeenCalledTimes(1);
+});

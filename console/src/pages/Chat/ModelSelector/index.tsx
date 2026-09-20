@@ -1,3 +1,4 @@
+import { saveSessionModel } from "../../../features/session-settings/sessionModel";
 import {
   lazy,
   Suspense,
@@ -59,6 +60,7 @@ function publishActiveMaxInputLength(
       ? effectiveMaxInputLength
       : null;
   useTurnUsageStore.getState().setActiveMaxInputLength(maxInputLength);
+  window.dispatchEvent(new Event("session-model-changed"));
   if (typeof maxInputLength === "number" && maxInputLength > 0) {
     window.dispatchEvent(
       new CustomEvent("model-switched", {
@@ -74,6 +76,8 @@ const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
   showAdvancedModelControls?: boolean;
+  sessionId?: string;
+  chatId?: string | null;
 }
 
 function readStoredModelKeys(key: string): string[] {
@@ -89,6 +93,8 @@ function readStoredModelKeys(key: string): string[] {
 
 export default function ModelSelector({
   showAdvancedModelControls = false,
+  sessionId,
+  chatId,
 }: ModelSelectorProps) {
   const { t } = useTranslation();
   const [saving, setSaving] = useState(false);
@@ -174,6 +180,7 @@ export default function ModelSelector({
     setProviders,
   } = useModelSelectorData({
     agentId: selectedAgent,
+    session: sessionId ? { sessionId, chatId } : undefined,
     onActiveModels: handleActiveModels,
   });
 
@@ -181,7 +188,7 @@ export default function ModelSelector({
     activationRevisionRef.current += 1;
     savingRef.current = false;
     setSaving(false);
-  }, [selectedAgent]);
+  }, [selectedAgent, sessionId, chatId]);
 
   // Re-sync active model whenever the route switches back to /chat
   const prevPathRef = useRef(location.pathname);
@@ -381,12 +388,18 @@ export default function ModelSelector({
     savingRef.current = true;
     setSaving(true);
     try {
-      const updated = await modelSelectorApi.setActiveLlm({
-        provider_id: providerId,
-        model: modelId,
-        scope: "agent",
-        agent_id: targetAgentId,
-      });
+      const updated = sessionId
+        ? await saveSessionModel(
+            targetAgentId,
+            { sessionId, chatId },
+            { provider_id: providerId, model: modelId },
+          )
+        : await modelSelectorApi.setActiveLlm({
+            provider_id: providerId,
+            model: modelId,
+            scope: "agent",
+            agent_id: targetAgentId,
+          });
       if (
         activationRevision !== activationRevisionRef.current ||
         targetAgentId !== selectedAgentRef.current

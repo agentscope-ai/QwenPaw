@@ -37,16 +37,26 @@ export function SessionThinking({
     setBusy(false);
     revision.current += 1;
     void load();
+    const refresh = () => {
+      setOpen(false);
+      void load();
+    };
+    window.addEventListener("session-model-changed", refresh);
+    return () => {
+      revision.current += 1;
+      window.removeEventListener("session-model-changed", refresh);
+    };
   }, [identity]);
   async function load() {
     const version = ++revision.current;
     setBusy(true);
     try {
-      const next = await sessionThinkingApi.get(agentId, chatId);
+      const next = await sessionThinkingApi.get(agentId, chatId, sessionId);
       if (identityRef.current !== identity || revision.current !== version)
         return;
       if (!chatId)
-        next.value = readPendingThinking(agentId, sessionId) ?? next.value;
+        next.value =
+          readPendingThinking(agentId, sessionId, next.model_key) ?? next.value;
       setView(next);
     } catch (error) {
       if (identityRef.current === identity) message.error(String(error));
@@ -59,16 +69,21 @@ export function SessionThinking({
     if (!view || busy) return;
     const version = ++revision.current;
     if (!chatId) {
-      setPendingThinking(agentId, sessionId, value);
+      setPendingThinking(agentId, sessionId, value, view.model_key);
       setView({ ...view, value, reason: null });
       return;
     }
     setBusy(true);
     try {
-      const next = await sessionThinkingApi.set(agentId, chatId, value);
+      const next = await sessionThinkingApi.set(
+        agentId,
+        chatId,
+        value,
+        view.model_key,
+      );
       if (identityRef.current === identity && revision.current === version) {
         setView(next);
-        setPendingThinking(agentId, sessionId, null);
+        setPendingThinking(agentId, sessionId, null, view.model_key);
       }
     } catch (error) {
       if (identityRef.current === identity) message.error(String(error));

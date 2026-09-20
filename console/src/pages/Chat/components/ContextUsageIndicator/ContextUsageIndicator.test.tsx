@@ -101,3 +101,13 @@ describe("ContextUsageIndicator", () => {
     ).toHaveTextContent("0");
   });
 });
+
+it("shows an empty new session using the current model capacity", () => {
+  useTurnUsageStore.getState().invalidateTurn();
+  useTurnUsageStore.getState().setActiveMaxInputLength(100000);
+  renderWithProviders(
+    <ContextUsageIndicator onCompact={vi.fn()} onNew={vi.fn()} />,
+  );
+  expect(screen.getByText("外圈 · 0 / 100K")).toBeInTheDocument();
+  useTurnUsageStore.getState().setActiveMaxInputLength(null);
+});

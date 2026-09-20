@@ -8,13 +8,17 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import HTTPException
 
-from qwenpaw.app.chats.api import set_chat_thinking
+from qwenpaw.app.chats.api import (
+    get_chat_thinking,
+    set_chat_model,
+    set_chat_thinking,
+)
 from qwenpaw.app.routers.console import _persist_pending_project_dirs
 
 from qwenpaw.app.chats.manager import ChatManager
 from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.repo import JsonChatRepository
-from qwenpaw.config.config import AgentProfileConfig
+from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
 from qwenpaw.providers.thinking import ThinkingControl, ThinkingPreference
 from qwenpaw.services.session_thinking import (
     apply_session_thinking,
@@ -43,7 +47,7 @@ async def test_session_isolation_reload_and_reset(tmp_path):
     )
     preference = ThinkingPreference(level=f"budget", budget_tokens=2345)
     await asyncio.gather(
-        manager.set_session_thinking(first.id, preference),
+        manager.set_session_thinking(first.id, preference, f"p:m"),
         manager.set_session_project_dirs(
             first.id,
             [
@@ -52,10 +56,14 @@ async def test_session_isolation_reload_and_reset(tmp_path):
         ),
     )
     loaded = await manager.get_chat(first.id)
-    assert session_preference(loaded.meta) == preference
+    assert session_preference(loaded.meta, f"p:m") == preference
     assert loaded.meta[f"runtime_context"][f"project_dirs"]
     manager = ChatManager(repo=JsonChatRepository(path))
-    config = AgentProfileConfig(id=f"agent", name=f"Agent")
+    config = AgentProfileConfig(
+        id=f"agent",
+        name=f"Agent",
+        active_model=ModelSlotConfig(provider_id=f"p", model=f"m"),
+    )
     ctx = SimpleNamespace(
         workspace=SimpleNamespace(chat_manager=manager),
         session_id=f"one",
@@ -67,9 +75,9 @@ async def test_session_isolation_reload_and_reset(tmp_path):
     ctx.session_id = f"two"
     assert await apply_session_thinking(ctx, config) is config
     assert session_preference((await manager.get_chat(second.id)).meta) is None
-    await manager.set_session_thinking(first.id, ThinkingPreference())
+    await manager.set_session_thinking(first.id, ThinkingPreference(), f"p:m")
     loaded = await manager.get_chat(first.id)
-    assert session_preference(loaded.meta) is None
+    assert session_preference(loaded.meta, f"p:m") is None
     assert loaded.meta[f"runtime_context"][f"project_dirs"]
 
 
@@ -119,16 +127,19 @@ async def test_first_message_persists_thinking_without_project_dirs(tmp_path):
     }
     with patch(
         f"qwenpaw.app.routers.console.thinking_view",
-        return_value={f"reason": None},
+        return_value={f"reason": None, f"model_key": f"p:m"},
     ):
         updated = await _persist_pending_project_dirs(workspace, chat, body)
-    assert session_preference(updated.meta).level == f"high"
+    assert session_preference(updated.meta, f"p:m").level == f"high"
     assert f"session_thinking" not in body[f"meta"][f"request_context"]
 
 
 @pytest.mark.asyncio
 async def test_invalid_setting_is_not_persisted():
-    manager = SimpleNamespace(set_session_thinking=AsyncMock())
+    manager = SimpleNamespace(
+        set_session_thinking=AsyncMock(),
+        get_chat=AsyncMock(return_value=SimpleNamespace(meta={})),
+    )
     with patch(
         f"qwenpaw.app.chats.api.thinking_view",
         return_value={f"reason": f"cannot_disable"},
@@ -142,3 +153,145 @@ async def test_invalid_setting_is_not_persisted():
             )
     assert raised.value.status_code == 422
     manager.set_session_thinking.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_model_preferences_restore_independently(tmp_path):
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / f"chats.json"))
+    chat = await manager.create_chat(
+        ChatSpec(session_id=f"one", user_id=f"u", channel=f"console"),
+    )
+    config = AgentProfileConfig(
+        id=f"agent",
+        name=f"Agent",
+        active_model=ModelSlotConfig(provider_id=f"p", model=f"default"),
+    )
+    workspace = SimpleNamespace(chat_manager=manager, agent_id=f"agent")
+    ctx = SimpleNamespace(
+        workspace=workspace,
+        session_id=f"one",
+        request=SimpleNamespace(channel=f"console", user_id=f"u"),
+    )
+    await manager.set_session_thinking(
+        chat.id,
+        ThinkingPreference(level=f"high"),
+        f"p:a",
+    )
+    await manager.set_session_thinking(
+        chat.id,
+        ThinkingPreference(level=f"low"),
+        f"p:b",
+    )
+    for model, level in [(f"a", f"high"), (f"b", f"low"), (f"a", f"high")]:
+        await manager.set_session_model(
+            chat.id,
+            {f"provider_id": f"p", f"model": model},
+        )
+        snapshot = await apply_session_thinking(ctx, config)
+        assert snapshot.active_model.model == model
+        assert snapshot.thinking_level == level
+        assert config.active_model.model == f"default"
+        assert config.thinking_level == f"inherit"
+    await manager.set_session_thinking(
+        chat.id,
+        ThinkingPreference(),
+        f"p:a",
+    )
+    loaded = await manager.get_chat(chat.id)
+    assert session_preference(loaded.meta, f"p:a") is None
+    assert session_preference(loaded.meta, f"p:b").level == f"low"
+
+
+@pytest.mark.asyncio
+async def test_first_message_persists_model_before_thinking(tmp_path):
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / f"chats.json"))
+    chat = await manager.create_chat(ChatSpec(session_id=f"new", user_id=f"u"))
+    selected = {f"provider_id": f"p", f"model": f"b"}
+    body = {
+        f"meta": {
+            f"request_context": {
+                f"session_model": selected,
+                f"session_thinking": {f"level": f"low"},
+            },
+        },
+    }
+    with patch(
+        f"qwenpaw.app.routers.console.thinking_view",
+        return_value={f"model": f"b", f"model_key": f"p:b", f"reason": None},
+    ) as view:
+        updated = await _persist_pending_project_dirs(
+            SimpleNamespace(chat_manager=manager),
+            chat,
+            body,
+        )
+    assert updated.meta[f"runtime_context"][f"model"] == selected
+    assert session_preference(updated.meta, f"p:b").level == f"low"
+    assert view.call_args.args[2].model == f"b"
+    assert body[f"meta"][f"request_context"] == {}
+
+
+@pytest.mark.asyncio
+async def test_session_routes_use_selected_model_constraints(tmp_path):
+    manager = ChatManager(repo=JsonChatRepository(tmp_path / f"chats.json"))
+    chat = await manager.create_chat(ChatSpec(session_id=f"one", user_id=f"u"))
+    config = AgentProfileConfig(
+        id=f"agent",
+        name=f"Agent",
+        thinking_level=f"high",
+        active_model=ModelSlotConfig(provider_id=f"p", model=f"a"),
+    )
+    workspace = SimpleNamespace(chat_manager=manager, agent_id=f"agent")
+    with (
+        patch(
+            f"qwenpaw.services.session_thinking.load_agent_config",
+            return_value=config,
+        ),
+        patch(
+            f"qwenpaw.services.session_thinking.ProviderManager.get_instance",
+        ) as factory,
+    ):
+        provider = factory.return_value.get_provider.return_value
+        provider.thinking_control.return_value = ThinkingControl(
+            kind=f"effort",
+            efforts=[f"low", f"high"],
+        )
+        provider.get_context_size.side_effect = lambda model: (
+            32000 if model == f"a" else 128000
+        )
+        view = await set_chat_model(
+            chat.id,
+            ModelSlotConfig(provider_id=f"p", model=f"b"),
+            manager,
+            workspace,
+        )
+        assert view[f"model"] == f"b"
+        assert view[f"effective_max_input_length"] == 128000
+        assert view[f"source"] == f"model"
+        await set_chat_thinking(
+            chat.id,
+            ThinkingPreference(level=f"low"),
+            manager,
+            workspace,
+            model_key=f"p:b",
+        )
+        view = await get_chat_thinking(chat.id, manager, workspace)
+        assert view[f"value"][f"level"] == f"low"
+        await set_chat_model(
+            chat.id,
+            ModelSlotConfig(provider_id=f"p", model=f"a"),
+            manager,
+            workspace,
+        )
+        with pytest.raises(HTTPException) as raised:
+            await set_chat_thinking(
+                chat.id,
+                ThinkingPreference(level=f"low"),
+                manager,
+                workspace,
+                model_key=f"p:b",
+            )
+        assert raised.value.status_code == 409
+        view = await get_chat_thinking(chat.id, manager, workspace)
+        assert view[f"source"] == f"agent"
+        assert view[f"effective"][f"level"] == f"high"
+        assert config.active_model.model == f"a"
