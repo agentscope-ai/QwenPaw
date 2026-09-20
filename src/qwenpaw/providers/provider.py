@@ -135,6 +135,8 @@ class ProviderInfo(BaseModel):
         validate_default=False,
     )
 
+    enabled: bool = True
+
     id: str = Field(..., description="Provider identifier")
     name: str = Field(..., description="Human-readable provider name")
     base_url: str = Field(default="", description="API base URL")
@@ -580,6 +582,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def update_config(self, config: Dict) -> None:
         """Update provider configuration with the given dictionary."""
+        if config.get(f"enabled") is not None:
+            self.enabled = bool(config[f"enabled"])
         if "name" in config and config["name"] is not None:
             self.name = str(config["name"]).strip()
         if (
@@ -1304,6 +1308,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
                 f"model_not_found",
                 f"incompatible_api",
             }
+            and self.enabled
             and (not self.require_api_key or bool(self.api_key))
         )
 
@@ -1467,6 +1472,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         return ProviderInfo(
             id=self.id,
             name=self.name,
+            enabled=self.enabled,
             base_url=self.base_url,
             api_key=api_key,
             chat_model=self.chat_model,

@@ -300,10 +300,28 @@ describe("model pool switches", () => {
     expect(screen.getByText("New candidate")).toBeInTheDocument();
     expect(screen.getByText("Chosen model")).toBeInTheDocument();
   });
-  it("keeps organization models read only", async () => {
+  it("allows personal selection from the organization candidate pool", async () => {
     await render({ id: "hub-managed" });
     expect(screen.getByText("Chosen model")).toBeInTheDocument();
-    expect(screen.queryByRole("switch")).not.toBeInTheDocument();
+    expect(api.getModelPool).toHaveBeenCalledWith(
+      "hub-managed",
+      expect.objectContaining({ tab: "all" }),
+    );
+    fireEvent.click(
+      screen.getByRole("switch", {
+        name: "models.pool.selectorToggle New candidate",
+      }),
+    );
+    await waitFor(() =>
+      expect(api.updateModelPool).toHaveBeenCalledWith(
+        "hub-managed",
+        "vendor/free",
+        { selected: true, seen: true },
+      ),
+    );
+    expect(
+      screen.queryByRole("button", { name: "models.modelConfigLabel" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText("models.autoDiscoverModels"),
     ).not.toBeInTheDocument();
@@ -337,7 +355,9 @@ describe("model pool switches", () => {
       screen.getByRole("button", { name: "models.pool.moreFilters" }),
     );
     expect(
-      await screen.findByRole("group", { name: "models.pool.filterLabels.availability" }),
+      await screen.findByRole("group", {
+        name: "models.pool.filterLabels.availability",
+      }),
     ).toBeInTheDocument();
   });
   it("filters only enabled models without changing their selection", async () => {

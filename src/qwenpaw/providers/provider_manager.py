@@ -39,6 +39,7 @@ from .hub_managed import (
     managed_provider,
     managed_slot,
 )
+from . import hub_model_selection
 from . import model_catalog
 from .capability_baseline import ExpectedCapabilityRegistry
 from .provider_catalog import (
@@ -189,7 +190,14 @@ class ProviderManager(
         provider_infos = await asyncio.gather(*tasks)
         if hub_mode():
             try:
-                provider = await run_sync_io(managed_provider)
+                provider = await run_sync_io(self.get_provider, PROVIDER_ID)
+                if (
+                    active_model is not None
+                    and active_model.provider_id == PROVIDER_ID
+                ):
+                    for model in provider.models:
+                        if model.id == active_model.model:
+                            model.source = f"user"
                 hub_info = await provider.get_info()
             except ProviderError:
                 hub_info = ProviderInfo(
@@ -220,7 +228,15 @@ class ProviderManager(
     def get_provider(self, provider_id: str) -> Provider | None:
         """Resolve a provider, refreshing Hub metadata via synchronous I/O."""
         if hub_mode() and provider_id == PROVIDER_ID:
-            return managed_provider()
+            provider = managed_provider()
+            state = hub_model_selection.read_selection(
+                self.root_path / f"hub-model-selection.json",
+            )
+            return hub_model_selection.apply_selection(
+                provider,
+                state,
+                self.active_model,
+            )
         # Return a provider instance by its ID. This will be used to create
         # chat model instances for the agent.
         # Normalize provider ID for backward compatibility
@@ -587,6 +603,8 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Provider '{provider_id}' not found.",
             )
+        if not provider.enabled:
+            raise ProviderError(message=f"Provider is disabled")
         if not provider.has_model(model_id):
             raise ModelNotFoundException(
                 model_name=f"{provider_id}/{model_id}",
@@ -760,6 +778,13 @@ class ProviderManager(
     ) -> ProviderInfo:
         """Persist explicit selection and read state independently of sync."""
 
+        if hub_mode() and provider_id == PROVIDER_ID:
+            return await self._update_hub_selection(
+                model_id,
+                selected=selected,
+                seen=seen,
+            )
+
         async def update(candidate: Provider) -> None:
             model = next(
                 (
@@ -847,6 +872,20 @@ class ProviderManager(
             raise ProviderError(message=f"Provider '{provider_id}' not found")
         return await provider.get_info(include_candidates=selected is not None)
 
+    async def _update_hub_selection(self, model_id, **changes):
+        """Store personal membership without mutating managed providers."""
+        provider = await run_sync_io(self.get_provider, PROVIDER_ID)
+        if not any(model.id == model_id for model in provider.models):
+            raise ProviderError(message=f"Organization model unavailable")
+        state = await run_sync_io(
+            hub_model_selection.update_selection,
+            self.root_path / f"hub-model-selection.json",
+            model_id,
+            **changes,
+        )
+        hub_model_selection.apply_selection(provider, state, self.active_model)
+        return await provider.get_info()
+
     async def set_model_hidden(
         self,
         provider_id: str,
@@ -855,6 +894,8 @@ class ProviderManager(
         hidden: bool,
     ) -> ProviderInfo:
         """Persist whether one discovery candidate is hidden from the UI."""
+        if hub_mode() and provider_id == PROVIDER_ID:
+            return await self._update_hub_selection(model_id, hidden=hidden)
         provider_id = self._normalize_provider_id(provider_id)
         if (await run_sync_io(self.get_provider, provider_id)) is None:
             raise ProviderError(
@@ -1142,4 +1183,6 @@ class ProviderManager(
             raise ProviderError(
                 message=f"Active provider '{model.provider_id}' not found.",
             )
+        if not provider.enabled:
+            raise ProviderError(message=f"Provider is disabled")
         return provider.get_chat_model_instance(model.model)

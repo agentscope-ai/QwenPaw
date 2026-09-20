@@ -2523,8 +2523,10 @@
       "unknown": "价格未知",
       "free": "免费"
     },
+    "providerEnabled": "启用提供商",
     "anthropicOutputHint": "自动模式由适配器提供输出预算，并遵守模型上限和 thinking 预算约束。",
     "capabilities": {
+      "unknown": "未知",
       "supports_image": "图片输入",
       "supports_audio": "音频输入",
       "supports_video": "视频输入",

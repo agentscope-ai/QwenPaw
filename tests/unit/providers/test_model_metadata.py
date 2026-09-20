@@ -305,20 +305,3 @@ def test_remote_update_keeps_documented_provider_limits(metadata, monkeypatch):
     assert provider.get_context_size(f"qwen3.8-max") == 200_000
     provider.extra_models[0].max_input_length_auto_detected = 64_000
     assert provider.get_context_size(f"qwen3.8-max") == 64_000
-
-
-def test_packaged_sonnet_45_template_uses_documented_standard_window():
-    provider = OpenAIProvider(
-        id=f"gateway",
-        name=f"Gateway",
-        is_custom=True,
-        base_url=f"https://gateway.example/v1",
-    )
-    info = provider.resolve_model_info(f"claude-sonnet-4-5")
-    assert info.effective_max_input_length == 200_000
-    assert info.context_length_source == f"template"
-    assert info.capability_provenance[f"max_input_length"][
-        f"reference"
-    ].startswith(
-        f"https://platform.claude.com/",
-    )

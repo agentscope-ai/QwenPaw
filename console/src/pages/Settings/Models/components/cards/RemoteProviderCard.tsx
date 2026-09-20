@@ -1,3 +1,4 @@
+import { Switch } from "antd";
 import React, { useState } from "react";
 import { Button, Modal, Input } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
@@ -79,6 +80,25 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
         <ProviderIcon providerId={provider.id} size={36} />
         <span className={styles.groupCardName}>{provider.name}</span>
         {providerTag}
+        {!isManaged && (
+          <Switch
+            size="small"
+            checked={provider.enabled !== false}
+            aria-label={t("models.providerEnabled")}
+            loading={apiKeySaving}
+            onChange={async (enabled) => {
+              setApiKeySaving(true);
+              try {
+                await providerApi.configureProvider(provider.id, { enabled });
+                await onSaved();
+              } catch (error) {
+                message.error(String(error));
+              } finally {
+                setApiKeySaving(false);
+              }
+            }}
+          />
+        )}
         {provider.is_free_tier && (
           <span className={styles.freeTag}>
             {t("models.includesFreeModels")}
@@ -203,55 +223,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
             {t("models.settings")}
           </button>
         )}
-        {!isManaged &&
-          (provider.is_custom ? (
-            <button
-              className={`${styles.groupCardActBtn} ${styles.groupCardActBtnDanger}`}
-              onClick={handleDeleteProvider}
-            >
-              {t("common.delete")}
-            </button>
-          ) : (
-            isConfigured &&
-            provider.require_api_key !== false && (
-              <button
-                className={`${styles.groupCardActBtn} ${styles.groupCardActBtnDanger}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  Modal.confirm({
-                    title: t("models.disableProvider"),
-                    content: t("models.disableProviderConfirm", {
-                      name: provider.name,
-                    }),
-                    okText: t("models.disableBtn"),
-                    okButtonProps: { danger: true },
-                    cancelText: t("models.cancel"),
-                    onOk: async () => {
-                      try {
-                        await providerApi.configureProvider(provider.id, {
-                          api_key: "",
-                        });
-                        message.success(
-                          t("models.providerDisabled", {
-                            name: provider.name,
-                          }),
-                        );
-                        onSaved();
-                      } catch (err) {
-                        const msg =
-                          err instanceof Error
-                            ? err.message
-                            : t("models.failedToSave");
-                        message.error(msg);
-                      }
-                    },
-                  });
-                }}
-              >
-                {t("models.disableBtn")}
-              </button>
-            )
-          ))}
+        {!isManaged && provider.is_custom && (
+          <button
+            className={`${styles.groupCardActBtn} ${styles.groupCardActBtnDanger}`}
+            onClick={handleDeleteProvider}
+          >
+            {t("common.delete")}
+          </button>
+        )}
       </div>
 
       <OAuthConfirmModal

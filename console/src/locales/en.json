@@ -2665,8 +2665,10 @@
       "unknown": "Pricing unknown",
       "free": "Free"
     },
+    "providerEnabled": "Enable provider",
     "anthropicOutputHint": "Automatic mode supplies an output budget within model capacity and thinking constraints.",
     "capabilities": {
+      "unknown": "Unknown",
       "supports_image": "Image input",
       "supports_audio": "Audio input",
       "supports_video": "Video input",

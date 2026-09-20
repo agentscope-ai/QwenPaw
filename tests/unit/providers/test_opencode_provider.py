@@ -42,7 +42,8 @@ class TestOpenCodeProvider:
         """Provider-level attributes should be correctly set."""
         assert PROVIDER_OPENCODE.id == "opencode"
         assert PROVIDER_OPENCODE.api_key_prefix == ""
-        assert PROVIDER_OPENCODE.require_api_key is False
+        assert PROVIDER_OPENCODE.require_api_key is True
+        assert PROVIDER_OPENCODE.enabled is False
         assert PROVIDER_OPENCODE.freeze_url is False
         assert PROVIDER_OPENCODE.base_url == "https://opencode.ai/zen/v1"
         assert (

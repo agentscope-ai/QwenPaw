@@ -485,15 +485,22 @@ export default function ModelSelector({
 
     setAddingKey(key);
     try {
-      await modelSelectorApi.addModel(candidate.provider.id, {
-        id: candidate.model.id,
-        name: candidate.model.name || candidate.model.id,
-        is_free: candidate.model.is_free,
-        supports_multimodal: candidate.model.supports_multimodal,
-        supports_image: candidate.model.supports_image,
-        supports_video: candidate.model.supports_video,
-        probe_source: candidate.model.probe_source,
-      });
+      if (candidate.provider.id === "hub-managed") {
+        await providerApi.updateModelPool(
+          candidate.provider.id,
+          candidate.model.id,
+          { selected: true },
+        );
+      } else
+        await modelSelectorApi.addModel(candidate.provider.id, {
+          id: candidate.model.id,
+          name: candidate.model.name || candidate.model.id,
+          is_free: candidate.model.is_free,
+          supports_multimodal: candidate.model.supports_multimodal,
+          supports_image: candidate.model.supports_image,
+          supports_video: candidate.model.supports_video,
+          probe_source: candidate.model.probe_source,
+        });
       await activateModel(candidate.provider.id, candidate.model.id);
       await fetchData();
     } catch (err) {

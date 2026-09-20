@@ -536,7 +536,8 @@ class ProviderManagerDiscoveryMixin(
             *self.custom_providers.values(),
         ):
             if (
-                provider.model_sync_mode != "startup"
+                not provider.enabled
+                or provider.model_sync_mode != "startup"
                 or not provider.support_model_discovery
                 or not sync_due(provider)
             ):

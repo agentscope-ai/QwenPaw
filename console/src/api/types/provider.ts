@@ -71,6 +71,7 @@ export interface ModelInfo {
 }
 
 export interface ProviderInfo {
+  enabled?: boolean;
   seen_model_ids?: string[];
   id: string;
   name: string;
@@ -135,6 +136,7 @@ export interface BaseUrlOption {
 }
 
 export interface ProviderConfigRequest {
+  enabled?: boolean;
   api_key?: string;
   base_url?: string;
   /** New display name. Only applied to custom providers. */

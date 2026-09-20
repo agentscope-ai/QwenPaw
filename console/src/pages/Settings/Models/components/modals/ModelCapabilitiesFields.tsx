@@ -1,6 +1,16 @@
-import { Select } from "antd";
+import { Popover, Segmented } from "antd";
+import {
+  Image,
+  AudioLines,
+  Video,
+  Wrench,
+  Check,
+  Minus,
+  CircleHelp,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ModelInfo } from "../../../../../api/types";
+import styles from "./ModelCapabilitiesFields.module.less";
 
 const fields = [
   "supports_image",
@@ -8,7 +18,7 @@ const fields = [
   "supports_video",
   "supports_tool_calling",
 ] as const;
-
+const icons = [Image, AudioLines, Video, Wrench];
 export type CapabilityOverrides = Partial<
   Record<(typeof fields)[number], boolean | null>
 >;
@@ -24,52 +34,81 @@ export function ModelCapabilitiesFields({
 }) {
   const { t } = useTranslation();
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-        gap: 12,
-        marginBottom: 16,
-      }}
-    >
-      {fields.map((field) => {
+    <div className={styles.capabilities}>
+      {fields.map((field, index) => {
         const override =
           field in changes
             ? changes[field]
             : model.config_overrides?.includes(field)
             ? model[field]
             : null;
+        const effective = override ?? model[field];
+        const Icon = icons[index];
+        const Status =
+          effective == null ? CircleHelp : effective ? Check : Minus;
+        const status = t(
+          effective == null
+            ? "models.capabilities.unknown"
+            : effective
+            ? "models.capabilities.supported"
+            : "models.capabilities.unsupported",
+        );
+        const automatic = override == null;
+        const label = t(`models.capabilities.${field}`);
         return (
-          <label key={field} style={{ display: "grid", gap: 4 }}>
-            {t(`models.capabilities.${field}`)}
-            <Select
-              aria-label={t(`models.capabilities.${field}`)}
-              value={override == null ? "auto" : String(override)}
-              onChange={(value) =>
-                onChange({
-                  ...changes,
-                  [field]: value === "auto" ? null : value === "true",
-                })
-              }
-              options={[
-                {
-                  value: "auto",
-                  label:
-                    model[field] == null
-                      ? t("models.pool.autoUnknown")
-                      : t("models.pool.autoValue", {
-                          value: t(
-                            model[field]
-                              ? "models.capabilities.supported"
-                              : "models.capabilities.unsupported",
-                          ),
-                        }),
-                },
-                { value: "true", label: t("models.capabilities.supported") },
-                { value: "false", label: t("models.capabilities.unsupported") },
-              ]}
-            />
-          </label>
+          <Popover
+            key={field}
+            trigger="click"
+            placement="top"
+            content={
+              <div className={styles.editor}>
+                <div className={styles.heading}>
+                  <Icon size={16} />
+                  <span>{label}</span>
+                </div>
+                <Segmented
+                  block
+                  aria-label={label}
+                  value={automatic ? "auto" : String(override)}
+                  options={[
+                    { value: "auto", label: t("models.capabilities.auto") },
+                    {
+                      value: "true",
+                      label: t("models.capabilities.supported"),
+                    },
+                    {
+                      value: "false",
+                      label: t("models.capabilities.unsupported"),
+                    },
+                  ]}
+                  onChange={(value) =>
+                    onChange({
+                      ...changes,
+                      [field]: value === "auto" ? null : value === "true",
+                    })
+                  }
+                />
+              </div>
+            }
+          >
+            <button
+              type="button"
+              className={styles.chip}
+              data-supported={effective === true}
+              aria-label={`${label}: ${
+                automatic ? t("models.capabilities.auto") + " · " : ""
+              }${status}`}
+            >
+              <Icon size={16} strokeWidth={1.7} />
+              <span>{label}</span>
+              {automatic && (
+                <span className={styles.auto}>
+                  {t("models.capabilities.auto")}
+                </span>
+              )}
+              <Status size={14} strokeWidth={1.7} />
+            </button>
+          </Popover>
         );
       })}
     </div>

@@ -28,6 +28,7 @@ from ...config.config import (
     load_agent_config,
     update_agent_config_async,
 )
+from ...hub.model_service.runtime_policy import require_model_route
 from ...providers.thinking import ThinkingControl
 from ...providers.model_pool import (
     ModelPoolPage,
@@ -100,7 +101,9 @@ async def get_provider_manager(request: Request) -> ProviderManager:
         request: FastAPI request object
     """
     if hub_mode() and request.path_params.get("provider_id") == PROVIDER_ID:
-        raise HTTPException(403, "Organization model configuration is locked")
+        require_model_route(
+            request.url.path.removeprefix(f"/api/"), request.method
+        )
     return request.app.state.provider_manager
 
 
@@ -123,6 +126,7 @@ def _active_models_info(
 
 
 class ProviderConfigRequest(BaseModel):
+    enabled: bool | None = None
     api_key: Optional[str] = Field(default=None)
     base_url: Optional[str] = Field(default=None)
     name: Optional[str] = Field(
@@ -134,7 +138,7 @@ class ProviderConfigRequest(BaseModel):
         description="Chat model class name for protocol selection",
     )
     generate_kwargs: Optional[dict] = Field(
-        default_factory=dict,
+        default=None,
         description=(
             "Configuration in json format, will be expanded "
             "and passed to generation calls "
@@ -425,6 +429,7 @@ async def configure_provider(
             detail=f"Unsupported custom protocol: {body.chat_model}",
         )
     config = {
+        f"enabled": body.enabled,
         "api_key": body.api_key,
         "base_url": body.base_url,
         "chat_model": body.chat_model,

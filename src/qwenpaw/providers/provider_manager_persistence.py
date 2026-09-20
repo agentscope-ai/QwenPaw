@@ -1143,6 +1143,8 @@ class ProviderManagerPersistenceMixin(
         """Restore persisted configuration onto a built-in provider."""
         if not builtin.freeze_url:
             builtin.base_url = provider.base_url
+        if f"enabled" in provider.model_fields_set:
+            builtin.enabled = provider.enabled
         builtin.api_key = provider.api_key
         if provider.auth_mode != "api_key":
             builtin.auth_mode = provider.auth_mode

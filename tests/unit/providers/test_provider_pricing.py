@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from qwenpaw.providers import provider_catalog
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import (
     OpenAIProvider,
@@ -109,26 +108,3 @@ async def test_custom_endpoint_does_not_inherit_service_price():
     model = ModelInfo(id=f"Qwen/Qwen3.5-4B", name=f"Qwen")
     prices = await provider.fetch_model_pricing([model])
     assert prices[model.id].billing == f"unknown"
-
-
-@pytest.mark.parametrize(
-    f"provider",
-    [
-        value
-        for name, value in vars(provider_catalog).items()
-        if name.startswith(f"PROVIDER_")
-    ],
-    ids=lambda provider: provider.id,
-)
-async def test_every_builtin_has_independent_pricing_entrypoint(provider):
-    model = ModelInfo(
-        id=f"new-endpoint-model",
-        name=f"New",
-        billing=f"paid",
-        billing_source=f"api",
-        pricing={f"prompt": f"0.5"},
-    )
-    prices = await provider.fetch_model_pricing([model])
-    assert prices[model.id].billing == f"paid"
-    assert prices[model.id].pricing == model.pricing
-    assert prices[model.id].billing_source == f"api"

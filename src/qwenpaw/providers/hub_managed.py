@@ -90,14 +90,23 @@ class ManagedProvider(OpenAIProvider):
         model.client.max_retries = 0
         return model
 
-    async def get_info(self, mock_secret=True) -> ProviderInfo:
-        """Never expose even the runtime capability through model APIs."""
+    def automatically_listed(self, model: ModelInfo) -> bool:
+        """Organization grants are candidates until selected locally."""
+        return model.source == f"user"
+
+    async def get_info(self, mock_secret=True, *, include_candidates=True):
+        """Expose safe catalog metadata without the runtime credential."""
         return ProviderInfo(
             id=PROVIDER_ID,
-            name="Hub",
-            models=self.models,
-            api_key="",
-            base_url="",
+            name=f"Hub",
+            models=self.configured_models(),
+            discovered_models=(
+                self.discovery_candidates() if include_candidates else []
+            ),
+            seen_model_ids=self.seen_model_ids,
+            hidden_model_ids=self.hidden_model_ids,
+            api_key=f"",
+            base_url=f"",
             require_api_key=False,
         )
 

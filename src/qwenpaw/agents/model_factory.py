@@ -2123,7 +2123,7 @@ def _apply_model_fallbacks(
     manager = ProviderManager.get_instance()
     for fallback_slot in fallback_slots:
         fallback_provider = manager.get_provider(fallback_slot.provider_id)
-        if fallback_provider is None:
+        if fallback_provider is None or not fallback_provider.enabled:
             continue
         fallback_provider_id = _resolved_provider_id(
             fallback_provider,
@@ -2280,6 +2280,8 @@ def create_model_and_formatter(
                 message=f"Provider '{model_slot.provider_id}' not found.",
             )
 
+        if not provider.enabled:
+            raise ProviderError(message=f"Provider is disabled")
         with agent_thinking_level(
             settings.thinking_level,
             settings.thinking_budget,
@@ -2312,6 +2314,8 @@ def create_model_and_formatter(
             )
         provider_id = _resolved_provider_id(provider, global_model.provider_id)
         selected_model_id = global_model.model
+        if not provider.enabled:
+            raise ProviderError(message=f"Provider is disabled")
         model = provider.get_chat_model_instance(selected_model_id)
 
     provider_id = _bind_provider_id_to_model(model, provider_id)

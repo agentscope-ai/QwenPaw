@@ -1,0 +1,56 @@
+.capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--app-border, #e5e5e7);
+  border-radius: 12px;
+  background: var(--app-surface-raised);
+  color: var(--app-text-secondary, #6e6e73);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color 120ms,
+    background-color 120ms;
+  &[data-supported="true"] {
+    color: var(--app-text, #1d1d1f);
+  }
+  &:hover {
+    border-color: var(--app-accent);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+  svg {
+    flex-shrink: 0;
+  }
+}
+.auto {
+  font-size: 11px;
+  color: var(--app-text-secondary, #86868b);
+}
+.editor {
+  width: min(280px, calc(100vw - 64px));
+  padding: 4px;
+}
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-weight: 600;
+}
+@media (max-width: 640px) {
+  .chip {
+    min-height: 44px;
+  }
+}

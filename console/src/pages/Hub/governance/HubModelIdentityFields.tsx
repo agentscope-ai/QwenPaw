@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Form, Input, Skeleton } from "antd";
 import { RefreshCw } from "lucide-react";
 import type { ModelInfo } from "../../../api/types";
@@ -11,7 +11,6 @@ import {
 } from "../../../api/modules/hubGovernance";
 import { ModelIdentityFields } from "../../Settings/Models/components/modals/ModelIdentityFields";
 import { ModelCapabilitiesFields } from "../../Settings/Models/components/modals/ModelCapabilitiesFields";
-import { CapabilityTags } from "../../Settings/Models/components/modals/ModelCapabilityTags";
 import {
   ContextLengthField,
   OutputTokenLimitField,
@@ -27,7 +26,7 @@ export function HubModelIdentityFields({
   presets: ModelProviderPreset[];
   saved?: ManagedModel;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const form = Form.useFormInstance();
   const connectionId = Form.useWatch("connection_id", form);
   const modelId = Form.useWatch("upstream_model", form);
@@ -205,28 +204,6 @@ export function HubModelIdentityFields({
     saved,
     form,
   ]);
-  const savedImage =
-    saved &&
-    saved.connection_id === connectionId &&
-    saved.upstream_model === modelId
-      ? saved.supports_image
-      : null;
-  const capabilityModel = useMemo(
-    () =>
-      ({
-        ...model,
-        supports_image:
-          overrides?.supports_image ??
-          savedImage ??
-          model?.supports_image ??
-          null,
-        supports_multimodal:
-          model?.supports_multimodal ?? model?.supports_image ?? null,
-        supports_video:
-          overrides?.supports_video ?? model?.supports_video ?? null,
-      }) as ModelInfo,
-    [model, savedImage, overrides],
-  );
   return (
     <>
       <ModelIdentityFields
@@ -256,57 +233,29 @@ export function HubModelIdentityFields({
       )}
       {modelId && (
         <div className={styles.capabilities}>
-          <div className={styles.heading}>
-            <strong>{t("hub.governance.models.capabilities")}</strong>
-            <CapabilityTags model={capabilityModel} />
-          </div>
-          <dl className={styles.capabilityValues}>
-            <div>
-              <dt>{t("models.maxInputLengthLabel")}</dt>
-              <dd>
-                {inputDefault?.toLocaleString(i18n.language) ??
-                  t("models.unknown")}
-              </dd>
-            </div>
-            <div>
-              <dt>{t("models.maxTokensLabel")}</dt>
-              <dd>
-                {outputDefault?.toLocaleString(i18n.language) ??
-                  t("models.unknown")}
-              </dd>
-            </div>
-          </dl>
-          {resolved && (!knownInput || !knownOutput) && (
-            <div role="note" className={styles.catalogStatus}>
-              {t("hub.governance.models.estimatedTokenLimits")}
-            </div>
-          )}
+          <ModelCapabilitiesFields
+            model={(model ?? {}) as ModelInfo}
+            changes={overrides ?? {}}
+            onChange={(changes) => form.setFieldsValue(changes)}
+          />
           {loading && !model ? (
             <Skeleton active paragraph={{ rows: 1 }} title={false} />
           ) : (
-            (!knownInput || !knownOutput) && (
-              <div className={styles.missingCapabilities}>
-                {!knownInput && (
-                  <ContextLengthField
-                    showHint={false}
-                    value={inputLimit ?? null}
-                    onChange={(value) =>
-                      form.setFieldValue("input_token_limit", value)
-                    }
-                  />
-                )}
-                {!knownOutput && (
-                  <OutputTokenLimitField
-                    showHint={false}
-                    value={outputLimit ?? null}
-                    onChange={(value) =>
-                      form.setFieldValue("output_token_limit", value)
-                    }
-                    model={model}
-                  />
-                )}
-              </div>
-            )
+            <div className={styles.capabilityValues}>
+              <ContextLengthField
+                value={inputLimit ?? null}
+                onChange={(value) =>
+                  form.setFieldValue("input_token_limit", value)
+                }
+              />
+              <OutputTokenLimitField
+                model={model}
+                value={outputLimit ?? null}
+                onChange={(value) =>
+                  form.setFieldValue("output_token_limit", value)
+                }
+              />
+            </div>
           )}
         </div>
       )}
@@ -355,24 +304,6 @@ export function HubModelIdentityFields({
           <Form.Item name="template_id" label={t("models.modelTemplate")}>
             <Input placeholder="provider/model-id" allowClear />
           </Form.Item>
-          <ModelCapabilitiesFields
-            model={capabilityModel}
-            changes={overrides ?? {}}
-            onChange={(changes) => form.setFieldsValue(changes)}
-          />
-        </details>
-      )}
-      {modelId && !!knownOutput && (
-        <details className={styles.advancedSettings}>
-          <summary>{t("hub.governance.models.responseLimit")}</summary>
-          <OutputTokenLimitField
-            showHint={false}
-            model={{ ...model, max_output_length: knownOutput }}
-            value={outputLimit === knownOutput ? null : outputLimit ?? null}
-            onChange={(value) =>
-              form.setFieldValue("output_token_limit", value ?? knownOutput)
-            }
-          />
         </details>
       )}
     </>

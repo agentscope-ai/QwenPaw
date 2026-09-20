@@ -252,7 +252,8 @@ PROVIDER_OPENCODE = OpenCodeProvider(
     base_url="https://opencode.ai/zen/v1",
     api_key_prefix="",
     models=_models("opencode"),
-    require_api_key=False,
+    require_api_key=True,
+    enabled=False,
     meta={
         "base_url_options": [
             {"label": "OpenCode", "value": "https://opencode.ai/zen/v1"},

@@ -80,7 +80,7 @@ export function RemoteModelManageModal({
       api
         .getModelPool(provider.id, {
           ...deferredFilters,
-          tab: managed ? "selected" : tab,
+          tab,
           offset,
           limit: 30,
         })
@@ -135,7 +135,7 @@ export function RemoteModelManageModal({
         : t("models.modelConfigSaveFailed"),
     );
   const markSeen = (id: string) => {
-    if (seen.current.has(id) || managed || loading) return;
+    if (seen.current.has(id) || loading) return;
     seen.current.add(id);
     setSeenIds(new Set(seen.current));
     void api.updateModelPool(provider.id, id, { seen: true }).catch(() => {
@@ -280,21 +280,19 @@ export function RemoteModelManageModal({
                 (page?.selected_count ?? selectedIds.size),
             })}
           </span>
-          {!managed && (
-            <label className={styles.selectedFilter}>
-              <Switch
-                size="small"
-                aria-label={t("models.pool.onlyEnabled")}
-                checked={tab === "selected"}
-                onChange={(checked) => {
-                  setTab(checked ? "selected" : "all");
-                  setOffset(0);
-                  setConfigId(null);
-                }}
-              />
-              {t("models.pool.onlyEnabled")}
-            </label>
-          )}
+          <label className={styles.selectedFilter}>
+            <Switch
+              size="small"
+              aria-label={t("models.pool.onlyEnabled")}
+              checked={tab === "selected"}
+              onChange={(checked) => {
+                setTab(checked ? "selected" : "all");
+                setOffset(0);
+                setConfigId(null);
+              }}
+            />
+            {t("models.pool.onlyEnabled")}
+          </label>
         </div>
         <InlineHelp>
           {t(managed ? "models.pool.managedHint" : "models.pool.hint")}
@@ -441,31 +439,31 @@ export function RemoteModelManageModal({
                             }
                           />
                         </Tooltip>
-                        <label className={styles.selectionToggle}>
-                          <span>
-                            {t(
-                              isSelected
-                                ? "models.pool.enabled"
-                                : "models.pool.disabled",
-                            )}
-                          </span>
-                          <Switch
-                            checked={isSelected}
-                            aria-label={`${t("models.pool.selectorToggle")} ${
-                              model.name
-                            }`}
-                            loading={busy === model.id}
-                            disabled={
-                              loading ||
-                              syncing ||
-                              current.models_syncing ||
-                              (busy !== null && busy !== model.id)
-                            }
-                            onChange={(checked) => select(model, checked)}
-                          />
-                        </label>
                       </>
                     )}
+                    <label className={styles.selectionToggle}>
+                      <span>
+                        {t(
+                          isSelected
+                            ? "models.pool.enabled"
+                            : "models.pool.disabled",
+                        )}
+                      </span>
+                      <Switch
+                        checked={isSelected}
+                        aria-label={`${t("models.pool.selectorToggle")} ${
+                          model.name
+                        }`}
+                        loading={busy === model.id}
+                        disabled={
+                          loading ||
+                          syncing ||
+                          current.models_syncing ||
+                          (busy !== null && busy !== model.id)
+                        }
+                        onChange={(checked) => select(model, checked)}
+                      />
+                    </label>
                   </div>
                 </div>
                 {expanded && (
