@@ -193,6 +193,56 @@ class TestStartStop:
 
 class TestCleanupLoop:
     @pytest.mark.asyncio
+    async def test_cleanup_rechecks_queue_after_another_consumer_retires(self):
+        first_retiring = asyncio.Event()
+        release_first = asyncio.Event()
+        second_ready = asyncio.Event()
+        allow_second = asyncio.Event()
+        delivered = asyncio.Event()
+
+        async def consume(queue, _channel, session, _priority):
+            await queue.get()
+            if session == "first":
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    first_retiring.set()
+                    await release_first.wait()
+            else:
+                second_ready.set()
+                await allow_second.wait()
+                assert await queue.get() == "new message"
+                delivered.set()
+                await asyncio.Event().wait()
+
+        manager = UnifiedQueueManager(
+            consumer_fn=consume,
+            idle_timeout=10,
+            cleanup_interval=0.01,
+        )
+        first = ("console", "first", 20)
+        second = ("console", "second", 20)
+        try:
+            await manager.enqueue(*first, "original")
+            await manager.enqueue(*second, "original")
+            await asyncio.wait_for(second_ready.wait(), timeout=2)
+            for state in manager._queues.values():
+                state.last_activity -= 20
+            first_task = manager._queues[first].consumer_task
+            manager.start_cleanup_loop()
+            await asyncio.wait_for(first_retiring.wait(), timeout=2)
+            await manager.enqueue(*second, "new message")
+            release_first.set()
+            await asyncio.gather(first_task, return_exceptions=True)
+            allow_second.set()
+            await asyncio.wait_for(delivered.wait(), timeout=2)
+            assert (await manager.get_metrics())["total_queues"] == 1
+        finally:
+            release_first.set()
+            allow_second.set()
+            await manager.stop_all()
+
+    @pytest.mark.asyncio
     async def test_cleanup_loop_does_not_leak_active_queue(self):
         # Stuck consumer keeps the queue non-empty (item not drained),
         # so cleanup must skip it even after idle_timeout elapses.
