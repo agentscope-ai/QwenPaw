@@ -1512,3 +1512,53 @@
 .agentSettingsBody > section {
   max-width: 360px;
 }
+
+.modelChoiceButton {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--app-text);
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.modelChoiceButton span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.modelChoiceButton:hover {
+  background: var(--app-fill);
+}
+.settingLine {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  border-top: 1px solid var(--app-border-subtle);
+  font-size: 13px;
+}
+.settingLine > span {
+  flex-shrink: 0;
+}
+.settingLine > button:not(.modelChoiceButton):not([role="switch"]) {
+  border: 0;
+  background: transparent;
+  color: var(--app-text-secondary);
+  cursor: pointer;
+}
+.manageButton[aria-pressed="true"] {
+  background: var(--app-accent-soft);
+  color: var(--app-accent);
+}
+
+.settingLine .modelChoiceButton {
+  margin-left: auto;
+}

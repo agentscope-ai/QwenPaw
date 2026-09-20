@@ -215,8 +215,12 @@ describe("ModelSelector", () => {
     expect(
       screen.getByRole("textbox", { name: "modelSelector.searchModels" }),
     ).toBe(search);
-    expect(screen.getByRole("tab", { name: "PRO" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "FREE" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
         name: "modelSelector.removeFromSelector GPT-4",
@@ -296,7 +300,9 @@ describe("ModelSelector", () => {
       ),
     );
     expect(providerApi.setActiveLlm).not.toHaveBeenCalled();
-    expect(screen.getByRole("tab", { name: "PRO" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    ).toBeInTheDocument();
   });
 
   it("displays current active model name on trigger button after loading", async () => {
@@ -367,8 +373,12 @@ describe("ModelSelector", () => {
     expect(
       screen.getByPlaceholderText("modelSelector.searchModels"),
     ).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "PRO" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "FREE" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("modelSelector.proBannerText"),
     ).not.toBeInTheDocument();
@@ -1121,7 +1131,9 @@ describe("ModelSelector", () => {
     renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(screen.getByRole("tab", { name: "FREE" }));
+    await user.click(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    );
 
     const toggle = await screen.findByRole("button", {
       name: /modelSelector.availableToAdd/,
@@ -1178,7 +1190,9 @@ describe("ModelSelector", () => {
       }),
     );
 
-    await user.click(screen.getByRole("tab", { name: "FREE" }));
+    await user.click(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    );
     expect(
       (await screen.findAllByText("OpenCode Free One")).length,
     ).toBeGreaterThan(0);
@@ -1187,14 +1201,16 @@ describe("ModelSelector", () => {
     ).toBeGreaterThan(0);
     expect(screen.queryByText("OpenCode Paid Model")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("tab", { name: "PRO" }));
-    const proPanel = screen.getByRole("tabpanel");
+    await user.click(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    );
+    const proPanel = screen.getByRole("region", { name: "models.models" });
     expect(
       within(proPanel).queryByText("OpenCode Free One"),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     expect(
       within(proPanel).queryByText("OpenCode Free Two"),
-    ).not.toBeInTheDocument();
+    ).toBeInTheDocument();
     expect(
       within(proPanel).getByText("OpenCode Paid Model"),
     ).toBeInTheDocument();
@@ -1215,7 +1231,9 @@ describe("ModelSelector", () => {
     renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(screen.getByRole("tab", { name: "FREE" }));
+    await user.click(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    );
     await user.type(
       screen.getByPlaceholderText("modelSelector.searchModels"),
       "GPT Paid Candidate",
@@ -1274,7 +1292,9 @@ describe("ModelSelector", () => {
     renderWithProviders(<ModelSelector showAdvancedModelControls />);
     await screen.findAllByText("GPT-4");
     await user.click(screen.getAllByText("GPT-4")[0]);
-    await user.click(screen.getByRole("tab", { name: "FREE" }));
+    await user.click(
+      screen.getByRole("button", { name: "modelSelector.freeModelsOnly" }),
+    );
     await user.type(
       screen.getByPlaceholderText("modelSelector.searchModels"),
       "GPT Free",
@@ -1360,9 +1380,14 @@ describe("ModelSelector", () => {
       }),
     );
     const user = userEvent.setup();
-    renderWithProviders(<ModelSelector showAdvancedModelControls />);
-    await screen.findAllByText("GPT-4");
-    await user.click(screen.getAllByText("GPT-4")[0]);
+    renderWithProviders(
+      <AgentModelSettings
+        agentId="default"
+        providers={await providerApi.listProviders()}
+        activeProviderId="openai"
+        activeModelId="gpt-4"
+      />,
+    );
     await user.click(
       await screen.findByRole("button", {
         name: /modelSelector.agentModelSettings/,
@@ -1375,18 +1400,26 @@ describe("ModelSelector", () => {
     fireEvent.keyDown(thinkingSlider, { key: "End", keyCode: 35 });
     fireEvent.keyUp(thinkingSlider, { key: "End", keyCode: 35 });
     await user.click(
-      screen.getByRole("combobox", {
+      screen.getByRole("button", {
         name: "modelSelector.subagentModel",
       }),
     );
-    const subagentOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    const subagentOptions = await within(
+      Array.from(document.querySelectorAll(".ant-popover")).slice(
+        -1,
+      )[0] as HTMLElement,
+    ).findAllByText("GPT-3.5 Turbo");
     await user.click(subagentOptions[subagentOptions.length - 1]);
     await user.click(
-      screen.getByRole("combobox", {
+      screen.getByRole("button", {
         name: "modelSelector.chooseFallback",
       }),
     );
-    const fallbackOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    const fallbackOptions = await within(
+      Array.from(document.querySelectorAll(".ant-popover")).slice(
+        -1,
+      )[0] as HTMLElement,
+    ).findAllByText("GPT-3.5 Turbo");
     await user.click(fallbackOptions[fallbackOptions.length - 1]);
     await user.click(screen.getByRole("button", { name: /common.save/ }));
 
@@ -1747,11 +1780,15 @@ describe("ModelSelector", () => {
     );
 
     await user.click(
-      await screen.findByRole("combobox", {
+      await screen.findByRole("button", {
         name: "modelSelector.subagentModel",
       }),
     );
-    const subagentOptions = screen.getAllByText("OpenAI / GPT-3.5 Turbo");
+    const subagentOptions = await within(
+      Array.from(document.querySelectorAll(".ant-popover")).slice(
+        -1,
+      )[0] as HTMLElement,
+    ).findAllByText("GPT-3.5 Turbo");
     await user.click(subagentOptions[subagentOptions.length - 1]);
 
     expect(onDraftChange).toHaveBeenLastCalledWith(

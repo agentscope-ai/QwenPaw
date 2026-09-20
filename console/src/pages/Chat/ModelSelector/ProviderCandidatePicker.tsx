@@ -17,7 +17,7 @@ export default function ProviderCandidatePicker({
   onSaved,
 }: {
   providerId: string;
-  tier: "pro" | "free";
+  tier?: "free";
   onSaved: () => Promise<void>;
 }) {
   const { t } = useTranslation();
@@ -35,7 +35,7 @@ export default function ProviderCandidatePicker({
       providerApi
         .getModelPool(providerId, {
           tab: "candidates",
-          billing: tier,
+          ...(tier ? { billing: tier } : {}),
           search,
           offset,
           limit: 10,

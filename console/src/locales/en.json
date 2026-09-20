@@ -2230,11 +2230,11 @@
     },
     "subagentModel": "Sub-agent model",
     "sameAsPrimary": "Same as primary",
-    "enableFallback": "Enable model fallback",
+    "enableFallback": "Use a backup model on failure",
     "fallbackScope": "Fallback scope",
     "configuredModels": "Configured models",
     "freeModelsOnly": "Free models only",
-    "chooseFallback": "Choose a fallback model",
+    "chooseFallback": "Backup model",
     "moveFallbackUp": "Move {{model}} up",
     "moveFallbackDown": "Move {{model}} down",
     "removeFallback": "Remove {{model}}",
@@ -2746,7 +2746,11 @@
       }
     },
     "includesFreeModels": "Includes free models",
-    "agentDefaults": "Agent defaults"
+    "agentDefaults": "Agent defaults",
+    "scope": {
+      "global": "Global models",
+      "agent": "Current agent"
+    }
   },
   "files": {
     "title": "Files",

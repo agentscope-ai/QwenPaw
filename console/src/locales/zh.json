@@ -2152,13 +2152,13 @@
       "medium": "中",
       "high": "高"
     },
-    "subagentModel": "Sub-agent 模型",
+    "subagentModel": "子智能体模型",
     "sameAsPrimary": "与主模型相同",
-    "enableFallback": "启用模型降级",
+    "enableFallback": "失败时使用备用模型",
     "fallbackScope": "降级范围",
     "configuredModels": "已配置模型",
     "freeModelsOnly": "仅免费模型",
-    "chooseFallback": "选择备用模型",
+    "chooseFallback": "备用模型",
     "moveFallbackUp": "上移 {{model}}",
     "moveFallbackDown": "下移 {{model}}",
     "removeFallback": "移除 {{model}}",
@@ -2604,7 +2604,11 @@
       }
     },
     "includesFreeModels": "含免费模型",
-    "agentDefaults": "智能体默认模型"
+    "agentDefaults": "智能体默认模型",
+    "scope": {
+      "global": "全局模型",
+      "agent": "当前智能体"
+    }
   },
   "files": {
     "title": "文件",

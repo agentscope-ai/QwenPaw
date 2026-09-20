@@ -2732,3 +2732,36 @@
   outline-offset: 4px;
   border-radius: 6px;
 }
+
+.scopeTabs {
+  display: flex;
+  align-self: flex-start;
+  width: fit-content;
+  margin: 16px 24px 0;
+  padding: 3px;
+  gap: 3px;
+  border-radius: 10px;
+  background: var(--app-fill);
+}
+.scopeTabs button {
+  padding: 7px 18px;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--app-text-secondary);
+  background: transparent;
+  cursor: pointer;
+}
+.scopeTabs button[aria-selected="true"] {
+  background: var(--app-surface);
+  color: var(--app-text);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 6%);
+}
+
+.globalModelRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+}

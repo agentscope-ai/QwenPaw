@@ -16,6 +16,7 @@ import {
 import { Dropdown, Spin, Tooltip, Modal } from "antd";
 import { useAppMessage } from "../../../hooks/useAppMessage";
 import {
+  Gift,
   AlertTriangle,
   Check,
   ChevronDown,
@@ -80,6 +81,8 @@ const VIEW_MORE_STEP = 20;
 
 interface ModelSelectorProps {
   embedded?: boolean;
+  onPick?: (providerId: string, modelId: string) => void;
+  selectedSlot?: { provider_id: string; model: string } | null;
   onSelected?: () => void;
   showAdvancedModelControls?: boolean;
   sessionId?: string;
@@ -99,6 +102,8 @@ function readStoredModelKeys(key: string): string[] {
 
 export default function ModelSelector({
   embedded = false,
+  onPick,
+  selectedSlot,
   onSelected,
   showAdvancedModelControls = false,
   sessionId,
@@ -113,19 +118,13 @@ export default function ModelSelector({
   const [addingProvider, setAddingProvider] = useState<string | null>(null);
   const [removingModel, setRemovingModel] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState<"pro" | "free">(
-    () =>
-      (localStorage.getItem("qwenpaw_model_selector_tab") as "pro" | "free") ||
-      "pro",
-  );
+  const [activeTab, setActiveTab] = useState<"pro" | "free">("pro");
   const [collapsedProviders, setCollapsedProviders] = useState<Set<string>>(
     () => new Set(),
   );
   const savingRef = useRef(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const panelId = useId();
-  const proTabId = useId();
-  const freeTabId = useId();
   const tabPanelId = useId();
   const moreProvidersId = useId();
   const candidateModelsId = useId();
@@ -174,9 +173,13 @@ export default function ModelSelector({
     providerName: string;
   }>({ open: false, providerId: "", providerName: "" });
 
-  const handleActiveModels = useCallback((activeData: ActiveModelsInfo) => {
-    publishActiveMaxInputLength(activeData.effective_max_input_length);
-  }, []);
+  const handleActiveModels = useCallback(
+    (activeData: ActiveModelsInfo) => {
+      if (!onPick)
+        publishActiveMaxInputLength(activeData.effective_max_input_length);
+    },
+    [onPick],
+  );
   const {
     activeModels,
     fetchData,
@@ -217,7 +220,7 @@ export default function ModelSelector({
   );
 
   // Models are split by is_free; mixed-tier providers can appear in both tabs.
-  const { freeProviders, proProviders } = useMemo(() => {
+  const { freeProviders } = useMemo(() => {
     return splitProvidersByTier(eligibleProviders);
   }, [eligibleProviders]);
 
@@ -241,7 +244,7 @@ export default function ModelSelector({
   };
 
   const filteredFree = filterProviders(freeProviders);
-  const filteredPro = filterProviders(proProviders);
+  const filteredPro = filterProviders(eligibleProviders);
 
   // Focus search input when dropdown opens; clear query when closes
   useEffect(() => {
@@ -252,8 +255,12 @@ export default function ModelSelector({
     }
   }, [open]);
 
-  const activeProviderId = activeModels?.active_llm?.provider_id;
-  const activeModelId = activeModels?.active_llm?.model;
+  const activeProviderId = onPick
+    ? selectedSlot?.provider_id ?? activeModels?.active_llm?.provider_id
+    : activeModels?.active_llm?.provider_id;
+  const activeModelId = onPick
+    ? selectedSlot?.model
+    : activeModels?.active_llm?.model;
   const expansionSession = useRef<string>();
   useEffect(() => {
     if (!open) {
@@ -319,7 +326,7 @@ export default function ModelSelector({
           provider.name.toLowerCase().includes(query)
         : true;
       if (!matchesQuery) return false;
-      return activeTab === "free" ? Boolean(model.is_free) : !model.is_free;
+      return activeTab !== "free" || Boolean(model.is_free);
     });
   }, [activeTab, discoveryCandidates, trimmedSearch]);
   const candidateModelsExpanded = Boolean(trimmedSearch) || showCandidateModels;
@@ -408,6 +415,10 @@ export default function ModelSelector({
   );
 
   const activateModel = async (providerId: string, modelId: string) => {
+    if (onPick) {
+      onPick(providerId, modelId);
+      return;
+    }
     if (savingRef.current) return;
     if (providerId === activeProviderId && modelId === activeModelId) {
       setOpen(false);
@@ -468,6 +479,10 @@ export default function ModelSelector({
   };
 
   const handleSelect = async (providerId: string, modelId: string) => {
+    if (onPick) {
+      onPick(providerId, modelId);
+      return;
+    }
     const targetProvider = eligibleProviders.find(
       (provider) => provider.id === providerId,
     );
@@ -700,7 +715,7 @@ export default function ModelSelector({
           <Suspense fallback={<Spin size="small" />}>
             <ProviderCandidatePicker
               key={`${provider.id}:${activeTab}`}
-              tier={activeTab}
+              tier={activeTab === "free" ? "free" : undefined}
               providerId={provider.id}
               onSaved={async () => {
                 await fetchData();
@@ -1038,6 +1053,17 @@ export default function ModelSelector({
             <XCircle size={15} />
           </button>
         )}
+        <Tooltip title={t("modelSelector.freeModelsOnly")}>
+          <button
+            type="button"
+            className={styles.manageButton}
+            aria-label={t("modelSelector.freeModelsOnly")}
+            aria-pressed={activeTab === "free"}
+            onClick={() => setActiveTab(activeTab === "free" ? "pro" : "free")}
+          >
+            <Gift size={17} />
+          </button>
+        </Tooltip>
         <Tooltip title={t("modelSelector.manageSelectorModels")}>
           <button
             type="button"
@@ -1054,48 +1080,11 @@ export default function ModelSelector({
         </Tooltip>
       </div>
 
-      <div className={styles.tabBar} role="tablist">
-        <button
-          type="button"
-          id={proTabId}
-          role="tab"
-          aria-selected={activeTab === "pro"}
-          aria-controls={tabPanelId}
-          className={[
-            styles.tabButton,
-            activeTab === "pro" ? styles.tabButtonActive : "",
-          ].join(" ")}
-          onClick={() => {
-            setActiveTab("pro");
-            localStorage.setItem("qwenpaw_model_selector_tab", "pro");
-          }}
-        >
-          PRO
-        </button>
-        <button
-          type="button"
-          id={freeTabId}
-          role="tab"
-          aria-selected={activeTab === "free"}
-          aria-controls={tabPanelId}
-          className={[
-            styles.tabButton,
-            activeTab === "free" ? styles.tabButtonActive : "",
-          ].join(" ")}
-          onClick={() => {
-            setActiveTab("free");
-            localStorage.setItem("qwenpaw_model_selector_tab", "free");
-          }}
-        >
-          FREE
-        </button>
-      </div>
-
       <div
         id={tabPanelId}
         className={styles.listContainer}
-        role="tabpanel"
-        aria-labelledby={activeTab === "free" ? freeTabId : proTabId}
+        role="region"
+        aria-label={t("models.models")}
       >
         {loadError && (
           <div className={styles.loadError} role="alert">
