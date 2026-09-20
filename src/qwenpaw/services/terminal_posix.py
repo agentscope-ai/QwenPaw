@@ -1,19 +1,20 @@
 # -*- coding: utf-8 -*-
-"""POSIX PTY adapter using spawn instead of Python code after fork."""
+"""POSIX PTY adapter with isolated descriptors and no preexec callback."""
 
 import codecs
 import fcntl
 import os
-import signal
 import struct
+import subprocess
 import termios
 
 
 class PosixPty:
-    """Open a controlling terminal with async-signal-safe spawn actions."""
+    """Open a controlling terminal without running Python after fork."""
 
-    def __init__(self, pid, master):
-        self.pid = pid
+    def __init__(self, process, master):
+        self.process = process
+        self.pid = process.pid
         self.fd = master
         self.exitstatus = None
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
@@ -28,38 +29,36 @@ class PosixPty:
                 termios.TIOCSWINSZ,
                 struct.pack("HHHH", *dimensions, 0, 0),
             )
-            actions = [
-                (os.POSIX_SPAWN_CLOSE, master),
-                (os.POSIX_SPAWN_CLOSE, slave),
-                (os.POSIX_SPAWN_OPEN, 0, os.ttyname(slave), os.O_RDWR, 0),
-                (os.POSIX_SPAWN_DUP2, 0, 1),
-                (os.POSIX_SPAWN_DUP2, 0, 2),
-            ]
-            # Python 3.11/3.12 expose no spawn chdir action. Paths travel as
-            # positional arguments, never as interpolated shell source.
+            # Reopen the slave after setsid to acquire a controlling tty.
+            # Paths are arguments, never interpolated shell source. Popen
+            # closes unrelated FDs in the child, without a
+            # race-prone parent FD snapshot or Python preexec_fn callback.
             argv = [
                 "/bin/sh",
                 "-c",
+                'exec < "$1" > "$1" 2>&1; shift; '
                 'cd -- "$1" && shift && exec "$@"',
                 "qwenpaw-terminal",
+                os.ttyname(slave),
                 cwd,
                 *command,
             ]
-            pid = os.posix_spawn(
-                "/bin/sh",
+            # The adapter owns this process until close(), beyond spawn().
+            process = subprocess.Popen(  # pylint: disable=consider-using-with
                 argv,
-                env,
-                file_actions=actions,
-                setsid=True,
-                setsigdef=(signal.SIGINT, signal.SIGQUIT, signal.SIGPIPE),
-                setsigmask=(),
+                env=env,
+                stdin=slave,
+                stdout=slave,
+                stderr=slave,
+                close_fds=True,
+                start_new_session=True,
             )
         except BaseException:
             os.close(master)
             raise
         finally:
             os.close(slave)
-        return cls(pid, master)
+        return cls(process, master)
 
     def read(self, size):
         """Decode output incrementally, tolerating arbitrary program bytes."""
@@ -85,16 +84,8 @@ class PosixPty:
 
     def isalive(self):
         """Reap exited shells and retain their exit status."""
-        if self.exitstatus is not None:
-            return False
-        try:
-            pid, status = os.waitpid(self.pid, os.WNOHANG)
-        except ChildProcessError:
-            return False
-        if pid:
-            self.exitstatus = os.waitstatus_to_exitcode(status)
-            return False
-        return True
+        self.exitstatus = self.process.poll()
+        return self.exitstatus is None
 
     def close(self, force=True):
         """Release the master descriptor after the manager stops the tree."""
@@ -102,13 +93,9 @@ class PosixPty:
             return
         if force and self.isalive():
             try:
-                os.kill(self.pid, signal.SIGKILL)
+                self.process.kill()
             except ProcessLookupError:
                 pass
         os.close(self.fd)
         self.fd = -1
-        try:
-            _, status = os.waitpid(self.pid, 0)
-            self.exitstatus = os.waitstatus_to_exitcode(status)
-        except ChildProcessError:
-            pass
+        self.exitstatus = self.process.wait()

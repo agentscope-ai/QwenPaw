@@ -5,6 +5,7 @@
 import asyncio
 import os
 import shlex
+import socket
 import sys
 import threading
 import time
@@ -15,6 +16,49 @@ import psutil
 import pytest
 
 from qwenpaw.services import terminal
+
+if os.name != "nt":
+    import fcntl
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX descriptor inheritance")
+async def test_pty_does_not_inherit_service_socket(tmp_path, monkeypatch):
+    monkeypatch.setenv("SHELL", "/bin/sh")
+    manager = terminal.TerminalManager()
+    owner = ("alice", "agent", "group")
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        descriptor = fcntl.fcntl(listener.fileno(), fcntl.F_DUPFD, 128)
+        os.set_inheritable(descriptor, True)
+        try:
+            info = await asyncio.to_thread(
+                manager.create,
+                owner,
+                tmp_path,
+                asyncio.get_running_loop(),
+            )
+            session = manager.get(owner, info["id"])
+            await asyncio.to_thread(session.write, "stty -echo\r")
+            script = (
+                "import os\n"
+                "try:\n"
+                f" os.fstat({descriptor})\n"
+                "except OSError:\n"
+                " print('FD_' + 'CLOSED')\n"
+                "else:\n"
+                " print('FD_' + 'LEAKED')\n"
+            )
+            await asyncio.to_thread(
+                session.write,
+                f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}\r",
+            )
+            await read_until(session, "FD_CLOSED")
+            assert os.get_inheritable(descriptor)
+            assert os.fstat(descriptor) == os.fstat(listener.fileno())
+        finally:
+            await asyncio.to_thread(manager.shutdown)
+            os.close(descriptor)
 
 
 async def read_until(session, needle, cursor=0):
