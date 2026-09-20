@@ -35,13 +35,13 @@ export function ToolCallTurnBoundary({
   data: IAgentScopeRuntimeResponse;
   children: React.ReactNode;
 }) {
-  const stoppedSessionId = useStoppedTurnsStore((s) => s.stoppedSessionId);
+  const stoppedSessionIds = useStoppedTurnsStore((s) => s.stoppedSessionIds);
   // Resolving the session id walks the session list, so let the (usually
-  // null) stop signal short-circuit it.
+  // empty) stop signal short-circuit it.
   const turnEnded =
     AgentScopeRuntimeResponseBuilder.maybeDone(data) ||
-    (stoppedSessionId !== null &&
-      stoppedSessionId === resolveBackendSessionId());
+    (stoppedSessionIds.size > 0 &&
+      stoppedSessionIds.has(resolveBackendSessionId()));
 
   return (
     <ToolCallTurnEndedContext.Provider value={turnEnded}>

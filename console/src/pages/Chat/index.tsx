@@ -3137,10 +3137,6 @@ export default function ChatPage() {
           "Chat submission has no input; wait for session history to load",
         );
       }
-      // A turn is starting: any earlier stop no longer describes this session.
-      // Every turn goes through this fetch, including the SDK's own regenerate,
-      // which never reaches the page's submit handlers.
-      clearTurnStopped();
       pendingFallbackEventsRef.current = [];
       pendingFallbackEventKeysRef.current.clear();
       // Snapshot legacy state before the first await. SDK 1.2 supplies the
@@ -3159,6 +3155,9 @@ export default function ChatPage() {
         {},
         selectedAgent,
       );
+      // Every turn goes through this fetch, including the SDK's own regenerate.
+      // Clear only this session: another session may still have a stopped turn.
+      clearTurnStopped(entrySnapshot.sessionId);
       const directSubmission =
         !data.submission || data.submission.source === "direct";
       const pendingDirectInput = directSubmission
@@ -4245,7 +4244,7 @@ export default function ChatPage() {
           // The SDK only writes a canceled status when its stream is still
           // alive to observe the abort; record the stop itself so tool cards
           // can close even when the stream died first.
-          markTurnStopped();
+          markTurnStopped(data.session_id || data.chatSessionId);
           const snapshot = resolveChatRequestSnapshot(
             data,
             {},
@@ -4272,8 +4271,6 @@ export default function ChatPage() {
             signal?: AbortSignal;
           },
         ) {
-          // Attaching to a live turn: the session has a running turn again.
-          clearTurnStopped();
           const headers: Record<string, string> = {
             "Content-Type": "application/json",
             ...buildAuthHeaders(),
@@ -4288,6 +4285,8 @@ export default function ChatPage() {
             {},
             selectedAgent,
           );
+          // Attaching to a live turn only invalidates this session's stop.
+          clearTurnStopped(snapshot.sessionId);
           headers["X-Agent-Id"] = snapshot.agentId;
           const usageTurn = useTurnUsageStore
             .getState()

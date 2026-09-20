@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { IAgentScopeRuntimeResponse } from "@agentscope-ai/chat/lib/AgentScopeRuntimeWebUI/core/AgentScopeRuntime/types";
 
 vi.mock("../../utils/resolveBackendSessionId", () => ({
-  resolveBackendSessionId: () => "session-active",
+  resolveBackendSessionId: (sessionId?: string) =>
+    sessionId || "session-active",
 }));
 
 import { ToolCallTurnBoundary } from "./turnEndedProvider";
@@ -31,7 +32,7 @@ const renderBoundary = (status: string) =>
 const turnEnded = () => screen.getByTestId("turn-ended");
 
 beforeEach(() => {
-  useStoppedTurnsStore.setState({ stoppedSessionId: null });
+  useStoppedTurnsStore.setState({ stoppedSessionIds: new Set() });
 });
 
 describe("ToolCallTurnBoundary", () => {
@@ -72,7 +73,7 @@ describe("ToolCallTurnBoundary", () => {
   it("reports a stopped turn as ended although its status never changed", () => {
     // Stop issued after the stream died: the SDK never observes the abort, so
     // the response stays in progress and only the stop itself is left.
-    markTurnStopped();
+    markTurnStopped("session-active");
 
     renderBoundary("in_progress");
 
@@ -80,7 +81,9 @@ describe("ToolCallTurnBoundary", () => {
   });
 
   it("ignores a stop recorded for another session", () => {
-    useStoppedTurnsStore.setState({ stoppedSessionId: "session-other" });
+    useStoppedTurnsStore.setState({
+      stoppedSessionIds: new Set(["session-other"]),
+    });
 
     renderBoundary("in_progress");
 
@@ -88,9 +91,9 @@ describe("ToolCallTurnBoundary", () => {
   });
 
   it("reports the next turn as running once the stop signal is cleared", () => {
-    markTurnStopped();
+    markTurnStopped("session-active");
     // Every new stream request clears the signal (customFetch / reconnect).
-    clearTurnStopped();
+    clearTurnStopped("session-active");
 
     renderBoundary("in_progress");
 
@@ -99,24 +102,35 @@ describe("ToolCallTurnBoundary", () => {
 });
 
 describe("stoppedTurns", () => {
-  it("records the active session on stop", () => {
+  it("does not infer a stop target from the active session", () => {
     markTurnStopped();
 
-    expect(useStoppedTurnsStore.getState().stoppedSessionId).toBe(
-      "session-active",
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds).toEqual(
+      new Set(),
     );
   });
 
-  it("clears the signal", () => {
-    markTurnStopped();
-    clearTurnStopped();
+  it("records the requested session on stop", () => {
+    markTurnStopped("session-active");
 
-    expect(useStoppedTurnsStore.getState().stoppedSessionId).toBeNull();
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds).toEqual(
+      new Set(["session-active"]),
+    );
   });
 
-  it("keeps the same state object when clearing an empty signal", () => {
+  it("clears only the requested session", () => {
+    markTurnStopped("session-active");
+    markTurnStopped("session-other");
+    clearTurnStopped("session-active");
+
+    expect(useStoppedTurnsStore.getState().stoppedSessionIds).toEqual(
+      new Set(["session-other"]),
+    );
+  });
+
+  it("keeps the same state object when clearing an unmarked session", () => {
     const before = useStoppedTurnsStore.getState();
-    clearTurnStopped();
+    clearTurnStopped("session-active");
 
     expect(useStoppedTurnsStore.getState()).toBe(before);
   });

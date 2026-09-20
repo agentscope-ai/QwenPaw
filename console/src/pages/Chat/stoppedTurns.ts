@@ -10,43 +10,52 @@
  * The stop click itself is the one reliable fact left, and it is recorded
  * here for the tool-card turn boundary to consume.
  *
- * Validity: the flag only means "this session has no live turn", so every new
- * stream request clears it. That clearing happens on the request path (see
- * `customFetch` / `reconnect`), which no turn can start without — including
- * the SDK's own regenerate, which never passes through the page's UI
- * handlers. Clearing anywhere else would leave a healthy turn's tool calls
- * reported as interrupted.
+ * Validity: each entry only means "this session has no live turn", so a new
+ * stream request clears that session's entry. That clearing happens on the
+ * request path (see `customFetch` / `reconnect`), which no turn can start
+ * without — including the SDK's own regenerate, which never passes through
+ * the page's UI handlers. Clearing anywhere else would leave a healthy turn's
+ * tool calls reported as interrupted.
  */
 
 import { create } from "zustand";
 import { resolveBackendSessionId } from "../../utils/resolveBackendSessionId";
 
 interface StoppedTurnsStore {
-  /** Backend session id whose latest turn the user stopped. */
-  stoppedSessionId: string | null;
+  /** Backend-compatible runtime session ids stopped by the user. */
+  stoppedSessionIds: ReadonlySet<string>;
 }
 
 export const useStoppedTurnsStore = create<StoppedTurnsStore>(() => ({
-  stoppedSessionId: null,
+  stoppedSessionIds: new Set(),
 }));
 
 /**
- * Record that the user stopped the running turn of the active session.
- *
- * The id is resolved here rather than taken from the caller so it is produced
- * exactly the way the tool-card boundary reads it back; the stopped turn is
- * always the one the user is looking at.
+ * Record that the user stopped the running turn of the requested session.
  */
-export function markTurnStopped(): void {
-  const sessionId = resolveBackendSessionId();
+export function markTurnStopped(targetSessionId?: string | null): void {
+  const target = targetSessionId?.trim();
+  if (!target) return;
+  const sessionId = resolveBackendSessionId(target);
   // An unresolved session id cannot be matched against a card later; skip it
   // rather than storing a flag that would apply to no session at all.
   if (!sessionId) return;
-  useStoppedTurnsStore.setState({ stoppedSessionId: sessionId });
+  const current = useStoppedTurnsStore.getState().stoppedSessionIds;
+  if (current.has(sessionId)) return;
+  useStoppedTurnsStore.setState({
+    stoppedSessionIds: new Set([...current, sessionId]),
+  });
 }
 
-/** Drop the stop signal because a turn is (re)starting. */
-export function clearTurnStopped(): void {
-  if (useStoppedTurnsStore.getState().stoppedSessionId === null) return;
-  useStoppedTurnsStore.setState({ stoppedSessionId: null });
+/** Drop one session's stop signal because its turn is (re)starting. */
+export function clearTurnStopped(targetSessionId: string): void {
+  const target = targetSessionId.trim();
+  if (!target) return;
+  const sessionId = resolveBackendSessionId(target);
+  if (!sessionId) return;
+  const current = useStoppedTurnsStore.getState().stoppedSessionIds;
+  if (!current.has(sessionId)) return;
+  const next = new Set(current);
+  next.delete(sessionId);
+  useStoppedTurnsStore.setState({ stoppedSessionIds: next });
 }
