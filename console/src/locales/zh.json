@@ -1,6 +1,8 @@
 {
   "terminal": {
     "authRequired": "使用终端前，请设置 QWENPAW_AUTH_ENABLED=true，重启服务并登录。",
+    "dependencyMissing": "终端不可用：请在后端 Python 环境安装 pywinpty 并重启服务。",
+    "unavailable": "终端暂不可用，请检查后端服务后重试。",
     "closeOthers": "关闭其他终端",
     "closeAll": "关闭所有终端",
     "hide": "收起终端面板",

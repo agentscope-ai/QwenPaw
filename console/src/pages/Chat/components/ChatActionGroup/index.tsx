@@ -10,6 +10,7 @@ interface ChatActionGroupProps {
   onToggleTerminal?: () => void;
   terminalOpen?: boolean;
   terminalEnabled?: boolean;
+  terminalDisabledReason?: string;
   onToggleWorkspace?: () => void;
   workspaceOpen?: boolean;
 }
@@ -18,6 +19,7 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
   onToggleTerminal,
   terminalOpen = false,
   terminalEnabled = false,
+  terminalDisabledReason = "",
   onToggleWorkspace,
   workspaceOpen = false,
 }) => {
@@ -47,7 +49,15 @@ const ChatActionGroup: React.FC<ChatActionGroupProps> = ({
             }}
             onClick={() => {
               if (!terminalEnabled) {
-                void message.info(t("terminal.authRequired"));
+                void message.info(
+                  t(
+                    terminalDisabledReason === "dependency_missing"
+                      ? "terminal.dependencyMissing"
+                      : terminalDisabledReason
+                      ? "terminal.unavailable"
+                      : "terminal.authRequired",
+                  ),
+                );
                 return;
               }
               onToggleTerminal();

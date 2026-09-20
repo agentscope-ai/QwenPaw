@@ -57,6 +57,23 @@ def test_creation_resolves_directory_and_scopes_agent(client):
     terminal.get_project_dir_for_request.assert_awaited_once()
 
 
+def test_missing_native_dependency_disables_only_terminal(client, monkeypatch):
+    http, manager = client
+    monkeypatch.setattr(
+        terminal,
+        "terminal_unavailable_reason",
+        lambda: "dependency_missing",
+    )
+    assert http.get("/api/terminals/status").json() == {
+        "enabled": False,
+        "reason": "dependency_missing",
+    }
+    response = http.post(f"/api/terminals/{uuid4()}")
+    assert response.status_code == 503
+    assert "pywinpty" in response.json()["detail"]
+    assert not manager.mock_calls
+
+
 @pytest.mark.parametrize(
     "mode",
     ["disabled", "no-users", "missing", "expired"],

@@ -1,6 +1,8 @@
 {
   "terminal": {
     "authRequired": "To use the terminal, set QWENPAW_AUTH_ENABLED=true, restart the service, and sign in.",
+    "dependencyMissing": "Terminal unavailable: install pywinpty in the backend Python environment and restart the service.",
+    "unavailable": "Terminal unavailable. Check the backend service and try again.",
     "closeOthers": "Close other terminals",
     "closeAll": "Close all terminals",
     "hide": "Hide terminal panel",

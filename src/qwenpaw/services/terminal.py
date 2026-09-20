@@ -2,8 +2,10 @@
 """Bounded, runtime-owned interactive terminals independent of HTTP clients."""
 
 import asyncio
+import importlib
 import os
 import shutil
+import sys
 import threading
 import time
 from pathlib import Path
@@ -11,15 +13,26 @@ from uuid import uuid4
 
 import psutil
 
-if os.name == "nt":
-    from winpty import PtyProcess as NativePty
-else:
-    from .terminal_posix import PosixPty as NativePty
-
-
 MAX_BUFFER = 262144
 MAX_CHUNK = 32768
 DETACHED_TTL = 3600
+
+
+def terminal_unavailable_reason():
+    """Probe optional native dependencies without breaking app startup."""
+    if sys.platform == "win32":
+        try:
+            importlib.import_module("winpty")
+        except (ImportError, OSError):
+            return "dependency_missing"
+    return None
+
+
+def native_pty():
+    """Load platform-specific code only when a terminal is requested."""
+    if sys.platform == "win32":
+        return importlib.import_module("winpty").PtyProcess
+    return importlib.import_module(".terminal_posix", __package__).PosixPty
 
 
 def shell_command() -> list[str]:
@@ -58,7 +71,7 @@ class TerminalSession:
         for key in tuple(env):
             if key.startswith("QWENPAW_RUNTIME_") or "SHUTDOWN_TOKEN" in key:
                 env.pop(key)
-        self.process = NativePty.spawn(
+        self.process = native_pty().spawn(
             self.command,
             cwd=self.cwd,
             env=env,

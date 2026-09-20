@@ -1296,7 +1296,8 @@ export default function ChatPage() {
   );
   const sdkSessionApi = sdkSessionAdapter.api;
   const [terminalOpen, setTerminalOpen] = useState(false);
-  const terminalEnabled = useTerminalEnabled(selectedAgent);
+  const { enabled: terminalEnabled, reason: terminalDisabledReason } =
+    useTerminalEnabled(selectedAgent);
   useEffect(() => {
     if (!terminalEnabled) setTerminalOpen(false);
   }, [terminalEnabled]);
@@ -3952,6 +3953,7 @@ export default function ChatPage() {
             <ChatActionGroup
               onToggleTerminal={toggleTerminal}
               terminalEnabled={terminalEnabled}
+              terminalDisabledReason={terminalDisabledReason}
               terminalOpen={terminalOpen}
               onToggleWorkspace={toggleFilesWorkspace}
               workspaceOpen={filesWorkspaceOpen}
@@ -4440,6 +4442,7 @@ export default function ChatPage() {
     toggleFilesWorkspace,
     terminalOpen,
     terminalEnabled,
+    terminalDisabledReason,
     toggleTerminal,
     isOwner,
     bgTaskCount,

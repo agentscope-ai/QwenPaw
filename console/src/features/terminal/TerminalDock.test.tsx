@@ -144,6 +144,25 @@ describe("conversation terminal dock", () => {
       screen.getByRole("button", { name: "files.openWorkspace" }),
     ).toBeInTheDocument();
   });
+  it("explains a missing dependency without suggesting authentication", () => {
+    const toggle = vi.fn();
+    const info = vi
+      .spyOn(message, "info")
+      .mockImplementation(() => (() => {}) as ReturnType<typeof message.info>);
+    try {
+      render(
+        <ChatActionGroup
+          onToggleTerminal={toggle}
+          terminalDisabledReason="dependency_missing"
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+      expect(info).toHaveBeenCalledWith("terminal.dependencyMissing");
+      expect(toggle).not.toHaveBeenCalled();
+    } finally {
+      info.mockRestore();
+    }
+  });
   it.each([
     ["Close terminal", ["second"], 2],
     ["Close other terminals", ["first", "third"], 1],

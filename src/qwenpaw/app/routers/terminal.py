@@ -17,7 +17,7 @@ from ..auth import (
     runtime_token_matches,
     verify_token,
 )
-from ...services.terminal import TerminalManager
+from ...services.terminal import TerminalManager, terminal_unavailable_reason
 from ...constant import CORS_ORIGINS
 
 
@@ -84,6 +84,12 @@ async def context(request: Request, group: UUID):
             or parsed.netloc != request.url.netloc
         ) and not local_console:
             raise HTTPException(403, "Cross-site terminal request rejected")
+    if await asyncio.to_thread(terminal_unavailable_reason):
+        raise HTTPException(
+            503,
+            "Terminal unavailable: install pywinpty in the backend "
+            "Python environment and restart the service",
+        )
     workspace = await get_agent_for_request(request)
     owner = (
         user,
@@ -99,7 +105,12 @@ router = APIRouter(prefix="/terminals", tags=["terminals"], lifespan=lifespan)
 @router.get("/status")
 async def terminal_status():
     """Advertise the runtime's mandatory terminal authentication switch."""
-    return {"enabled": is_auth_enabled()}
+    if not is_auth_enabled():
+        return {"enabled": False}
+    reason = await asyncio.to_thread(terminal_unavailable_reason)
+    if reason:
+        return {"enabled": False, "reason": reason}
+    return {"enabled": True}
 
 
 class TerminalInput(BaseModel):
