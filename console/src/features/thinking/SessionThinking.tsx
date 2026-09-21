@@ -148,7 +148,7 @@ export function SessionThinking({
     displayedValue.level === "inherit"
       ? view?.effective ?? displayedValue
       : displayedValue;
-  const showPicker = choosing || (!!view && !view.model);
+  const showPicker = choosing || !view?.model;
   return (
     <ModelPickerPopover
       picker={showPicker}

@@ -1056,7 +1056,8 @@ export default function ModelSelector({
           provider.enabled !== false &&
           (Boolean(provider.api_key) ||
             provider.oauth_connected ||
-            (provider.require_api_key === false && Boolean(provider.base_url))),
+            ((provider.is_custom || provider.require_api_key === false) &&
+              Boolean(provider.base_url))),
       );
       if (!trimmedSearch && configured.length > 0) {
         const provider =
