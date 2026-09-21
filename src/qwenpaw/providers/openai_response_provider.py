@@ -79,8 +79,8 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
 
     * ``extra_generate_kwargs`` — merged into every ``_call_api`` call
       (provider-level kwargs like ``extra_body``).
-    * ``_format_tools`` — sanitizes boolean JSON Schema values that strict
-      providers reject (same fix as ``OpenAIChatModelCompat``).
+    * ``_format_tools`` — sanitizes incompatible JSON Schema values and
+      defaults Responses function tools to non-strict mode.
     """
 
     def __init__(
@@ -135,7 +135,14 @@ class OpenAIResponseModelCompat(OpenAIResponseModel):
 
         if tools:
             tools = _sanitize_tool_schemas(tools)
-        return super()._format_tools(tools, tool_choice)
+        formatted_tools, formatted_choice = super()._format_tools(
+            tools,
+            tool_choice,
+        )
+        if formatted_tools:
+            for tool in formatted_tools:
+                tool.setdefault("strict", False)
+        return formatted_tools, formatted_choice
 
 
 class OpenAIResponseProvider(OpenAIProvider):
