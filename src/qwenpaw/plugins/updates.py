@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -99,8 +100,49 @@ def clear_updating_marker(plugin_id: str) -> None:
         path.unlink()
 
 
+def allocate_update_backup_path(target: Path, plugin_id: str) -> Path:
+    """Return a sibling backup path that does not already exist."""
+    for _ in range(16):
+        candidate = target.with_name(
+            f"{target.name}.{plugin_id}.{uuid.uuid4().hex[:8]}.bak",
+        )
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(
+        f"could not allocate a unique update backup for '{plugin_id}'",
+    )
+
+
+def live_prepared_backup(plugin_id: str) -> Path | None:
+    """Backup still referenced by a non-committed update marker."""
+    if update_is_committed(plugin_id):
+        return None
+    path = marker_path(plugin_id)
+    if not path.is_file():
+        return None
+    try:
+        data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    backup = parse_optional_absolute(data.get("backup_path"))
+    if backup is not None and backup.exists():
+        return backup
+    return None
+
+
+def recover_one_update(plugin_id: str) -> str | None:
+    """Restore one plugin's update marker. May raise OSError."""
+    path = marker_path(plugin_id)
+    if not path.is_file():
+        return None
+    return _restore_one_marker(path)
+
+
 def recover_interrupted_updates(owns_commit=None) -> list[str]:
-    """Restore plugin dirs still marked updating. Returns restored ids."""
+    """Restore plugin dirs still marked updating. Returns restored ids.
+
+    Each marker is isolated: an occupied target must not stop the rest.
+    """
     from ..constant import WORKING_DIR
 
     root = Path(WORKING_DIR) / "plugin_updates"
@@ -115,7 +157,15 @@ def recover_interrupted_updates(owns_commit=None) -> list[str]:
             and not owns_commit(plugin_id)
         ):
             continue
-        restored_id = _restore_one_marker(path)
+        try:
+            restored_id = _restore_one_marker(path)
+        except (OSError, shutil.Error):
+            logger.exception(
+                "Could not restore update marker for '%s'; "
+                "leaving it for needs_restart",
+                plugin_id or path.name,
+            )
+            continue
         if restored_id:
             restored.append(restored_id)
     return restored

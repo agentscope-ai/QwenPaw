@@ -11,6 +11,7 @@ import logging
 import os
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -308,6 +309,19 @@ def provision_files(
     return branch
 
 
+def _allocate_provision_backup(dest: Path, plugin_id: str) -> Path:
+    """Return a sibling backup path that does not already exist."""
+    for _ in range(16):
+        candidate = dest.with_name(
+            f"{dest.name}.{plugin_id}.{uuid.uuid4().hex[:8]}.bak",
+        )
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(
+        f"could not allocate a unique provision backup for '{plugin_id}'",
+    )
+
+
 def _begin_migration(
     plugin_id: str,
     src: Path,
@@ -320,8 +334,13 @@ def _begin_migration(
     *,
     owned: bool,
 ) -> Path:
-    backup = dest.with_name(dest.name + f".{plugin_id}.bak")
-    _remove_path(backup)
+    previous = (data.get("locations") or {}).get(dest_key) or {}
+    existing = parse_optional_absolute(
+        (previous.get("migrating") or {}).get("backup_path"),
+    )
+    if existing is not None and existing.exists():
+        return existing
+    backup = _allocate_provision_backup(dest, plugin_id)
     if dest.is_dir():
         shutil.copytree(dest, backup)
     else:
@@ -513,6 +532,52 @@ def _recover_one_migrating_location(
     return True
 
 
+def _provision_ids_to_recover(plugin_id: str | None) -> list[str]:
+    if plugin_id is not None:
+        return [plugin_id]
+    from ..constant import WORKING_DIR
+
+    if not Path(WORKING_DIR).joinpath("plugin_provisions").is_dir():
+        return []
+    return [p.stem for p in provisions_dir().glob("*.json")]
+
+
+def _recover_plugin_migrating_inventory(item_id: str) -> bool:
+    """Recover one plugin's migrating locations. True if inventory changed."""
+    from .updates import update_is_committed
+
+    keep_new = update_is_committed(item_id)
+    data = load_inventory(item_id)
+    changed = False
+    for dest_key, loc in list((data.get("locations") or {}).items()):
+        if not loc:
+            continue
+        try:
+            if _recover_one_migrating_location(dest_key, loc, keep_new):
+                changed = True
+        except (OSError, shutil.Error):
+            logger.exception(
+                "Could not recover provision location %s "
+                "for '%s'; leaving migrating marker",
+                dest_key,
+                item_id,
+            )
+    if not changed:
+        return False
+    save_inventory(item_id, data)
+    if keep_new:
+        logger.info(
+            "Finished committed provision migration for plugin '%s'",
+            item_id,
+        )
+    else:
+        logger.warning(
+            "Restored in-progress provision migration for plugin '%s'",
+            item_id,
+        )
+    return True
+
+
 def recover_migrating_inventory(
     plugin_id: str | None = None,
     *,
@@ -520,40 +585,18 @@ def recover_migrating_inventory(
 ) -> list[str]:
     """Restore any location still marked migrating. Returns plugin ids."""
     recovered: list[str] = []
-    if plugin_id is not None:
-        ids = [plugin_id]
-    else:
-        from ..constant import WORKING_DIR
-
-        if not Path(WORKING_DIR).joinpath("plugin_provisions").is_dir():
-            return recovered
-        ids = [p.stem for p in provisions_dir().glob("*.json")]
-    from .updates import update_is_committed
-
-    for item_id in ids:
+    for item_id in _provision_ids_to_recover(plugin_id):
         if owns_commit is not None and not owns_commit(item_id):
             continue
-        keep_new = update_is_committed(item_id)
-        data = load_inventory(item_id)
-        changed = False
-        for dest_key, loc in list((data.get("locations") or {}).items()):
-            if not loc:
-                continue
-            if _recover_one_migrating_location(dest_key, loc, keep_new):
-                changed = True
-        if changed:
-            save_inventory(item_id, data)
-            recovered.append(item_id)
-            if keep_new:
-                logger.info(
-                    "Finished committed provision migration for plugin '%s'",
-                    item_id,
-                )
-            else:
-                logger.warning(
-                    "Restored in-progress provision migration for plugin '%s'",
-                    item_id,
-                )
+        try:
+            if _recover_plugin_migrating_inventory(item_id):
+                recovered.append(item_id)
+        except (OSError, shutil.Error):
+            logger.exception(
+                "Could not recover provision inventory for '%s'; "
+                "continuing",
+                item_id,
+            )
     return recovered
 
 

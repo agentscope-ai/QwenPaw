@@ -1099,15 +1099,27 @@ class PluginLoader:
         from .provision import recover_migrating_inventory
         from .updates import recover_interrupted_updates
 
-        await run_sync_io(
-            recover_interrupted_updates,
-            self.lifecycle.delegate.owns_commit,
-        )
-        await run_sync_io(
-            recover_migrating_inventory,
-            None,
-            owns_commit=self.lifecycle.delegate.owns_commit,
-        )
+        try:
+            await run_sync_io(
+                recover_interrupted_updates,
+                self.lifecycle.delegate.owns_commit,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Interrupted update recovery failed; "
+                "continuing plugin discovery",
+            )
+        try:
+            await run_sync_io(
+                recover_migrating_inventory,
+                None,
+                owns_commit=self.lifecycle.delegate.owns_commit,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception(
+                "Provision migration recovery failed; "
+                "continuing plugin discovery",
+            )
 
         discovered = self.discover_plugins()
 
@@ -1640,6 +1652,27 @@ class PluginLoader:
             errors.append(f"committed marker cleanup failed: {exc}")
         return errors
 
+    async def _recover_or_refuse_prepared_update(
+        self,
+        plugin_id: str,
+    ) -> None:
+        """Restore a live prepared backup, or refuse a new directory swap."""
+        from ..utils.io_utils import run_sync_io
+        from .updates import live_prepared_backup, recover_one_update
+
+        if live_prepared_backup(plugin_id) is None:
+            return
+        try:
+            await run_sync_io(recover_one_update, plugin_id)
+        except (OSError, shutil.Error) as exc:
+            raise RuntimeError(
+                f"plugin directory is in use; restart required: {exc}",
+            ) from exc
+        if live_prepared_backup(plugin_id) is not None:
+            raise RuntimeError(
+                "plugin directory is in use; restart required",
+            )
+
     async def _swap_plugin_dir(
         self,
         plugin_id: str,
@@ -1652,9 +1685,10 @@ class PluginLoader:
         if same_location(incoming, old_path):
             return None
         from ..utils.io_utils import run_sync_io
-        from .updates import write_updating_marker
+        from .updates import allocate_update_backup_path, write_updating_marker
 
-        backup = old_path.with_name(old_path.name + f".{plugin_id}.bak")
+        await self._recover_or_refuse_prepared_update(plugin_id)
+        backup = allocate_update_backup_path(old_path, plugin_id)
         staging = old_path.with_name(old_path.name + f".{plugin_id}.staging")
 
         def _swap() -> None:
@@ -1664,7 +1698,9 @@ class PluginLoader:
             if not (staging / "plugin.json").exists():
                 raise RuntimeError("staged plugin is missing plugin.json")
             if backup.exists():
-                safe_remove(backup, purpose="clear plugin backup")
+                raise RuntimeError(
+                    f"refusing to clobber existing plugin backup: {backup}",
+                )
             shutil.move(str(old_path), str(backup))
             shutil.move(str(staging), str(old_path))
 
@@ -2103,6 +2139,7 @@ class PluginLoader:
                     encoding="utf-8",
                 )
 
+            await self._recover_or_refuse_prepared_update(plugin_id)
             await run_sync_io(_recover_incomplete)
             target_exists = await asyncio.to_thread(target_dir.exists)
             if target_exists and not replace_files:

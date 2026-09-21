@@ -3076,9 +3076,9 @@ async def test_boot_recover_after_activate_keeps_new_version(
     report = await loader.lifecycle.reload("boot-rec", new_source=incoming)
     assert report.ok
     assert update_marker_status("boot-rec") == STATUS_COMMITTED
-    backup = installed.with_name(f"{installed.name}.boot-rec.bak")
-    assert backup.exists()
     payload = json.loads(marker_path("boot-rec").read_text(encoding="utf-8"))
+    backup = Path(payload["backup_path"])
+    assert backup.exists()
     payload["status"] = STATUS_PREPARED
     marker_path("boot-rec").write_text(
         json.dumps(payload),
@@ -3723,7 +3723,6 @@ async def test_unloaded_force_unquiescent_activate_keeps_new_dir(
         ),
     )
     (staging / "v2.txt").write_text("v2\n", encoding="utf-8")
-    backup = installed.with_name(f"{installed.name}.force-ch.bak")
 
     def _ch_registry():
         reg = fresh_registry.get_channel_registration("force-ch")
@@ -3749,6 +3748,8 @@ async def test_unloaded_force_unquiescent_activate_keeps_new_dir(
             await loader.load_plugin_from_path(staging, force=True)
     assert (installed / "v2.txt").exists()
     assert not (installed / "v1.txt").exists()
+    marker = json.loads(marker_path("force-ch").read_text(encoding="utf-8"))
+    backup = Path(marker["backup_path"])
     assert backup.is_dir()
     assert (backup / "v1.txt").read_text(encoding="utf-8") == "v1\n"
     assert marker_path("force-ch").is_file()
@@ -4086,3 +4087,251 @@ async def test_uninstall_teardown_does_not_block_event_loop(
     assert gaps
     assert min(gaps) < 0.05
     assert not dest.exists()
+
+
+def _assert_old_plugin_copy_survives(
+    plugin_id: str,
+    target: Path,
+    old_text: str,
+    incoming_text: str,
+) -> None:
+    backup = None
+    path = marker_path(plugin_id)
+    if path.is_file():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        raw = str(data.get("backup_path") or "").strip()
+        if raw:
+            backup = Path(raw)
+    copies = []
+    if target.exists() and (target / "main.py").is_file():
+        copies.append((target / "main.py").read_text(encoding="utf-8"))
+    if (
+        backup is not None
+        and backup.exists()
+        and (backup / "main.py").is_file()
+    ):
+        copies.append((backup / "main.py").read_text(encoding="utf-8"))
+    assert old_text in copies
+    backup_gone = backup is None or not backup.exists()
+    if backup_gone:
+        assert target.exists()
+        assert (target / "main.py").read_text(encoding="utf-8") == old_text
+        assert (target / "main.py").read_text(
+            encoding="utf-8",
+        ) != incoming_text
+
+
+@pytest.mark.asyncio
+async def test_occupied_swap_retry_keeps_old_backup(
+    tmp_path: Path,
+    fresh_registry,
+    monkeypatch,
+):
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    loader, _workspace, installed = await _load(
+        tmp_path,
+        fresh_registry,
+        "busy-retry",
+        "pass",
+    )
+    old_text = (installed / "main.py").read_text(encoding="utf-8")
+    incoming = _write_plugin(
+        tmp_path / "incoming-busy-retry",
+        "busy-retry",
+        body="api.register_slash_command('next', lambda c, a: None)",
+    )
+    incoming_text = (incoming / "main.py").read_text(encoding="utf-8")
+    moves = {"n": 0}
+    real_move = shutil.move
+
+    def _move(src, dst, *args, **kwargs):
+        moves["n"] += 1
+        if moves["n"] >= 2:
+            raise PermissionError("file in use")
+        return real_move(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr("qwenpaw.plugins.loader.shutil.move", _move)
+    report = await loader.reload_plugin_unlocked(
+        "busy-retry",
+        new_source=incoming,
+        allow_install=False,
+        owns_dependency_env=True,
+    )
+    assert not report.ok
+    assert report.needs_restart
+    assert marker_path("busy-retry").is_file()
+    _assert_old_plugin_copy_survives(
+        "busy-retry",
+        installed,
+        old_text,
+        incoming_text,
+    )
+
+    with pytest.raises(RuntimeError, match="restart required"):
+        await loader.load_plugin_from_path(incoming, force=True)
+    _assert_old_plugin_copy_survives(
+        "busy-retry",
+        installed,
+        old_text,
+        incoming_text,
+    )
+
+
+@pytest.mark.asyncio
+async def test_provision_migrate_retry_keeps_backup(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from qwenpaw.plugins import provision as provision_mod
+
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    dest = tmp_path / "skill-keep"
+    factory_v1 = tmp_path / "factory-v1"
+    factory_v1.mkdir()
+    (factory_v1 / "note.md").write_text("OLD\n", encoding="utf-8")
+    assert provision_files("mig-keep", factory_v1, dest, "1.0.0") == "create"
+    assert dest.exists()
+    factory_v2 = tmp_path / "factory-v2"
+    factory_v2.mkdir()
+    (factory_v2 / "note.md").write_text("NEW\n", encoding="utf-8")
+    real_apply = provision_mod._apply_factory_copy
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("copy boom")
+
+    monkeypatch.setattr(provision_mod, "_apply_factory_copy", _boom)
+    with pytest.raises(RuntimeError, match="copy boom"):
+        provision_files("mig-keep", factory_v2, dest, "2.0.0")
+    loc = (load_inventory("mig-keep").get("locations") or {}).get(str(dest))
+    assert loc is not None
+    first_backup = Path(loc["migrating"]["backup_path"])
+    assert first_backup.exists()
+    assert (first_backup / "note.md").read_text(encoding="utf-8") == "OLD\n"
+    with pytest.raises(RuntimeError, match="copy boom"):
+        provision_files("mig-keep", factory_v2, dest, "2.0.0")
+    loc2 = (load_inventory("mig-keep").get("locations") or {}).get(str(dest))
+    assert loc2 is not None
+    second_backup = Path(loc2["migrating"]["backup_path"])
+    assert second_backup.exists()
+    assert second_backup == first_backup
+    assert (second_backup / "note.md").read_text(encoding="utf-8") == "OLD\n"
+    monkeypatch.setattr(provision_mod, "_apply_factory_copy", real_apply)
+
+
+@pytest.mark.asyncio
+async def test_boot_recover_is_fail_soft_on_occupied_update(
+    tmp_path: Path,
+    fresh_registry,
+    monkeypatch,
+):
+    from qwenpaw.plugins import updates as updates_mod
+    from qwenpaw.plugins.safe_fs import safe_remove as real_safe_remove
+
+    work = tmp_path / "work"
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", work)
+    plugins = tmp_path / "plugins"
+    backups = tmp_path / "backups"
+    backups.mkdir()
+    _write_plugin(plugins / "occ", "occ")
+    _write_plugin(plugins / "ok", "ok")
+    _write_plugin(plugins / "fresh", "fresh")
+    occ_target = plugins / "occ"
+    ok_target = plugins / "ok"
+    (occ_target / "main.py").write_text("OCC-NEW\n", encoding="utf-8")
+    (ok_target / "main.py").write_text("OK-NEW\n", encoding="utf-8")
+    occ_backup = backups / "occ.bak"
+    ok_backup = backups / "ok.bak"
+    shutil.copytree(occ_target, occ_backup)
+    shutil.copytree(ok_target, ok_backup)
+    (occ_backup / "main.py").write_text("OCC-OLD\n", encoding="utf-8")
+    (ok_backup / "main.py").write_text("OK-OLD\n", encoding="utf-8")
+    write_updating_marker(
+        "occ",
+        backup_path=occ_backup,
+        target_path=occ_target,
+    )
+    write_updating_marker(
+        "ok",
+        backup_path=ok_backup,
+        target_path=ok_target,
+    )
+
+    def _blocked(path, purpose="delete"):
+        if Path(path).resolve() == occ_target.resolve():
+            raise PermissionError("target locked")
+        return real_safe_remove(path, purpose=purpose)
+
+    monkeypatch.setattr(updates_mod, "safe_remove", _blocked)
+    loader = PluginLoader(plugin_dirs=[plugins])
+    loader.registry = fresh_registry
+    loaded = await loader.load_all_plugins(activate=True)
+    assert marker_path("occ").is_file()
+    assert occ_backup.exists()
+    assert (occ_backup / "main.py").read_text(encoding="utf-8") == "OCC-OLD\n"
+    assert (ok_target / "main.py").read_text(encoding="utf-8") == "OK-OLD\n"
+    assert not ok_backup.exists()
+    assert "fresh" in loaded
+    assert "ok" in loaded
+
+
+def test_recover_migrating_is_fail_soft_on_occupied_dest(
+    tmp_path: Path,
+    monkeypatch,
+):
+    from qwenpaw.plugins import provision as provision_mod
+
+    monkeypatch.setattr("qwenpaw.constant.WORKING_DIR", tmp_path / "work")
+    dest_a = tmp_path / "dest-a"
+    dest_b = tmp_path / "dest-b"
+    bak_a = tmp_path / "dest-a.bak"
+    bak_b = tmp_path / "dest-b.bak"
+    dest_a.mkdir()
+    dest_b.mkdir()
+    bak_a.mkdir()
+    bak_b.mkdir()
+    (dest_a / "note.md").write_text("NEW-A\n", encoding="utf-8")
+    (dest_b / "note.md").write_text("NEW-B\n", encoding="utf-8")
+    (bak_a / "note.md").write_text("OLD-A\n", encoding="utf-8")
+    (bak_b / "note.md").write_text("OLD-B\n", encoding="utf-8")
+    for plugin_id, dest, backup in (
+        ("p-occ", dest_a, bak_a),
+        ("p-ok", dest_b, bak_b),
+    ):
+        save_inventory(
+            plugin_id,
+            {
+                "plugin_id": plugin_id,
+                "locations": {
+                    str(dest): {
+                        "src": str(dest),
+                        "version": "2.0.0",
+                        "owned": True,
+                        "files": {},
+                        "migrating": {
+                            "status": "prepared",
+                            "backup_path": str(backup),
+                            "prev_version": "1.0.0",
+                            "prev_factory_hashes": {},
+                        },
+                    },
+                },
+                "tools": {},
+                "provisions": [],
+            },
+        )
+    real_remove = provision_mod._remove_path
+
+    def _blocked(path):
+        if path is not None and Path(path).resolve() == dest_a.resolve():
+            raise PermissionError("dest locked")
+        return real_remove(path)
+
+    monkeypatch.setattr(provision_mod, "_remove_path", _blocked)
+    recovered = recover_migrating_inventory()
+    assert "p-ok" in recovered
+    assert "p-occ" not in recovered
+    assert (bak_a / "note.md").read_text(encoding="utf-8") == "OLD-A\n"
+    assert (dest_b / "note.md").read_text(encoding="utf-8") == "OLD-B\n"
+    loc = (load_inventory("p-occ").get("locations") or {}).get(str(dest_a))
+    assert loc is not None
+    assert Path(loc["migrating"]["backup_path"]) == bak_a
