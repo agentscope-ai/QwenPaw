@@ -96,16 +96,20 @@ describe("Sidebar overflow layout", () => {
     expect(sidebarSource).not.toContain("sidebar.collapseShortcuts");
   });
 
-  it("renders inbox and all other shortcuts in one scroll region", () => {
+  it("keeps model navigation outside the secondary shortcut scroll region", () => {
     const scrollStart = sidebarSource.indexOf("ref={navScrollRef}");
     const scrollRegion = sidebarSource.slice(
       scrollStart,
-      sidebarSource.indexOf("{/* Session list", scrollStart),
+      sidebarSource.indexOf("{modelNav.map(renderNavItem)}", scrollStart),
     );
 
     expect(scrollStart).toBeGreaterThanOrEqual(0);
     expect(scrollRegion).toContain("inboxEntry &&");
-    expect(scrollRegion).toContain("visibleSidebarNav.map(renderNavItem)");
+    expect(scrollRegion).toContain("secondaryNav.map((entry, index)");
+    expect(scrollRegion).not.toContain("modelNav.map(renderNavItem)");
+    expect(
+      sidebarSource.indexOf("{modelNav.map(renderNavItem)}", scrollStart),
+    ).toBeGreaterThan(scrollStart);
   });
 
   it("pins the expanded new-task button directly above inbox shortcuts", () => {

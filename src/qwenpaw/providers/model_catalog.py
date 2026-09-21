@@ -40,7 +40,8 @@ class CatalogProvider(BaseModel):
     api_urls: list[str] = Field(default_factory=list)
     remote_id: str | None = None
     protocols: dict[
-        str, Literal["chat", "responses", "anthropic", "gemini"]
+        str,
+        Literal["chat", "responses", "anthropic", "gemini"],
     ] = Field(default_factory=dict)
     template_owner: bool = False
     template_model_ids: list[str] | None = None
@@ -62,7 +63,7 @@ class CatalogDocument(BaseModel):
 
 
 @lru_cache(maxsize=64)
-def _read_json(path: Path, modified: int) -> dict:
+def _read_json(path: Path, _modified: int) -> dict:
     """Cache one immutable-on-disk catalog revision."""
     return json.loads(path.read_text(encoding=f"utf-8"))
 
@@ -100,7 +101,7 @@ def _read_document(
 
 
 @lru_cache(maxsize=64)
-def _read_shard(path: Path, modified: int, digest: str) -> dict:
+def _read_shard(path: Path, _modified: int, digest: str) -> dict:
     """Verify each provider shard once per revision."""
     payload = path.read_bytes()
     verify_catalog_hash(payload, digest, label=f"Provider shard")
@@ -133,12 +134,16 @@ def matching_catalog_keys(
                     for model in entry.get(f"models", [])
                     if entry.get(f"template_owner")
                 ]
-            if (
-                key == provider_id
-                or endpoint in entry.get(f"api_urls", [])
-                or (template_id and template_id.split(f"/", 1)[0] == key)
-                or (not template_id and model_id in templates)
-            ):
+            service_match = key == provider_id or endpoint in entry.get(
+                f"api_urls",
+                [],
+            )
+            template_match = (
+                template_id.split(f"/", 1)[0] == key
+                if template_id
+                else model_id in templates
+            )
+            if service_match or template_match:
                 keys.add(key)
     return tuple(sorted(keys))
 
@@ -416,10 +421,7 @@ def _download_document(payload: bytes, url: str, timeout: float):
         relative = entry[f"path"]
         parts = urlsplit(relative)
         if (
-            parts.scheme
-            or parts.netloc
-            or parts.query
-            or parts.fragment
+            any((parts.scheme, parts.netloc, parts.query, parts.fragment))
             or relative.startswith(f"/")
             or f"\\" in relative
             or f".." in relative.split(f"/")
@@ -488,7 +490,7 @@ def catalog_payload(
 @lru_cache(maxsize=128)
 def read_catalog_cached(
     path: Path,
-    modified: int,
+    _modified: int,
     provider_ids: tuple[str, ...] | None = None,
 ) -> CatalogDocument:
     """Read a validated document once per on-disk revision."""
@@ -534,6 +536,8 @@ METADATA_ENABLED_ENV = f"QWENPAW_MODEL_METADATA_ENABLED"
 METADATA_REFRESH_INTERVAL = 24 * 60 * 60
 
 
+# Keep metadata ingestion gates adjacent to their provenance updates.
+# pylint: disable-next=too-many-branches,too-many-statements
 def update_model_metadata(timeout: float = 10) -> None:
     """Refresh public metadata in the same schema as the packaged catalog."""
     destination = METADATA_CACHE_PATH
@@ -608,7 +612,7 @@ def update_model_metadata(timeout: float = 10) -> None:
                         name=model_id,
                         capability_provenance=provenance,
                         **fields,
-                    )
+                    ),
                 )
         if models:
             providers[key] = provider.model_copy(
@@ -620,7 +624,7 @@ def update_model_metadata(timeout: float = 10) -> None:
                         if provider.template_families
                         else provider.template_model_ids
                     ),
-                }
+                },
             )
     if not providers:
         raise ValueError(f"Remote catalog contains no model limits")

@@ -52,7 +52,7 @@ def model_metadata(
                             source,
                             reference,
                             document.published_at,
-                        )
+                        ),
                     )
                 eligible_template = provider.template_owner and (
                     provider.template_model_ids is None
@@ -69,7 +69,7 @@ def model_metadata(
                             f"template",
                             reference,
                             document.published_at,
-                        )
+                        ),
                     )
     # A name shared by multiple owners is ambiguous, never first-match wins.
     template_matches = (
@@ -101,7 +101,8 @@ def list_model_templates() -> list[dict[str, str]]:
 
 
 def provider_catalog_models(
-    provider_id: str, base_url: str
+    provider_id: str,
+    base_url: str,
 ) -> list[ModelInfo]:
     """Load the complete service shard for its candidate pool."""
     endpoint = base_url.rstrip(f"/")

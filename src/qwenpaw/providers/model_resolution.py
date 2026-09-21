@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Provider companion modules share ownership of runtime-only state.
+# pylint: disable=protected-access
 """Resolve token capabilities once for UI and runtime consumers."""
 
 from __future__ import annotations
@@ -15,6 +17,8 @@ if TYPE_CHECKING:
     from .provider import Provider
 
 
+# Keep the supported protocol cases together for review.
+# pylint: disable-next=too-many-branches,too-many-statements
 def resolve_model_info(
     provider: Provider,
     model: ModelInfo,
@@ -128,17 +132,17 @@ def resolve_model_info(
         f"released_at",
         f"thinking_control",
     ):
+        catalog_owned = all(
+            (
+                field != f"released_at",
+                field not in result.config_overrides,
+                result.probe_source != f"probed",
+                result.source != f"discovered"
+                or result.probe_source == f"documentation",
+            ),
+        )
         if field in catalog_values and (
-            getattr(result, field) is None
-            or (
-                field != f"released_at"
-                and field not in result.config_overrides
-                and result.probe_source != f"probed"
-                and (
-                    result.source != f"discovered"
-                    or result.probe_source == f"documentation"
-                )
-            )
+            getattr(result, field) is None or catalog_owned
         ):
             setattr(result, field, catalog_values[field])
     # Endpoint evidence wins over cards, including an explicit paid change.
@@ -201,7 +205,9 @@ def resolve_model_info(
         result.supports_multimodal = (
             True
             if True in modalities
-            else False if all(value is False for value in modalities) else None
+            else False
+            if all(value is False for value in modalities)
+            else None
         )
     if result.input_token_limit is not None:
         result.automatic_max_input_length = min(

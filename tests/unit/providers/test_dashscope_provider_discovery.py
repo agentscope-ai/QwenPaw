@@ -34,7 +34,8 @@ async def test_dashscope_fetch_models_filters_non_chat_entries(
         response.raise_for_status()
 
     monkeypatch.setattr(
-        f"qwenpaw.providers.dashscope_provider.fetch_directory", unavailable
+        f"qwenpaw.providers.dashscope_provider.fetch_directory",
+        unavailable,
     )
 
     async def fetch_models(_self, timeout=5):
@@ -79,7 +80,7 @@ async def test_native_directory_paginates_and_reads_capabilities(monkeypatch):
                                 f"context_window": 1000000,
                                 f"max_output_tokens": 32000,
                             },
-                        }
+                        },
                     ],
                 },
             },
@@ -87,10 +88,14 @@ async def test_native_directory_paginates_and_reads_capabilities(monkeypatch):
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     monkeypatch.setattr(
-        dashscope_discovery.httpx, f"AsyncClient", lambda **kwargs: client
+        dashscope_discovery.httpx,
+        f"AsyncClient",
+        lambda **kwargs: client,
     )
     cards = await dashscope_discovery.fetch_directory(
-        f"https://dashscope.aliyuncs.com/api/v1/models", {}, 5
+        f"https://dashscope.aliyuncs.com/api/v1/models",
+        {},
+        5,
     )
     assert len(requests) == 2
     assert [card.id for card in cards] == [f"chat-1", f"chat-2"]
@@ -111,16 +116,20 @@ async def test_native_directory_rejects_partial_pagination(monkeypatch):
                 f"output": {
                     f"total": 2,
                     f"models": [{f"model": f"first"}] if page == 1 else [],
-                }
+                },
             },
         )
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
     monkeypatch.setattr(
-        dashscope_discovery.httpx, f"AsyncClient", lambda **kwargs: client
+        dashscope_discovery.httpx,
+        f"AsyncClient",
+        lambda **kwargs: client,
     )
     with pytest.raises(ValueError, match=f"incomplete"):
         await dashscope_discovery.fetch_directory(
-            f"https://dashscope.aliyuncs.com/api/v1/models", {}, 5
+            f"https://dashscope.aliyuncs.com/api/v1/models",
+            {},
+            5,
         )
     assert client.is_closed

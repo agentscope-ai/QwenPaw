@@ -57,6 +57,8 @@ def model_ranking(model_id: str | None) -> RankingEvidence | None:
     )
 
 
+# Independent eligibility gates keep the first rejection reason stable.
+# pylint: disable-next=too-many-return-statements
 def recommend(
     ranking_id: str | None,
     billing: Literal["free", "paid", "unknown"],

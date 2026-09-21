@@ -47,6 +47,8 @@ def classify_status(status: int) -> str:
     return f"request_rejected"
 
 
+# Keep the supported protocol cases together for review.
+# pylint: disable-next=too-many-branches,too-many-statements
 def check(client: httpx.Client, pins: list[dict], *, generate: bool) -> list:
     """Use exact pins, zero retries and one shared generation budget."""
     results = []
@@ -80,7 +82,7 @@ def check(client: httpx.Client, pins: list[dict], *, generate: bool) -> list:
             shard = (
                 ROOT / f"src/qwenpaw/providers/data/providers/{provider}.json"
             )
-            baseline = json.loads(shard.read_text())
+            baseline = json.loads(shard.read_text(encoding=f"utf-8"))
             known = {model[f"id"] for model in baseline[f"models"]}
             result[f"added"] = sorted(ids - known)
             result[f"missing"] = sorted(known - ids)
@@ -153,7 +155,7 @@ def main() -> None:
     parser.add_argument(f"--generate", action=f"store_true")
     parser.add_argument(f"--output", type=Path, required=True)
     args = parser.parse_args()
-    pins = json.loads(PINS.read_text())[f"pins"]
+    pins = json.loads(PINS.read_text(encoding=f"utf-8"))[f"pins"]
     offset = int(os.environ.get(f"GITHUB_RUN_NUMBER", f"0")) % len(pins)
     pins = pins[offset:] + pins[:offset]
     with httpx.Client(timeout=20, follow_redirects=False) as client:

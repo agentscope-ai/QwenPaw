@@ -569,7 +569,7 @@ class OpenAIProvider(Provider):
                     gen_kwargs.get(
                         f"enable_prompt_cache_breakpoint",
                         False,
-                    )
+                    ),
                 ),
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),
@@ -1015,6 +1015,6 @@ class KiloProvider(_FreeSuffixProviderMixin, OpenAIProvider):
     _FREE_SUFFIX: ClassVar[str] = ":free"
     session_header_name: ClassVar[str | None] = f"X-KiloCode-TaskId"
     cache_modes: ClassVar[frozenset[str]] = frozenset({f"implicit"})
-    cache_documentation: ClassVar[str | None] = (
-        f"https://kilo.ai/docs/gateway/authentication"
-    )
+    cache_documentation: ClassVar[
+        str | None
+    ] = f"https://kilo.ai/docs/gateway/authentication"

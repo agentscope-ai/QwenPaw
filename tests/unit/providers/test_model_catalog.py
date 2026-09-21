@@ -197,7 +197,7 @@ def test_catalog_rejects_legacy_output_limit() -> None:
                                 "name": "Legacy Model",
                                 "max_tokens": 8192,
                             },
-                        ]
+                        ],
                     },
                 },
             },
@@ -216,7 +216,7 @@ def test_packaged_catalog_uses_explicit_output_capabilities() -> None:
         for model in json.loads(
             (
                 model_catalog.PACKAGED_CATALOG_PATH.parent / models[f"path"]
-            ).read_text()
+            ).read_text(),
         )[f"models"]
     )
     assert all(

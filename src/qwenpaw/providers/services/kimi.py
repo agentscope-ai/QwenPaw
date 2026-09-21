@@ -10,6 +10,6 @@ class KimiProvider(OpenAIProvider):
     """Keep service-specific policy separate from wire protocol support."""
 
     cache_modes: ClassVar[frozenset[str]] = frozenset()
-    cache_documentation: ClassVar[str | None] = (
-        f"https://platform.moonshot.ai/docs/guide/automatic-context-caching"
-    )
+    cache_documentation: ClassVar[
+        str | None
+    ] = f"https://platform.moonshot.ai/docs/guide/automatic-context-caching"

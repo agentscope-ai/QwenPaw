@@ -447,8 +447,7 @@ class ConsoleChannel(BaseChannel):
                             f"estimated_tokens": tokens,
                             f"max_input_length": limit,
                             f"context_usage_ratio": (
-                                min(tokens / limit * 100, 100)
-                                if limit else 0
+                                min(tokens / limit * 100, 100) if limit else 0
                             ),
                         },
                     }

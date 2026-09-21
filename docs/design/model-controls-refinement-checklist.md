@@ -38,3 +38,30 @@ pre-commit 的 AST、mypy、flake8 等检查通过；pylint 仍报告现有风�
 - DeepSeek V4 Pro / Flash：high、max；Pro-0813 / Flash-0731 / V4.1-Flash：low、high、max，允许关闭。
 - GLM 5 / 5.1 / 5.2：high、max；GLM 5.3：low、high、max，不能关闭；Kimi K3：low、high、max，允许关闭。
 - 仅更新已核实的服务与确切型号，不将三方转发型号的能力按名称猜测继承。
+
+PR 全量检查与发布：
+
+- [x] 完整前端测试：414 个文件、4480 项通过。
+- [x] 前端 TypeScript / Prettier 与生产构建通过。
+- [x] 模型相关后端回归：1033 项通过、1 项跳过。
+- [x] ESLint 对照：基线 382 个错误，当前 380 个，新增 0 个；全量命令仍未通过。
+- [x] 全量 pre-commit 在最终文件状态下通过（退出码 0）。
+- [ ] 确认历史 ESLint 错误处理范围后提交、推送并转正式 PR。
+
+Lint 规则说明：AGENTS.md 要求使用 f-string，故明确豁免 W1309。pytest fixture / 白盒测试和集中协议映射使用局部、附带原因的 pylint 例外；未关闭其他错误检查。
+
+### Slider alignment and live numeric feedback
+
+- [x] Center tick dots and thumb on the enlarged rail, including endpoints.
+- [x] Snap effort sliders only to declared model levels; retain continuous budget and separate off position.
+- [x] Use NumberFlow for live budget digits with reduced-motion support; persist on release.
+- [x] Let arrow keys cross the off/budget gap in one step.
+- [x] Verify mouse reversal, touch snapping, keyboard endpoints/gap and reduced motion in an isolated browser fixture.
+- [x] Re-run full frontend suite: 414 files / 4,480 tests passed; TypeScript, Prettier, production build and changed-file pre-commit passed. Slider ESLint: zero errors, one existing hook-dependency warning.
+
+### Commit and model-card-tilt integration
+
+- [x] User authorized committing and pushing current changes with the recorded historical ESLint baseline.
+- [ ] Commit and push current slider and validation fixes.
+- [ ] Merge feat/model-card-tilt into the current branch.
+- [ ] Verify merged frontend and push the integration.

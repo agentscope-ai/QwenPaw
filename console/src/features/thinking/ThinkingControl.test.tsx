@@ -54,6 +54,10 @@ describe("ThinkingControl", () => {
       />,
     );
     const slider = screen.getByRole("slider");
+    fireEvent.keyDown(slider, { key: "ArrowRight", keyCode: 39 });
+    fireEvent.keyUp(slider, { key: "ArrowRight", keyCode: 39 });
+    expect(changed).toHaveBeenLastCalledWith({ level: "high" });
+    expect(slider).toHaveAttribute("aria-valuetext", "thinkingControl.high");
     fireEvent.keyDown(slider, { key: "End", keyCode: 35 });
     fireEvent.keyUp(slider, { key: "End", keyCode: 35 });
     expect(changed).toHaveBeenLastCalledWith({ level: "max" });

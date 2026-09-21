@@ -29,7 +29,9 @@ from .model_billing import (
     classify_pricing,
     normalize_pricing,
 )
-from .model_info import ExtendedModelInfo as ExtendedModelInfo
+
+# Public re-export retained for provider extensions.
+from .model_info import ExtendedModelInfo  # pylint: disable=unused-import
 from .model_info import ModelInfo
 from .model_resolution import resolve_model_info
 from .model_ranking import Recommendation, recommend
@@ -351,6 +353,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
     def configuration_snapshot(self) -> Provider:
         """Copy validated configuration without live clients or locks."""
         snapshot = type(self).model_validate(self.model_dump())
+        # Copy another instance of the same provider's runtime identity.
+        # pylint: disable-next=protected-access
         snapshot._request_session = self._request_session
         return snapshot
 
@@ -359,6 +363,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def model_protocol(self, model_id: str) -> str:
         """Return this service's protocol for one model."""
+        del model_id
         return self.wire_protocol
 
     def request_url(self, model_id: str) -> str:
@@ -367,6 +372,7 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
 
     def cache_capabilities(self, model_id: str) -> frozenset[str]:
         """Require a verified service, not just a compatible wire format."""
+        del model_id
         return self.cache_modes
 
     def prepare_request(
@@ -844,6 +850,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         """Whether this model card declares a usable control surface."""
         return self.thinking_control(model_id).kind in {f"effort", f"budget"}
 
+    # Keep the supported protocol cases together for review.
+    # pylint: disable-next=too-many-branches
     def get_agent_thinking_kwargs(
         self,
         model_id: str,
@@ -1062,6 +1070,8 @@ class Provider(ProviderInfo, ABC):  # pylint: disable=too-many-public-methods
         if level != "off":
             effective["reasoning_effort"] = level
 
+    # Keep the supported protocol cases together for review.
+    # pylint: disable-next=too-many-statements
     def update_model_config(  # pylint: disable=too-many-branches
         self,
         model_id: str,

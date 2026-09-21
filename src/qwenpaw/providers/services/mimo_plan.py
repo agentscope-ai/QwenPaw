@@ -10,6 +10,6 @@ class MiMoPlanProvider(OpenAIProvider):
     """Keep service-specific policy separate from wire protocol support."""
 
     cache_modes: ClassVar[frozenset[str]] = frozenset([])
-    cache_documentation: ClassVar[str | None] = (
-        f"https://platform.xiaomimimo.com/"
-    )
+    cache_documentation: ClassVar[
+        str | None
+    ] = f"https://platform.xiaomimimo.com/"

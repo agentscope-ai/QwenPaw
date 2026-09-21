@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access,unused-argument
 """Cross-cutting model platform contracts."""
 
 import asyncio
@@ -108,7 +110,9 @@ def test_cache_breakpoints_preserve_input_and_skip_dynamic_suffix():
 def test_cache_options_use_extra_body_and_do_not_leak_protocol():
     options = {f"prompt_cache_options": {f"mode": f"explicit"}}
     result = cache_request(
-        options, f"responses", frozenset({f"openai_explicit"})
+        options,
+        f"responses",
+        frozenset({f"openai_explicit"}),
     )
     assert result == {f"extra_body": options}
     with pytest.raises(ValueError):
@@ -134,7 +138,7 @@ def test_atomic_shard_update_and_new_template_lookup(tmp_path, monkeypatch):
             f"new-vendor": model_catalog.CatalogProvider(
                 template_owner=True,
                 models=[ModelInfo(id=f"new-model", name=f"New")],
-            )
+            ),
         },
     )
     model_catalog.install_catalog_document(document, destination)
@@ -169,7 +173,8 @@ def test_atomic_shard_update_and_new_template_lookup(tmp_path, monkeypatch):
     ],
 )
 def test_opencode_uses_native_protocol_without_losing_session(
-    model_id, protocol
+    model_id,
+    protocol,
 ):
     provider = OpenCodeProvider(
         id=f"opencode",
@@ -220,7 +225,7 @@ async def test_deepseek_nonstream_cache_header_is_request_local():
                         f"index": 0,
                         f"message": {f"role": f"assistant", f"content": f"OK"},
                         f"finish_reason": f"stop",
-                    }
+                    },
                 ],
                 f"usage": {
                     f"prompt_tokens": 12,
@@ -232,11 +237,12 @@ async def test_deepseek_nonstream_cache_header_is_request_local():
         )
 
     async with httpx.AsyncClient(
-        transport=httpx.MockTransport(handler)
+        transport=httpx.MockTransport(handler),
     ) as client:
         model = OpenAIChatModelCompat(
             credential=OpenAICredential(
-                api_key=f"test", base_url=f"https://example.test"
+                api_key=f"test",
+                base_url=f"https://example.test",
             ),
             model=f"deepseek-chat",
             stream=False,
@@ -249,8 +255,8 @@ async def test_deepseek_nonstream_cache_header_is_request_local():
                     name=f"user",
                     content=[{f"type": f"text", f"text": f"hi"}],
                     role=f"user",
-                )
-            ]
+                ),
+            ],
         )
     assert response.usage.cache_input_tokens == 10
     assert response.usage.metadata[f"provider_cache_status"] == f"hit"

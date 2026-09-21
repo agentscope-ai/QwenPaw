@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access
 """Provider pricing hooks and manual fallback provenance."""
 
 from types import SimpleNamespace

@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Provider companion modules share ownership of runtime-only state.
+# pylint: disable=protected-access
 """Persistence and migration operations for ProviderManager."""
 
 import asyncio
@@ -349,7 +351,9 @@ class ProviderManagerPersistenceMixin(
     ) -> None:
         """Replace runtime instances only after configuration is saved."""
         current = await run_sync_io(
-            self._install_provider_snapshot, provider_id, snapshot
+            self._install_provider_snapshot,
+            provider_id,
+            snapshot,
         )
         if current is not None:
             try:

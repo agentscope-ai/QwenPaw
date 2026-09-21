@@ -10,6 +10,6 @@ class ZhipuProvider(OpenAIProvider):
     """Keep service-specific policy separate from wire protocol support."""
 
     cache_modes: ClassVar[frozenset[str]] = frozenset([f"implicit"])
-    cache_documentation: ClassVar[str | None] = (
-        f"https://docs.z.ai/guides/capabilities/cache"
-    )
+    cache_documentation: ClassVar[
+        str | None
+    ] = f"https://docs.z.ai/guides/capabilities/cache"

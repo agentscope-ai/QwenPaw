@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Provider companion modules share ownership of runtime-only state.
+# pylint: disable=protected-access
 """Paginated views of resolved provider model cards."""
 
 from __future__ import annotations
@@ -20,7 +22,12 @@ class ModelPoolQuery(BaseModel):
     search: str = f""
     billing: Literal["all", "free", "paid", "unknown", "pro"] = f"all"
     capability: Literal[
-        "all", "image", "audio", "video", "tool_calling", "unknown"
+        "all",
+        "image",
+        "audio",
+        "video",
+        "tool_calling",
+        "unknown",
     ] = f"all"
     multimodal: bool = False
     tools: bool = False
@@ -43,7 +50,8 @@ class ModelPoolPage(BaseModel):
 
 
 def model_pool_page(
-    provider: Provider, query: ModelPoolQuery
+    provider: Provider,
+    query: ModelPoolQuery,
 ) -> ModelPoolPage:
     """Resolve once per provider revision; filter before slicing a page."""
     if provider._resolved_pool is None:
@@ -64,6 +72,8 @@ def model_pool_page(
     selected_count = sum(card.id in selected for card in cards)
     search = query.search.strip().casefold()
 
+    # Each independent filter rejects without altering other filter semantics.
+    # pylint: disable-next=too-many-return-statements
     def matches(card: ModelInfo) -> bool:
         if query.tab != f"all" and (
             (card.id in selected) != (query.tab == f"selected")
@@ -74,7 +84,7 @@ def model_pool_page(
         if query.billing == f"pro":
             if card.billing == f"free":
                 return False
-        elif query.billing != f"all" and card.billing != query.billing:
+        elif query.billing not in {f"all", card.billing}:
             return False
         if query.multimodal and not any(
             value is True
@@ -97,17 +107,14 @@ def model_pool_page(
         elif query.capability != f"all":
             if getattr(card, f"supports_{query.capability}") is not True:
                 return False
-        if query.availability != f"all" and (
-            card.availability_status != query.availability
-        ):
+        if query.availability not in {f"all", card.availability_status}:
             return False
-        return query.family == f"all" or (
-            card.id.split(f"/", 1)[0] == query.family
-        )
+        return query.family in {f"all", card.id.split(f"/", 1)[0]}
 
     filtered = [card for card in cards if matches(card)]
     offset = min(
-        query.offset, max(0, (len(filtered) - 1) // query.limit) * query.limit
+        query.offset,
+        max(0, (len(filtered) - 1) // query.limit) * query.limit,
     )
     return ModelPoolPage(
         models=filtered[offset : offset + query.limit],
@@ -115,7 +122,7 @@ def model_pool_page(
         selected_count=selected_count,
         candidate_count=len(cards) - selected_count,
         families=sorted(
-            {card.id.split(f"/", 1)[0] for card in cards if f"/" in card.id}
+            {card.id.split(f"/", 1)[0] for card in cards if f"/" in card.id},
         ),
         offset=offset,
         limit=query.limit,

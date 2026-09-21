@@ -79,6 +79,8 @@ class ThinkingControl(BaseModel):
         return self
 
 
+# Each control type returns its own explicit incompatibility reason.
+# pylint: disable-next=too-many-return-statements
 def resolve_thinking(
     preference: ThinkingPreference,
     control: ThinkingControl,

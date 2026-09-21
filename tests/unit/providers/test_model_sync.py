@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access,unused-argument
 """End-to-end discovery policy tests using isolated provider storage."""
 
 from datetime import datetime, timedelta, timezone
@@ -79,7 +81,9 @@ async def test_removed_free_model_does_not_return_after_sync_or_restart(
         supports_tool_calling=True,
     )
     monkeypatch.setattr(
-        OpenRouterProvider, f"fetch_models", AsyncMock(return_value=[remote])
+        OpenRouterProvider,
+        f"fetch_models",
+        AsyncMock(return_value=[remote]),
     )
     await manager.discover_provider_models(provider.id)
     await manager.delete_model_from_provider(provider.id, remote.id)
@@ -181,7 +185,7 @@ async def test_curated_free_model_cannot_silently_become_paid(
             billing=f"free",
             ranking_id=f"z-ai/glm-5.3-flash",
             supports_tool_calling=True,
-        )
+        ),
     ]
     remote = ModelInfo(
         id=f"curated-free",

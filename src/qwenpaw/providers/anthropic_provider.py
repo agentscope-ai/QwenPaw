@@ -148,7 +148,7 @@ class AnthropicProvider(Provider):
             metadata: dict[str, Any] = {
                 **cls.parse_model_pricing(row),
                 f"released_at": release_date(
-                    getattr(row, f"created_at", None)
+                    getattr(row, f"created_at", None),
                 ),
             }
             context_window = getattr(row, f"max_input_tokens", None)
@@ -157,7 +157,7 @@ class AnthropicProvider(Provider):
                 and context_window >= 1000
             ):
                 metadata[f"max_input_length_auto_detected"] = int(
-                    context_window
+                    context_window,
                 )
                 metadata[f"input_token_limit"] = int(context_window)
                 metadata[f"input_token_limit_source"] = f"api"
@@ -293,7 +293,9 @@ class AnthropicProvider(Provider):
                 error_kind=(
                     "permission_denied"
                     if status in (401, 403)
-                    else "model_not_found" if status == 404 else None
+                    else "model_not_found"
+                    if status == 404
+                    else None
                 ),
             )
         except Exception as exc:
@@ -320,7 +322,7 @@ class AnthropicProvider(Provider):
         max_tokens = default_output if max_tokens is None else max_tokens
         if output_cap and max_tokens > output_cap:
             raise ValueError(
-                f"Output limit exceeds model capacity {output_cap}"
+                f"Output limit exceeds model capacity {output_cap}",
             )
 
         params_kwargs: Dict[str, Any] = {"max_tokens": max_tokens}

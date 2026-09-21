@@ -52,15 +52,15 @@ class AnthropicModel(AnthropicChatModel):
         if self._qp_default_headers:
             client_kwargs["default_headers"] = self._qp_default_headers
         if self._qp_auth_mode == "auth_token":
-            client_kwargs["auth_token"] = (
-                self.credential.api_key.get_secret_value()
-            )
+            client_kwargs[
+                "auth_token"
+            ] = self.credential.api_key.get_secret_value()
             if self._qp_strip_http_client is not None:
                 client_kwargs["http_client"] = self._qp_strip_http_client
         else:
-            client_kwargs["api_key"] = (
-                self.credential.api_key.get_secret_value()
-            )
+            client_kwargs[
+                "api_key"
+            ] = self.credential.api_key.get_secret_value()
 
         self._qp_cached_client = anthropic.AsyncAnthropic(
             **client_kwargs,

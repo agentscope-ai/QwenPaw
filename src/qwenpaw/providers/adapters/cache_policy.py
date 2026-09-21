@@ -5,6 +5,8 @@ from copy import deepcopy
 from typing import Any
 
 
+# Keep the supported protocol cases together for review.
+# pylint: disable-next=too-many-branches
 def cache_request(
     kwargs: dict[str, Any],
     protocol: str,
@@ -68,7 +70,7 @@ def cache_request(
             {
                 f"openai",
                 f"openai_explicit",
-            }
+            },
         ):
             raise ValueError(f"Unsupported cache control: {name}")
     return result
@@ -87,7 +89,7 @@ def mark_stable_prefix(messages: list[dict], *, responses: bool) -> list:
                 {
                     f"type": f"input_text" if responses else f"text",
                     f"text": content,
-                }
+                },
             ]
             message[f"content"] = content
         for block in content or []:

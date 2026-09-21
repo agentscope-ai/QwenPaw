@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access
 """One pricing contract for APIs, cards, filters and provider badges."""
 
 from datetime import datetime, timedelta, timezone
@@ -52,8 +54,8 @@ def test_generic_discovery_preserves_api_prices():
             SimpleNamespace(
                 id=f"private-model",
                 pricing={f"prompt": f"0", f"completion": f"0"},
-            )
-        ]
+            ),
+        ],
     )
     model = OpenAIProvider._normalize_models_payload(payload)[0]
     assert model.billing == f"free"
@@ -89,7 +91,7 @@ def test_api_paid_price_overrides_free_catalog():
             billing=f"paid",
             billing_source=f"api",
             pricing={f"prompt": f"0.1", f"completion": f"0.2"},
-        )
+        ),
     ]
     card = provider.resolve_model_info(model_id)
     assert card.billing == f"paid"
@@ -120,7 +122,7 @@ async def test_provider_badges_ignore_static_free_flag():
             name=f"Free",
             billing=f"free",
             billing_source=f"api",
-        )
+        ),
     ]
     assert (await provider.get_info()).is_free_tier
 
@@ -147,7 +149,7 @@ def test_expired_api_promotion_is_unknown_in_pool_and_card():
                 billing_checked_at=(
                     datetime.now(timezone.utc) - timedelta(days=2)
                 ).isoformat(),
-            )
+            ),
         ],
     )
     assert provider.resolve_model_info(f"promo").billing == f"unknown"
@@ -178,7 +180,7 @@ def test_discount_is_not_a_usage_charge():
                 f"prompt": f"0",
                 f"completion": f"0",
                 f"discount": f"0.5",
-            }
+            },
         )
         == f"free"
     )
@@ -213,6 +215,6 @@ def test_updated_catalog_replaces_saved_catalog_billing():
             billing=f"free",
             is_free=True,
             billing_source=f"catalog",
-        )
+        ),
     ]
     assert provider.resolve_model_info(f"glm-4.7-flash").billing == f"paid"

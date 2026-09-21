@@ -67,7 +67,7 @@ def test_global_budget_and_zero_retries(monkeypatch, upstream_status):
                             },
                         }
                         for pin in pins
-                    ]
+                    ],
                 },
             )
         body = json.loads(request.content)
@@ -79,8 +79,8 @@ def test_global_budget_and_zero_retries(monkeypatch, upstream_status):
                     {
                         f"message": {f"content": f"OK"},
                         f"finish_reason": f"stop",
-                    }
-                ]
+                    },
+                ],
             },
         )
 
@@ -97,7 +97,7 @@ def test_missing_key_and_partial_catalog_never_generate(monkeypatch):
         monkeypatch.delenv(pin[f"secret"], raising=False)
     for partial in (True, False):
 
-        def handler(request):
+        def handler(request, partial=partial):
             assert request.method == f"GET"
             return httpx.Response(
                 200,

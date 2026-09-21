@@ -15,7 +15,12 @@ def read_selection(path: Path) -> dict:
 
 
 def update_selection(
-    path: Path, model_id: str, *, selected=None, seen=False, hidden=None
+    path: Path,
+    model_id: str,
+    *,
+    selected=None,
+    seen=False,
+    hidden=None,
 ) -> dict:
     """Atomically merge selection changes across concurrent requests."""
     with get_sync_path_lock(path):

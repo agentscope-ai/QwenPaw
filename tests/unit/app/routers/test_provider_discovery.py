@@ -346,7 +346,7 @@ async def test_custom_provider_creation_schedules_discovery():
     manager.get_provider.return_value = provider
     manager.get_provider_info = AsyncMock(return_value=info)
     manager.prepare_provider_model_discovery = AsyncMock(
-        return_value=(provider, 1, 1)
+        return_value=(provider, 1, 1),
     )
     manager.discover_provider_models = AsyncMock()
     tasks = BackgroundTasks()

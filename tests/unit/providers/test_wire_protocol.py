@@ -28,7 +28,7 @@ def test_native_tool_round_trip_and_output_cap(protocol):
                                 f"name": f"read",
                                 f"arguments": f"{{}}",
                             },
-                        }
+                        },
                     ],
                 },
                 {
@@ -44,9 +44,9 @@ def test_native_tool_round_trip_and_output_cap(protocol):
                         f"name": f"read",
                         f"parameters": {f"type": f"object"},
                     },
-                }
+                },
             ],
-        }
+        },
     )
     if protocol == f"responses":
         assert request[f"max_output_tokens"] == 32
@@ -73,7 +73,7 @@ def test_anthropic_stream_usage_includes_cache_once():
                         f"cache_creation_input_tokens": 20,
                     },
                 },
-            }
+            },
         )
         is None
     )
@@ -82,7 +82,7 @@ def test_anthropic_stream_usage_includes_cache_once():
             f"type": f"message_delta",
             f"delta": {f"stop_reason": f"end_turn"},
             f"usage": {f"output_tokens": 7},
-        }
+        },
     )
     assert event[f"usage"][f"total_tokens"] == 117
     assert not wire.done
@@ -102,7 +102,7 @@ def test_responses_tool_stream_preserves_call_id_and_index():
                 f"call_id": f"call-1",
                 f"name": f"read",
             },
-        }
+        },
     )
     call = event[f"choices"][0][f"delta"][f"tool_calls"][0]
     assert call[f"id"] == f"call-1"
@@ -112,7 +112,7 @@ def test_responses_tool_stream_preserves_call_id_and_index():
             f"type": f"response.function_call_arguments.delta",
             f"output_index": 3,
             f"delta": f"{{}}",
-        }
+        },
     )
     assert event[f"choices"][0][f"delta"][f"tool_calls"][0][f"function"] == {
         f"arguments": f"{{}}",
@@ -138,5 +138,5 @@ def test_unknown_native_parameter_fails_instead_of_being_dropped():
                 f"messages": [],
                 f"max_tokens": 32,
                 f"arbitrary_connection_override": f"bad",
-            }
+            },
         )

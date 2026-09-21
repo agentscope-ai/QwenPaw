@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access,unused-argument
 """Session headers survive task-per-event streaming and early teardown."""
 
 import asyncio

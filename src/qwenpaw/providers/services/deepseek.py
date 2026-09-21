@@ -11,6 +11,6 @@ class DeepSeekProvider(OpenAIProvider):
 
     capture_cache_headers: ClassVar[bool] = True
     cache_modes: ClassVar[frozenset[str]] = frozenset([f"implicit"])
-    cache_documentation: ClassVar[str | None] = (
-        f"https://api-docs.deepseek.com/guides/kv_cache/"
-    )
+    cache_documentation: ClassVar[
+        str | None
+    ] = f"https://api-docs.deepseek.com/guides/kv_cache/"

@@ -27,12 +27,12 @@ def model_card(row: dict) -> ModelInfo | None:
         return None
     capabilities = row.get(f"capabilities")
     if isinstance(capabilities, list) and not set(capabilities).intersection(
-        {f"TG", f"Reasoning", f"VU", f"Multimodal-Omni"}
+        {f"TG", f"Reasoning", f"VU", f"Multimodal-Omni"},
     ):
         return None
     metadata = {f"released_at": release_date(row.get(f"published_time"))}
     modalities = (row.get(f"inference_metadata") or {}).get(
-        f"request_modality"
+        f"request_modality",
     )
     if isinstance(modalities, list) and modalities:
         for field in (f"image", f"audio", f"video"):
@@ -58,12 +58,16 @@ def model_card(row: dict) -> ModelInfo | None:
             if target != f"max_input_length_auto_detected":
                 metadata[f"{target}_source"] = f"api"
     return ModelInfo(
-        id=model_id.strip(), name=row.get(f"name") or model_id, **metadata
+        id=model_id.strip(),
+        name=row.get(f"name") or model_id,
+        **metadata,
     )
 
 
 async def fetch_directory(
-    url: str, headers: dict[str, str], timeout: float
+    url: str,
+    headers: dict[str, str],
+    timeout: float,
 ) -> list[ModelInfo]:
     """Consume every native page and reject incomplete or repeated pages."""
     client = await run_sync_io(httpx.AsyncClient, timeout=timeout)
@@ -81,7 +85,8 @@ async def fetch_directory(
             payload = response.json()
             output = payload.get(f"output")
             if payload.get(f"success") is False or not isinstance(
-                output, dict
+                output,
+                dict,
             ):
                 raise ValueError(f"Model Studio returned an invalid directory")
             rows = output.get(f"models")

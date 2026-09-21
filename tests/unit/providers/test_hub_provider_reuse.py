@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access
 """Hub connections reuse provider implementations and protocol defaults."""
 
 import pytest
@@ -57,7 +59,7 @@ def test_custom_connection_selects_protocol(protocol, provider_class):
             f"name": f"Custom",
             f"base_url": f"https://custom.example/v1",
             f"protocol": protocol,
-        }
+        },
     )
     assert type(provider) is provider_class
     assert provider.wire_protocol == protocol
@@ -77,7 +79,7 @@ def test_unknown_builtin_does_not_fall_back_to_custom_provider():
             {
                 f"provider_id": f"missing-preset",
                 f"protocol": f"chat",
-            }
+            },
         )
 
 
@@ -123,7 +125,9 @@ def test_hub_publishes_only_modalities_supported_by_its_wire_bridge():
     ],
 )
 async def test_hub_and_native_sdk_share_resource_urls(
-    provider_id, model, expected
+    provider_id,
+    model,
+    expected,
 ):
     preset = supported_presets()[provider_id].model_copy(deep=True)
     assert preset.request_url(model) == expected

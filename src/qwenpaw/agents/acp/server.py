@@ -344,9 +344,9 @@ class QwenPawACPAgent(Agent):
         ):
             info[ACP_EPHEMERAL_META_KEY] = True
         if self._runtime_provider is not None:
-            info[_ACP_RUNTIME_MODEL_SLOT_KEY] = (
-                self._runtime_provider.model_slot
-            )
+            info[
+                _ACP_RUNTIME_MODEL_SLOT_KEY
+            ] = self._runtime_provider.model_slot
         return info
 
     async def _install_runtime_provider(self) -> None:

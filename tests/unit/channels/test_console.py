@@ -665,6 +665,7 @@ class TestConsoleStreaming:
 
     async def test_stream_emits_usage_between_calls(self, stream_channel):
         """Publish each call without consuming the final usage snapshot."""
+
         async def process(request):
             for count in (1, 2):
                 TokenRecordingModelWrapper._usage_by_session[
@@ -674,18 +675,22 @@ class TestConsoleStreaming:
                     f"last_prompt_tokens": count * 40,
                     f"context_size": 1000,
                 }
-                yield _FakeDumpEvent({
-                    f"object": f"message",
-                    f"status": f"in_progress",
-                    f"type": f"message.delta",
-                })
+                yield _FakeDumpEvent(
+                    {
+                        f"object": f"message",
+                        f"status": f"in_progress",
+                        f"type": f"message.delta",
+                    },
+                )
 
         stream_channel._process = process
-        stream = stream_channel.stream_one({
-            f"sender_id": f"usage-user",
-            f"content_parts": [],
-            f"meta": {},
-        })
+        stream = stream_channel.stream_one(
+            {
+                f"sender_id": f"usage-user",
+                f"content_parts": [],
+                f"meta": {},
+            },
+        )
         try:
             for count in (1, 2):
                 event = json.loads((await anext(stream))[6:])
@@ -694,9 +699,12 @@ class TestConsoleStreaming:
                 assert event[f"context_usage"][f"estimated_tokens"] == (
                     count * 40
                 )
-                assert TokenRecordingModelWrapper.peek_usage_for_session(
-                    event[f"session_id"],
-                ) is not None
+                assert (
+                    TokenRecordingModelWrapper.peek_usage_for_session(
+                        event[f"session_id"],
+                    )
+                    is not None
+                )
                 await anext(stream)
         finally:
             await stream.aclose()

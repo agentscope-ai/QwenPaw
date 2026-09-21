@@ -71,7 +71,10 @@ describe("useModelSelectorData", () => {
 });
 
 it("restores the selected session model and discards late previous results", async () => {
-  const old = deferred<any>();
+  const old =
+    deferred<
+      Awaited<ReturnType<typeof modelSelectorApi.loadModelSelectorData>>
+    >();
   vi.mocked(modelSelectorApi.loadModelSelectorData).mockImplementation(
     (_agent, _source, scope) =>
       scope?.sessionId === "one"

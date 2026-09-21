@@ -117,12 +117,12 @@ def _client(
             tenant_id=record.tenant_id,
             runtime_id=record.runtime_id,
         )
-        environment["QWENPAW_RUNTIME_INTERNAL_TOKEN"] = (
-            vault.get_or_create_runtime_secret(
-                tenant_id=record.tenant_id,
-                runtime_id=record.runtime_id,
-                name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
-            )
+        environment[
+            "QWENPAW_RUNTIME_INTERNAL_TOKEN"
+        ] = vault.get_or_create_runtime_secret(
+            tenant_id=record.tenant_id,
+            runtime_id=record.runtime_id,
+            name="QWENPAW_RUNTIME_INTERNAL_TOKEN",
         )
         return environment
 
@@ -1891,7 +1891,7 @@ def test_hub_native_provider_dispatch_and_settlement(admin_client, protocol):
                         f"content": [
                             {f"type": f"output_text", f"text": f"OK"},
                         ],
-                    }
+                    },
                 ],
                 f"usage": {f"input_tokens": 13, f"output_tokens": 1},
             }

@@ -441,7 +441,7 @@ class OpenAIResponseProvider(OpenAIProvider):
                     gen_kwargs.get(
                         f"enable_prompt_cache_breakpoint",
                         False,
-                    )
+                    ),
                 ),
             ),
         )

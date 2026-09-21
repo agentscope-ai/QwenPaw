@@ -10,6 +10,6 @@ class VolcengineProvider(OpenAIProvider):
     """Keep service-specific policy separate from wire protocol support."""
 
     cache_modes: ClassVar[frozenset[str]] = frozenset([])
-    cache_documentation: ClassVar[str | None] = (
-        f"https://www.volcengine.com/docs/82379"
-    )
+    cache_documentation: ClassVar[
+        str | None
+    ] = f"https://www.volcengine.com/docs/82379"

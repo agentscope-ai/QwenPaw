@@ -67,7 +67,9 @@ class UsageStream:
         self.active = None
         self.usage = None
         self.headers = getattr(
-            getattr(stream, f"response", None), f"headers", {}
+            getattr(stream, f"response", None),
+            f"headers",
+            {},
         )
 
     async def __aenter__(self):

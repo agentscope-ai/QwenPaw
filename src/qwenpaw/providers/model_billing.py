@@ -18,7 +18,8 @@ def normalize_pricing(value: Any) -> dict[str, str]:
 
 
 def classify_pricing(
-    pricing: dict[str, str], free_flag: Any = None
+    pricing: dict[str, str],
+    free_flag: Any = None,
 ) -> Billing:
     """Positive charges win; free requires complete zero rates or a flag."""
     amounts = []

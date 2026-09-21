@@ -50,14 +50,15 @@ class ModelGateway:
     async def _open(self, attempt, model, connection, payload, bridge=None):
         provider = model_provider(model, connection)
         bridge = bridge or WireProtocol(
-            provider.model_protocol(model[f"upstream_model"])
+            provider.model_protocol(model[f"upstream_model"]),
         )
         card = provider.resolve_model_info(model[f"upstream_model"])
         if card.max_output_length:
             for field in (f"max_tokens", f"max_completion_tokens"):
                 if field in payload:
                     payload[field] = min(
-                        payload[field], card.max_output_length
+                        payload[field],
+                        card.max_output_length,
                     )
         settings = dict(model.get(f"cache_settings") or {})
         controls = provider.prepare_request(
@@ -163,7 +164,8 @@ class ModelGateway:
                 raise
             if isinstance(exc, ValueError):
                 raise HTTPException(
-                    422, f"hub_invalid_model_controls"
+                    422,
+                    f"hub_invalid_model_controls",
                 ) from None
             raise HTTPException(
                 502,

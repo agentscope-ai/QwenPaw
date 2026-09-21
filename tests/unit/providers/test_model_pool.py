@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access,unused-argument
 """Candidate selection and runtime reconstruction regression coverage."""
 
 from unittest.mock import AsyncMock
@@ -184,7 +186,8 @@ async def test_read_receipt_keeps_runtime_client(isolated_secret_dir):
 
 
 async def test_overview_does_not_expand_candidate_catalog(
-    isolated_secret_dir, monkeypatch
+    isolated_secret_dir,
+    monkeypatch,
 ):
     def unexpected(_self):
         raise AssertionError(f"Overview must not load candidate shards")
@@ -265,7 +268,7 @@ async def test_removed_api_candidates_disappear_but_selected_survive(
             name=f"Chosen",
             source=f"user",
             discovery_origin=f"api",
-        )
+        ),
     ]
     monkeypatch.setattr(
         OpenRouterProvider,
@@ -309,7 +312,8 @@ async def test_unselected_catalog_model_can_be_tested_and_persisted(
         AsyncMock(return_value=(True, f"Connected")),
     )
     result = await manager.check_provider_model(
-        f"deepseek", f"deepseek-v4-flash-vision-exp"
+        f"deepseek",
+        f"deepseek-v4-flash-vision-exp",
     )
     assert result.success
     reloaded = ProviderManager().get_provider(f"deepseek")

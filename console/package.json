@@ -34,6 +34,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@lexical/react": "0.48.0",
     "@monaco-editor/react": "^4.7.0",
+    "@number-flow/react": "^0.6.2",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.1",
     "@types/react-window": "^1.8.8",

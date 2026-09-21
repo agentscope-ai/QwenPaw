@@ -25,8 +25,8 @@ async def test_platform_discovers_cardless_models(monkeypatch):
             list=AsyncMock(
                 return_value=SimpleNamespace(
                     data=[SimpleNamespace(id=f"private-model")],
-                )
-            )
+                ),
+            ),
         ),
         close=AsyncMock(),
     )
@@ -54,7 +54,7 @@ def test_unknown_card_preserves_manual_request_configuration():
                 id=f"private-model",
                 name=f"Private model",
                 generate_kwargs={f"extra_body": {f"vendor_option": 123}},
-            )
+            ),
         ],
     )
     assert provider.thinking_control(f"private-model").kind == f"unknown"

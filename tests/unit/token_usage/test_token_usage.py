@@ -1030,7 +1030,9 @@ class TestTokenRecordingModelWrapper:
         assert stored["cache_hit_rate"] == 80
 
     def test_live_usage_preserves_last_prompt_and_final_totals(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         monkeypatch.setattr(
             f"qwenpaw.app.agent_context.get_current_session_id",

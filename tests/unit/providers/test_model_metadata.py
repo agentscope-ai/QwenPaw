@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=unused-argument,redefined-outer-name
 """Regression tests for automatic token metadata and model templates."""
 
 import json
@@ -55,19 +57,25 @@ def metadata(monkeypatch, tmp_path):
                 f"schema_version": 2,
                 f"catalog_version": f"2026.09.18",
                 f"providers": providers,
-            }
+            },
         ),
         encoding=f"utf-8",
     )
     monkeypatch.setattr(model_catalog, f"PACKAGED_CATALOG_PATH", packaged)
     monkeypatch.setattr(
-        model_catalog, f"METADATA_CACHE_PATH", tmp_path / f"cache.json"
+        model_catalog,
+        f"METADATA_CACHE_PATH",
+        tmp_path / f"cache.json",
     )
     monkeypatch.setattr(
-        model_catalog, f"OTA_CATALOG_PATH", tmp_path / f"ota.json"
+        model_catalog,
+        f"OTA_CATALOG_PATH",
+        tmp_path / f"ota.json",
     )
     monkeypatch.setattr(
-        model_catalog, f"LOCAL_CATALOG_PATH", tmp_path / f"local.json"
+        model_catalog,
+        f"LOCAL_CATALOG_PATH",
+        tmp_path / f"local.json",
     )
     return payload
 
@@ -83,7 +91,7 @@ def custom_provider(**model_fields):
                 id=f"qwen3.8-max",
                 name=f"Qwen",
                 **model_fields,
-            )
+            ),
         ],
     )
 
@@ -194,12 +202,12 @@ def test_invalid_limits_are_not_used(metadata, monkeypatch):
                             f"limit": {
                                 f"context": True,
                                 f"output": -1,
-                            }
-                        }
-                    }
+                            },
+                        },
+                    },
                 },
-            }
-        ).encode()
+            },
+        ).encode(),
     )
     monkeypatch.setattr(model_catalog, f"_download_bytes", download)
     with pytest.raises(ValueError):
@@ -217,7 +225,7 @@ async def test_deployment_alias_can_select_template(metadata):
                 id=f"deployment-123",
                 name=f"Deployment",
                 template_id=f"alibaba-cn/qwen3.8-max",
-            )
+            ),
         ],
     )
     info = (await provider.get_info()).extra_models[0]
@@ -236,7 +244,7 @@ def test_ambiguous_template_does_not_pick_first_owner(metadata):
             f"id": f"qwen3.8-max",
             f"name": f"Conflicting name",
             f"max_input_length": 32_000,
-        }
+        },
     )
     path.write_text(json.dumps(document))
     assert (
@@ -251,7 +259,8 @@ def test_ambiguous_template_does_not_pick_first_owner(metadata):
 
 async def test_input_limit_constrains_total_context(metadata):
     provider = custom_provider(
-        input_token_limit=80_000, input_token_limit_source=f"api"
+        input_token_limit=80_000,
+        input_token_limit_source=f"api",
     )
     info = (await provider.get_info()).extra_models[0]
     assert info.automatic_max_input_length == 80_000
@@ -272,7 +281,7 @@ async def test_preview_api_output_beats_template_for_unconfigured_model(
             name=f"Qwen",
             max_output_length=4096,
             max_output_length_source=f"api",
-        )
+        ),
     ]
     resolved = resolve_model_info(
         provider,

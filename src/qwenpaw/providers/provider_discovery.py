@@ -161,7 +161,9 @@ def classify_discovery_error(
         normalized,
     )
     status = getattr(exc, f"status_code", None) or getattr(
-        getattr(exc, f"response", None), f"status_code", None
+        getattr(exc, f"response", None),
+        f"status_code",
+        None,
     )
     if status is None and status_match:
         status = int(status_match.group(1))
@@ -191,7 +193,9 @@ def classify_discovery_error(
 
 
 def normalize_discovered_models(
-    provider: Provider, fetched: list[ModelInfo], synced_at: str
+    provider: Provider,
+    fetched: list[ModelInfo],
+    synced_at: str,
 ) -> tuple[list[ModelInfo], set[str]]:
     """Merge API results with offline cards without recycling old API rows."""
     removed = set(provider.removed_model_ids)

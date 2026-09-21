@@ -49,9 +49,9 @@ class OpenRouterProvider(Provider):
     }
 
     session_header_name: ClassVar[str] = f"x-session-id"
-    cache_documentation: ClassVar[str] = (
-        f"https://openrouter.ai/docs/guides/best-practices/prompt-caching"
-    )
+    cache_documentation: ClassVar[
+        str
+    ] = f"https://openrouter.ai/docs/guides/best-practices/prompt-caching"
 
     def cache_capabilities(self, model_id: str) -> frozenset[str]:
         """Use the routed model vendor's documented cache syntax."""
@@ -184,7 +184,7 @@ class OpenRouterProvider(Provider):
                 # values without becoming an explicit user override.
                 window_kwargs: dict[str, Any] = {
                     f"released_at": release_date(
-                        getattr(row, f"created", None)
+                        getattr(row, f"created", None),
                     ),
                 }
                 try:
@@ -197,9 +197,9 @@ class OpenRouterProvider(Provider):
                     # Keep the legacy field populated for API compatibility;
                     # provenance still marks this as discovered metadata.
                     window_kwargs["max_input_length"] = context_length
-                    window_kwargs["max_input_length_auto_detected"] = (
-                        context_length
-                    )
+                    window_kwargs[
+                        "max_input_length_auto_detected"
+                    ] = context_length
 
                 top_provider = getattr(row, f"top_provider", None) or {}
                 output_limit = top_provider.get(f"max_completion_tokens")
@@ -225,16 +225,16 @@ class OpenRouterProvider(Provider):
                     capabilities[f"supports_tool_calling"] = (
                         f"tools" in parameters
                     )
-                common = dict(
-                    id=model_id,
-                    name=model_name,
-                    is_free=is_free,
-                    billing=billing,
-                    billing_source=f"api",
-                    pricing=pricing_dict,
+                common = {
+                    f"id": model_id,
+                    f"name": model_name,
+                    f"is_free": is_free,
+                    f"billing": billing,
+                    f"billing_source": f"api",
+                    f"pricing": pricing_dict,
                     **capabilities,
                     **window_kwargs,
-                )
+                }
                 if include_extended:
                     models[model_id] = ExtendedModelInfo(
                         **common,
@@ -487,7 +487,7 @@ class OpenRouterProvider(Provider):
                     gen_kwargs.get(
                         f"enable_prompt_cache_breakpoint",
                         False,
-                    )
+                    ),
                 ),
                 relay_reasoning_content=self._get_relay_reasoning(model_id),
             ),

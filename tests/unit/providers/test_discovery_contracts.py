@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=unused-argument
 """Exercise each service's listing path through its concrete adapter."""
 
 import httpx
@@ -43,12 +45,12 @@ async def test_service_lists_models_using_its_own_endpoint(
                         f"owned_by": f"test",
                         f"context_length": 128000,
                         f"architecture": {
-                            f"input_modalities": [f"text", f"image"]
+                            f"input_modalities": [f"text", f"image"],
                         },
                         f"pricing": {f"prompt": f"0", f"completion": f"0"},
                         f"supported_parameters": [f"tools"],
-                    }
-                ]
+                    },
+                ],
             },
         )
 
@@ -85,10 +87,10 @@ async def test_service_does_not_turn_failed_requests_into_empty_models(
                         f"error": {
                             f"message": f"Invalid API key",
                             f"type": f"authentication",
-                        }
+                        },
                     },
                 ),
-            )
+            ),
         ),
     )
     monkeypatch.setattr(provider, f"_client", lambda **kwargs: client)

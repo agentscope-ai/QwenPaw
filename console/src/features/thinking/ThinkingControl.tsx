@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { InputNumber, Slider, Tooltip } from "antd";
+import NumberFlow from "@number-flow/react";
 import { LockKeyhole, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
@@ -80,6 +81,29 @@ export function ThinkingControl({
     <section
       className={styles.control}
       data-budget-off={isBudget && control.supports_off}
+      onKeyDownCapture={(event) => {
+        if (
+          disabled ||
+          !isBudget ||
+          !control.supports_off ||
+          (event.target as HTMLElement).getAttribute("role") !== "slider"
+        )
+          return;
+        const off = adjusting ? budget < low : displayed.level === "off";
+        const increase = ["ArrowRight", "ArrowUp"].includes(event.key);
+        const decrease = ["ArrowLeft", "ArrowDown"].includes(event.key);
+        // The visual gap is not a range of valid budget values.
+        if ((off && increase) || (!off && budget === low && decrease)) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (off) commitBudget(low);
+          else {
+            setBudget(offPosition);
+            setAdjusting(false);
+            onChange({ level: "off" });
+          }
+        }
+      }}
       style={{ "--thinking-color": color } as CSSProperties}
     >
       <header className={styles.header}>
@@ -142,9 +166,16 @@ export function ThinkingControl({
           <Slider
             ariaLabelForHandle={t("thinkingControl.title")}
             disabled={disabled || (!isBudget && efforts.length < 2)}
+            ariaValueTextFormatterForHandle={(next) =>
+              isBudget
+                ? next < low
+                  ? t("thinkingControl.off")
+                  : `${next.toLocaleString()} tokens`
+                : t(`thinkingControl.${efforts[next]}`)
+            }
             min={isBudget ? (control.supports_off ? offPosition : low) : 0}
             max={isBudget ? high : Math.max(1, efforts.length - 1)}
-            step={1}
+            step={isBudget ? 1 : null}
             value={
               isBudget
                 ? displayed.level === "off" && !adjusting
@@ -154,10 +185,11 @@ export function ThinkingControl({
             }
             marks={
               isBudget && control.supports_off
-                ? { [offPosition]: "", [low]: "" }
-                : undefined
+                ? { [offPosition]: " ", [low]: " " }
+                : isBudget
+                ? undefined
+                : Object.fromEntries(efforts.map((_, index) => [index, " "]))
             }
-            dots={!isBudget}
             tooltip={{
               formatter: (next) =>
                 isBudget
@@ -219,9 +251,20 @@ export function ThinkingControl({
                   type="button"
                   className={styles.budgetValue}
                   aria-label={t("thinkingControl.budget")}
+                  disabled={disabled}
                   onClick={() => setEditingBudget(true)}
                 >
-                  {Math.max(low, budget).toLocaleString()} <span>tokens</span>
+                  <NumberFlow
+                    value={
+                      (adjusting ? budget < low : displayed.level === "off")
+                        ? 0
+                        : Math.max(low, budget)
+                    }
+                    transformTiming={{ duration: 180, easing: "ease-out" }}
+                    opacityTiming={{ duration: 100, easing: "ease-out" }}
+                    respectMotionPreference
+                  />{" "}
+                  <span>tokens</span>
                 </button>
               ))}
           </div>

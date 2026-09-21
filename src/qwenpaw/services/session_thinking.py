@@ -59,7 +59,9 @@ async def thinking_view(
     model_source = (
         f"session"
         if model_override
-        else f"agent" if config.active_model else f"global"
+        else f"agent"
+        if config.active_model
+        else f"global"
     )
     config = await run_sync_io(_with_session_model, config, model_override)
     inherited = ThinkingPreference(
@@ -116,7 +118,9 @@ async def thinking_view(
         f"source": (
             f"session"
             if override and override.level != f"inherit"
-            else f"agent" if inherited.level != f"inherit" else f"model"
+            else f"agent"
+            if inherited.level != f"inherit"
+            else f"model"
         ),
         f"reason": reason,
     }

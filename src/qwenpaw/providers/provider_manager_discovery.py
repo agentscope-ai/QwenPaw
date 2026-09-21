@@ -335,13 +335,16 @@ class ProviderManagerDiscoveryMixin(
                 model.billing_source = price.billing_source
                 model.billing_checked_at = price.billing_checked_at
                 if f"billing" in price.capability_provenance:
-                    model.capability_provenance[f"billing"] = (
-                        price.capability_provenance[f"billing"]
-                    )
+                    model.capability_provenance[
+                        f"billing"
+                    ] = price.capability_provenance[f"billing"]
 
             synced_at = datetime.now(timezone.utc).isoformat()
             models, api_ids = await run_sync_io(
-                normalize_discovered_models, provider, fetched, synced_at
+                normalize_discovered_models,
+                provider,
+                fetched,
+                synced_at,
             )
 
             if save:
@@ -358,7 +361,7 @@ class ProviderManagerDiscoveryMixin(
                     return ProviderModelDiscoveryResult(
                         success=False,
                         models=await run_sync_io(
-                            provider.discovery_candidates
+                            provider.discovery_candidates,
                         ),
                         last_synced_at=provider.models_last_synced_at,
                         used_static_fallback=True,
@@ -377,7 +380,7 @@ class ProviderManagerDiscoveryMixin(
                 models=await run_sync_io(
                     lambda: [
                         fetch_provider.model_capabilities(m) for m in models
-                    ]
+                    ],
                 ),
                 discovered_count=sum(
                     model_id not in previous_api_ids for model_id in api_ids
@@ -401,7 +404,7 @@ class ProviderManagerDiscoveryMixin(
                     return ProviderModelDiscoveryResult(
                         success=False,
                         models=await run_sync_io(
-                            provider.discovery_candidates
+                            provider.discovery_candidates,
                         ),
                         last_synced_at=provider.models_last_synced_at,
                         used_static_fallback=True,
@@ -499,7 +502,7 @@ class ProviderManagerDiscoveryMixin(
                 card = next((m for m in pool if m.id == normalized_id), None)
                 if card is not None:
                     candidate.discovered_models.append(
-                        card.model_copy(deep=True)
+                        card.model_copy(deep=True),
                     )
             changed = False
             for collection in (

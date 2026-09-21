@@ -101,8 +101,8 @@ def test_discovery_always_reads_capabilities(extended):
                     f"output_modalities": [f"text"],
                 },
                 supported_parameters=[f"tools"],
-            )
-        ]
+            ),
+        ],
     )
     model = OpenRouterProvider._normalize_models_payload(
         payload,

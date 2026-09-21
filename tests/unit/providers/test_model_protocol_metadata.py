@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access
 """Protocol-specific discovery and output budget regression cases."""
 
 from types import SimpleNamespace
@@ -20,8 +22,8 @@ def test_anthropic_reads_native_model_capability_fields():
                 display_name=f"Claude",
                 max_input_tokens=200_000,
                 max_tokens=32_000,
-            )
-        ]
+            ),
+        ],
     )
     model = AnthropicProvider._normalize_models_payload(rows)[0]
     assert model.max_input_length_auto_detected == 200_000
@@ -36,8 +38,8 @@ def test_openai_id_only_does_not_invent_capabilities():
         SimpleNamespace(
             data=[
                 SimpleNamespace(id=f"new-model", owned_by=f"openai"),
-            ]
-        )
+            ],
+        ),
     )[0]
     assert model.max_input_length_auto_detected is None
     assert model.max_output_length is None
@@ -54,8 +56,8 @@ def test_openrouter_reads_service_output_capacity():
                     top_provider={f"max_completion_tokens": 4096},
                     pricing={f"prompt": f"0", f"completion": f"0"},
                 ),
-            ]
-        )
+            ],
+        ),
     )[0]
     assert model.max_input_length_auto_detected == 64_000
     assert model.max_output_length == 4096
@@ -75,7 +77,7 @@ def test_anthropic_automatic_budget_respects_known_output_capacity():
                 name=f"Small",
                 max_output_length=4096,
                 max_output_length_source=f"api",
-            )
+            ),
         ],
     )
     model = provider.get_chat_model_instance(f"small-model")
@@ -95,7 +97,7 @@ def test_anthropic_protocol_does_not_assign_claude_thinking_to_qwen():
         extra_models=[ModelInfo(id=f"qwen3.8-max", name=f"Qwen")],
     )
     assert not provider.supports_agent_thinking(f"qwen3.8-max")
-    assert provider.get_agent_thinking_kwargs(f"qwen3.8-max", f"high") == {}
+    assert not provider.get_agent_thinking_kwargs(f"qwen3.8-max", f"high")
 
 
 async def test_anthropic_discovery_consumes_all_pages(monkeypatch):

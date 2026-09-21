@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# White-box assertions and pytest fixture parameters are intentional.
+# pylint: disable=protected-access
 """Model-card capabilities determine legal provider wire settings."""
 
 from unittest.mock import AsyncMock
@@ -204,16 +206,25 @@ def test_session_override_preserves_shared_provider_kwargs():
         (f"qwen3.8-flash", f"budget", 262144, [], True),
         (f"deepseek-v4-flash", f"effort", None, [f"high", f"max"], True),
         (
-            f"deepseek-v4.1-flash", f"effort", None,
-            [f"low", f"high", f"max"], True,
+            f"deepseek-v4.1-flash",
+            f"effort",
+            None,
+            [f"low", f"high", f"max"],
+            True,
         ),
         (
-            f"deepseek-v4-pro-0813", f"effort", None,
-            [f"low", f"high", f"max"], True,
+            f"deepseek-v4-pro-0813",
+            f"effort",
+            None,
+            [f"low", f"high", f"max"],
+            True,
         ),
         (
-            f"glm-5.3", f"effort", None,
-            [f"low", f"high", f"max"], False,
+            f"glm-5.3",
+            f"effort",
+            None,
+            [f"low", f"high", f"max"],
+            False,
         ),
     ],
 )
@@ -253,21 +264,35 @@ def test_dashscope_model_defaults_do_not_restore_conflicting_effort():
     f"model,level,budget,body,effort",
     [
         (
-            f"qwen3.8-max-0902", f"budget", 200000,
-            {f"enable_thinking": True, f"thinking_budget": 200000}, None,
+            f"qwen3.8-max-0902",
+            f"budget",
+            200000,
+            {f"enable_thinking": True, f"thinking_budget": 200000},
+            None,
         ),
         (
-            f"deepseek-v4.1-flash", f"low", None,
-            {f"enable_thinking": True}, f"low",
+            f"deepseek-v4.1-flash",
+            f"low",
+            None,
+            {f"enable_thinking": True},
+            f"low",
         ),
         (
-            f"deepseek-v4.1-flash", f"off", None,
-            {f"enable_thinking": False}, None,
+            f"deepseek-v4.1-flash",
+            f"off",
+            None,
+            {f"enable_thinking": False},
+            None,
         ),
     ],
 )
 async def test_dashscope_wire_request(
-    monkeypatch, model, level, budget, body, effort,
+    monkeypatch,
+    model,
+    level,
+    budget,
+    body,
+    effort,
 ):
     provider = PROVIDER_DASHSCOPE.model_copy(deep=True)
     provider.api_key = f"test-only"

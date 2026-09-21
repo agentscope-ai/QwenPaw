@@ -325,7 +325,9 @@ class GeminiProvider(Provider):
                 error_kind=(
                     "permission_denied"
                     if status in (401, 403)
-                    else "model_not_found" if status == 404 else None
+                    else "model_not_found"
+                    if status == 404
+                    else None
                 ),
             )
         except Exception as exc:

@@ -102,7 +102,8 @@ async def get_provider_manager(request: Request) -> ProviderManager:
     """
     if hub_mode() and request.path_params.get("provider_id") == PROVIDER_ID:
         require_model_route(
-            request.url.path.removeprefix(f"/api/"), request.method
+            request.url.path.removeprefix(f"/api/"),
+            request.method,
         )
     return request.app.state.provider_manager
 

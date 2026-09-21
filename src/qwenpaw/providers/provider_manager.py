@@ -155,9 +155,9 @@ class ProviderManager(
         # Each manager instance needs independent model objects for persisted
         # overrides and discovery metadata.
         provider_key = self._normalize_provider_id(provider.id)
-        self.builtin_providers[provider_key] = (
-            provider.configuration_snapshot()
-        )
+        self.builtin_providers[
+            provider_key
+        ] = provider.configuration_snapshot()
 
     async def list_provider_info(self) -> List[ProviderInfo]:
         """Read explicit model membership without changing selection."""
@@ -687,7 +687,7 @@ class ProviderManager(
                 (
                     model
                     for model in await run_sync_io(
-                        candidate.discovery_candidates
+                        candidate.discovery_candidates,
                     )
                     if model.id.strip() == requested_model.id.strip()
                 ),
@@ -766,7 +766,7 @@ class ProviderManager(
                 (
                     item
                     for item in await run_sync_io(
-                        candidate.discovery_candidates
+                        candidate.discovery_candidates,
                     )
                     + candidate.extra_models
                     if item.id == model_id
@@ -981,7 +981,7 @@ class ProviderManager(
                 card = next((m for m in pool if m.id == model_id), None)
                 if card is not None:
                     candidate.discovered_models.append(
-                        card.model_copy(deep=True)
+                        card.model_copy(deep=True),
                     )
             if not candidate.update_model_config(model_id, config_snapshot):
                 raise ModelNotFoundException(
@@ -1068,7 +1068,9 @@ class ProviderManager(
                 model.supports_multimodal = (
                     True
                     if True in values
-                    else False if all(v is False for v in values) else None
+                    else False
+                    if all(v is False for v in values)
+                    else None
                 )
                 model.probe_source = getattr(
                     probe_result,

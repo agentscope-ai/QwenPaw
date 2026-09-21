@@ -23,11 +23,11 @@ from .adapters.usage import (
     capture_cache_headers,
 )
 
-from qwenpaw.local_models.tag_parser import (
+from ..local_models.tag_parser import (
     parse_tool_calls_from_text,
     text_contains_tool_call_tag,
 )
-from qwenpaw.utils.tool_call_extra import (
+from ..utils.tool_call_extra import (
     attach_transient_tool_call_extra,
     collect_transient_tool_call_extras,
 )
@@ -179,7 +179,9 @@ class _SanitizedStream:
         self._tool_call_ids: dict[int, str] = {}
         self.raw_usage = None
         self.headers = getattr(
-            getattr(stream, f"response", None), f"headers", {}
+            getattr(stream, f"response", None),
+            f"headers",
+            {},
         )
 
     async def __aenter__(self) -> "_SanitizedStream":

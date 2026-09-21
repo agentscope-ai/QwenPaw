@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+# Provider companion modules share ownership of runtime-only state.
+# pylint: disable=protected-access
 """OpenCode service policies composed with native protocol implementations."""
 
 from ..anthropic_provider import AnthropicProvider
@@ -10,6 +12,8 @@ class OpenCodeResponsesProvider(OpenAIResponseProvider, OpenCodeProvider):
     """Reuse Responses requests and OpenCode session affinity."""
 
 
+# Compose the existing SDK and service hierarchies without duplicating them.
+# pylint: disable-next=too-many-ancestors
 class OpenCodeAnthropicProvider(AnthropicProvider, OpenCodeProvider):
     """Reuse Messages requests and OpenCode session affinity."""
 
