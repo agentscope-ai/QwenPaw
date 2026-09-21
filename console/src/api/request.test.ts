@@ -277,6 +277,31 @@ describe("request", () => {
     vi.useRealTimers();
   });
 
+  it("retries once for a transient network error", async () => {
+    vi.useFakeTimers();
+    const response = {
+      ok: true,
+      status: 200,
+      statusText: "OK",
+      headers: { get: () => "application/json" },
+      json: () => Promise.resolve({ data: "ok" }),
+    } as unknown as Response;
+    global.fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("network unavailable"))
+      .mockResolvedValueOnce(response);
+
+    const requestPromise = request("/flaky-endpoint", {
+      retries: 1,
+      retryDelay: 100,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(requestPromise).resolves.toEqual({ data: "ok" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
+  });
+
   it("succeeds on retry after initial timeout", async () => {
     vi.useFakeTimers();
     let attemptCount = 0;
@@ -368,6 +393,43 @@ describe("request", () => {
     await expect(requestPromise).rejects.toThrow("aborted");
     expect(attemptCount).toBe(1); // no retries for external abort
   });
+
+  it.each(["network", "timeout"])(
+    "cancels during %s backoff without another fetch",
+    async (failure) => {
+      vi.useFakeTimers();
+      try {
+        const controller = new AbortController();
+        global.fetch = vi.fn().mockImplementation((_url, options) => {
+          if (failure === "network") {
+            return Promise.reject(new TypeError("Failed to fetch"));
+          }
+          return new Promise((_resolve, reject) => {
+            options.signal.addEventListener("abort", () => {
+              reject(new DOMException("aborted", "AbortError"));
+            });
+          });
+        });
+        const pending = request("/skills", {
+          signal: controller.signal,
+          timeout: 100,
+          retries: 2,
+          retryDelay: 1000,
+        });
+        const rejected = expect(pending).rejects.toMatchObject({
+          name: "AbortError",
+        });
+        await vi.advanceTimersByTimeAsync(150);
+        controller.abort();
+        await rejected;
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(3000);
+        expect(fetch).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
 
   it("cleans up abort listener on caller signal after successful request", async () => {
     mockFetch(200, { data: "ok" });
