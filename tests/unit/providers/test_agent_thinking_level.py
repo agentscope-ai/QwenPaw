@@ -6,6 +6,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from qwenpaw.hub.model_service.protocol import upstream_payload
 from qwenpaw.providers.adapters.wire_protocol import WireProtocol
@@ -159,7 +160,8 @@ def test_invalid_preference_rejected(value):
         ThinkingPreference.model_validate(value)
 
 
-def test_hub_native_protocols_keep_thinking_and_bound_budget():
+@pytest.mark.parametrize(f"cap", [None, 1024, 1025, 8192])
+def test_hub_native_protocols_keep_thinking_and_bound_budget(cap):
     model = {
         f"upstream_model": f"claude-sonnet-4-5",
         f"output_limit_field": f"max_tokens",
@@ -174,14 +176,22 @@ def test_hub_native_protocols_keep_thinking_and_bound_budget():
         f"hub_thinking_level": f"budget",
         f"hub_thinking_budget": 12000,
     }
-    payload = upstream_payload(body, model, 8192, connection)
+    if cap == 1024:
+        with pytest.raises(HTTPException) as failure:
+            upstream_payload(body, model, cap, connection)
+        assert failure.value.status_code == 422
+        return
+    payload = upstream_payload(body, model, cap, connection)
+    if cap is None:
+        assert f"max_tokens" not in payload
     wire = WireProtocol(f"anthropic").request(payload)
     assert wire[f"thinking"] == {
         f"type": f"enabled",
-        f"budget_tokens": 8191,
+        f"budget_tokens": 12000 if cap is None else cap - 1,
     }
     assert f"hub_thinking_budget" not in wire
-    assert wire[f"max_tokens"] == 8192
+    if cap is not None:
+        assert wire[f"max_tokens"] == cap
 
 
 def test_session_override_preserves_shared_provider_kwargs():

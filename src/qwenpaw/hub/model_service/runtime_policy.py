@@ -12,6 +12,8 @@ def require_model_route(path: str, method: str = f"GET") -> None:
     if parts[:2] == [f"models", f"hub-managed"]:
         if method == f"GET" and parts[2:] == [f"pool"]:
             return
+        if method == f"PUT" and parts[2:] == [f"pool", f"selection"]:
+            return
         if (
             method == f"PUT"
             and len(parts) >= 5

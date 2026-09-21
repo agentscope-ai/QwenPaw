@@ -128,7 +128,7 @@ def upstream_payload(body, model, cap, connection):
                     else {f"type": f"disabled"}
                 )
             thinking = controls.get(f"thinking", {})
-            if thinking.get(f"type") == f"enabled":
+            if thinking.get(f"type") == f"enabled" and cap is not None:
                 if cap <= 1024:
                     raise HTTPException(422, f"Output cap is below budget")
                 thinking[f"budget_tokens"] = min(
