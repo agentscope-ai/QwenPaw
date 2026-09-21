@@ -16,9 +16,25 @@ export interface PawAppGrantAction {
   input_values: Record<string, string[]>;
 }
 
+export interface PawAppGrantCapability {
+  schema_version: 1;
+  capability_id: string;
+  app_id: string;
+  label: string;
+  summary: string;
+  action_ids: string[];
+  permissions: string[];
+  effects: string[];
+  risk: "read" | "write" | "generation" | "other";
+  enabled: boolean;
+  partial: boolean;
+  stale: boolean;
+}
+
 export interface PawAppGrantCatalog {
   revision: number;
   actions: PawAppGrantAction[];
+  capabilities?: PawAppGrantCapability[];
 }
 
 export interface PawAppGrantUpdate {
@@ -46,6 +62,23 @@ export const pawappGrantsApi = {
       `${catalogPath(workspaceId)}/actions/${encodeURIComponent(
         appId,
       )}/${encodeURIComponent(actionId)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    );
+  },
+
+  updateCapability(
+    workspaceId: string,
+    appId: string,
+    capabilityId: string,
+    body: Omit<PawAppGrantUpdate, "input_values">,
+  ) {
+    return request<PawAppGrantCatalog>(
+      `${catalogPath(workspaceId)}/capabilities/${encodeURIComponent(
+        appId,
+      )}/${encodeURIComponent(capabilityId)}`,
       {
         method: "PUT",
         body: JSON.stringify(body),

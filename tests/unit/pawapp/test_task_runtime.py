@@ -447,6 +447,65 @@ async def test_operator_manages_live_digest_pinned_action_grants(host):
     assert forbidden.status_code == 403
 
 
+async def test_capability_grant_updates_bundle_atomically(host):
+    second_action = ActionDescriptor.model_validate(
+        {
+            **ACTION.model_dump(mode="python"),
+            "action_id": "list-records",
+            "summary": "List approved records.",
+            "adapter_ref": "fixture.list-records.v1",
+        },
+    )
+    host.registrations[(SCOPE.app_id, second_action.action_id)] = (
+        ActionRegistration(
+            action=second_action,
+            factory=lambda: Executor(host.runs),
+            settings_entry="/apps/qwenpaw-data",
+        )
+    )
+    runtime = host.app.state.pawapp_tasks
+    catalog = await runtime.grant_catalog(
+        SCOPE.principal_id,
+        SCOPE.workspace_id,
+    )
+    capability = next(
+        item
+        for item in catalog["capabilities"]
+        if item["capability_id"] == "read"
+    )
+    assert capability["action_ids"] == ["analyze", "list-records"]
+    assert capability["partial"] is True
+
+    path = "/api/pawapps/workspaces/sales/task-grants"
+    granted = await host.client.put(
+        path + "/capabilities/qwenpaw-data/read",
+        json={"expected_revision": 0, "enabled": True},
+    )
+    assert granted.status_code == 200
+    assert granted.json()["revision"] == 1
+    assert granted.json()["capabilities"][0]["enabled"] is True
+
+    saved = TaskPolicy.model_validate_json(host.policy_path.read_text())
+    assert [grant.action_id for grant in saved.grants] == [
+        "analyze",
+        "list-records",
+    ]
+    assert saved.grants[0].input_values == {
+        "datasource_id": ["sales"],
+    }
+    assert saved.grants[1].input_values == {}
+
+    revoked = await host.client.put(
+        path + "/capabilities/qwenpaw-data/read",
+        json={"expected_revision": 1, "enabled": False},
+    )
+    assert revoked.status_code == 200
+    assert revoked.json()["revision"] == 2
+    assert TaskPolicy.model_validate_json(
+        host.policy_path.read_text(),
+    ).grants == ()
+
+
 async def test_grant_management_rejects_forged_scope_and_constraints(host):
     path = "/api/pawapps/workspaces/sales/task-grants"
 
@@ -714,6 +773,46 @@ async def test_artifact_content_rejects_another_principal(host):
         headers={"Authorization": "Bearer bob-token"},
     )
     assert forbidden.status_code == 404
+
+
+async def test_artifact_collection_route_is_scoped(host):
+    response = await host.client.post(
+        PREFIX + "/actions/analyze/tasks",
+        json=BODY,
+    )
+    task_id = response.json()["task"]["task_id"]
+    submission = await settled(host, task_id)
+    content = b"report"
+    ref = await host.artifacts.publish(
+        submission,
+        {
+            "source_id": "source-collection",
+            "name": "report.md",
+            "path": "reports/report.md",
+            "media_type": "text/markdown",
+            "size_bytes": len(content),
+            "digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+        },
+        content,
+    )
+
+    collection = await host.client.get(PREFIX + "/artifacts")
+    assert collection.status_code == 200
+    assert collection.json()["items"][0]["artifact_id"] == ref.artifact_id
+    assert collection.json()["total_count"] >= 1
+
+    filtered = await host.client.get(
+        PREFIX + "/artifacts?media_type=video/mp4",
+    )
+    assert filtered.status_code == 200
+    assert filtered.json()["total_count"] == 0
+
+    forbidden = await host.client.get(
+        PREFIX + "/artifacts",
+        headers={"Authorization": "Bearer bob-token"},
+    )
+    assert forbidden.status_code == 200
+    assert forbidden.json()["total_count"] == 0
 
 
 @pytest.mark.asyncio

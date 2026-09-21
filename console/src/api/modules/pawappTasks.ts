@@ -26,6 +26,15 @@ export interface PawAppArtifactRef {
   digest: string;
 }
 
+export interface PawAppArtifactCollection {
+  schema_version: 1;
+  source: "host_artifacts";
+  app_id: string;
+  items: PawAppArtifactRef[];
+  total_count: number;
+  next_cursor: string | null;
+}
+
 export interface PawAppProjectRef {
   schema_version: 1;
   app_id: string;
@@ -116,6 +125,13 @@ export interface PawAppTaskResult {
   reason?: string;
 }
 
+export interface PawAppArtifactCollectionResult {
+  kind: "pawapp_artifact_collection";
+  app_id: string;
+  workspace_id: string;
+  collection: PawAppArtifactCollection;
+}
+
 export function isTerminalTask(task: PawAppTask): boolean {
   return ["succeeded", "failed", "cancelled", "interrupted"].includes(
     task.status,
@@ -140,6 +156,48 @@ function isProjectRef(value: unknown): value is PawAppProjectRef {
     identity(value.kind) &&
     Number.isSafeInteger(value.revision) &&
     Number(value.revision) >= 1
+  );
+}
+
+function isArtifactRef(value: unknown): value is PawAppArtifactRef {
+  return (
+    record(value) &&
+    value.schema_version === 1 &&
+    identity(value.artifact_id) &&
+    identity(value.type) &&
+    Number.isSafeInteger(value.version) &&
+    Number(value.version) >= 1 &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    value.name.length <= 512 &&
+    typeof value.media_type === "string" &&
+    value.media_type.length > 0 &&
+    value.media_type.length <= 256 &&
+    Number.isSafeInteger(value.size_bytes) &&
+    Number(value.size_bytes) >= 0 &&
+    typeof value.digest === "string" &&
+    /^sha256:[0-9a-f]{64}$/.test(value.digest)
+  );
+}
+
+function isArtifactCollection(
+  value: unknown,
+): value is PawAppArtifactCollection {
+  return (
+    record(value) &&
+    value.schema_version === 1 &&
+    value.source === "host_artifacts" &&
+    typeof value.app_id === "string" &&
+    /^[a-z0-9][a-z0-9-]*$/.test(value.app_id) &&
+    Array.isArray(value.items) &&
+    value.items.length <= 100 &&
+        value.items.every(isArtifactRef) &&
+    Number.isSafeInteger(value.total_count) &&
+    Number(value.total_count) >= value.items.length &&
+    (value.next_cursor === null ||
+      (typeof value.next_cursor === "string" &&
+        value.next_cursor.length > 0 &&
+        value.next_cursor.length <= 512))
   );
 }
 
@@ -245,23 +303,7 @@ export function isPawAppTask(value: unknown): value is PawAppTask {
     (value.text_result === null || typeof value.text_result === "string") &&
     (value.output_refs === undefined ||
       (Array.isArray(value.output_refs) &&
-        value.output_refs.every(
-          (ref) =>
-            record(ref) &&
-            ref.schema_version === 1 &&
-            identity(ref.artifact_id) &&
-            identity(ref.type) &&
-            Number.isSafeInteger(ref.version) &&
-            Number(ref.version) >= 1 &&
-            typeof ref.name === "string" &&
-            ref.name.length > 0 &&
-            typeof ref.media_type === "string" &&
-            ref.media_type.length > 0 &&
-            Number.isSafeInteger(ref.size_bytes) &&
-            Number(ref.size_bytes) >= 0 &&
-            typeof ref.digest === "string" &&
-            /^sha256:[0-9a-f]{64}$/.test(ref.digest),
-        ))) &&
+        value.output_refs.every(isArtifactRef))) &&
     (value.project_ref === undefined ||
       value.project_ref === null ||
       isProjectRef(value.project_ref)) &&
@@ -381,6 +423,27 @@ export function parsePawAppTaskResult(value: unknown): PawAppTaskResult | null {
   }
 }
 
+export function parsePawAppArtifactCollectionResult(
+  value: unknown,
+): PawAppArtifactCollectionResult | null {
+  try {
+    value = decodeToolValue(value);
+    if (
+      !record(value) ||
+      value.kind !== "pawapp_artifact_collection" ||
+      typeof value.app_id !== "string" ||
+      !/^[a-z0-9][a-z0-9-]*$/.test(value.app_id) ||
+      !identity(value.workspace_id) ||
+      !isArtifactCollection(value.collection) ||
+      value.collection.app_id !== value.app_id
+    )
+      return null;
+    return value as unknown as PawAppArtifactCollectionResult;
+  } catch {
+    return null;
+  }
+}
+
 export function parsePawAppOpenResult(value: unknown): PawAppOpenResult | null {
   try {
     value = decodeToolValue(value);
@@ -421,6 +484,35 @@ export async function getPawAppTask(
     throw new Error("invalid_task_response");
   }
   return result.task;
+}
+
+export async function listPawAppArtifacts(
+  appId: string,
+  workspaceId: string,
+  options: {
+    cursor?: string;
+    limit?: number;
+    mediaType?: string;
+    taskId?: string;
+    signal?: AbortSignal;
+  } = {},
+): Promise<PawAppArtifactCollection> {
+  const query = new URLSearchParams();
+  if (options.cursor) query.set("cursor", options.cursor);
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.mediaType) query.set("media_type", options.mediaType);
+  if (options.taskId) query.set("task_id", options.taskId);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const result = await request<unknown>(
+    `/pawapps/${encodeURIComponent(appId)}/workspaces/${encodeURIComponent(
+      workspaceId,
+    )}/artifacts${suffix}`,
+    { signal: options.signal, headers: { "X-Agent-Id": workspaceId } },
+  );
+  if (!isArtifactCollection(result) || result.app_id !== appId) {
+    throw new Error("invalid_artifact_collection_response");
+  }
+  return result;
 }
 
 export async function openPawAppTask(

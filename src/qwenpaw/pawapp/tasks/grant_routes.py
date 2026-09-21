@@ -22,6 +22,11 @@ class GrantUpdate(Contract):
     input_values: dict[str, list[str]] = Field(default_factory=dict)
 
 
+class CapabilityGrantUpdate(Contract):
+    expected_revision: Annotated[int, Field(ge=0)]
+    enabled: bool
+
+
 class GrantManagementScope(Contract):
     principal_id: Identity
     workspace_id: Identity
@@ -90,6 +95,30 @@ async def update_task_grant(
             action_id,
             enabled=body.enabled,
             input_values=body.input_values,
+            expected_revision=body.expected_revision,
+        )
+    except (TaskStoreError, ValueError) as exc:
+        raise _error(exc) from None
+
+
+@router.put("/capabilities/{app_id}/{capability_id}")
+async def update_task_capability_grant(
+    request: Request,
+    app_id: str,
+    capability_id: str,
+    body: CapabilityGrantUpdate,
+    scope: ManagementScope,
+):
+    try:
+        task_scope = TaskScope(
+            principal_id=scope.principal_id,
+            workspace_id=scope.workspace_id,
+            app_id=app_id,
+        )
+        return await request.app.state.pawapp_tasks.set_capability_grant(
+            task_scope,
+            capability_id,
+            enabled=body.enabled,
             expected_revision=body.expected_revision,
         )
     except (TaskStoreError, ValueError) as exc:

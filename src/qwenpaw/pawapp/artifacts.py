@@ -4,7 +4,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import hashlib
+import json
+import math
 import os
 import sqlite3
 import stat
@@ -16,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .tasks.contracts import (
     ArtifactProducer,
+    ArtifactCollection,
     ArtifactRef,
     TaskScope,
     TaskStoreError,
@@ -27,6 +32,7 @@ _T = TypeVar("_T")
 MAX_ARTIFACT_BYTES = 64 * 1024 * 1024
 MAX_TASK_ARTIFACT_BYTES = 256 * 1024 * 1024
 MAX_TASK_ARTIFACTS = 128
+MAX_ARTIFACT_LIST_LIMIT = 100
 _SCHEMA_VERSION = 2
 _GRANT_SCHEMA = """CREATE TABLE IF NOT EXISTS artifact_grants (
     artifact_id TEXT NOT NULL,
@@ -442,6 +448,151 @@ class ArtifactStore:
             raise TaskStoreError("artifact_blob_corrupt")
         return ref, content
 
+    @staticmethod
+    def _encode_cursor(created_at: float, artifact_id: str, version: int) -> str:
+        payload = canonical_json([created_at, artifact_id, version]).encode()
+        return base64.urlsafe_b64encode(payload).decode().rstrip("=")
+
+    @staticmethod
+    def _decode_cursor(cursor: str) -> tuple[float, str, int]:
+        if not cursor or len(cursor) > 512:
+            raise TaskStoreError("invalid_artifact_cursor")
+        try:
+            padded = cursor + "=" * (-len(cursor) % 4)
+            raw = base64.urlsafe_b64decode(padded.encode())
+            value = json.loads(raw.decode())
+            if (
+                not isinstance(value, list)
+                or len(value) != 3
+                or isinstance(value[0], bool)
+                or not isinstance(value[0], (int, float))
+                or not math.isfinite(float(value[0]))
+                or not isinstance(value[1], str)
+                or not value[1]
+                or isinstance(value[2], bool)
+                or not isinstance(value[2], int)
+                or value[2] < 1
+            ):
+                raise ValueError
+            return float(value[0]), value[1], value[2]
+        except (
+            ValueError,
+            TypeError,
+            binascii.Error,
+            json.JSONDecodeError,
+            UnicodeError,
+        ):
+            raise TaskStoreError("invalid_artifact_cursor") from None
+
+    async def list(
+        self,
+        scope: TaskScope,
+        *,
+        limit: int = 25,
+        cursor: str | None = None,
+        task_id: str | None = None,
+        media_type: str | None = None,
+    ) -> ArtifactCollection:
+        """List the latest version of each artifact in one authorized scope."""
+        if limit < 1 or limit > MAX_ARTIFACT_LIST_LIMIT:
+            raise TaskStoreError("invalid_artifact_limit")
+        decoded = self._decode_cursor(cursor) if cursor else None
+        if task_id is not None and not task_id:
+            raise TaskStoreError("invalid_artifact_task")
+        if media_type is not None and not media_type:
+            raise TaskStoreError("invalid_artifact_media_type")
+
+        filters = [
+            "principal_id = ?",
+            "workspace_id = ?",
+            "app_id = ?",
+        ]
+        params: list[object] = [
+            scope.principal_id,
+            scope.workspace_id,
+            scope.app_id,
+        ]
+        if task_id is not None:
+            filters.append("task_id = ?")
+            params.append(task_id)
+        where = " AND ".join(filters)
+        latest = (
+            "SELECT artifact_id, MAX(version) AS version "
+            f"FROM artifact_versions WHERE {where} GROUP BY artifact_id"
+        )
+        outer_filters = ["latest.artifact_id = versions.artifact_id"]
+        outer_params: list[object] = []
+        if media_type is not None:
+            outer_filters.append(
+                "json_extract(versions.ref_json, '$.media_type') = ?",
+            )
+            outer_params.append(media_type)
+        if decoded is not None:
+            created_at, artifact_id, version = decoded
+            outer_filters.append(
+                "(versions.created_at < ? OR "
+                "(versions.created_at = ? AND "
+                "(versions.artifact_id < ? OR "
+                "(versions.artifact_id = ? AND versions.version < ?))))",
+            )
+            outer_params.extend(
+                [created_at, created_at, artifact_id, artifact_id, version],
+            )
+        outer_where = " AND ".join(outer_filters)
+
+        def operation(connection: sqlite3.Connection) -> ArtifactCollection:
+            count_filter = ""
+            count_params = list(params)
+            if media_type is not None:
+                count_filter = (
+                    " WHERE json_extract(versions.ref_json, "
+                    "'$.media_type') = ?"
+                )
+                count_params.append(media_type)
+            count_row = connection.execute(
+                "SELECT COUNT(*) FROM artifact_versions AS versions "
+                f"JOIN ({latest}) AS latest ON "
+                "latest.artifact_id = versions.artifact_id AND "
+                "latest.version = versions.version"
+                + count_filter,
+                count_params,
+            ).fetchone()
+            total_count = int(count_row[0])
+            rows = connection.execute(
+                "SELECT versions.ref_json, versions.created_at "
+                "FROM artifact_versions AS versions "
+                f"JOIN ({latest}) AS latest ON "
+                "latest.artifact_id = versions.artifact_id AND "
+                "latest.version = versions.version "
+                f"WHERE {outer_where} "
+                "ORDER BY versions.created_at DESC, versions.artifact_id DESC, "
+                "versions.version DESC LIMIT ?",
+                params + outer_params + [limit + 1],
+            ).fetchall()
+            has_more = len(rows) > limit
+            selected = rows[:limit]
+            items = tuple(
+                ArtifactRef.model_validate_json(row["ref_json"])
+                for row in selected
+            )
+            next_cursor = None
+            if has_more and selected:
+                last = selected[-1]
+                ref = items[-1]
+                next_cursor = self._encode_cursor(
+                    float(last["created_at"]),
+                    ref.artifact_id,
+                    ref.version,
+                )
+            return ArtifactCollection(
+                app_id=scope.app_id,
+                items=items,
+                total_count=total_count,
+                next_cursor=next_cursor,
+            )
+
+        return await self._run(operation)
+
     async def grant(
         self,
         owner: TaskScope,
@@ -497,6 +648,7 @@ class ArtifactStore:
 __all__ = [
     "ArtifactStore",
     "MAX_ARTIFACT_BYTES",
+    "MAX_ARTIFACT_LIST_LIMIT",
     "MAX_TASK_ARTIFACT_BYTES",
     "MAX_TASK_ARTIFACTS",
 ]

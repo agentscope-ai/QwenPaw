@@ -18,7 +18,11 @@ from .contracts import (
     content_digest,
 )
 from .coordinator import TaskCoordinator
-from .policy import FileTaskPolicy, TaskGrant
+from .policy import (
+    FileTaskPolicy,
+    TaskGrant,
+    build_task_capabilities,
+)
 from .store import TaskStore
 
 logger = logging.getLogger(__name__)
@@ -271,14 +275,16 @@ class HostTaskRuntime:
         return result
 
     async def grant_catalog(self, principal_id: str, workspace_id: str):
-        """Return live registered actions and this operator's grant state."""
+        """Return action grants plus higher-level capability bundle state."""
         await self._sync()
         policy = await self.policy.read()
         actions = []
+        public_actions = []
         for (app_id, action_id), binding in sorted(self._bindings.items()):
             if binding.registration.exposure != "host_public":
                 continue
             action = binding.registration.action
+            public_actions.append(action)
             scope = TaskScope(
                 principal_id=principal_id,
                 workspace_id=workspace_id,
@@ -317,7 +323,29 @@ class HostTaskRuntime:
                     ),
                 },
             )
-        return {"revision": policy.revision, "actions": actions}
+        action_by_key = {
+            (item["app_id"], item["action_id"]): item for item in actions
+        }
+        capabilities = []
+        for capability in build_task_capabilities(public_actions):
+            states = [
+                action_by_key[(capability.app_id, action_id)]
+                for action_id in capability.action_ids
+            ]
+            enabled_count = sum(1 for item in states if item["enabled"])
+            capabilities.append(
+                {
+                    **capability.model_dump(mode="json"),
+                    "enabled": enabled_count == len(states),
+                    "partial": 0 < enabled_count < len(states),
+                    "stale": any(item["stale"] for item in states),
+                },
+            )
+        return {
+            "revision": policy.revision,
+            "actions": actions,
+            "capabilities": capabilities,
+        }
 
     @staticmethod
     def _grant_input_values(action, input_values):
@@ -384,6 +412,78 @@ class HostTaskRuntime:
             "grant",
             "enabled" if enabled else "revoked",
         )
+        return await self.grant_catalog(
+            scope.principal_id,
+            scope.workspace_id,
+        )
+
+    async def set_capability_grant(
+        self,
+        scope: TaskScope,
+        capability_id: str,
+        *,
+        enabled: bool,
+        expected_revision: int,
+    ):
+        """Atomically grant or revoke every public action in one bundle."""
+        await self._sync()
+        public_actions = [
+            binding.registration.action
+            for binding in self._bindings.values()
+            if binding.registration.exposure == "host_public"
+            and binding.registration.action.app_id == scope.app_id
+        ]
+        capability = next(
+            (
+                item
+                for item in build_task_capabilities(public_actions)
+                if item.capability_id == capability_id
+            ),
+            None,
+        )
+        if capability is None:
+            raise TaskStoreError("action_not_found")
+
+        policy = await self.policy.read()
+        actions = {
+            action_id: self._public_binding(
+                scope,
+                action_id,
+            ).registration.action
+            for action_id in capability.action_ids
+        }
+        grants = tuple(
+            TaskGrant(
+                scope=scope,
+                action_id=action_id,
+                descriptor_digest=actions[action_id].descriptor_digest,
+                input_values=next(
+                    (
+                        grant.input_values
+                        for grant in policy.grants
+                        if grant.scope == scope
+                        and grant.action_id == action_id
+                        and grant.descriptor_digest
+                        == actions[action_id].descriptor_digest
+                    ),
+                    {},
+                ),
+            )
+            for action_id in capability.action_ids
+        )
+        await self.policy.set_grants(
+            grants,
+            enabled=enabled,
+            expected_revision=expected_revision,
+        )
+        outcome = "enabled" if enabled else "revoked"
+        for action_id in capability.action_ids:
+            await self.store.audit(
+                scope,
+                action_id,
+                "capability_grant",
+                outcome,
+            )
         return await self.grant_catalog(
             scope.principal_id,
             scope.workspace_id,

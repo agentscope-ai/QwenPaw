@@ -29,13 +29,22 @@
 .status {
   font-weight: 600;
   &[data-status="running"],
-  &[data-status="pending"] {
+  &[data-status="pending"],
+  &[data-status="recovering"] {
     color: var(--app-accent);
   }
   &[data-status="failed"],
   &[data-status="interrupted"] {
     color: var(--app-error);
   }
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .refresh {
@@ -48,13 +57,61 @@
 }
 
 .openApp {
-  border: 0;
-  background: transparent;
-  color: var(--app-accent);
+  align-items: center;
+  background: var(--app-accent);
+  border: 1px solid var(--app-accent);
+  border-radius: 8px;
+  color: var(--app-text-inverse, #fff);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-weight: 600;
+  gap: 6px;
+  line-height: 1.2;
+  padding: 7px 11px;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+
+  &:hover:not(:disabled) {
+    background: var(--app-accent-hover, var(--app-accent));
+    border-color: var(--app-accent-hover, var(--app-accent));
+  }
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
+
+  &:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+}
+
+.secondaryAction {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 8px;
+  color: var(--app-text);
   cursor: pointer;
   font: inherit;
-  padding: 0;
-  text-decoration: underline;
+  padding: 7px 11px;
+
+  &:hover:not(:disabled) {
+    border-color: var(--app-accent);
+    color: var(--app-accent);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--app-accent);
+    outline-offset: 2px;
+  }
 
   &:disabled {
     cursor: wait;
@@ -213,4 +270,19 @@
   overflow-wrap: anywhere;
   color: var(--app-text-secondary);
   font-size: 11px;
+}
+
+.details {
+  color: var(--app-text-secondary);
+  font-size: 11px;
+
+  summary {
+    cursor: pointer;
+    width: fit-content;
+  }
+
+  .identifier {
+    display: block;
+    margin-top: 4px;
+  }
 }

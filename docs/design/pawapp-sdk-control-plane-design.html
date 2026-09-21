@@ -378,8 +378,8 @@ body.mock-expanded { overflow: hidden; }
 <p>以下契约只标准化两条路径跨越 Host/App 边界时需要的信息：入口与 action、任务、配置、项目和成果。P1a 使用 action/task 与 Host/App 能力作用域的最小集合，P1b 增加 artifact/handoff，P2 接入 setup；跨 App CapabilitySpec 与交互切换字段仅供可选扩展。</p>
 <table>
   <tr><th style="width:20%">契约组</th><th>最小字段 / 类型</th><th style="width:32%">关键不变量</th></tr>
-  <tr><td>① Discovery / Skill / Tool</td><td>AppDescriptor、ActionSpec；ToolDescriptor（owner/id、schema、effects、权限、来源）、SkillDescriptor（owner/id、版本/digest、资源清单、tool refs）、CapabilityScope（host_public / app_private）。跨 App CapabilitySpec 为扩展。P1a 的 action 最小子集 <code>ActionDescriptor</code>：<code>action_id / app_id / summary / engagements[] / input_schema / output_types[] / permissions[] / effects[] / adapter_ref / descriptor_digest</code>。注册绑定另带 <code>exposure</code> 与 eager/deferred requirement IDs，不进入 descriptor digest。</td><td>描述能力不自动授予权限；只有 <code>host_public</code> action 可被列出、描述、授权和新 dispatch；<code>app_private</code> action 只供 App 内部使用，但已持久接受的旧任务仍可恢复、接收命令和交付终态；grant 按 descriptor/action 隔离；<code>permissions[]</code> 是 dispatch 边界检查的输入；<code>adapter_ref</code> 由 Host 从已注册实现解析，不接受调用方替换</td></tr>
-  <tr><td>② Artifact</td><td>ArtifactType、ArtifactRef、ArtifactManifest、ProjectRef；schema version、digest、size、media type、producer、provenance、project revision</td><td>ArtifactRef 指向已发布不可变版本；ProjectRef 指向 App 管理的可变项目；引用不等于读取权限</td></tr>
+  <tr><td>① Discovery / Skill / Tool</td><td>AppDescriptor、ActionSpec；ToolDescriptor（owner/id、schema、effects、权限、来源）、SkillDescriptor（owner/id、版本/digest、资源清单、tool refs）、CapabilityScope（host_public / app_private）。跨 App CapabilitySpec 为扩展。P1a 的 action 最小子集 <code>ActionDescriptor</code>：<code>action_id / app_id / summary / engagements[] / input_schema / output_types[] / permissions[] / effects[] / adapter_ref / descriptor_digest</code>。注册绑定另带 <code>exposure</code> 与 eager/deferred requirement IDs，不进入 descriptor digest。Host 管理面可由这些 descriptor 投影出 <code>TaskCapability</code> bundle，把相关 public actions 聚合成读、写、项目变更或媒体生成等用户能力。</td><td>描述能力不自动授予权限；只有 <code>host_public</code> action 可被列出、描述、授权和新 dispatch；<code>app_private</code> action 只供 App 内部使用，但已持久接受的旧任务仍可恢复、接收命令和交付终态；grant 按 descriptor/action 隔离；<code>permissions[]</code> 是 dispatch 边界检查的输入；<code>adapter_ref</code> 由 Host 从已注册实现解析，不接受调用方替换。Bundle 是 UI 与管理 API 的原子批量操作，不是绕过 action grant 的第二授权层。</td></tr>
+  <tr><td>② Artifact</td><td>ArtifactType、ArtifactRef、ArtifactManifest、ArtifactCollection、ProjectRef；schema version、digest、size、media type、producer、provenance、project revision</td><td>ArtifactRef 指向已发布不可变版本；ArtifactCollection 是 Host 按 principal/workspace/App 授权后返回的有界分页集合；ProjectRef 指向 App 管理的可变项目；引用不等于读取权限。App 可在此通用集合之上提供可选的领域 library 投影，不能把 App 私有文件默认为 Main Chat 可见。</td></tr>
   <tr><td>③ Readiness / Setup</td><td>SetupRequirement、ReadinessResult、SetupRequest/Result（第 7 节）；缺项、影响操作、权威来源、设置入口、检查引用与有效期</td><td>App 判断领域条件，Host 校验自身资源与授权；模型绑定是可选类型；输出不含 secret；eager 缺项在创建任务前阻塞，deferred 缺项只在既有任务到达对应步骤时请求</td></tr>
   <tr><td>④ Task Context / Handoff</td><td>TaskContext、ContextDelta、HandoffRequest、OpenAppAction；task_id、goal、scope、decision refs、context revision、artifact refs、resume_ref</td><td>Host 签发存储；URL 只含不具独立授权能力的 handoff ID；变更须确认应用的 revision</td></tr>
   <tr><td>⑤ Task / Continuation</td><td>TaskHandle、TaskEvent、Continuation；<code>engagement / origin_ref / parent_task_id? / app_session_ref? / return_session_ref?</code>、executor/run、status、event sequence、output refs、resume policy。 <code>submission_id</code>、<code>executor_run_ref</code>、<code>replay_cursor</code>、<code>external_job_ids[]</code>；<code>InputRequest</code> / <code>InputAnswer</code>；当前 task-linked setup 的 <code>setup_request_id / setup_attempt</code>；仅在 <code>waiting_for_setup</code> 合法且一次只含一个 requirement ID 的 setup need。<strong>占位字段</strong>：interaction_owner_ref、interaction_epoch（按任务入口初始化，本版内不变）</td><td>Host 持久保存边界状态；来源与对话归属由 Host 校验，不能由事件改写；Direct 完成不自动唤醒 Main Chat；事件至少一次投递 + 消费端按 sequence 去重；成功与 output refs 同事务提交；<code>submission_id</code> 幂等；普通补问与 <code>waiting_for_approval</code> 均用严格 request/question 身份的 InputRequest，setup 回执和 approval 答案互不替代、互不授予权限</td></tr>
@@ -392,6 +392,7 @@ body.mock-expanded { overflow: hidden; }
   <li>Artifact Store 首期本地 blob + Host 元数据；临时上传、校验、原子提交；大文件走限额下载，不塞进模型上下文。转换必须是显式 adapter 并记录派生关系。</li>
   <li>项目更新传 expected_revision，冲突保留双方修改请求合并。卸载 App 不隐式删除用户已发布结果。</li>
   <li>Readiness blocker 分类：<code>needs_input</code> 通过任务卡补问；<code>needs_configuration</code> 定位设置入口；<code>needs_authorization</code> 请求对应范围授权；<code>unavailable</code> 说明依赖不可用与重试条件。只阻塞依赖该条件的 action，不影响其他可用入口。</li>
+  <li>授权管理以 capability bundle 为默认的人类界面：普通用户按“读取 / 写入 / 生成”等能力授权；bundle toggle 在一个 policy revision 内原子更新其全部 public action。现有 action 级 descriptor pinning 与 grant enforcement 保留为兼容层；Advanced 视图只用于 datasource、目录等真正的资源选择器，不把语言、分辨率、宽高比等普通输入误当作权限范围。</li>
 </ul>
 
 <h2 id="s7">7. 配置协同与统一 Setup 生命周期</h2>
@@ -547,7 +548,7 @@ SetupResult {
   <tr><td><code>paw.ui.registerSetupEntry / paw.setup.open</code></td><td>注册与打开 setup handler；SDK 管装载、去重与返回，App 管领域表单</td></tr>
   <tr><td><code>app.report_setup_status / report_setup_result</code></td><td>App 后端报告 waiting_external 与终态 SetupResult；Host 验证允许的状态迁移并持久保存，终态回执校验后重查；前端按 request ID 查询公开状态</td></tr>
   <tr><td><code>paw.apps.open / app.on_handoff</code></td><td>Host 解析受控入口并交接已授权材料；handler 以 handoff ID 幂等建/开领域草案，返回 ProjectRef</td></tr>
-  <tr><td><code>ctx.artifacts / paw.artifacts</code></td><td>发布、读取、列出、授予材料范围；公共读写由 Host 校验</td></tr>
+  <tr><td><code>ctx.artifacts / paw.artifacts</code></td><td>发布、读取、列出、授予材料范围；公共读写由 Host 校验；列出返回有界、可用 cursor 续取的 ArtifactCollection</td></tr>
   <tr><td><code>ctx.tasks / app.report_task</code></td><td>登记 Direct 根任务或已授权的子任务、映射进度、报告结果；关联 engagement/origin；支持 snapshot 与按 sequence 重放。 adapter 面：<code>app.on_dispatch(action_id, handler)</code> 接收 dispatch 调用；handler 收到 <code>submission_id</code> 并须返回 <code>executor_run_ref</code>；<code>ctx.tasks.request_input(questions)</code> / <code>on_answer</code>；<code>ctx.tasks.attach(run_ref, cursor)</code> 供 Host 重连</td></tr>
   <tr><td><code>ctx.tools.list / describe / invoke</code></td><td>P1a：发现并调用获准的 Host 公开 Tool；扩展现有 invoke 代理，绑定 App/task 身份并复用工具授权</td></tr>
   <tr><td><code>ctx.skills.list / load</code></td><td>P1a：按需加载获准的 Host Skill 指导、资源和依赖描述；交给 App runtime adapter 使用</td></tr>
@@ -773,7 +774,7 @@ Production constraints:
 
 <h3>P1b · 双入口的项目与成果交接</h3>
 <div class="card">
-<p><strong>交付</strong>：ArtifactRef 发布、读取与下载（本地 blob + Host 元数据、临时上传、校验、原子提交）；HandoffRequest/OpenAppAction 与 <code>open_app</code>；Data 报告 Artifact 化，任务卡提供成果摘要与 App 项目入口；安装与激活分离，目录索引只读静态包（第 14 节）。</p>
+<p><strong>交付</strong>：ArtifactRef 发布、读取、下载与有界集合查询（本地 blob + Host 元数据、临时上传、校验、原子提交）；HandoffRequest/OpenAppAction 与 <code>open_app</code>；Data 报告 Artifact 化，任务卡提供成果摘要与 App 项目入口；Main Chat 可通过通用 collection query 读取已发布成果，Creator 以此投影 published video library；安装与激活分离，目录索引只读静态包（第 14 节）。</p>
 <p><strong>门槛</strong>：</p>
 <ul>
   <li>报告 ArtifactRef 回传 → 任务卡打开 Data 工作区（同 project_ref）；重投/重启不重复建项目。</li>

@@ -111,6 +111,35 @@ async def test_handoff_is_idempotent_scoped_and_bounded(tmp_path):
     assert handoff.context.resume_ref == submission.handle.task_id
     assert "principal_id" not in handoff.context.model_dump(mode="json")
 
+
+async def test_artifact_collection_is_scoped_and_media_filtered(tmp_path):
+    submission, artifacts, ref, _ = await project_submission(tmp_path)
+
+    collection = await artifacts.list(
+        submission.handle.scope,
+        media_type="text/markdown",
+    )
+    assert collection.source == "host_artifacts"
+    assert collection.app_id == "qwenpaw-data"
+    assert collection.total_count == 1
+    assert collection.items == (ref,)
+    assert collection.next_cursor is None
+
+    assert (
+        await artifacts.list(
+            submission.handle.scope,
+            media_type="video/mp4",
+        )
+    ).total_count == 0
+    assert (
+        await artifacts.list(
+            submission.handle.scope.model_copy(update={"principal_id": "mallory"}),
+        )
+    ).total_count == 0
+
+    with pytest.raises(TaskStoreError, match="invalid_artifact_cursor"):
+        await artifacts.list(submission.handle.scope, cursor="not-a-cursor")
+
     for unauthorized in (
         target.model_copy(update={"principal_id": "mallory"}),
         target.model_copy(update={"workspace_id": "other"}),

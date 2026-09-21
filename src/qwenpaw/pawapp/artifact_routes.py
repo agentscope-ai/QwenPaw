@@ -31,6 +31,34 @@ _PREVIEW_TYPES = frozenset(
 )
 
 
+@router.get("/artifacts")
+async def artifact_collection(
+    request: Request,
+    scope: Scope,
+    limit: int = Query(25, ge=1, le=100),
+    cursor: str | None = Query(None, max_length=512),
+    task_id: str | None = Query(None, max_length=256),
+    media_type: str | None = Query(None, max_length=256),
+):
+    store = getattr(request.app.state, "pawapp_artifacts", None)
+    if store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="artifact_store_unavailable",
+        )
+    try:
+        return await store.list(
+            scope,
+            limit=limit,
+            cursor=cursor,
+            task_id=task_id,
+            media_type=media_type,
+        )
+    except TaskStoreError as exc:
+        status = 422 if exc.code.startswith("invalid_artifact_") else 503
+        raise HTTPException(status_code=status, detail=exc.code) from None
+
+
 @router.get("/artifacts/{artifact_id}/versions/{version}/content")
 async def artifact_content(
     request: Request,

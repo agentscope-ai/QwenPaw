@@ -41,4 +41,23 @@ describe("pawappGrantsApi", () => {
       },
     );
   });
+
+  it("updates one capability bundle atomically", async () => {
+    const body = { expected_revision: 4, enabled: true };
+
+    await pawappGrantsApi.updateCapability(
+      "agent-1",
+      "qwenpaw-creator",
+      "media_generation",
+      body,
+    );
+
+    expect(request).toHaveBeenCalledWith(
+      "/pawapps/workspaces/agent-1/task-grants/capabilities/qwenpaw-creator/media_generation",
+      {
+        method: "PUT",
+        body: JSON.stringify(body),
+      },
+    );
+  });
 });

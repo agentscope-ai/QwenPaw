@@ -3,6 +3,7 @@
 
 from .contracts import (
     ActionDescriptor,
+    ArtifactCollection,
     ArtifactProducer,
     ArtifactRef,
     ProjectRef,
@@ -23,6 +24,7 @@ from .contracts import (
     TaskSubmission,
 )
 from .store import TaskStore
+from .policy import TaskCapability
 from .coordinator import (
     CommandLookup,
     SubmissionLookup,
@@ -32,6 +34,7 @@ from .coordinator import (
 
 __all__ = [
     "ActionDescriptor",
+    "ArtifactCollection",
     "ArtifactProducer",
     "ArtifactRef",
     "ProjectRef",
@@ -55,4 +58,5 @@ __all__ = [
     "CommandLookup",
     "TaskAdapter",
     "TaskCoordinator",
+    "TaskCapability",
 ]

@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { RocketOutlined } from "@ant-design/icons";
+import { ArrowRightOutlined, RocketOutlined } from "@ant-design/icons";
 import { ToolCardShell } from "../shared";
 import type { BuiltinCardProps } from "./index";
 import {
@@ -34,7 +34,7 @@ function navigateToApp(path: string) {
   window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-function ArtifactItem({
+export function PawAppArtifactItem({
   appId,
   workspaceId,
   artifact,
@@ -369,9 +369,20 @@ function TaskCard({
     : recovering
     ? "recovering"
     : task?.status;
-  const title = appId
-    ? t("tool.pawappTask.title", { app: appId })
-    : t("tool.pawappTask.defaultTitle");
+  const title =
+    appId === "qwenpaw-creator"
+      ? t("tool.pawappTask.creatorTitle")
+      : appId
+      ? t("tool.pawappTask.title", { app: appId })
+      : t("tool.pawappTask.defaultTitle");
+  const openLabel =
+    appId === "qwenpaw-creator"
+      ? t("tool.pawappTask.openCreator")
+      : t("tool.pawappTask.openApp");
+  const openingLabel =
+    appId === "qwenpaw-creator"
+      ? t("tool.pawappTask.openingCreator")
+      : t("tool.pawappTask.openingApp");
   const appHref = appId
     ? addRouterBasename(window.location.pathname, `/apps/${appId}`)
     : undefined;
@@ -420,32 +431,35 @@ function TaskCard({
             {blocked && appHref && (
               <a href={appHref}>{t("tool.pawappTask.settings")}</a>
             )}
-            {!blocked &&
-              task?.status === "waiting_for_setup" &&
-              task.setup_request_id && (
+            <div className={styles.actions}>
+              {!blocked &&
+                task?.status === "waiting_for_setup" &&
+                task.setup_request_id && (
+                  <button
+                    className={styles.secondaryAction}
+                    type="button"
+                    disabled={setupOpening}
+                    onClick={() => void openSetup()}
+                  >
+                    {t(
+                      setupOpening
+                        ? "tool.pawappTask.openingSetup"
+                        : "tool.pawappTask.completeSetup",
+                    )}
+                  </button>
+                )}
+              {!blocked && task?.project_ref && (
                 <button
                   className={styles.openApp}
                   type="button"
-                  disabled={setupOpening}
-                  onClick={() => void openSetup()}
+                  disabled={opening}
+                  onClick={() => void openApp()}
                 >
-                  {t(
-                    setupOpening
-                      ? "tool.pawappTask.openingSetup"
-                      : "tool.pawappTask.completeSetup",
-                  )}
+                  {opening ? openingLabel : openLabel}
+                  <ArrowRightOutlined aria-hidden="true" />
                 </button>
               )}
-            {!blocked && task?.project_ref && (
-              <button
-                className={styles.openApp}
-                type="button"
-                disabled={opening}
-                onClick={() => void openApp()}
-              >
-                {t("tool.pawappTask.openApp")}
-              </button>
-            )}
+            </div>
           </div>
           {blocked && (
             <p>
@@ -496,7 +510,7 @@ function TaskCard({
               </div>
               <ul className={styles.artifacts}>
                 {task.output_refs.map((artifact) => (
-                  <ArtifactItem
+        <PawAppArtifactItem
                     key={`${artifact.artifact_id}:${artifact.version}`}
                     appId={appId}
                     workspaceId={workspaceId}
@@ -507,9 +521,12 @@ function TaskCard({
             </div>
           )}
           {task && (
-            <span className={styles.identifier}>
-              {t("tool.pawappTask.taskId", { id: task.task_id })}
-            </span>
+            <details className={styles.details}>
+              <summary>{t("tool.pawappTask.details")}</summary>
+              <span className={styles.identifier}>
+                {t("tool.pawappTask.taskId", { id: task.task_id })}
+              </span>
+            </details>
           )}
         </div>
       )}
@@ -523,13 +540,21 @@ function OpenAppCard({
   result,
 }: BuiltinCardProps & { result: PawAppOpenResult }) {
   const { t } = useTranslation();
+  const openLabel =
+    result.app_id === "qwenpaw-creator"
+      ? t("tool.pawappTask.openCreator")
+      : t("tool.pawappTask.openApp");
   return (
     <ToolCardShell
       content={content}
       isStreaming={isStreaming}
       icon={<RocketOutlined />}
-      title={t("tool.pawappTask.title", { app: result.app_id })}
-      inlineResult={t("tool.pawappTask.openApp")}
+      title={
+        result.app_id === "qwenpaw-creator"
+          ? t("tool.pawappTask.creatorTitle")
+          : t("tool.pawappTask.title", { app: result.app_id })
+      }
+      inlineResult={openLabel}
       defaultExpanded
     >
       <div className={styles.body}>
@@ -538,7 +563,8 @@ function OpenAppCard({
           type="button"
           onClick={() => navigateToApp(result.action.path)}
         >
-          {t("tool.pawappTask.openApp")}
+          {openLabel}
+          <ArrowRightOutlined aria-hidden="true" />
         </button>
       </div>
     </ToolCardShell>

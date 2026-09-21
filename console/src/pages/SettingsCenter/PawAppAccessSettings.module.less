@@ -27,12 +27,122 @@
   border-radius: 14px;
 }
 
+.appPanel {
+  overflow: hidden;
+  border: 1px solid var(--app-border, rgba(0, 0, 0, 0.12));
+  border-radius: 16px;
+  background: var(--app-surface, #fff);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.appPanelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--app-border-subtle, rgba(0, 0, 0, 0.08));
+  background: var(--app-fill-faint, rgba(0, 0, 0, 0.02));
+
+  :global(.ant-tag),
+  :global(.qwenpaw-tag) {
+    margin: 0;
+  }
+}
+
+.appIdentity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+
+  h3 {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-size: 15px;
+    font-weight: 650;
+    line-height: 22px;
+  }
+
+  > div > span {
+    display: block;
+    margin-top: 2px;
+    color: var(--app-text-tertiary, rgba(0, 0, 0, 0.45));
+    font-size: 12px;
+  }
+}
+
+.appIcon {
+  display: grid;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--app-accent-border, rgba(255, 127, 39, 0.25));
+  border-radius: 10px;
+  color: var(--app-accent-text, #f07822);
+  background: var(--app-accent-faint, rgba(255, 127, 39, 0.09));
+}
+
+.appPanelBody {
+  padding: 18px;
+}
+
 .action {
   padding: 18px;
 
   & + & {
     border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
   }
+}
+
+.capabilityIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 18px 18px 12px;
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
+.capability {
+  padding: 18px;
+
+  & + & {
+    border-top: 1px solid var(--colorBorderSecondary, rgba(0, 0, 0, 0.06));
+  }
+}
+
+.advanced {
+  margin-top: 14px;
+
+  :global(.ant-collapse-header),
+  :global(.qwenpaw-collapse-header) {
+    align-items: center !important;
+    color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  :global(.ant-collapse-content-box),
+  :global(.qwenpaw-collapse-content-box) {
+    padding: 0 !important;
+  }
+}
+
+.advancedHint {
+  padding: 14px 18px 2px;
+  color: var(--colorTextSecondary, rgba(0, 0, 0, 0.65));
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .actionHeader {

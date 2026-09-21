@@ -112,6 +112,8 @@ def make_task_tools(context: TaskToolContext):
         For Creator video intent, choose create-video. Use create-project only
         when the user explicitly wants an empty workspace. Never ask the user
         for Creator project, timeline, element, work, run, or provider IDs.
+        To find previously published App outputs, use list_app_artifacts; for
+        Creator videos, filter that query with media_type video/mp4.
         """
         try:
             actions = await context.runtime.catalog(
@@ -245,6 +247,43 @@ def make_task_tools(context: TaskToolContext):
                     "app_id": app_id,
                     "workspace_id": context.workspace_id,
                     "task": submission.handle.model_dump(mode="json"),
+                },
+            )
+        except (TaskStoreError, ValueError) as exc:
+            return _result(
+                {"state": "error", "reason": _reason(exc)},
+                error=True,
+            )
+
+    async def list_app_artifacts(
+        app_id: str,
+        media_type: str = "",
+        limit: int = 25,
+        cursor: str = "",
+    ) -> ToolChunk:
+        """List published artifacts from one App's Host-backed library.
+
+        This is the generic collection query for App outputs. It only returns
+        artifacts explicitly published to the Host; App-private files remain
+        inside the App until the App publishes or shares them. Use a media
+        type such as video/mp4 when the user asks for generated videos.
+        """
+        try:
+            scope = context.scope(app_id)
+            if context.runtime.artifacts is None:
+                raise TaskStoreError("artifact_store_unavailable")
+            collection = await context.runtime.artifacts.list(
+                scope,
+                limit=limit,
+                cursor=cursor or None,
+                media_type=media_type or None,
+            )
+            return _result(
+                {
+                    "kind": "pawapp_artifact_collection",
+                    "app_id": app_id,
+                    "workspace_id": context.workspace_id,
+                    "collection": collection.model_dump(mode="json"),
                 },
             )
         except (TaskStoreError, ValueError) as exc:
@@ -416,6 +455,7 @@ def make_task_tools(context: TaskToolContext):
         describe_action,
         delegate,
         get_app_task,
+        list_app_artifacts,
         open_app,
         open_task_setup,
         answer_task,

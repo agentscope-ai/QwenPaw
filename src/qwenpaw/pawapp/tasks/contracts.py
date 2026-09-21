@@ -175,6 +175,21 @@ class ArtifactRef(Contract):
     created_at: float
 
 
+class ArtifactCollection(Contract):
+    """A bounded, scoped view of Host-published artifact versions.
+
+    Apps may project this generic collection into a richer library later, but
+    the Host owns the stable paging and authorization envelope.
+    """
+
+    schema_version: Literal[1] = 1
+    source: Literal["host_artifacts"] = "host_artifacts"
+    app_id: Identity
+    items: tuple[ArtifactRef, ...] = ()
+    total_count: int = Field(ge=0)
+    next_cursor: Identity | None = None
+
+
 class ProjectRef(Contract):
     """Reference to an App-owned mutable project at a known revision."""
 
