@@ -117,16 +117,12 @@ def test_missing_key_and_partial_catalog_never_generate(monkeypatch):
         }
 
 
-def test_online_workflow_never_runs_pr_code():
+def test_online_workflow_is_manual_and_never_runs_pr_code():
     import yaml
 
     path = SCRIPT.parents[2] / f".github/workflows/model-catalog-canary.yml"
     workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
-    assert set(workflow[f"on"]) == {
-        f"push",
-        f"schedule",
-        f"workflow_dispatch",
-    }
+    assert set(workflow[f"on"]) == {f"workflow_dispatch"}
     condition = workflow[f"jobs"][f"canary"][f"if"]
     assert f"MODEL_CANARY_ENABLED" in condition
     assert f"github.event.repository.default_branch" in condition
