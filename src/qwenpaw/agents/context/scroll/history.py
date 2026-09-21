@@ -948,6 +948,49 @@ class HistoryStore:
                     self._repair_fts()
         raise AssertionError("unreachable")
 
+    def age_out_blocks(
+        self,
+        *,
+        before: str,
+        dry_run: bool = False,
+    ) -> dict[str, int]:
+        """Null out ``blocks`` of old tool_result rows, keeping the rows.
+
+        The structured blocks of a tool result duplicate its plain-text
+        content plus capture metadata, and they are the bulk of the bloat:
+        in a production store they held ~75% of total bytes while the
+        conversation text held most of the rest. Unlike :meth:`purge` this
+        keeps every row — the text stays searchable via FTS (which indexes
+        ``content`` only) and readable via recall, which degrades to the
+        plain-text view for aged rows.
+
+        ``model_turn`` rows are never touched: their blocks carry the
+        thinking stream, which resumed sessions replay.
+
+        Idempotent: rows whose blocks are already NULL never match, so
+        re-running is a no-op. FTS needs no maintenance here — nothing is
+        deleted. Returns ``{"rows", "blocks_bytes"}`` for the affected
+        rows (aged, or would-be with ``dry_run=True``).
+        """
+        where, params = self._purge_where(before, ("tool_result",))
+        where += " AND blocks IS NOT NULL"
+        with self._lock, self._conn:
+            row = self._conn.execute(
+                "SELECT COUNT(*) AS rows, "
+                "COALESCE(SUM(LENGTH(blocks)), 0) AS blocks_bytes "
+                "FROM conversation_history WHERE " + where,
+                params,
+            ).fetchone()
+            if dry_run:
+                aged = int(row["rows"])
+            else:
+                aged = self._conn.execute(
+                    "UPDATE conversation_history SET blocks = NULL WHERE "
+                    + where,
+                    params,
+                ).rowcount
+        return {"rows": aged, "blocks_bytes": int(row["blocks_bytes"])}
+
     def vacuum(self) -> None:
         """Rebuild the database file to reclaim space freed by ``purge``.
 

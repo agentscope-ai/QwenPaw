@@ -112,9 +112,11 @@ def _warn_db_size(db_path: Path) -> None:
     logger.warning(
         "scroll history at %s is %.1f GiB. Rows older than "
         "history_retention_days (default 30) auto-purge on startup and on "
-        "teardown; if you set history_retention_days=0 the store keeps "
-        "everything and grows without bound. Lower the retention window to "
-        "trim it.",
+        "teardown, and tool_result blocks older than blocks_retention_days "
+        "(default 14) are nulled at the same time — rows and their searchable "
+        "text stay, only the large structured payloads go. Setting either to "
+        "0 skips that pass and lets the store keep growing. Lower the "
+        "retention windows to trim it.",
         db_path,
         total / 1024**3,
     )

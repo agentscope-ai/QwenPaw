@@ -741,20 +741,35 @@ def _purge_old_history(
     history: HistoryStore,
     retention_days: int,
     agent_id: str | None = None,
+    blocks_retention_days: int = 0,
 ) -> None:
     """Drop history rows older than ``retention_days`` (0 = keep forever).
 
     Runs on every startup so the store still shrinks even if the agent was
     killed before its teardown purge could run. Best-effort: a failure is
     logged and never aborts the sync.
+
+    When ``blocks_retention_days`` > 0, tool_result blocks older than that
+    are also nulled (rows and their text stay — the milder companion pass
+    to the whole-row retention purge).
     """
-    if retention_days <= 0:
+    if retention_days <= 0 and blocks_retention_days <= 0:
         return
-    cutoff = (
-        datetime.now(timezone.utc) - timedelta(days=retention_days)
-    ).isoformat()
     try:
-        removed = history.purge(before=cutoff)
+        removed = 0
+        if retention_days > 0:
+            cutoff = (
+                datetime.now(timezone.utc) - timedelta(days=retention_days)
+            ).isoformat()
+            removed = history.purge(before=cutoff)
+        aged = {"rows": 0, "blocks_bytes": 0}
+        if blocks_retention_days > 0:
+            aged = history.age_out_blocks(
+                before=(
+                    datetime.now(timezone.utc)
+                    - timedelta(days=blocks_retention_days)
+                ).isoformat(),
+            )
     except Exception as exc:  # noqa: BLE001 - retention must never break boot
         logger.warning(
             "session-sync[%s]: retention purge failed: %s",
@@ -762,12 +777,16 @@ def _purge_old_history(
             exc,
         )
         return
-    if removed:
+    if removed or aged["rows"]:
         logger.info(
-            "session-sync[%s]: purged %d row(s) older than %dd",
+            "session-sync[%s]: purged %d row(s) older than %dd; aged %d "
+            "tool_result block payload(s) (%d bytes) older than %dd",
             agent_id,
             removed,
             retention_days,
+            aged["rows"],
+            aged["blocks_bytes"],
+            blocks_retention_days,
         )
 
 
@@ -864,6 +883,7 @@ def _sync_all_scroll_agents() -> None:
 
         db_path = workspace_dir / lcc.scroll_config.db_filename
         retention_days = lcc.scroll_config.history_retention_days
+        blocks_retention_days = lcc.scroll_config.blocks_retention_days
         history = HistoryStore(db_path)
         try:
             report = sync_sessions_to_history(
@@ -874,7 +894,12 @@ def _sync_all_scroll_agents() -> None:
                 chats_path=chats_path,
                 preflight=resolved,
             )
-            _purge_old_history(history, retention_days, agent_id)
+            _purge_old_history(
+                history,
+                retention_days,
+                agent_id,
+                blocks_retention_days=blocks_retention_days,
+            )
         except Exception as exc:  # noqa: BLE001 - isolate one agent's failure
             logger.warning(
                 "session-sync[%s]: failed: %s",

@@ -2160,16 +2160,36 @@ class ScrollContextManager:
             data.get("summary_update_failed", False),
         )
 
-    def purge_old(self, retention_days: int, *, dry_run: bool = False) -> int:
+    def purge_old(
+        self,
+        retention_days: int,
+        *,
+        dry_run: bool = False,
+        blocks_retention_days: int = 0,
+    ) -> int:
         """Drop durable history older than ``retention_days`` (0 = keep
         forever). Returns the number of rows removed (or, with ``dry_run``,
-        that would be removed — nothing is deleted)."""
-        if retention_days <= 0:
+        that would be removed — nothing is deleted).
+
+        When ``blocks_retention_days`` > 0, the structured blocks of
+        tool_result rows older than that are also nulled first (a milder,
+        complementary pass: rows and their searchable text stay, only the
+        large payloads go — see :meth:`HistoryStore.age_out_blocks`).
+        """
+        if retention_days <= 0 and blocks_retention_days <= 0:
             return 0
-        return self._history.purge(
-            before=self._cutoff(retention_days),
-            dry_run=dry_run,
-        )
+        removed = 0
+        if retention_days > 0:
+            removed = self._history.purge(
+                before=self._cutoff(retention_days),
+                dry_run=dry_run,
+            )
+        if blocks_retention_days > 0:
+            self._history.age_out_blocks(
+                before=self._cutoff(blocks_retention_days),
+                dry_run=dry_run,
+            )
+        return removed
 
     @staticmethod
     def _cutoff(retention_days: int) -> str:

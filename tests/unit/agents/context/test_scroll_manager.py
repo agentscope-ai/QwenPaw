@@ -2378,6 +2378,33 @@ def test_purge_old_drops_rows_past_window(store: HistoryStore):
     assert store.count("s1") == 0
 
 
+def test_purge_old_ages_blocks_past_window(store: HistoryStore):
+    """``blocks_retention_days`` wires through: with the blocks window inside
+    the full-row window, a tool_result row keeps its text while only its
+    structured payload ages out (and it doesn't count as a removal)."""
+    from datetime import datetime, timedelta, timezone
+
+    mgr = make_manager(store)
+    # 10 days old: past the 1-day blocks window, inside the 30-day row window.
+    created = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+    store.append(
+        session_id="s1",
+        dedup_key="r1",
+        entry=LogEntry(
+            kind="tool_result",
+            content="big output",
+            blocks="x" * 500,
+            created_at=created,
+        ),
+    )
+    assert mgr.purge_old(30, blocks_retention_days=1) == 0
+    assert store.count("s1") == 1
+    row = store._conn.execute(
+        "SELECT blocks FROM conversation_history WHERE dedup_key = 'r1'",
+    ).fetchone()
+    assert row["blocks"] is None
+
+
 def test_serialize_persists_runtime_tag():
     """The qwenpaw_tag survives into the durable row's metadata, so the
     recall layer's SQL floor can tell continuation stubs from requests."""
