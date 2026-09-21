@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { InputNumber, Slider, Tooltip } from "antd";
 import NumberFlow from "@number-flow/react";
-import { LockKeyhole, RotateCcw } from "lucide-react";
+import { Brain, LockKeyhole, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
 import styles from "./thinking.module.less";
@@ -190,14 +190,7 @@ export function ThinkingControl({
                 ? undefined
                 : Object.fromEntries(efforts.map((_, index) => [index, " "]))
             }
-            tooltip={{
-              formatter: (next) =>
-                isBudget
-                  ? next != null && next < low
-                    ? t("thinkingControl.off")
-                    : `${next?.toLocaleString()} tokens`
-                  : t(`thinkingControl.${efforts[next ?? 0]}`),
-            }}
+            tooltip={{ open: false }}
             onChange={(next) => {
               setAdjusting(true);
               if (isBudget)
@@ -244,6 +237,9 @@ export function ThinkingControl({
                     if (adjusting) commitBudget(budget);
                     setEditingBudget(false);
                   }}
+                  prefix={
+                    <Brain size={14} strokeWidth={1.75} aria-hidden="true" />
+                  }
                   suffix="tokens"
                 />
               ) : (
@@ -254,6 +250,7 @@ export function ThinkingControl({
                   disabled={disabled}
                   onClick={() => setEditingBudget(true)}
                 >
+                  <Brain size={14} strokeWidth={1.75} aria-hidden="true" />
                   <NumberFlow
                     value={
                       (adjusting ? budget < low : displayed.level === "off")

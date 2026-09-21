@@ -5244,7 +5244,7 @@
   },
   "thinkingControl": {
     "title": "思考强度",
-    "reset": "恢复继承设置",
+    "reset": "恢复默认设置",
     "inherit": "跟随默认",
     "off": "关闭思考",
     "minimal": "极低",

@@ -198,6 +198,9 @@
 }
 
 .budgetValue {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 0;
   background: transparent;
   color: var(--app-text);
@@ -207,7 +210,8 @@
   cursor: pointer;
   padding: 4px 8px;
   border-radius: 6px;
-  span {
+  span,
+  svg {
     color: var(--app-text-tertiary);
   }
   &:hover {

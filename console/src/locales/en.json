@@ -5226,7 +5226,7 @@
   },
   "thinkingControl": {
     "title": "Thinking intensity",
-    "reset": "Restore inherited setting",
+    "reset": "Restore defaults",
     "inherit": "Use default",
     "off": "Off",
     "minimal": "Minimal",

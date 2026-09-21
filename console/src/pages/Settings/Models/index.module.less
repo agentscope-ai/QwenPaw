@@ -183,7 +183,7 @@
 }
 
 .settingsPage .providerCards {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(0, min(100%, 400px)));
   gap: 16px;
   margin-bottom: 0;
 }
@@ -394,7 +394,7 @@
   }
 
   .settingsPage .providerCards {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: minmax(0, min(100%, 400px));
   }
 }
 
