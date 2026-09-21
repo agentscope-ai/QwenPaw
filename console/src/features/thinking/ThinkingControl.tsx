@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { InputNumber, Slider, Tooltip } from "antd";
 import NumberFlow from "@number-flow/react";
 import { LockKeyhole, RotateCcw, ChevronRight } from "lucide-react";
@@ -53,6 +53,7 @@ export function ThinkingControl({
     setEffortIndex(Math.max(0, efforts.indexOf(displayed.level)));
     setAdjusting(false);
   }, [displayed.level, control]);
+  const unresolved = displayed.level === "inherit" && !adjusting;
   const ratio = isBudget
     ? Math.min(1, Math.max(0, (budget - low) / Math.max(1, high - low)))
     : effortIndex / Math.max(1, efforts.length - 1);
@@ -64,16 +65,15 @@ export function ThinkingControl({
       : ratio < 0.85
       ? "deep"
       : "intensive";
-  const label =
-    isBudget && adjusting && budget < low
-      ? t("thinkingControl.off")
-      : displayed.level === "budget" || (isBudget && adjusting)
-      ? t(`thinkingControl.${band}`)
-      : t(
-          `thinkingControl.${
-            adjusting ? efforts[effortIndex] : displayed.level
-          }`,
-        );
+  const label = unresolved
+    ? null
+    : isBudget && adjusting && budget < low
+    ? t("thinkingControl.off")
+    : displayed.level === "budget" || (isBudget && adjusting)
+    ? t(`thinkingControl.${band}`)
+    : t(
+        `thinkingControl.${adjusting ? efforts[effortIndex] : displayed.level}`,
+      );
   function commitBudget(next: number) {
     const bounded = Math.min(high, Math.max(low, Math.round(next)));
     setBudget(bounded);
@@ -83,7 +83,45 @@ export function ThinkingControl({
   return (
     <section
       className={styles.control}
+      data-budget-off={isBudget && control.supports_off}
+      data-unresolved={unresolved}
+      style={
+        {
+          "--thinking-pigment": `color-mix(in srgb, var(--thinking-${
+            ratio < 0.5 ? "start" : "mid"
+          }), var(--thinking-${ratio < 0.5 ? "mid" : "end"}) ${Math.round(
+            (ratio < 0.5 ? ratio * 2 : (ratio - 0.5) * 2) * 100,
+          )}%)`,
+          "--thinking-low-position": `${
+            ((low - offPosition) / (high - offPosition)) * 100
+          }%`,
+        } as CSSProperties
+      }
       onKeyDownCapture={(event) => {
+        if (
+          !disabled &&
+          unresolved &&
+          !unsupported &&
+          (event.target as HTMLElement).getAttribute("role") === "slider" &&
+          [
+            "ArrowLeft",
+            "ArrowRight",
+            "ArrowUp",
+            "ArrowDown",
+            "Home",
+            "End",
+          ].includes(event.key)
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          const last = event.key === "End";
+          if (isBudget) commitBudget(last ? high : low);
+          else
+            onChange({
+              level: last ? efforts[efforts.length - 1] : efforts[0],
+            });
+          return;
+        }
         if (
           disabled ||
           !isBudget ||
@@ -110,6 +148,7 @@ export function ThinkingControl({
       <header className={styles.header}>
         <div className={styles.budgetSlot}>
           {isBudget &&
+            !unresolved &&
             (editingBudget ? (
               <InputNumber
                 autoFocus
@@ -166,7 +205,9 @@ export function ThinkingControl({
               className={styles.modelChoice}
               onClick={onChooseModel}
               aria-label={
-                unsupported ? t("modelSelector.selectModel") : undefined
+                unsupported || unresolved
+                  ? t("modelSelector.selectModel")
+                  : undefined
               }
             >
               <strong>
@@ -228,7 +269,9 @@ export function ThinkingControl({
             ariaLabelForHandle={t("thinkingControl.title")}
             disabled={disabled || (!isBudget && efforts.length < 2)}
             ariaValueTextFormatterForHandle={(next) =>
-              isBudget
+              unresolved
+                ? t("thinkingControl.inherit")
+                : isBudget
                 ? next < low
                   ? t("thinkingControl.off")
                   : `${next.toLocaleString()} tokens`
@@ -246,14 +289,13 @@ export function ThinkingControl({
             }
             marks={
               isBudget && control.supports_off
-                ? Object.fromEntries(
-                    Array.from({ length: 5 }, (_, index) => [
-                      Math.round(
-                        offPosition + ((high - offPosition) * index) / 4,
-                      ),
+                ? Object.fromEntries([
+                    [offPosition, " "],
+                    ...Array.from({ length: 4 }, (_, index) => [
+                      Math.round(low + ((high - low) * index) / 3),
                       " ",
                     ]),
-                  )
+                  ])
                 : isBudget
                 ? Object.fromEntries(
                     Array.from({ length: 5 }, (_, index) => [

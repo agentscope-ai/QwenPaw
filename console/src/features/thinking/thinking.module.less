@@ -2,7 +2,9 @@
 
 .control {
   .model-surface-tokens();
-  --thinking-pigment: #a4663f;
+  --thinking-start: color-mix(in srgb, var(--app-accent) 68%, white);
+  --thinking-mid: var(--app-accent);
+  --thinking-end: color-mix(in srgb, var(--app-accent) 78%, black);
   box-sizing: border-box;
   padding: 4px 6px 2px;
   width: 100%;
@@ -19,13 +21,18 @@
   :global(.qwenpaw-slider-rail) {
     height: 24px;
     border-radius: 16px;
-    background: var(--app-fill-strong);
+    background: linear-gradient(
+      90deg,
+      var(--thinking-start),
+      var(--thinking-mid) 50%,
+      var(--thinking-end)
+    ) !important;
   }
   :global(.ant-slider-track),
   :global(.qwenpaw-slider-track) {
     height: 24px;
     border-radius: 16px;
-    background: var(--thinking-pigment) !important;
+    background: transparent !important;
   }
   :global(.ant-slider-step),
   :global(.qwenpaw-slider-step) {
@@ -78,7 +85,7 @@
     inset-inline-start: 50%;
     inset-block-start: 50%;
     transform: translate(-50%, -50%);
-    background: #fff;
+    background: #fff !important;
     box-shadow:
       0 0 0 1px rgb(0 0 0 / 5%),
       0 2px 5px rgb(0 0 0 / 16%);
@@ -263,6 +270,36 @@
   }
 }
 
-:global(.dark-mode) .control {
-  --thinking-pigment: #d2a078;
+.control[data-budget-off="true"] {
+  :global(.ant-slider-dot:first-child),
+  :global(.qwenpaw-slider-dot:first-child) {
+    transform: translate(0, -50%) !important;
+  }
+  :global(.ant-slider-rail),
+  :global(.qwenpaw-slider-rail) {
+    background: linear-gradient(
+      90deg,
+      var(--app-fill-strong) 0 2%,
+      transparent 2% calc(var(--thinking-low-position) - 2%),
+      var(--thinking-start) var(--thinking-low-position),
+      var(--thinking-mid) calc((100% + var(--thinking-low-position)) / 2),
+      var(--thinking-end)
+    ) !important;
+  }
+}
+
+.control[data-unresolved="true"] {
+  &:focus-within :global(.ant-slider-rail),
+  &:focus-within :global(.qwenpaw-slider-rail) {
+    outline: 2px solid var(--thinking-mid);
+    outline-offset: 3px;
+  }
+  :global(.ant-slider-handle),
+  :global(.qwenpaw-slider-handle) {
+    opacity: 0;
+  }
+  :global(.ant-slider-dot-active),
+  :global(.qwenpaw-slider-dot-active) {
+    background: var(--app-text-tertiary);
+  }
 }

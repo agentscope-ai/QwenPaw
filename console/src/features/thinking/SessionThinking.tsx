@@ -229,7 +229,7 @@ export function SessionThinking({
             (view?.provider_id !== "hub-managed" ? view?.model : undefined) ||
             t("modelSelector.selectModel")}
         </span>
-        {view?.model && (
+        {view?.model && display.level !== "inherit" && (
           <ThinkingIndicator control={view.control} value={display} />
         )}
         <ChevronDown size={12} />
