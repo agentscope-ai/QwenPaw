@@ -851,6 +851,13 @@ async def get_active_models(
             target_agent_id = workspace.agent_id
 
         agent_model = await _load_agent_model(request, target_agent_id)
+        from ...services.model_selection import available_agent_model
+
+        agent_model = await run_sync_io(
+            available_agent_model,
+            manager,
+            agent_model,
+        )
         if agent_model:
             logger.info(
                 "Returning agent-specific model for %s: %s",

@@ -405,6 +405,9 @@ def test_get_model_max_input_length_uses_provider_resolution(monkeypatch):
     from qwenpaw.config import config as config_mod
 
     class _Provider:
+        def get_model_info(self, model_id):
+            return ModelInfo(id=model_id, name=model_id)
+
         def get_context_size(self, model_id):
             assert model_id == "claude-sonnet-4-5"
             return 200_000

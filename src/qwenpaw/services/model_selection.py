@@ -72,6 +72,25 @@ def parse_model_slot(value: Any) -> ModelSlotConfig | None:
     return None
 
 
+def available_agent_model(manager: Any, value: Any) -> ModelSlotConfig | None:
+    """Ignore deleted Agent defaults without rewriting persisted settings."""
+    slot = parse_model_slot(value)
+    if slot is None:
+        return None
+    provider = manager.get_provider(slot.provider_id)
+    if (
+        provider is not None
+        and provider.get_model_info(slot.model) is not None
+    ):
+        return slot
+    logger.warning(
+        "Agent default model %s/%s is unavailable; using global default",
+        slot.provider_id,
+        slot.model,
+    )
+    return None
+
+
 def session_model_slot(meta: dict[str, Any] | None) -> ModelSlotConfig | None:
     """Read a persisted model override from Chat runtime metadata."""
     if not isinstance(meta, dict):
@@ -156,8 +175,12 @@ async def prepare_model_context(
     from ..utils.io_utils import run_sync_io
 
     session_slot = session_model_slot(chat.meta if chat else None)
-    agent_slot = parse_model_slot(workspace.config.active_model)
     manager = ProviderManager.get_instance()
+    agent_slot = await run_sync_io(
+        available_agent_model,
+        manager,
+        workspace.config.active_model,
+    )
     global_slot = parse_model_slot(
         (
             await run_sync_io(manager.get_active_model)
@@ -233,7 +256,10 @@ def get_current_model_slot(
     manager = ProviderManager.get_instance()
     return resolve_effective_model_slot(
         request_override=request_override,
-        agent_model=None if agent_model is _UNSET else agent_model,
+        agent_model=available_agent_model(
+            manager,
+            None if agent_model is _UNSET else agent_model,
+        ),
         global_model=(
             manager.get_active_model()
             if hasattr(manager, "get_active_model")

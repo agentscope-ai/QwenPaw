@@ -30,6 +30,92 @@ def _slot(name: str) -> ModelSlotConfig:
     return ModelSlotConfig(provider_id="provider", model=name)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kind",
+    ["deleted", "missing-model", "missing-provider", "valid"],
+)
+async def test_deleted_agent_default_falls_back_without_rewriting(
+    monkeypatch,
+    kind,
+):
+    from qwenpaw.providers.openai_provider import OpenAIProvider
+    from qwenpaw.providers.provider import ModelInfo
+
+    provider = OpenAIProvider(
+        id="provider",
+        name="Provider",
+        models=[]
+        if kind == "missing-model"
+        else [ModelInfo(id="agent", name="Agent")],
+        removed_model_ids=["agent"] if kind == "deleted" else [],
+    )
+    manager = SimpleNamespace(
+        get_provider=lambda _id: None
+        if kind == "missing-provider"
+        else provider,
+        get_active_model=lambda: _slot("global"),
+    )
+    monkeypatch.setattr(
+        "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
+        lambda: manager,
+    )
+    config = SimpleNamespace(active_model=_slot("agent"))
+    workspace = SimpleNamespace(
+        config=config,
+        chat_manager=SimpleNamespace(find_chat=AsyncMock(return_value=None)),
+    )
+    context = await prepare_model_context(
+        workspace=workspace,
+        session_id="new-session",
+        user_id="user",
+        channel="console",
+        request_override=None,
+    )
+    expected = "agent" if kind == "valid" else "global"
+    assert context.slot == _slot(expected)
+    assert context.source == expected
+    assert config.active_model == _slot("agent")
+    clear_current_model_context()
+    assert get_current_model_slot(agent_model=config.active_model) == (
+        _slot(expected),
+        expected,
+    )
+    assert get_current_model_slot(
+        agent_model=config.active_model,
+        request_override=_slot("explicit"),
+    ) == (_slot("explicit"), "request")
+
+
+@pytest.mark.asyncio
+async def test_effective_api_ignores_deleted_agent_model(monkeypatch):
+    from qwenpaw.app.routers import providers
+
+    slot = _slot("global")
+    manager = SimpleNamespace(
+        get_provider=lambda _id: SimpleNamespace(
+            get_model_info=lambda _model: None,
+            get_context_size=lambda _model: 8192,
+        ),
+        get_active_model=lambda: slot,
+    )
+    monkeypatch.setattr(
+        providers,
+        "_load_agent_model",
+        AsyncMock(return_value=_slot("deleted")),
+    )
+    monkeypatch.setattr(providers, "hub_mode", lambda: False)
+    result = await providers.get_active_models(
+        None,
+        manager,
+        "effective",
+        "agent",
+    )
+    assert result.active_llm == slot
+    raw = await providers.get_active_models(None, manager, "agent", "agent")
+    assert raw.active_llm == _slot("deleted")
+
+
 def test_parse_model_slot_accepts_slot_like_objects() -> None:
     value = SimpleNamespace(provider_id="provider", model="compatible")
 
@@ -43,7 +129,12 @@ def test_explicit_absent_agent_model_does_not_reload_config(monkeypatch):
     monkeypatch.setattr("qwenpaw.config.config.load_agent_config", load)
     monkeypatch.setattr(
         "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-        lambda: SimpleNamespace(get_active_model=lambda: _slot("global")),
+        lambda: SimpleNamespace(
+            get_active_model=lambda: _slot("global"),
+            get_provider=lambda _id: SimpleNamespace(
+                get_model_info=lambda _model: object(),
+            ),
+        ),
     )
     assert get_current_model_slot(agent_id="agent", agent_model=None) == (
         _slot("global"),
@@ -174,7 +265,12 @@ async def test_invalid_request_override_falls_back(monkeypatch, override):
 
     monkeypatch.setattr(
         "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-        lambda: SimpleNamespace(get_active_model=lambda: _slot("global")),
+        lambda: SimpleNamespace(
+            get_active_model=lambda: _slot("global"),
+            get_provider=lambda _id: SimpleNamespace(
+                get_model_info=lambda _model: object(),
+            ),
+        ),
     )
     context = await prepare_model_context(
         workspace=SimpleNamespace(
@@ -216,7 +312,12 @@ async def test_temporary_override_does_not_persist(monkeypatch):
     )
     monkeypatch.setattr(
         "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-        lambda: SimpleNamespace(get_active_model=lambda: _slot("global")),
+        lambda: SimpleNamespace(
+            get_active_model=lambda: _slot("global"),
+            get_provider=lambda _id: SimpleNamespace(
+                get_model_info=lambda _model: object(),
+            ),
+        ),
     )
 
     context = await prepare_model_context(
@@ -269,7 +370,12 @@ async def test_prepare_context_reads_session_without_rewriting_request(
     )
     monkeypatch.setattr(
         "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-        lambda: SimpleNamespace(get_active_model=lambda: _slot("global")),
+        lambda: SimpleNamespace(
+            get_active_model=lambda: _slot("global"),
+            get_provider=lambda _id: SimpleNamespace(
+                get_model_info=lambda _model: object(),
+            ),
+        ),
     )
 
     context = await prepare_model_context(

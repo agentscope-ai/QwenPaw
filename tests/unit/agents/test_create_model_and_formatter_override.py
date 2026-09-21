@@ -103,6 +103,13 @@ def _patched_load_agent_config(_agent_id):  # noqa: ARG001
 def _patch_dependencies(monkeypatch):
     """Avoid touching the real provider manager / retry wrappers."""
     formatter_provider_ids = []
+    monkeypatch.setattr(
+        ProviderManager,
+        "get_instance",
+        # Resolve lazily: individual tests replace the factory's manager.
+        # pylint: disable-next=unnecessary-lambda
+        lambda: model_factory.ProviderManager.get_instance(),
+    )
 
     def install_formatter(model, provider_id=None, *, model_info=None):
         del model_info
@@ -492,7 +499,7 @@ def test_global_model_configuration_errors(monkeypatch, global_slot):
         lambda: manager,
     )
     expected = (
-        "Active provider 'dashscope' not found"
+        "Provider 'dashscope' not found"
         if global_slot == ("dashscope", "model-a")
         else "No active model configured"
     )

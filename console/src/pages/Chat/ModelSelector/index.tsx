@@ -254,7 +254,7 @@ export default function ModelSelector({
     const curr = location.pathname;
     prevPathRef.current = curr;
     const comingToChat = curr.startsWith("/chat") && !prev.startsWith("/chat");
-    if (comingToChat) {
+    if (comingToChat || (curr === "/chat/new" && prev !== curr)) {
       void refreshActiveModels().catch(() => {});
     }
   }, [location.pathname, refreshActiveModels]);

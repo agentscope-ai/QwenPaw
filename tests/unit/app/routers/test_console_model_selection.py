@@ -32,7 +32,12 @@ async def test_console_persistence_reset_and_temporary_override(
     )
     monkeypatch.setattr(
         "qwenpaw.providers.provider_manager.ProviderManager.get_instance",
-        lambda: SimpleNamespace(get_active_model=lambda: None),
+        lambda: SimpleNamespace(
+            get_active_model=lambda: None,
+            get_provider=lambda _id: SimpleNamespace(
+                get_model_info=lambda _model: object(),
+            ),
+        ),
     )
     chat = await manager.get_or_create_chat("session", "user", "console")
     selected = {"provider_id": "provider", "model": "selected"}

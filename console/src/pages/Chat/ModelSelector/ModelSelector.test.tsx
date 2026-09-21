@@ -19,6 +19,7 @@ import {
 
 const agentStoreState = vi.hoisted(() => ({ selectedAgent: "default" }));
 const navigateMock = vi.hoisted(() => vi.fn());
+const locationState = vi.hoisted(() => ({ pathname: "/chat/session-1" }));
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -62,6 +63,7 @@ vi.mock("react-router-dom", async (importOriginal) => {
   return {
     ...actual,
     useNavigate: () => navigateMock,
+    useLocation: () => locationState,
   };
 });
 
@@ -780,6 +782,21 @@ describe("ModelSelector", () => {
         "qwenpaw-session-model-override:default:session-1",
       ),
     ).toBeNull();
+  });
+
+  it("refreshes the Agent default when navigating to a new chat", async () => {
+    locationState.pathname = "/chat/session-1";
+    const view = renderEstablishedSelector();
+    await screen.findAllByText("GPT-4");
+    vi.mocked(providerApi.getActiveModels).mockResolvedValue({
+      active_llm: { provider_id: "openai", model: "gpt-3.5-turbo" },
+    });
+    locationState.pathname = "/chat/new";
+    view.rerender(<ModelSelector sessionId="new" />);
+    expect(
+      (await screen.findAllByText("GPT-3.5 Turbo"))[0],
+    ).toBeInTheDocument();
+    locationState.pathname = "/chat/session-1";
   });
 
   it("ignores model commands completed in another session", async () => {
