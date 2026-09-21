@@ -2136,7 +2136,7 @@
     },
     "kilo": {
       "path": "providers/kilo.json",
-      "sha256": "a941c4033c19545315dbd388810a60d318014dd1b7b3230eb67b2f67ae488445",
+      "sha256": "19177b566d5992723ff3cd3389715c6cdca09dda53fc8efee082fa2ebf33d6f1",
       "api_urls": [
         "https://api.kilo.ai/api/gateway"
       ],
@@ -2149,6 +2149,7 @@
         "template_owner": false,
         "default_model_ids": [
           "kilo-auto/free",
+          "openrouter/free",
           "nvidia/nemotron-3-ultra-550b-a55b:free",
           "nvidia/nemotron-3-super-120b-a12b:free",
           "poolside/laguna-s-2.1:free",
@@ -2372,6 +2373,33 @@
               "web_search": "0",
               "internal_reasoning": "0",
               "input_cache_read": "0.000000000000"
+            },
+            "capability_provenance": {
+              "billing": {
+                "source": "documentation",
+                "reference": "https://api.kilo.ai/api/gateway/models",
+                "updated_at": "2026-09-20",
+                "note": "Bundled manual preset, not automatically retrieved at runtime. Live provider pricing takes precedence."
+              }
+            }
+          },
+          {
+            "id": "openrouter/free",
+            "name": "openrouter/free",
+            "max_input_length": 200000,
+            "max_output_length": 32768,
+            "max_output_length_source": "catalog",
+            "supports_tool_calling": true,
+            "supports_image": true,
+            "supports_audio": false,
+            "supports_video": false,
+            "released_at": "2026-02-01",
+            "billing": "free",
+            "is_free": true,
+            "billing_source": "catalog",
+            "pricing": {
+              "prompt": "0",
+              "completion": "0"
             },
             "capability_provenance": {
               "billing": {

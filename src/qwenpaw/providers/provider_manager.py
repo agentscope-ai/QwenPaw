@@ -146,7 +146,7 @@ class ProviderManager(
                 },
                 deep=True,
             )
-            for model in provider.discovery_candidates()
+            for model in provider.models
             if model.id in names
         ]
         provider.models = [
