@@ -572,6 +572,8 @@ describe("ChatPage coverage", () => {
       }),
     );
     vi.mocked(sessionApi.createSession).mockClear();
+    vi.mocked(sessionApi.getHistoryMetadata).mockReset();
+    vi.mocked(sessionApi.getHistoryMetadata).mockReturnValue(undefined);
     sessionApi.preferredChatId = null;
     sessionApi.lastActiveChatId = "last-chat-1";
     localStorage.clear();
@@ -661,6 +663,26 @@ describe("ChatPage coverage", () => {
     await screen.findByTestId("chat-ui");
     await act(async () => {});
     expect(capturedOptions).toBeTruthy();
+  });
+
+  it("does not surface partial history completeness as a warning", async () => {
+    vi.mocked(sessionApi.getHistoryMetadata).mockReturnValue({
+      revision: 1,
+      has_more: false,
+      next_before: null,
+      completeness: "partial",
+    });
+
+    renderWithProviders(<ChatPage />, {
+      initialEntries: ["/chat/test-session"],
+    });
+    await screen.findByTestId("chat-ui");
+    await act(async () => {});
+
+    expect(sessionApi.getHistoryMetadata).not.toHaveBeenCalled();
+    expect(
+      screen.queryByText("Some earlier messages may be unavailable"),
+    ).not.toBeInTheDocument();
   });
 
   it("does not bind an unresolved route chat to the current agent", async () => {

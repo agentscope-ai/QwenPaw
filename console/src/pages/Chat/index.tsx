@@ -48,7 +48,6 @@ import {
 } from "../../utils/clientMessageId";
 import defaultConfig, { getDefaultConfig } from "./OptionsPanel/defaultConfig";
 import { chatApi } from "../../api/modules/chat";
-import type { ChatHistoryMetadata } from "../../api/types";
 import { agentApi } from "../../api/modules/agent";
 import { skillApi } from "../../api/modules/skill";
 import { getApiUrl } from "../../api/config";
@@ -3386,29 +3385,11 @@ export default function ChatPage() {
   const chatMessagesAreaRef = useRef<HTMLDivElement>(null);
   const historyLoadRef = useRef<Promise<void> | null>(null);
   const historyLoadSessionRef = useRef(chatId);
-  const [historyMetadata, setHistoryMetadata] = useState<ChatHistoryMetadata>();
   const [historyLoadFailed, setHistoryLoadFailed] = useState(false);
   historyLoadSessionRef.current = chatId;
 
   useEffect(() => {
     setHistoryLoadFailed(false);
-    setHistoryMetadata(
-      chatId ? sessionApi.getHistoryMetadata(chatId) : undefined,
-    );
-    const onHistoryMetadataChanged = (
-      sessionId: string,
-      page: ChatHistoryMetadata,
-    ) => {
-      if (chatId && sessionApi.getEffectiveSessionId(chatId) === sessionId) {
-        setHistoryMetadata(page);
-      }
-    };
-    sessionApi.onHistoryMetadataChanged = onHistoryMetadataChanged;
-    return () => {
-      if (sessionApi.onHistoryMetadataChanged === onHistoryMetadataChanged) {
-        sessionApi.onHistoryMetadataChanged = null;
-      }
-    };
   }, [chatId]);
 
   const loadOlderHistory = useCallback(
@@ -4501,36 +4482,29 @@ export default function ChatPage() {
               : styles.chatMessagesArea
           }
         >
-          {(historyLoadFailed ||
-            historyMetadata?.completeness === "partial") && (
+          {historyLoadFailed && (
             <Alert
               banner
               className={styles.historyNotice}
               icon={<TriangleAlert size={16} />}
-              type={historyLoadFailed ? "error" : "warning"}
-              message={
-                historyLoadFailed
-                  ? t("chat.historyLoadFailed", "Failed to load older messages")
-                  : t(
-                      "chat.historyPartial",
-                      "Some earlier messages may be unavailable",
-                    )
-              }
+              type="error"
+              message={t(
+                "chat.historyLoadFailed",
+                "Failed to load older messages",
+              )}
               action={
-                historyLoadFailed ? (
-                  <Tooltip title={t("common.retry", "Retry")}>
-                    <Button
-                      aria-label={t("common.retry", "Retry")}
-                      icon={<RotateCw size={15} />}
-                      size="small"
-                      type="text"
-                      onClick={() => {
-                        const target = chatMessagesAreaRef.current;
-                        if (target) loadOlderHistory(target);
-                      }}
-                    />
-                  </Tooltip>
-                ) : undefined
+                <Tooltip title={t("common.retry", "Retry")}>
+                  <Button
+                    aria-label={t("common.retry", "Retry")}
+                    icon={<RotateCw size={15} />}
+                    size="small"
+                    type="text"
+                    onClick={() => {
+                      const target = chatMessagesAreaRef.current;
+                      if (target) loadOlderHistory(target);
+                    }}
+                  />
+                </Tooltip>
               }
             />
           )}
