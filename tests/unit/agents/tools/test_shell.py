@@ -2216,6 +2216,16 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
             return_value=proc,
         ) as popen_mock,
         patch(
+            "qwenpaw.agents.tools.shell.subprocess.CREATE_NEW_PROCESS_GROUP",
+            0x00000200,
+            create=True,
+        ),
+        patch(
+            "qwenpaw.agents.tools.shell.subprocess.CREATE_NO_WINDOW",
+            0x08000000,
+            create=True,
+        ),
+        patch(
             "qwenpaw.agents.tools.shell._create_job_object_win32",
             return_value=None,
         ),
@@ -2236,6 +2246,9 @@ def test_execute_subprocess_sync_reaps_after_fallback_kill(tmp_path):
 
     assert code == -1
     assert popen_mock.call_args.kwargs["stdin"] is subprocess.DEVNULL
+    assert popen_mock.call_args.kwargs["creationflags"] == (
+        0x00000200 | 0x08000000
+    )
     kill_tree.assert_called_once_with(4321)
     proc.kill.assert_called_once_with()
     # The final reap is bounded so a child stuck in kernel I/O costs a
