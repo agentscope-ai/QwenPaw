@@ -2314,6 +2314,13 @@
     "retry": "Retry"
   },
   "models": {
+    "cardStatus": {
+      "configured": "Configured",
+      "configuredCount": "{{count}} configured",
+      "unconfigured": "Not configured",
+      "disabled": "Disabled",
+      "ready": "Ready"
+    },
     "partialLoadWarning": "Some model information is unavailable. Personal providers remain accessible.",
     "discoveryOriginApi": "API detected",
     "discoveryOriginCatalog": "Official catalog",
@@ -3720,6 +3727,7 @@
       "outerRing": "Outer ring",
       "cacheLabel": "Cache hit rate",
       "centerValue": "Center",
+      "cacheNotReported": "Cache usage not reported",
       "cacheTokens": "hit {{readTok}} / input {{inputTok}}",
       "manageContext": "Manage context",
       "compact": "Compact",

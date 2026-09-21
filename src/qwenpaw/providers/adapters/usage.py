@@ -33,7 +33,7 @@ def value(record: Any, name: str, default=None):
 
 def cache_usage(usage: Any, raw: Any, headers: Any = None) -> None:
     """Keep raw counters authoritative; headers are diagnostic only."""
-    if usage is None or raw is None:
+    if usage is None:
         return
     details = value(raw, f"prompt_tokens_details") or value(
         raw,
@@ -45,6 +45,12 @@ def cache_usage(usage: Any, raw: Any, headers: Any = None) -> None:
     write = value(details, f"cache_write_tokens")
     if write is None:
         write = value(raw, f"cache_write_tokens")
+    usage.metadata = {
+        **(value(usage, f"metadata") or {}),
+        f"cache_usage_observed": any(
+            type(count) is int and count >= 0 for count in (read, write)
+        ),
+    }
     for name, count in (
         (f"cache_input_tokens", read),
         (f"cache_creation_input_tokens", write),
@@ -54,7 +60,7 @@ def cache_usage(usage: Any, raw: Any, headers: Any = None) -> None:
     status = headers.get(f"x-ds-cache-status") if headers else None
     if status:
         usage.metadata = {
-            **(usage.metadata or {}),
+            **(value(usage, f"metadata") or {}),
             f"provider_cache_status": str(status),
         }
 

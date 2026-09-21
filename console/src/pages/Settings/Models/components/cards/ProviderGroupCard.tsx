@@ -1,3 +1,4 @@
+import { ProviderCardStatus } from "./ProviderCardStatus";
 import { ModelCardSurface } from "./ModelCardSurface";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
@@ -83,18 +84,12 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={group.providers[0]?.id ?? ""} size={36} />
         <span className={styles.groupCardName}>{group.groupName}</span>
-        {hasFreeTier && (
-          <span className={styles.freeTag}>
-            {t("models.includesFreeModels")}
-          </span>
-        )}
-        {liveCount > 0 && (
-          <div className={styles.groupCardLiveBadge}>
-            <span className={styles.groupCardPulse} />
-            {liveCount} Live
-          </div>
-        )}
       </div>
+      <ProviderCardStatus
+        configured={liveCount > 0}
+        count={liveCount}
+        free={hasFreeTier}
+      />
 
       {/* Segmented Control */}
       <div className={styles.groupSegmented}>

@@ -128,6 +128,13 @@ class TokenRecordingModelWrapper(ChatModelBase):
             cache_read,
             cache_write,
         )
+        metadata = getattr(usage, f"metadata", None)
+        if (
+            isinstance(metadata, dict)
+            and metadata.get(f"cache_usage_observed") is False
+        ):
+            cache_observed = False
+            cache_eligible = 0
         if not cache_observed:
             cache_read = 0
             cache_write = 0

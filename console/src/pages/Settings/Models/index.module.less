@@ -209,14 +209,6 @@
   color: var(--models-text);
 }
 
-.settingsPage .groupCardLiveBadge {
-  color: var(--models-positive);
-}
-
-.settingsPage .groupCardPulse {
-  background: var(--models-positive);
-}
-
 .settingsPage .groupSegmented {
   background: var(--models-surface-muted);
 }
@@ -925,22 +917,6 @@
   font-weight: 600;
   flex: 1;
   color: var(--app-text);
-}
-
-.groupCardLiveBadge {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--app-success-text);
-  font-weight: 500;
-}
-
-.groupCardPulse {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--app-success);
 }
 
 /* Segmented Control */
@@ -2698,8 +2674,31 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.groupCardHeader > .freeTag {
-  margin-left: 44px;
+.providerStatusRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 20px;
+  margin-bottom: 12px;
+}
+.providerStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--app-text-tertiary);
+  font-size: 11px;
+  font-weight: 500;
+  &[data-ready="true"] {
+    color: var(--models-positive, var(--app-success-text));
+  }
+}
+.providerStatusDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: currentColor;
 }
 .groupCardContent {
   gap: 12px;

@@ -67,3 +67,17 @@ Lint 规则说明：AGENTS.md 要求使用 f-string，故明确豁免 W1309。py
 - [x] Verify merged frontend; full pre-commit re-run passed (exit 0). Integration is ready to push.
 
 Merged frontend validation: 415 test files / 4,490 tests passed; TypeScript, Prettier, production build and card-surface ESLint passed. Corrected one incoming Less formatting issue.
+
+### Provider status consistency
+
+- [x] Share one status row across remote, grouped and local provider cards.
+- [x] Align left; show status before free/type badges; remove badge-specific indentation.
+- [x] Always display a status, independently of selected model count; label credential configuration accurately instead of implying a live connectivity check.
+- [x] Verify five provider states and 390px layout in browser; 162 related tests, TypeScript, ESLint, Prettier and production build passed.
+
+### GLM cache reporting
+
+- [x] Verify DashScope glm-5.3 supports context caching against official documentation.
+- [x] Preserve whether raw OpenAI-compatible responses actually report cache counters; missing counters must not become an observed zero.
+- [x] Show “cache usage not reported” instead of fabricated hit/input zero details.
+- [x] Validate explicit zero, missing counters and real hits: 103 backend tests and 36 frontend tests passed; changed-file pre-commit, frontend ESLint/format and production build passed.

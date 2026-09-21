@@ -1,3 +1,4 @@
+import { ProviderCardStatus } from "./ProviderCardStatus";
 import { ModelCardSurface } from "./ModelCardSurface";
 import React from "react";
 import type { ProviderInfo } from "../../../../../api/types";
@@ -25,14 +26,17 @@ export const LocalProviderCard = React.memo(function LocalProviderCard({
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={provider.id} size={36} />
         <span className={styles.groupCardName}>{provider.name}</span>
-        <span className={styles.localTag}>{t("models.local")}</span>
-        {statusReady && (
-          <div className={styles.groupCardLiveBadge}>
-            <span className={styles.groupCardPulse} />
-            {totalCount} Live
-          </div>
-        )}
       </div>
+      <ProviderCardStatus
+        configured={statusReady}
+        label={
+          statusReady
+            ? t("models.cardStatus.ready")
+            : t("models.localDownloadFirst")
+        }
+      >
+        <span className={styles.localTag}>{t("models.local")}</span>
+      </ProviderCardStatus>
 
       {/* Content */}
       <div className={styles.groupCardContent}>

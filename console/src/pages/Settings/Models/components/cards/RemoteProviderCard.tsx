@@ -1,3 +1,4 @@
+import { ProviderCardStatus } from "./ProviderCardStatus";
 import { ModelCardSurface } from "./ModelCardSurface";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
@@ -66,8 +67,6 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
     [...provider.models, ...provider.extra_models].map((model) => model.id),
   ).size;
   const isConfigured = getIsConfigured(provider);
-  const hasModels = totalCount > 0;
-  const isAvailable = isConfigured && hasModels;
 
   const providerTag = isManaged ? (
     <span className={styles.customTag}>
@@ -90,19 +89,14 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
       <div className={styles.groupCardHeader}>
         <ProviderIcon providerId={provider.id} size={36} />
         <span className={styles.groupCardName}>{provider.name}</span>
-        {providerTag}
-        {provider.is_free_tier && (
-          <span className={styles.freeTag}>
-            {t("models.includesFreeModels")}
-          </span>
-        )}
-        {isAvailable && (
-          <div className={styles.groupCardLiveBadge}>
-            <span className={styles.groupCardPulse} />
-            Live
-          </div>
-        )}
       </div>
+      <ProviderCardStatus
+        configured={isConfigured}
+        disabled={provider.enabled === false}
+        free={provider.is_free_tier}
+      >
+        {providerTag}
+      </ProviderCardStatus>
 
       {/* Content - same layout as GroupCard */}
       <div className={styles.groupCardContent}>

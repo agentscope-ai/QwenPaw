@@ -2172,6 +2172,13 @@
     "searchCandidates": "搜索候选模型..."
   },
   "models": {
+    "cardStatus": {
+      "configured": "已配置",
+      "configuredCount": "{{count}} 个已配置",
+      "unconfigured": "待配置",
+      "disabled": "未启用",
+      "ready": "可用"
+    },
     "partialLoadWarning": "部分模型信息暂时不可用，仍可管理个人供应商。",
     "discoveryOriginApi": "API 检测",
     "discoveryOriginCatalog": "官方目录",
@@ -3577,6 +3584,7 @@
       "outerRing": "外圈",
       "cacheLabel": "缓存命中率",
       "centerValue": "中心",
+      "cacheNotReported": "未返回缓存统计",
       "cacheTokens": "命中 {{readTok}} / 输入 {{inputTok}}",
       "manageContext": "上下文管理",
       "compact": "压缩",

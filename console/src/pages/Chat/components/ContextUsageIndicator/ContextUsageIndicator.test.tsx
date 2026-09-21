@@ -111,3 +111,21 @@ it("shows an empty new session using the current model capacity", () => {
   expect(screen.getByText("外圈 · 0 / 100K")).toBeInTheDocument();
   useTurnUsageStore.getState().setActiveMaxInputLength(null);
 });
+
+it("does not label missing cache counters as a zero hit", () => {
+  useTurnUsageStore.getState().setSnapshot({
+    usage: { session_cache_observed: false },
+    context_usage: {
+      estimated_tokens: 1000,
+      max_input_length: 100000,
+      context_usage_ratio: 1,
+    },
+  });
+  renderWithProviders(
+    <ContextUsageIndicator onCompact={vi.fn()} onNew={vi.fn()} />,
+  );
+  expect(
+    screen.getByText("中心 · chat.turnUsagePopover.cacheNotReported"),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("中心 · 命中 0 / 输入 0")).not.toBeInTheDocument();
+});

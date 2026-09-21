@@ -182,12 +182,16 @@ function PopoverBody({
         <MetricRow
           name={t("chat.turnUsagePopover.cacheLabel")}
           position={t("chat.turnUsagePopover.centerValue")}
-          detail={t("chat.turnUsagePopover.cacheTokens", {
-            readTok: formatCompact(usage?.session_cache_read_tokens || 0),
-            inputTok: formatCompact(
-              usage?.session_cache_eligible_input_tokens || 0,
-            ),
-          })}
+          detail={
+            usage?.session_cache_observed
+              ? t("chat.turnUsagePopover.cacheTokens", {
+                  readTok: formatCompact(usage.session_cache_read_tokens || 0),
+                  inputTok: formatCompact(
+                    usage.session_cache_eligible_input_tokens || 0,
+                  ),
+                })
+              : t("chat.turnUsagePopover.cacheNotReported")
+          }
           value={formatPercent(cacheRate)}
           valueColor={
             cacheRate !== null && cacheRate > 0 ? "#278b59" : undefined
