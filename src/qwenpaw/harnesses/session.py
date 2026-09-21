@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import mimetypes
 from pathlib import Path
@@ -19,8 +21,9 @@ from .events import HarnessHistoryItem, HarnessHistoryKind
 class HarnessSessionBridge:
     """Materialize third-party turns in the existing session format."""
 
-    def __init__(self, session: Any) -> None:
+    def __init__(self, session: Any, transcript_store: Any = None) -> None:
         self._session = session
+        self._transcript_store = transcript_store
 
     async def has_history(
         self,
@@ -38,6 +41,27 @@ class HarnessSessionBridge:
         state = (persisted.get("agent") or {}).get("state") or {}
         return bool(state.get("context"))
 
+    async def needs_hydration(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        channel: str,
+    ) -> bool:
+        """Return whether snapshot or durable transcript history is absent."""
+        if not await self.has_history(
+            session_id=session_id,
+            user_id=user_id,
+            channel=channel,
+        ):
+            return True
+        if self._transcript_store is None:
+            return False
+        return not await asyncio.to_thread(
+            self._transcript_store.has_session,
+            session_id,
+        )
+
     async def hydrate(
         self,
         *,
@@ -47,23 +71,34 @@ class HarnessSessionBridge:
         backend: str,
         history: list[HarnessHistoryItem],
     ) -> None:
-        """Save recovered provider history when no QwenPaw context exists."""
-        if not history or await self.has_history(
+        """Save recovered provider history into missing persistence layers."""
+        if not history:
+            return
+        if not await self.has_history(
             session_id=session_id,
             user_id=user_id,
             channel=channel,
         ):
-            return
-        state = AgentState().model_dump(mode="json")
-        state["context"] = self._history_messages(history, backend)
-        proxy = StateProxy()
-        proxy.data = {"state": state}
-        await self._session.save_session_state(
-            session_id=session_id,
-            user_id=user_id,
-            channel=channel,
-            agent=proxy,
-        )
+            state = AgentState().model_dump(mode="json")
+            state["context"] = self._history_messages(history, backend)
+            proxy = StateProxy()
+            proxy.data = {"state": state}
+            await self._session.save_session_state(
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                agent=proxy,
+            )
+        if self._transcript_store is not None:
+            await asyncio.to_thread(
+                self._transcript_store.import_history_if_missing,
+                session_id=session_id,
+                user_id=user_id,
+                channel=channel,
+                source="harness_import",
+                turns=self._transcript_turns(history, backend),
+                source_complete=False,
+            )
 
     async def append_turn(
         self,
@@ -149,7 +184,7 @@ class HarnessSessionBridge:
         backend: str,
     ) -> list[dict[str, Any]]:
         messages: list[dict[str, Any]] = []
-        for item in history:
+        for index, item in enumerate(history):
             role = (
                 "user" if item.kind == HarnessHistoryKind.USER else "assistant"
             )
@@ -184,9 +219,70 @@ class HarnessSessionBridge:
                     content=[block],
                     backend=backend,
                     extra={"provider_item_id": item.item_id},
+                    message_id=cls._history_message_id(
+                        item,
+                        backend,
+                        index,
+                    ),
                 ),
             )
         return messages
+
+    @classmethod
+    def _transcript_turns(
+        cls,
+        history: list[HarnessHistoryItem],
+        backend: str,
+    ) -> list[tuple[str, list[Message]]]:
+        """Convert provider history into stable, user-turn-bounded messages."""
+        from ..app.chats.utils import agentscope_msg_to_message
+
+        groups: list[list[tuple[HarnessHistoryItem, dict[str, Any]]]] = []
+        for item, raw in zip(
+            history,
+            cls._history_messages(history, backend),
+        ):
+            if not groups or item.kind == HarnessHistoryKind.USER:
+                groups.append([])
+            groups[-1].append((item, raw))
+
+        turns: list[tuple[str, list[Message]]] = []
+        for group in groups:
+            messages: list[Message] = []
+            for _item, raw in group:
+                converted = agentscope_msg_to_message(
+                    Msg.model_validate(raw),
+                )
+                for index, message in enumerate(converted):
+                    messages.append(
+                        message.model_copy(
+                            update={"id": f"{raw['id']}:{index}"},
+                        ).completed(),
+                    )
+            if messages:
+                turns.append(
+                    (
+                        f"harness-import:{group[0][1]['id']}",
+                        messages,
+                    ),
+                )
+        return turns
+
+    @staticmethod
+    def _history_message_id(
+        item: HarnessHistoryItem,
+        backend: str,
+        index: int,
+    ) -> str:
+        """Build a stable ID even when a provider omits item identity."""
+        digest = hashlib.sha256(
+            item.model_dump_json(exclude_none=True).encode("utf-8"),
+        ).hexdigest()[:20]
+        provider_id = item.item_id.strip() or digest
+        return (
+            f"harness-history:{backend}:{index}:"
+            f"{item.kind.value}:{provider_id}"
+        )
 
     @classmethod
     def _response_messages(
@@ -333,15 +429,19 @@ class HarnessSessionBridge:
         content: list[dict[str, Any]],
         backend: str,
         extra: dict[str, Any] | None = None,
+        message_id: str | None = None,
     ) -> dict[str, Any]:
         metadata = {"third_party_backend": backend}
         metadata.update(extra or {})
-        message = Msg(
-            name=name,
-            role=role,
-            content=content,
-            metadata=metadata,
-        )
+        message_kwargs: dict[str, Any] = {
+            "name": name,
+            "role": role,
+            "content": content,
+            "metadata": metadata,
+        }
+        if message_id is not None:
+            message_kwargs["id"] = message_id
+        message = Msg(**message_kwargs)
         return message.model_dump(mode="json")
 
     @staticmethod

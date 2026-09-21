@@ -187,6 +187,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
 
 vi.mock("./sessionApi", () => ({
   default: {
+    onHistoryMetadataChanged: null,
     onSessionIdResolved: null,
     onSessionRemoved: null,
     onSessionSelected: null,
@@ -202,10 +203,17 @@ vi.mock("./sessionApi", () => ({
     })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
+    getHistoryMetadata: vi.fn(() => undefined),
+    loadOlderHistory: vi.fn(async () => ({
+      messages: [],
+      page: {
+        revision: 0,
+        has_more: false,
+        next_before: null,
+        completeness: "complete",
+      },
+    })),
     lastActiveChatId: "last-chat-1",
-    patchLastUserMessage: vi.fn(),
     getSessionIdentity: vi.fn(() => ({
       sessionId: "test-session",
       userId: "test-user",
@@ -1867,7 +1875,7 @@ describe("ChatPage coverage", () => {
     }
   });
 
-  it("customFetch caches an attachment-only user turn", async () => {
+  it("customFetch sends an attachment-only user turn", async () => {
     const mockResponse = {
       ok: true,
       status: 200,
@@ -1875,8 +1883,6 @@ describe("ChatPage coverage", () => {
       json: () => Promise.resolve({}),
     };
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(mockResponse));
-    const sessionApiMock = (await import("./sessionApi")).default;
-
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/test-session"],
     });
@@ -1899,25 +1905,25 @@ describe("ChatPage coverage", () => {
       signal: undefined,
     });
 
-    expect(sessionApiMock.setLastUserMessage).toHaveBeenCalledWith(
-      expect.any(Array),
-      "",
+    const request = vi
+      .mocked(fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/console/chat") && init?.method === "POST",
+      );
+    const body = JSON.parse(String(request?.[1]?.body));
+    expect(body.input[0].content).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          type: "file",
-          file_url: "report.pdf",
-        }),
+        expect.objectContaining({ type: "file", file_url: "report.pdf" }),
       ]),
-      expect.any(String),
     );
   });
 
-  it("uses the runtime for the API but only the submitted Chat ID for pending storage", async () => {
+  it("uses the runtime identity in the backend request", async () => {
     renderWithProviders(<ChatPage />, {
       initialEntries: ["/chat/sdk-chat-uuid"],
     });
     await screen.findByTestId("chat-ui");
-    const session = (await import("./sessionApi")).default;
     await capturedOptions.api.fetch({
       session_id: "sdk-chat-uuid",
       context: {
@@ -1929,11 +1935,6 @@ describe("ChatPage coverage", () => {
         { role: "user", content: [{ type: "text", text: "private input" }] },
       ],
     });
-    const cacheIds = vi
-      .mocked(session.setLastUserMessage)
-      .mock.calls.slice(-1)[0]?.[0];
-    expect(cacheIds).toContain("sdk-chat-uuid");
-    expect(cacheIds).not.toContain("shared-runtime");
     const request = vi
       .mocked(fetch)
       .mock.calls.find(

@@ -27,6 +27,7 @@ _SUBCOMMANDS = [
     "daemon",
     "chats",
     "chat",
+    "history",
     "clean",
     "cron",
     "env",

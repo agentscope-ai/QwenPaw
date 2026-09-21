@@ -40,6 +40,18 @@ export interface Message {
 export interface ChatHistory {
   messages: Message[];
   status?: ChatStatus; // Conversation status: idle or running
+  history?: ChatHistoryMetadata | null;
+}
+
+export interface ChatHistoryMetadata {
+  revision: number;
+  has_more: boolean;
+  next_before?: string | null;
+  completeness: "complete" | "partial";
+}
+
+export interface ChatMessagePage extends ChatHistoryMetadata {
+  messages: Message[];
 }
 
 export interface ChatUpdateRequest {

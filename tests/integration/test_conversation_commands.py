@@ -10,6 +10,7 @@ API endpoints:
   - POST /api/console/chat/task
   - GET  /api/console/chat/task/{task_id}
 """
+
 from __future__ import annotations
 
 import json
@@ -25,6 +26,9 @@ from helpers import (
     register_mock_provider,
     unregister_mock_provider,
 )
+
+from qwenpaw.constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
+from qwenpaw.runtime.console_turn_state import REGENERATE_FROM
 
 _HTTP_TIMEOUT = default_http_timeout(60.0)
 
@@ -52,8 +56,24 @@ def provider(app_server, mock_llm):  # pylint: disable=redefined-outer-name
     unregister_mock_provider(app_server, provider_id)
 
 
-def _send(app_server, *, user_id: str, text: str) -> dict:
+def _send(
+    app_server,
+    *,
+    user_id: str,
+    text: str,
+    client_message_id: str | None = None,
+    request_context: dict | None = None,
+) -> dict:
     """Send one message and poll the task to completion."""
+    message = {
+        "role": "user",
+        "type": "message",
+        "content": [{"type": "text", "text": text}],
+    }
+    if client_message_id is not None:
+        message["metadata"] = {
+            QWENPAW_CLIENT_MESSAGE_ID_KEY: client_message_id,
+        }
     submit = app_server.api_request(
         "POST",
         "/api/console/chat/task",
@@ -61,14 +81,11 @@ def _send(app_server, *, user_id: str, text: str) -> dict:
             "channel": "console",
             "user_id": user_id,
             "session_id": f"console:{user_id}",
-            "input": [
-                {
-                    "role": "user",
-                    "type": "message",
-                    "content": [{"type": "text", "text": text}],
-                },
-            ],
-            "request_context": {"approval_level": "off"},
+            "input": [message],
+            "request_context": {
+                "approval_level": "off",
+                **(request_context or {}),
+            },
         },
         timeout=_HTTP_TIMEOUT,
     )
@@ -89,6 +106,33 @@ def _send(app_server, *, user_id: str, text: str) -> dict:
     raise AssertionError(
         "command task did not finish: " + app_server.logs_tail()[-2000:],
     )
+
+
+def _create_chat(app_server, *, user_id: str, name: str) -> str:
+    response = app_server.api_request(
+        "POST",
+        "/api/chats",
+        json={
+            "name": name,
+            "session_id": f"console:{user_id}",
+            "user_id": user_id,
+            "channel": "console",
+            "meta": {},
+        },
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, app_server.logs_tail()[-2000:]
+    return str(response.json()["id"])
+
+
+def _read_chat_messages(app_server, chat_id: str) -> list[dict]:
+    response = app_server.api_request(
+        "GET",
+        f"/api/chats/{chat_id}",
+        timeout=_HTTP_TIMEOUT,
+    )
+    assert response.status_code == 200, app_server.logs_tail()[-2000:]
+    return list(response.json()["messages"])
 
 
 @pytest.mark.integration
@@ -159,6 +203,116 @@ def test_compact_and_new_commands(
         )
         == "finished"
     )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_transcript_survives_compact_clear_and_refresh(
+    app_server,
+    provider,  # pylint: disable=redefined-outer-name,unused-argument
+):
+    """Durable transcript remains authoritative across context resets."""
+    user = "integ-transcript-compact"
+    first = "TRANSCRIPT-BEFORE-COMPACT-4101"
+    second = "TRANSCRIPT-BEFORE-COMPACT-4102"
+    chat_id = _create_chat(
+        app_server,
+        user_id=user,
+        name="durable transcript compact",
+    )
+    try:
+        assert _send(app_server, user_id=user, text=first)["status"] == (
+            "finished"
+        )
+        assert _send(app_server, user_id=user, text=second)["status"] == (
+            "finished"
+        )
+        before = _read_chat_messages(app_server, chat_id)
+        before_ids = [message["id"] for message in before]
+        before_blob = json.dumps(before, ensure_ascii=False)
+        assert first in before_blob
+        assert second in before_blob
+
+        assert (
+            _send(app_server, user_id=user, text="/compact")["status"]
+            == "finished"
+        )
+        assert (
+            _send(app_server, user_id=user, text="/compact")["status"]
+            == "finished"
+        )
+        compacted = _read_chat_messages(app_server, chat_id)
+        compacted_ids = [message["id"] for message in compacted]
+        assert compacted_ids[: len(before_ids)] == before_ids
+        compacted_blob = json.dumps(compacted, ensure_ascii=False)
+        assert first in compacted_blob
+        assert second in compacted_blob
+
+        assert (
+            _send(app_server, user_id=user, text="/clear")["status"]
+            == "finished"
+        )
+        cleared = _read_chat_messages(app_server, chat_id)
+        cleared_ids = [message["id"] for message in cleared]
+        assert cleared_ids[: len(compacted_ids)] == compacted_ids
+        cleared_blob = json.dumps(cleared, ensure_ascii=False)
+        assert first in cleared_blob
+        assert second in cleared_blob
+    finally:
+        app_server.api_request(
+            "DELETE",
+            f"/api/chats/{chat_id}",
+            timeout=_HTTP_TIMEOUT,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.p1
+def test_transcript_regeneration_replaces_completed_turn(
+    app_server,
+    provider,  # pylint: disable=redefined-outer-name,unused-argument
+):
+    """A successful app-level regeneration activates only the new turn."""
+    user = "integ-transcript-regeneration"
+    text = "TRANSCRIPT-REGENERATE-4201"
+    original_client_id = "integ-regenerate-client-original"
+    chat_id = _create_chat(
+        app_server,
+        user_id=user,
+        name="durable transcript regeneration",
+    )
+    try:
+        original = _send(
+            app_server,
+            user_id=user,
+            text=text,
+            client_message_id=original_client_id,
+        )
+        assert original["status"] == "finished"
+        before = _read_chat_messages(app_server, chat_id)
+        original_ids = {message["id"] for message in before}
+        assert len(original_ids) >= 2
+        assert text in json.dumps(before, ensure_ascii=False)
+
+        replacement = _send(
+            app_server,
+            user_id=user,
+            text=text,
+            client_message_id="integ-regenerate-client-replacement",
+            request_context={REGENERATE_FROM: original_client_id},
+        )
+        assert replacement["status"] == "finished"
+        after = _read_chat_messages(app_server, chat_id)
+        replacement_ids = {message["id"] for message in after}
+        assert len(replacement_ids) >= 2
+        assert original_ids.isdisjoint(replacement_ids)
+        assert text in json.dumps(after, ensure_ascii=False)
+    finally:
+        app_server.api_request(
+            "DELETE",
+            f"/api/chats/{chat_id}",
+            timeout=_HTTP_TIMEOUT,
+        )
 
 
 @pytest.mark.integration

@@ -240,6 +240,8 @@ describe("bound session history owner epochs", () => {
     const chatId = "11111111-1111-4111-8111-111111111111";
     const pending = deferred<ChatHistory>();
     const history = vi.spyOn(api, "getChat").mockReturnValue(pending.promise);
+    const metadataChanged = vi.fn();
+    sessionApi.onHistoryMetadataChanged = metadataChanged;
     const clearLoading = vi.fn();
     const oldObserver = vi.fn((_id, session) => {
       if (session && !session.generating) clearLoading();
@@ -263,6 +265,7 @@ describe("bound session history owner epochs", () => {
     expect(current).toMatchObject({ id: chatId, generating: true });
     expect(currentAdapter.isReady(chatId)).toBe(true);
     expect(currentObserver).toHaveBeenCalledExactlyOnceWith(chatId, current);
+    expect(metadataChanged).toHaveBeenCalledTimes(1);
 
     pending.resolve({ messages: [], status: "idle" });
     const [staleBound, staleDirect] = await Promise.all([
@@ -276,6 +279,7 @@ describe("bound session history owner epochs", () => {
     expect(staleDirect).toMatchObject({ id: chatId, generating: false });
     expect(currentAdapter.isReady(chatId)).toBe(true);
     expect(currentObserver).toHaveBeenCalledTimes(1);
+    expect(metadataChanged).toHaveBeenCalledTimes(1);
 
     // The original pre-call guard must also reject newly invoked stale APIs.
     await expect(oldBound.getSession(chatId)).resolves.toBeUndefined();
@@ -295,6 +299,106 @@ describe("bound session history owner epochs", () => {
     expect(session).toMatchObject({ id: chatId, generating: false });
     expect(observer).toHaveBeenCalledExactlyOnceWith(chatId, session);
     expect(adapter.isReady(chatId)).toBe(true);
+  });
+});
+
+describe("durable transcript pagination", () => {
+  beforeEach(() => {
+    sessionApi.resetForTests();
+    sessionApi.setActiveAgent("A");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    sessionApi.resetForTests();
+  });
+
+  it("loads one older page and stops after the cursor is exhausted", async () => {
+    const chatId = "33333333-3333-4333-8333-333333333333";
+    const metadataChanged = vi.fn();
+    sessionApi.onHistoryMetadataChanged = metadataChanged;
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [msg({ id: "new-user", content: "new" })],
+      status: "idle",
+      history: {
+        revision: 3,
+        has_more: true,
+        next_before: "v1:2",
+        completeness: "complete",
+      },
+    });
+    const getMessages = vi.spyOn(api, "getChatMessages").mockResolvedValue({
+      messages: [msg({ id: "old-user", content: "old" })],
+      revision: 3,
+      has_more: false,
+      next_before: null,
+      completeness: "complete",
+    });
+
+    await sessionApi.getSession(chatId);
+    expect(sessionApi.getHistoryMetadata(chatId)).toMatchObject({
+      revision: 3,
+      has_more: true,
+      completeness: "complete",
+    });
+    const first = await sessionApi.loadOlderHistory(chatId);
+    const exhausted = await sessionApi.loadOlderHistory(chatId);
+
+    expect(getMessages).toHaveBeenCalledExactlyOnceWith(chatId, {
+      before: "v1:2",
+      limit: 50,
+      signal: undefined,
+    });
+    expect(first.messages).toHaveLength(1);
+    expect(first.messages[0]).toMatchObject({
+      id: "old-user",
+      role: "user",
+      history: true,
+    });
+    expect(first.noMore).toBe(true);
+    expect(exhausted).toEqual({ messages: [], noMore: true });
+    expect(metadataChanged).toHaveBeenLastCalledWith(
+      chatId,
+      expect.objectContaining({
+        has_more: false,
+        completeness: "complete",
+      }),
+    );
+  });
+
+  it("releases a failed page request so an explicit retry can succeed", async () => {
+    const chatId = "44444444-4444-4444-8444-444444444444";
+    vi.spyOn(api, "getChat").mockResolvedValue({
+      messages: [],
+      status: "idle",
+      history: {
+        revision: 1,
+        has_more: true,
+        next_before: "v1:2",
+        completeness: "partial",
+      },
+    });
+    const getMessages = vi
+      .spyOn(api, "getChatMessages")
+      .mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce({
+        messages: [msg({ id: "old-user", content: "old" })],
+        revision: 1,
+        has_more: false,
+        next_before: null,
+        completeness: "partial",
+      });
+
+    await sessionApi.getSession(chatId);
+    await expect(sessionApi.loadOlderHistory(chatId)).rejects.toThrow(
+      "temporarily unavailable",
+    );
+
+    const retried = await sessionApi.loadOlderHistory(chatId);
+
+    expect(getMessages).toHaveBeenCalledTimes(2);
+    expect(retried.messages).toHaveLength(1);
+    expect(retried.noMore).toBe(true);
   });
 });
 

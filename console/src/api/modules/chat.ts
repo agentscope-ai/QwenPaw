@@ -4,6 +4,7 @@ import { buildAuthHeaders } from "../authHeaders";
 import type {
   ChatSpec,
   ChatHistory,
+  ChatMessagePage,
   ChatDeleteResponse,
   ChatUpdateRequest,
   ChatGroup,
@@ -123,6 +124,27 @@ export const chatApi = {
           ? { "X-Agent-Id": options.agentId }
           : undefined,
       },
+    );
+  },
+
+  getChatMessages: (
+    chatId: string,
+    options?: {
+      before?: string;
+      limit?: number;
+      signal?: AbortSignal;
+    },
+  ) => {
+    const searchParams = new URLSearchParams();
+    if (options?.before) searchParams.append("before", options.before);
+    if (options?.limit !== undefined)
+      searchParams.append("limit", String(options.limit));
+    const query = searchParams.toString();
+    return request<ChatMessagePage>(
+      `/chats/${encodeURIComponent(chatId)}/messages${
+        query ? `?${query}` : ""
+      }`,
+      { signal: options?.signal },
     );
   },
 

@@ -21,6 +21,16 @@ def test_memory_backend_ids_are_canonicalized():
     assert config.memory_backend_configs == {"remote-memory": {"value": 1}}
 
 
+def test_transcript_retention_defaults_to_thirty_days():
+    assert AgentsRunningConfig().transcript_retention_days == 30
+
+
+@pytest.mark.parametrize("value", [-1, 36_501])
+def test_transcript_retention_rejects_out_of_range_values(value):
+    with pytest.raises(ValidationError):
+        AgentsRunningConfig(transcript_retention_days=value)
+
+
 def test_duplicate_canonical_memory_backend_config_ids_are_rejected():
     with pytest.raises(ValidationError, match="duplicate memory backend"):
         AgentsRunningConfig(

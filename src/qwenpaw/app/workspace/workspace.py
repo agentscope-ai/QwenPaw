@@ -41,6 +41,7 @@ from .service_factories import (
 from .local_workspace import QwenPawLocalWorkspace
 from ..task_tracker import TaskTracker
 from ..chats.session import SafeJSONSession
+from ..chats.transcript import TranscriptStore
 from ..crons.manager import CronManager
 from ..crons.repo.json_repo import JsonJobRepository
 from ...config.config import load_agent_config
@@ -210,6 +211,11 @@ class Workspace:
     def chat_manager(self):
         """Get chat manager instance from ServiceManager."""
         return self._service_manager.services.get("chat_manager")
+
+    @property
+    def transcript_store(self) -> Optional[TranscriptStore]:
+        """Get the durable transcript store, when available."""
+        return self._service_manager.services.get("transcript_store")
 
     @property
     def channel_manager(self):
@@ -444,20 +450,43 @@ class Workspace:
                 "user_id": getattr(request, "user_id", None),
                 "channel": getattr(request, "channel", None) or "console",
             }
-            async for item in self.harness_runtime.stream(
+            stream = self.harness_runtime.stream(
                 backend=backend,
                 request=request,
                 cwd=self.workspace_dir.resolve(),
                 settings=settings,
-            ):
+            )
+            source = f"harness:{backend}"
+        else:
+            from ...runtime import Runtime
+
+            rt = Runtime(workspace=self, app_services=self._app_services)
+            stream = rt.run(request)
+            source = "qwenpaw"
+
+        from ..chats.transcript_recorder import TranscriptRecorder
+
+        recorder = TranscriptRecorder(
+            store=self.transcript_store,
+            request=request,
+            source=source,
+        )
+        try:
+            await recorder.start()
+            async for item in stream:
+                await recorder.observe(item)
                 yield item
-            return
-
-        from ...runtime import Runtime
-
-        rt = Runtime(workspace=self, app_services=self._app_services)
-        async for item in rt.run(request):
-            yield item
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            await asyncio.shield(recorder.finish("cancelled"))
+            raise
+        except BaseException as exc:
+            error = {
+                "code": type(exc).__name__,
+                "message": "",
+            }
+            await recorder.finish("failed", error=error)
+            raise
+        await recorder.finish("completed")
 
     def _register_services(  # pylint: disable=too-many-statements
         self,
@@ -571,6 +600,24 @@ class Workspace:
                 reusable=True,
                 priority=20,
                 concurrent_init=True,
+            ),
+        )
+
+        sm.register(
+            ServiceDescriptor(
+                name="transcript_store",
+                service_class=TranscriptStore,
+                init_args=lambda ws: {
+                    "db_path": ws.workspace_dir / "transcript.db",
+                    "retention_days": (
+                        ws.config.running.transcript_retention_days
+                    ),
+                },
+                stop_method="close",
+                reusable=True,
+                priority=20,
+                concurrent_init=True,
+                optional=True,
             ),
         )
 

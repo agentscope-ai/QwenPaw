@@ -55,7 +55,12 @@ class HarnessRuntime:
         self._adapter_keys: dict[str, tuple[Any, ...]] = {}
         self._adapter_lock = asyncio.Lock()
         self._session_bridge = (
-            HarnessSessionBridge(session) if session is not None else None
+            HarnessSessionBridge(
+                session,
+                getattr(workspace, "transcript_store", None),
+            )
+            if session is not None
+            else None
         )
         self._capability_resolver = HarnessCapabilityResolver(
             workspace_dir,
@@ -301,7 +306,7 @@ class HarnessRuntime:
         """Recover an unmaterialized provider thread into QwenPaw."""
         if self._session_bridge is None:
             return
-        if await self._session_bridge.has_history(
+        if not await self._session_bridge.needs_hydration(
             session_id=session_id,
             user_id=user_id,
             channel=channel,

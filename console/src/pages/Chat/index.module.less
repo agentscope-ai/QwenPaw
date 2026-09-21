@@ -124,6 +124,7 @@
 
 /* Chat messages scrollable area */
 .chatMessagesArea {
+  position: relative;
   flex: 1;
   min-height: 0;
   height: 100%;
@@ -191,6 +192,14 @@
   /* Firefox scrollbar */
   scrollbar-width: thin;
   scrollbar-color: var(--app-scrollbar-thumb) transparent;
+}
+
+.historyNotice {
+  position: absolute;
+  top: 56px;
+  right: 0;
+  left: 0;
+  z-index: 4;
 }
 
 .headerSpacer {

@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -17,6 +18,8 @@ from qwenpaw.harnesses.events import (
     HarnessAttachmentKind,
     HarnessEvent,
     HarnessEventKind,
+    HarnessHistoryItem,
+    HarnessHistoryKind,
     HarnessProvider,
 )
 from qwenpaw.harnesses.runtime import HarnessRuntime
@@ -175,6 +178,43 @@ async def test_runtime_recreates_adapter_when_binary_changes(
     assert reused is first
     assert second is not first
     assert first.stopped is True
+
+
+@pytest.mark.asyncio
+async def test_runtime_hydrates_when_transcript_is_missing(tmp_path: Path):
+    runtime = HarnessRuntime(tmp_path)
+    history = [
+        HarnessHistoryItem(
+            kind=HarnessHistoryKind.USER,
+            text="restore",
+            item_id="history-1",
+        ),
+    ]
+    adapter = FakeAdapter()
+    history_mock = AsyncMock(return_value=history)
+    runtime._adapters["codex"] = adapter
+    bridge = SimpleNamespace(
+        needs_hydration=AsyncMock(return_value=True),
+        hydrate=AsyncMock(),
+    )
+    runtime._session_bridge = bridge
+
+    with patch.object(adapter, "history", history_mock):
+        await runtime.hydrate_session(
+            backend="codex",
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        )
+
+    history_mock.assert_awaited_once_with("session-1")
+    bridge.hydrate.assert_awaited_once_with(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        backend="codex",
+        history=history,
+    )
 
 
 @pytest.mark.asyncio

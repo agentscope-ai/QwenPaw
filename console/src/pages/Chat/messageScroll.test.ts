@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  captureMessageScrollAnchor,
   getNextReverseScrollTop,
+  isOldestLoadedMessageVisible,
+  restoreMessageScrollAnchor,
   scrollReverseMessageList,
 } from "./messageScroll";
 
@@ -24,6 +27,52 @@ describe("getNextReverseScrollTop", () => {
   it("normalizes line and page wheel deltas", () => {
     expect(getNextReverseScrollTop(-400, 1200, 500, 2, 1)).toBe(-368);
     expect(getNextReverseScrollTop(-600, 1200, 500, 1, 2)).toBe(-100);
+  });
+});
+
+describe("durable history scroll anchors", () => {
+  it("does not treat a virtualized window edge as the history edge", () => {
+    const scroller = document.createElement("div");
+    const oldest = document.createElement("div");
+    scroller.getBoundingClientRect = () =>
+      ({ top: 50, bottom: 550 }) as DOMRect;
+
+    expect(isOldestLoadedMessageVisible(scroller, null)).toBe(false);
+
+    scroller.append(oldest);
+    oldest.getBoundingClientRect = () => ({ top: -20, bottom: 20 }) as DOMRect;
+    expect(isOldestLoadedMessageVisible(scroller, oldest)).toBe(false);
+  });
+
+  it("detects when the oldest loaded message enters the viewport", () => {
+    const scroller = document.createElement("div");
+    const oldest = document.createElement("div");
+    scroller.append(oldest);
+    scroller.getBoundingClientRect = () =>
+      ({ top: 50, bottom: 550 }) as DOMRect;
+    oldest.getBoundingClientRect = () => ({ top: 166, bottom: 250 }) as DOMRect;
+
+    expect(isOldestLoadedMessageVisible(scroller, oldest)).toBe(true);
+  });
+
+  it("restores the same message viewport offset after prepend", () => {
+    const scroller = document.createElement("div");
+    const anchor = document.createElement("div");
+    anchor.id = "message-1";
+    anchor.dataset.role = "user";
+    scroller.append(anchor);
+    document.body.append(scroller);
+    scroller.scrollTop = -650;
+    scroller.getBoundingClientRect = () =>
+      ({ top: 50, bottom: 550 }) as DOMRect;
+    anchor.getBoundingClientRect = () => ({ top: 100, bottom: 140 }) as DOMRect;
+
+    const captured = captureMessageScrollAnchor(scroller);
+    expect(captured).toEqual({ id: "message-1", offsetTop: 50 });
+
+    anchor.getBoundingClientRect = () => ({ top: 130, bottom: 170 }) as DOMRect;
+    expect(restoreMessageScrollAnchor(scroller, captured!)).toBe(true);
+    expect(scroller.scrollTop).toBe(-620);
   });
 });
 

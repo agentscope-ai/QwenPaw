@@ -205,6 +205,7 @@ vi.mock("@/contexts/ThemeContext", () => ({
 
 vi.mock("./sessionApi", () => ({
   default: {
+    onHistoryMetadataChanged: null,
     onSessionIdResolved: null,
     onSessionRemoved: null,
     onSessionSelected: null,
@@ -222,10 +223,17 @@ vi.mock("./sessionApi", () => ({
     refreshSession: vi.fn(async (id: string) => ({ id, messages: [] })),
     getRealIdForSession: vi.fn(() => null),
     getBackendSessionId: vi.fn(() => "backend-session-1"),
-    setLastUserMessage: vi.fn(),
-    discardLastUserMessage: vi.fn(),
+    getHistoryMetadata: vi.fn(() => undefined),
+    loadOlderHistory: vi.fn(async () => ({
+      messages: [],
+      page: {
+        revision: 0,
+        has_more: false,
+        next_before: null,
+        completeness: "complete",
+      },
+    })),
     lastActiveChatId: "last-chat-1",
-    patchLastUserMessage: vi.fn(),
     getSessionIdentity: vi.fn(() => ({
       sessionId: "test-session",
       userId: "test-user",

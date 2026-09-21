@@ -5,6 +5,61 @@ const REVERSE_MESSAGE_SCROLL_SELECTOR =
 const LINE_HEIGHT_PX = 16;
 const SCROLL_TOLERANCE_PX = 1;
 
+export interface MessageScrollAnchor {
+  id: string;
+  offsetTop: number;
+}
+
+export function isOldestLoadedMessageVisible(
+  scroller: HTMLElement,
+  message: HTMLElement | null,
+  tolerance = SCROLL_TOLERANCE_PX,
+): boolean {
+  if (!message || !scroller.contains(message)) return false;
+
+  const scrollerRect = scroller.getBoundingClientRect();
+  const messageRect = message.getBoundingClientRect();
+  return (
+    messageRect.bottom >= scrollerRect.top - tolerance &&
+    messageRect.top <= scrollerRect.bottom + tolerance
+  );
+}
+
+export function captureMessageScrollAnchor(
+  scroller: HTMLElement,
+): MessageScrollAnchor | null {
+  const scrollerRect = scroller.getBoundingClientRect();
+  const visible = Array.from(
+    scroller.querySelectorAll<HTMLElement>("[id][data-role]"),
+  )
+    .filter((element) => {
+      const rect = element.getBoundingClientRect();
+      return rect.bottom > scrollerRect.top && rect.top < scrollerRect.bottom;
+    })
+    .sort(
+      (left, right) =>
+        left.getBoundingClientRect().top - right.getBoundingClientRect().top,
+    );
+  const anchor = visible[0];
+  if (!anchor) return null;
+  return {
+    id: anchor.id,
+    offsetTop: anchor.getBoundingClientRect().top - scrollerRect.top,
+  };
+}
+
+export function restoreMessageScrollAnchor(
+  scroller: HTMLElement,
+  anchor: MessageScrollAnchor,
+): boolean {
+  const element = document.getElementById(anchor.id);
+  if (!element || !scroller.contains(element)) return false;
+  const offsetTop =
+    element.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+  scroller.scrollTop += offsetTop - anchor.offsetTop;
+  return true;
+}
+
 function wheelDeltaInPixels(
   deltaY: number,
   deltaMode: number,

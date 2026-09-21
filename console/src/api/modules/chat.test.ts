@@ -245,6 +245,21 @@ describe("chatApi CRUD", () => {
     );
   });
 
+  it("getChatMessages encodes cursor, limit, and signal", async () => {
+    const controller = new AbortController();
+
+    await chatApi.getChatMessages("chat/1", {
+      before: "v1:42",
+      limit: 25,
+      signal: controller.signal,
+    });
+
+    expect(request).toHaveBeenCalledWith(
+      "/chats/chat%2F1/messages?before=v1%3A42&limit=25",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it("updateChat sends PUT to the correct path", async () => {
     await chatApi.updateChat("chat-1", { name: "New Name" });
     expect(request).toHaveBeenCalledWith(
