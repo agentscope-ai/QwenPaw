@@ -974,10 +974,13 @@ class HistoryStore:
         """
         where, params = self._purge_where(before, ("tool_result",))
         where += " AND blocks IS NOT NULL"
+        # CAST to BLOB so LENGTH counts bytes, not characters — blocks
+        # is JSON text and the returned key/logs say "bytes".
         with self._lock, self._conn:
             row = self._conn.execute(
                 "SELECT COUNT(*) AS rows, "
-                "COALESCE(SUM(LENGTH(blocks)), 0) AS blocks_bytes "
+                "COALESCE(SUM(LENGTH(CAST(blocks AS BLOB))), 0) "
+                "AS blocks_bytes "
                 "FROM conversation_history WHERE " + where,
                 params,
             ).fetchone()

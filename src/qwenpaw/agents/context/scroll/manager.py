@@ -2172,7 +2172,7 @@ class ScrollContextManager:
         that would be removed — nothing is deleted).
 
         When ``blocks_retention_days`` > 0, the structured blocks of
-        tool_result rows older than that are also nulled first (a milder,
+        tool_result rows older than that are also nulled (a milder,
         complementary pass: rows and their searchable text stay, only the
         large payloads go — see :meth:`HistoryStore.age_out_blocks`).
         """

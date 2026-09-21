@@ -778,15 +778,21 @@ def _purge_old_history(
         )
         return
     if removed or aged["rows"]:
+        parts = []
+        if removed and retention_days > 0:
+            parts.append(
+                "purged %d row(s) older than %dd" % (removed, retention_days),
+            )
+        if aged["rows"] and blocks_retention_days > 0:
+            parts.append(
+                "aged %d tool_result block payload(s) (%d bytes) older "
+                "than %dd"
+                % (aged["rows"], aged["blocks_bytes"], blocks_retention_days),
+            )
         logger.info(
-            "session-sync[%s]: purged %d row(s) older than %dd; aged %d "
-            "tool_result block payload(s) (%d bytes) older than %dd",
+            "session-sync[%s]: %s",
             agent_id,
-            removed,
-            retention_days,
-            aged["rows"],
-            aged["blocks_bytes"],
-            blocks_retention_days,
+            "; ".join(parts),
         )
 
 

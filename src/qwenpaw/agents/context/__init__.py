@@ -114,9 +114,8 @@ def _warn_db_size(db_path: Path) -> None:
         "history_retention_days (default 30) auto-purge on startup and on "
         "teardown, and tool_result blocks older than blocks_retention_days "
         "(default 14) are nulled at the same time — rows and their searchable "
-        "text stay, only the large structured payloads go. Setting either to "
-        "0 skips that pass and lets the store keep growing. Lower the "
-        "retention windows to trim it.",
+        "text stay, only the large structured payloads go. Set either to 0 "
+        "to skip that pass. Lower the windows to trim the store.",
         db_path,
         total / 1024**3,
     )
