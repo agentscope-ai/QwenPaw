@@ -306,6 +306,7 @@ Important fields:
 | `scroll_config.tool_output_token_cap`            | `3000`         | Deprecated and ignored; explicit values log a warning. Use `pruning_recent_msg_max_bytes`.                        |
 | `scroll_config.repl_timeout_s`                   | `300`          | Per-call timeout for `recall_history_python`.                                                                     |
 | `scroll_config.history_retention_days`           | `30`           | Auto-purge rows older than this many days. Set `0` to keep forever.                                               |
+| `scroll_config.blocks_retention_days`            | `14`           | Null the structured blocks of tool results older than this many days; rows and their searchable text stay (recall degrades to the plain-text view). Set `0` to keep blocks forever. |
 | `scroll_config.offload_dialog`                   | `false`        | Also write legacy `dialog/*.jsonl` archive. `history.db` remains the source of truth.                             |
 
 ## Manual Compaction

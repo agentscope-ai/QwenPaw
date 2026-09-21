@@ -305,6 +305,7 @@ scroll 不再有独立的 token 工具结果 cap。所有实时 preview 都使�
 | `scroll_config.tool_output_token_cap`            | `3000`         | 已废弃且会被忽略；显式配置会输出 warning。请改用 `pruning_recent_msg_max_bytes`。 |
 | `scroll_config.repl_timeout_s`                   | `300`          | `recall_history_python` 单次调用超时时间。                                        |
 | `scroll_config.history_retention_days`           | `30`           | 自动清理早于该天数的历史行；设为 `0` 表示永久保留。                               |
+| `scroll_config.blocks_retention_days`            | `14`           | 自动清空早于该天数的工具结果结构化 blocks；行与其可搜索文本保留（recall 降级为纯文本视图）。设为 `0` 表示永久保留 blocks。 |
 | `scroll_config.offload_dialog`                   | `false`        | 是否额外写旧版 `dialog/*.jsonl` 归档；`history.db` 仍是真相来源。                 |
 
 ## 手动压缩
