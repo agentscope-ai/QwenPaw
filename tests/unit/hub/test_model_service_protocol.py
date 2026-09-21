@@ -29,7 +29,11 @@ MODEL = {
     "upstream_model": "qwen-max",
     "output_limit_field": "max_tokens",
 }
-CONNECTION: dict[str, Any] = {"provider_id": "dashscope", "id": "c1"}
+CONNECTION: dict[str, Any] = {
+    "provider_id": "dashscope",
+    "id": "c1",
+    "base_url": "https://example.test/v1",
+}
 
 
 def _body(**overrides: Any) -> dict[str, Any]:
@@ -45,6 +49,7 @@ def _provider(
 ) -> MagicMock:
     """Stub the provider that ``model_provider`` would resolve."""
     provider = MagicMock(name="ProviderStub")
+    provider.model_protocol.return_value = "openai"
     provider.supports_agent_thinking.return_value = supports
     provider.get_agent_thinking_kwargs.return_value = dict(controls or {})
     return provider
@@ -233,7 +238,7 @@ class TestValidateRequestThinkingLevel:
         with pytest.raises(HTTPException) as excinfo:
             pr.validate_request(_body(hub_thinking_level=level))
         assert excinfo.value.status_code == 422
-        assert excinfo.value.detail == "Invalid Hub thinking level"
+        assert excinfo.value.detail == "Invalid Hub thinking setting"
 
 
 class TestValidateRequestCoreFields:
@@ -408,12 +413,18 @@ class TestUpstreamPayloadRouting:
     def test_input_body_is_not_mutated(self) -> None:
         body = _body(hub_thinking_level="high", max_tokens=7)
         snapshot = dict(body)
-        pr.upstream_payload(body, MODEL, 100, CONNECTION)
+        pr.upstream_payload(
+            body,
+            MODEL,
+            100,
+            CONNECTION,
+            provider=_provider(),
+        )
         assert body == snapshot
 
 
 class TestUpstreamPayloadThinking:
-    def test_inherit_level_never_resolves_a_provider(
+    def test_inherit_level_preserves_provider_thinking_defaults(
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -425,7 +436,8 @@ class TestUpstreamPayloadThinking:
             100,
             CONNECTION,
         )
-        resolver.assert_not_called()
+        resolver.assert_called_once_with(MODEL, CONNECTION)
+        resolver.return_value.get_agent_thinking_kwargs.assert_not_called()
         assert out == {
             "model": "qwen-max",
             "messages": [],
@@ -439,7 +451,8 @@ class TestUpstreamPayloadThinking:
         resolver = MagicMock(name="model_provider")
         monkeypatch.setattr(pr, "model_provider", resolver)
         pr.upstream_payload(_body(), MODEL, 100, CONNECTION)
-        resolver.assert_not_called()
+        resolver.assert_called_once_with(MODEL, CONNECTION)
+        resolver.return_value.get_agent_thinking_kwargs.assert_not_called()
 
     def test_unsupported_model_is_422(
         self,
@@ -482,6 +495,7 @@ class TestUpstreamPayloadThinking:
         provider.get_agent_thinking_kwargs.assert_called_once_with(
             "qwen-max",
             "high",
+            None,
         )
 
     def test_thinking_enable_is_renamed_for_the_wire(

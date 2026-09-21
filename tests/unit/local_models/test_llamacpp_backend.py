@@ -17,6 +17,7 @@ import pytest
 
 import qwenpaw.local_models.llamacpp as downloader_module
 from qwenpaw.constant import DEFAULT_LOCAL_PROVIDER_DIR
+from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.local_models.download_manager import (
     DownloadTaskResult,
     DownloadTaskStatus,
@@ -876,41 +877,14 @@ async def test_setup_server_falls_back_on_windows_not_implemented(
     await asyncio.sleep(0)
 
     assert setup_result.port == downloader.get_server_status()["port"]
-    assert setup_result.model_info.model_dump() == {
-        "id": "demo-model",
-        "is_free": False,
-        "is_recommended": False,
-        "name": "demo-model",
-        "source": "builtin",
-        "discovered_at": None,
-        "discovery_origin": None,
-        "availability_status": "unverified",
-        "availability_message": None,
-        "availability_http_status": None,
-        "availability_retryable": True,
-        "availability_checked_at": None,
-        "availability_verification": "unverified",
-        "config_overrides": [],
-        "supports_multimodal": False,
-        "supports_image": False,
-        "supports_video": False,
-        "probe_source": "probed",
-        "max_input_length": 131072,
-        "max_input_length_configured": False,
-        "max_input_length_auto_detected": None,
-        "max_output_length": None,
-        "max_output_length_source": "unknown",
-        "max_output_length_updated_at": None,
-        "generate_kwargs": {},
-        "relay_reasoning": True,
-        "supports_agent_thinking": None,
-        "thinking_enabled": None,
-        "thinking_budget": None,
-        "reasoning_effort": None,
-        "thinking_param_style": None,
-        "reasoning_effort_options": None,
-        "thinking_budget_range": None,
-    }
+    assert setup_result.model_info == ModelInfo(
+        id=f"demo-model",
+        name=f"demo-model",
+        supports_multimodal=False,
+        supports_image=False,
+        supports_video=False,
+        probe_source=f"probed",
+    )
     assert downloader.get_server_status() == {
         "running": True,
         "port": setup_result.port,
@@ -1049,41 +1023,14 @@ async def test_setup_server_passes_mmproj_argument(
     setup_result = await downloader.setup_server(model_dir, "vision-model")
     await asyncio.sleep(0)
 
-    assert setup_result.model_info.model_dump() == {
-        "id": "vision-model",
-        "is_free": False,
-        "is_recommended": False,
-        "name": "vision-model",
-        "source": "builtin",
-        "discovered_at": None,
-        "discovery_origin": None,
-        "availability_status": "unverified",
-        "availability_message": None,
-        "availability_http_status": None,
-        "availability_retryable": True,
-        "availability_checked_at": None,
-        "availability_verification": "unverified",
-        "config_overrides": [],
-        "supports_multimodal": True,
-        "supports_image": True,
-        "supports_video": False,
-        "probe_source": "probed",
-        "max_input_length": 131072,
-        "max_input_length_configured": False,
-        "max_input_length_auto_detected": None,
-        "max_output_length": None,
-        "max_output_length_source": "unknown",
-        "max_output_length_updated_at": None,
-        "generate_kwargs": {},
-        "relay_reasoning": True,
-        "supports_agent_thinking": None,
-        "thinking_enabled": None,
-        "thinking_budget": None,
-        "reasoning_effort": None,
-        "thinking_param_style": None,
-        "reasoning_effort_options": None,
-        "thinking_budget_range": None,
-    }
+    assert setup_result.model_info == ModelInfo(
+        id=f"vision-model",
+        name=f"vision-model",
+        supports_multimodal=True,
+        supports_image=True,
+        supports_video=False,
+        probe_source=f"probed",
+    )
 
     assert start_calls == [
         (

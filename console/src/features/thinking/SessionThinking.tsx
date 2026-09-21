@@ -103,8 +103,11 @@ export function SessionThinking({
         setBusy(false);
     }
   }
+  const canReset =
+    !!view &&
+    (view.model_source === "session" || view.value.level !== "inherit");
   async function resetModel() {
-    if (busy || view?.model_source !== "session") return;
+    if (busy || !canReset) return;
     setBusy(true);
     try {
       await resetSessionModel(agentId, { sessionId, chatId });
@@ -124,7 +127,7 @@ export function SessionThinking({
         type="button"
         className={styles.iconButton}
         aria-label={t("thinkingControl.resetModel")}
-        disabled={busy || view?.model_source !== "session"}
+        disabled={busy || !canReset}
         onClick={() => void resetModel()}
       >
         <RotateCcw size={15} />

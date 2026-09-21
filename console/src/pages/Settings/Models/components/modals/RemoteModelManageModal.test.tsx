@@ -162,7 +162,7 @@ describe("model pool switches", () => {
       }),
     ).toBeChecked();
     expect(screen.getByText("New")).toBeInTheDocument();
-    expect(screen.getByText(/1,000,000/)).toBeInTheDocument();
+    expect(screen.getByText(/1M/)).toBeInTheDocument();
   });
   it("enables a candidate without removing its row", async () => {
     api.updateModelPool.mockImplementation((_p, _m, body) =>

@@ -233,7 +233,13 @@ async def test_first_message_persists_model_before_thinking(tmp_path):
 @pytest.mark.asyncio
 async def test_session_routes_use_selected_model_constraints(tmp_path):
     manager = ChatManager(repo=JsonChatRepository(tmp_path / f"chats.json"))
-    chat = await manager.create_chat(ChatSpec(session_id=f"one", user_id=f"u"))
+    chat = await manager.create_chat(
+        ChatSpec(
+            session_id=f"one",
+            user_id=f"u",
+            meta={f"draft": f"keep"},
+        ),
+    )
     config = AgentProfileConfig(
         id=f"agent",
         name=f"Agent",
@@ -295,6 +301,22 @@ async def test_session_routes_use_selected_model_constraints(tmp_path):
         assert view[f"source"] == f"agent"
         assert view[f"effective"][f"level"] == f"high"
         assert config.active_model.model == f"a"
+        await set_chat_thinking(
+            chat.id,
+            ThinkingPreference(level=f"low"),
+            manager,
+            workspace,
+            model_key=f"p:a",
+        )
+        view = await set_chat_model(chat.id, None, manager, workspace)
+        assert view[f"model_source"] == f"agent"
+        assert view[f"model"] == f"a"
+        assert view[f"value"][f"level"] == f"inherit"
+        assert view[f"effective"][f"level"] == f"high"
+        persisted = await manager.get_chat(chat.id)
+        assert f"thinking" not in persisted.meta[f"runtime_context"]
+        assert persisted.meta[f"draft"] == f"keep"
+        assert config.thinking_level == f"high"
 
 
 @pytest.mark.asyncio

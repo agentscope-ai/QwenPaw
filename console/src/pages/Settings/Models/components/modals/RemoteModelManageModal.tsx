@@ -1,3 +1,4 @@
+import { formatCompact } from "@/utils/formatNumber";
 import { ModelCardSurface } from "../cards/ModelCardSurface";
 import { useState, useEffect, useMemo, useDeferredValue, useRef } from "react";
 import { Button, Form, Modal, Tag, Tooltip } from "@agentscope-ai/design";
@@ -45,7 +46,7 @@ export function RemoteModelManageModal({
   onSaved,
   onProviderUpdated,
 }: RemoteModelManageModalProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { message } = useAppMessage();
   const [current, setCurrent] = useState(provider);
   const [tab, setTab] = useState("all");
@@ -273,7 +274,7 @@ export function RemoteModelManageModal({
     }
   };
   const number = (value?: number | null) =>
-    value == null ? t("models.unknown") : value.toLocaleString(i18n.language);
+    value == null ? t("models.unknown") : formatCompact(value);
 
   const configuredModel = rows.find((model) => model.id === configId);
   return (

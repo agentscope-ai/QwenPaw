@@ -5,17 +5,17 @@
 import json
 import shutil
 import subprocess
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from threading import Thread
 from unittest.mock import AsyncMock
 
 from pydantic import SecretStr
 
-import httpx
 import pytest
 
 from qwenpaw.config.config import ModelSlotConfig
 from qwenpaw.providers import model_catalog
-from qwenpaw.providers import anthropic_provider as anthropic_module
 from qwenpaw.providers.model_info import ModelInfo
 from qwenpaw.providers.openai_provider import OpenAIProvider
 from qwenpaw.providers.provider_manager import ProviderManager
@@ -69,43 +69,57 @@ def test_github_models_migrates_without_changing_identity(
     assert not (manager.builtin_path / f"github-models.json").exists()
 
 
+@pytest.fixture(name=f"anthropic_server")
+def _anthropic_server():
+    """Serve real SDK requests without coupling to its HTTP dependency."""
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):  # pylint: disable=invalid-name
+            self.rfile.read(int(self.headers.get(f"Content-Length", f"0")))
+            requests.append(dict(self.headers))
+            body = json.dumps(
+                {
+                    f"id": f"msg_test",
+                    f"type": f"message",
+                    f"role": f"assistant",
+                    f"model": f"claude-sonnet-4-5",
+                    f"content": [{f"type": f"text", f"text": f"ok"}],
+                    f"stop_reason": f"end_turn",
+                    f"usage": {f"input_tokens": 1, f"output_tokens": 1},
+                },
+            ).encode()
+            self.send_response(200)
+            self.send_header(f"Content-Type", f"application/json")
+            self.send_header(f"Content-Length", f"{len(body)}")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = ThreadingHTTPServer((f"127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}", requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
 @pytest.mark.asyncio
 @pytest.mark.usefixtures(f"isolated_secret_dir")
 async def test_live_anthropic_model_survives_provider_replacement(
-    monkeypatch,
+    anthropic_server,
 ):
-    requests = []
-
-    def respond(request):
-        requests.append(request)
-        assert f"x-api-key" not in request.headers
-        assert request.headers[f"authorization"] == f"Bearer test-token"
-        return httpx.Response(
-            200,
-            json={
-                f"id": f"msg_test",
-                f"type": f"message",
-                f"role": f"assistant",
-                f"model": f"claude-sonnet-4-5",
-                f"content": [{f"type": f"text", f"text": f"ok"}],
-                f"stop_reason": f"end_turn",
-                f"usage": {f"input_tokens": 1, f"output_tokens": 1},
-            },
-        )
-
-    monkeypatch.setattr(
-        anthropic_module.anthropic,
-        f"DefaultAsyncHttpxClient",
-        lambda **kwargs: httpx.AsyncClient(
-            transport=httpx.MockTransport(respond),
-            trust_env=False,
-            **kwargs,
-        ),
-    )
+    base_url, requests = anthropic_server
     manager = ProviderManager()
     provider = manager.get_provider(f"anthropic")
     provider.auth_mode = f"auth_token"
     provider.api_key = f"test-token"
+    provider.base_url = base_url
     model = provider.get_chat_model_instance(f"claude-sonnet-4-5")
     model.stream = False
     sdk = model._get_or_create_client()
@@ -117,6 +131,10 @@ async def test_live_anthropic_model_survives_provider_replacement(
     assert sdk.is_closed()
     await model._call_api(f"claude-sonnet-4-5", [])
     assert len(requests) == 2
+    for headers in requests:
+        normalized = {key.lower(): value for key, value in headers.items()}
+        assert f"x-api-key" not in normalized
+        assert normalized[f"authorization"] == f"Bearer test-token"
     assert model._qp_cached_client.is_closed()
 
 

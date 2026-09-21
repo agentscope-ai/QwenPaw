@@ -1,15 +1,13 @@
+import { ProviderCredentialField } from "./ProviderCredentialField";
 import { ProviderCardStatus } from "./ProviderCardStatus";
 import { ModelCardSurface } from "./ModelCardSurface";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
-import { Button, Input } from "@agentscope-ai/design";
 import { useTranslation } from "react-i18next";
 import type { ProviderInfo } from "../../../../../api/types";
 import type { ProviderGroup } from "../../utils";
 import { getIsConfigured } from "../../utils";
-import { providerApi } from "../../../../../api/modules/provider";
-import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { ProviderIcon } from "../ProviderIconComponent";
 import styles from "../../index.module.less";
 
@@ -41,10 +39,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   onOpenModels,
 }: ProviderGroupCardProps) {
   const { t } = useTranslation();
-  const { message } = useAppMessage();
   const [activeIdx, setActiveIdx] = useState(0);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [saving, setSaving] = useState(false);
 
   const activeProvider = group.providers[activeIdx] || group.providers[0];
   const totalModels = new Set(
@@ -54,24 +49,6 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   ).size;
   const liveCount = group.providers.filter(getIsConfigured).length;
   const hasFreeTier = activeProvider.is_free_tier;
-
-  const handleSaveKey = async () => {
-    if (!apiKeyInput.trim()) return;
-    setSaving(true);
-    try {
-      await providerApi.configureProvider(activeProvider.id, {
-        api_key: apiKeyInput.trim(),
-      });
-      message.success(t("models.saved"));
-      setApiKeyInput("");
-      onSaved();
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : t("models.failedToSave");
-      message.error(msg);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <ModelCardSurface className={styles.groupCardGlass}>
@@ -127,49 +104,10 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           </div>
         </div>
 
-        <div className={styles.groupCardField}>
-          <span className={styles.groupCardFieldLabel}>API Key</span>
-          {activeProvider.api_key ? (
-            <div className={styles.groupCardMono}>
-              <span>{activeProvider.api_key}</span>
-              <span
-                className={styles.groupCardChangeBtn}
-                onClick={() => onOpenConfig(activeProvider)}
-              >
-                {t("models.changeApiKey")}
-              </span>
-            </div>
-          ) : activeProvider.require_api_key === false ? (
-            <div className={styles.groupCardMono}>
-              {t("models.notRequired")}
-            </div>
-          ) : (
-            <div className={styles.groupCardKeyInput}>
-              <Input.Password
-                size="small"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                placeholder={
-                  activeProvider.api_key_prefixes?.length
-                    ? `${activeProvider.api_key_prefixes.join(", ")}...`
-                    : activeProvider.api_key_prefix
-                    ? `${activeProvider.api_key_prefix}...`
-                    : "sk-..."
-                }
-                style={{ flex: 1 }}
-              />
-              <Button
-                type="primary"
-                size="small"
-                loading={saving}
-                disabled={!apiKeyInput.trim()}
-                onClick={handleSaveKey}
-              >
-                {t("models.saveApiKey")}
-              </Button>
-            </div>
-          )}
-        </div>
+        <ProviderCredentialField
+          provider={activeProvider}
+          onEdit={onOpenConfig}
+        />
 
         <button
           type="button"

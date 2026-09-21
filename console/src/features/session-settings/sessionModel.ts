@@ -1,3 +1,4 @@
+import { clearPendingThinking } from "./pendingThinking";
 import { request } from "@/api/request";
 import type { ActiveModelsInfo } from "@/api/types";
 import type { ThinkingView } from "../thinking/types";
@@ -135,7 +136,8 @@ export async function resetSessionModel(
   scope: SessionModelScope,
 ) {
   if (!scope.chatId) {
-    sessionStorage.removeItem(key(agent, scope.sessionId));
+    clearPendingModel(agent, scope.sessionId);
+    clearPendingThinking(agent, scope.sessionId);
     return loadSessionModel(agent, scope);
   }
   const view = await request<ThinkingView>(
@@ -147,5 +149,6 @@ export async function resetSessionModel(
     },
   );
   clearPendingModel(agent, scope.sessionId);
+  clearPendingThinking(agent, scope.sessionId);
   return activeModels(view);
 }

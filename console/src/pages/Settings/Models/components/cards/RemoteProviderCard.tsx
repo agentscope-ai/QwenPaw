@@ -1,19 +1,18 @@
+import { ProviderCredentialField } from "./ProviderCredentialField";
 import { ProviderCardStatus } from "./ProviderCardStatus";
 import { ModelCardSurface } from "./ModelCardSurface";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
-import { Button, Modal, Input } from "@agentscope-ai/design";
+import { Modal } from "@agentscope-ai/design";
 import type { ProviderInfo } from "../../../../../api/types";
 import api from "../../../../../api";
-import { providerApi } from "../../../../../api/modules/provider";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "../../../../../hooks/useAppMessage";
 import { getIsConfigured } from "../../utils";
 import styles from "../../index.module.less";
 import HubProviderUsage from "./HubProviderUsage";
 import { ProviderIcon } from "../ProviderIconComponent";
-import { ProviderApiKeyLink } from "../ProviderApiKeyLink";
 import { OAuthConfirmModal } from "../../../../Chat/ModelSelector/OAuthConfirmModal";
 
 interface RemoteProviderCardProps {
@@ -32,8 +31,6 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
   const { t } = useTranslation();
   const { message } = useAppMessage();
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
-  const [apiKeyInput, setApiKeyInput] = useState("");
-  const [apiKeySaving, setApiKeySaving] = useState(false);
 
   const isManaged = provider.id === "hub-managed";
   const needsOAuth =
@@ -109,71 +106,10 @@ export const RemoteProviderCard = React.memo(function RemoteProviderCard({
               </div>
             </div>
 
-            <div className={styles.groupCardField}>
-              <span className={styles.groupCardFieldLabel}>
-                API Key
-                <ProviderApiKeyLink url={provider.meta?.api_key_url} />
-              </span>
-              {provider.api_key ? (
-                <div className={styles.groupCardMono}>
-                  <span>{provider.api_key}</span>
-                  <span
-                    className={styles.groupCardChangeBtn}
-                    onClick={() => onOpenConfig(provider)}
-                  >
-                    {t("models.changeApiKey")}
-                  </span>
-                </div>
-              ) : provider.require_api_key === false ? (
-                <div className={styles.groupCardMono}>
-                  {t("models.notRequired")}
-                </div>
-              ) : (
-                <div className={styles.groupCardKeyInput}>
-                  <Input.Password
-                    size="small"
-                    value={apiKeyInput}
-                    onChange={(e) => setApiKeyInput(e.target.value)}
-                    placeholder={
-                      provider.api_key_prefixes?.length
-                        ? `${provider.api_key_prefixes.join(", ")}...`
-                        : provider.api_key_prefix
-                        ? `${provider.api_key_prefix}...`
-                        : "sk-..."
-                    }
-                    style={{ flex: 1 }}
-                  />
-                  <Button
-                    type="primary"
-                    size="small"
-                    loading={apiKeySaving}
-                    disabled={!apiKeyInput.trim()}
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      setApiKeySaving(true);
-                      try {
-                        await providerApi.configureProvider(provider.id, {
-                          api_key: apiKeyInput.trim(),
-                        });
-                        message.success(t("models.saved"));
-                        setApiKeyInput("");
-                        onSaved();
-                      } catch (err) {
-                        const msg =
-                          err instanceof Error
-                            ? err.message
-                            : t("models.failedToSave");
-                        message.error(msg);
-                      } finally {
-                        setApiKeySaving(false);
-                      }
-                    }}
-                  >
-                    {t("models.saveApiKey")}
-                  </Button>
-                </div>
-              )}
-            </div>
+            <ProviderCredentialField
+              provider={provider}
+              onEdit={onOpenConfig}
+            />
           </>
         )}
         <button

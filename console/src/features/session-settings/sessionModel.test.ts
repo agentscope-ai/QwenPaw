@@ -1,3 +1,4 @@
+import { setPendingThinking, readPendingThinking } from "./pendingThinking";
 import { beforeEach, expect, it, vi } from "vitest";
 import { request } from "@/api/request";
 import {
@@ -93,5 +94,18 @@ it.each(["replace", "reset"])(
         model: "glm-5.3",
       });
     expect(withPendingModel({}, "agent", "created")).toEqual({});
+  },
+);
+
+it.each([null, "chat"])(
+  "reset clears model and thinking pending overrides together (chat=%s)",
+  async (chatId) => {
+    sessionStorage.setItem("composer-draft", "keep text and attachments");
+    setPendingThinking("agent", "session", { level: "high" }, "p:m");
+    await resetSessionModel("agent", { sessionId: "session", chatId });
+    expect(readPendingThinking("agent", "session", "p:m")).toBeNull();
+    expect(sessionStorage.getItem("composer-draft")).toBe(
+      "keep text and attachments",
+    );
   },
 );

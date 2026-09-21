@@ -463,6 +463,7 @@ class ChatManager:  # pylint: disable=too-many-public-methods
             runtime = dict(meta.get(f"runtime_context") or {})
             if model is None:
                 runtime.pop(f"model", None)
+                runtime.pop(f"thinking", None)
             else:
                 runtime[f"model"] = model
             meta[f"runtime_context"] = runtime

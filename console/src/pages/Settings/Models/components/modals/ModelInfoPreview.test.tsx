@@ -41,8 +41,8 @@ describe("ModelInfoPreview", () => {
         "dashscope/qwen3.8-max",
       ),
     );
-    expect(await screen.findByRole("status")).toHaveTextContent("1,000,000");
-    expect(screen.getByRole("status")).toHaveTextContent("131,072");
+    expect(await screen.findByRole("status")).toHaveTextContent("1M");
+    expect(screen.getByRole("status")).toHaveTextContent("131.1K");
   });
   it("explains metadata lookup failure without preventing manual entry", async () => {
     vi.mocked(api.previewModelInfo).mockRejectedValue(new Error("offline"));

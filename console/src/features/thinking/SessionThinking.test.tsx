@@ -2,7 +2,11 @@ import type { ReactNode } from "react";
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import { renderWithProviders } from "@/test/common_setup";
-import { sessionThinkingApi } from "./sessionThinkingApi";
+import {
+  sessionThinkingApi,
+  setPendingThinking,
+  clearPendingThinking,
+} from "./sessionThinkingApi";
 import { resetSessionModel } from "../session-settings/sessionModel";
 import { SessionThinking } from "./SessionThinking";
 
@@ -110,3 +114,54 @@ it("hides the Hub routing ID when no readable name is available", async () => {
   await waitFor(() => expect(sessionThinkingApi.get).toHaveBeenCalled());
   expect(screen.queryByText(model)).not.toBeInTheDocument();
 });
+
+it.each([null, "chat"])(
+  "resets thinking-only overrides to agent defaults (chat=%s)",
+  async (chatId) => {
+    const view = {
+      model: "qwen",
+      model_name: "Qwen",
+      provider_id: "dashscope",
+      model_key: "dashscope:qwen",
+      model_source: "agent" as const,
+      control: {
+        kind: "effort" as const,
+        efforts: ["low" as const, "high" as const],
+        supports_off: false,
+      },
+      value: { level: "high" as const },
+      effective: { level: "high" as const },
+      source: "session" as const,
+      reason: null,
+    };
+    vi.mocked(sessionThinkingApi.get).mockResolvedValue(view);
+    vi.mocked(resetSessionModel).mockImplementation(async () => {
+      clearPendingThinking("agent", "session");
+      return { active_llm: null };
+    });
+    setPendingThinking("agent", "session", { level: "high" }, view.model_key);
+    renderWithProviders(
+      <SessionThinking agentId="agent" sessionId="session" chatId={chatId} />,
+    );
+    const reset = await screen.findByRole("button", {
+      name: "thinkingControl.resetModel",
+    });
+    await waitFor(() => expect(reset).toBeEnabled());
+    vi.mocked(sessionThinkingApi.get).mockResolvedValue({
+      ...view,
+      value: { level: "inherit" },
+      effective: { level: "low" },
+      source: "agent",
+    });
+    fireEvent.click(reset);
+    await waitFor(() =>
+      expect(screen.getByRole("slider")).toHaveAttribute("aria-valuenow", "0"),
+    );
+    await waitFor(() => expect(reset).toBeDisabled());
+
+    expect(resetSessionModel).toHaveBeenCalledWith("agent", {
+      sessionId: "session",
+      chatId,
+    });
+  },
+);

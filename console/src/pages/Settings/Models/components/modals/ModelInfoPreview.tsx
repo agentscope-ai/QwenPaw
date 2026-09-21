@@ -1,3 +1,4 @@
+import { formatCompact } from "@/utils/formatNumber";
 import { useEffect, useState } from "react";
 import { Select } from "antd";
 import { useTranslation } from "react-i18next";
@@ -15,7 +16,7 @@ export function ModelInfoPreview({
   templateId?: string;
   onTemplateChange?: (value?: string) => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [info, setInfo] = useState<ModelInfo | null>(null);
   const [templates, setTemplates] = useState<
     { value: string; label: string }[]
@@ -64,7 +65,7 @@ export function ModelInfoPreview({
   }, [providerId, modelId, templateId]);
   if (!modelId?.trim()) return null;
   const display = (value?: number | null) =>
-    value?.toLocaleString(i18n.language) ?? t("models.unknown");
+    value == null ? t("models.unknown") : formatCompact(value);
   return (
     <div style={{ marginBottom: 16, display: "grid", gap: 8 }}>
       {onTemplateChange && (
