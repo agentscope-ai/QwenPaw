@@ -114,7 +114,7 @@ async def _delete_chat_data(workspace, chats: list[ChatSpec]) -> None:
         if store is not None:
             for chat in chats:
                 await asyncio.to_thread(
-                    store.delete_session,
+                    store.schedule_delete_session,
                     chat.session_id,
                 )
         if session is not None:

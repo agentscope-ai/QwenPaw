@@ -4,20 +4,26 @@
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import threading
+import time
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterator, Literal
 
+from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ...runtime.console_turn_state import TURN_STATE
 from ...schemas import Message, RunStatus
 from ...token_usage.turn_usage import TURN_USAGE_META_KEY
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 _BUSY_TIMEOUT_MS = 5000
+_DELETE_BATCH_SIZE = 5_000
+logger = logging.getLogger(__name__)
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
 Completeness = Literal["complete", "partial"]
 
@@ -56,6 +62,10 @@ class TranscriptStore:
         self._closed = False
         self._retention_days = retention_days
         self._last_retention_check: date | None = None
+        self._cleanup_executor = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="transcript-cleanup",
+        )
         self._conn = sqlite3.connect(
             str(self._path),
             check_same_thread=False,
@@ -67,7 +77,9 @@ class TranscriptStore:
         try:
             self._migrate()
             self.purge_if_due()
+            self._submit_cleanup(self._purge_deleted_sessions)
         except BaseException:
+            self._cleanup_executor.shutdown(wait=False, cancel_futures=True)
             self._conn.close()
             self._closed = True
             raise
@@ -93,16 +105,20 @@ class TranscriptStore:
                     f"version {_SCHEMA_VERSION}",
                 )
             if version == 0:
-                self._create_schema_v2()
+                self._create_schema_v3()
                 self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
-            elif version == 1:
+                return
+            if version == 1:
                 self._conn.execute(
                     "ALTER TABLE transcript_turns "
                     "ADD COLUMN replaces_turn_id TEXT",
                 )
-                self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
+                version = 2
+            if version == 2:
+                self._migrate_v3_client_message_ids()
+            self._conn.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
 
-    def _create_schema_v2(self) -> None:
+    def _create_schema_v3(self) -> None:
         self._conn.executescript(
             """
             CREATE TABLE transcript_sessions (
@@ -154,6 +170,7 @@ class TranscriptStore:
                 kind                TEXT NOT NULL,
                 payload_json        TEXT NOT NULL,
                 status              TEXT NOT NULL,
+                client_message_id   TEXT,
                 replaces_message_id TEXT,
                 superseded_at       TEXT,
                 created_at          TEXT NOT NULL,
@@ -167,6 +184,11 @@ class TranscriptStore:
 
             CREATE INDEX transcript_messages_turn
                 ON transcript_messages(session_id, turn_id, ordinal);
+
+            CREATE INDEX transcript_messages_client
+                ON transcript_messages(
+                    session_id, client_message_id, created_at DESC
+                );
 
             CREATE TABLE transcript_imports (
                 source_kind      TEXT NOT NULL,
@@ -184,6 +206,35 @@ class TranscriptStore:
             );
             """,
         )
+
+    def _migrate_v3_client_message_ids(self) -> None:
+        """Add and backfill the indexed client message identifier."""
+        started = time.perf_counter()
+        self._conn.execute(
+            "ALTER TABLE transcript_messages "
+            "ADD COLUMN client_message_id TEXT",
+        )
+        cursor = self._conn.execute(
+            "UPDATE transcript_messages SET client_message_id = "
+            "json_extract(payload_json, ?) WHERE role = 'user'",
+            (f"$.metadata.{QWENPAW_CLIENT_MESSAGE_ID_KEY}",),
+        )
+        self._conn.execute(
+            "CREATE INDEX transcript_messages_client "
+            "ON transcript_messages("
+            "session_id, client_message_id, created_at DESC)",
+        )
+        logger.info(
+            "Transcript v3 client-id migration rows=%s elapsed_ms=%.1f",
+            max(cursor.rowcount, 0),
+            (time.perf_counter() - started) * 1000,
+        )
+
+    @staticmethod
+    def _client_message_id(message: Message) -> str | None:
+        metadata = message.metadata or {}
+        value = metadata.get(QWENPAW_CLIENT_MESSAGE_ID_KEY)
+        return str(value) if value else None
 
     @contextmanager
     def _transaction(self) -> Iterator[None]:
@@ -243,6 +294,8 @@ class TranscriptStore:
             )
             session = self._session_row(session_id)
             assert session is not None
+            if session["deleted_at"] is not None:
+                raise ValueError("transcript session is deleted")
             self._assert_identity(
                 session,
                 user_id=user_id,
@@ -364,7 +417,8 @@ class TranscriptStore:
                         "INSERT INTO transcript_messages("
                         "session_id, turn_id, message_id, ordinal, role, "
                         "kind, payload_json, status, created_at, "
-                        "finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "client_message_id, finished_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         (
                             session_id,
                             turn_id,
@@ -375,6 +429,7 @@ class TranscriptStore:
                             message.model_dump_json(),
                             _enum_value(message.status),
                             timestamp,
+                            self._client_message_id(message),
                             timestamp,
                         ),
                     )
@@ -396,6 +451,7 @@ class TranscriptStore:
         role = _enum_value(message.role)
         kind = _enum_value(message.type)
         status = _enum_value(message.status)
+        client_message_id = self._client_message_id(message)
         timestamp = created_at or _utc_now()
         with self._transaction():
             turn = self._conn.execute(
@@ -407,7 +463,7 @@ class TranscriptStore:
                 raise ValueError("transcript turn does not exist")
             existing = self._conn.execute(
                 "SELECT turn_id, ordinal, role, kind, payload_json, status, "
-                "replaces_message_id, finished_at "
+                "client_message_id, replaces_message_id, finished_at "
                 "FROM transcript_messages "
                 "WHERE session_id = ? AND message_id = ?",
                 (session_id, message.id),
@@ -419,6 +475,7 @@ class TranscriptStore:
                 kind,
                 payload,
                 status,
+                client_message_id,
                 replaces_message_id,
                 finished_at,
             )
@@ -431,12 +488,14 @@ class TranscriptStore:
                 "INSERT INTO transcript_messages("
                 "session_id, turn_id, message_id, ordinal, role, kind, "
                 "payload_json, status, replaces_message_id, created_at, "
-                "finished_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "client_message_id, finished_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(session_id, message_id) DO UPDATE SET "
                 "turn_id = excluded.turn_id, ordinal = excluded.ordinal, "
                 "role = excluded.role, kind = excluded.kind, "
                 "payload_json = excluded.payload_json, "
                 "status = excluded.status, "
+                "client_message_id = excluded.client_message_id, "
                 "replaces_message_id = excluded.replaces_message_id, "
                 "finished_at = excluded.finished_at",
                 (
@@ -450,6 +509,7 @@ class TranscriptStore:
                     status,
                     replaces_message_id,
                     timestamp,
+                    client_message_id,
                     finished_at,
                 ),
             )
@@ -687,23 +747,22 @@ class TranscriptStore:
         if not message_id and not client_message_id:
             return None
         with self._lock:
-            rows = self._conn.execute(
-                "SELECT turn_id, message_id, payload_json "
-                "FROM transcript_messages WHERE session_id = ? "
-                "ORDER BY created_at DESC",
-                (session_id,),
-            ).fetchall()
-            for row in rows:
-                if message_id and row["message_id"] == message_id:
+            if message_id:
+                row = self._conn.execute(
+                    "SELECT turn_id FROM transcript_messages "
+                    "WHERE session_id = ? AND message_id = ?",
+                    (session_id, message_id),
+                ).fetchone()
+                if row is not None:
                     return str(row["turn_id"])
-                if not client_message_id:
-                    continue
-                message = Message.model_validate_json(row["payload_json"])
-                metadata = message.metadata or {}
-                if (
-                    metadata.get("qwenpaw_client_message_id")
-                    == client_message_id
-                ):
+            if client_message_id:
+                row = self._conn.execute(
+                    "SELECT turn_id FROM transcript_messages "
+                    "WHERE session_id = ? AND client_message_id = ? "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (session_id, client_message_id),
+                ).fetchone()
+                if row is not None:
                     return str(row["turn_id"])
         return None
 
@@ -725,18 +784,128 @@ class TranscriptStore:
         return self._revision(session_id)
 
     def delete_session(self, session_id: str) -> bool:
-        """Delete one transcript and all turns/messages atomically."""
+        """Hide and securely remove one transcript."""
+        if not self.mark_session_deleted(session_id):
+            return False
+        return self._purge_deleted_session(session_id)
+
+    def mark_session_deleted(self, session_id: str) -> bool:
+        """Hide a transcript durably before asynchronous physical cleanup."""
         with self._transaction():
+            existing = self._conn.execute(
+                "SELECT 1 FROM transcript_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            if existing is None:
+                return False
+            self._conn.execute(
+                "UPDATE transcript_sessions SET deleted_at = ?, "
+                "revision = revision + 1, updated_at = ? "
+                "WHERE session_id = ?",
+                (_utc_now(), _utc_now(), session_id),
+            )
+            return True
+
+    def schedule_delete_session(self, session_id: str) -> bool:
+        """Hide a transcript now and securely purge it in the background."""
+        if not self.mark_session_deleted(session_id):
+            return False
+        self._submit_cleanup(self._purge_deleted_session, session_id)
+        return True
+
+    def _purge_deleted_session(self, session_id: str) -> bool:
+        started = time.perf_counter()
+        with self._lock:
+            marked = self._conn.execute(
+                "SELECT 1 FROM transcript_sessions "
+                "WHERE session_id = ? AND deleted_at IS NOT NULL",
+                (session_id,),
+            ).fetchone()
+        if marked is None:
+            return False
+        deleted_messages = self._delete_session_rows(
+            "transcript_messages",
+            session_id,
+        )
+        deleted_turns = self._delete_session_rows(
+            "transcript_turns",
+            session_id,
+        )
+        with self._transaction():
+            existing = self._conn.execute(
+                "SELECT 1 FROM transcript_sessions "
+                "WHERE session_id = ? AND deleted_at IS NOT NULL",
+                (session_id,),
+            ).fetchone()
+            if existing is None:
+                return False
             cursor = self._conn.execute(
                 "DELETE FROM transcript_sessions WHERE session_id = ?",
                 (session_id,),
             )
-            return bool(cursor.rowcount)
+            deleted = bool(cursor.rowcount)
+        logger.info(
+            "Transcript cleanup messages=%s turns=%s elapsed_ms=%.1f",
+            deleted_messages,
+            deleted_turns,
+            (time.perf_counter() - started) * 1000,
+        )
+        return deleted
+
+    def _delete_session_rows(self, table: str, session_id: str) -> int:
+        if table not in {"transcript_messages", "transcript_turns"}:
+            raise ValueError("invalid transcript cleanup table")
+        removed = 0
+        while True:
+            with self._transaction():
+                cursor = self._conn.execute(
+                    f"DELETE FROM {table} WHERE rowid IN ("
+                    f"SELECT rowid FROM {table} WHERE session_id = ? "
+                    "LIMIT ?)",
+                    (session_id, _DELETE_BATCH_SIZE),
+                )
+                batch = max(cursor.rowcount, 0)
+            removed += batch
+            if batch < _DELETE_BATCH_SIZE:
+                return removed
+            time.sleep(0)
+
+    def _purge_deleted_sessions(self) -> None:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT session_id FROM transcript_sessions "
+                "WHERE deleted_at IS NOT NULL",
+            ).fetchall()
+        for row in rows:
+            self._purge_deleted_session(str(row["session_id"]))
+
+    def _submit_cleanup(
+        self,
+        method: Any,
+        *args: Any,
+    ) -> Future[Any] | None:
+        with self._lock:
+            if self._closed:
+                return None
+            future = self._cleanup_executor.submit(method, *args)
+
+        def _log_failure(completed: Future[Any]) -> None:
+            try:
+                completed.result()
+            except Exception:
+                logger.warning(
+                    "Transcript background cleanup failed",
+                    exc_info=True,
+                )
+
+        future.add_done_callback(_log_failure)
+        return future
 
     def has_session(self, session_id: str) -> bool:
         """Return whether the transcript owns the session identifier."""
         with self._lock:
-            return self._session_row(session_id) is not None
+            row = self._session_row(session_id)
+            return row is not None and row["deleted_at"] is None
 
     def has_import(
         self,
@@ -844,8 +1013,10 @@ class TranscriptStore:
         with self._lock:
             if self._closed:
                 return
-            self._conn.close()
             self._closed = True
+        self._cleanup_executor.shutdown(wait=True)
+        with self._lock:
+            self._conn.close()
 
 
 __all__ = ["TranscriptPage", "TranscriptStore"]

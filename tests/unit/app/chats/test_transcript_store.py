@@ -2,6 +2,7 @@
 """Tests for the independent durable chat transcript store."""
 
 import sqlite3
+import threading
 from datetime import date, datetime, timezone
 
 import pytest
@@ -873,6 +874,170 @@ def test_delete_session_cascades_and_import_marker_is_idempotent(tmp_path):
     )
 
 
+def test_message_anchor_lookups_use_indexed_columns(tmp_path):
+    store = TranscriptStore(tmp_path / "transcript.db")
+    _start(store, "turn-1")
+    message = Message(
+        id="message-1",
+        role="user",
+        content=[TextContent(text="question")],
+        metadata={"qwenpaw_client_message_id": "client-1"},
+    ).completed()
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=message,
+        ordinal=0,
+    )
+
+    assert (
+        store.find_turn_for_message(
+            session_id="session-1",
+            message_id="message-1",
+        )
+        == "turn-1"
+    )
+    assert (
+        store.find_turn_for_message(
+            session_id="session-1",
+            client_message_id="client-1",
+        )
+        == "turn-1"
+    )
+    plan = store._conn.execute(  # pylint: disable=protected-access
+        "EXPLAIN QUERY PLAN SELECT turn_id FROM transcript_messages "
+        "WHERE session_id = ? AND client_message_id = ? "
+        "ORDER BY created_at DESC LIMIT 1",
+        ("session-1", "client-1"),
+    ).fetchall()
+    assert any("transcript_messages_client" in row[3] for row in plan)
+    store.close()
+
+
+def test_scheduled_delete_hides_before_physical_cleanup(tmp_path):
+    store = TranscriptStore(tmp_path / "transcript.db")
+    _start(store, "turn-1")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=_message("message-1", "question"),
+        ordinal=0,
+    )
+    cleanup_started = threading.Event()
+    allow_cleanup = threading.Event()
+    physical_cleanup = getattr(store, "_purge_deleted_session")
+
+    def blocked_cleanup(session_id):
+        cleanup_started.set()
+        allow_cleanup.wait(timeout=5)
+        return physical_cleanup(session_id)
+
+    setattr(store, "_purge_deleted_session", blocked_cleanup)
+    assert store.schedule_delete_session("session-1") is True
+    assert cleanup_started.wait(timeout=5)
+
+    assert store.has_session("session-1") is False
+    assert (
+        store.get_page(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        )
+        is None
+    )
+    row = store._conn.execute(  # pylint: disable=protected-access
+        "SELECT deleted_at FROM transcript_sessions WHERE session_id = ?",
+        ("session-1",),
+    ).fetchone()
+    assert row is not None and row["deleted_at"] is not None
+
+    allow_cleanup.set()
+    store.close()
+
+
+def test_open_retries_interrupted_physical_cleanup(tmp_path):
+    db_path = tmp_path / "transcript.db"
+    store = TranscriptStore(db_path)
+    _start(store, "turn-1")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=_message("message-1", "question"),
+        ordinal=0,
+    )
+    store.close()
+    connection = sqlite3.connect(db_path)
+    connection.execute(
+        "UPDATE transcript_sessions SET deleted_at = ? WHERE session_id = ?",
+        ("2026-09-21T00:00:00+00:00", "session-1"),
+    )
+    connection.commit()
+    connection.close()
+
+    reopened = TranscriptStore(db_path)
+    reopened.close()
+    connection = sqlite3.connect(db_path)
+    assert (
+        connection.execute(
+            "SELECT COUNT(*) FROM transcript_sessions",
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        connection.execute(
+            "SELECT COUNT(*) FROM transcript_messages",
+        ).fetchone()[0]
+        == 0
+    )
+    connection.close()
+
+
+def test_background_cleanup_releases_lock_between_batches(
+    tmp_path,
+    monkeypatch,
+):
+    from qwenpaw.app.chats import transcript as transcript_module
+
+    store = TranscriptStore(tmp_path / "transcript.db")
+    _start(store, "turn-delete")
+    for ordinal in range(2):
+        store.upsert_message(
+            session_id="session-1",
+            turn_id="turn-delete",
+            message=_message(f"delete-{ordinal}", "old"),
+            ordinal=ordinal,
+        )
+    _start(store, "turn-keep", session_id="session-2")
+    store.upsert_message(
+        session_id="session-2",
+        turn_id="turn-keep",
+        message=_message("keep-1", "visible"),
+        ordinal=0,
+    )
+    between_batches = threading.Event()
+    continue_cleanup = threading.Event()
+
+    def pause_between_batches(_seconds):
+        between_batches.set()
+        continue_cleanup.wait(timeout=5)
+
+    monkeypatch.setattr(transcript_module, "_DELETE_BATCH_SIZE", 1)
+    monkeypatch.setattr(transcript_module.time, "sleep", pause_between_batches)
+    assert store.schedule_delete_session("session-1") is True
+    assert between_batches.wait(timeout=5)
+
+    page = store.get_page(
+        session_id="session-2",
+        user_id="user-1",
+        channel="console",
+    )
+    assert page is not None
+    assert [message.id for message in page.messages] == ["keep-1"]
+
+    continue_cleanup.set()
+    store.close()
+
+
 def test_retention_purges_terminal_turns_without_reenabling_fallback(
     tmp_path,
 ):
@@ -979,10 +1144,26 @@ def test_newer_schema_is_rejected_without_overwrite(tmp_path):
 def test_schema_v1_migrates_replacement_turn_column(tmp_path):
     db_path = tmp_path / "transcript.db"
     store = TranscriptStore(db_path)
+    _start(store, "turn-1")
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=Message(
+            id="message-1",
+            role="user",
+            content=[TextContent(text="question")],
+            metadata={"qwenpaw_client_message_id": "client-1"},
+        ).completed(),
+        ordinal=0,
+    )
     store.close()
     connection = sqlite3.connect(db_path)
     connection.execute(
         "ALTER TABLE transcript_turns DROP COLUMN replaces_turn_id",
+    )
+    connection.execute("DROP INDEX transcript_messages_client")
+    connection.execute(
+        "ALTER TABLE transcript_messages DROP COLUMN client_message_id",
     )
     connection.execute("PRAGMA user_version=1")
     connection.close()
@@ -996,10 +1177,24 @@ def test_schema_v1_migrates_replacement_turn_column(tmp_path):
     }
 
     assert "replaces_turn_id" in columns
+    message_columns = {
+        row[1]
+        for row in migrated._conn.execute(  # pylint: disable=protected-access
+            "PRAGMA table_info(transcript_messages)",
+        )
+    }
+    assert "client_message_id" in message_columns
+    assert (
+        migrated.find_turn_for_message(
+            session_id="session-1",
+            client_message_id="client-1",
+        )
+        == "turn-1"
+    )
     assert (
         migrated._conn.execute(  # pylint: disable=protected-access
             "PRAGMA user_version",
         ).fetchone()[0]
-        == 2
+        == 3
     )
     migrated.close()
