@@ -90,7 +90,20 @@ def validate_request(body):
     return min(limits) if limits else None
 
 
-def upstream_payload(body, model, cap, connection):
+def _anthropic_output_cap(provider, model, body, cap):
+    """Supply a valid output limit even for unlimited Hub budgets."""
+    capacity = provider.resolve_model_info(
+        model[f"upstream_model"],
+    ).max_output_length
+    if cap is None:
+        budget = body.get(f"hub_thinking_budget") or 0
+        cap = max(8192, budget + 1024)
+    if capacity:
+        cap = min(cap, capacity)
+    return cap
+
+
+def upstream_payload(body, model, cap, connection, *, provider=None):
     """Replace model routing and output bounds with server-owned values."""
     payload = {
         k: v
@@ -104,12 +117,15 @@ def upstream_payload(body, model, cap, connection):
             "hub_thinking_budget",
         }
     }
+    provider = provider or model_provider(model, connection)
+    protocol = provider.model_protocol(model[f"upstream_model"])
+    if protocol == f"anthropic":
+        cap = _anthropic_output_cap(provider, model, body, cap)
     payload["model"] = model["upstream_model"]
     if cap is not None:
         payload[model["output_limit_field"]] = cap
     level = body.get("hub_thinking_level", "inherit")
     if level != "inherit":
-        provider = model_provider(model, connection)
         if not provider.supports_agent_thinking(model["upstream_model"]):
             raise HTTPException(422, "Model does not support thinking control")
         controls = provider.get_agent_thinking_kwargs(
@@ -117,7 +133,6 @@ def upstream_payload(body, model, cap, connection):
             level,
             body.get(f"hub_thinking_budget"),
         )
-        protocol = provider.model_protocol(model[f"upstream_model"])
         if protocol == f"anthropic":
             enabled = controls.pop(f"thinking_enable", None)
             budget = controls.pop(f"thinking_budget", None)

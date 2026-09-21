@@ -356,3 +356,14 @@ def test_pro_candidates_include_unknown_prices_but_exclude_free():
     ]
     page = model_pool_page(provider, ModelPoolQuery(billing=f"pro"))
     assert [card.id for card in page.models] == [f"paid", f"unknown"]
+
+
+def test_revision_invalidates_resolved_cards(isolated_secret_dir):
+    manager = ProviderManager()
+    provider = manager.get_provider(f"deepseek")
+    model_pool_page(provider, ModelPoolQuery())
+    assert provider._resolved_pool is not None
+    manager._bump_provider_revision(provider.id)
+    assert provider._resolved_pool is None
+    model_pool_page(provider, ModelPoolQuery())
+    assert provider._resolved_pool is not None

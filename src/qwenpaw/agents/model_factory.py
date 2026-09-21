@@ -2268,53 +2268,24 @@ def create_model_and_formatter(
             explicit=slot is not None,
         )
 
-    # Create chat model from agent-specific or global config
-    if model_slot and model_slot.provider_id and model_slot.model:
-        # Use agent-specific model
-        manager = ProviderManager.get_instance()
-        provider = manager.get_provider(model_slot.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=f"Provider '{model_slot.provider_id}' not found.",
-            )
-
-        if not provider.enabled:
-            raise ProviderError(message=f"Provider is disabled")
-        with agent_thinking_level(
-            settings.thinking_level,
-            settings.thinking_budget,
-        ):
-            model = provider.get_chat_model_instance(model_slot.model)
-        provider_id = _resolved_provider_id(provider, model_slot.provider_id)
-        selected_model_id = model_slot.model
-    else:
-        # Fallback to global active model
-        manager = ProviderManager.get_instance()
-        global_model = manager.get_active_model()
-        if (
-            global_model is None
-            or not global_model.provider_id
-            or not global_model.model
-        ):
-            raise ProviderError(
-                message=(
-                    "No active model configured. "
-                    "Please configure a model using 'qwenpaw models config' "
-                    "or set an agent-specific model."
-                ),
-            )
-        provider = manager.get_provider(global_model.provider_id)
-        if provider is None:
-            raise ProviderError(
-                message=(
-                    f"Active provider '{global_model.provider_id}' not found."
-                ),
-            )
-        provider_id = _resolved_provider_id(provider, global_model.provider_id)
-        selected_model_id = global_model.model
-        if not provider.enabled:
-            raise ProviderError(message=f"Provider is disabled")
-        model = provider.get_chat_model_instance(selected_model_id)
+    manager = ProviderManager.get_instance()
+    model_slot = model_slot or manager.get_active_model()
+    if not model_slot or not model_slot.provider_id or not model_slot.model:
+        raise ProviderError(message=f"No active model configured")
+    provider = manager.get_provider(model_slot.provider_id)
+    if provider is None:
+        raise ProviderError(
+            message=f"Provider '{model_slot.provider_id}' not found.",
+        )
+    if not provider.enabled:
+        raise ProviderError(message=f"Provider is disabled")
+    with agent_thinking_level(
+        settings.thinking_level,
+        settings.thinking_budget,
+    ):
+        model = provider.get_chat_model_instance(model_slot.model)
+    provider_id = _resolved_provider_id(provider, model_slot.provider_id)
+    selected_model_id = model_slot.model
 
     provider_id = _bind_provider_id_to_model(model, provider_id)
     _ensure_model_context_size(model, provider, selected_model_id)

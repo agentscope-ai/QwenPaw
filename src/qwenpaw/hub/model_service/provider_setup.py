@@ -188,6 +188,11 @@ async def discover_models(catalog, connection_id: str):
     """Merge discovery with the shared catalog without personal writes."""
     provider = await run_sync_io(_discovery_provider, catalog, connection_id)
     fetched = await provider.fetch_models(timeout=10)
+    return await run_sync_io(_merge_discovery, provider, fetched)
+
+
+def _merge_discovery(provider, fetched):
+    """Resolve discovered capabilities off the request event loop."""
     models = {model.id: model for model in provider.models}
     discovered_at = datetime.now(timezone.utc).isoformat()
     for remote in fetched:

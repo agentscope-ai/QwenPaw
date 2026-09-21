@@ -11,6 +11,11 @@ from .cache_policy import mark_stable_prefix
 from .wire_protocol import anthropic_base_url
 
 
+async def strip_api_key_header(request: Any) -> None:
+    """Keep bearer authentication exclusive on the SDK transport."""
+    request.headers.pop(f"x-api-key", None)
+
+
 class AnthropicModel(AnthropicChatModel):
     """Own credentials, headers and protocol policy per model instance."""
 
@@ -18,7 +23,6 @@ class AnthropicModel(AnthropicChatModel):
         self._qp_output_capacity = kwargs.pop(f"output_capacity", None)
         self._qp_default_headers = kwargs.pop(f"default_headers", None)
         self._qp_auth_mode = kwargs.pop(f"auth_mode", None)
-        self._qp_strip_http_client = kwargs.pop(f"strip_http_client", None)
         self._request_policy = kwargs.pop(f"request_policy", None)
         self._extra_generate_kwargs = (
             kwargs.pop(
@@ -43,6 +47,7 @@ class AnthropicModel(AnthropicChatModel):
         if (
             self._qp_cached_client is not None
             and self._qp_cached_client_key == key
+            and not self._qp_cached_client.is_closed()
         ):
             return self._qp_cached_client
 
@@ -55,8 +60,9 @@ class AnthropicModel(AnthropicChatModel):
             client_kwargs[
                 "auth_token"
             ] = self.credential.api_key.get_secret_value()
-            if self._qp_strip_http_client is not None:
-                client_kwargs["http_client"] = self._qp_strip_http_client
+            client_kwargs[f"http_client"] = anthropic.DefaultAsyncHttpxClient(
+                event_hooks={f"request": [strip_api_key_header]},
+            )
         else:
             client_kwargs[
                 "api_key"
@@ -67,6 +73,14 @@ class AnthropicModel(AnthropicChatModel):
         )
         self._qp_cached_client_key = key
         return self._qp_cached_client
+
+    async def _request_client(self):
+        """Close the old transport when credentials replace the client."""
+        previous_client = self._qp_cached_client
+        client = self._get_or_create_client()
+        if previous_client is not None and previous_client is not client:
+            await previous_client.close()
+        return client
 
     async def _call_api(
         self,
@@ -90,8 +104,6 @@ class AnthropicModel(AnthropicChatModel):
                 f"anthropic",
                 generate_kwargs,
             )
-        client = self._get_or_create_client()
-
         # Translate the neutral ``disable_thinking`` flag
         if generate_kwargs.pop("disable_thinking", False):
             generate_kwargs["thinking"] = {"type": "disabled"}
@@ -134,15 +146,32 @@ class AnthropicModel(AnthropicChatModel):
             formatted = formatted[1:]
         kw["messages"] = formatted
 
+        client = await self._request_client()
         start = datetime.now()
-        response = await client.messages.create(**kw)
-
-        if self.stream:
-            return self._parse_anthropic_stream_completion_response(
+        response = None
+        try:
+            response = await client.messages.create(**kw)
+            if self.stream:
+                return self._owned_stream(start, response, client)
+            return await self._parse_anthropic_completion_response(
                 start,
                 response,
             )
-        return await self._parse_anthropic_completion_response(
-            start,
-            response,
-        )
+        finally:
+            if self._qp_auth_mode == f"auth_token" and (
+                not self.stream or response is None
+            ):
+                await client.close()
+
+    async def _owned_stream(self, start, response, client):
+        """Keep the model-owned transport alive until streaming finishes."""
+        try:
+            chunks = self._parse_anthropic_stream_completion_response(
+                start,
+                response,
+            )
+            async for chunk in chunks:
+                yield chunk
+        finally:
+            if self._qp_auth_mode == f"auth_token":
+                await client.close()

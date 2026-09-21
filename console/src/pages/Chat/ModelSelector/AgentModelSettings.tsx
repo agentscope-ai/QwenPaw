@@ -236,6 +236,7 @@ export function AgentModelSettings({
   };
 
   const [choosingFallback, setChoosingFallback] = useState(false);
+  const [fallbackIndex, setFallbackIndex] = useState(0);
   useEffect(() => {
     if (expanded && agentId) {
       setOpen(true);
@@ -267,7 +268,7 @@ export function AgentModelSettings({
       fallback_models: fallbackModels,
       fallback_policy: {
         enabled: nextFallbackEnabled,
-        target_scope: "configured",
+        target_scope: config.fallback_policy?.target_scope ?? "configured",
       },
       subagent_model: slotByKey.get(nextSubagentKey) ?? null,
       thinking_level: nextThinking.level,
@@ -292,7 +293,7 @@ export function AgentModelSettings({
         fallback_models: fallbackModels,
         fallback_policy: {
           enabled: fallbackEnabled,
-          target_scope: "configured" as const,
+          target_scope: config.fallback_policy?.target_scope ?? "configured",
         },
         subagent_model: subagentSlot ?? null,
         ...(showThinking && thinkingSupported
@@ -428,31 +429,38 @@ export function AgentModelSettings({
                   }}
                 />
               </div>
-              {(fallbackEnabled || choosingFallback) && (
-                <div className={styles.settingLine}>
-                  <span>{t("modelSelector.chooseFallback")}</span>
-                  <ModelChoice
-                    ariaLabel={t("modelSelector.chooseFallback")}
-                    open={choosingFallback}
-                    onOpenChange={setChoosingFallback}
-                    value={slotByKey.get(fallbackKeys[0])}
-                    label={
-                      optionByKey.get(fallbackKeys[0])?.label ??
-                      (fallbackKeys[0] || t("modelSelector.chooseFallback"))
-                    }
-                    disabled={saving}
-                    onChange={(slot) => {
-                      const keys = [pickSlot(slot)];
-                      setFallbackKeys(keys);
-                      setFallbackEnabled(true);
-                      notifyDraft({
-                        fallbackKeys: keys,
-                        fallbackEnabled: true,
-                      });
-                    }}
-                  />
-                </div>
-              )}
+              {(fallbackEnabled || choosingFallback) &&
+                (fallbackKeys.length ? fallbackKeys : [EMPTY_KEY]).map(
+                  (key, index) => (
+                    <div className={styles.settingLine} key={index}>
+                      <span>{t("modelSelector.chooseFallback")}</span>
+                      <ModelChoice
+                        ariaLabel={t("modelSelector.chooseFallback")}
+                        open={choosingFallback && fallbackIndex === index}
+                        onOpenChange={(next) => {
+                          setFallbackIndex(index);
+                          setChoosingFallback(next);
+                        }}
+                        value={slotByKey.get(key)}
+                        label={
+                          optionByKey.get(key)?.label ??
+                          (key || t("modelSelector.chooseFallback"))
+                        }
+                        disabled={saving}
+                        onChange={(slot) => {
+                          const keys = [...fallbackKeys];
+                          keys[index] = pickSlot(slot);
+                          setFallbackKeys(keys);
+                          setFallbackEnabled(true);
+                          notifyDraft({
+                            fallbackKeys: keys,
+                            fallbackEnabled: true,
+                          });
+                        }}
+                      />
+                    </div>
+                  ),
+                )}
               {agentId && (
                 <button
                   type="button"

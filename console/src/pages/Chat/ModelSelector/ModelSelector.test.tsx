@@ -1502,14 +1502,15 @@ describe("ModelSelector", () => {
     expect(patch).not.toHaveProperty("channels");
   });
 
-  it("preserves unavailable fallback and subagent slots when saving", async () => {
+  it("preserves free-only scope and every fallback when saving", async () => {
     vi.mocked(agentsApi.getAgent).mockResolvedValue({
       id: "default",
       name: "Default",
       fallback_models: [
         { provider_id: "removed-provider", model: "removed-model" },
+        { provider_id: "other-provider", model: "second-model" },
       ],
-      fallback_policy: { enabled: true, target_scope: "configured" },
+      fallback_policy: { enabled: true, target_scope: "free_only" },
       subagent_model: {
         provider_id: "removed-provider",
         model: "removed-subagent-model",
@@ -1536,7 +1537,9 @@ describe("ModelSelector", () => {
       expect.objectContaining({
         fallback_models: [
           { provider_id: "removed-provider", model: "removed-model" },
+          { provider_id: "other-provider", model: "second-model" },
         ],
+        fallback_policy: { enabled: true, target_scope: "free_only" },
         subagent_model: {
           provider_id: "removed-provider",
           model: "removed-subagent-model",

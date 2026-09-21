@@ -183,15 +183,14 @@ def test_hub_native_protocols_keep_thinking_and_bound_budget(cap):
         return
     payload = upstream_payload(body, model, cap, connection)
     if cap is None:
-        assert f"max_tokens" not in payload
+        assert payload[f"max_tokens"] == 13024
     wire = WireProtocol(f"anthropic").request(payload)
     assert wire[f"thinking"] == {
         f"type": f"enabled",
         f"budget_tokens": 12000 if cap is None else cap - 1,
     }
     assert f"hub_thinking_budget" not in wire
-    if cap is not None:
-        assert wire[f"max_tokens"] == cap
+    assert wire[f"max_tokens"] == (13024 if cap is None else cap)
 
 
 def test_session_override_preserves_shared_provider_kwargs():

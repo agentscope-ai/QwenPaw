@@ -239,6 +239,30 @@ describe("model pool switches", () => {
       expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", true),
     );
   });
+  it("confirms the full catalog before a large bulk enable", async () => {
+    api.getModelPool.mockResolvedValue({
+      models: [chosen, candidate],
+      total: 2,
+      selected_count: 1,
+      candidate_count: 11000,
+      families: [],
+      offset: 0,
+      limit: 50,
+    });
+    api.selectAllModels.mockResolvedValue(provider);
+    await render();
+    fireEvent.click(
+      screen.getByRole("button", { name: "models.pool.enableAll" }),
+    );
+    expect(api.selectAllModels).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("models.pool.enableAllConfirm"),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "confirm" }));
+    await waitFor(() =>
+      expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", true),
+    );
+  });
   it("updates OpenRouter through the common refresh action", async () => {
     const { onSaved } = await render();
     fireEvent.click(

@@ -103,6 +103,34 @@ export function SessionThinking({
         setBusy(false);
     }
   }
+  async function resetModel() {
+    if (busy || view?.model_source !== "session") return;
+    setBusy(true);
+    try {
+      await resetSessionModel(agentId, { sessionId, chatId });
+      if (identityRef.current !== identity) return;
+      setChoosing(false);
+      await load();
+      window.dispatchEvent(new Event("session-model-changed"));
+    } catch (error) {
+      if (identityRef.current === identity) message.error(String(error));
+    } finally {
+      if (identityRef.current === identity) setBusy(false);
+    }
+  }
+  const resetModelButton = (
+    <Tooltip title={t("thinkingControl.resetModel")}>
+      <button
+        type="button"
+        className={styles.iconButton}
+        aria-label={t("thinkingControl.resetModel")}
+        disabled={busy || view?.model_source !== "session"}
+        onClick={() => void resetModel()}
+      >
+        <RotateCcw size={15} />
+      </button>
+    </Tooltip>
+  );
   const value = view?.value ?? { level: "inherit" as const };
   const display = value.level === "inherit" ? view?.effective ?? value : value;
   return (
@@ -127,31 +155,7 @@ export function SessionThinking({
                 >
                   <ArrowLeft size={17} />
                 </button>
-                <Tooltip title={t("thinkingControl.reset")}>
-                  <button
-                    type="button"
-                    className={styles.iconButton}
-                    aria-label={t("thinkingControl.reset")}
-                    disabled={busy || view?.model_source !== "session"}
-                    onClick={async () => {
-                      setBusy(true);
-                      try {
-                        await resetSessionModel(agentId, { sessionId, chatId });
-                        setChoosing(false);
-                        await load();
-                        window.dispatchEvent(
-                          new Event("session-model-changed"),
-                        );
-                      } catch (error) {
-                        message.error(String(error));
-                      } finally {
-                        setBusy(false);
-                      }
-                    }}
-                  >
-                    <RotateCcw size={15} />
-                  </button>
-                </Tooltip>
+                {resetModelButton}
               </div>
               <ModelSelector
                 embedded
@@ -177,6 +181,7 @@ export function SessionThinking({
                       : view.model) ||
                     t("modelSelector.selectModel")
                   }
+                  resetAction={resetModelButton}
                   onChooseModel={() => setChoosing(true)}
                   onChange={(next) => void save(next)}
                   disabled={busy}
@@ -206,7 +211,9 @@ export function SessionThinking({
           <ProviderIcon providerId={view.provider_id} size={16} />
         )}
         <span>
-          {view?.model_name || view?.model || t("modelSelector.selectModel")}
+          {view?.model_name ||
+            (view?.provider_id !== "hub-managed" ? view?.model : undefined) ||
+            t("modelSelector.selectModel")}
         </span>
         {view &&
           !["unsupported", "unknown"].includes(view.control.kind) &&

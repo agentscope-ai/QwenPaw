@@ -1042,6 +1042,14 @@ class ProviderManagerPersistenceMixin(
             # Migrate built-in providers
             for provider_id, config in builtin_providers.items():
                 provider = self.get_provider(provider_id)
+                if provider is None and provider_id == f"github-models":
+                    provider = OpenAIProvider(
+                        id=provider_id,
+                        name=f"GitHub Models",
+                        base_url=f"https://models.github.ai/inference",
+                        is_custom=True,
+                    )
+                    self.custom_providers[provider_id] = provider
                 if not provider:
                     logger.warning(
                         "Legacy provider '%s' not found in"
@@ -1058,7 +1066,10 @@ class ProviderManagerPersistenceMixin(
                     ]
                 if not provider.freeze_url and "base_url" in config:
                     provider.base_url = config["base_url"]
-                self._save_provider(provider, is_builtin=True)
+                self._save_provider(
+                    provider,
+                    is_builtin=not provider.is_custom,
+                )
             self._migrate_legacy_custom_providers(custom_providers)
             self._migrate_legacy_active_model(active_model)
             # Remove legacy file after migration
@@ -1102,12 +1113,30 @@ class ProviderManagerPersistenceMixin(
                 "Failed to migrate active model, using default.",
             )
 
+    def _migrate_github_models(self) -> None:
+        """Move an existing retired builtin to custom storage once."""
+        provider_id = f"github-models"
+        source = self._provider_path_for_kind(f"builtin", provider_id)
+        target = self._provider_path_for_kind(f"custom", provider_id)
+        if not source.exists():
+            return
+        if target.exists():
+            return
+        provider = self.load_provider(provider_id, is_builtin=True)
+        if provider is None:
+            return
+        provider.is_custom = True
+        provider.freeze_url = False
+        self._save_provider(provider, is_builtin=False, skip_if_exists=False)
+        source.unlink()
+
     def _init_from_storage(self):
         """Initialize all providers and active model from disk storage."""
         for builtin in self.builtin_providers.values():
             provider = self.load_provider(builtin.id, is_builtin=True)
             if provider:
                 self._restore_builtin_provider(builtin, provider)
+        self._migrate_github_models()
         # Load custom providers
         provider_files = sorted(
             self.custom_path.glob("*.json"),

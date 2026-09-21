@@ -9,7 +9,11 @@ from unittest.mock import Mock, patch
 import pytest
 
 from qwenpaw.agents import model_factory
-from qwenpaw.config.config import ModelSlotConfig
+from qwenpaw.config.config import AgentProfileConfig, ModelSlotConfig
+from qwenpaw.providers.provider_catalog import (
+    PROVIDER_OPENAI,
+    PROVIDER_ANTHROPIC,
+)
 from qwenpaw.exceptions import ProviderError
 from qwenpaw.providers.hub_managed import managed_slot
 from qwenpaw.providers.provider_manager import ProviderManager
@@ -126,3 +130,74 @@ def test_org_model_keeps_routing_id_and_separate_identity():
         )
     provider.get_chat_model_instance.assert_called_once_with(f"opaque-id")
     assert result.display_name == f"Org Qwen"
+
+
+@pytest.mark.parametrize(f"explicit", [False, True])
+@pytest.mark.parametrize(
+    (f"level", f"budget", f"expected"),
+    [
+        (f"high", None, {f"reasoning_effort": f"high"}),
+        (
+            f"budget",
+            4096,
+            {f"thinking_enable": True, f"thinking_budget": 4096},
+        ),
+    ],
+)
+def test_global_and_explicit_models_apply_identical_thinking(
+    monkeypatch,
+    explicit,
+    level,
+    budget,
+    expected,
+):
+    monkeypatch.delenv(f"QWENPAW_HUB_MODEL_TOKEN", raising=False)
+    provider = (
+        PROVIDER_ANTHROPIC if budget else PROVIDER_OPENAI
+    ).configuration_snapshot()
+    selected = ModelSlotConfig(
+        provider_id=provider.id,
+        model=f"claude-sonnet-4-5" if budget else f"gpt-5.2",
+    )
+    captured = []
+    model = SimpleNamespace()
+
+    def create(_provider, model_id):
+        captured.append(_provider.get_effective_generate_kwargs(model_id))
+        return model
+
+    with (
+        patch.object(type(provider), f"get_chat_model_instance", create),
+        patch.object(
+            model_factory.ProviderManager,
+            f"get_instance",
+        ) as manager,
+        patch.object(model_factory, f"_ensure_model_context_size"),
+        patch.object(model_factory, f"_install_model_formatter"),
+        patch.object(
+            model_factory,
+            f"TokenRecordingModelWrapper",
+            return_value=model,
+        ),
+        patch.object(model_factory, f"RetryChatModel", return_value=model),
+        patch.object(
+            model_factory,
+            f"_apply_model_fallbacks",
+            return_value=model,
+        ),
+    ):
+        manager.return_value.get_provider.return_value = provider
+        manager.return_value.get_active_model.return_value = selected
+        config = AgentProfileConfig(
+            id=f"test",
+            name=f"Test",
+            thinking_level=level,
+            thinking_budget=budget,
+            active_model=selected if explicit else None,
+        )
+        model_factory.create_model_and_formatter(
+            agent_id=f"test",
+            agent_config=config,
+        )
+    for key, value in expected.items():
+        assert captured[0][key] == value

@@ -314,3 +314,41 @@
 .popover {
   width: 100%;
 }
+
+:global(.dark-mode) .control {
+  :global(.ant-slider-track),
+  :global(.qwenpaw-slider-track) {
+    background: transparent !important;
+  }
+  :global(.ant-slider-rail),
+  :global(.qwenpaw-slider-rail) {
+    background: linear-gradient(
+      90deg,
+      #594334,
+      #a96c36 50%,
+      #d98b45
+    ) !important;
+  }
+  :global(.ant-slider-handle::after),
+  :global(.qwenpaw-slider-handle::after) {
+    background: #f0ede9 !important;
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 20%),
+      0 2px 6px rgb(0 0 0 / 35%) !important;
+  }
+  :global(.ant-slider-dot),
+  :global(.qwenpaw-slider-dot) {
+    background: rgb(255 255 255 / 45%) !important;
+  }
+  &[data-budget-off="true"] :global(.ant-slider-rail),
+  &[data-budget-off="true"] :global(.qwenpaw-slider-rail) {
+    background: linear-gradient(
+      90deg,
+      var(--app-fill-strong) 0 2%,
+      transparent 2% 8%,
+      #594334 11%,
+      #a96c36 55%,
+      #d98b45
+    ) !important;
+  }
+}

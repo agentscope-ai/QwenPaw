@@ -108,10 +108,11 @@ async def test_configure_provider_schedules_model_discovery() -> None:
     manager.update_provider_async.assert_awaited_once_with(
         "openai",
         {
+            "enabled": None,
             "api_key": "sk-test",
             "base_url": None,
             "chat_model": None,
-            "generate_kwargs": {},
+            "generate_kwargs": None,
             "custom_headers": None,
             "auth_mode": None,
         },

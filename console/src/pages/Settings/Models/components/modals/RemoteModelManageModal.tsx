@@ -59,6 +59,7 @@ export function RemoteModelManageModal({
   const [busy, setBusy] = useState<string | null>(null);
   const [configId, setConfigId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [confirmEnableAll, setConfirmEnableAll] = useState(false);
   const [templateId, setTemplateId] = useState<string>();
   const [form] = Form.useForm();
   const enteredModelId = Form.useWatch("id", form);
@@ -286,6 +287,19 @@ export function RemoteModelManageModal({
       destroyOnHidden
       className={styles.modal}
     >
+      <Modal
+        title={t("models.pool.enableAllConfirm", {
+          count: (page?.selected_count ?? 0) + (page?.candidate_count ?? 0),
+        })}
+        open={confirmEnableAll}
+        onCancel={() => setConfirmEnableAll(false)}
+        onOk={async () => {
+          await selectAll(true);
+          setConfirmEnableAll(false);
+        }}
+        confirmLoading={busy === "bulk"}
+        okText={t("models.pool.enableAll")}
+      />
       <div style={{ display: configId ? "none" : "contents" }}>
         {!current.support_model_discovery &&
           current.discovery_support_reason && (
@@ -334,7 +348,17 @@ export function RemoteModelManageModal({
                           )
                         }
                         disabled={busy !== null || loading}
-                        onClick={() => void selectAll(selected)}
+                        onClick={() => {
+                          if (
+                            selected &&
+                            page &&
+                            page.selected_count + page.candidate_count > 100
+                          ) {
+                            setConfirmEnableAll(true);
+                          } else {
+                            void selectAll(selected);
+                          }
+                        }}
                       />
                     </Tooltip>
                   ))}

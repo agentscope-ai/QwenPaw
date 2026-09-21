@@ -47,10 +47,19 @@ class ModelGateway:
         if orphan:
             self.limiter.cooldown_until = time.monotonic() + 2 * _TIMEOUT
 
-    async def _open(self, attempt, model, connection, payload, bridge=None):
+    @staticmethod
+    def _prepare(model, connection, body, cap):
+        """Load metadata and prepare wire data outside the event loop."""
         provider = model_provider(model, connection)
-        bridge = bridge or WireProtocol(
+        bridge = WireProtocol(
             provider.model_protocol(model[f"upstream_model"]),
+        )
+        payload = upstream_payload(
+            body,
+            model,
+            cap,
+            connection,
+            provider=provider,
         )
         card = provider.resolve_model_info(model[f"upstream_model"])
         if card.max_output_length:
@@ -89,6 +98,15 @@ class ModelGateway:
             )
         payload.update(controls.pop(f"extra_body", {}))
         payload.update(controls)
+        return (
+            bridge,
+            provider.request_url(model[f"upstream_model"]),
+            headers,
+            payload,
+        )
+
+    async def _open(self, attempt, model, connection, prepared):
+        bridge, url, headers, payload = prepared
         stack = attempt.stack
         await stack.enter_async_context(
             self.limiter.acquire(model, connection),
@@ -104,7 +122,7 @@ class ModelGateway:
         key = await run_sync_io(self.catalog.key, connection)
         request = client.build_request(
             "POST",
-            provider.request_url(model[f"upstream_model"]),
+            url,
             headers={
                 **headers,
                 **(
@@ -144,19 +162,21 @@ class ModelGateway:
                 body,
                 admin_test=admin_test,
             )
-            bridge = WireProtocol(
-                model_provider(model, connection).model_protocol(
-                    model[f"upstream_model"],
-                ),
-            )
             context = {**identity, f"session_id": session_id}
             with model_session(context, attempt.request_id):
+                prepared = await run_sync_io(
+                    self._prepare,
+                    model,
+                    connection,
+                    body,
+                    cap,
+                )
+                bridge = prepared[0]
                 response = await self._open(
                     attempt,
                     model,
                     connection,
-                    upstream_payload(body, model, cap, connection),
-                    bridge,
+                    prepared,
                 )
         except BaseException as exc:
             await attempt.close(error="upstream_failed")

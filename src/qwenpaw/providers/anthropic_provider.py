@@ -32,7 +32,10 @@ from .provider import (
 )
 
 from ..utils.logging import sanitize_log_value
-from .adapters.anthropic import AnthropicModel as _AnthropicChatModelCompat
+from .adapters.anthropic import (
+    AnthropicModel as _AnthropicChatModelCompat,
+    strip_api_key_header,
+)
 from .capping_formatter import _CappingAnthropicFormatter
 from .capping_formatter import MAX_INLINE_MEDIA_BYTES
 
@@ -47,11 +50,6 @@ CODING_DASHSCOPE_BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 TOKEN_PLAN_BASE_URL = (
     "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 )
-
-
-async def _strip_api_key_header(request: Any) -> None:
-    """Keep bearer authentication exclusive on the SDK's HTTP client."""
-    request.headers.pop(f"x-api-key", None)
 
 
 class AnthropicProvider(Provider):
@@ -95,7 +93,7 @@ class AnthropicProvider(Provider):
         """Use the SDK's client type and strip API keys before sending."""
         if self._strip_http_client is None:
             self._strip_http_client = anthropic.DefaultAsyncHttpxClient(
-                event_hooks={f"request": [_strip_api_key_header]},
+                event_hooks={f"request": [strip_api_key_header]},
             )
         return self._strip_http_client
 
@@ -363,11 +361,6 @@ class AnthropicProvider(Provider):
             stream=True,
             default_headers=merged_headers or None,
             auth_mode=getattr(self, "auth_mode", None),
-            strip_http_client=(
-                self._get_strip_http_client()
-                if getattr(self, "auth_mode", None) == "auth_token"
-                else None
-            ),
             context_size=self._get_context_size(model_id),
             formatter=_CappingAnthropicFormatter(
                 max_bytes=self.max_inline_media_bytes,

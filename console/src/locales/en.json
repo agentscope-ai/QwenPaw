@@ -2703,6 +2703,7 @@
     "pool": {
       "enabledCount": "Models {{count}}",
       "modelCount": "Models {{count}} / {{total}}",
+      "enableAllConfirm": "Enable all {{count}} models?",
       "enableAll": "Enable all",
       "disableAll": "Disable all",
       "unsupported": "This endpoint does not support model listing. The built-in catalog and existing models are preserved; you can add models manually.",
@@ -3591,6 +3592,7 @@
     "enableSuccess": "Tool enabled successfully",
     "disableSuccess": "Tool disabled successfully",
     "toggleError": "Failed to toggle tool status",
+    "enableAllConfirm": "Enable all {{count}} models?",
     "enableAll": "Enable All",
     "disableAll": "Disable All",
     "enableAllSuccess": "All tools enabled",
@@ -5225,6 +5227,7 @@
     }
   },
   "thinkingControl": {
+    "resetModel": "Restore default model",
     "title": "Thinking intensity",
     "reset": "Restore defaults",
     "inherit": "Use default",

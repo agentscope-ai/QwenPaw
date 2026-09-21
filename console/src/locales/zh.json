@@ -2561,6 +2561,7 @@
     "pool": {
       "enabledCount": "模型 {{count}}",
       "modelCount": "模型 {{count}} / {{total}}",
+      "enableAllConfirm": "启用全部 {{count}} 个模型？",
       "enableAll": "全部启用",
       "disableAll": "全部关闭",
       "unsupported": "此提供商地址不支持模型列表接口，已保留内置目录和已有模型。可手动添加模型。",
@@ -3449,6 +3450,7 @@
     "enableSuccess": "工具启用成功",
     "disableSuccess": "工具禁用成功",
     "toggleError": "切换工具状态失败",
+    "enableAllConfirm": "启用全部 {{count}} 个模型？",
     "enableAll": "全部启用",
     "disableAll": "全部禁用",
     "enableAllSuccess": "全部工具已启用",
@@ -5243,6 +5245,7 @@
     }
   },
   "thinkingControl": {
+    "resetModel": "恢复默认模型",
     "title": "思考强度",
     "reset": "恢复默认设置",
     "inherit": "跟随默认",

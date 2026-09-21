@@ -13,6 +13,7 @@ export function ThinkingControl({
   disabled = false,
   modelLabel,
   onChooseModel,
+  resetAction,
   effective,
 }: {
   control: ThinkingControlSpec;
@@ -21,6 +22,7 @@ export function ThinkingControl({
   disabled?: boolean;
   modelLabel?: ReactNode;
   onChooseModel?: () => void;
+  resetAction?: ReactNode;
   effective?: ThinkingPreference;
 }) {
   const { t } = useTranslation();
@@ -125,19 +127,20 @@ export function ThinkingControl({
             <strong>{label}</strong>
           )}
         </div>
-        {!unsupported && (
-          <Tooltip title={t("thinkingControl.reset")}>
-            <button
-              type="button"
-              className={styles.iconButton}
-              disabled={disabled || value.level === "inherit"}
-              aria-label={t("thinkingControl.reset")}
-              onClick={() => onChange({ level: "inherit" })}
-            >
-              <RotateCcw size={15} />
-            </button>
-          </Tooltip>
-        )}
+        {resetAction ??
+          (!unsupported && (
+            <Tooltip title={t("thinkingControl.reset")}>
+              <button
+                type="button"
+                className={styles.iconButton}
+                disabled={disabled || value.level === "inherit"}
+                aria-label={t("thinkingControl.reset")}
+                onClick={() => onChange({ level: "inherit" })}
+              >
+                <RotateCcw size={15} />
+              </button>
+            </Tooltip>
+          ))}
       </header>
       {unsupported ? (
         <Tooltip

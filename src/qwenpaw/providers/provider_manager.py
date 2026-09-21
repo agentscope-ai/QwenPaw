@@ -391,8 +391,13 @@ class ProviderManager(
         provider.models_last_sync_error = persisted.models_last_sync_error
 
     def _bump_provider_revision(self, provider_id: str) -> int:
-        """Advance the revision used to reject stale async operations."""
+        """Invalidate derived cards and reject stale async operations."""
         provider_id = self._normalize_provider_id(provider_id)
+        provider = self.get_provider(provider_id)
+        if provider is not None:
+            # The manager owns revision and derived-pool invalidation.
+            # pylint: disable-next=protected-access
+            provider._resolved_pool = None
         revision = self._provider_revisions.get(provider_id, 0) + 1
         self._provider_revisions[provider_id] = revision
         return revision
