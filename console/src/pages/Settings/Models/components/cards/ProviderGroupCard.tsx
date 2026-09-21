@@ -1,3 +1,4 @@
+import { ModelCardSurface } from "./ModelCardSurface";
 import { ChevronRight } from "lucide-react";
 import { ProviderCloseButton } from "./ProviderCloseButton";
 import React, { useState } from "react";
@@ -72,7 +73,7 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
   };
 
   return (
-    <div className={styles.groupCardGlass}>
+    <ModelCardSurface className={styles.groupCardGlass}>
       <ProviderCloseButton
         ids={group.providers.map((provider) => provider.id)}
         onSaved={onSaved}
@@ -194,6 +195,6 @@ export const ProviderGroupCard = React.memo(function ProviderGroupCard({
           <ChevronRight size={16} />
         </button>
       </div>
-    </div>
+    </ModelCardSurface>
   );
 });

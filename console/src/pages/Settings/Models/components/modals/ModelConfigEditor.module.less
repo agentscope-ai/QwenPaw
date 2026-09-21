@@ -18,7 +18,7 @@
   padding: 20px;
   min-width: 0;
 }
-.capabilities:has(> :empty) {
+.capabilities:has(> div:empty) {
   display: none;
 }
 .basics {
@@ -37,12 +37,12 @@
   align-items: center;
   padding: 8px;
 }
-.advanced > summary {
+.advanced > details > summary {
   cursor: pointer;
   font-size: 13px;
   color: var(--app-text-secondary);
 }
-.advanced[open] > summary {
+.advanced > details[open] > summary {
   margin-bottom: 16px;
 }
 .jsonHeading {

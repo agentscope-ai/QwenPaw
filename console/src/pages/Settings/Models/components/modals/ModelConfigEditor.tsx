@@ -1,3 +1,4 @@
+import { ModelCardSurface } from "../cards/ModelCardSurface";
 import styles from "./ModelConfigEditor.module.less";
 import InlineHelp from "../../../../../components/InlineHelp";
 import { ThinkingControl } from "@/features/thinking/ThinkingControl";
@@ -187,7 +188,7 @@ export function ModelConfigEditor({
 
   return (
     <div className={styles.editor}>
-      <section className={styles.capabilities}>
+      <ModelCardSurface as="section" tilt={0} className={styles.capabilities}>
         <ModelCapabilitiesFields
           model={model}
           changes={capabilities}
@@ -196,9 +197,9 @@ export function ModelConfigEditor({
             setDirty(true);
           }}
         />
-      </section>
+      </ModelCardSurface>
       <div className={styles.basics}>
-        <section className={styles.limits}>
+        <ModelCardSurface as="section" tilt={0} className={styles.limits}>
           <OutputTokenLimitField
             value={maxTokens}
             onChange={handleMaxTokensChange}
@@ -222,9 +223,9 @@ export function ModelConfigEditor({
                 : undefined
             }
           />
-        </section>
+        </ModelCardSurface>
         {(model.thinking_control || thinkingParamStyle) && (
-          <section className={styles.thinking}>
+          <ModelCardSurface as="section" tilt={0} className={styles.thinking}>
             <ThinkingControl
               control={
                 model.thinking_control ?? {
@@ -261,67 +262,69 @@ export function ModelConfigEditor({
                 setDirty(true);
               }}
             />
-          </section>
+          </ModelCardSurface>
         )}
       </div>
-      <details className={styles.advanced}>
-        <summary>{t("common.advancedSettings")}</summary>
-        <ThinkingCapabilityFields
-          value={
-            thinkingDeclaration === undefined
-              ? model.thinking_control
-              : thinkingDeclaration
-          }
-          onChange={(next) => {
-            setThinkingDeclaration(next);
-            setDirty(true);
-          }}
-        />
+      <ModelCardSurface tilt={0} className={styles.advanced}>
+        <details>
+          <summary>{t("common.advancedSettings")}</summary>
+          <ThinkingCapabilityFields
+            value={
+              thinkingDeclaration === undefined
+                ? model.thinking_control
+                : thinkingDeclaration
+            }
+            onChange={(next) => {
+              setThinkingDeclaration(next);
+              setDirty(true);
+            }}
+          />
 
-        {/* Responses API models handle reasoning via native reasoning items
+          {/* Responses API models handle reasoning via native reasoning items
          that the API requires to be echoed back; relay_reasoning has no
          effect, so hide the toggle to avoid confusion. */}
-        {chatModel !== "OpenAIResponseModel" && (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              padding: "6px 0",
-            }}
-          >
-            <div>
-              <span
-                style={{
-                  fontSize: 13,
-                  color: "var(--app-text)",
-                }}
-              >
-                {t("models.relayReasoningLabel")}
-              </span>
-              <InlineHelp>{t("models.relayReasoningHint")}</InlineHelp>
-            </div>
-            <Switch
-              checked={relayReasoning}
-              onChange={(checked) => {
-                setRelayReasoning(checked);
-                setDirty(true);
+          {chatModel !== "OpenAIResponseModel" && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 8,
+                padding: "6px 0",
               }}
-            />
-          </div>
-        )}
+            >
+              <div>
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: "var(--app-text)",
+                  }}
+                >
+                  {t("models.relayReasoningLabel")}
+                </span>
+                <InlineHelp>{t("models.relayReasoningHint")}</InlineHelp>
+              </div>
+              <Switch
+                checked={relayReasoning}
+                onChange={(checked) => {
+                  setRelayReasoning(checked);
+                  setDirty(true);
+                }}
+              />
+            </div>
+          )}
 
-        <div className={styles.jsonHeading}>
-          <span>JSON</span>
-          <InlineHelp>{t("models.modelGenerateConfigHint")}</InlineHelp>
-        </div>
-        <JsonConfigEditor
-          value={text}
-          onChange={handleChange}
-          placeholder="{}"
-        />
-      </details>
+          <div className={styles.jsonHeading}>
+            <span>JSON</span>
+            <InlineHelp>{t("models.modelGenerateConfigHint")}</InlineHelp>
+          </div>
+          <JsonConfigEditor
+            value={text}
+            onChange={handleChange}
+            placeholder="{}"
+          />
+        </details>
+      </ModelCardSurface>
       <div className={styles.actions}>
         <Button
           type="primary"

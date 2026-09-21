@@ -1,3 +1,4 @@
+import { ModelCardSurface } from "./components/cards/ModelCardSurface";
 import { ModelChoice } from "../../Chat/ModelSelector/ModelChoice";
 import { useEffect, useState } from "react";
 import { Tooltip } from "antd";
@@ -48,7 +49,12 @@ export function AgentModelDefaults({
     }
   }
   return (
-    <section className={styles.section} aria-label={t("models.agentDefaults")}>
+    <ModelCardSurface
+      as="section"
+      tilt={0}
+      className={styles.section}
+      aria-label={t("models.agentDefaults")}
+    >
       {loadError && <p role="alert">{loadError}</p>}
       {agents
         .filter(
@@ -98,6 +104,6 @@ export function AgentModelDefaults({
             </div>
           </div>
         ))}
-    </section>
+    </ModelCardSurface>
   );
 }
