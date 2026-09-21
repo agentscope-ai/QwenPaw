@@ -31,7 +31,6 @@ function valuesFor(model: RealtimeVoiceModelConfig): FormValues {
     vad_mode: model.vad.mode,
     vad_threshold: model.vad.threshold,
     vad_silence_duration_ms: model.vad.silence_duration_ms,
-    continuation_grace_ms: model.continuation_grace_ms,
     presentation_capacity: model.presentation_capacity,
     playback_timeout_seconds: model.playback_timeout_seconds,
     max_history_turns: model.max_history_turns,
@@ -80,7 +79,6 @@ export function RealtimeVoiceModelModal({
           threshold: values.vad_threshold,
           silence_duration_ms: values.vad_silence_duration_ms,
         },
-        continuation_grace_ms: values.continuation_grace_ms,
         presentation_capacity: values.presentation_capacity,
         playback_timeout_seconds: values.playback_timeout_seconds,
         max_history_turns: values.max_history_turns,
@@ -209,20 +207,6 @@ export function RealtimeVoiceModelModal({
             rules={[{ required: true }]}
           >
             <InputNumber min={1} max={50} step={1} style={{ width: "100%" }} />
-          </Form.Item>
-          <Form.Item
-            name="continuation_grace_ms"
-            label={t("realtimeVoice.continuationGrace")}
-            tooltip={t("realtimeVoice.continuationGraceHelp")}
-            rules={[{ required: true }]}
-          >
-            <InputNumber
-              min={0}
-              max={5000}
-              step={100}
-              addonAfter="ms"
-              style={{ width: "100%" }}
-            />
           </Form.Item>
           <Form.Item
             name="max_session_seconds"

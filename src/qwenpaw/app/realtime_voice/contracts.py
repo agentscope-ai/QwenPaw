@@ -9,7 +9,7 @@ different layer) — this module is the one the app code should import.
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import IntEnum
 from typing import Any, Literal
 
@@ -25,45 +25,6 @@ MAX_AUDIO_PAYLOAD_BYTES = 256 * 1024
 _AUDIO_MAGIC = b"QV"
 _AUDIO_HEADER = struct.Struct("!2sBBIIHI")
 VoiceAdmissionMode = Literal["queue", "steer"]
-VoiceActionType = Literal["HANDOFF", "CONVERSE", "CLARIFY"]
-
-
-@dataclass(frozen=True)
-class HandoffVoiceAction:
-    """Hand original speech to the current Chat's ordinary Agent."""
-
-    task_ref: str = ""
-    type: Literal["HANDOFF"] = field(default="HANDOFF", init=False)
-
-    def public_dict(self) -> dict[str, str]:
-        return {
-            "type": self.type,
-            **({"task_ref": self.task_ref} if self.task_ref else {}),
-        }
-
-
-@dataclass(frozen=True)
-class ConverseVoiceAction:
-    """Answer a non-work conversational turn through realtime speech."""
-
-    type: Literal["CONVERSE"] = field(default="CONVERSE", init=False)
-
-    def public_dict(self) -> dict[str, str]:
-        return {"type": self.type}
-
-
-@dataclass(frozen=True)
-class ClarifyVoiceAction:
-    """Ask for information required before work can be admitted."""
-
-    missing_information: str
-    type: Literal["CLARIFY"] = field(default="CLARIFY", init=False)
-
-    def public_dict(self) -> dict[str, str]:
-        return {"type": self.type}
-
-
-VoiceAction = HandoffVoiceAction | ConverseVoiceAction | ClarifyVoiceAction
 
 
 class AudioFrameKind(IntEnum):
@@ -150,7 +111,6 @@ class CreateSessionRequest(BaseModel):
     chat_id: str | None = Field(default=None, max_length=128)
     previous_session_id: str | None = Field(default=None, max_length=128)
     replace_session_id: str | None = Field(default=None, max_length=128)
-    admission_mode: VoiceAdmissionMode = "queue"
 
 
 class SessionBootstrap(BaseModel):
@@ -165,7 +125,6 @@ class SessionBootstrap(BaseModel):
     ws_url: str
     token: str
     expires_at: str
-    admission_mode: VoiceAdmissionMode
 
 
 VoiceTaskStatus = Literal[
@@ -190,6 +149,7 @@ class VoiceTaskReceipt:
     accepted: bool
     status: VoiceTaskStatus
     message: str = ""
+    input_id: str = ""
 
     def public_dict(self) -> dict[str, Any]:
         return {
@@ -272,15 +232,10 @@ class RealtimeVoiceServiceError(RuntimeError):
 __all__ = [
     "AudioFrame",
     "AudioFrameKind",
-    "ClarifyVoiceAction",
-    "ConverseVoiceAction",
     "CreateSessionRequest",
-    "HandoffVoiceAction",
     "MediaConfig",
     "RealtimeVoiceServiceError",
     "SessionBootstrap",
-    "VoiceAction",
-    "VoiceActionType",
     "VoiceAdmissionMode",
     "VoiceBridgeEvent",
     "VoiceRunEvent",

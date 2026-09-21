@@ -37,12 +37,13 @@ it.each([false, true])(
       name: "Kilo",
       models: [],
       extra_models: [],
+      realtime_models: [],
       require_api_key: grouped,
       base_url: "https://example.test",
     };
     const onOpenConfig = vi.fn();
     const onSaved = vi.fn();
-    const props = { onOpenConfig, onSaved, onOpenModels: vi.fn() };
+    const props = { onOpenConfig, onSaved, onOpenModels: vi.fn(), onOpenRealtimeVoice: vi.fn() };
     const card = (value: ProviderInfo) =>
       grouped ? (
         <ProviderGroupCard

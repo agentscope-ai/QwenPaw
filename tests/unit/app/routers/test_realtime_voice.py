@@ -41,9 +41,7 @@ async def test_playback_feedback_is_generation_scoped():
     await _client_to_coordinator(
         websocket, asyncio.Lock(), SimpleNamespace(generation=2), coordinator
     )
-    coordinator.playback_feedback.assert_called_once_with(
-        "current", "interrupted"
-    )
+    coordinator.playback_feedback.assert_called_once_with("current", "interrupted")
 
 
 @pytest.mark.asyncio
@@ -69,14 +67,6 @@ async def test_client_audio_and_controls_are_relayed_without_semantics():
                     "type": "websocket.receive",
                     "text": '{"type":"agent.observe"}',
                 },
-                {
-                    "type": "websocket.receive",
-                    "text": '{"type":"input.commit"}',
-                },
-                {
-                    "type": "websocket.receive",
-                    "text": '{"type":"admission.mode","mode":"steer"}',
-                },
                 {"type": "websocket.receive", "text": '{"type":"stop"}'},
             ]
         ),
@@ -86,8 +76,6 @@ async def test_client_audio_and_controls_are_relayed_without_semantics():
         send_audio=AsyncMock(),
         interrupt=AsyncMock(),
         observe_agent_run=AsyncMock(),
-        commit_pending=AsyncMock(),
-        set_admission_mode=AsyncMock(),
     )
     live = SimpleNamespace(
         media=SimpleNamespace(input_sample_rate=16000, channels=1),
@@ -104,8 +92,6 @@ async def test_client_audio_and_controls_are_relayed_without_semantics():
     coordinator.send_audio.assert_awaited_once_with(b"pcm")
     coordinator.interrupt.assert_awaited_once_with()
     coordinator.observe_agent_run.assert_awaited_once_with()
-    coordinator.commit_pending.assert_awaited_once_with()
-    coordinator.set_admission_mode.assert_awaited_once_with("steer")
 
 
 @pytest.mark.asyncio
@@ -253,13 +239,9 @@ async def test_clean_coordinator_close_ignores_late_input_send_failure():
     )
     websocket = SimpleNamespace(
         query_params={"token": "ticket"},
-        app=SimpleNamespace(
-            state=SimpleNamespace(realtime_voice_service=service)
-        ),
+        app=SimpleNamespace(state=SimpleNamespace(realtime_voice_service=service)),
         accept=AsyncMock(),
-        receive=AsyncMock(
-            return_value={"type": "websocket.receive", "bytes": frame}
-        ),
+        receive=AsyncMock(return_value={"type": "websocket.receive", "bytes": frame}),
         send_json=AsyncMock(),
         send_bytes=AsyncMock(),
         close=AsyncMock(),
@@ -301,9 +283,7 @@ async def test_coordinator_failure_remains_an_upstream_error():
     )
     websocket = SimpleNamespace(
         query_params={"token": "ticket"},
-        app=SimpleNamespace(
-            state=SimpleNamespace(realtime_voice_service=service)
-        ),
+        app=SimpleNamespace(state=SimpleNamespace(realtime_voice_service=service)),
         accept=AsyncMock(),
         receive=receive,
         send_json=AsyncMock(),

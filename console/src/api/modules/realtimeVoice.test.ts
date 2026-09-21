@@ -107,26 +107,6 @@ describe("Provider-owned realtime model configuration", () => {
     });
   });
 
-  it("writes the configurable voice router through the shared model slot API", async () => {
-    vi.mocked(request).mockResolvedValue({});
-
-    await providerApi.setActiveVoiceRouter({
-      provider_id: "openai",
-      model: "gpt-5",
-      scope: "global",
-    });
-
-    expect(request).toHaveBeenCalledWith("/models/active", {
-      method: "PUT",
-      body: JSON.stringify({
-        provider_id: "openai",
-        model: "gpt-5",
-        scope: "global",
-        slot: "voice_router",
-      }),
-    });
-  });
-
   it("stores connection settings on the Provider realtime model", async () => {
     vi.mocked(request).mockResolvedValue({});
     const config = {
@@ -140,7 +120,6 @@ describe("Provider-owned realtime model configuration", () => {
         threshold: 0.2,
         silence_duration_ms: 800,
       },
-      continuation_grace_ms: 1200,
       presentation_capacity: 32,
       playback_timeout_seconds: 90,
       max_history_turns: 20,

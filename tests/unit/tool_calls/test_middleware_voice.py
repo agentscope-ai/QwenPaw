@@ -15,7 +15,7 @@ class _Coordinator:
 
 
 @pytest.mark.asyncio
-async def test_voice_turn_keeps_tool_in_agent_run():
+async def test_voice_turn_uses_the_same_configured_offload_policy():
     coordinator = _Coordinator()
     middleware = ToolCoordinatorMiddleware(coordinator)
     agent = SimpleNamespace(_request_context={"source": "realtime_voice"})
@@ -30,7 +30,7 @@ async def test_voice_turn_keeps_tool_in_agent_run():
     ]
 
     assert events == ["done"]
-    assert coordinator.kwargs["offload_on_deadline"] is False
+    assert "offload_on_deadline" not in coordinator.kwargs
 
 
 @pytest.mark.asyncio
@@ -48,4 +48,4 @@ async def test_ordinary_turn_uses_configured_offload_policy():
         )
     ]
 
-    assert coordinator.kwargs["offload_on_deadline"] is None
+    assert "offload_on_deadline" not in coordinator.kwargs

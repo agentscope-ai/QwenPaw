@@ -39,7 +39,6 @@ class RealtimeVoiceModelConfig(BaseModel):
     voice: str = Field(min_length=1, max_length=128)
     language: str = Field(min_length=1, max_length=64)
     vad: RealtimeVoiceVadConfig
-    continuation_grace_ms: int = Field(default=1200, ge=0, le=5000)
     presentation_capacity: int = Field(default=32, ge=1, le=128)
     playback_timeout_seconds: int = Field(default=90, ge=10, le=300)
     max_history_turns: int = Field(default=20, ge=1, le=50)
@@ -98,7 +97,7 @@ class RealtimeVoiceCapabilityInfo(BaseModel):
     supports_item_deletion: bool = True
     supports_manual_response: bool = True
     supports_output_cancel: bool = True
-    supports_native_delegation: bool = False
+    supports_native_tools: bool = False
 
 
 class EffectiveRealtimeVoiceConfig(BaseModel):
@@ -116,7 +115,6 @@ class EffectiveRealtimeVoiceConfig(BaseModel):
     vad_mode: str = Field(min_length=1, max_length=64)
     vad_threshold: float = Field(ge=-1.0, le=1.0)
     vad_silence_duration_ms: int = Field(ge=200, le=6000)
-    continuation_grace_ms: int = Field(ge=0, le=5000)
     presentation_capacity: int = Field(default=32, ge=1, le=128)
     playback_timeout_seconds: int = Field(default=90, ge=10, le=300)
     max_history_turns: int = Field(ge=1, le=50)
@@ -139,7 +137,6 @@ class EffectiveRealtimeVoiceConfig(BaseModel):
             vad_mode=model.vad.mode,
             vad_threshold=model.vad.threshold,
             vad_silence_duration_ms=model.vad.silence_duration_ms,
-            continuation_grace_ms=model.continuation_grace_ms,
             presentation_capacity=model.presentation_capacity,
             playback_timeout_seconds=model.playback_timeout_seconds,
             max_history_turns=model.max_history_turns,
@@ -156,24 +153,16 @@ class RealtimeSessionConfig:
     """Application-owned speech instructions for one session."""
 
     instructions: str
-    delegation_tool: RealtimeDelegationTool | None = None
+    tools: tuple[RealtimeTool, ...] = ()
 
 
 @dataclass(frozen=True)
-class RealtimeDelegationTool:
-    """Provider-neutral signal for handing work to the ordinary Agent.
+class RealtimeTool:
+    """Provider-neutral function available to the native audio model."""
 
-    The tool deliberately has no semantic arguments.  Its call is only a
-    routing signal; the application submits the provider's finalized input
-    transcript as the authoritative request.
-    """
-
-    name: str = "delegate_to_agent"
-    description: str = (
-        "Hand a user request that needs tools, files, application state, or "
-        "long-running execution to the ordinary Agent. The call only signals "
-        "delegation; it does not carry or rewrite the request."
-    )
+    name: str
+    description: str
+    parameters: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -214,41 +203,33 @@ class ProviderEvent:
 class RealtimeProviderSession(Protocol):
     """Native realtime session commands required by the application."""
 
-    async def connect(self, session: RealtimeSessionConfig) -> None:
-        ...
+    async def connect(self, session: RealtimeSessionConfig) -> None: ...
 
-    async def send_audio(self, pcm16: bytes) -> None:
-        ...
+    async def send_audio(self, pcm16: bytes) -> None: ...
 
     async def create_message(
         self,
         role: ConversationRole,
         text: str,
-    ) -> str:
-        ...
+    ) -> str: ...
 
-    async def request_response(self) -> ProviderResponseResult:
-        ...
+    async def request_response(self) -> ProviderResponseResult: ...
 
-    async def complete_delegation(
+    async def complete_tool_call(
         self,
         call_id: str,
         output: dict[str, Any],
     ) -> str:
-        """Return immediate custody metadata for one native delegation."""
+        """Acknowledge application custody of one native tool call."""
         ...
 
-    async def delete_items(self, item_ids: Iterable[str]) -> None:
-        ...
+    async def delete_items(self, item_ids: Iterable[str]) -> None: ...
 
-    async def interrupt_output(self) -> None:
-        ...
+    async def interrupt_output(self) -> None: ...
 
-    def events(self) -> AsyncIterator[ProviderEvent]:
-        ...
+    def events(self) -> AsyncIterator[ProviderEvent]: ...
 
-    async def close(self) -> None:
-        ...
+    async def close(self) -> None: ...
 
 
 ProviderFactory = Callable[
@@ -268,9 +249,7 @@ class RealtimeProviderRegistration:
     speech_models: tuple[SpeechModelOption, ...]
     media: MediaConfig
     factory: ProviderFactory
-    # Budget for one application-supplied, quoted history data item.
-    context_max_chars: int = 1800
-    supports_native_delegation: bool = False
+    supports_native_tools: bool = False
 
     def public_capability(self) -> RealtimeVoiceCapabilityInfo:
         return RealtimeVoiceCapabilityInfo(
@@ -278,7 +257,7 @@ class RealtimeProviderRegistration:
             vad_modes=list(self.vad_modes),
             speech_models=list(self.speech_models),
             media=self.media,
-            supports_native_delegation=self.supports_native_delegation,
+            supports_native_tools=self.supports_native_tools,
         )
 
 
@@ -289,10 +268,10 @@ __all__ = [
     "ProviderEvent",
     "ProviderResponseOrigin",
     "ProviderResponseResult",
-    "RealtimeDelegationTool",
     "RealtimeProviderRegistration",
     "RealtimeProviderSession",
     "RealtimeSessionConfig",
+    "RealtimeTool",
     "RealtimeVoiceCapabilityInfo",
     "RealtimeVoiceModelConfig",
     "RealtimeVoiceVadConfig",

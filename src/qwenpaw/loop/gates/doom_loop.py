@@ -38,7 +38,8 @@ class _DoomState:
     history: deque = field(default_factory=deque)
     consecutive_hits: int = 0
     prompt: str = ""
-    last_recorded_msg_id: str | None = None
+    last_recorded_msg_id: str | int | None = None
+    last_recorded_call_count: int = 0
     history_dirty: bool = False
 
 
@@ -115,6 +116,7 @@ class DoomLoopGate(LoopGate):
             state.consecutive_hits = 0
             state.prompt = ""
             state.last_recorded_msg_id = None
+            state.last_recorded_call_count = 0
             state.history_dirty = False
 
     async def check(
@@ -132,6 +134,7 @@ class DoomLoopGate(LoopGate):
         state = self._ensure_state()
         self._auto_record_from_ctx(ctx, state)
         if not state.history_dirty:
+            state.prompt = ""
             return _bypass
         state.history_dirty = False
 
@@ -204,39 +207,37 @@ class DoomLoopGate(LoopGate):
             [],
         )
         if not context:
-            return False
-        last_msg = context[-1]
-        if last_msg.id == state.last_recorded_msg_id:
             return
+        last_msg = context[-1]
         content = getattr(last_msg, "content", None)
         if not content or not isinstance(content, list):
             return
-        state.last_recorded_msg_id = last_msg.id
+        message_id = getattr(last_msg, "id", None) or id(last_msg)
+        if message_id != state.last_recorded_msg_id:
+            state.last_recorded_msg_id = message_id
+            state.last_recorded_call_count = 0
+        tool_calls = []
         for block in content:
             btype = getattr(block, "type", None)
             if isinstance(block, dict):
                 btype = block.get("type")
             if btype in ("tool_call", "tool_use"):
-                call_id = (
-                    block.get("id", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "id", "")
-                )
-                if not call_id or call_id == state.last_recorded_call_id:
-                    return False
-                state.last_recorded_call_id = call_id
-                name = (
-                    block.get("name", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "name", "")
-                )
-                raw_input = (
-                    block.get("input", "")
-                    if isinstance(block, dict)
-                    else getattr(block, "input", "")
-                )
-                args_hash = self._hash_args(raw_input)
-                self.record(name, args_hash)
+                tool_calls.append(block)
+        if len(tool_calls) < state.last_recorded_call_count:
+            state.last_recorded_call_count = 0
+        for block in tool_calls[state.last_recorded_call_count :]:
+            name = (
+                block.get("name", "")
+                if isinstance(block, dict)
+                else getattr(block, "name", "")
+            )
+            raw_input = (
+                block.get("input", "")
+                if isinstance(block, dict)
+                else getattr(block, "input", "")
+            )
+            self.record(name, self._hash_args(raw_input))
+        state.last_recorded_call_count = len(tool_calls)
 
     @staticmethod
     def _hash_args(raw_input: Any) -> str:

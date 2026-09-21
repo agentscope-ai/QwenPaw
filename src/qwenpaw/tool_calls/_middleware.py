@@ -140,7 +140,6 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
         agent_id = request_context.get("agent_id", "")
         root_session_id = request_context.get("root_session_id", "")
         root_agent_id = request_context.get("root_agent_id", "")
-        is_voice_turn = request_context.get("source") == "realtime_voice"
         results = request_context.get("_background_results")
         reply_cycle = getattr(agent, "_reply_cycle_context", None)
         route = (
@@ -159,10 +158,6 @@ class ToolCoordinatorMiddleware(MiddlewareBase):
             agent_id=agent_id,
             root_session_id=root_session_id,
             root_agent_id=root_agent_id,
-            # Keep the Agent turn alive while Voice tools run so speech and
-            # keyboard follow-ups can steer it. This is foreground only from
-            # the Agent lifecycle perspective; realtime media remains async.
-            offload_on_deadline=False if is_voice_turn else None,
             background_result_processor=self._background_result_processor,
             result_route=route,
         )

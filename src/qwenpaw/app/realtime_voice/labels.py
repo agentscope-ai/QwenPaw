@@ -35,9 +35,7 @@ _TASK_ORDINALS = (
 def task_ref_label(ordinal: int) -> str:
     """Return the spoken task reference (e.g. ``请求一``) for one ordinal."""
     suffix = (
-        _TASK_ORDINALS[ordinal - 1]
-        if ordinal <= len(_TASK_ORDINALS)
-        else str(ordinal)
+        _TASK_ORDINALS[ordinal - 1] if ordinal <= len(_TASK_ORDINALS) else str(ordinal)
     )
     return f"请求{suffix}"
 

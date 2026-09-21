@@ -21,6 +21,7 @@ export interface RealtimeVoiceProviderCapabilities {
   supports_context_items: boolean;
   supports_manual_response: boolean;
   supports_output_cancel: boolean;
+  supports_native_tools: boolean;
 }
 
 export interface EffectiveRealtimeVoiceModel {
@@ -34,7 +35,6 @@ export interface EffectiveRealtimeVoiceModel {
   vad_mode: string;
   vad_threshold: number;
   vad_silence_duration_ms: number;
-  continuation_grace_ms: number;
   presentation_capacity: number;
   playback_timeout_seconds: number;
   max_history_turns: number;
@@ -47,8 +47,6 @@ export interface RealtimeVoiceCapabilities {
   providers: RealtimeVoiceProviderCapabilities[];
   active_model: ModelSlotConfig | null;
   effective_model: EffectiveRealtimeVoiceModel | null;
-  active_router_model: ModelSlotConfig | null;
-  effective_router_model: ModelSlotConfig | null;
   credential_configured: boolean;
   configuration_error: { code: string; message: string } | null;
 }
@@ -63,16 +61,12 @@ export interface RealtimeVoiceBootstrap {
   ws_url: string;
   token: string;
   expires_at: string;
-  admission_mode: VoiceAdmissionMode;
 }
-
-export type VoiceAdmissionMode = "queue" | "steer";
 
 export interface CreateRealtimeVoiceSession {
   chat_id?: string;
   previous_session_id?: string;
   replace_session_id?: string;
-  admission_mode?: VoiceAdmissionMode;
 }
 
 export class RealtimeVoiceApiError extends Error {

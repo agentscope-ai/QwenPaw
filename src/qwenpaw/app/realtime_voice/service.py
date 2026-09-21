@@ -24,17 +24,10 @@ from .contracts import (
     CreateSessionRequest,
     RealtimeVoiceServiceError,
     SessionBootstrap,
-    VoiceAdmissionMode,
 )
 from .coordinator import VoiceCoordinator
 from .labels import VOICE_CHAT_PLACEHOLDER_NAME
-from .native_handoff import NativeDelegationCommitter
 from .task_bridge import VoiceTaskBridge
-from .turn_commit import (
-    ProviderModelVoiceTurnRouter,
-    SpokenTurnCommitter,
-    UnavailableVoiceTurnRouter,
-)
 
 _LOCAL_PRINCIPAL = "local-single-user"
 
@@ -48,8 +41,6 @@ class LiveVoiceSession:
     generation: int
     config: EffectiveRealtimeVoiceConfig
     media: MediaConfig
-    router_model: ModelSlotConfig | None
-    admission_mode: VoiceAdmissionMode
     api_key: str = field(repr=False)
     workspace: Any = field(repr=False)
     bootstrap_expires_at: datetime
@@ -105,13 +96,23 @@ class RealtimeVoiceService:
                 409,
             )
         try:
-            return self._provider_manager.resolve_realtime_voice_config(slot)
+            resolved = self._provider_manager.resolve_realtime_voice_config(slot)
         except (ValueError, TypeError, AttributeError) as exc:
             raise RealtimeVoiceServiceError(
                 "model_unavailable",
                 str(exc),
                 409,
             ) from exc
+        registration = self._provider_manager.get_realtime_voice_registration(
+            resolved.provider_id,
+        )
+        if registration is None or not registration.supports_native_tools:
+            raise RealtimeVoiceServiceError(
+                "native_tools_unavailable",
+                "The selected realtime provider cannot hand work to Chat.",
+                409,
+            )
+        return resolved
 
     def capabilities(self, workspace: Any) -> dict[str, Any]:
         """Return ProviderManager-owned sanitized native capability."""
@@ -119,24 +120,8 @@ class RealtimeVoiceService:
         active_model: dict[str, Any] | None = None
         credential_configured = False
         error: dict[str, str] | None = None
-        router_override = (
-            getattr(workspace.config, "active_voice_router_model", None)
-            or self._provider_manager.get_active_voice_router_model()
-        )
-        effective_router = self.resolve_router_model(workspace)
         try:
             resolved = self.resolve_config(workspace)
-            registration = (
-                self._provider_manager.get_realtime_voice_registration(
-                    resolved.provider_id,
-                )
-            )
-            if registration is not None and getattr(
-                registration,
-                "supports_native_delegation",
-                False,
-            ):
-                effective_router = None
             effective_model = resolved.model_dump()
             slot = (
                 getattr(workspace.config, "active_realtime_model", None)
@@ -147,44 +132,19 @@ class RealtimeVoiceService:
                 resolved.provider_id,
             )
             credential_configured = bool(
-                provider
-                and str(getattr(provider, "api_key", "") or "").strip()
+                provider and str(getattr(provider, "api_key", "") or "").strip()
             )
         except RealtimeVoiceServiceError as exc:
             error = {"code": exc.code, "message": exc.message}
         return {
             "protocol_version": PROTOCOL_VERSION,
             "agent_id": workspace.agent_id,
-            "providers": (
-                self._provider_manager.list_realtime_voice_capabilities()
-            ),
+            "providers": (self._provider_manager.list_realtime_voice_capabilities()),
             "active_model": active_model,
             "effective_model": effective_model,
-            "active_router_model": (
-                router_override.model_dump()
-                if router_override is not None
-                else None
-            ),
-            "effective_router_model": (
-                effective_router.model_dump()
-                if effective_router is not None
-                else None
-            ),
             "credential_configured": credential_configured,
             "configuration_error": error,
         }
-
-    def resolve_router_model(
-        self,
-        workspace: Any,
-    ) -> ModelSlotConfig | None:
-        """Resolve optional override, then inherit the ordinary Chat model."""
-        return (
-            getattr(workspace.config, "active_voice_router_model", None)
-            or self._provider_manager.get_active_voice_router_model()
-            or getattr(workspace.config, "active_model", None)
-            or self._provider_manager.get_active_model()
-        )
 
     @staticmethod
     def _token_digest(token: str) -> str:
@@ -192,9 +152,7 @@ class RealtimeVoiceService:
 
     def _drop_expired_bootstraps(self, now: datetime) -> None:
         expired = [
-            digest
-            for digest, grant in self._grants.items()
-            if grant.expires_at <= now
+            digest for digest, grant in self._grants.items() if grant.expires_at <= now
         ]
         for digest in expired:
             grant = self._grants.pop(digest)
@@ -312,10 +270,8 @@ class RealtimeVoiceService:
                     "it in Models settings.",
                     409,
                 )
-            registration = (
-                self._provider_manager.get_realtime_voice_registration(
-                    effective.provider_id,
-                )
+            registration = self._provider_manager.get_realtime_voice_registration(
+                effective.provider_id,
             )
             if registration is None:
                 raise RealtimeVoiceServiceError(
@@ -350,16 +306,6 @@ class RealtimeVoiceService:
                 generation=generation,
                 config=effective,
                 media=registration.media,
-                router_model=(
-                    None
-                    if getattr(
-                        registration,
-                        "supports_native_delegation",
-                        False,
-                    )
-                    else self.resolve_router_model(workspace)
-                ),
-                admission_mode=request.admission_mode,
                 api_key=api_key,
                 workspace=workspace,
                 bootstrap_expires_at=expires_at,
@@ -387,7 +333,6 @@ class RealtimeVoiceService:
             ws_url=f"/api/realtime-voice/sessions/{live.session_id}/stream",
             token=token,
             expires_at=expires_at.isoformat(),
-            admission_mode=live.admission_mode,
         )
 
     async def consume_grant(
@@ -434,56 +379,21 @@ class RealtimeVoiceService:
                 409,
             )
         provider_session = registration.factory(live.config, live.api_key)
+        presentation_session = registration.factory(live.config, live.api_key)
         timeline = ChatTimelineJournal(live.workspace, live.chat)
-
-        async def conversation_context() -> str:
-            return await timeline.read_context(
-                max_turns=live.config.max_history_turns,
-                max_chars=4000,
-            )
 
         bridge = self._bridges.get(live.chat.id)
         if bridge is None:
             bridge = VoiceTaskBridge(live.workspace, live.chat)
             self._bridges[live.chat.id] = bridge
-        native_delegation = bool(
-            getattr(registration, "supports_native_delegation", False)
-        )
-        if native_delegation:
-            committer = NativeDelegationCommitter(
-                continuation_grace_ms=live.config.continuation_grace_ms,
-            )
-        elif live.router_model is None:
-            router = UnavailableVoiceTurnRouter(
-                "No model is configured for semantic voice routing.",
-            )
-            committer = SpokenTurnCommitter(
-                router,
-                continuation_grace_ms=live.config.continuation_grace_ms,
-            )
-        else:
-            router = ProviderModelVoiceTurnRouter(
-                live.agent_id,
-                live.router_model,
-                bridge.routing_snapshots,
-                conversation_context,
-            )
-            committer = SpokenTurnCommitter(
-                router,
-                continuation_grace_ms=live.config.continuation_grace_ms,
-            )
         coordinator = VoiceCoordinator(
             provider_session,
             bridge,
-            committer,
             timeline,
+            presentation_provider=presentation_session,
             language=live.config.language,
-            native_delegation=native_delegation,
-            admission_mode=live.admission_mode,
             presentation_capacity=live.config.presentation_capacity,
             playback_timeout_seconds=live.config.playback_timeout_seconds,
-            max_history_turns=live.config.max_history_turns,
-            context_max_chars=registration.context_max_chars,
         )
         try:
             await coordinator.start()

@@ -7,8 +7,8 @@ import pytest
 
 from qwenpaw.providers.realtime_voice import (
     EffectiveRealtimeVoiceConfig,
-    RealtimeDelegationTool,
     RealtimeSessionConfig,
+    RealtimeTool,
 )
 from qwenpaw.providers.realtime_voice.dashscope import (
     DASHSCOPE_REGISTRATION,
@@ -63,7 +63,7 @@ async def eventually(predicate: Callable[[], bool]) -> None:
 async def connect_session(
     monkeypatch,
     *,
-    native_delegation: bool = False,
+    tools: tuple[RealtimeTool, ...] = (),
 ) -> tuple[DashScopeRealtimeSession, FakeSocket]:
     socket = FakeSocket()
     socket.feed({"type": "session.created", "event_id": "created"})
@@ -80,9 +80,7 @@ async def connect_session(
     await session.connect(
         RealtimeSessionConfig(
             instructions="present authoritative state",
-            delegation_tool=(
-                RealtimeDelegationTool() if native_delegation else None
-            ),
+            tools=tools,
         )
     )
     return session, socket
@@ -109,20 +107,13 @@ async def test_input_identity_survives_a_newer_turn(late_created):
             )
         await session._handle(
             {
-                "type": (
-                    "conversation.item.input_audio_transcription.completed"
-                ),
+                "type": ("conversation.item.input_audio_transcription.completed"),
                 "item_id": "first",
                 "transcript": "first request",
             }
         )
-        assert (
-            session._input_item_turns["first"]
-            != session._input_item_turns["second"]
-        )
-        assert session._input_turns[
-            session._input_item_turns["first"]
-        ].transcript_final
+        assert session._input_item_turns["first"] != session._input_item_turns["second"]
+        assert session._input_turns[session._input_item_turns["first"]].transcript_final
         assert not session._input_turns[
             session._input_item_turns["second"]
         ].transcript_final
@@ -165,9 +156,7 @@ async def test_empty_or_failed_input_has_an_explicit_terminal_event(failed):
             "input_transcript.failed" if failed else "input_transcript.final"
         )
         assert event.correlation_id == "input"
-        assert session._input_turns[
-            session._input_item_turns["input"]
-        ].transcript_final
+        assert session._input_turns[session._input_item_turns["input"]].transcript_final
         await session._handle(terminal)
         assert session._events.empty()
     finally:
@@ -192,10 +181,7 @@ async def test_input_preview_is_a_revisable_snapshot(monkeypatch, suffix):
         ):
             socket.feed(
                 {
-                    "type": (
-                        "conversation.item.input_audio_transcription."
-                        f"{suffix}"
-                    ),
+                    "type": (f"conversation.item.input_audio_transcription.{suffix}"),
                     "event_id": f"preview-{index}",
                     "item_id": "input-1",
                     "text": text,
@@ -306,114 +292,11 @@ async def test_session_configures_speech_only_voice(monkeypatch):
         "silence_duration_ms": 800,
     }
     assert update["session"]["instructions"] == "present authoritative state"
-    assert update["session"]["tools"] == []
+    assert "tools" not in update["session"]
 
     await session.send_audio(b"\x01\x02")
     assert socket.sent[-1]["type"] == "input_audio_buffer.append"
     assert base64.b64decode(socket.sent[-1]["audio"]) == b"\x01\x02"
-    await session.close()
-
-
-@pytest.mark.asyncio
-async def test_native_delegation_registers_signal_only_tool(monkeypatch):
-    session, socket = await connect_session(
-        monkeypatch,
-        native_delegation=True,
-    )
-    await anext(session.events())
-
-    [tool] = socket.sent[0]["session"]["tools"]
-    assert tool["function"]["name"] == "delegate_to_agent"
-    assert tool["function"]["parameters"] == {
-        "type": "object",
-        "properties": {},
-        "additionalProperties": False,
-    }
-    await session.close()
-
-
-@pytest.mark.asyncio
-async def test_native_delegation_joins_call_to_source_and_accepts_output(
-    monkeypatch,
-):
-    session, socket = await connect_session(
-        monkeypatch,
-        native_delegation=True,
-    )
-    events = session.events()
-    await anext(events)
-
-    socket.feed(
-        {
-            "type": "input_audio_buffer.speech_started",
-            "event_id": "speech",
-            "item_id": "audio-input",
-        }
-    )
-    socket.feed(
-        {
-            "type": "response.created",
-            "event_id": "auto-created",
-            "response": {"id": "response-auto"},
-        }
-    )
-    socket.feed(
-        {
-            "type": "response.function_call_arguments.done",
-            "event_id": "tool-done",
-            "item_id": "tool-item",
-            "call_id": "call-1",
-            "name": "delegate_to_agent",
-            "arguments": '{"request":"must be ignored"}',
-        }
-    )
-    socket.feed(
-        {
-            "type": "response.done",
-            "event_id": "response-done",
-            "response": {"id": "response-auto", "status": "completed"},
-        }
-    )
-    socket.feed(
-        {
-            "type": "conversation.item.input_audio_transcription.completed",
-            "event_id": "transcript",
-            "item_id": "audio-input",
-            "transcript": "最终识别文本",
-        }
-    )
-
-    received = [await anext(events) for _ in range(5)]
-    requested = next(
-        event for event in received if event.kind == "delegation.requested"
-    )
-    assert requested.correlation_id == "audio-input"
-    assert requested.data == {
-        "call_id": "call-1",
-        "name": "delegate_to_agent",
-        "item_id": "tool-item",
-    }
-
-    completion = asyncio.create_task(
-        session.complete_delegation(
-            "call-1",
-            {"accepted": True, "status": "preparing"},
-        )
-    )
-    await acknowledge_item(socket, 0)
-    await completion
-    [created] = [
-        payload["item"]
-        for payload in socket.sent
-        if payload["type"] == "conversation.item.create"
-    ]
-    assert created["type"] == "function_call_output"
-    assert created["call_id"] == "call-1"
-    assert json.loads(created["output"]) == {
-        "accepted": True,
-        "status": "preparing",
-    }
-    assert session._presentation_ready.is_set()
     await session.close()
 
 
@@ -426,9 +309,7 @@ async def test_equal_transcripts_keep_distinct_stable_item_ids(monkeypatch):
     for item_id in ("item-one", "item-two"):
         socket.feed(
             {
-                "type": (
-                    "conversation.item.input_audio_transcription.completed"
-                ),
+                "type": ("conversation.item.input_audio_transcription.completed"),
                 "event_id": f"event-{item_id}",
                 "item_id": item_id,
                 "transcript": "run tests",
@@ -484,11 +365,117 @@ async def test_provider_auto_response_is_cancelled_without_output_leak(
     finished = await anext(events)
     assert started.kind == "response.started"
     assert finished.kind == "response.finished"
-    assert (
-        started.response_origin == finished.response_origin == "provider_auto"
-    )
+    assert started.response_origin == finished.response_origin == "provider_auto"
     await eventually(lambda: socket.sent[-1]["type"] == "response.cancel")
     assert session._events.empty()
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_native_tool_call_keeps_realtime_audio_and_has_custody_receipt(
+    monkeypatch,
+):
+    tool = RealtimeTool(
+        name="handoff_to_chat",
+        description="Hand complete work to Chat.",
+        parameters={
+            "type": "object",
+            "properties": {"request_text": {"type": "string"}},
+            "required": ["request_text"],
+            "additionalProperties": False,
+        },
+    )
+    session, socket = await connect_session(monkeypatch, tools=(tool,))
+    events = session.events()
+    await anext(events)
+    [update] = socket.sent
+    assert update["session"]["tools"] == [
+        {
+            "type": "function",
+            "function": {
+                "name": "handoff_to_chat",
+                "description": "Hand complete work to Chat.",
+                "parameters": tool.parameters,
+            },
+        }
+    ]
+
+    socket.feed(
+        {
+            "type": "input_audio_buffer.speech_started",
+            "event_id": "speech",
+            "item_id": "audio-input",
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.created",
+            "event_id": "auto-created",
+            "response": {"id": "response-auto"},
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.function_call_arguments.done",
+            "event_id": "call-done",
+            "item_id": "call-item",
+            "call_id": "call-1",
+            "name": "handoff_to_chat",
+            "arguments": '{"request_text":"run tests"}',
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.audio.delta",
+            "event_id": "audio",
+            "delta": base64.b64encode(b"pcm").decode(),
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.done",
+            "event_id": "auto-done",
+            "response": {"id": "response-auto", "status": "completed"},
+        }
+    )
+
+    received = [await anext(events) for _ in range(7)]
+    assert [event.kind for event in received] == [
+        "speech.started",
+        "response.started",
+        "tool.call",
+        "output.started",
+        "output.audio",
+        "output.stopped",
+        "response.finished",
+    ]
+    call = received[2]
+    assert call.correlation_id == "call-1"
+    assert call.data == {
+        "call_id": "call-1",
+        "name": "handoff_to_chat",
+        "arguments": '{"request_text":"run tests"}',
+        "item_id": "call-item",
+        "input_item_id": "audio-input",
+    }
+    assert received[4].audio == b"pcm"
+    assert received[-1].data["had_tool_call"] is True
+    assert not any(item["type"] == "response.cancel" for item in socket.sent)
+
+    receipt = asyncio.create_task(
+        session.complete_tool_call("call-1", {"accepted": True})
+    )
+    await acknowledge_item(socket, 0)
+    item_id = await receipt
+    [item] = [
+        payload["item"]
+        for payload in socket.sent
+        if payload["type"] == "conversation.item.create"
+    ]
+    assert item_id == item["id"]
+    assert item["type"] == "function_call_output"
+    assert item["call_id"] == "call-1"
+    assert json.loads(item["output"]) == {"accepted": True}
     await session.close()
 
 
@@ -618,6 +605,52 @@ async def test_application_response_returns_its_final_transcript(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_application_presentation_cannot_dispatch_chat_work(monkeypatch):
+    tool = RealtimeTool(
+        name="handoff_to_chat",
+        description="Hand complete work to Chat.",
+        parameters={
+            "type": "object",
+            "properties": {"request_text": {"type": "string"}},
+            "required": ["request_text"],
+            "additionalProperties": False,
+        },
+    )
+    session, socket = await connect_session(monkeypatch, tools=(tool,))
+    events = session.events()
+    await anext(events)
+    presentation = await start_application_response(session, socket)
+
+    socket.feed(
+        {
+            "type": "response.function_call_arguments.done",
+            "event_id": "unexpected-call",
+            "call_id": "call-from-presentation",
+            "name": "handoff_to_chat",
+            "arguments": '{"request_text":"must not run"}',
+        }
+    )
+    socket.feed(
+        {
+            "type": "response.done",
+            "event_id": "done",
+            "response": {"id": "response-app", "status": "completed"},
+        }
+    )
+    await finish_presentation(socket, presentation)
+
+    received = [await anext(events) for _ in range(3)]
+    assert [event.kind for event in received] == [
+        "response.started",
+        "error",
+        "response.finished",
+    ]
+    assert received[1].data["code"] == "missing_realtime_tool_input"
+    assert not any(event.kind == "tool.call" for event in received)
+    await session.close()
+
+
+@pytest.mark.asyncio
 async def test_item_commands_are_acknowledged_between_responses(
     monkeypatch,
 ):
@@ -641,20 +674,14 @@ async def test_item_commands_are_acknowledged_between_responses(
     assert (await anext(events)).kind == "response.started"
     assert (await anext(events)).kind == "response.finished"
     await eventually(
-        lambda: any(
-            item["type"] == "conversation.item.delete" for item in socket.sent
-        )
+        lambda: any(item["type"] == "conversation.item.delete" for item in socket.sent)
     )
 
     second = asyncio.create_task(second_sequence())
     await asyncio.sleep(0)
     assert (
         len(
-            [
-                item
-                for item in socket.sent
-                if item["type"] == "conversation.item.create"
-            ]
+            [item for item in socket.sent if item["type"] == "conversation.item.create"]
         )
         == 1
     )
@@ -663,13 +690,7 @@ async def test_item_commands_are_acknowledged_between_responses(
     await acknowledge_item(socket, 1)
     await eventually(
         lambda: (
-            len(
-                [
-                    item
-                    for item in socket.sent
-                    if item["type"] == "response.create"
-                ]
-            )
+            len([item for item in socket.sent if item["type"] == "response.create"])
             == 2
         )
     )
@@ -726,8 +747,7 @@ async def test_barge_in_uses_explicit_cancel_only_as_timeout_fallback(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "qwenpaw.providers.realtime_voice.dashscope."
-        "_BARGE_IN_CANCEL_FALLBACK_SECONDS",
+        "qwenpaw.providers.realtime_voice.dashscope._BARGE_IN_CANCEL_FALLBACK_SECONDS",
         0,
     )
     session, socket = await connect_session(monkeypatch)
@@ -755,6 +775,37 @@ async def test_barge_in_uses_explicit_cancel_only_as_timeout_fallback(
     )
     assert (await anext(events)).kind == "response.finished"
     await finish_presentation(socket, presentation)
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_barge_in_cancels_application_response_started_after_speech(
+    monkeypatch,
+):
+    """Cover the server-VAD/application response creation race."""
+    monkeypatch.setattr(
+        "qwenpaw.providers.realtime_voice.dashscope._BARGE_IN_CANCEL_FALLBACK_SECONDS",
+        0.01,
+    )
+    session, socket = await connect_session(monkeypatch)
+    events = session.events()
+    await anext(events)
+
+    socket.feed(
+        {
+            "type": "input_audio_buffer.speech_started",
+            "event_id": "speech",
+            "item_id": "audio-input",
+        },
+    )
+    assert (await anext(events)).kind == "speech.started"
+
+    # Model the application response.create that was already in flight when
+    # the speech-start event reached the client.
+    session._active_response_id = "late-application"
+    session._active_response_origin = "application"
+    await asyncio.sleep(0.02)
+    assert any(item["type"] == "response.cancel" for item in socket.sent)
     await session.close()
 
 
@@ -860,36 +911,6 @@ async def test_older_turn_cleanup_cannot_unlock_a_newer_speech_turn(
 
 
 @pytest.mark.asyncio
-async def test_native_turn_cannot_unlock_presentation_while_another_call_pending():
-    session = DashScopeRealtimeSession(config(), "unused")
-    session._session_config = RealtimeSessionConfig(
-        instructions="native",
-        delegation_tool=RealtimeDelegationTool(),
-    )
-    session._presentation_ready.clear()
-    session._input_turns = {
-        1: _InputTurnState(
-            transcript_final=True,
-            auto_response_terminal=True,
-            pending_call_ids={"call-1"},
-        ),
-        2: _InputTurnState(
-            transcript_final=True,
-            auto_response_terminal=True,
-        ),
-    }
-    try:
-        session._schedule_input_cleanup_if_ready(2)
-        assert not session._presentation_ready.is_set()
-
-        session._input_turns[1].pending_call_ids.clear()
-        session._schedule_input_cleanup_if_ready(1)
-        assert session._presentation_ready.is_set()
-    finally:
-        await session.close()
-
-
-@pytest.mark.asyncio
 async def test_deleting_an_item_already_removed_by_provider_is_idempotent(
     monkeypatch,
 ):
@@ -955,9 +976,7 @@ async def test_busy_server_vad_response_is_not_retried(monkeypatch):
     await finish_presentation(socket, presentation)
     await asyncio.sleep(0)
     assert (
-        len(
-            [item for item in socket.sent if item["type"] == "response.create"]
-        )
+        len([item for item in socket.sent if item["type"] == "response.create"])
         == response_create_count
     )
     await session.close()

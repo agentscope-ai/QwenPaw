@@ -129,15 +129,6 @@ export const providerApi = {
       return result;
     }),
 
-  setActiveVoiceRouter: (body: ModelSlotRequest) =>
-    request<ActiveModelsInfo>("/models/active", {
-      method: "PUT",
-      body: JSON.stringify({ ...body, slot: "voice_router" }),
-    }).then((result) => {
-      activeModelPromises.clear();
-      return result;
-    }),
-
   configureRealtimeVoiceModel: (
     providerId: string,
     modelId: string,

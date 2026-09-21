@@ -6,7 +6,6 @@ import {
   type RealtimeVoiceBootstrap,
   type RealtimeVoiceCapabilities,
   type RealtimeVoiceMedia,
-  type VoiceAdmissionMode,
 } from "../../api/modules/realtimeVoice";
 import { RealtimeAudioCapture } from "./audioCapture";
 import { RealtimeAudioPlayback } from "./audioPlayback";
@@ -36,12 +35,6 @@ export type RealtimeVoiceOutputState =
   | "speaking"
   | "interrupted"
   | "failed";
-export type RealtimeVoicePendingInputState =
-  | "idle"
-  | "classifying"
-  | "waiting"
-  | "needs_confirmation";
-
 export interface RealtimeVoiceState {
   connection: RealtimeVoiceConnectionState;
   input: RealtimeVoiceInputState;
@@ -109,23 +102,12 @@ interface UseRealtimeVoiceOptions {
 const RECONNECT_LIMIT = 3;
 const RECONNECT_WINDOW_MS = 30_000;
 const MAX_PRE_READY_AUDIO_FRAMES = 50;
-const ADMISSION_MODE_STORAGE_KEY = "qwenpaw.realtimeVoice.admissionMode";
 
 function releaseBootstrap(bootstrap: RealtimeVoiceBootstrap | null) {
   if (!bootstrap) return;
   // Never let cleanup of an old lease fail a newer connection. Unclaimed
   // bootstraps also expire server-side if the network is unavailable.
   void realtimeVoiceApi.endSession(bootstrap).catch(() => undefined);
-}
-
-function loadAdmissionMode(): VoiceAdmissionMode {
-  try {
-    return window.localStorage.getItem(ADMISSION_MODE_STORAGE_KEY) === "steer"
-      ? "steer"
-      : "queue";
-  } catch {
-    return "queue";
-  }
 }
 
 export function useRealtimeVoice({
@@ -142,8 +124,6 @@ export function useRealtimeVoice({
     useState<RealtimeVoiceState>(INITIAL_VOICE_STATE);
   const [muted, setMutedState] = useState(false);
   const [inputTranscript, setInputTranscript] = useState("");
-  const [pendingInputState, setPendingInputState] =
-    useState<RealtimeVoicePendingInputState>("idle");
   const [pendingInputError, setPendingInputError] = useState<string | null>(
     null,
   );
@@ -152,8 +132,6 @@ export function useRealtimeVoice({
   const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [inputDevices, setInputDevices] = useState<MediaDeviceInfo[]>([]);
   const [inputDeviceId, setInputDeviceIdState] = useState("");
-  const [admissionMode, setAdmissionModeState] =
-    useState<VoiceAdmissionMode>(loadAdmissionMode);
 
   const capabilitiesRef = useRef<RealtimeVoiceCapabilities | null>(null);
   const clientRef = useRef<RealtimeVoiceClient | null>(null);
@@ -171,9 +149,6 @@ export function useRealtimeVoice({
   const preReadyAudioRef = useRef<ArrayBuffer[]>([]);
   const currentRunIdRef = useRef<string | null>(null);
   const acceptOutputAudioRef = useRef(false);
-  const hasPendingInputRef = useRef(false);
-  const pendingInputTextRef = useRef("");
-  const inputPreviewPrefixRef = useRef("");
   const inputDeviceIdRef = useRef("");
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
@@ -396,10 +371,7 @@ export function useRealtimeVoice({
                 break;
               }
               playbackRef.current?.interrupt();
-              inputPreviewPrefixRef.current = hasPendingInputRef.current
-                ? pendingInputTextRef.current
-                : "";
-              setInputTranscript(inputPreviewPrefixRef.current);
+              setInputTranscript("");
               setAssistantTranscript("");
               updateVoiceState({ input: "speaking", output: "interrupted" });
               break;
@@ -433,6 +405,16 @@ export function useRealtimeVoice({
               if (isStaleRun) break;
               // Provider generation ending is not browser playback completion.
               break;
+            case "output.cancelled":
+              if (
+                typeof event.output_id === "string" &&
+                playbackRef.current?.isActive(event.output_id)
+              ) {
+                playbackRef.current.interrupt();
+                acceptOutputAudioRef.current = false;
+                updateVoiceState({ output: "interrupted" });
+              }
+              break;
             case "output.sealed":
               if (typeof event.output_id === "string")
                 playbackRef.current?.seal(event.output_id);
@@ -449,46 +431,25 @@ export function useRealtimeVoice({
               );
               break;
             case "input_transcript.partial":
-              setInputTranscript(
-                inputPreviewPrefixRef.current + String(event.text || ""),
-              );
+              setInputTranscript(String(event.text || ""));
               break;
             case "input_transcript.final": {
               const text = String(event.text || "").trim();
-              setInputTranscript(inputPreviewPrefixRef.current + text);
+              setInputTranscript(text);
+              setPendingInputError(null);
               break;
             }
-            case "input_turn.pending": {
-              const state = String(event.state || "classifying");
-              hasPendingInputRef.current = true;
-              pendingInputTextRef.current = String(event.text || "").trim();
-              setInputTranscript(pendingInputTextRef.current);
-              setPendingInputState(
-                state === "waiting" || state === "needs_confirmation"
-                  ? state
-                  : "classifying",
-              );
-              setPendingInputError(
-                typeof event.error === "string" && event.error
-                  ? event.error
-                  : null,
-              );
+            case "input_transcript.failed": {
+              setInputTranscript("");
+              setPendingInputError(t("realtimeVoice.transcriptionUnavailable"));
               break;
             }
             case "input_turn.committed":
-              hasPendingInputRef.current = false;
-              pendingInputTextRef.current = "";
-              inputPreviewPrefixRef.current = "";
               setInputTranscript("");
-              setPendingInputState("idle");
               setPendingInputError(null);
               break;
             case "input_turn.rejected":
-              hasPendingInputRef.current = false;
-              pendingInputTextRef.current = "";
-              inputPreviewPrefixRef.current = "";
               setInputTranscript("");
-              setPendingInputState("idle");
               setPendingInputError(null);
               setError(
                 String(event.message || "The request could not be accepted."),
@@ -543,6 +504,8 @@ export function useRealtimeVoice({
                 void fail(
                   "Realtime Voice reached the configured session duration.",
                 );
+              } else if (event.reason === "idle_timeout") {
+                void fail(t("realtimeVoice.idleTimeout"));
               }
               break;
             case "error":
@@ -563,7 +526,6 @@ export function useRealtimeVoice({
                 setError(
                   String(event.message || "Realtime Voice disconnected."),
                 );
-                client.close();
               } else {
                 void fail(String(event.message || "Realtime Voice failed."));
               }
@@ -626,7 +588,6 @@ export function useRealtimeVoice({
           const next = await realtimeVoiceApi.createSession({
             chat_id: current.chat_id,
             previous_session_id: current.session_id,
-            admission_mode: admissionMode,
           });
           resumeFrom = next;
           if (!isCurrentGeneration(generation)) {
@@ -641,7 +602,7 @@ export function useRealtimeVoice({
         }
       }, delay);
     },
-    [admissionMode, fail, isCurrentGeneration, updateVoiceState],
+    [fail, isCurrentGeneration, updateVoiceState],
   );
   scheduleReconnectRef.current = scheduleReconnect;
 
@@ -661,10 +622,6 @@ export function useRealtimeVoice({
       setConflict(null);
       setVoiceState({ ...INITIAL_VOICE_STATE, connection: "connecting" });
       currentRunIdRef.current = null;
-      hasPendingInputRef.current = false;
-      pendingInputTextRef.current = "";
-      inputPreviewPrefixRef.current = "";
-      setPendingInputState("idle");
       setPendingInputError(null);
       reconnectStartedRef.current = 0;
       reconnectAttemptsRef.current = 0;
@@ -723,7 +680,6 @@ export function useRealtimeVoice({
         const bootstrap = await realtimeVoiceApi.createSession({
           ...(chatId ? { chat_id: chatId } : {}),
           ...(replaceSessionId ? { replace_session_id: replaceSessionId } : {}),
-          admission_mode: admissionMode,
         });
         if (
           startGeneration !== startGenerationRef.current ||
@@ -769,7 +725,6 @@ export function useRealtimeVoice({
       isCurrentGeneration,
       refreshInputDevices,
       restartCapture,
-      admissionMode,
     ],
   );
 
@@ -783,12 +738,8 @@ export function useRealtimeVoice({
     releaseBootstrap(bootstrapRef.current);
     bootstrapRef.current = null;
     currentRunIdRef.current = null;
-    hasPendingInputRef.current = false;
-    pendingInputTextRef.current = "";
-    inputPreviewPrefixRef.current = "";
     setVoiceState(INITIAL_VOICE_STATE);
     setInputTranscript("");
-    setPendingInputState("idle");
     setPendingInputError(null);
     await cleanupMedia();
   }, [cleanupMedia, clearReconnectTimer]);
@@ -803,12 +754,8 @@ export function useRealtimeVoice({
     releaseBootstrap(bootstrapRef.current);
     bootstrapRef.current = null;
     currentRunIdRef.current = null;
-    hasPendingInputRef.current = false;
-    pendingInputTextRef.current = "";
-    inputPreviewPrefixRef.current = "";
     setVoiceState(INITIAL_VOICE_STATE);
     setInputTranscript("");
-    setPendingInputState("idle");
     setPendingInputError(null);
     void cleanupMedia();
   }, [cleanupMedia, clearReconnectTimer, enabled]);
@@ -855,20 +802,6 @@ export function useRealtimeVoice({
     return clientRef.current?.observeAgentRun() ?? false;
   }, []);
 
-  const commitPending = useCallback((): boolean => {
-    return clientRef.current?.commitPending() ?? false;
-  }, []);
-
-  const setAdmissionMode = useCallback((mode: VoiceAdmissionMode) => {
-    setAdmissionModeState(mode);
-    try {
-      window.localStorage.setItem(ADMISSION_MODE_STORAGE_KEY, mode);
-    } catch {
-      // Browser storage is optional; the active session still updates.
-    }
-    clientRef.current?.setAdmissionMode(mode);
-  }, []);
-
   const readyToStart = isRealtimeVoiceReady(capabilities);
   const status = deriveRealtimeVoiceStatus(voiceState);
 
@@ -883,11 +816,8 @@ export function useRealtimeVoice({
     muted,
     inputDevices,
     inputDeviceId,
-    admissionMode,
     inputTranscript,
-    pendingInputState,
     pendingInputError,
-    canCommitPending: hasPendingInputRef.current,
     assistantTranscript,
     error,
     conflict,
@@ -899,8 +829,6 @@ export function useRealtimeVoice({
     setInputDevice,
     interrupt,
     observeAgentRun,
-    commitPending,
-    setAdmissionMode,
     reloadCapabilities: loadCapabilities,
   };
 }
