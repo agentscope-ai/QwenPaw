@@ -165,9 +165,12 @@ export function ThinkingControl({
               type="button"
               className={styles.modelChoice}
               onClick={onChooseModel}
+              aria-label={
+                unsupported ? t("modelSelector.selectModel") : undefined
+              }
             >
               <strong>
-                {unsupported ? t("modelSelector.selectModel") : label}
+                {!unsupported && label}
                 <ChevronRight size={14} aria-hidden="true" />
               </strong>
               <span
