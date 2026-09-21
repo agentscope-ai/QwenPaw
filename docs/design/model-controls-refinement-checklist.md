@@ -62,6 +62,8 @@ Lint 规则说明：AGENTS.md 要求使用 f-string，故明确豁免 W1309。py
 ### Commit and model-card-tilt integration
 
 - [x] User authorized committing and pushing current changes with the recorded historical ESLint baseline.
-- [ ] Commit and push current slider and validation fixes.
-- [ ] Merge feat/model-card-tilt into the current branch.
-- [ ] Verify merged frontend and push the integration.
+- [x] Commit and push current slider and validation fixes (`0668329bc`).
+- [x] Merge feat/model-card-tilt into the current branch without conflicts (`d274846ea`).
+- [x] Verify merged frontend; full pre-commit re-run passed (exit 0). Integration is ready to push.
+
+Merged frontend validation: 415 test files / 4,490 tests passed; TypeScript, Prettier, production build and card-surface ESLint passed. Corrected one incoming Less formatting issue.
