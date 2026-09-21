@@ -10,6 +10,7 @@ import api, {
   type ChatHistoryMetadata,
   type ChatStatus,
   type Message,
+  type TranscriptPosition,
 } from "../../../api";
 import { toDisplayUrl } from "../utils";
 import { useAgentStore } from "../../../stores/agentStore";
@@ -103,6 +104,23 @@ interface OutputMessage extends Omit<Message, "role"> {
   metadata: unknown;
   sequence_number?: number;
 }
+
+const getTranscriptPosition = (
+  message?: Pick<Message, "metadata">,
+): TranscriptPosition | undefined => {
+  const metadata = message?.metadata as Record<string, unknown> | undefined;
+  const position = metadata?.qwenpaw_transcript_position;
+  if (!position || typeof position !== "object") return undefined;
+  const candidate = position as Partial<TranscriptPosition>;
+  if (
+    typeof candidate.turn_id !== "string" ||
+    typeof candidate.turn_seq !== "number" ||
+    typeof candidate.ordinal !== "number"
+  ) {
+    return undefined;
+  }
+  return candidate as TranscriptPosition;
+};
 
 /**
  * Extended session carrying extra fields that the library type does not define
@@ -305,6 +323,7 @@ function buildUserCard(msg: Message): IAgentScopeRuntimeWebUIMessage {
 const buildResponseCard = (
   outputMessages: OutputMessage[],
   terminal?: { status?: string; error?: unknown },
+  turnId?: string,
 ): IAgentScopeRuntimeWebUIMessage => {
   const fallbackNow = Math.floor(Date.now() / 1000);
   const maxSeq = outputMessages.reduce(
@@ -330,15 +349,18 @@ const buildResponseCard = (
   }));
 
   const turnUsage = extractTurnUsageFromOutputMessages(outputMessages);
+  const messageId = turnId ? `history-turn:${turnId}` : generateId();
 
   return {
-    id: generateId(),
+    id: messageId,
     role: ROLE_ASSISTANT,
     cards: [
       {
         code: CARD_RESPONSE,
         data: {
-          id: `response_${generateId()}`,
+          id: turnId
+            ? `history-response:${turnId}`
+            : `response_${generateId()}`,
           output: normalizedMessages,
           object: "response",
           status: terminal?.status || "completed",
@@ -372,25 +394,127 @@ const convertMessages = (
 
   while (i < len) {
     let terminal: { status?: string; error?: unknown } | undefined;
+    let turnId: string | undefined;
     if (messages[i].role === ROLE_USER) {
       const user = messages[i++];
       const meta = user.metadata as Record<string, any> | undefined;
       terminal = (meta?.metadata ?? meta)?.qwenpaw_turn_state;
+      turnId = getTranscriptPosition(user)?.turn_id;
       result.push(buildUserCard(user));
     }
     const startIdx = i;
-    while (i < len && messages[i].role !== ROLE_USER) i++;
+    turnId ??= getTranscriptPosition(messages[i])?.turn_id;
+    while (i < len && messages[i].role !== ROLE_USER) {
+      const candidateTurnId = getTranscriptPosition(messages[i])?.turn_id;
+      if (turnId && candidateTurnId && candidateTurnId !== turnId) break;
+      i++;
+    }
     const outputMsgs = messages.slice(startIdx, i).map(toOutputMessage);
     if (
       outputMsgs.length ||
       terminal?.status === "failed" ||
       terminal?.status === "canceled"
     ) {
-      result.push(buildResponseCard(outputMsgs, terminal));
+      result.push(buildResponseCard(outputMsgs, terminal, turnId));
     }
   }
 
   return result;
+};
+
+type ResponseCardData = Record<string, unknown> & {
+  output?: OutputMessage[];
+  created_at?: number;
+  completed_at?: number;
+};
+
+const responseCardData = (
+  message: IAgentScopeRuntimeWebUIMessage,
+): ResponseCardData | undefined => {
+  const cards = message.cards as
+    | Array<{ code?: string; data?: ResponseCardData }>
+    | undefined;
+  return cards?.find((card) => card.code === CARD_RESPONSE)?.data;
+};
+
+const outputIdentity = (message: OutputMessage): string => {
+  if (typeof message.id === "string" && message.id) return message.id;
+  const position = getTranscriptPosition(message);
+  if (position) return `${position.turn_id}:${position.ordinal}`;
+  return JSON.stringify(message);
+};
+
+const mergeResponseMessages = (
+  older: IAgentScopeRuntimeWebUIMessage,
+  newer: IAgentScopeRuntimeWebUIMessage,
+): IAgentScopeRuntimeWebUIMessage => {
+  const olderData = responseCardData(older);
+  const newerData = responseCardData(newer);
+  if (!olderData || !newerData) return newer;
+  const output = new Map<string, OutputMessage>();
+  for (const message of [
+    ...(olderData.output ?? []),
+    ...(newerData.output ?? []),
+  ]) {
+    output.set(outputIdentity(message), message);
+  }
+  const sortedOutput = [...output.values()].sort((left, right) => {
+    const leftPosition = getTranscriptPosition(left);
+    const rightPosition = getTranscriptPosition(right);
+    if (!leftPosition || !rightPosition) return 0;
+    return (
+      leftPosition.turn_seq - rightPosition.turn_seq ||
+      leftPosition.ordinal - rightPosition.ordinal
+    );
+  });
+  const cards = (
+    newer.cards as Array<{
+      code?: string;
+      data?: ResponseCardData;
+    }>
+  ).map((card) =>
+    card.code === CARD_RESPONSE
+      ? {
+          ...card,
+          data: {
+            ...olderData,
+            ...newerData,
+            output: sortedOutput,
+            created_at: Math.min(
+              olderData.created_at ?? Number.MAX_SAFE_INTEGER,
+              newerData.created_at ?? Number.MAX_SAFE_INTEGER,
+            ),
+            completed_at: Math.max(
+              olderData.completed_at ?? 0,
+              newerData.completed_at ?? 0,
+            ),
+          },
+        }
+      : card,
+  );
+  const olderHistory = (older as { history?: boolean }).history;
+  const newerHistory = (newer as { history?: boolean }).history;
+  return { ...newer, cards, history: olderHistory || newerHistory };
+};
+
+export const mergeHistoryMessages = (
+  older: IAgentScopeRuntimeWebUIMessage[],
+  newer: IAgentScopeRuntimeWebUIMessage[],
+): IAgentScopeRuntimeWebUIMessage[] => {
+  const merged = [...older];
+  const positions = new Map(
+    merged.map((message, index) => [message.id, index]),
+  );
+  for (const message of newer) {
+    const index = positions.get(message.id);
+    if (index === undefined) {
+      positions.set(message.id, merged.length);
+      merged.push(message);
+    } else if (message.role === ROLE_ASSISTANT) {
+      merged[index] = mergeResponseMessages(merged[index], message);
+    }
+  }
+  return merged;
 };
 
 const chatSpecToSession = (chat: ChatSpec): ExtendedSession =>
@@ -672,6 +796,9 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
           has_more: result.has_more,
           next_before: result.next_before,
           completeness: result.completeness,
+          item_count: result.item_count,
+          payload_bytes: result.payload_bytes,
+          max_bytes_reached: result.max_bytes_reached,
         };
         this.setHistoryPage(backendId, nextPage);
         if (entry) entry.historyPage = nextPage;
@@ -681,11 +808,10 @@ class SessionApi implements IAgentScopeRuntimeWebUISessionAPI {
         );
         const cached = this.convertedSessionCache.get(backendId);
         if (cached) {
-          const known = new Set(cached.session.messages.map((item) => item.id));
-          cached.session.messages = [
-            ...messages.filter((item) => !known.has(item.id)),
-            ...cached.session.messages,
-          ];
+          cached.session.messages = mergeHistoryMessages(
+            messages,
+            cached.session.messages,
+          );
           cached.session.historyPage = nextPage;
         }
         return { messages, noMore: !result.has_more };
@@ -1737,4 +1863,6 @@ export const __test__ = {
   isLocalTimestamp,
   isGenerating,
   resolveRealId,
+  getTranscriptPosition,
+  mergeHistoryMessages,
 };

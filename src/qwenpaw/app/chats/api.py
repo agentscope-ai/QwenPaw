@@ -7,7 +7,7 @@ import asyncio
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,7 +29,7 @@ from .models import (
     ChatHistoryMetadata,
     ChatMessagePage,
 )
-from .transcript import TranscriptPage
+from .transcript import TranscriptCursor, TranscriptPage
 from .utils import agentscope_msg_to_message, parse_legacy_memory_state
 from ...services.project_directory import (
     agent_project_dirs_from_config,
@@ -44,28 +44,37 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chats", tags=["chats"])
 
 
-def _encode_transcript_cursor(value: int | None) -> str | None:
+def _encode_transcript_cursor(value: TranscriptCursor | None) -> str | None:
     if value is None:
         return None
-    return f"v1:{value}"
+    if value.ordinal is None:
+        return f"v1:{value.turn_seq}"
+    return f"v2:{value.turn_seq}:{value.ordinal}"
 
 
-def _decode_transcript_cursor(value: str | None) -> int | None:
+def _decode_transcript_cursor(value: str | None) -> TranscriptCursor | None:
     if value is None:
         return None
-    version, separator, raw_position = value.partition(":")
-    if version != "v1" or not separator:
-        raise HTTPException(status_code=400, detail="Invalid history cursor")
+    parts = value.split(":")
     try:
-        position = int(raw_position)
+        if len(parts) == 2 and parts[0] == "v1":
+            cursor = TranscriptCursor(turn_seq=int(parts[1]))
+        elif len(parts) == 3 and parts[0] == "v2":
+            cursor = TranscriptCursor(
+                turn_seq=int(parts[1]),
+                ordinal=int(parts[2]),
+            )
+        else:
+            raise ValueError
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail="Invalid history cursor",
         ) from exc
-    if position < 1:
+    invalid_ordinal = cursor.ordinal is not None and cursor.ordinal < 0
+    if cursor.turn_seq < 1 or invalid_ordinal:
         raise HTTPException(status_code=400, detail="Invalid history cursor")
-    return position
+    return cursor
 
 
 def _history_metadata(page: TranscriptPage) -> ChatHistoryMetadata:
@@ -74,6 +83,9 @@ def _history_metadata(page: TranscriptPage) -> ChatHistoryMetadata:
         has_more=page.has_more,
         next_before=_encode_transcript_cursor(page.next_before),
         completeness=page.completeness,
+        item_count=page.item_count,
+        payload_bytes=page.payload_bytes,
+        max_bytes_reached=page.max_bytes_reached,
     )
 
 
@@ -81,8 +93,9 @@ async def _read_transcript_page(
     workspace,
     chat: ChatSpec,
     *,
-    before: int | None = None,
+    before: TranscriptCursor | None = None,
     limit: int = 50,
+    max_bytes: int = 512 * 1024,
 ) -> TranscriptPage | None:
     """Read one transcript page without blocking the event loop."""
     store = getattr(workspace, "transcript_store", None)
@@ -96,6 +109,7 @@ async def _read_transcript_page(
             channel=chat.channel,
             before=before,
             limit=limit,
+            max_bytes=max_bytes,
         )
     except (OSError, sqlite3.Error, ValueError, TypeError):
         logger.warning(
@@ -843,10 +857,15 @@ async def get_chat_messages(
     chat_id: str,
     before: Optional[str] = Query(None),
     limit: int = Query(50, ge=1, le=100),
+    max_bytes: Annotated[
+        int,
+        Query(ge=1024, le=4 * 1024 * 1024),
+    ] = 512
+    * 1024,
     mgr: ChatManager = Depends(get_chat_manager),
     workspace=Depends(get_workspace),
 ) -> ChatMessagePage:
-    """Return one turn-bounded page of durable chat messages."""
+    """Return one item-bounded page of durable chat messages."""
     chat = await mgr.get_chat(chat_id)
     if chat is None:
         raise HTTPException(
@@ -858,6 +877,7 @@ async def get_chat_messages(
         chat,
         before=_decode_transcript_cursor(before),
         limit=limit,
+        max_bytes=max_bytes,
     )
     if page is None:
         return ChatMessagePage(completeness="partial")

@@ -28,7 +28,7 @@ import { useTranslation } from "react-i18next";
 import { AnimatePresence } from "motion/react";
 import i18n from "../../i18n";
 import { useLocation, useNavigate } from "react-router-dom";
-import sessionApi from "./sessionApi";
+import sessionApi, { mergeHistoryMessages } from "./sessionApi";
 import {
   getDraftStorageKey,
   parseDraft,
@@ -3434,11 +3434,7 @@ export default function ChatPage() {
           const messagesApi = chatRef.current?.messages;
           if (!messagesApi) return;
           messagesApi.setSessionMessages(sessionId, (current) => {
-            const known = new Set(current.map((item) => item.id));
-            return [
-              ...olderMessages.filter((item) => !known.has(item.id)),
-              ...current,
-            ];
+            return mergeHistoryMessages(olderMessages, current);
           });
           return new Promise<void>((resolve) => {
             requestAnimationFrame(() => {

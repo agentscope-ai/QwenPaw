@@ -235,10 +235,13 @@ class ChatHistoryMetadata(BaseModel):
     has_more: bool = False
     next_before: Optional[str] = None
     completeness: Literal["complete", "partial"] = "complete"
+    item_count: int = 0
+    payload_bytes: int = 0
+    max_bytes_reached: bool = False
 
 
 class ChatMessagePage(ChatHistoryMetadata):
-    """One turn-bounded page of durable chat messages."""
+    """One item-bounded page of durable chat messages."""
 
     messages: list[Message] = Field(default_factory=list)
 

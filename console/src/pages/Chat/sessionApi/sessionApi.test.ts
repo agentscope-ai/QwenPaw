@@ -400,6 +400,40 @@ describe("durable transcript pagination", () => {
     expect(retried.messages).toHaveLength(1);
     expect(retried.noMore).toBe(true);
   });
+
+  it("merges assistant fragments when one turn spans history pages", () => {
+    const fragment = (id: string, ordinal: number) =>
+      msg({
+        id,
+        role: "assistant",
+        content: `part ${ordinal}`,
+        metadata: {
+          qwenpaw_transcript_position: {
+            turn_id: "turn-1",
+            turn_seq: 1,
+            ordinal,
+            partial_before: ordinal > 1,
+            partial_after: ordinal < 4,
+          },
+        },
+      });
+    const older = T.convertMessages([fragment("m1", 1), fragment("m2", 2)]);
+    const newer = T.convertMessages([fragment("m3", 3), fragment("m4", 4)]);
+
+    const merged = T.mergeHistoryMessages(older, newer);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].id).toBe("history-turn:turn-1");
+    const data = merged[0].cards?.[0]?.data as {
+      output?: Array<{ id?: string }>;
+    };
+    expect(data.output?.map((item) => item.id)).toEqual([
+      "m1",
+      "m2",
+      "m3",
+      "m4",
+    ]);
+  });
 });
 
 type SessionLike = {

@@ -212,7 +212,7 @@ async def test_get_chat_defers_running_outputs_to_sse_replay(
 
 
 @pytest.mark.asyncio
-async def test_message_pages_use_opaque_turn_cursor(tmp_path: Path) -> None:
+async def test_message_pages_use_opaque_item_cursor(tmp_path: Path) -> None:
     store = TranscriptStore(tmp_path / "transcript.db")
     for number in range(1, 4):
         _append_turn(store, number, f"turn {number}")
@@ -238,11 +238,31 @@ async def test_message_pages_use_opaque_turn_cursor(tmp_path: Path) -> None:
         "turn 2",
         "turn 3",
     ]
-    assert newest.next_before == "v1:2"
+    assert newest.next_before == "v2:2:0"
     assert newest.has_more is True
     assert [item.content[0].text for item in older.messages] == ["turn 1"]
     assert older.next_before is None
     assert older.has_more is False
+
+
+@pytest.mark.asyncio
+async def test_message_pages_accept_legacy_turn_cursor(tmp_path: Path) -> None:
+    store = TranscriptStore(tmp_path / "transcript.db")
+    for number in range(1, 4):
+        _append_turn(store, number, f"turn {number}")
+
+    page = await get_chat_messages(
+        chat_id="chat-1",
+        before="v1:3",
+        limit=50,
+        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+        workspace=_workspace(store),
+    )
+
+    assert [item.content[0].text for item in page.messages] == [
+        "turn 1",
+        "turn 2",
+    ]
 
 
 @pytest.mark.asyncio

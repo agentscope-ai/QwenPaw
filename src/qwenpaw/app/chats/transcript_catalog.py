@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from .transcript import TranscriptPage, TranscriptStore
+from .transcript import TranscriptCursor, TranscriptPage, TranscriptStore
 
 logger = logging.getLogger(__name__)
 
@@ -470,8 +470,9 @@ class TranscriptCatalog:
         session_id: str,
         user_id: str,
         channel: str,
-        before: int | None = None,
+        before: TranscriptCursor | int | None = None,
         limit: int = 50,
+        max_bytes: int = 512 * 1024,
     ) -> TranscriptPage | None:
         """Read one page without holding a workspace-wide message lock."""
         with self._lease(
@@ -488,6 +489,7 @@ class TranscriptCatalog:
                 channel=channel,
                 before=before,
                 limit=limit,
+                max_bytes=max_bytes,
             )
 
     def find_turn_for_message(self, **kwargs: Any) -> str | None:

@@ -26,6 +26,7 @@ _DELETE_BATCH_SIZE = 5_000
 logger = logging.getLogger(__name__)
 TurnStatus = Literal["running", "completed", "failed", "cancelled"]
 Completeness = Literal["complete", "partial"]
+_DEFAULT_PAGE_MAX_BYTES = 512 * 1024
 
 
 def _utc_now() -> str:
@@ -38,14 +39,25 @@ def _enum_value(value: Any) -> str:
 
 
 @dataclass(frozen=True)
+class TranscriptCursor:
+    """Exclusive position before which an older page is read."""
+
+    turn_seq: int
+    ordinal: int | None = None
+
+
+@dataclass(frozen=True)
 class TranscriptPage:
-    """One turn-bounded transcript page in chronological display order."""
+    """One item-bounded transcript page in chronological display order."""
 
     messages: list[Message]
-    next_before: int | None
+    next_before: TranscriptCursor | None
     has_more: bool
     revision: int
     completeness: Completeness
+    item_count: int = 0
+    payload_bytes: int = 0
+    max_bytes_reached: bool = False
 
 
 class TranscriptStore:
@@ -632,12 +644,15 @@ class TranscriptStore:
         session_id: str,
         user_id: str,
         channel: str,
-        before: int | None = None,
+        before: TranscriptCursor | int | None = None,
         limit: int = 50,
+        max_bytes: int = _DEFAULT_PAGE_MAX_BYTES,
     ) -> TranscriptPage | None:
-        """Read one turn-bounded page without replaying active outputs."""
+        """Read one item-bounded page without replaying active outputs."""
         if limit < 1 or limit > 100:
             raise ValueError("transcript page limit must be between 1 and 100")
+        if max_bytes < 1:
+            raise ValueError("transcript page max_bytes must be positive")
         with self._lock:
             session = self._session_row(session_id)
             if session is None or session["deleted_at"] is not None:
@@ -648,24 +663,51 @@ class TranscriptStore:
                 channel=channel,
             )
             sql = (
-                "SELECT turn_seq, turn_id FROM transcript_turns "
-                "WHERE session_id = ? AND EXISTS ("
-                "SELECT 1 FROM transcript_messages m "
-                "WHERE m.session_id = transcript_turns.session_id "
-                "AND m.turn_id = transcript_turns.turn_id "
-                "AND m.superseded_at IS NULL "
-                "AND (transcript_turns.status != 'running' "
-                "OR m.role = 'user'))"
+                "SELECT m.payload_json, length(CAST(m.payload_json AS BLOB)) "
+                "AS payload_bytes, m.created_at AS message_created_at, "
+                "m.finished_at AS message_finished_at, m.ordinal, "
+                "t.turn_id, t.turn_seq, t.status AS turn_status, "
+                "t.error_json, t.finished_at AS turn_finished_at "
+                "FROM transcript_messages m JOIN transcript_turns t "
+                "ON t.session_id = m.session_id AND t.turn_id = m.turn_id "
+                "WHERE m.session_id = ? AND m.superseded_at IS NULL "
+                "AND (t.status != 'running' OR m.role = 'user')"
             )
             params: list[Any] = [session_id]
             if before is not None:
-                sql += " AND turn_seq < ?"
-                params.append(before)
-            sql += " ORDER BY turn_seq DESC LIMIT ?"
+                cursor = (
+                    before
+                    if isinstance(before, TranscriptCursor)
+                    else TranscriptCursor(turn_seq=before)
+                )
+                if cursor.ordinal is None:
+                    sql += " AND t.turn_seq < ?"
+                    params.append(cursor.turn_seq)
+                else:
+                    sql += (
+                        " AND (t.turn_seq < ? OR (t.turn_seq = ? "
+                        "AND m.ordinal < ?))"
+                    )
+                    params.extend(
+                        [cursor.turn_seq, cursor.turn_seq, cursor.ordinal],
+                    )
+            sql += " ORDER BY t.turn_seq DESC, m.ordinal DESC LIMIT ?"
             params.append(limit + 1)
-            turns = self._conn.execute(sql, params).fetchall()
-            has_more = len(turns) > limit
-            selected = turns[:limit]
+            candidates = self._conn.execute(sql, params).fetchall()
+            selected: list[sqlite3.Row] = []
+            payload_bytes = 0
+            max_bytes_reached = False
+            for row in candidates[:limit]:
+                row_bytes = int(row["payload_bytes"])
+                if selected and payload_bytes + row_bytes > max_bytes:
+                    max_bytes_reached = True
+                    break
+                selected.append(row)
+                payload_bytes += row_bytes
+                if payload_bytes >= max_bytes:
+                    max_bytes_reached = True
+                    break
+            has_more = len(selected) < len(candidates)
             if not selected:
                 return TranscriptPage(
                     messages=[],
@@ -674,42 +716,68 @@ class TranscriptStore:
                     revision=int(session["revision"]),
                     completeness=session["completeness"],
                 )
-            turn_ids = [str(row["turn_id"]) for row in selected]
+            turn_ids = sorted({str(row["turn_id"]) for row in selected})
             placeholders = ", ".join("?" for _ in turn_ids)
-            rows = self._conn.execute(
-                "SELECT m.payload_json, "
-                "m.created_at AS message_created_at, "
-                "m.finished_at AS message_finished_at, "
-                "t.status AS turn_status, t.error_json, "
-                "t.finished_at AS turn_finished_at "
-                "FROM transcript_messages m "
-                "JOIN transcript_turns t "
-                "ON t.session_id = m.session_id AND t.turn_id = m.turn_id "
-                f"WHERE m.session_id = ? AND m.turn_id IN ({placeholders}) "
+            bounds = self._conn.execute(
+                "SELECT m.turn_id, MIN(m.ordinal) AS min_ordinal, "
+                "MAX(m.ordinal) AS max_ordinal FROM transcript_messages m "
+                "JOIN transcript_turns t ON t.session_id = m.session_id "
+                "AND t.turn_id = m.turn_id WHERE m.session_id = ? "
+                f"AND m.turn_id IN ({placeholders}) "
                 "AND m.superseded_at IS NULL "
                 "AND (t.status != 'running' OR m.role = 'user') "
-                "ORDER BY t.turn_seq, m.ordinal",
+                "GROUP BY m.turn_id",
                 [session_id, *turn_ids],
             ).fetchall()
-            next_before = (
-                min(int(row["turn_seq"]) for row in selected)
-                if has_more
-                else None
-            )
+            turn_bounds = {
+                str(row["turn_id"]): (
+                    int(row["min_ordinal"]),
+                    int(row["max_ordinal"]),
+                )
+                for row in bounds
+            }
+            selected.reverse()
+            first = selected[0]
+            next_before = None
+            if has_more:
+                next_before = TranscriptCursor(
+                    turn_seq=int(first["turn_seq"]),
+                    ordinal=int(first["ordinal"]),
+                )
             return TranscriptPage(
-                messages=[self._message_from_row(row) for row in rows],
+                messages=[
+                    self._message_from_row(
+                        row,
+                        turn_bounds[str(row["turn_id"])],
+                    )
+                    for row in selected
+                ],
                 next_before=next_before,
                 has_more=has_more,
                 revision=int(session["revision"]),
                 completeness=session["completeness"],
+                item_count=len(selected),
+                payload_bytes=payload_bytes,
+                max_bytes_reached=max_bytes_reached,
             )
 
     @staticmethod
-    def _message_from_row(row: sqlite3.Row) -> Message:
+    def _message_from_row(
+        row: sqlite3.Row,
+        turn_bounds: tuple[int, int],
+    ) -> Message:
         """Project normalized transcript columns into the wire contract."""
         message = Message.model_validate_json(row["payload_json"])
         metadata = dict(message.metadata or {})
         metadata.setdefault("timestamp", row["message_created_at"])
+        ordinal = int(row["ordinal"])
+        metadata["qwenpaw_transcript_position"] = {
+            "turn_id": str(row["turn_id"]),
+            "turn_seq": int(row["turn_seq"]),
+            "ordinal": ordinal,
+            "partial_before": ordinal > turn_bounds[0],
+            "partial_after": ordinal < turn_bounds[1],
+        }
 
         turn_status = str(row["turn_status"])
         terminal = turn_status != "running"

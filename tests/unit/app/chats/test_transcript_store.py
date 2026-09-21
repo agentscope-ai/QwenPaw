@@ -7,7 +7,7 @@ from datetime import date, datetime, timezone
 
 import pytest
 
-from qwenpaw.app.chats.transcript import TranscriptStore
+from qwenpaw.app.chats.transcript import TranscriptCursor, TranscriptStore
 from qwenpaw.schemas import (
     FileContent,
     Message,
@@ -137,11 +137,25 @@ def test_page_projects_database_times_without_overwriting_payload(tmp_path):
     assert user.metadata == {
         "timestamp": "2026-09-20T12:00:01+00:00",
         "qwenpaw_turn_state": {"status": "completed"},
+        "qwenpaw_transcript_position": {
+            "turn_id": "turn-1",
+            "turn_seq": 1,
+            "ordinal": 0,
+            "partial_before": False,
+            "partial_after": True,
+        },
     }
     assert user.status == RunStatus.Completed
     assert assistant.metadata == {
         "timestamp": "2026-09-20T12:00:02+00:00",
         "finished_at": "2026-09-20T12:00:04+00:00",
+        "qwenpaw_transcript_position": {
+            "turn_id": "turn-1",
+            "turn_seq": 1,
+            "ordinal": 1,
+            "partial_before": True,
+            "partial_after": False,
+        },
     }
     assert assistant.status == RunStatus.Completed
     store.close()
@@ -412,7 +426,7 @@ def test_session_identity_is_enforced(tmp_path):
     store.close()
 
 
-def test_pagination_is_turn_bounded_and_chronological(tmp_path):
+def test_pagination_is_item_bounded_and_chronological(tmp_path):
     store = TranscriptStore(tmp_path / "transcript.db")
     for number in range(1, 5):
         turn_id = f"turn-{number}"
@@ -441,10 +455,8 @@ def test_pagination_is_turn_bounded_and_chronological(tmp_path):
     )
     assert latest is not None
     assert latest.has_more is True
-    assert latest.next_before == 3
+    assert latest.next_before == TranscriptCursor(turn_seq=4, ordinal=0)
     assert [message.id for message in latest.messages] == [
-        "message-3-0",
-        "message-3-1",
         "message-4-0",
         "message-4-1",
     ]
@@ -457,14 +469,93 @@ def test_pagination_is_turn_bounded_and_chronological(tmp_path):
         limit=2,
     )
     assert older is not None
-    assert older.has_more is False
-    assert older.next_before is None
+    assert older.has_more is True
+    assert older.next_before == TranscriptCursor(turn_seq=3, ordinal=0)
     assert [message.id for message in older.messages] == [
-        "message-1-0",
-        "message-1-1",
-        "message-2-0",
-        "message-2-1",
+        "message-3-0",
+        "message-3-1",
     ]
+    store.close()
+
+
+def test_high_fanout_turn_spans_pages_without_losing_items(tmp_path):
+    store = TranscriptStore(tmp_path / "transcript.db")
+    _start(store, "turn-1")
+    for ordinal in range(5):
+        store.upsert_message(
+            session_id="session-1",
+            turn_id="turn-1",
+            message=_message(
+                f"message-{ordinal}",
+                f"message {ordinal}",
+                role="assistant" if ordinal else "user",
+            ),
+            ordinal=ordinal,
+        )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        status="completed",
+    )
+
+    cursor = None
+    message_ids: list[str] = []
+    page_sizes: list[int] = []
+    while True:
+        page = store.get_page(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+            before=cursor,
+            limit=2,
+        )
+        assert page is not None
+        message_ids = [message.id for message in page.messages] + message_ids
+        page_sizes.append(page.item_count)
+        if not page.has_more:
+            break
+        assert page.next_before is not None
+        cursor = page.next_before
+
+    assert page_sizes == [2, 2, 1]
+    assert message_ids == [f"message-{ordinal}" for ordinal in range(5)]
+    store.close()
+
+
+def test_page_byte_limit_always_returns_one_oversized_item(tmp_path):
+    store = TranscriptStore(tmp_path / "transcript.db")
+    _start(store, "turn-1")
+    for ordinal in range(2):
+        store.upsert_message(
+            session_id="session-1",
+            turn_id="turn-1",
+            message=_message(
+                f"message-{ordinal}",
+                "x" * 2_000,
+                role="assistant" if ordinal else "user",
+            ),
+            ordinal=ordinal,
+        )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        status="completed",
+    )
+
+    page = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        limit=50,
+        max_bytes=100,
+    )
+
+    assert page is not None
+    assert [message.id for message in page.messages] == ["message-1"]
+    assert page.payload_bytes > 100
+    assert page.max_bytes_reached is True
+    assert page.has_more is True
+    assert page.next_before == TranscriptCursor(turn_seq=1, ordinal=1)
     store.close()
 
 
@@ -799,7 +890,7 @@ def test_completed_turn_replacement_hides_whole_original_turn(tmp_path):
         session_id="session-1",
         user_id="user-1",
         channel="console",
-        limit=1,
+        limit=2,
     )
 
     assert page is not None
