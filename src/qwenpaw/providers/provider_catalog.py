@@ -231,6 +231,9 @@ PROVIDER_OPENAI = OpenAIProvider(
     base_url="https://api.openai.com/v1",
     api_key_prefix="sk-",
     models=_models("openai"),
+    provider_group=f"openai",
+    provider_group_name=f"OpenAI",
+    provider_variant=f"chat_completions",
     support_model_discovery=True,
     freeze_url=True,
 )
@@ -242,6 +245,9 @@ PROVIDER_OPENAI_RESPONSE = OpenAIResponseProvider(
     api_key_prefix="sk-",
     chat_model="OpenAIResponseModel",
     models=_models("openai-response"),
+    provider_group=f"openai",
+    provider_group_name=f"OpenAI",
+    provider_variant=f"responses",
     support_model_discovery=True,
     freeze_url=True,
 )

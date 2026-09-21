@@ -1,7 +1,7 @@
 import { ModelPickerPopover } from "../../pages/Chat/ModelSelector/ModelPickerPopover";
 import { useEffect, useRef, useState } from "react";
 import { Spin, Tooltip } from "antd";
-import { ChevronDown, ArrowLeft, RotateCcw } from "lucide-react";
+import { ChevronDown, ArrowLeft, RotateCcw, Plug } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
 import { ThinkingIndicator } from "./ThinkingIndicator";
@@ -148,9 +148,10 @@ export function SessionThinking({
     displayedValue.level === "inherit"
       ? view?.effective ?? displayedValue
       : displayedValue;
+  const showPicker = choosing || (!!view && !view.model);
   return (
     <ModelPickerPopover
-      picker={choosing}
+      picker={showPicker}
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
@@ -161,20 +162,22 @@ export function SessionThinking({
         if (next) void load();
       }}
       content={
-        <div className={choosing ? styles.picker : styles.popover}>
-          {choosing ? (
+        <div className={showPicker ? styles.picker : styles.popover}>
+          {showPicker ? (
             <>
-              <div className={styles.back}>
-                <button
-                  type="button"
-                  className={styles.iconButton}
-                  aria-label={t("common.back")}
-                  onClick={() => setChoosing(false)}
-                >
-                  <ArrowLeft size={17} />
-                </button>
-                {resetModelButton}
-              </div>
+              {view?.model && (
+                <div className={styles.back}>
+                  <button
+                    type="button"
+                    className={styles.iconButton}
+                    aria-label={t("common.back")}
+                    onClick={() => setChoosing(false)}
+                  >
+                    <ArrowLeft size={17} />
+                  </button>
+                  {resetModelButton}
+                </div>
+              )}
               <ModelSelector
                 embedded
                 sessionId={sessionId}
@@ -187,7 +190,7 @@ export function SessionThinking({
             </>
           ) : (
             <Spin spinning={busy}>
-              {view && (
+              {view?.model && (
                 <ThinkingControl
                   control={view.control}
                   value={value}
@@ -206,15 +209,6 @@ export function SessionThinking({
                   disabled={busy}
                 />
               )}
-              {!view && (
-                <button
-                  type="button"
-                  className={styles.modelChoice}
-                  onClick={() => setChoosing(true)}
-                >
-                  {t("modelSelector.selectModel")}
-                </button>
-              )}
             </Spin>
           )}
         </div>
@@ -229,12 +223,15 @@ export function SessionThinking({
         {view?.provider_id && (
           <ProviderIcon providerId={view.provider_id} size={16} />
         )}
+        {view && !view.model && <Plug size={16} aria-hidden="true" />}
         <span>
           {view?.model_name ||
             (view?.provider_id !== "hub-managed" ? view?.model : undefined) ||
             t("modelSelector.selectModel")}
         </span>
-        {view && <ThinkingIndicator control={view.control} value={display} />}
+        {view?.model && (
+          <ThinkingIndicator control={view.control} value={display} />
+        )}
         <ChevronDown size={12} />
       </button>
     </ModelPickerPopover>

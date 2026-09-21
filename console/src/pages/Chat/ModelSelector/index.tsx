@@ -28,6 +28,7 @@ import {
   GitBranch,
   LoaderCircle,
   Search,
+  Plug,
   Settings,
   Plus,
   Minus,
@@ -979,6 +980,7 @@ export default function ModelSelector({
       needsKeyProviders.length > 0;
 
     if (!hasAny) {
+      if (loadError) return null;
       return (
         <div className={styles.emptyTip} role="status">
           {trimmedSearch
@@ -1047,16 +1049,75 @@ export default function ModelSelector({
       );
     }
 
-    if (filteredPro.length === 0) {
+    if (!filteredPro.some((provider) => provider.models.length > 0)) {
+      if (loadError) return null;
+      const configured = providers.filter(
+        (provider) =>
+          provider.enabled !== false &&
+          (Boolean(provider.api_key) ||
+            provider.oauth_connected ||
+            (provider.require_api_key === false && Boolean(provider.base_url))),
+      );
+      if (!trimmedSearch && configured.length > 0) {
+        const provider =
+          configured.find((item) => item.id === addingProvider) ??
+          configured[0];
+        return (
+          <div className={styles.initialModelPicker}>
+            <div className={styles.initialProvider}>
+              <ProviderIcon providerId={provider.id} size={18} />
+              {configured.length === 1 ? (
+                <strong>{provider.name}</strong>
+              ) : (
+                <select
+                  aria-label={t("modelSelector.chooseProvider")}
+                  value={provider.id}
+                  onChange={(event) => setAddingProvider(event.target.value)}
+                >
+                  {configured.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <Suspense fallback={<Spin size="small" />}>
+              <ProviderCandidatePicker
+                key={provider.id}
+                providerId={provider.id}
+                onSaved={async (modelId) => {
+                  await activateModel(provider.id, modelId);
+                  await fetchData();
+                }}
+              />
+            </Suspense>
+          </div>
+        );
+      }
       return (
         <div className={styles.emptyTip} role="status">
-          {trimmedSearch
-            ? t("modelSelector.noModelsFound")
-            : t("modelSelector.noProviders")}
-          {!trimmedSearch && (
+          <div className={styles.emptyHeading}>
+            <Plug size={20} strokeWidth={1.6} aria-hidden="true" />
+            <strong>
+              {trimmedSearch
+                ? t("modelSelector.noModelsFound")
+                : t("modelSelector.noProviders")}
+            </strong>
+          </div>
+          {!trimmedSearch && <p>{t("modelSelector.configureProviderHint")}</p>}
+          {trimmedSearch ? (
             <button
               type="button"
-              className={styles.manageModelsEntry}
+              className={styles.emptyAction}
+              onClick={() => setSearchQuery("")}
+            >
+              {t("modelSelector.clearSearch")}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={styles.emptyAction}
               onClick={() => {
                 setOpen(false);
                 navigate("/models");
@@ -1085,61 +1146,72 @@ export default function ModelSelector({
     );
   };
 
+  const showSearchControls =
+    loading ||
+    loadError ||
+    showAdvancedModelControls ||
+    Boolean(searchQuery) ||
+    activeTab === "free" ||
+    eligibleProviders.some((provider) => provider.models.length > 0);
   const dropdownContent = (
     <div
       id={panelId}
       className={[styles.panel, embedded ? styles.embedded : ""].join(" ")}
     >
-      <div className={styles.searchWrapper}>
-        <Search size={15} className={styles.searchIcon} />
-        <input
-          ref={searchInputRef}
-          className={styles.searchInput}
-          aria-label={t("modelSelector.searchModels")}
-          placeholder={t("modelSelector.searchModels")}
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-        />
-        {searchQuery && (
-          <button
-            type="button"
-            className={styles.searchClear}
-            aria-label={t("modelSelector.clearSearch")}
-            onClick={(e) => {
-              e.stopPropagation();
-              setSearchQuery("");
-              searchInputRef.current?.focus();
-            }}
-          >
-            <XCircle size={15} />
-          </button>
-        )}
-        <Tooltip title={t("modelSelector.freeModelsOnly")}>
-          <button
-            type="button"
-            className={styles.manageButton}
-            aria-label={t("modelSelector.freeModelsOnly")}
-            aria-pressed={activeTab === "free"}
-            onClick={() => setActiveTab(activeTab === "free" ? "pro" : "free")}
-          >
-            <Gift size={17} />
-          </button>
-        </Tooltip>
-        <Tooltip title={t("modelSelector.manageSelectorModels")}>
-          <button
-            type="button"
-            className={styles.manageButton}
-            aria-label={t("modelSelector.manageSelectorModels")}
-            aria-pressed={managingModels}
-            onClick={() => {
-              setManagingModels((value) => !value);
-              setAddingProvider(null);
-            }}
-          >
-            <Settings size={17} />
-          </button>
-        </Tooltip>
-      </div>
+      {showSearchControls && (
+        <div className={styles.searchWrapper}>
+          <Search size={15} className={styles.searchIcon} />
+          <input
+            ref={searchInputRef}
+            className={styles.searchInput}
+            aria-label={t("modelSelector.searchModels")}
+            placeholder={t("modelSelector.searchModels")}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              className={styles.searchClear}
+              aria-label={t("modelSelector.clearSearch")}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSearchQuery("");
+                searchInputRef.current?.focus();
+              }}
+            >
+              <XCircle size={15} />
+            </button>
+          )}
+          <Tooltip title={t("modelSelector.freeModelsOnly")}>
+            <button
+              type="button"
+              className={styles.manageButton}
+              aria-label={t("modelSelector.freeModelsOnly")}
+              aria-pressed={activeTab === "free"}
+              onClick={() =>
+                setActiveTab(activeTab === "free" ? "pro" : "free")
+              }
+            >
+              <Gift size={17} />
+            </button>
+          </Tooltip>
+          <Tooltip title={t("modelSelector.manageSelectorModels")}>
+            <button
+              type="button"
+              className={styles.manageButton}
+              aria-label={t("modelSelector.manageSelectorModels")}
+              aria-pressed={managingModels}
+              onClick={() => {
+                setManagingModels((value) => !value);
+                setAddingProvider(null);
+              }}
+            >
+              <Settings size={17} />
+            </button>
+          </Tooltip>
+        </div>
+      )}
 
       <div
         id={tabPanelId}

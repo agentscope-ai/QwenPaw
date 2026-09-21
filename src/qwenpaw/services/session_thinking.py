@@ -3,6 +3,7 @@
 
 from ..config.config import ModelSlotConfig, load_agent_config
 from ..providers.provider_manager import ProviderManager
+from ..providers.provider import Provider
 from ..providers.hub_managed import (
     PROVIDER_ID,
     hub_mode,
@@ -15,6 +16,67 @@ from ..providers.thinking import (
     resolve_thinking,
 )
 from ..utils.io_utils import run_sync_io
+
+
+def _model_default_thinking(provider: Provider, model: str):
+    """Read declared defaults without changing inherited request settings."""
+    info = provider.resolve_model_info(model)
+    control = provider.thinking_control(model)
+    params = provider._deep_merge(  # pylint: disable=protected-access
+        provider.generate_kwargs,
+        info.generate_kwargs,
+    )
+    params = {**params, **(params.get(f"extra_body") or {})}
+    thinking = params.get(f"thinking") or {}
+    reasoning = params.get(f"reasoning") or {}
+    config = params.get(f"thinking_config") or {}
+    enabled = params.get(
+        f"enable_thinking",
+        params.get(f"thinking_enable", info.thinking_enabled),
+    )
+    effort = params.get(
+        f"reasoning_effort",
+        reasoning.get(
+            f"effort",
+            (params.get(f"output_config") or {}).get(
+                f"effort",
+                config.get(f"thinking_level", info.reasoning_effort),
+            ),
+        ),
+    )
+    budget = params.get(
+        f"thinking_budget",
+        thinking.get(
+            f"budget_tokens",
+            config.get(f"thinking_budget", info.thinking_budget),
+        ),
+    )
+    if (
+        enabled is False
+        or thinking.get(f"type") == f"disabled"
+        or reasoning.get(f"enabled") is False
+        or effort in {f"none", f"off"}
+        or budget == 0
+    ):
+        return ThinkingPreference(level=f"off")
+    if budget is None and effort in {
+        f"minimal",
+        f"low",
+        f"medium",
+        f"high",
+        f"xhigh",
+        f"max",
+    }:
+        return resolve_thinking(ThinkingPreference(level=effort), control)[0]
+    if control.kind == f"budget":
+        if budget is None:
+            budget = control.budget_default
+        if budget is not None and budget > 0:
+            return resolve_thinking(
+                ThinkingPreference(level=f"budget", budget_tokens=budget),
+                control,
+            )[0]
+    return ThinkingPreference()
 
 
 def session_model(meta: dict | None) -> ModelSlotConfig | None:
@@ -73,23 +135,23 @@ async def thinking_view(
 
     def model_view():
         if config.backend != f"qwenpaw":
-            return None, None, ThinkingControl(), None, None
+            return None, None, ThinkingControl(), None, None, None
         manager = ProviderManager.get_instance()
         slot = config.active_model or manager.get_active_model()
         if hub_mode() and slot and slot.provider_id == PROVIDER_ID:
             slot, catalog = managed_slot(slot, explicit=True)
             if slot is None:
-                return None, None, ThinkingControl(), None, None
+                return None, None, ThinkingControl(), None, None, None
             provider = managed_provider(catalog)
         else:
             if not slot:
-                return None, None, ThinkingControl(), None, None
+                return None, None, ThinkingControl(), None, None, None
             provider = manager.get_provider(slot.provider_id)
             if provider is None or not provider.enabled:
-                return None, None, ThinkingControl(), None, None
+                return None, None, ThinkingControl(), None, None, None
         info = provider.get_model_info(slot.model)
         if info is None:
-            return None, None, ThinkingControl(), None, None
+            return None, None, ThinkingControl(), None, None, None
         name = info.name
         return (
             slot.provider_id,
@@ -97,11 +159,21 @@ async def thinking_view(
             provider.thinking_control(slot.model),
             provider.get_context_size(slot.model),
             name,
+            (
+                _model_default_thinking(provider, slot.model)
+                if inherited.level == f"inherit"
+                else None
+            ),
         )
 
-    provider_id, model, control, context_size, model_name = await run_sync_io(
-        model_view,
-    )
+    (
+        provider_id,
+        model,
+        control,
+        context_size,
+        model_name,
+        model_default,
+    ) = await run_sync_io(model_view)
     model_key = f"{provider_id}:{model}" if model else f""
     if override is None and meta is not None:
         override = session_preference(meta, model_key)
@@ -109,6 +181,8 @@ async def thinking_view(
         override if override and override.level != f"inherit" else inherited
     )
     effective, reason = resolve_thinking(requested, control)
+    if effective.level == f"inherit" and model_default is not None:
+        effective = model_default
     return {
         f"model_source": model_source,
         f"model": model,

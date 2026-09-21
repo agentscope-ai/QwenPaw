@@ -112,6 +112,10 @@ class ProviderManager(
         self.custom_path = self.root_path / "custom"
         self.plugin_path = self.root_path / "plugin"  # Plugin provider configs
         self._plugin_registry = PluginProviderRegistry(self)
+        first_run = (
+            not self.root_path.exists()
+            and not (SECRET_DIR / f"providers.json").exists()
+        )
         self._prepare_disk_storage()
         self._index_provider_storage_paths()
         self._init_builtins()
@@ -120,8 +124,40 @@ class ProviderManager(
         except Exception as e:
             logger.warning("Failed to migrate legacy providers: %s", e)
         self._init_from_storage()
+        if first_run:
+            self._initialize_free_models()
         self._capability_registry = ExpectedCapabilityRegistry()
         self._apply_default_annotations()
+
+    def _initialize_free_models(self) -> None:
+        """Select starter models once, without changing existing installs."""
+        provider = self.builtin_providers[f"kilo"]
+        names = {
+            f"openrouter/free": f"OpenRouter - Free",
+            f"kilo-auto/free": f"Kilo Auto (Free Router)",
+        }
+        provider.enabled = True
+        starter_models = [
+            model.model_copy(
+                update={
+                    f"name": names[model.id],
+                    f"source": f"user",
+                    f"auto_enabled": True,
+                },
+                deep=True,
+            )
+            for model in provider.discovery_candidates()
+            if model.id in names
+        ]
+        provider.models = [
+            model for model in provider.models if model.id not in names
+        ] + starter_models
+        self._save_provider(provider, is_builtin=True)
+        self.active_model = ModelSlotConfig(
+            provider_id=f"kilo",
+            model=f"kilo-auto/free",
+        )
+        self.save_active_model(self.active_model)
 
     def _prepare_disk_storage(self):
         """Prepare directory structure"""

@@ -2099,6 +2099,8 @@
     "retry": "重试"
   },
   "modelSelector": {
+    "chooseProvider": "选择提供商",
+    "configureProviderHint": "连接提供商，选择你想使用的模型。",
     "manageModels": "管理模型",
     "addModels": "添加模型",
     "noProviders": "尚未添加提供商",
@@ -2176,6 +2178,7 @@
     "searchCandidates": "搜索候选模型..."
   },
   "models": {
+    "connectProviderTitle": "连接你的第一个模型",
     "cardStatus": {
       "configured": "已配置",
       "configuredCount": "{{count}} 个已配置",
@@ -2266,6 +2269,7 @@
     "optionalSelfHosted": "自托管服务可选",
     "leaveBlankKeep": "留空以保持当前密钥",
     "enterApiKey": "输入 API 密钥 ({{prefix}}...)",
+    "enterApiKeyRequired": "输入 API 密钥",
     "enterApiKeyOptional": "输入 API 密钥（可选）",
     "openAIEndpoint": "OpenAI 端点，例如 https://api.openai.com/v1",
     "openAICompatibleEndpoint": "OpenAI 兼容端点，例如 https://api.example.com（仅在你的服务要求时再追加 /v1）",
@@ -2326,7 +2330,7 @@
     "goConfigureBtn": "去配置",
     "availableGroup": "可用提供商",
     "clickToConfigure": "点击配置",
-    "configureAction": "配置 →",
+    "configureAction": "配置",
     "endpointCount": "{{count}} 个端点",
     "connect": "OAuth 认证",
     "saveApiKey": "保存",
@@ -5264,13 +5268,13 @@
     "deep": "深入思考",
     "intensive": "充分思考",
     "budget": "思考预算",
-    "unsupported": "此模型不支持调整思考强度",
+    "unsupported": "无法修改思考深度",
     "budgetHint": "连续调节思考 Token 上限，文字随比例变化，不代表固定档位。",
     "effortHint": "仅显示当前模型支持的档位。",
     "sessionHint": "仅当前会话生效，从下一次请求开始应用。",
     "adapted": "当前模型无法原样应用已保存的偏好，已按模型能力调整。",
     "saveFailed": "思考设置保存失败",
-    "unknown": "思考设置未确认",
+    "unknown": "无法修改思考深度",
     "declaration": "思考能力声明（高级）",
     "declarationHint": "无 model card 的模型也可手动声明。请按接口文档填写，示例档位与范围并非已验证能力。恢复自动将使用模型目录或插件声明。",
     "controlType": "控制方式",

@@ -1,7 +1,7 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { InputNumber, Slider, Tooltip } from "antd";
 import NumberFlow from "@number-flow/react";
-import { LockKeyhole, RotateCcw } from "lucide-react";
+import { LockKeyhole, RotateCcw, ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ThinkingControlSpec, ThinkingPreference } from "./types";
 import styles from "./thinking.module.less";
@@ -64,7 +64,6 @@ export function ThinkingControl({
       : ratio < 0.85
       ? "deep"
       : "intensive";
-  const color = `hsl(27 92% ${66 - ratio * 27}%)`;
   const label =
     isBudget && adjusting && budget < low
       ? t("thinkingControl.off")
@@ -84,7 +83,6 @@ export function ThinkingControl({
   return (
     <section
       className={styles.control}
-      data-budget-off={isBudget && control.supports_off}
       onKeyDownCapture={(event) => {
         if (
           disabled ||
@@ -108,9 +106,59 @@ export function ThinkingControl({
           }
         }
       }}
-      style={{ "--thinking-color": color } as CSSProperties}
     >
       <header className={styles.header}>
+        <div className={styles.budgetSlot}>
+          {isBudget &&
+            (editingBudget ? (
+              <InputNumber
+                autoFocus
+                aria-label={t("thinkingControl.budget")}
+                value={budget}
+                min={low}
+                max={high}
+                precision={0}
+                step={1}
+                disabled={disabled}
+                onChange={(next) => {
+                  if (next !== null) {
+                    setBudget(next);
+                    setAdjusting(true);
+                    onPreview?.({ level: "budget", budget_tokens: next });
+                  }
+                }}
+                onBlur={() => {
+                  if (adjusting) commitBudget(budget);
+                  setEditingBudget(false);
+                }}
+                onPressEnter={() => {
+                  if (adjusting) commitBudget(budget);
+                  setEditingBudget(false);
+                }}
+              />
+            ) : (
+              <button
+                type="button"
+                className={styles.budgetValue}
+                aria-label={t("thinkingControl.budget")}
+                disabled={disabled}
+                onClick={() => setEditingBudget(true)}
+              >
+                <NumberFlow
+                  value={
+                    (adjusting ? budget < low : displayed.level === "off")
+                      ? 0
+                      : Math.max(low, budget)
+                  }
+                  transformTiming={{ duration: 180, easing: "ease-out" }}
+                  opacityTiming={{ duration: 100, easing: "ease-out" }}
+                  respectMotionPreference
+                  format={{ notation: "compact", maximumFractionDigits: 1 }}
+                  locales="en"
+                />
+              </button>
+            ))}
+        </div>
         <div className={styles.identity}>
           {onChooseModel ? (
             <button
@@ -118,31 +166,36 @@ export function ThinkingControl({
               className={styles.modelChoice}
               onClick={onChooseModel}
             >
-              {!unsupported && (
-                <strong>
-                  {label} <span aria-hidden="true">›</span>
-                </strong>
-              )}
-              <span>{modelLabel}</span>
+              <strong>
+                {unsupported ? t("modelSelector.selectModel") : label}
+                <ChevronRight size={14} aria-hidden="true" />
+              </strong>
+              <span
+                title={typeof modelLabel === "string" ? modelLabel : undefined}
+              >
+                {modelLabel}
+              </span>
             </button>
           ) : (
             <strong>{label}</strong>
           )}
         </div>
-        {resetAction ??
-          (!unsupported && (
-            <Tooltip title={t("thinkingControl.reset")}>
-              <button
-                type="button"
-                className={styles.iconButton}
-                disabled={disabled || value.level === "inherit"}
-                aria-label={t("thinkingControl.reset")}
-                onClick={() => onChange({ level: "inherit" })}
-              >
-                <RotateCcw size={15} />
-              </button>
-            </Tooltip>
-          ))}
+        <div className={styles.resetSlot}>
+          {resetAction ??
+            (!unsupported && (
+              <Tooltip title={t("thinkingControl.reset")}>
+                <button
+                  type="button"
+                  className={styles.iconButton}
+                  disabled={disabled || value.level === "inherit"}
+                  aria-label={t("thinkingControl.reset")}
+                  onClick={() => onChange({ level: "inherit" })}
+                >
+                  <RotateCcw size={15} />
+                </button>
+              </Tooltip>
+            ))}
+        </div>
       </header>
       {unsupported ? (
         <Tooltip
@@ -190,9 +243,21 @@ export function ThinkingControl({
             }
             marks={
               isBudget && control.supports_off
-                ? { [offPosition]: " ", [low]: " " }
+                ? Object.fromEntries(
+                    Array.from({ length: 5 }, (_, index) => [
+                      Math.round(
+                        offPosition + ((high - offPosition) * index) / 4,
+                      ),
+                      " ",
+                    ]),
+                  )
                 : isBudget
-                ? undefined
+                ? Object.fromEntries(
+                    Array.from({ length: 5 }, (_, index) => [
+                      Math.round(low + ((high - low) * index) / 4),
+                      " ",
+                    ]),
+                  )
                 : Object.fromEntries(efforts.map((_, index) => [index, " "]))
             }
             tooltip={{ open: false }}
@@ -223,57 +288,6 @@ export function ThinkingControl({
               else onChange({ level: efforts[next as number] });
             }}
           />
-          <div className={styles.summary}>
-            {isBudget &&
-              (editingBudget ? (
-                <InputNumber
-                  autoFocus
-                  aria-label={t("thinkingControl.budget")}
-                  value={budget}
-                  min={low}
-                  max={high}
-                  precision={0}
-                  step={1}
-                  disabled={disabled}
-                  onChange={(next) => {
-                    if (next !== null) {
-                      setBudget(next);
-                      setAdjusting(true);
-                      onPreview?.({ level: "budget", budget_tokens: next });
-                    }
-                  }}
-                  onBlur={() => {
-                    if (adjusting) commitBudget(budget);
-                    setEditingBudget(false);
-                  }}
-                  onPressEnter={() => {
-                    if (adjusting) commitBudget(budget);
-                    setEditingBudget(false);
-                  }}
-                />
-              ) : (
-                <button
-                  type="button"
-                  className={styles.budgetValue}
-                  aria-label={t("thinkingControl.budget")}
-                  disabled={disabled}
-                  onClick={() => setEditingBudget(true)}
-                >
-                  <NumberFlow
-                    value={
-                      (adjusting ? budget < low : displayed.level === "off")
-                        ? 0
-                        : Math.max(low, budget)
-                    }
-                    transformTiming={{ duration: 180, easing: "ease-out" }}
-                    opacityTiming={{ duration: 100, easing: "ease-out" }}
-                    respectMotionPreference
-                    format={{ notation: "compact", maximumFractionDigits: 1 }}
-                    locales="en"
-                  />
-                </button>
-              ))}
-          </div>
         </>
       )}
     </section>
