@@ -25,7 +25,7 @@ export interface PawAppGrantCapability {
   action_ids: string[];
   permissions: string[];
   effects: string[];
-  risk: "read" | "write" | "generation" | "other";
+  risk: "read" | "write" | "generation" | "analysis" | "other";
   enabled: boolean;
   partial: boolean;
   stale: boolean;

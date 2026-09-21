@@ -384,6 +384,7 @@
     "appCapabilityRead": "只读",
     "appCapabilityWrite": "写入",
     "appCapabilityGeneration": "生成",
+    "appCapabilityAnalysis": "分析",
     "appCapabilityOther": "操作",
     "appCapabilityPartial": "部分启用",
     "appCapabilityActionCount": "{{count}} 个操作",

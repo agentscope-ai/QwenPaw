@@ -23,14 +23,14 @@ const enabledCatalog: PawAppGrantCatalog = {
   capabilities: [
     {
       schema_version: 1,
-      capability_id: "read",
+      capability_id: "data_analysis",
       app_id: "qwenpaw-data",
-      label: "Read and inspect",
-      summary: "View information exposed by this App.",
+      label: "Analyze data",
+      summary: "Run governed analysis against an approved data source.",
       action_ids: ["analyze"],
-      permissions: ["data.read"],
-      effects: ["model_usage"],
-      risk: "read",
+      permissions: ["data.analysis.execute", "data.datasource.read"],
+      effects: ["model_usage", "datasource_query"],
+      risk: "analysis",
       enabled: true,
       partial: false,
       stale: false,
@@ -40,15 +40,16 @@ const enabledCatalog: PawAppGrantCatalog = {
     {
       app_id: "qwenpaw-data",
       action_id: "analyze",
-      summary: "Analyze an approved datasource.",
+      summary:
+        "Analyze a selected datasource using the Data App's domain runtime.",
       descriptor_digest: "a".repeat(64),
       input_schema: {
         properties: {
           datasource_id: { type: "string", title: "Datasource" },
         },
       },
-      permissions: ["data.read"],
-      effects: ["model_usage"],
+      permissions: ["data.analysis.execute", "data.datasource.read"],
+      effects: ["model_usage", "datasource_query"],
       settings_entry: "/apps/qwenpaw-data",
       enabled: true,
       stale: false,
@@ -80,14 +81,15 @@ describe("PawAppAccessSettings", () => {
   it("revokes a registered action for the selected agent", async () => {
     renderWithProviders(<PawAppAccessSettings />);
 
-    expect(await screen.findByText("Read and inspect")).toBeVisible();
+    expect(await screen.findByText("Analyze data")).toBeVisible();
+    expect(screen.getByText("Analysis")).toBeVisible();
     expect(screen.getByText("model_usage")).toBeVisible();
 
     await userEvent.click(
       screen.getByRole("button", { name: /Advanced action limits/ }),
     );
     await waitFor(() => expect(screen.getByText("analyze")).toBeVisible());
-    expect(screen.getByText("data.read")).toBeVisible();
+    expect(screen.getByText("data.analysis.execute")).toBeVisible();
     await userEvent.click(
       screen.getByRole("switch", { name: "analyze access" }),
     );

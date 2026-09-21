@@ -384,6 +384,7 @@
     "appCapabilityRead": "Read-only",
     "appCapabilityWrite": "Writes",
     "appCapabilityGeneration": "Generation",
+    "appCapabilityAnalysis": "Analysis",
     "appCapabilityOther": "Action",
     "appCapabilityPartial": "Partially enabled",
     "appCapabilityActionCount": "{{count}} actions",

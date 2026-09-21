@@ -244,6 +244,12 @@ async def host(tmp_path, monkeypatch):
             action=ACTION,
             factory=factory,
             settings_entry="/apps/qwenpaw-data",
+            capability_id="data_analysis",
+            capability_label="Analyze data",
+            capability_summary=(
+                "Run governed analysis against an approved data source."
+            ),
+            capability_risk="analysis",
         ),
     }
     setup_holder = [
@@ -461,6 +467,12 @@ async def test_capability_grant_updates_bundle_atomically(host):
             action=second_action,
             factory=lambda: Executor(host.runs),
             settings_entry="/apps/qwenpaw-data",
+            capability_id="data_analysis",
+            capability_label="Analyze data",
+            capability_summary=(
+                "Run governed analysis against an approved data source."
+            ),
+            capability_risk="analysis",
         )
     )
     runtime = host.app.state.pawapp_tasks
@@ -471,14 +483,14 @@ async def test_capability_grant_updates_bundle_atomically(host):
     capability = next(
         item
         for item in catalog["capabilities"]
-        if item["capability_id"] == "read"
+        if item["capability_id"] == "data_analysis"
     )
     assert capability["action_ids"] == ["analyze", "list-records"]
     assert capability["partial"] is True
 
     path = "/api/pawapps/workspaces/sales/task-grants"
     granted = await host.client.put(
-        path + "/capabilities/qwenpaw-data/read",
+        path + "/capabilities/qwenpaw-data/data_analysis",
         json={"expected_revision": 0, "enabled": True},
     )
     assert granted.status_code == 200
@@ -496,7 +508,7 @@ async def test_capability_grant_updates_bundle_atomically(host):
     assert saved.grants[1].input_values == {}
 
     revoked = await host.client.put(
-        path + "/capabilities/qwenpaw-data/read",
+        path + "/capabilities/qwenpaw-data/data_analysis",
         json={"expected_revision": 1, "enabled": False},
     )
     assert revoked.status_code == 200

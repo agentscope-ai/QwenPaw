@@ -327,6 +327,10 @@ app.task_action(
             capability_bridge=task_capability_bridge,
         ),
         settings_entry="/apps/qwenpaw-data",
+        capability_id="data_analysis",
+        capability_label="Analyze data",
+        capability_summary=("Run governed analysis against an approved data source."),
+        capability_risk="analysis",
     ),
 )
 

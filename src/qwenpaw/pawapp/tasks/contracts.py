@@ -41,6 +41,7 @@ CommandState = Literal[
     "rejected",
     "unknown",
 ]
+CapabilityRisk = Literal["read", "write", "generation", "analysis", "other"]
 
 
 def canonical_json(value: Any) -> str:

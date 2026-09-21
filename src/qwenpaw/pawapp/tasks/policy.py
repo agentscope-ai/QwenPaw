@@ -16,6 +16,7 @@ from pydantic import Field
 from ...utils.io_utils import write_text_atomic
 from .contracts import (
     ActionDescriptor,
+    CapabilityRisk,
     Contract,
     Identity,
     TaskScope,
@@ -48,7 +49,7 @@ class TaskCapability(Contract):
     action_ids: tuple[Identity, ...] = ()
     permissions: tuple[Identity, ...] = ()
     effects: tuple[Identity, ...] = ()
-    risk: Literal["read", "write", "generation", "other"]
+    risk: CapabilityRisk
 
 
 _CAPABILITY_LABELS = {
@@ -102,34 +103,60 @@ def _capability_kind(action: ActionDescriptor) -> tuple[str, str]:
     return f"action:{action.action_id}", "other"
 
 
+def _capability_fields(item):
+    """Return action plus optional App-declared bundle metadata."""
+    action = getattr(item, "action", item)
+    return (
+        action,
+        getattr(item, "capability_id", None),
+        getattr(item, "capability_label", None),
+        getattr(item, "capability_summary", None),
+        getattr(item, "capability_risk", None),
+    )
+
+
 def build_task_capabilities(
     actions: Iterable[ActionDescriptor],
 ) -> tuple[TaskCapability, ...]:
     """Build public policy bundles without changing descriptor digests."""
 
-    grouped: dict[tuple[str, str], list[ActionDescriptor]] = {}
-    for action in actions:
+    grouped: dict[tuple[str, str], list[tuple]] = {}
+    for item in actions:
+        action, capability_id, _, _, _ = _capability_fields(item)
         kind, _ = _capability_kind(action)
-        grouped.setdefault((action.app_id, kind), []).append(action)
+        grouped.setdefault((action.app_id, capability_id or kind), []).append(
+            _capability_fields(item),
+        )
 
     capabilities = []
     for (app_id, capability_id), members in sorted(grouped.items()):
-        _, risk = _capability_kind(members[0])
+        first_action, _, declared_label, declared_summary, declared_risk = (
+            members[0]
+        )
+        _, inferred_risk = _capability_kind(first_action)
+        risk = declared_risk or inferred_risk
         if capability_id in _CAPABILITY_LABELS:
             label, summary = _CAPABILITY_LABELS[capability_id]
+        elif declared_label or declared_summary:
+            label = declared_label or first_action.summary
+            summary = declared_summary or (
+                "A specific App capability exposed to the Main Chat agent."
+            )
         else:
-            label = members[0].summary
+            label = first_action.summary
             summary = "A specific App action exposed to the Main Chat agent."
         permissions = tuple(
             dict.fromkeys(
                 permission
-                for action in members
+                for action, _, _, _, _ in members
                 for permission in action.permissions
             ),
         )
         effects = tuple(
             dict.fromkeys(
-                effect for action in members for effect in action.effects
+                effect
+                for action, _, _, _, _ in members
+                for effect in action.effects
             ),
         )
         capabilities.append(
@@ -139,7 +166,7 @@ def build_task_capabilities(
                 label=label,
                 summary=summary,
                 action_ids=tuple(
-                    sorted(action.action_id for action in members)
+                    sorted(action.action_id for action, _, _, _, _ in members)
                 ),
                 permissions=permissions,
                 effects=effects,

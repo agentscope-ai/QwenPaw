@@ -320,6 +320,8 @@ export default function PawAppAccessSettings() {
                           "settingsCenter.appCapabilityGeneration",
                           "Generation",
                         )
+                      : capability.risk === "analysis"
+                      ? t("settingsCenter.appCapabilityAnalysis", "Analysis")
                       : capability.risk === "write"
                       ? t("settingsCenter.appCapabilityWrite", "Writes")
                       : capability.risk === "read"

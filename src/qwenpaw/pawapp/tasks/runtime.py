@@ -284,7 +284,7 @@ class HostTaskRuntime:
             if binding.registration.exposure != "host_public":
                 continue
             action = binding.registration.action
-            public_actions.append(action)
+            public_actions.append(binding.registration)
             scope = TaskScope(
                 principal_id=principal_id,
                 workspace_id=workspace_id,
@@ -428,7 +428,7 @@ class HostTaskRuntime:
         """Atomically grant or revoke every public action in one bundle."""
         await self._sync()
         public_actions = [
-            binding.registration.action
+            binding.registration
             for binding in self._bindings.values()
             if binding.registration.exposure == "host_public"
             and binding.registration.action.app_id == scope.app_id
