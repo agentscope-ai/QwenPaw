@@ -1072,6 +1072,7 @@
   },
   "chat": {
     "newTask": "Tugas baru",
+    "newChat": "Chat baru",
     "groups": {
       "cronShort": "Terjadwal",
       "subagentShort": "Subagen"
@@ -1185,6 +1186,7 @@
       "rename": "Ganti nama",
       "pin": "Sematkan",
       "unpin": "Lepas sematan",
+      "copyId": "Salin ID percakapan",
       "delete": "Hapus"
     },
     "queue": {

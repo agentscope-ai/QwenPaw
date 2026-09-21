@@ -3657,6 +3657,7 @@
     },
     "modelSelectTooltip": "Select model",
     "newTask": "New task",
+    "newChat": "New chat",
     "chatHistoryTooltip": "Chat history",
     "messageDisplay": {
       "stepsRunning": "Running… · {{count}} steps",
@@ -3770,6 +3771,7 @@
       "unpin": "Unpin",
       "pinFailed": "Failed to update conversation pin",
       "moveToGroup": "Move to group",
+      "copyId": "Copy conversation ID",
       "delete": "Delete"
     },
     "queue": {
@@ -3803,6 +3805,7 @@
       "uncategorized": "Uncategorized",
       "cron": "Scheduled task conversations",
       "cronShort": "Cron",
+      "chatShort": "Chat",
       "cronHint": "Separate conversations created by scheduled tasks; collapsed by default and fixed near the bottom",
       "subagents": "Conversations with subagents",
       "subagentShort": "Subagent",

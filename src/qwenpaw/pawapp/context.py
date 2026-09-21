@@ -443,7 +443,7 @@ class PawAppContext:
             if sid == self._session_namespace()
             else "New analysis"
         )
-        resolved_name = (name or default_name).strip()[:80] or default_name
+        resolved_name = (name or default_name).strip() or default_name
         if existing is None:
             existing = ChatSpec(
                 session_id=sid,
@@ -508,7 +508,7 @@ class PawAppContext:
         chat = await workspace.chat_manager.get_chat(chat_id)
         if chat is None or not self._owns_chat_spec(chat):
             return None
-        resolved_name = name.strip()[:80]
+        resolved_name = name.strip()
         if not resolved_name:
             raise ValueError("name is required")
         updated = await workspace.chat_manager.patch_chat(

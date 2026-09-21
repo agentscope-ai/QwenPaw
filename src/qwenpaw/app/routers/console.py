@@ -132,7 +132,7 @@ def _extract_placeholder_name(content_parts: list) -> tuple[str, str]:
         first_text = ""
     if not first_text:
         return "Media Message", ""
-    return first_text[:10], first_text
+    return first_text, first_text
 
 
 async def _persist_pending_model_settings(workspace, chat, request_context):

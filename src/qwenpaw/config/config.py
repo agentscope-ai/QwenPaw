@@ -1363,8 +1363,8 @@ class LightContextConfig(BaseModel):
 class AutoTitleConfig(BaseModel):
     """Async chat-title generation configuration.
 
-    The console handler creates each new chat with a 10-character
-    placeholder name and spawns a background task that asks the active
+    The console handler creates each new chat with a placeholder name bounded
+    to 500 characters and spawns a background task that asks the active
     LLM for a concise title. Each new chat costs one short extra LLM
     call; flip ``enabled`` to ``False`` to keep the placeholder and
     avoid the spend.
@@ -1376,7 +1376,7 @@ class AutoTitleConfig(BaseModel):
         default=True,
         description=(
             "Generate a chat title via the active LLM after the first "
-            "user message. Disable to keep the truncated placeholder "
+            "user message. Disable to keep the placeholder "
             "and skip the extra per-chat LLM call."
         ),
     )
