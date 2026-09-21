@@ -81,3 +81,10 @@ Merged frontend validation: 415 test files / 4,490 tests passed; TypeScript, Pre
 - [x] Preserve whether raw OpenAI-compatible responses actually report cache counters; missing counters must not become an observed zero.
 - [x] Show “cache usage not reported” instead of fabricated hit/input zero details.
 - [x] Validate explicit zero, missing counters and real hits: 103 backend tests and 36 frontend tests passed; changed-file pre-commit, frontend ESLint/format and production build passed.
+
+### First-send session model label
+
+- [x] Identify allocation race: the chat UUID exists before the submitted session model is persisted.
+- [x] Share model/thinking view resolution and retain the pending selection until backend acknowledgement.
+- [x] Clear migrated pending overrides after an acknowledged selection, explicit replacement or reset.
+- [x] Verify first-send label and subsequent replacement/reset regression tests: 125 related tests passed; TypeScript/build, formatting and changed-file pre-commit passed. ESLint: no errors, one existing effect-dependency warning.

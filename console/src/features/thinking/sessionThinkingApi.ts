@@ -1,5 +1,5 @@
 import {
-  modelViewUrl,
+  loadSessionThinkingView,
   readPendingModel,
 } from "../session-settings/sessionModel";
 import { request } from "@/api/request";
@@ -75,9 +75,7 @@ export function withPendingThinking(
 }
 export const sessionThinkingApi = {
   get: (agentId: string, chatId?: string | null, sessionId = "new") =>
-    request<ThinkingView>(modelViewUrl(agentId, { chatId, sessionId }), {
-      headers: { "X-Agent-Id": agentId },
-    }),
+    loadSessionThinkingView(agentId, { chatId, sessionId }),
   set: (
     agentId: string,
     chatId: string,

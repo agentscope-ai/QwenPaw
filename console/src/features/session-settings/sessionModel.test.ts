@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { request } from "@/api/request";
 import {
   loadSessionModel,
+  resetSessionModel,
   saveSessionModel,
   migratePendingModel,
   readPendingModel,
@@ -52,3 +53,45 @@ it("carries new-session model selection through first-send allocation", async ()
     },
   });
 });
+
+it("keeps the submitted model visible until the allocated chat acknowledges it", async () => {
+  const selected = { provider_id: "dashscope", model: "deepseek-v4.1-flash" };
+  const inherited = { provider_id: "dashscope", model: "glm-5.3" };
+  vi.mocked(request).mockResolvedValueOnce(selected);
+  await saveSessionModel("agent", { sessionId: "new" }, selected);
+  migratePendingModel("agent", "new", "created");
+  const scope = { sessionId: "created", chatId: "created" };
+  vi.mocked(request)
+    .mockResolvedValueOnce(inherited)
+    .mockResolvedValueOnce(selected);
+  expect((await loadSessionModel("agent", scope)).active_llm).toEqual(selected);
+  expect(readPendingModel("agent", "created")).toEqual(selected);
+  expect(withPendingModel({}, "agent", "created")).toEqual({
+    request_context: { session_model: selected },
+  });
+  vi.mocked(request).mockResolvedValueOnce({
+    ...selected,
+    model_source: "session",
+  });
+  expect((await loadSessionModel("agent", scope)).active_llm).toEqual(selected);
+  expect(readPendingModel("agent", "created")).toBeNull();
+  expect(withPendingModel({}, "agent", "created")).toEqual({});
+});
+
+it.each(["replace", "reset"])(
+  "retires the migrated choice after a successful %s",
+  async (operation) => {
+    const selected = { provider_id: "dashscope", model: "deepseek-v4.1-flash" };
+    vi.mocked(request).mockResolvedValue(selected);
+    await saveSessionModel("agent", { sessionId: "new" }, selected);
+    migratePendingModel("agent", "new", "created");
+    const scope = { sessionId: "created", chatId: "created" };
+    if (operation === "reset") await resetSessionModel("agent", scope);
+    else
+      await saveSessionModel("agent", scope, {
+        provider_id: "dashscope",
+        model: "glm-5.3",
+      });
+    expect(withPendingModel({}, "agent", "created")).toEqual({});
+  },
+);

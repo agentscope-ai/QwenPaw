@@ -11,7 +11,10 @@ import {
   setPendingThinking,
 } from "./sessionThinkingApi";
 import type { ThinkingPreference, ThinkingView } from "./types";
-import { resetSessionModel } from "../session-settings/sessionModel";
+import {
+  readPendingModel,
+  resetSessionModel,
+} from "../session-settings/sessionModel";
 import ModelSelector from "../../pages/Chat/ModelSelector";
 import { ProviderIcon } from "../../pages/Settings/Models/components/ProviderIconComponent";
 import { useTurnUsageStore } from "../../pages/Chat/turnUsageStore";
@@ -59,7 +62,7 @@ export function SessionThinking({
       const next = await sessionThinkingApi.get(agentId, chatId, sessionId);
       if (identityRef.current !== identity || revision.current !== version)
         return;
-      if (!chatId)
+      if (!chatId || readPendingModel(agentId, sessionId))
         next.value =
           readPendingThinking(agentId, sessionId, next.model_key) ?? next.value;
       setView(next);

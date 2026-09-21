@@ -65,15 +65,43 @@ function activeModels(view: ThinkingView): ActiveModelsInfo {
     effective_max_input_length: view.effective_max_input_length,
   };
 }
+export async function loadSessionThinkingView(
+  agent: string,
+  scope: SessionModelScope,
+): Promise<ThinkingView> {
+  const pending = readPendingModel(agent, scope.sessionId);
+  const view = await request<ThinkingView>(modelViewUrl(agent, scope), {
+    headers: { "X-Agent-Id": agent },
+  });
+  if (!scope.chatId || !pending) return view;
+  // A newly allocated chat can be read before the first turn saves its model.
+  // Keep the submitted choice until the server acknowledges that exact model.
+  if (
+    view.model_source === "session" &&
+    view.provider_id === pending.provider_id &&
+    view.model === pending.model
+  ) {
+    const current = readPendingModel(agent, scope.sessionId);
+    if (
+      current?.model === pending.model &&
+      current.provider_id === pending.provider_id
+    ) {
+      clearPendingModel(agent, scope.sessionId);
+    }
+    return view;
+  }
+  const preview = await request<ThinkingView>(
+    `/chats/thinking-default?${new URLSearchParams({ ...pending })}`,
+    { headers: { "X-Agent-Id": agent } },
+  );
+  return { ...preview, model_source: "session" };
+}
+
 export async function loadSessionModel(
   agent: string,
   scope: SessionModelScope,
 ) {
-  return activeModels(
-    await request<ThinkingView>(modelViewUrl(agent, scope), {
-      headers: { "X-Agent-Id": agent },
-    }),
-  );
+  return activeModels(await loadSessionThinkingView(agent, scope));
 }
 export async function saveSessionModel(
   agent: string,
@@ -90,16 +118,16 @@ export async function saveSessionModel(
     sessionStorage.setItem(key(agent, scope.sessionId), JSON.stringify(model));
     return activeModels(view);
   }
-  return activeModels(
-    await request<ThinkingView>(
-      `/chats/${encodeURIComponent(scope.chatId)}/model`,
-      {
-        method: "PUT",
-        headers: { "X-Agent-Id": agent },
-        body: JSON.stringify(model),
-      },
-    ),
+  const view = await request<ThinkingView>(
+    `/chats/${encodeURIComponent(scope.chatId)}/model`,
+    {
+      method: "PUT",
+      headers: { "X-Agent-Id": agent },
+      body: JSON.stringify(model),
+    },
   );
+  clearPendingModel(agent, scope.sessionId);
+  return activeModels(view);
 }
 
 export async function resetSessionModel(
@@ -110,14 +138,14 @@ export async function resetSessionModel(
     sessionStorage.removeItem(key(agent, scope.sessionId));
     return loadSessionModel(agent, scope);
   }
-  return activeModels(
-    await request<ThinkingView>(
-      `/chats/${encodeURIComponent(scope.chatId)}/model`,
-      {
-        method: "PUT",
-        headers: { "X-Agent-Id": agent },
-        body: "null",
-      },
-    ),
+  const view = await request<ThinkingView>(
+    `/chats/${encodeURIComponent(scope.chatId)}/model`,
+    {
+      method: "PUT",
+      headers: { "X-Agent-Id": agent },
+      body: "null",
+    },
   );
+  clearPendingModel(agent, scope.sessionId);
+  return activeModels(view);
 }
