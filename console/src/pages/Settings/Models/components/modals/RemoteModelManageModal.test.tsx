@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderWithProviders } from "@/test/common_setup";
@@ -198,8 +199,16 @@ describe("model pool switches", () => {
     );
   });
   it("disables a selected model without deleting it", async () => {
+    api.updateModelPool.mockImplementation(() => {
+      serverProvider = {
+        ...provider,
+        extra_models: [],
+        discovered_models: [candidate, chosen],
+      };
+      return Promise.resolve(serverProvider);
+    });
     await render();
-    fireEvent.click(
+    await userEvent.click(
       screen.getByRole("switch", {
         name: "models.pool.selectorToggle Chosen model",
       }),
@@ -211,33 +220,66 @@ describe("model pool switches", () => {
         { selected: false, seen: true },
       ),
     );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("switch", {
+          name: "models.pool.selectorToggle Chosen model",
+        }),
+      ).not.toBeChecked(),
+    );
     expect(screen.getByText("Chosen model")).toBeInTheDocument();
-    await waitFor(() => expect(api.getModelPool).toHaveBeenCalledTimes(2));
-    api.selectAllModels.mockResolvedValue({ ...provider, extra_models: [] });
-    const closeAll = screen.getByRole("button", {
-      name: "models.pool.disableAll",
+  });
+  it("can enable all after disabling all and refreshing the pool", async () => {
+    // Disabled models remain discoverable and can be enabled again.
+    serverProvider = { ...provider, discovered_models: [candidate, chosen] };
+    api.selectAllModels.mockImplementation((_id, selected) => {
+      serverProvider = {
+        ...serverProvider,
+        extra_models: selected ? [chosen, candidate] : [],
+      };
+      return Promise.resolve(serverProvider);
     });
-    await waitFor(() => expect(closeAll).not.toBeDisabled());
-    fireEvent.click(
-      screen.getByRole("button", { name: "models.pool.disableAll" }),
+    const user = userEvent.setup();
+    await render();
+    await user.click(
+      screen.getByRole("button", {
+        name: "models.pool.disableAll",
+      }),
     );
-    await waitFor(() =>
-      expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", false),
-    );
-    api.selectAllModels.mockResolvedValue({
-      ...provider,
-      extra_models: [chosen, candidate],
+    await waitFor(() => {
+      expect(
+        screen.getByRole("switch", {
+          name: "models.pool.selectorToggle Chosen model",
+        }),
+      ).not.toBeChecked();
+      // Query the current DOM: Tooltip may replace its child as disabled changes.
+      expect(
+        screen.getByRole("button", {
+          name: "models.pool.enableAll",
+        }),
+      ).toBeEnabled();
     });
-    const enableAll = screen.getByRole("button", {
-      name: "models.pool.enableAll",
+    await user.click(
+      screen.getByRole("button", {
+        name: "models.pool.enableAll",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole("switch", {
+          name: "models.pool.selectorToggle Chosen model",
+        }),
+      ).toBeChecked();
+      expect(
+        screen.getByRole("switch", {
+          name: "models.pool.selectorToggle New candidate",
+        }),
+      ).toBeChecked();
     });
-    await waitFor(() => expect(enableAll).not.toBeDisabled());
-    fireEvent.click(
-      screen.getByRole("button", { name: "models.pool.enableAll" }),
-    );
-    await waitFor(() =>
-      expect(api.selectAllModels).toHaveBeenCalledWith("openrouter", true),
-    );
+    expect(api.selectAllModels.mock.calls).toEqual([
+      ["openrouter", false],
+      ["openrouter", true],
+    ]);
   });
   it("confirms the full catalog before a large bulk enable", async () => {
     api.getModelPool.mockResolvedValue({

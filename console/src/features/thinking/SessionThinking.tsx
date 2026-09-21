@@ -4,6 +4,7 @@ import { Spin, Tooltip } from "antd";
 import { ChevronDown, ArrowLeft, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useAppMessage } from "@/hooks/useAppMessage";
+import { ThinkingIndicator } from "./ThinkingIndicator";
 import { ThinkingControl } from "./ThinkingControl";
 import {
   readPendingThinking,
@@ -34,6 +35,7 @@ export function SessionThinking({
   const [view, setView] = useState<ThinkingView>();
   const [open, setOpen] = useState(false);
   const [choosing, setChoosing] = useState(false);
+  const [preview, setPreview] = useState<ThinkingPreference>();
   const [busy, setBusy] = useState(false);
   const revision = useRef(0);
   const identity = `${agentId}:${sessionId}:${chatId ?? ""}`;
@@ -43,6 +45,7 @@ export function SessionThinking({
     setOpen(false);
     setChoosing(false);
     setView(undefined);
+    setPreview(undefined);
     setBusy(false);
     revision.current += 1;
     void load();
@@ -65,6 +68,7 @@ export function SessionThinking({
       if (!chatId || readPendingModel(agentId, sessionId))
         next.value =
           readPendingThinking(agentId, sessionId, next.model_key) ?? next.value;
+      setPreview(undefined);
       setView(next);
       useTurnUsageStore
         .getState()
@@ -78,10 +82,12 @@ export function SessionThinking({
   }
   async function save(value: ThinkingPreference) {
     if (!view || busy) return;
+    setPreview(value);
     const version = ++revision.current;
     if (!chatId) {
       setPendingThinking(agentId, sessionId, value, view.model_key);
       setView({ ...view, value, reason: null });
+      setPreview(undefined);
       return;
     }
     setBusy(true);
@@ -99,8 +105,10 @@ export function SessionThinking({
     } catch (error) {
       if (identityRef.current === identity) message.error(String(error));
     } finally {
-      if (identityRef.current === identity && revision.current === version)
+      if (identityRef.current === identity && revision.current === version) {
         setBusy(false);
+        setPreview(undefined);
+      }
     }
   }
   const canReset =
@@ -135,14 +143,21 @@ export function SessionThinking({
     </Tooltip>
   );
   const value = view?.value ?? { level: "inherit" as const };
-  const display = value.level === "inherit" ? view?.effective ?? value : value;
+  const displayedValue = preview ?? value;
+  const display =
+    displayedValue.level === "inherit"
+      ? view?.effective ?? displayedValue
+      : displayedValue;
   return (
     <ModelPickerPopover
       picker={choosing}
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setChoosing(false);
+        if (!next) {
+          setChoosing(false);
+          setPreview(undefined);
+        }
         if (next) void load();
       }}
       content={
@@ -186,6 +201,7 @@ export function SessionThinking({
                   }
                   resetAction={resetModelButton}
                   onChooseModel={() => setChoosing(true)}
+                  onPreview={setPreview}
                   onChange={(next) => void save(next)}
                   disabled={busy}
                 />
@@ -218,20 +234,7 @@ export function SessionThinking({
             (view?.provider_id !== "hub-managed" ? view?.model : undefined) ||
             t("modelSelector.selectModel")}
         </span>
-        {view &&
-          !["unsupported", "unknown"].includes(view.control.kind) &&
-          display.level !== "inherit" && (
-            <span
-              className={styles.source}
-              title={t(
-                `thinkingControl.modelSource.${view?.model_source ?? "global"}`,
-              )}
-            >
-              {display.level === "budget"
-                ? `${display.budget_tokens?.toLocaleString()}`
-                : t(`thinkingControl.${display.level}`)}
-            </span>
-          )}
+        {view && <ThinkingIndicator control={view.control} value={display} />}
         <ChevronDown size={12} />
       </button>
     </ModelPickerPopover>

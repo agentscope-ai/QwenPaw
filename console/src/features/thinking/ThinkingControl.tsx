@@ -10,6 +10,7 @@ export function ThinkingControl({
   control,
   value,
   onChange,
+  onPreview,
   disabled = false,
   modelLabel,
   onChooseModel,
@@ -19,6 +20,7 @@ export function ThinkingControl({
   control: ThinkingControlSpec;
   value: ThinkingPreference;
   onChange: (value: ThinkingPreference) => void;
+  onPreview?: (value: ThinkingPreference) => void;
   disabled?: boolean;
   modelLabel?: ReactNode;
   onChooseModel?: () => void;
@@ -196,6 +198,13 @@ export function ThinkingControl({
             tooltip={{ open: false }}
             onChange={(next) => {
               setAdjusting(true);
+              onPreview?.(
+                isBudget
+                  ? next < (low + offPosition) / 2
+                    ? { level: "off" }
+                    : { level: "budget", budget_tokens: Math.max(low, next) }
+                  : { level: efforts[next] },
+              );
               if (isBudget)
                 setBudget(
                   next < low
@@ -230,6 +239,7 @@ export function ThinkingControl({
                     if (next !== null) {
                       setBudget(next);
                       setAdjusting(true);
+                      onPreview?.({ level: "budget", budget_tokens: next });
                     }
                   }}
                   onBlur={() => {
@@ -243,7 +253,6 @@ export function ThinkingControl({
                   prefix={
                     <Brain size={14} strokeWidth={1.75} aria-hidden="true" />
                   }
-                  suffix="tokens"
                 />
               ) : (
                 <button
@@ -263,8 +272,9 @@ export function ThinkingControl({
                     transformTiming={{ duration: 180, easing: "ease-out" }}
                     opacityTiming={{ duration: 100, easing: "ease-out" }}
                     respectMotionPreference
-                  />{" "}
-                  <span>tokens</span>
+                    format={{ notation: "compact", maximumFractionDigits: 1 }}
+                    locales="en"
+                  />
                 </button>
               ))}
           </div>

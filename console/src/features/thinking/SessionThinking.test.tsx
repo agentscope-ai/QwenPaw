@@ -165,3 +165,55 @@ it.each([null, "chat"])(
     });
   },
 );
+
+it("keeps the new depth visible while saving instead of reverting the indicator", async () => {
+  const view = {
+    model: "qwen",
+    model_name: "Qwen",
+    provider_id: "dashscope",
+    model_key: "dashscope:qwen",
+    control: {
+      kind: "budget" as const,
+      efforts: [],
+      supports_off: true,
+      budget_min: 1000,
+      budget_max: 10000,
+    },
+    value: { level: "budget" as const, budget_tokens: 1000 },
+    effective: { level: "budget" as const, budget_tokens: 1000 },
+    source: "session" as const,
+    reason: null,
+  };
+  vi.mocked(sessionThinkingApi.get).mockResolvedValue(view);
+  let resolve!: (value: typeof view) => void;
+  vi.mocked(sessionThinkingApi.set).mockReturnValue(
+    new Promise((done) => {
+      resolve = done;
+    }),
+  );
+  renderWithProviders(<SessionThinking agentId="a" sessionId="s" chatId="c" />);
+  await screen.findByRole("img", { name: "thinkingControl.light" });
+  fireEvent.click(
+    screen.getByRole("button", { name: "thinkingControl.budget" }),
+  );
+  const input = screen.getByRole("spinbutton", {
+    name: "thinkingControl.budget",
+  });
+  fireEvent.change(input, { target: { value: "10000" } });
+  expect(
+    screen.getByRole("img", { name: "thinkingControl.intensive" }),
+  ).toBeInTheDocument();
+  fireEvent.blur(input);
+  expect(
+    screen.getByRole("img", { name: "thinkingControl.intensive" }),
+  ).toBeInTheDocument();
+  resolve({ ...view, value: { level: "budget", budget_tokens: 10000 } });
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "thinkingControl.budget" }),
+    ).toBeEnabled(),
+  );
+  expect(
+    screen.getByRole("img", { name: "thinkingControl.intensive" }),
+  ).toBeInTheDocument();
+});

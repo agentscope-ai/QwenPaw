@@ -9,6 +9,7 @@ vi.mock("react-i18next", () => ({
 describe("ThinkingControl", () => {
   it("preserves exact numeric budgets and commits once editing ends", () => {
     const changed = vi.fn();
+    const preview = vi.fn();
     render(
       <ThinkingControl
         control={{
@@ -20,6 +21,7 @@ describe("ThinkingControl", () => {
         }}
         value={{ level: "budget", budget_tokens: 4096 }}
         onChange={changed}
+        onPreview={preview}
       />,
     );
     fireEvent.click(
@@ -30,6 +32,10 @@ describe("ThinkingControl", () => {
     });
     fireEvent.change(input, { target: { value: "12345" } });
     expect(changed).not.toHaveBeenCalled();
+    expect(preview).toHaveBeenLastCalledWith({
+      level: "budget",
+      budget_tokens: 12345,
+    });
     fireEvent.blur(input);
     expect(changed).toHaveBeenCalledWith({
       level: "budget",
