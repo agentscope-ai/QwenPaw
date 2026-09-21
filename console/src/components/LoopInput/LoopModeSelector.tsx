@@ -1,4 +1,5 @@
 import {
+  Bot,
   Boxes,
   ChevronDown,
   CircleDot,
@@ -21,6 +22,7 @@ import {
   type LoopModeInfo,
   useLoopStore,
 } from "../../stores/loopStore";
+import { ADVISOR_LOOP_MODE_ID } from "../../constants/loopMode";
 import { useIsMobile } from "../../hooks/useIsMobile";
 import { OsDrawer } from "../../os/OsOverlay";
 import { InlineMarkdown } from "../Markdown/InlineMarkdown";
@@ -28,9 +30,11 @@ import {
   resolveLoopModeDescriptionMarkdown,
   resolveLoopModeName,
 } from "../../utils/loopModeDescription";
+import { AdvisorSetupPopover } from "./AdvisorSetupPopover";
 import styles from "./index.module.less";
 
 function ModeIcon({ mode, size = 14 }: { mode: LoopModeInfo; size?: number }) {
+  if (mode.id === ADVISOR_LOOP_MODE_ID) return <Bot size={size} />;
   if (mode.id === "goal") return <Target size={size} />;
   if (mode.id === "mission") return <Rocket size={size} />;
   if (mode.source === "custom") return <Sparkles size={size} />;
@@ -52,6 +56,9 @@ export function LoopModeSelector({
   const navigate = useNavigate();
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  // Opens by itself right after Advisor is picked. The chat header's
+  // Advisor pill opens its own copy of the panel.
+  const [advisorSetupOpen, setAdvisorSetupOpen] = useState(false);
   const availableModes = useLoopStore((state) => state.availableModes);
   const selectedModeId = useLoopStore((state) => state.selectedModeId);
   const sessionState = useLoopStore((state) => state.sessionState);
@@ -123,6 +130,9 @@ export function LoopModeSelector({
               onClick={() => {
                 setSelectedMode(mode.id);
                 setOpen(false);
+                if (mode.id === ADVISOR_LOOP_MODE_ID) {
+                  setAdvisorSetupOpen(true);
+                }
               }}
               role="option"
               type="button"
@@ -229,10 +239,19 @@ export function LoopModeSelector({
     </button>
   );
 
+  const advisorSetup =
+    selectedMode.id === ADVISOR_LOOP_MODE_ID ? (
+      <AdvisorSetupPopover
+        open={advisorSetupOpen}
+        onOpenChange={setAdvisorSetupOpen}
+      />
+    ) : null;
+
   if (isMobile) {
     return (
       <>
         {triggerButton}
+        {advisorSetup}
         <OsDrawer
           aria-label={t("loop.selectorTitle")}
           open={open}
@@ -258,16 +277,19 @@ export function LoopModeSelector({
   }
 
   return (
-    <Popover
-      arrow={false}
-      content={content}
-      onOpenChange={setOpen}
-      open={open}
-      overlayClassName={styles.modePopover}
-      placement="topLeft"
-      trigger="click"
-    >
-      {triggerButton}
-    </Popover>
+    <>
+      <Popover
+        arrow={false}
+        content={content}
+        onOpenChange={setOpen}
+        open={open}
+        overlayClassName={styles.modePopover}
+        placement="topLeft"
+        trigger="click"
+      >
+        {triggerButton}
+      </Popover>
+      {advisorSetup}
+    </>
   );
 }
