@@ -600,6 +600,9 @@ class QwenPawAgent(Agent):
                     await run_sync_io(
                         cm.purge_old,
                         lcc.scroll_config.history_retention_days,
+                        blocks_retention_days=(
+                            lcc.scroll_config.blocks_retention_days
+                        ),
                     )
                 except Exception:
                     logger.debug(

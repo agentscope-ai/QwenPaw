@@ -918,6 +918,7 @@ def _stub_config_loaders(
                 scroll_config=SimpleNamespace(
                     db_filename="history.db",
                     history_retention_days=retention_days,
+                    blocks_retention_days=0,
                 ),
             ),
         ),
