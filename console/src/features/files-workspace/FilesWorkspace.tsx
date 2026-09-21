@@ -14,6 +14,7 @@ import {
   useActiveTabPathForScope,
   useTabsForScope,
   type EditorTab,
+  type PendingDiff,
 } from "../../stores/codingTabsStore";
 import { useCodingMode } from "../../stores/codingModeStore";
 import { downloadFileFromUrl } from "../../utils/downloadFileFromUrl";
@@ -85,6 +86,7 @@ export default function FilesWorkspace({
     clearProjectTabs,
     closeTab,
     openTab,
+    refreshTab,
     setActiveTab,
     setTabContent,
     setTabDirty,
@@ -312,34 +314,46 @@ export default function FilesWorkspace({
   );
 
   const isTabSnapshotCurrent = useCallback(
-    (tabPath: string, snapshot: EditorTab | undefined) => {
+    (
+      tabPath: string,
+      snapshot: EditorTab | undefined,
+      diffSnapshot: PendingDiff | undefined,
+    ) => {
       if (!mountedRef.current || !snapshot) return false;
       const currentTab = getLiveTab(tabPath);
-      // Store updates replace tab objects, so identity is the buffer version.
-      return currentTab === snapshot && !currentTab.dirty;
+      const currentDiff =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
+      // Diffs can change independently, including individual hunk decisions.
+      return (
+        scopeKeyRef.current === scopeKey &&
+        currentTab === snapshot &&
+        !currentTab.dirty &&
+        currentDiff === diffSnapshot
+      );
     },
-    [getLiveTab],
+    [getLiveTab, scopeKey],
   );
 
   const loadTabContent = useCallback(
     async (tabPath: string) => {
       const snapshot = getLiveTab(tabPath);
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
       const loaded = await loadTab(tabPath);
-      if (
-        snapshot &&
-        isTabSnapshotCurrent(tabPath, snapshot) &&
-        snapshot.etag !== loaded.etag
-      ) {
-        setTabEtag(scopeKey, tabPath, loaded.etag);
+      if (!isTabSnapshotCurrent(tabPath, snapshot, diffSnapshot)) {
+        throw new Error("File state changed while loading");
       }
+      refreshTab(scopeKey, tabPath, loaded.content, loaded.etag);
       return loaded.content;
     },
-    [getLiveTab, isTabSnapshotCurrent, loadTab, scopeKey, setTabEtag],
+    [getLiveTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey],
   );
 
   const revalidateTab = useCallback(
     async (tabPath: string) => {
       const tab = getLiveTab(tabPath);
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tabPath];
       const previewKind =
         tab?.previewKind ??
         inferPreviewKind(tab?.displayPath ?? tab?.path ?? tabPath);
@@ -358,36 +372,23 @@ export default function FilesWorkspace({
         if (
           scopeKeyRef.current !== scopeKey ||
           revalidationSequence.current.get(tabPath) !== sequence ||
-          !isTabSnapshotCurrent(tabPath, tab)
+          !isTabSnapshotCurrent(tabPath, tab, diffSnapshot)
         ) {
           return;
         }
-        if (tab.etag !== loaded.etag) {
-          setTabEtag(scopeKey, tabPath, loaded.etag);
-        }
-        if (tab.content !== loaded.content) {
-          setTabContent(scopeKey, tabPath, loaded.content);
-        }
+        refreshTab(scopeKey, tabPath, loaded.content, loaded.etag);
       } catch {
         if (
           mountedRef.current &&
           scopeKeyRef.current === scopeKey &&
           revalidationSequence.current.get(tabPath) === sequence &&
-          isTabSnapshotCurrent(tabPath, tab)
+          isTabSnapshotCurrent(tabPath, tab, diffSnapshot)
         ) {
           setLoadError(t("files.loadFailed"));
         }
       }
     },
-    [
-      getLiveTab,
-      isTabSnapshotCurrent,
-      loadTab,
-      scopeKey,
-      setTabContent,
-      setTabEtag,
-      t,
-    ],
+    [getLiveTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t],
   );
 
   const activateTab = useCallback(
@@ -480,30 +481,20 @@ export default function FilesWorkspace({
         return;
       }
       hydratedTabs.current.add(tab.path);
+      const diffSnapshot =
+        useCodingTabsStore.getState().diffsByAgent[scopeKey]?.[tab.path];
       void loadTab(tab.path)
         .then((loaded) => {
-          if (!isTabSnapshotCurrent(tab.path, tab)) return;
-          if (tab.etag !== loaded.etag) {
-            setTabEtag(scopeKey, tab.path, loaded.etag);
-          }
-          setTabContent(scopeKey, tab.path, loaded.content);
+          if (!isTabSnapshotCurrent(tab.path, tab, diffSnapshot)) return;
+          refreshTab(scopeKey, tab.path, loaded.content, loaded.etag);
         })
         .catch(() => {
-          if (!isTabSnapshotCurrent(tab.path, tab)) return;
+          if (!isTabSnapshotCurrent(tab.path, tab, diffSnapshot)) return;
           closeTab(scopeKey, tab.path);
           setLoadError(t("files.loadFailed"));
         });
     });
-  }, [
-    closeTab,
-    isTabSnapshotCurrent,
-    loadTab,
-    scopeKey,
-    setTabContent,
-    setTabEtag,
-    t,
-    tabs,
-  ]);
+  }, [closeTab, isTabSnapshotCurrent, loadTab, refreshTab, scopeKey, t, tabs]);
 
   useEffect(() => {
     if (initialTarget) void openTarget(initialTarget);

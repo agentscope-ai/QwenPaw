@@ -50,9 +50,21 @@ vi.mock("../../stores/codingTabsStore", () => {
       setTabContent: lifecycle.setTabContent,
       setTabDirty: vi.fn(),
       setTabEtag: lifecycle.setTabEtag,
+      refreshTab: (
+        scopeKey: string,
+        path: string,
+        content: string,
+        etag: string,
+      ) => {
+        const tab = lifecycle.tabs.find((item) => item.path === path);
+        if (tab?.etag !== etag) lifecycle.setTabEtag(scopeKey, path, etag);
+        if (tab?.content !== content)
+          lifecycle.setTabContent(scopeKey, path, content);
+      },
     }),
     {
       getState: () => ({
+        diffsByAgent: {},
         tabsByAgent: {
           "agent:agent-a": lifecycle.tabs,
           "session:agent-a:session-a": lifecycle.tabs,
@@ -413,10 +425,10 @@ describe("FilesWorkspace directory changes", () => {
       expect(lifecycle.getFileMetadata).toHaveBeenCalledTimes(2),
     );
     await waitFor(() =>
-      expect(lifecycle.setTabContent).toHaveBeenCalledWith(
+      expect(lifecycle.setTabEtag).toHaveBeenCalledWith(
         "agent:agent-a",
         "image.png",
-        "",
+        "v2",
       ),
     );
     lifecycle.setTabContent.mockClear();
