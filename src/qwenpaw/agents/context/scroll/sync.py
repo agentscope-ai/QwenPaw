@@ -781,13 +781,13 @@ def _purge_old_history(
         parts = []
         if removed and retention_days > 0:
             parts.append(
-                "purged %d row(s) older than %dd" % (removed, retention_days),
+                f"purged {removed} row(s) older than {retention_days}d",
             )
         if aged["rows"] and blocks_retention_days > 0:
             parts.append(
-                "aged %d tool_result block payload(s) (%d bytes) older "
-                "than %dd"
-                % (aged["rows"], aged["blocks_bytes"], blocks_retention_days),
+                f"aged {aged['rows']} tool_result block payload(s) "
+                f"({aged['blocks_bytes']} bytes) older than "
+                f"{blocks_retention_days}d",
             )
         logger.info(
             "session-sync[%s]: %s",
