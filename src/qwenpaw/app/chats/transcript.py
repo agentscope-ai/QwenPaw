@@ -965,9 +965,11 @@ class TranscriptStore:
     def purge_if_due(
         self,
         *,
+        session_id: str | None = None,
         now: datetime | None = None,
     ) -> int:
         """Apply retention at most once per UTC day for a live workspace."""
+        del session_id
         if self._retention_days <= 0:
             return 0
         current = now or datetime.now(timezone.utc)

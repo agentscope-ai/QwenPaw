@@ -45,7 +45,7 @@ from .service_factories import (
 from .local_workspace import QwenPawLocalWorkspace
 from ..task_tracker import TaskTracker
 from ..chats.session import SafeJSONSession
-from ..chats.transcript import TranscriptStore
+from ..chats.transcript_catalog import TranscriptCatalog
 from ..chats.transcript_recorder import (
     TRANSCRIPT_TURN_ID_CONTEXT_KEY,
     TranscriptRecorder,
@@ -222,7 +222,7 @@ class Workspace:  # pylint: disable=too-many-public-methods
         return self._service_manager.services.get("chat_manager")
 
     @property
-    def transcript_store(self) -> Optional[TranscriptStore]:
+    def transcript_store(self) -> Optional[TranscriptCatalog]:
         """Get the durable transcript store, when available."""
         return self._service_manager.services.get("transcript_store")
 
@@ -691,9 +691,9 @@ class Workspace:  # pylint: disable=too-many-public-methods
         sm.register(
             ServiceDescriptor(
                 name="transcript_store",
-                service_class=TranscriptStore,
+                service_class=TranscriptCatalog,
                 init_args=lambda ws: {
-                    "db_path": ws.workspace_dir / "transcript.db",
+                    "workspace_dir": ws.workspace_dir,
                     "retention_days": (
                         ws.config.running.transcript_retention_days
                     ),

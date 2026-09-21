@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from ...runtime.console_turn_state import REGENERATE_FROM
@@ -18,6 +18,9 @@ from ...schemas import (
     TextContent,
 )
 from .transcript import TranscriptStore, TurnStatus
+
+if TYPE_CHECKING:
+    from .transcript_catalog import TranscriptCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +39,7 @@ class TranscriptRecorder:
     def __init__(
         self,
         *,
-        store: TranscriptStore | None,
+        store: TranscriptStore | TranscriptCatalog | None,
         request: Any,
         source: str,
     ) -> None:
@@ -149,7 +152,10 @@ class TranscriptRecorder:
             finished_at=finished_at,
         )
         if not self._degraded:
-            await self._write(self._store.purge_if_due)
+            await self._write(
+                self._store.purge_if_due,
+                session_id=self._session_id,
+            )
         if not self._degraded:
             self._finished = True
 
