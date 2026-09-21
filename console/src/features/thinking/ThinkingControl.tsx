@@ -66,7 +66,7 @@ export function ThinkingControl({
       ? "deep"
       : "intensive";
   const label = unresolved
-    ? null
+    ? t("thinkingControl.default")
     : isBudget && adjusting && budget < low
     ? t("thinkingControl.off")
     : displayed.level === "budget" || (isBudget && adjusting)
@@ -205,9 +205,7 @@ export function ThinkingControl({
               className={styles.modelChoice}
               onClick={onChooseModel}
               aria-label={
-                unsupported || unresolved
-                  ? t("modelSelector.selectModel")
-                  : undefined
+                unsupported ? t("modelSelector.selectModel") : undefined
               }
             >
               <strong>
@@ -270,7 +268,7 @@ export function ThinkingControl({
             disabled={disabled || (!isBudget && efforts.length < 2)}
             ariaValueTextFormatterForHandle={(next) =>
               unresolved
-                ? t("thinkingControl.inherit")
+                ? t("thinkingControl.default")
                 : isBudget
                 ? next < low
                   ? t("thinkingControl.off")

@@ -5252,6 +5252,7 @@
     }
   },
   "thinkingControl": {
+    "default": "默认",
     "resetModel": "恢复默认模型",
     "title": "思考强度",
     "reset": "恢复默认设置",

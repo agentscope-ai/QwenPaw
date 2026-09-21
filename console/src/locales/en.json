@@ -5234,6 +5234,7 @@
     }
   },
   "thinkingControl": {
+    "default": "Default",
     "resetModel": "Restore default model",
     "title": "Thinking intensity",
     "reset": "Restore defaults",
