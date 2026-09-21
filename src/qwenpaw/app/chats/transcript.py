@@ -14,6 +14,7 @@ from typing import Any, Iterator, Literal
 
 from ...runtime.console_turn_state import TURN_STATE
 from ...schemas import Message, RunStatus
+from ...token_usage.turn_usage import TURN_USAGE_META_KEY
 
 _SCHEMA_VERSION = 2
 _BUSY_TIMEOUT_MS = 5000
@@ -516,6 +517,53 @@ class TranscriptStore:
                     "AND replaces_message_id IS NOT NULL)",
                     (timestamp, session_id, session_id, turn_id),
                 )
+            return self._bump_revision(session_id, timestamp)
+
+    def attach_turn_usage(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        usage: dict[str, Any] | None,
+        context_usage: dict[str, Any] | None,
+    ) -> int | None:
+        """Attach one usage snapshot to the turn's closing assistant."""
+        snapshot = {
+            "usage": usage,
+            "context_usage": context_usage,
+        }
+        with self._transaction():
+            row = self._conn.execute(
+                "SELECT message_id, payload_json "
+                "FROM transcript_messages "
+                "WHERE session_id = ? AND turn_id = ? "
+                "AND role = 'assistant' "
+                "ORDER BY ordinal DESC LIMIT 1",
+                (session_id, turn_id),
+            ).fetchone()
+            if row is None:
+                return None
+
+            message = Message.model_validate_json(row["payload_json"])
+            metadata = dict(message.metadata or {})
+            if metadata.get(TURN_USAGE_META_KEY) == snapshot:
+                return self._revision(session_id)
+
+            metadata[TURN_USAGE_META_KEY] = snapshot
+            updated = message.model_copy(
+                update={"metadata": metadata},
+                deep=True,
+            )
+            timestamp = _utc_now()
+            self._conn.execute(
+                "UPDATE transcript_messages SET payload_json = ? "
+                "WHERE session_id = ? AND message_id = ?",
+                (
+                    updated.model_dump_json(),
+                    session_id,
+                    row["message_id"],
+                ),
+            )
             return self._bump_revision(session_id, timestamp)
 
     def get_page(

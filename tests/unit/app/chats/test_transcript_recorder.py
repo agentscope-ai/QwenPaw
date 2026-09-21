@@ -11,7 +11,10 @@ from unittest.mock import Mock
 import pytest
 
 from qwenpaw.app.chats.transcript import TranscriptStore
-from qwenpaw.app.chats.transcript_recorder import TranscriptRecorder
+from qwenpaw.app.chats.transcript_recorder import (
+    TRANSCRIPT_TURN_ID_CONTEXT_KEY,
+    TranscriptRecorder,
+)
 from qwenpaw.constant import QWENPAW_CLIENT_MESSAGE_ID_KEY
 from qwenpaw.runtime.console_turn_state import REGENERATE_FROM
 from qwenpaw.schemas import (
@@ -45,9 +48,10 @@ def _request() -> AgentRequest:
 @pytest.mark.asyncio
 async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
     store = TranscriptStore(tmp_path / "transcript.db")
+    request = _request()
     recorder = TranscriptRecorder(
         store=store,
-        request=_request(),
+        request=request,
         source="qwenpaw",
     )
     assistant = Message(
@@ -89,6 +93,11 @@ async def test_records_request_and_terminal_response(tmp_path: Path) -> None:
     ).fetchone()
     assert row["finished_at"] == "2026-09-20T12:00:00+00:00"
     assert recorder.turn_id == "client:client-1"
+    assert request.request_context is not None
+    assert (
+        request.request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY]
+        == recorder.turn_id
+    )
 
 
 @pytest.mark.asyncio

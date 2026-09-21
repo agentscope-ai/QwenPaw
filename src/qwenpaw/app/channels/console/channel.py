@@ -58,6 +58,7 @@ _YELLOW = "\033[33m" if _USE_COLOR else ""
 _RED = "\033[31m" if _USE_COLOR else ""
 _BOLD = "\033[1m" if _USE_COLOR else ""
 _RESET = "\033[0m" if _USE_COLOR else ""
+_TURN_USAGE_META_KEY = "qwenpaw_turn_usage"
 
 
 def _ts() -> str:
@@ -75,6 +76,42 @@ class ConsoleChannel(BaseChannel):
     """
 
     channel = "console"
+
+    @staticmethod
+    def _attach_turn_usage_to_response(
+        response: Any,
+        usage_sse: List[str],
+    ) -> None:
+        """Embed usage in the terminal response and last assistant."""
+        if not usage_sse:
+            return
+        try:
+            raw = usage_sse[-1].removeprefix("data: ").strip()
+            payload = _json.loads(raw)
+        except (TypeError, ValueError):
+            return
+        if payload.get("type") != "turn_usage":
+            return
+        snapshot = {
+            "usage": payload.get("usage"),
+            "context_usage": payload.get("context_usage"),
+        }
+        metadata = dict(getattr(response, "metadata", None) or {})
+        metadata[_TURN_USAGE_META_KEY] = snapshot
+        response.metadata = metadata
+
+        output = list(getattr(response, "output", None) or [])
+        for message in reversed(output):
+            role = getattr(message, "role", None)
+            role_value = getattr(role, "value", role)
+            if role_value != "assistant":
+                continue
+            message_metadata = dict(
+                getattr(message, "metadata", None) or {},
+            )
+            message_metadata[_TURN_USAGE_META_KEY] = snapshot
+            message.metadata = message_metadata
+            break
 
     def __init__(
         self,
@@ -428,6 +465,7 @@ class ConsoleChannel(BaseChannel):
             last_response = None
             event_count = 0
             headline_stream_states: dict[str, Any] = {}
+            completed_responses: list[Any] = []
 
             async for event in self._process(request):
                 event_count += 1
@@ -470,11 +508,14 @@ class ConsoleChannel(BaseChannel):
                     ):
                         yield f"data: {pending_data}\n\n"
 
-                data = self._serialize_event_for_sse(
-                    event,
-                    headline_stream_states,
-                )
-                yield f"data: {data}\n\n"
+                if obj == "response" and status == RunStatus.Completed:
+                    completed_responses.append(event)
+                else:
+                    data = self._serialize_event_for_sse(
+                        event,
+                        headline_stream_states,
+                    )
+                    yield f"data: {data}\n\n"
 
                 if obj == "message" and status == RunStatus.Completed:
                     parts = self._message_to_content_parts(event)
@@ -489,16 +530,28 @@ class ConsoleChannel(BaseChannel):
                 yield f"data: {pending_data}\n\n"
 
             err_msg = self._get_response_error_message(last_response)
+            usage_sse: list[str] = []
             if err_msg:
                 self._clear_session_turn_usage(session_id)
                 self._print_error(err_msg)
             else:
-                for sse in await self._commit_turn_usage(
+                usage_sse = await self._commit_turn_usage(
                     request,
                     session_id,
                     emit_sse=True,
-                ):
-                    yield sse
+                )
+
+            for response in completed_responses:
+                self._attach_turn_usage_to_response(response, usage_sse)
+                data = self._serialize_event_for_sse(
+                    response,
+                    headline_stream_states,
+                )
+                yield f"data: {data}\n\n"
+
+            # Preserve the standalone event for existing stream observers.
+            for sse in usage_sse:
+                yield sse
 
             logger.info(
                 "console stream done: event_count=%s has_response=%s",

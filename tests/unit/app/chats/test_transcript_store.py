@@ -14,6 +14,7 @@ from qwenpaw.schemas import (
     RunStatus,
     TextContent,
 )
+from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
 
 def _message(message_id: str, text: str, *, role: str = "user") -> Message:
@@ -265,6 +266,70 @@ def test_turn_and_message_writes_are_idempotent(tmp_path):
         )
         == terminal_revision
     )
+    store.close()
+
+
+def test_attach_turn_usage_updates_only_closing_assistant(tmp_path):
+    store = TranscriptStore(tmp_path / "transcript.db")
+    _start(store, "turn-1")
+    messages = [
+        _message("user-1", "question"),
+        _message("reasoning-1", "thinking", role="assistant"),
+        Message(
+            id="assistant-1",
+            role="assistant",
+            content=[TextContent(text="answer")],
+            metadata={"custom": {"preserved": True}},
+        ).completed(),
+    ]
+    for ordinal, message in enumerate(messages):
+        store.upsert_message(
+            session_id="session-1",
+            turn_id="turn-1",
+            message=message,
+            ordinal=ordinal,
+        )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        status="completed",
+    )
+    usage = {"total_tokens": 461440, "cache_hit_rate": 87.28}
+    context_usage = {
+        "estimated_tokens": 14467,
+        "max_input_length": 1000000,
+        "context_usage_ratio": 1.4467,
+    }
+
+    first_revision = store.attach_turn_usage(
+        session_id="session-1",
+        turn_id="turn-1",
+        usage=usage,
+        context_usage=context_usage,
+    )
+    second_revision = store.attach_turn_usage(
+        session_id="session-1",
+        turn_id="turn-1",
+        usage=usage,
+        context_usage=context_usage,
+    )
+    page = store.get_page(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+    )
+
+    assert first_revision == second_revision
+    assert page is not None
+    assert TURN_USAGE_META_KEY not in (page.messages[1].metadata or {})
+    metadata = page.messages[2].metadata
+    assert metadata is not None
+    assert metadata["custom"] == {"preserved": True}
+    assert metadata[TURN_USAGE_META_KEY] == {
+        "usage": usage,
+        "context_usage": context_usage,
+    }
+    assert page.revision == first_revision
     store.close()
 
 
@@ -754,6 +819,18 @@ def test_delete_session_cascades_and_import_marker_is_idempotent(tmp_path):
         message=_message("message-1", "text"),
         ordinal=0,
     )
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=_message("assistant-1", "answer", role="assistant"),
+        ordinal=1,
+    )
+    store.attach_turn_usage(
+        session_id="session-1",
+        turn_id="turn-1",
+        usage={"total_tokens": 10},
+        context_usage={"estimated_tokens": 5},
+    )
 
     marker = {
         "source_kind": "session",
@@ -776,6 +853,24 @@ def test_delete_session_cascades_and_import_marker_is_idempotent(tmp_path):
     assert store.record_import(**marker) is False
     assert store.delete_session("session-1") is True
     assert store.delete_session("session-1") is False
+    assert (
+        store._conn.execute(  # pylint: disable=protected-access
+            "SELECT COUNT(*) FROM transcript_sessions",
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        store._conn.execute(  # pylint: disable=protected-access
+            "SELECT COUNT(*) FROM transcript_turns",
+        ).fetchone()[0]
+        == 0
+    )
+    assert (
+        store._conn.execute(  # pylint: disable=protected-access
+            "SELECT COUNT(*) FROM transcript_messages",
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_retention_purges_terminal_turns_without_reenabling_fallback(

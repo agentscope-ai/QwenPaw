@@ -18,6 +18,7 @@ Key patterns demonstrated:
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -86,6 +87,40 @@ class TestConsoleChannelUnit:
 
         assert ch.enabled is False
         assert ch.bot_prefix == "[TEST] "
+
+    @pytest.mark.asyncio
+    async def test_turn_usage_delegates_to_workspace(self, channel):
+        usage = {"total_tokens": 42}
+        context_usage = {"estimated_tokens": 21}
+        finalize = AsyncMock(return_value=(usage, context_usage))
+        channel._workspace = SimpleNamespace(
+            finalize_turn_usage=finalize,
+        )
+        ready = MagicMock()
+        setattr(channel, "_on_turn_usage_ready", ready)
+        request = SimpleNamespace(
+            session_id="session-1",
+            user_id="user-1",
+            channel="console",
+        )
+
+        events = await channel._commit_turn_usage(
+            request,
+            "session-1",
+        )
+
+        finalize.assert_awaited_once_with(request)
+        ready.assert_called_once_with(
+            usage,
+            context_usage,
+        )
+        payload = json.loads(events[0].removeprefix("data: "))
+        assert payload == {
+            "type": "turn_usage",
+            "session_id": "session-1",
+            "usage": usage,
+            "context_usage": context_usage,
+        }
 
     def test_sse_headline_strip_covers_delta_fields(self):
         """Raw SSE payload cleanup must hide streamed headline deltas."""
@@ -712,6 +747,78 @@ class TestConsoleStreaming:
 
         assert len(events) == 1
         assert "data:" in events[0]
+
+    async def test_stream_one_embeds_usage_in_completed_response(
+        self,
+        stream_channel,
+    ):
+        """A consumer stopping at completion must receive usage metadata."""
+        from qwenpaw.schemas import (
+            AgentResponse,
+            ContentType,
+            Message,
+            Role,
+            RunStatus,
+            TextContent,
+        )
+
+        usage = {"total_tokens": 42}
+        context_usage = {"estimated_tokens": 21}
+
+        class Workspace:
+            chat_manager = None
+
+            async def finalize_turn_usage(self, request):
+                del request
+                return usage, context_usage
+
+        completed = AgentResponse(
+            object="response",
+            status=RunStatus.Completed,
+            type="response.completed",
+            output=[
+                Message(
+                    role=Role.ASSISTANT,
+                    status=RunStatus.Completed,
+                    content=[
+                        TextContent(type=ContentType.TEXT, text="Done"),
+                    ],
+                ),
+            ],
+        )
+
+        async def mock_process(request):
+            del request
+            yield completed
+
+        stream_channel._workspace = Workspace()
+        stream_channel._process = mock_process
+        payload = {
+            "sender_id": "user123",
+            "content_parts": [
+                TextContent(type=ContentType.TEXT, text="Hello"),
+            ],
+            "meta": {},
+        }
+
+        received = [
+            json.loads(event.removeprefix("data: ").strip())
+            async for event in stream_channel.stream_one(payload)
+        ]
+
+        assert [event.get("type") for event in received] == [
+            "response.completed",
+            "turn_usage",
+        ]
+        snapshot = received[0]["metadata"]["qwenpaw_turn_usage"]
+        assert snapshot == {
+            "usage": usage,
+            "context_usage": context_usage,
+        }
+        message_snapshot = received[0]["output"][-1]["metadata"][
+            "qwenpaw_turn_usage"
+        ]
+        assert message_snapshot == snapshot
 
     @pytest.mark.parametrize("suffix", ("<", "<!", "<!--"))
     async def test_stream_one_flushes_pending_prefix_before_completion(

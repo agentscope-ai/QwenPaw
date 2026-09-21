@@ -23,6 +23,7 @@ from qwenpaw.app.chats.models import ChatSpec
 from qwenpaw.app.chats.session import SafeJSONSession
 from qwenpaw.app.chats.transcript import TranscriptStore
 from qwenpaw.schemas import Message, MessageType, Role, RunStatus, TextContent
+from qwenpaw.token_usage.turn_usage import TURN_USAGE_META_KEY
 
 
 def _chat() -> ChatSpec:
@@ -99,6 +100,64 @@ async def test_get_chat_prefers_transcript_page(tmp_path: Path) -> None:
     assert history.history.completeness == "complete"
     assert history.history.has_more is False
     session.get_session_state_dict.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_chat_restores_durable_turn_usage(tmp_path: Path) -> None:
+    store = TranscriptStore(tmp_path / "transcript.db")
+    store.start_turn(
+        session_id="session-1",
+        user_id="user-1",
+        channel="console",
+        turn_id="turn-1",
+        source="qwenpaw",
+    )
+    store.upsert_message(
+        session_id="session-1",
+        turn_id="turn-1",
+        message=Message(
+            id="assistant-1",
+            role=Role.ASSISTANT,
+            content=[TextContent(text="answer")],
+        ).completed(),
+        ordinal=0,
+    )
+    store.finish_turn(
+        session_id="session-1",
+        turn_id="turn-1",
+        status="completed",
+    )
+    usage = {
+        "provider_id": "dashscope",
+        "model_name": "qwen3.8-max",
+        "total_tokens": 461440,
+        "cache_hit_rate": 87.2869,
+    }
+    context_usage = {
+        "estimated_tokens": 14467,
+        "max_input_length": 1000000,
+        "context_usage_ratio": 1.4467,
+    }
+    store.attach_turn_usage(
+        session_id="session-1",
+        turn_id="turn-1",
+        usage=usage,
+        context_usage=context_usage,
+    )
+
+    history = await get_chat(
+        chat_id="chat-1",
+        include_app_owned=True,
+        mgr=SimpleNamespace(get_chat=AsyncMock(return_value=_chat())),
+        session=SimpleNamespace(get_session_state_dict=AsyncMock()),
+        workspace=_workspace(store),
+    )
+
+    assert history.messages[0].metadata[TURN_USAGE_META_KEY] == {
+        "usage": usage,
+        "context_usage": context_usage,
+    }
+    store.close()
 
 
 @pytest.mark.asyncio

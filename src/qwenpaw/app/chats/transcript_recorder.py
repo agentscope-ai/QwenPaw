@@ -21,6 +21,8 @@ from .transcript import TranscriptStore, TurnStatus
 
 logger = logging.getLogger(__name__)
 
+TRANSCRIPT_TURN_ID_CONTEXT_KEY = "_qwenpaw_transcript_turn_id"
+
 _TERMINAL_STATUS: dict[RunStatus, TurnStatus] = {
     RunStatus.Completed: "completed",
     RunStatus.Failed: "failed",
@@ -51,6 +53,11 @@ class TranscriptRecorder:
             getattr(request, "channel", "") or "console",
         )
         self._turn_id = self._resolve_turn_id(request)
+        request_context = getattr(request, "request_context", None)
+        if not isinstance(request_context, dict):
+            request_context = {}
+            request.request_context = request_context
+        request_context[TRANSCRIPT_TURN_ID_CONTEXT_KEY] = self._turn_id
         self._ordinals: dict[str, int] = {}
         self._snapshots: dict[str, Message] = {}
         self._next_ordinal = 0
@@ -312,4 +319,7 @@ class TranscriptRecorder:
         return {"code": type(value).__name__, "message": ""}
 
 
-__all__ = ["TranscriptRecorder"]
+__all__ = [
+    "TRANSCRIPT_TURN_ID_CONTEXT_KEY",
+    "TranscriptRecorder",
+]
